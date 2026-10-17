@@ -1,0 +1,38 @@
+name: C++20 kernel checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Linux C++20 (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: strict
+            build_type: Release
+            ubsan: "OFF"
+          - name: UBSan
+            build_type: Debug
+            ubsan: "ON"
+    env:
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - name: Check out the requested revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }}
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Run CTest
+        run: ctest --test-dir build --output-on-failure

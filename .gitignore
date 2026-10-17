@@ -1,0 +1,15 @@
+/build*/
+/.local/
+*.journal
+*.journal.*
+*.db
+*.db-*
+*.log
+*.core
+core
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.DS_Store

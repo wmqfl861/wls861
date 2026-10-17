@@ -1,0 +1,33 @@
+{
+  "scope": "当前已挂载的四个历史原件",
+  "files": [
+    {
+      "file": "04_历史原件/无量山_多Agent系统_v0.2_请求级并行调度与工作流增补.docx",
+      "source_basename": "无量山_多Agent系统_v0.2_请求级并行调度与工作流增补.docx",
+      "size_bytes": 61859,
+      "sha256": "b2bcbc2b18242cf101513d479f2458bba4541489bf4c31a7e493cfad68e276de",
+      "byte_identical": true
+    },
+    {
+      "file": "04_历史原件/无量山_多Agent系统_v0.2_请求级并行调度与工作流增补.md",
+      "source_basename": "无量山_多Agent系统_v0.2_请求级并行调度与工作流增补.md",
+      "size_bytes": 39802,
+      "sha256": "40abc2012a7f156528113bffbc70488563040ae14b8d1489acf6b0add7a84a62",
+      "byte_identical": true
+    },
+    {
+      "file": "04_历史原件/无量山_多Agent系统_需求与架构设计_v0.1.docx",
+      "source_basename": "无量山_多Agent系统_需求与架构设计_v0.1.docx",
+      "size_bytes": 80415,
+      "sha256": "d7aeb8a74d2ba5fe3e25a91c8dce3f4930148c99f62f1a850b5ad931d05e6775",
+      "byte_identical": true
+    },
+    {
+      "file": "04_历史原件/无量山_多Agent系统_需求与架构设计_v0.1.md",
+      "source_basename": "无量山_多Agent系统_需求与架构设计_v0.1.md",
+      "size_bytes": 64105,
+      "sha256": "b7d6a2b3345c6f92228dd206a2aaf148350b1c4f3d6b7b9a98ca29890233f747",
+      "byte_identical": true
+    }
+  ]
+}

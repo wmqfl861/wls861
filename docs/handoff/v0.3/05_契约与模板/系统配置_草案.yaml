@@ -1,0 +1,51 @@
+document_type: design_example_not_runtime_config
+spec_version: 0.3-draft
+execution_enabled: false
+platform:
+  first_target: linux
+  distribution: null
+  architecture: null
+agent_template:
+  id: example_function
+  ingress:
+    model_planning: false
+    dispatcher_scope: independent_request
+    followup_route: existing_request
+    technical_admission_policy_ref: null
+  root_defaults:
+    model_ref: null
+    reasoning: null
+  roles:
+    dispatcher:
+      model_ref: null
+      reasoning: null
+      tool_profile: core.orchestration
+    team_lead:
+      model_ref: null
+      reasoning: null
+      tool_profile: core.team_coordination
+    worker:
+      model_ref: null
+      reasoning: null
+      tool_profile: core.worker
+  inheritance:
+    resolve_each_field: true
+    source: root_snapshot
+    tool_permissions_inherit_models: false
+memory:
+  architecture_status: proposed_not_approved
+  deployment: null
+  default_publish_state: CANDIDATE
+  retention_policy_ref: null
+  validation_policy_ref: null
+  strong_rules_source: runtime_policy
+  retrieval:
+    strategy: hybrid_candidate
+    embedding_model_ref: null
+    max_candidates: null
+delivery:
+  receipt_policy_ref: null
+cleanup:
+  policy_ref: null
+  automatic_action_enabled: false
+limits_ref: null

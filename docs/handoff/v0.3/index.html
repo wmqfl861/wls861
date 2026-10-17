@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>无量山｜项目交接包 v0.3</title><style>body{margin:0;background:#f4f7f8;color:#213541;font:16px/1.8 system-ui,"Microsoft YaHei","Noto Sans CJK SC",sans-serif}main{max-width:1080px;margin:40px auto;padding:38px 48px;background:white;border:1px solid #d8e2e5;border-radius:10px}h1{font-size:30px;color:#153e4d;margin:0 0 12px}h2{color:#12616b;font-size:23px;margin-top:38px;border-bottom:1px solid #d9e5e7;padding-bottom:10px}h3{color:#365b65;font-size:18px}a{color:#126d86;text-decoration:none}a:hover{text-decoration:underline}table{width:100%;border-collapse:collapse;margin:20px 0;font-size:14px}th,td{border:1px solid #d6e1e4;padding:10px 13px;text-align:left;vertical-align:top}th{background:#18515b;color:white}tr:nth-child(even){background:#f0f6f6}code{background:#edf2f4;padding:1px 5px;overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#f0f3f5;padding:16px;border-radius:6px}.notice{padding:16px 20px;background:#fff5db;border-left:4px solid #c19a36;margin:22px 0}.meta{color:#627982;font-size:14px}.user{border-left:4px solid #14727a;padding:10px 20px;background:#f1f7f7;white-space:pre-wrap}.summary{padding:10px 20px;background:#fafbfc}nav{display:flex;flex-wrap:wrap;gap:10px;margin:24px 0}nav a{background:#edf4f4;padding:5px 10px;border-radius:4px}.turn{margin-top:34px;padding-bottom:18px;border-bottom:1px solid #dae4e7}@media(max-width:700px){main{margin:0;padding:24px 18px;border:none}table{display:block;overflow:auto}h1{font-size:24px}}@media print{body{background:white}main{border:0;margin:0;padding:0}nav{display:none}.turn{break-inside:avoid}}</style></head><body><main><h1>无量山 · 多 Agent 系统交接包</h1><p class="meta">v0.3 · 2026-10-17 · C++ / Linux 优先</p><div class="notice"><strong>设计交接，不是已运行的软件。</strong>包含最新方案、历史原件、交接与聊天整理记录；待定政策及未执行测试已明确标记。</div><h2>快速入口</h2><nav><a href="02_%E4%BA%A4%E6%8E%A5%E4%B8%8E%E6%89%A7%E8%A1%8C%E8%AE%A1%E5%88%92/%E9%A1%B9%E7%9B%AE%E4%BA%A4%E6%8E%A5%E6%96%87%E6%A1%A3_v0.3.docx">项目交接文档 · Word</a><a href="01_%E6%9C%80%E6%96%B0%E8%AE%BE%E8%AE%A1/%E6%97%A0%E9%87%8F%E5%B1%B1_%E9%A1%B9%E7%9B%AE%E7%8E%B0%E7%8A%B6%E4%B8%8E%E7%BB%BC%E5%90%88%E8%AE%BE%E8%AE%A1_v0.3.docx">综合设计 v0.3 · Word</a><a href="03_%E8%81%8A%E5%A4%A9%E6%A1%A3%E6%A1%88/%E8%81%8A%E5%A4%A9%E8%AE%B0%E5%BD%95_%E6%B5%8F%E8%A7%88%E7%89%88.html">聊天档案 · 离线浏览</a><a href="01_%E6%9C%80%E6%96%B0%E8%AE%BE%E8%AE%A1/%E7%BB%9F%E4%B8%80%E8%AE%B0%E5%BF%86%E5%BC%95%E6%93%8E%E8%A7%84%E6%A0%BC_%E8%8D%89%E6%A1%88.md">统一记忆引擎规格 · Markdown</a><a href="01_%E6%9C%80%E6%96%B0%E8%AE%BE%E8%AE%A1/%E9%80%9A%E7%94%A8%E5%9F%BA%E7%A1%80%E5%8C%85%E8%A7%84%E6%A0%BC_%E8%8D%89%E6%A1%88.md">通用基础包规格 · Markdown</a><a href="02_%E4%BA%A4%E6%8E%A5%E4%B8%8E%E6%89%A7%E8%A1%8C%E8%AE%A1%E5%88%92/%E5%86%B3%E7%AD%96%E4%B8%8E%E5%BE%85%E5%AE%9A%E6%B8%85%E5%8D%95.md">决策与待定清单</a><a href="02_%E4%BA%A4%E6%8E%A5%E4%B8%8E%E6%89%A7%E8%A1%8C%E8%AE%A1%E5%88%92/%E6%96%B0%E4%BC%9A%E8%AF%9D%E6%8E%A5%E7%BB%AD%E6%8F%90%E7%A4%BA.md">接续提示</a><a href="02_%E4%BA%A4%E6%8E%A5%E4%B8%8E%E6%89%A7%E8%A1%8C%E8%AE%A1%E5%88%92/%E6%8B%9F%E5%AE%9A%E9%AA%8C%E6%94%B6%E7%9F%A9%E9%98%B5_%E6%9C%AA%E6%89%A7%E8%A1%8C.csv">51项拟定验收 · CSV</a></nav><h1>无量山｜多 Agent 系统项目交接包 v0.3</h1>
+<p><strong>整理日期：2026-10-17（Asia/Taipei）。这是设计阶段成果包，不是已经开发完成的软件。</strong></p>
+<p>解压后可以直接打开 <code>index.html</code> 浏览，也可以先读 <a href="02_%E4%BA%A4%E6%8E%A5%E4%B8%8E%E6%89%A7%E8%A1%8C%E8%AE%A1%E5%88%92/%E9%A1%B9%E7%9B%AE%E4%BA%A4%E6%8E%A5%E6%96%87%E6%A1%A3_v0.3.docx">项目交接文档</a>。Word 用于阅读/修改，Markdown 用于版本管理，JSON/YAML 仅为契约样例。</p>
+<h2>交付内容</h2>
+<table>
+<thead>
+<tr>
+<th>目录</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>01_最新设计</td>
+<td>综合设计 v0.3（Word/Markdown）、统一记忆引擎规格、通用基础包规格</td>
+</tr>
+<tr>
+<td>02_交接与执行计划</td>
+<td>交接文档（Word/Markdown）、接续提示、决策/待定项、20条需求追踪、51项拟定验收</td>
+</tr>
+<tr>
+<td>03_聊天档案</td>
+<td>21条当前可见用户原文＋前20轮助手要点，Markdown/JSON/离线HTML；附真实性范围说明</td>
+</tr>
+<tr>
+<td>04_历史原件</td>
+<td>v0.1/v0.2 的 Word 和 Markdown 原件，共4件，逐字节不改</td>
+</tr>
+<tr>
+<td>05_契约与模板</td>
+<td>禁止实际执行的配置草案、记忆与证据数据示例、经验报告、验证发布及最终交付模板</td>
+</tr>
+<tr>
+<td>06_清单与校验</td>
+<td>实际文件清单、SHA-256、原件对应关系、参考来源和包检查报告</td>
+</tr>
+</tbody>
+</table>
+<h2>这次补齐了什么</h2>
+<p>四角色架构、请求级并行、工作流、模型继承和缓存作为总框架；后续通用工具、经验生成、Skill/RAG、类型化记忆、标签/验证/权重、冲突合并、撤销归档、引擎边界和清理要求已整理入最新文档。已确认与待定分开，MemoryEngine首版内置/后服务化仍为待确认建议。</p>
+<h2>三个重要边界</h2>
+<p><strong>没有可运行产品源码、二进制、实际安装或业务测试成绩。</strong> 本包的51项验收用例全部为未执行，不借用其他项目的代码和测试结果。</p>
+<p><strong>聊天是整理档案，不是平台全量逐字导出。</strong> 用户消息来自当前可见原文，助手部分为逐轮摘要；没有精确消息时间和不可见会话。不能把摘要作为逐字引用。</p>
+<p><strong>打包不执行清理或发布。</strong> 原件没有删除，没有安装程序、调用生产模型或变更外部账号。知识长期保留和严格清除的生产政策尚待明确。</p>
+<h2>建议接手续作</h2>
+<p>先读交接文档与待决策项，再评审核心契约；第一批实现无模型状态/事件/版本/资源闭环。随后接工具、一个端点、工作流和记忆闭环。部署前核验当前API与依赖版本，不把历史参考当最新能力保证。</p>
+<h2>校验方式</h2>
+<p>解压到同一目录后，在包根目录运行：</p>
+<pre><code class="language-sh">sha256sum -c 06_清单与校验/SHA256SUMS.txt
+</code></pre>
+<p>该清单覆盖除自身外的包内文件。<code>文件清单.json</code>记录数据文件（不含清单自身和SHA文件）；清单本身由SHA文件覆盖，避免自引用。外部ZIP校验文件用于检查下载后的压缩包。</p>
+<p>CSV 使用 UTF-8 BOM 方便常见表格软件打开；JSON、YAML、Markdown、HTML 使用 UTF-8。HTML无外部脚本、字体或网络依赖。包内未包含渲染中间图、字体文件或打包辅助脚本。</p>
+</main></body></html>

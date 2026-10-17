@@ -1,0 +1,24 @@
+{
+  "record_kind": "illustrative_evidence_record",
+  "schema_version": "0.3-draft",
+  "evidence_id": "example-evidence-001",
+  "memory_ref": {
+    "id": "example-memory-001",
+    "revision": 1
+  },
+  "request_id": "example-request",
+  "task_id": "example-task",
+  "operation_id": null,
+  "source_group_id": null,
+  "event_type": "PLANNED_VALIDATION",
+  "outcome": "UNKNOWN",
+  "observations": [],
+  "inferences": [],
+  "environment_snapshot_ref": null,
+  "model_config_ref": null,
+  "artifact_refs": [],
+  "acceptance_ref": null,
+  "executed_at": null,
+  "execution_status": "NOT_RUN",
+  "note": "字段样例；不是实际验证证据，不计入任何权重。"
+}

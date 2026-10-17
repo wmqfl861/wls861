@@ -1,0 +1,50 @@
+{
+  "record_kind": "illustrative_memory_record",
+  "schema_version": "0.3-draft",
+  "memory_id": "example-memory-001",
+  "revision": 1,
+  "type": "procedural",
+  "state": "CANDIDATE",
+  "title": "示例：受控环境中的构建验证方法",
+  "content_ref": "example-only/not-a-real-skill",
+  "content_hash": null,
+  "tags": [
+    "开发",
+    "构建",
+    "验证"
+  ],
+  "scope": {
+    "tenant_id": "example-tenant",
+    "project_id": "example-project",
+    "visibility": "project_private"
+  },
+  "provenance": {
+    "kind": "team_handoff",
+    "source_task_id": "example-task",
+    "source_evidence_ids": []
+  },
+  "applicability": {
+    "operating_systems": [
+      "linux"
+    ],
+    "tool_requirements": [],
+    "preconditions": [],
+    "exclusions": [],
+    "unknown_conditions": [
+      "工具和环境版本尚待补充"
+    ]
+  },
+  "relations": [],
+  "validation": {
+    "status": "NOT_RUN",
+    "independent_evidence_count": 0
+  },
+  "approval_ref": null,
+  "usage_counters": {
+    "retrieved": 0,
+    "loaded": 0,
+    "linked_to_operation": 0,
+    "verified": 0
+  },
+  "retention_policy_ref": null
+}

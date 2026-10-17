@@ -1,0 +1,201 @@
+{
+  "package": "无量山_多Agent系统_项目交接包_v0.3_20261017",
+  "prepared_date": "2026-10-17",
+  "stage": "design_only",
+  "scope": "本会话 C++ 多Agent系统设计",
+  "chat_scope": "21条可见用户原文+20轮助手要点，非原生全量导出",
+  "source_code_included": false,
+  "payload_file_count": 31,
+  "manifest_excludes": [
+    "06_清单与校验/文件清单.json",
+    "06_清单与校验/SHA256SUMS.txt"
+  ],
+  "files": [
+    {
+      "path": "01_最新设计/无量山_项目现状与综合设计_v0.3.docx",
+      "size_bytes": 51602,
+      "sha256": "cfd689237ab0365636114da5b498295313032bae013e41d7416c069174098f28",
+      "category": "01_最新设计"
+    },
+    {
+      "path": "01_最新设计/无量山_项目现状与综合设计_v0.3.md",
+      "size_bytes": 21226,
+      "sha256": "327a31dfc83db65f99c9d737d80c6275e34e8ff221c72f0e1ead2f4fc14a92d0",
+      "category": "01_最新设计"
+    },
+    {
+      "path": "01_最新设计/统一记忆引擎规格_草案.md",
+      "size_bytes": 11628,
+      "sha256": "d57ad6362afdda4dbae7318454fac98ee735bb717a4910863eb742db940f3480",
+      "category": "01_最新设计"
+    },
+    {
+      "path": "01_最新设计/通用基础包规格_草案.md",
+      "size_bytes": 4759,
+      "sha256": "6273fdf643eb6a3bef6185a447b23809f13c337c0d890de161a72b1e99cecd95",
+      "category": "01_最新设计"
+    },
+    {
+      "path": "02_交接与执行计划/决策与待定清单.md",
+      "size_bytes": 2457,
+      "sha256": "6f219f6eccc23c3aa24148079d1c6a813a5c76a077ae7c7278631b032b0a930c",
+      "category": "02_交接与执行计划"
+    },
+    {
+      "path": "02_交接与执行计划/拟定验收矩阵_未执行.csv",
+      "size_bytes": 6377,
+      "sha256": "f5000996a121e421c0f9fbc160ff9e51597d6d62d206719bc201ca9304f72643",
+      "category": "02_交接与执行计划"
+    },
+    {
+      "path": "02_交接与执行计划/新会话接续提示.md",
+      "size_bytes": 2264,
+      "sha256": "36ded6f6ca71bca30ae98591040938318580e2225b1adec63c3bbbeda39de357",
+      "category": "02_交接与执行计划"
+    },
+    {
+      "path": "02_交接与执行计划/需求追踪.csv",
+      "size_bytes": 2730,
+      "sha256": "fe63bb9fcabd1f3747836875a6d26fca183739d714d7b83f56fcc1451038a288",
+      "category": "02_交接与执行计划"
+    },
+    {
+      "path": "02_交接与执行计划/项目交接文档_v0.3.docx",
+      "size_bytes": 45566,
+      "sha256": "073e765385b0d9b756dfe6b084bceb8748a5aa56f629cc54237a71e2ad39eea8",
+      "category": "02_交接与执行计划"
+    },
+    {
+      "path": "02_交接与执行计划/项目交接文档_v0.3.md",
+      "size_bytes": 10340,
+      "sha256": "850cfea2c2c1d31a4ed6a54dfb9cf2395a44d70e4cf928f9cc763af05f401608",
+      "category": "02_交接与执行计划"
+    },
+    {
+      "path": "02_交接与执行计划/验收说明.md",
+      "size_bytes": 665,
+      "sha256": "ff16911453c07440e5793dd6c531d9ed60e69eea90ac85f41997e7e2e8307a5e",
+      "category": "02_交接与执行计划"
+    },
+    {
+      "path": "03_聊天档案/聊天记录_浏览版.html",
+      "size_bytes": 23450,
+      "sha256": "5d3596694db1549e649fbf4b3b85b99d2e6921ef038cba6a06ad08d492ebed05",
+      "category": "03_聊天档案"
+    },
+    {
+      "path": "03_聊天档案/聊天记录_用户原文与助手要点.json",
+      "size_bytes": 22750,
+      "sha256": "efe8c146d1ce1697a60f68fe4f15ddc710a404a6fd8384caf19e23c21b6b5aad",
+      "category": "03_聊天档案"
+    },
+    {
+      "path": "03_聊天档案/聊天记录_用户原文与助手要点.md",
+      "size_bytes": 19510,
+      "sha256": "baceabedecf237be972524ad913bbddd304a4a36dc57b575752e62c7e0fcbd68",
+      "category": "03_聊天档案"
+    },
+    {
+      "path": "03_聊天档案/记录范围说明.md",
+      "size_bytes": 1233,
+      "sha256": "657c19a9f01b7f3f5511c42ae26ae6dd791b8daea5a4665653d0a00ab323835a",
+      "category": "03_聊天档案"
+    },
+    {
+      "path": "04_历史原件/无量山_多Agent系统_v0.2_请求级并行调度与工作流增补.docx",
+      "size_bytes": 61859,
+      "sha256": "b2bcbc2b18242cf101513d479f2458bba4541489bf4c31a7e493cfad68e276de",
+      "category": "04_历史原件"
+    },
+    {
+      "path": "04_历史原件/无量山_多Agent系统_v0.2_请求级并行调度与工作流增补.md",
+      "size_bytes": 39802,
+      "sha256": "40abc2012a7f156528113bffbc70488563040ae14b8d1489acf6b0add7a84a62",
+      "category": "04_历史原件"
+    },
+    {
+      "path": "04_历史原件/无量山_多Agent系统_需求与架构设计_v0.1.docx",
+      "size_bytes": 80415,
+      "sha256": "d7aeb8a74d2ba5fe3e25a91c8dce3f4930148c99f62f1a850b5ad931d05e6775",
+      "category": "04_历史原件"
+    },
+    {
+      "path": "04_历史原件/无量山_多Agent系统_需求与架构设计_v0.1.md",
+      "size_bytes": 64105,
+      "sha256": "b7d6a2b3345c6f92228dd206a2aaf148350b1c4f3d6b7b9a98ca29890233f747",
+      "category": "04_历史原件"
+    },
+    {
+      "path": "05_契约与模板/使用说明.md",
+      "size_bytes": 652,
+      "sha256": "5bb73daab8b2379665308030790e40f4c21445e2a3836e4251ed4f6dc35dcd9a",
+      "category": "05_契约与模板"
+    },
+    {
+      "path": "05_契约与模板/团队经验报告_模板.md",
+      "size_bytes": 1706,
+      "sha256": "96938ee4bbe361338bb7c446abf817a75770f4f03d6369afb65ac051e446c9f3",
+      "category": "05_契约与模板"
+    },
+    {
+      "path": "05_契约与模板/知识验证与发布_模板.md",
+      "size_bytes": 1181,
+      "sha256": "b7d1686d416ace727efae20f9b1443d49924948f7daaecb1432e9341405a3c4a",
+      "category": "05_契约与模板"
+    },
+    {
+      "path": "05_契约与模板/系统配置_草案.yaml",
+      "size_bytes": 1255,
+      "sha256": "4d60acebc09d483a7a6bb9298ab85f3b923ec31c9cd8f11d84d78d3723cd8a65",
+      "category": "05_契约与模板"
+    },
+    {
+      "path": "05_契约与模板/记忆记录_示例.json",
+      "size_bytes": 1119,
+      "sha256": "fe7871ad9d0fda457026eadb02c73727d3ccbc0a2b14775bbab7ff5d27e50bf0",
+      "category": "05_契约与模板"
+    },
+    {
+      "path": "05_契约与模板/证据记录_示例.json",
+      "size_bytes": 667,
+      "sha256": "eae1461056c54c257ce519db5a07e3201fd4ab467eeee88f78e7615a00536831",
+      "category": "05_契约与模板"
+    },
+    {
+      "path": "05_契约与模板/请求最终交付_模板.md",
+      "size_bytes": 1171,
+      "sha256": "31d09df0e53a864bcc2e1ca5f556a0f631af42ce8500901322fb3ab672ed1115",
+      "category": "05_契约与模板"
+    },
+    {
+      "path": "06_清单与校验/交付包检查报告.md",
+      "size_bytes": 1508,
+      "sha256": "b7ebdf222ae11d4e9007cf030ef60366217f3432d9a8e9e299d81f85f8f30d68",
+      "category": "06_清单与校验"
+    },
+    {
+      "path": "06_清单与校验/历史原件对应.json",
+      "size_bytes": 1447,
+      "sha256": "f49c55d411fdd6c1ac400d0c4f550202a7237891b0baca294db45ab77ccd7f66",
+      "category": "06_清单与校验"
+    },
+    {
+      "path": "06_清单与校验/来源与核验边界.md",
+      "size_bytes": 5640,
+      "sha256": "6c6c7c229a839cf16989cd0de10fdcad5629c0e2b8f681ce61ee5d881c97f272",
+      "category": "06_清单与校验"
+    },
+    {
+      "path": "README_先读.md",
+      "size_bytes": 3011,
+      "sha256": "aac022203d305e37a5346d2dea1adffbb9128d38cff84f028011b6b71b9f5125",
+      "category": "README_先读.md"
+    },
+    {
+      "path": "index.html",
+      "size_bytes": 7008,
+      "sha256": "0eaed8fa5f45dafdfd3cc86108745bb977bbd0c44bef6d042c9d3bc72e3b436d",
+      "category": "index.html"
+    }
+  ]
+}

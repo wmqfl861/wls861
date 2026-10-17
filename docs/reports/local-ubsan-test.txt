@@ -1,0 +1,72 @@
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 make BUILD_DIR="build-ubsan" CXXFLAGS="-O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer" LDFLAGS=" -fsanitize=undefined" test
+make[1]: Entering directory '<repo>'
+g++  -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/tests/task_engine_tests.d" -c "tests/task_engine_tests.cpp" -o "build-ubsan/tests/task_engine_tests.o"
+g++  -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/src/task_engine.d" -c "src/task_engine.cpp" -o "build-ubsan/src/task_engine.o"
+ar rcs "build-ubsan/libwls861.a" build-ubsan/src/task_engine.o build-ubsan/src/config.o build-ubsan/src/scheduler.o build-ubsan/src/journal_posix.o
+g++ -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -fsanitize=undefined "build-ubsan/src/main.o" "build-ubsan/libwls861.a"  -o "build-ubsan/wls861"
+g++ -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -fsanitize=undefined "build-ubsan/tests/journal_tests.o" "build-ubsan/libwls861.a"  -o "build-ubsan/journal_tests"
+g++ -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -fsanitize=undefined "build-ubsan/tests/config_tests.o" "build-ubsan/libwls861.a"  -o "build-ubsan/config_tests"
+g++ -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -fsanitize=undefined "build-ubsan/tests/scheduler_tests.o" "build-ubsan/libwls861.a"  -o "build-ubsan/scheduler_tests"
+g++ -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -fsanitize=undefined "build-ubsan/tests/task_engine_tests.o" "build-ubsan/libwls861.a"  -o "build-ubsan/task_engine_tests"
+python3 scripts/verify_handoff.py
+PASS handoff: 33 original files; 32 SHA-256 entries plus pinned manifest; 31 payload entries; 51 acceptance cases remain 未执行
+"build-ubsan/journal_tests"
+PASS version 1 format, empty and binary round trip
+PASS recovery at every incomplete tail byte
+PASS complete corruption fails without truncation
+PASS checksummed abnormal lengths fail closed
+PASS exclusive writer and inherited fork ownership
+PASS SIGKILL recovery preserves acknowledged append
+PASS real partial write poisons writer and recovers
+PASS maximum payload boundary and oversize poisoning
+PASS file mode, symlink, directory and FIFO guards
+PASS concurrent append and replay preserve order
+RESULT 10 passed, 0 failed
+"build-ubsan/config_tests"
+PASS model and reasoning resolve independently from frozen Root
+PASS inherit disabled provider-default and explicit remain distinct
+PASS unknown models and unsupported reasoning reject
+PASS invalid configurations report explicit errors
+PASS tool grants require Worker and all three allowlists
+RESULT 5 passed, 0 failed
+"build-ubsan/scheduler_tests"
+PASS same resource is FIFO serial while unrelated work progresses
+PASS independent keys execute concurrently
+PASS normal work preserves admission and execution reserve
+PASS runnable classes rotate without starvation
+PASS close cancels queued jobs and waits for running callbacks
+PASS drain completes accepted jobs and future preserves exceptions
+PASS callbacks run outside scheduler mutex
+PASS invalid configuration and duplicate jobs reject
+RESULT 8 passed, 0 failed
+"build-ubsan/task_engine_tests"
+PASS admission/durable-scoped-idempotency
+PASS commands/idempotency-CAS-atomic-events
+PASS roles/Worker-only-cross-team-grants
+PASS amend/requirements-plan-instructions-application
+PASS instructions/fence-prepared-and-running-operations
+PASS replace/distinct-from-independent-NEW
+PASS cancel/late-result-and-unknown-outcome
+PASS operations/idempotency-without-blind-retry
+PASS restart/automatic-fencing-and-reapplication
+PASS review/new-candidate-invalidates-approval
+PASS artifacts/immutable-version-history
+PASS review/all-assigned-reviewers-must-pass
+PASS review/adverse-evidence-revokes-even-at-quota
+PASS review/changed-instructions-require-fresh-evidence
+PASS delivery/receipt-and-cleanup-separation
+PASS quota/control-settlement-cancel-recovery
+PASS quota/new-work-is-bounded-and-atomic
+PASS concurrency/same-request-CAS
+PASS concurrency/independent-requests-progress
+PASS persistence/interrupted-REPLACE-is-atomic
+PASS persistence/unknown-schema-fails-closed
+PASS config/persisted-Root-snapshot-and-unicode
+PASS quota/oversized-frame-preserves-live-journal
+RESULT 23 passed, 0 failed
+python3 tests/demo_smoke.py "<repo>/build-ubsan/wls861"
+PASS compiled demo completes two parallel synthetic request lifecycles
+PASS CLI help and version
+PASS CLI invalid input and runtime setup failure return nonzero
+RESULT 3 passed, 0 failed
+make[1]: Leaving directory '<repo>'
