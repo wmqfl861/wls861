@@ -35,7 +35,9 @@ make -j2 ubsan
 
 完整输出保存在 [普通构建日志](local-make-test.txt) 与 [UBSan 日志](local-ubsan-test.txt)。其中工作区绝对路径归一化为 `<repo>`，其余构建命令和测试结果保留。测试对应的源码、构建和 CI 文件 SHA-256 见 [M1-source-SHA256SUMS.txt](M1-source-SHA256SUMS.txt)。
 
-GitHub Actions 已定义 Release 与 UBSan 两个 CMake/CTest 任务。本报告生成时尚未取得远端运行结果；最新结果应在 [仓库 Actions](https://github.com/wmqfl861/wls861/actions) 与具体提交对应，不能据本地通过推定远端已通过。
+GitHub Actions 已对实现提交 [`47e3059e641af0a560e553257ee5b75649938926`](https://github.com/wmqfl861/wls861/commit/47e3059e641af0a560e553257ee5b75649938926) 实际运行 Release（strict）与 UBSan 两个 CMake/CTest 任务；2026-10-17 03:14 UTC 核验两项均为 `success`，各自 Configure、Build、Run CTest 步骤全部成功。证据为 [Actions run 38998003052](https://github.com/wmqfl861/wls861/actions/runs/38998003052)。这补充了独立云端 CMake 验证，不改变上表中“本地未安装 CMake”的环境记录。
+
+该实现提交的 Git tree 为 `cab5da9b3c6cd5137cd20f9afdf6210b7d6a0c4d`；远端 67 个文件的路径、模式及 blob SHA 与本地已测试的暂存树逐项一致。随后仅补充本段远端证据，源码、构建与测试内容不变；未来提交的状态应按 [仓库 Actions](https://github.com/wmqfl861/wls861/actions) 中相应 SHA 另行核对。
 
 ## 3. 实际测试结果
 
