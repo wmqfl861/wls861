@@ -1,0 +1,55 @@
+{
+  "summary": "完成销售数据清洗与按月份 × 地区的汇总，并生成按地区的柱状图。",
+  "deliverables": [
+    {
+      "artifact_id": "art_01JBC7T1A2B3C4D5E6F7G8H9JK",
+      "name": "summary.csv",
+      "description": "按 month、region 汇总的销售额"
+    },
+    {
+      "artifact_id": "art_01JBC7T2A2B3C4D5E6F7G8H9JK",
+      "name": "sales_by_region.png",
+      "description": "按地区汇总的柱状图"
+    },
+    {
+      "artifact_id": "art_01JBC7T3A2B3C4D5E6F7G8H9JK",
+      "name": "README.md",
+      "description": "处理说明"
+    }
+  ],
+  "acceptance": {
+    "criteria_results": [
+      {
+        "node_id": "clean-and-summarize",
+        "criterion_id": "ac1",
+        "met": "yes",
+        "evidence": "表头 month,region,total_sales"
+      },
+      {
+        "node_id": "clean-and-summarize",
+        "criterion_id": "ac2",
+        "met": "yes"
+      },
+      {
+        "node_id": "clean-and-summarize",
+        "criterion_id": "ac3",
+        "met": "yes"
+      },
+      {
+        "node_id": "clean-and-summarize",
+        "criterion_id": "ac4",
+        "met": "yes"
+      },
+      {
+        "node_id": "clean-and-summarize",
+        "criterion_id": "ac5",
+        "met": "yes"
+      }
+    ]
+  },
+  "limitations": [
+    "退款（负数金额）按用户回答计入汇总"
+  ],
+  "open_issues": [],
+  "side_effects": []
+}

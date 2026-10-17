@@ -83,6 +83,66 @@ void amend_requires_new_plan_explanation_and_ack() {
     CHECK(q.teams.at("builder").applied_revision == 2); CHECK(f.operation(q, "new-op").operations.size() == 2);
 }
 
+void amend_does_not_resume_an_unhandled_second_team() {
+    Kernel f; auto q = f.prepare(f.submit());
+    q = f.engine.create_team(q.request_id, f.cmd(q, Role::Dispatcher), "builder-two"); q = f.apply(q, "builder-two");
+    q = f.operation(q);
+    q = f.engine.prepare_operation(q.request_id, f.cmd(q, Role::Worker, "builder-two"), "second-old", "test.echo", "old payload");
+    q = f.engine.amend(q.request_id, f.cmd(q, Role::Root), "change the scope of both teams");
+    for (const auto& [id, operation] : q.operations) { (void)id; CHECK(operation.state == OperationState::Cancelled); }
+    q = f.engine.plan(q.request_id, f.cmd(q, Role::Dispatcher), "new plan for both teams");
+    q = f.apply(q); q = f.operation(q, "first-new");
+    CHECK(q.state == RequestState::Running);
+    CHECK(q.teams.at("builder").applied_revision == q.requirements_revision);
+    CHECK(q.teams.at("builder-two").applied_revision < q.requirements_revision);
+    error(ErrorCode::StaleRequirements, [&] {
+        f.engine.prepare_operation(q.request_id, f.cmd(q, Role::Worker, "builder-two"), "second-new", "test.echo", "new payload");
+    });
+    error(ErrorCode::StaleRequirements, [&] {
+        f.engine.acknowledge_applied(q.request_id, f.cmd(q, Role::Worker, "builder-two"));
+    });
+    // An unchanged task still needs an explicit explanation bound to the new
+    // requirement/plan. Another team's ack never substitutes for this one.
+    q = f.engine.instruct_team(q.request_id, f.cmd(q, Role::TeamLead, "builder-two"), "keep this task under the revised request");
+    error(ErrorCode::StaleRequirements, [&] {
+        f.engine.prepare_operation(q.request_id, f.cmd(q, Role::Worker, "builder-two"), "second-new", "test.echo", "new payload");
+    });
+    q = f.engine.acknowledge_applied(q.request_id, f.cmd(q, Role::Worker, "builder-two"));
+    q = f.engine.prepare_operation(q.request_id, f.cmd(q, Role::Worker, "builder-two"), "second-new", "test.echo", "new payload");
+    CHECK(q.operations.size() == 4); CHECK(q.teams.at("builder-two").applied_plan_revision == q.plan_revision);
+}
+
+void new_plan_fences_results_from_both_teams() {
+    Kernel f; auto q = f.prepare(f.submit());
+    q = f.engine.create_team(q.request_id, f.cmd(q, Role::Dispatcher), "builder-two"); q = f.apply(q, "builder-two");
+    q = f.operation(q); const auto first_op = q.operations.begin()->first;
+    q = f.engine.start_operation(q.request_id, f.cmd(q, Role::Worker, "builder"), first_op);
+    q = f.engine.prepare_operation(q.request_id, f.cmd(q, Role::Worker, "builder-two"), "second", "test.echo", "payload");
+    const auto second_op = q.request_id + ":op:2";
+    q = f.engine.start_operation(q.request_id, f.cmd(q, Role::Worker, "builder-two"), second_op);
+    const auto old_first = f.cmd(q, Role::Worker, "builder");
+    const auto old_second = f.cmd(q, Role::Worker, "builder-two");
+    const auto old_candidate_command = f.cmd(q, Role::Worker, "builder");
+    const auto candidate = f.candidate(q);
+    q = f.engine.plan(q.request_id, f.cmd(q, Role::Dispatcher), "new plan without changing the user requirements");
+    CHECK(q.requirements_revision == 1); CHECK(q.plan_revision == 2);
+    CHECK(q.operations.at(first_op).state == OperationState::Unknown);
+    CHECK(q.operations.at(second_op).state == OperationState::Unknown);
+    error(ErrorCode::Conflict, [&] { f.engine.finish_operation(q.request_id, old_first, first_op, OperationState::Succeeded, "old result"); });
+    error(ErrorCode::Conflict, [&] { f.engine.finish_operation(q.request_id, old_second, second_op, OperationState::Succeeded, "old result"); });
+    error(ErrorCode::Conflict, [&] { f.engine.submit_candidate(q.request_id, old_candidate_command, candidate); });
+    q = f.apply(q); q = f.apply(q, "builder-two");
+    // Fresh control acknowledgments cannot turn an old in-flight result into
+    // an authorized completion, even if a caller refreshes its command CAS.
+    error(ErrorCode::InvalidState, [&] { f.engine.finish_operation(q.request_id, f.cmd(q, Role::Worker, "builder"), first_op, OperationState::Succeeded, "old result"); });
+    error(ErrorCode::InvalidState, [&] { f.engine.finish_operation(q.request_id, f.cmd(q, Role::Worker, "builder-two"), second_op, OperationState::Succeeded, "old result"); });
+    error(ErrorCode::UnknownOutcome, [&] { f.operation(q, "new-work"); });
+    error(ErrorCode::UnknownOutcome, [&] { f.engine.submit_candidate(q.request_id, f.cmd(q, Role::Worker, "builder"), candidate); });
+    q = f.engine.reconcile_operation(q.request_id, q.state_version, "reconcile-first", first_op, OperationState::Succeeded, "host evidence for first");
+    q = f.engine.reconcile_operation(q.request_id, q.state_version, "reconcile-second", second_op, OperationState::Failed, "host evidence for second");
+    CHECK(f.operation(q, "new-work").operations.size() == 3);
+}
+
 void instruction_change_fences_old_operations() {
     Kernel f; auto q = f.operation(f.prepare(f.submit())); auto old_op = q.operations.begin()->first;
     q = f.engine.instruct_team(q.request_id, f.cmd(q, Role::TeamLead, "builder"), "different instructions, same overall plan");
@@ -94,9 +154,14 @@ void instruction_change_fences_old_operations() {
     q = f.operation(q, "second");
     auto next_op = q.request_id + ":op:2";
     q = f.engine.start_operation(q.request_id, f.cmd(q, Role::Worker, "builder"), next_op);
+    const auto old_result = f.cmd(q, Role::Worker, "builder");
     q = f.engine.instruct_team(q.request_id, f.cmd(q, Role::TeamLead, "builder"), "stop an in-flight action");
     CHECK(q.operations.at(next_op).state == OperationState::Unknown);
-    error(ErrorCode::UnknownOutcome, [&] { f.engine.acknowledge_applied(q.request_id, f.cmd(q, Role::Worker, "builder")); });
+    error(ErrorCode::Conflict, [&] { f.engine.finish_operation(q.request_id, old_result, next_op, OperationState::Succeeded, "late old instructions result"); });
+    q = f.engine.acknowledge_applied(q.request_id, f.cmd(q, Role::Worker, "builder"));
+    CHECK(q.teams.at("builder").applied_instructions_version == 3);
+    error(ErrorCode::UnknownOutcome, [&] { f.operation(q, "third"); });
+    error(ErrorCode::InvalidState, [&] { f.engine.finish_operation(q.request_id, f.cmd(q, Role::Worker, "builder"), next_op, OperationState::Succeeded, "relabelled old result"); });
 }
 void replace_and_new_have_distinct_semantics() {
     Kernel f; auto old = f.prepare(f.submit());
@@ -127,6 +192,64 @@ void cancellation_does_not_hide_unknown_outcomes() {
     CHECK(q.state == RequestState::Cancelled);
     q = f.engine.advance_resources(q.request_id, q.state_version, "stopped", ResourceState::Stopped);
     CHECK(q.resources == ResourceState::Stopped); CHECK(q.operations.at(op).state == OperationState::Succeeded);
+}
+
+void worker_operation_cancellation_is_bounded_owned_and_durable() {
+    EngineLimits limits; limits.max_events = 10;
+    test::TempDir dir; const auto path = dir.path / "state.journal"; RequestSnapshot saved;
+    {
+        TaskEngine e(path, limits, {"test.echo"}); auto in = input(); auto q = e.submit(root(in), in);
+        std::uint64_t counter{};
+        auto cmd = [&](Role role, const std::string& team = "") {
+            return command(q, role, "control-" + std::to_string(++counter), team);
+        };
+        q = e.plan(q.request_id, cmd(Role::Dispatcher), "plan");
+        for (const auto& team : {"builder", "other"}) {
+            q = e.create_team(q.request_id, cmd(Role::Dispatcher), team);
+            q = e.instruct_team(q.request_id, cmd(Role::TeamLead, team), "instructions");
+            q = e.acknowledge_applied(q.request_id, cmd(Role::Worker, team));
+        }
+        for (const auto& key : {"first", "second", "third"})
+            q = e.prepare_operation(q.request_id, cmd(Role::Worker, "builder"), key, "test.echo", "payload");
+        const auto first = q.request_id + ":op:1";
+        const auto running = q.request_id + ":op:2";
+        const auto third = q.request_id + ":op:3";
+        q = e.start_operation(q.request_id, cmd(Role::Worker, "builder"), running);
+        error(ErrorCode::QuotaExceeded, [&] { e.plan(q.request_id, cmd(Role::Dispatcher), "ordinary budget exhausted"); });
+        error(ErrorCode::Unauthorized, [&] { e.cancel_operation(q.request_id, cmd(Role::Root), first); });
+        error(ErrorCode::Unauthorized, [&] { e.cancel_operation(q.request_id, cmd(Role::Worker, "other"), first); });
+        const auto cancel_prepared = cmd(Role::Worker, "builder");
+        q = e.cancel_operation(q.request_id, cancel_prepared, first);
+        CHECK(q.operations.at(first).state == OperationState::Cancelled);
+        const auto count = e.events().size();
+        CHECK(e.cancel_operation(q.request_id, cancel_prepared, first).state_version == q.state_version);
+        error(ErrorCode::InvalidState, [&] { e.cancel_operation(q.request_id, cmd(Role::Worker, "builder"), first); });
+        CHECK(e.events().size() == count);
+        error(ErrorCode::InvalidState, [&] { e.start_operation(q.request_id, cmd(Role::Worker, "builder"), first); });
+        const auto cancel_running = cmd(Role::Worker, "builder");
+        q = e.cancel_operation(q.request_id, cancel_running, running);
+        CHECK(q.operations.at(running).state == OperationState::Unknown);
+        CHECK(e.cancel_operation(q.request_id, cancel_running, running).state_version == q.state_version);
+        error(ErrorCode::UnknownOutcome, [&] { e.cancel_operation(q.request_id, cmd(Role::Worker, "builder"), running); });
+        error(ErrorCode::UnknownOutcome, [&] { e.prepare_operation(q.request_id, cmd(Role::Worker, "builder"), "fourth", "test.echo", "payload"); });
+        error(ErrorCode::UnknownOutcome, [&] { e.start_operation(q.request_id, cmd(Role::Worker, "builder"), third); });
+        error(ErrorCode::InvalidState, [&] { e.finish_operation(q.request_id, cmd(Role::Worker, "builder"), running, OperationState::Succeeded, "unverified completion"); });
+        // Business is blocked, but the Worker can still cancel another prepared
+        // operation. Neither UNKNOWN nor exhausted ordinary capacity blocks it.
+        q = e.cancel_operation(q.request_id, cmd(Role::Worker, "builder"), third);
+        CHECK(q.operations.at(third).state == OperationState::Cancelled);
+        q = e.cancel(q.request_id, cmd(Role::Root));
+        error(ErrorCode::UnknownOutcome, [&] { e.advance_resources(q.request_id, q.state_version, "too-early", ResourceState::Stopped); });
+        q = e.reconcile_operation(q.request_id, q.state_version, "host-verified", running, OperationState::Succeeded, "the effect happened before cancellation");
+        saved = e.advance_resources(q.request_id, q.state_version, "stopped", ResourceState::Stopped);
+    }
+    TaskEngine reopened(path, limits, {"test.echo"}); const auto q = reopened.get(saved.request_id);
+    CHECK(q.state_version == saved.state_version); CHECK(q.resources == ResourceState::Stopped);
+    CHECK(q.operations.at(q.request_id + ":op:2").state == OperationState::Succeeded);
+    CHECK(q.operations.at(q.request_id + ":op:2").evidence_ref == "the effect happened before cancellation");
+    CHECK(q.command_receipts.size() == saved.command_receipts.size());
+    auto next = input("ordinary-still-exhausted");
+    error(ErrorCode::QuotaExceeded, [&] { reopened.submit(root(next), next); });
 }
 
 void operation_idempotency_is_not_automatic_retry() {
@@ -161,7 +284,7 @@ void restart_automatically_fences_dispatch_and_requires_reapplication() {
     TaskEngine e(path, {}, {"test.echo"}); auto q = e.get(saved.request_id);
     CHECK(q.lease_epoch == saved.lease_epoch + 1); CHECK(q.operations.at(op).state == OperationState::Unknown);
     error(ErrorCode::StaleEpoch, [&] { e.finish_operation(q.request_id, command(saved, Role::Worker, "late-finish", "builder"), op, OperationState::Succeeded, "late"); });
-    error(ErrorCode::UnknownOutcome, [&] { e.acknowledge_applied(q.request_id, command(q, Role::Worker, "too-early", "builder")); });
+    error(ErrorCode::StaleRequirements, [&] { e.acknowledge_applied(q.request_id, command(q, Role::Worker, "too-early", "builder")); });
     q = e.reconcile_operation(q.request_id, q.state_version, "settled", op, OperationState::Succeeded, "known receipt");
     error(ErrorCode::StaleEpoch, [&] { e.prepare_operation(q.request_id, command(q, Role::Worker, "too-early-2", "builder"), "next", "test.echo", "payload"); });
     q = e.instruct_team(q.request_id, command(q, Role::TeamLead, "reinstruct", "builder"), "resume after reconciliation");
@@ -219,7 +342,7 @@ void all_assigned_reviewers_are_required() {
     CHECK(f.engine.accept(q.request_id, f.cmd(q, Role::Dispatcher)).accepted);
 }
 void adverse_review_revokes_pending_delivery_even_at_quota() {
-    EngineLimits limits; limits.max_events = 10; Kernel f(limits);
+    EngineLimits limits; limits.max_events = 8; Kernel f(limits);
     auto q = f.approved(f.prepare(f.submit(), true));
     q = f.engine.prepare_handoff(q.request_id, f.cmd(q, Role::Dispatcher), "approved-package");
     auto candidate = *q.candidate;
@@ -242,6 +365,27 @@ void review_instruction_changes_require_fresh_review() {
     CHECK(f.engine.accept(q.request_id, f.cmd(q, Role::Dispatcher)).accepted);
 }
 
+void producer_instruction_changes_invalidate_reviewed_candidates() {
+    Kernel f; auto q = f.prepare(f.submit(), true); auto old_candidate = f.candidate(q);
+    q = f.engine.submit_candidate(q.request_id, f.cmd(q, Role::Worker, "builder"), old_candidate);
+    q = f.engine.record_review(q.request_id, f.cmd(q, Role::Worker, "reviewer"), old_candidate, true, "old passing review");
+    const auto old_accept = f.cmd(q, Role::Dispatcher);
+    q = f.engine.instruct_team(q.request_id, f.cmd(q, Role::TeamLead, "builder"), "produce a revised result under these instructions");
+    CHECK(!q.candidate); CHECK(!q.accepted); CHECK(q.state == RequestState::Running);
+    CHECK(q.reviews.size() == 1); CHECK(q.artifact_versions.at(old_candidate.artifact_id) == 1);
+    error(ErrorCode::Conflict, [&] { f.engine.accept(q.request_id, old_accept); });
+    error(ErrorCode::InvalidState, [&] { f.engine.accept(q.request_id, f.cmd(q, Role::Dispatcher)); });
+    error(ErrorCode::StaleRequirements, [&] { f.engine.submit_candidate(q.request_id, f.cmd(q, Role::Worker, "builder"), old_candidate); });
+    q = f.engine.acknowledge_applied(q.request_id, f.cmd(q, Role::Worker, "builder"));
+    error(ErrorCode::Conflict, [&] { f.engine.submit_candidate(q.request_id, f.cmd(q, Role::Worker, "builder"), old_candidate); });
+    auto current = old_candidate; current.artifact_version = 2; current.content_hash = std::string(64, 'b');
+    q = f.engine.submit_candidate(q.request_id, f.cmd(q, Role::Worker, "builder"), current);
+    error(ErrorCode::Conflict, [&] { f.engine.record_review(q.request_id, f.cmd(q, Role::Worker, "reviewer"), old_candidate, true, "reused old review"); });
+    error(ErrorCode::InvalidState, [&] { f.engine.accept(q.request_id, f.cmd(q, Role::Dispatcher)); });
+    q = f.engine.record_review(q.request_id, f.cmd(q, Role::Worker, "reviewer"), current, true, "new candidate review");
+    CHECK(f.engine.accept(q.request_id, f.cmd(q, Role::Dispatcher)).accepted);
+}
+
 void delivery_and_cleanup_are_separate_state_dimensions() {
     Kernel f; auto q = f.approved(f.prepare(f.submit(), true));
     error(ErrorCode::InvalidState, [&] { f.engine.advance_resources(q.request_id, q.state_version, "early-stop", ResourceState::Stopped); });
@@ -261,8 +405,29 @@ void delivery_and_cleanup_are_separate_state_dimensions() {
     CHECK(std::filesystem::exists(f.directory.path / "state.journal")); // No real deletion by the kernel.
 }
 
+void acknowledgments_progress_at_quota_without_unbounded_repetition() {
+    EngineLimits limits; limits.max_events = 4; Kernel f(limits); auto q = f.submit();
+    q = f.engine.plan(q.request_id, f.cmd(q, Role::Dispatcher), "plan");
+    q = f.engine.create_team(q.request_id, f.cmd(q, Role::Dispatcher), "builder");
+    q = f.engine.instruct_team(q.request_id, f.cmd(q, Role::TeamLead, "builder"), "instructions admitted at the budget limit");
+    CHECK(f.engine.events().size() == 4);
+    const auto ack = f.cmd(q, Role::Worker, "builder");
+    q = f.engine.acknowledge_applied(q.request_id, ack);
+    CHECK(q.teams.at("builder").applied_instructions_version == q.teams.at("builder").instructions_version);
+    CHECK(f.engine.events().size() == 5);
+    CHECK(f.engine.acknowledge_applied(q.request_id, ack).state_version == q.state_version);
+    const auto bytes = std::filesystem::file_size(f.directory.path / "state.journal");
+    for (int i = 0; i < 4; ++i)
+        error(ErrorCode::InvalidState, [&] { f.engine.acknowledge_applied(q.request_id, f.cmd(q, Role::Worker, "builder")); });
+    CHECK(f.engine.events().size() == 5);
+    CHECK(std::filesystem::file_size(f.directory.path / "state.journal") == bytes);
+    CHECK(f.engine.get(q.request_id).state_version == q.state_version); CHECK(f.engine.requests().size() == 1);
+    error(ErrorCode::QuotaExceeded, [&] { f.operation(q); });
+    CHECK(f.engine.cancel(q.request_id, f.cmd(q, Role::Root)).state == RequestState::Cancelled);
+}
+
 void ordinary_quota_never_blocks_settlement_cancel_or_reopen() {
-    EngineLimits limits; limits.max_events = 7; test::TempDir dir; auto path = dir.path / "state.journal";
+    EngineLimits limits; limits.max_events = 6; test::TempDir dir; auto path = dir.path / "state.journal";
     RequestSnapshot saved;
     {
         TaskEngine e(path, limits, {"test.echo"}); auto in = input(); auto q = e.submit(root(in), in);
@@ -277,7 +442,7 @@ void ordinary_quota_never_blocks_settlement_cancel_or_reopen() {
         // A diagnostic flood has its own bound and cannot consume settlement capacity.
         auto bad = command(q, Role::Dispatcher, "stale"); bad.lease_epoch = 0;
         for (int i = 0; i < 20; ++i) error(ErrorCode::StaleEpoch, [&] { e.plan(q.request_id, bad, "late"); });
-        CHECK(e.events().size() == 14);
+        CHECK(e.events().size() == 13);
         q = e.finish_operation(q.request_id, command(q, Role::Worker, "finish", "builder"), q.operations.begin()->first,
                                OperationState::Unknown, "receipt uncertain");
         saved = q;
@@ -407,9 +572,12 @@ int main() {
         {"commands/idempotency-CAS-atomic-events", command_idempotency_and_atomic_events},
         {"roles/Worker-only-cross-team-grants", role_and_team_boundaries},
         {"amend/requirements-plan-instructions-application", amend_requires_new_plan_explanation_and_ack},
+        {"amend/unhandled-second-team-stays-blocked", amend_does_not_resume_an_unhandled_second_team},
+        {"plan/both-teams-old-results-stay-fenced", new_plan_fences_results_from_both_teams},
         {"instructions/fence-prepared-and-running-operations", instruction_change_fences_old_operations},
         {"replace/distinct-from-independent-NEW", replace_and_new_have_distinct_semantics},
         {"cancel/late-result-and-unknown-outcome", cancellation_does_not_hide_unknown_outcomes},
+        {"operations/Worker-cancel-control-ownership-quota-replay", worker_operation_cancellation_is_bounded_owned_and_durable},
         {"operations/idempotency-without-blind-retry", operation_idempotency_is_not_automatic_retry},
         {"restart/automatic-fencing-and-reapplication", restart_automatically_fences_dispatch_and_requires_reapplication},
         {"review/new-candidate-invalidates-approval", review_and_new_candidate_invalidate_old_acceptance},
@@ -417,7 +585,9 @@ int main() {
         {"review/all-assigned-reviewers-must-pass", all_assigned_reviewers_are_required},
         {"review/adverse-evidence-revokes-even-at-quota", adverse_review_revokes_pending_delivery_even_at_quota},
         {"review/changed-instructions-require-fresh-evidence", review_instruction_changes_require_fresh_review},
+        {"candidate/producer-instructions-invalidate-old-review", producer_instruction_changes_invalidate_reviewed_candidates},
         {"delivery/receipt-and-cleanup-separation", delivery_and_cleanup_are_separate_state_dimensions},
+        {"quota/ack-control-progress-with-bounded-retries", acknowledgments_progress_at_quota_without_unbounded_repetition},
         {"quota/control-settlement-cancel-recovery", ordinary_quota_never_blocks_settlement_cancel_or_reopen},
         {"quota/new-work-is-bounded-and-atomic", quotas_reject_new_work_without_losing_existing_state},
         {"concurrency/same-request-CAS", concurrent_state_commits_use_compare_and_swap},

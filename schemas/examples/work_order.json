@@ -1,0 +1,50 @@
+{
+  "approach": "用 Python（pandas）读取原始 CSV 的副本，在副本上清洗，再按月汇总；原始文件只读。",
+  "steps": [
+    {
+      "id": "s1",
+      "text": "读取 /input/sales_2026q3.csv，打印列名、行数、日期列的几种格式样例",
+      "check": "输出中能看到行数和日期格式样例"
+    },
+    {
+      "id": "s2",
+      "text": "去重并把日期统一为 YYYY-MM-DD，写出 /work/out/cleaned.csv",
+      "check": "重复行数为 0，日期全部匹配 ^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    {
+      "id": "s3",
+      "text": "按月汇总销售额，金额保留两位小数，写出 /work/out/summary.csv",
+      "check": "列为 month,total_sales；金额均为两位小数"
+    },
+    {
+      "id": "s4",
+      "text": "写 /work/out/README.md：处理步骤、去掉了多少重复行、发现的异常",
+      "check": "文件存在且包含这三项"
+    }
+  ],
+  "constraints_verbatim": [
+    "统一日期格式为 YYYY-MM-DD",
+    "不要修改原始文件",
+    "金额保留两位小数"
+  ],
+  "done_definition": "s1–s4 全部完成并通过各自检查，submit 中逐条填写 ac1–ac5 的自检结果。",
+  "pitfalls": [
+    "金额列可能带千分位逗号，读入时要指定转换，否则会被当成字符串",
+    "日期可能混有 2026/7/3 和 2026-07-03 两种格式"
+  ],
+  "request_id": "req_01JBC7Q5W8M2N3P4R5S6T7V8X9",
+  "task_id": "tsk_01JBC7Q5W8M2N3P4R5S6T7V8X9",
+  "team_id": "team_01JBC7Q5W8M2N3P4R5S6T7V8X9",
+  "dispatcher_epoch": 1,
+  "execution_epoch": 1,
+  "policy_epoch": 1,
+  "requirements_revision": 1,
+  "plan_revision": 1,
+  "task_revision": 1,
+  "instruction_revision": 1,
+  "constraint_refs": [
+    "c1",
+    "c2",
+    "c3"
+  ]
+}

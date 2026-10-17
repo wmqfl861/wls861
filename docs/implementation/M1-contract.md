@@ -1,18 +1,22 @@
 # M1 — executable kernel contract
 
-Status: implementation baseline for the first batch, 2026-10-17. This is an
-engineering choice for a **Linux, single-host, synthetic execution prototype**.
-It does not approve or select production models, retention, knowledge
-publication, isolation, database, or deployment policies (Q01–Q12).
+Status: executable **0.1.1-m1** contract, updated 2026-10-17. This is a
+**Linux, single-host, synthetic execution prototype**. The target blueprint is
+[v0.4.1](../spec/v0.4.1/01_实施规格_v0.4.1.md); its SQLite, role-runner, tool,
+memory and deployment choices are future integrations. This contract describes
+the current C++ implementation, not a completed S1 daemon or a permission to
+perform real model calls, knowledge publication or user-data cleanup.
 
 ## Scope and sources
 
 The four roles and request semantics follow v0.3 sections 03–06 and 11–12,
 the handoff implementation batches, and v0.2 sections 09–11. Complete original
-documents remain unchanged under `../handoff/v0.3/`. M1 implements request
+documents remain unchanged under `../handoff/v0.3/`; the later audit source is
+preserved under `../handoff/v0.4/`. The owner authorized its review corrections,
+documentation/code changes and GitHub push. M1 implements request
 admission, durable state/events, explicit changes, fenced dispatch, simulated
-operations, version-bound acceptance/delivery, and resource state. M2–M6
-remain future batches. There are no LLM calls, shell tool, MCP/A2A adapters,
+operations, version-bound acceptance/delivery, and resource state. S1–S5
+continue from this kernel, as mapped in [the roadmap](../ROADMAP.md). There are no LLM calls, shell tool, MCP/A2A adapters,
 memory retrieval, production receipt, or actual workspace deletion in M1.
 
 ## Host trust boundary
@@ -88,7 +92,14 @@ and amendments. Reviewer instruction versions also bind review evidence. An upda
 current negative review also revokes approval, even at the ordinary event budget. A valid review
 report saying changes are needed is distinct from product acceptance. M1's
 synthetic acceptance uses all separately assigned review teams and nonempty
-evidence references; substantive review and workflow orchestration remain M3.
+evidence references; substantive review and workflow orchestration remain S2.
+An accepted instruction change for the active candidate's producer clears the
+current candidate and acceptance before the new instruction can be applied.
+Historical review records and artifact version high-water marks remain intact,
+so old content cannot be reintroduced under a reused version. Direct producer
+instruction changes in Accepted/HandoffPending are rejected by the active-state
+guard; this API does not reopen those states. The review-team instruction path
+has its separate transition back to Verifying.
 
 Business completion requires accepted current candidate and a matching,
 explicit synthetic delivery receipt from the owning Root. Missing/mismatched
@@ -123,7 +134,8 @@ M4 memory behavior, or real-world delivery/deletion.
 
 `max_events` bounds ordinary state changes; rejection diagnostics have a separate
 same-size cap and stop being recorded after that cap (rejection still applies).
-Operation settlement, reconciliation, cancellation, completed review acceptance,
+Acknowledgment of a genuinely pending instruction, operation settlement,
+reconciliation, operation/request cancellation, completed review acceptance,
 matching delivery, one-time adverse-review revocation, restart fencing, and host
 resource cleanup remain writable. New candidates and ordinary reviews consume
 the ordinary budget; they cannot bypass it by repeatedly using fresh command IDs.
@@ -142,3 +154,39 @@ update has its own version and fences that team's pending operations; the Worker
 must acknowledge the current instruction version before continuing. Requirements
 and plan changes clear the active candidate while preserving immutable version
 history and past evidence.
+
+
+## v0.4.1 control operations and execution barriers
+
+`acknowledge_applied` verifies the current Worker identity, request/team binding,
+CAS, epoch and current TeamLead instructions. It does not require the applied
+version it is about to advance, and it may acknowledge while an operation is
+UNKNOWN. Acknowledgment never settles that UNKNOWN: prepare/start remain blocked
+by unknown outcomes in their own team, and candidate submission requires all
+request operations to be settled. A fresh command ID
+cannot acknowledge already-applied instructions again. Only an actual pending
+instruction consumes the reserved control path; an exact command retry retains
+normal durable command-id idempotency.
+
+`cancel_operation` is a Worker control API for an operation in its own team.
+A prepared operation becomes Cancelled; a running operation becomes Unknown.
+It checks current request/CAS/epoch and ownership without requiring business
+readiness. An already Unknown or terminal operation cannot repeatedly generate
+new cancellation events under fresh command IDs. Exact retries remain
+idempotent, and only the host reconciliation API may settle Unknown. This API
+changes synthetic state; a future executor must separately request actual
+process cancellation and then reconcile the effect.
+
+AMEND remains a global request barrier in M1: an omitted second team cannot
+resume merely because another team has applied the new plan. Each team must
+apply current instructions bound to current requirements and plan. The target
+S1 DAG's explicit update/keep/cancel disposition adds per-task scope while
+preserving this fail-closed property; it is not implemented by the M1 string
+plan API.
+
+The SQL/Schema protocol uses explicit `*_revision` names and task/instruction
+bindings; M1 keeps its existing public fields and Journal layout. In particular,
+`applied_revision` is M1's applied request requirement, `instructions_version`
+and `applied_instructions_version` are independent instruction counters, and
+`lease_epoch` fences execution. Future Store adapters must map and validate
+these semantics rather than rename serialized bytes in place.

@@ -1,0 +1,64 @@
+{
+  "summary": "复用 cleaned.csv，按月份和地区汇总，生成柱状图并更新说明。共删除 214 行重复记录，日期格式统一。",
+  "deliverables": [
+    {
+      "path": "/work/out/summary.csv",
+      "description": "按 month、region 汇总的销售额"
+    },
+    {
+      "path": "/work/out/sales_by_region.png",
+      "description": "按地区汇总的柱状图"
+    },
+    {
+      "path": "/work/out/README.md",
+      "description": "处理说明"
+    }
+  ],
+  "verification": [
+    {
+      "check": "汇总总额与清洗后明细总额一致",
+      "method": "python3 check_totals.py",
+      "result": "pass",
+      "evidence": "两者均为 18,734,201.55"
+    },
+    {
+      "check": "原始文件未修改",
+      "method": "sha256sum /input/sales_2026q3.csv 与提交前记录对比",
+      "result": "pass"
+    }
+  ],
+  "self_check": [
+    {
+      "criterion_id": "ac1",
+      "met": "yes",
+      "evidence": "表头 month,region,total_sales"
+    },
+    {
+      "criterion_id": "ac2",
+      "met": "yes",
+      "evidence": "重复行数 0"
+    },
+    {
+      "criterion_id": "ac3",
+      "met": "yes"
+    },
+    {
+      "criterion_id": "ac4",
+      "met": "yes"
+    },
+    {
+      "criterion_id": "ac5",
+      "met": "yes",
+      "evidence": "哈希一致"
+    }
+  ],
+  "known_issues": [
+    "有 12 行金额为负数（退款），按回答计入汇总"
+  ],
+  "used_memories": [
+    {
+      "memory_id": "exp-20261012-a7k2",
+      "how_used": "读取时对金额列去掉千分位逗号再转数值"
+    }
+  ]
+}

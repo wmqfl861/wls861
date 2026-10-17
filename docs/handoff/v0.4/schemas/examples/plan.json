@@ -1,0 +1,72 @@
+{
+  "summary": "单一数据处理任务，不需要拆分，交给一个团队完成。",
+  "nodes": [
+    {
+      "node_id": "clean-and-summarize",
+      "kind": "team_task",
+      "title": "清洗并汇总销售数据",
+      "brief": {
+        "title": "清洗销售数据并按月汇总",
+        "goal": "清洗 /input/sales_2026q3.csv，按月汇总销售额，输出 summary.csv 和说明文档。",
+        "scope": [
+          "去除重复行",
+          "统一日期格式",
+          "按月汇总销售额",
+          "写一份简短说明"
+        ],
+        "non_goals": [
+          "不做预测或趋势分析"
+        ],
+        "acceptance_criteria": [
+          {
+            "id": "ac1",
+            "text": "/work/out/summary.csv 存在，列为 month,total_sales",
+            "check": "head -1 /work/out/summary.csv"
+          },
+          {
+            "id": "ac2",
+            "text": "清洗后的数据没有重复行",
+            "check": "用脚本统计重复行数为 0"
+          },
+          {
+            "id": "ac3",
+            "text": "所有日期为 YYYY-MM-DD 格式",
+            "check": "正则检查日期列"
+          },
+          {
+            "id": "ac4",
+            "text": "金额保留两位小数"
+          },
+          {
+            "id": "ac5",
+            "text": "原始文件未被修改",
+            "check": "对比 /input 文件哈希"
+          }
+        ],
+        "constraints_verbatim": [
+          "统一日期格式为 YYYY-MM-DD",
+          "不要修改原始文件",
+          "金额保留两位小数"
+        ],
+        "inputs": [
+          {
+            "ref": "/input/sales_2026q3.csv",
+            "note": "约 4 万行"
+          }
+        ],
+        "expected_outputs": [
+          {
+            "path": "/work/out/summary.csv",
+            "description": "月度汇总"
+          },
+          {
+            "path": "/work/out/README.md",
+            "description": "处理说明"
+          }
+        ]
+      },
+      "depends_on": [],
+      "required": true
+    }
+  ]
+}

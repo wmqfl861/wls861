@@ -175,6 +175,9 @@ public:
                                 const std::string& team_id, bool review_team = false);
     RequestSnapshot instruct_team(const std::string& request_id, const Command&,
                                   const std::string& instructions);
+    // Acknowledge new instructions even while an older outcome is UNKNOWN.
+    // This bounded control transition does not authorize new business work;
+    // fresh command IDs cannot repeatedly acknowledge the same instruction.
     RequestSnapshot acknowledge_applied(const std::string& request_id, const Command&);
 
     RequestSnapshot prepare_operation(const std::string& request_id, const Command&,
@@ -185,6 +188,11 @@ public:
     RequestSnapshot finish_operation(const std::string& request_id, const Command&,
                                      const std::string& operation_id, OperationState outcome,
                                      const std::string& evidence_ref);
+    // Owning Worker control: Prepared -> Cancelled, Running -> Unknown.
+    // A cancellation request never proves that a running effect was undone;
+    // only the host may reconcile UNKNOWN with evidence. No tool is executed.
+    RequestSnapshot cancel_operation(const std::string& request_id, const Command&,
+                                     const std::string& operation_id);
 
     RequestSnapshot submit_candidate(const std::string& request_id, const Command&, Candidate candidate);
     RequestSnapshot record_review(const std::string& request_id, const Command&,

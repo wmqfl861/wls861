@@ -1,0 +1,319 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/experience_report.schema.json",
+  "title": "ExperienceReport",
+  "description": "TeamLead 在任务验收后写的经验报告。没有新经验时 no_new_experience 为 true、entries 为空。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "no_new_experience",
+    "entries",
+    "memory_assessments"
+  ],
+  "properties": {
+    "report_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^rep_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "（运行时填写，模型不要提供）"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "（运行时填写，模型不要提供）"
+    },
+    "team_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^team_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "（运行时填写，模型不要提供）"
+    },
+    "no_new_experience": {
+      "type": "boolean"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "type",
+          "title",
+          "description",
+          "body_markdown",
+          "proposed_scope",
+          "evidence"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "new",
+              "revise",
+              "conflict"
+            ]
+          },
+          "target_memory_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^((rul|fct|exp)-[0-9]{8}-[a-z0-9]{4}|skill:[a-z0-9]+(-[a-z0-9]+)*)$",
+            "description": "revise、conflict 时必填"
+          },
+          "type": {
+            "enum": [
+              "rule",
+              "fact",
+              "experience",
+              "skill"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "success",
+              "failure",
+              "mixed"
+            ],
+            "description": "type 为 experience 时必填"
+          },
+          "skill_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+            "description": "type 为 skill 时必填"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "一句话：什么时候用"
+          },
+          "body_markdown": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000,
+            "description": "完整正文；skill 为 SKILL.md 正文"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "maxItems": 20
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "error_signatures": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            },
+            "maxItems": 10
+          },
+          "applies_to": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "functions": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "maxItems": 20
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "工具名，可带版本约束，如 git>=2.40"
+                },
+                "maxItems": 20
+              },
+              "os": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "linux",
+                    "windows",
+                    "macos"
+                  ]
+                },
+                "maxItems": 3
+              },
+              "conditions": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300
+                },
+                "maxItems": 10,
+                "description": "其他适用条件，自然语言"
+              }
+            },
+            "description": "适用范围；空表示不限"
+          },
+          "proposed_scope": {
+            "enum": [
+              "project",
+              "function",
+              "global"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "自足的证据摘要（工作区之后会被清理）"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "revise",
+                    "conflict"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "target_memory_id"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "experience"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "outcome"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "skill"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "skill_name"
+              ]
+            }
+          }
+        ]
+      },
+      "maxItems": 20
+    },
+    "memory_assessments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "memory_id",
+          "verdict",
+          "evidence"
+        ],
+        "properties": {
+          "memory_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^((rul|fct|exp)-[0-9]{8}-[a-z0-9]{4}|skill:[a-z0-9]+(-[a-z0-9]+)*)$"
+          },
+          "verdict": {
+            "enum": [
+              "worked",
+              "failed",
+              "irrelevant"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        }
+      },
+      "maxItems": 30,
+      "description": "对 Worker 声明用过的每条记忆的评价"
+    },
+    "trace_digest_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^art_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "（运行时填写，模型不要提供）"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "no_new_experience": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "entries": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "no_new_experience": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "entries": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
+}

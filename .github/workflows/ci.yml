@@ -1,4 +1,4 @@
-name: C++20 kernel checks
+name: C++20 kernel and specification contracts
 
 on:
   push:
@@ -31,7 +31,10 @@ jobs:
         with:
           persist-credentials: false
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }}
+        run: |
+          python3 -m venv .local/test-venv
+          .local/test-venv/bin/python -m pip install -r requirements-test.txt
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }} -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
       - name: Build
         run: cmake --build build --parallel 2
       - name: Run CTest

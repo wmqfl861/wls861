@@ -1,0 +1,175 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/v0.4.1/work_order.schema.json",
+  "title": "WorkOrder",
+  "description": "TeamLead 在团队启动时给 Worker 的执行说明。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "approach",
+    "steps",
+    "constraints_verbatim",
+    "done_definition",
+    "request_id",
+    "task_id",
+    "team_id",
+    "requirements_revision",
+    "plan_revision",
+    "task_revision",
+    "instruction_revision",
+    "dispatcher_epoch",
+    "execution_epoch",
+    "policy_epoch",
+    "constraint_refs"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "approach": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "总体做法"
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8,
+            "pattern": "^s[0-9]{1,3}$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "check": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "这一步怎么验证"
+          }
+        }
+      },
+      "maxItems": 40,
+      "minItems": 1
+    },
+    "constraints_verbatim": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      },
+      "maxItems": 50,
+      "description": "从请求原文或需求修改原文逐字摘录的约束；运行时校验每条（去首尾空白后）是某段原文的子串，不是则拒绝整条消息；必须包含 TaskBrief 的全部条目"
+    },
+    "done_definition": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "什么情况下算完成"
+    },
+    "pitfalls": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "maxItems": 20,
+      "description": "容易出错的地方"
+    },
+    "notes": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "team_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^team_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "requirements_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "plan_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "task_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "instruction_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "dispatcher_epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "execution_epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "policy_epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "constraint_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40,
+        "pattern": "^c[0-9]{1,6}$"
+      },
+      "maxItems": 50,
+      "minItems": 0,
+      "uniqueItems": true,
+      "description": "引用由宿主冻结并分配给本任务的有效约束目录；不得由模型自行决定省略哪些约束。"
+    }
+  }
+}

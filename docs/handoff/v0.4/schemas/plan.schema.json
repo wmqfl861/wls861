@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/plan.schema.json",
+  "title": "Plan",
+  "description": "Dispatcher 用 submit_plan 提交的计划（DAG）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "nodes"
+  ],
+  "properties": {
+    "plan_rev": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "（运行时填写，模型不要提供）"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "node_id",
+          "kind",
+          "title",
+          "depends_on",
+          "required"
+        ],
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"
+          },
+          "kind": {
+            "enum": [
+              "team_task",
+              "capability_call"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "template": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "team_task：团队模板 ID；省略则用本功能的默认团队模板"
+          },
+          "brief": {
+            "type": "object",
+            "description": "team_task：TaskBrief，按 task_brief.schema.json 单独校验"
+          },
+          "capability": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z0-9_-]+\\.[a-z0-9_-]+$",
+            "description": "capability_call：如 review.review_code"
+          },
+          "input": {
+            "type": "object",
+            "description": "capability_call：按该能力的 input_schema 单独校验"
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 48,
+              "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"
+            },
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "review": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "capability",
+              "max_rounds"
+            ],
+            "properties": {
+              "capability": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[a-z0-9_-]+\\.[a-z0-9_-]+$"
+              },
+              "max_rounds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5
+              }
+            },
+            "description": "可选：提交后自动送审（S2）"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "team_task"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "brief"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "capability_call"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "capability",
+                "input"
+              ]
+            }
+          }
+        ]
+      },
+      "maxItems": 20,
+      "minItems": 1
+    }
+  }
+}

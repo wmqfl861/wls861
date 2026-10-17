@@ -1,5 +1,10 @@
 # M1 Linux durable journal
 
+Revision note: 0.1.1-m1 keeps the existing journal bytes and transaction layout.
+The v0.4.1 SQL schema is a future Store contract and a Python-tested reference;
+the current C++ TaskEngine has not switched to SQLite. A Store migration must
+preserve the identity, atomicity, fencing and replay guarantees described here.
+
 `DurableJournal` stores one logical transaction per frame. It is a single-host,
 Linux implementation for bounded synthetic M1 fixtures. Transactions are opaque
 byte strings; empty strings and embedded NUL bytes are allowed. The caller creates

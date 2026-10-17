@@ -60,6 +60,8 @@ public:
     // IDs/keys/callback must be nonempty. IDs are unique among outstanding
     // jobs. A rejection throws SchedulerError without accepting the callback.
     // Callbacks sharing a key execute serially, in submission order.
+    // Callbacks must return before waiting for dependent jobs on this pool;
+    // the host chains futures. Reserved slots do not break dependency cycles.
     std::future<void> submit(std::string job_id, std::string resource_key,
                              WorkClass work_class, std::function<void()> work);
 

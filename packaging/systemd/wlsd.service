@@ -1,0 +1,22 @@
+# v0.4.1 后续 wlsd 的 systemd 用户服务样例；当前 M1 不提供 wlsd。
+# 本文件未安装、不自动启动。部署前 doctor 检查实际委派/控制器/bwrap支持。
+[Unit]
+Description=Wuliangshan multi-agent daemon (S1 deployment example)
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/wlsd
+Restart=on-failure
+RestartSec=3
+UMask=0077
+# 守护进程和团队分组，需实际 systemd/cgroup 环境支持。
+Delegate=yes
+DelegateSubgroup=daemon
+KillMode=control-group
+TimeoutStopSec=30s
+SendSIGKILL=yes
+# 凭据仅供 wlsd；工具执行必须使用显式 envp，不能继承这些变量。
+EnvironmentFile=-%h/.config/wls/secrets.env
+
+[Install]
+WantedBy=default.target

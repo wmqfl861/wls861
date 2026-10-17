@@ -1,0 +1,92 @@
+# 无量山 system.yaml 样例（放在 ~/.config/wls/system.yaml）
+# 语义见 docs/01_实施规格_v0.4.md；数值为起步默认，跑基线后再调。
+schema_version: 1
+
+# 模型条目。P-01（首个供应商）决定之前，只用 fake 跑测试。
+models:
+  fake:
+    adapter: fake
+    model: scripted
+    capabilities:
+      streaming: supported
+      tool_calling: supported
+      parallel_tool_calls: supported
+      reasoning_modes: [provider_default, "off"]
+      context_window: 200000
+      max_output_tokens: 8192
+      cache_mode: none
+  # S1-13 再填真实值；模型 ID、能力以供应商当前文档为准，并记录 source_url 与 verified_at。
+  # primary:
+  #   adapter: anthropic_messages          # 或 openai_chat_compat
+  #   base_url: "https://api.example.com"
+  #   model: "<model-id>"
+  #   api_key_env: WLS_PRIMARY_API_KEY     # 只写环境变量名；密钥放 ~/.config/wls/secrets.env（权限 600）
+  #   capabilities_file: capabilities/primary.yaml
+
+defaults:
+  model_ref: fake
+  reasoning: {mode: provider_default}
+
+limits:
+  max_active_dispatchers: 4
+  max_active_workers: 8
+  reserve_workers_for_review: 1
+  max_teams_per_request: 4
+  max_concurrent_model_calls_per_endpoint: 8
+  max_concurrent_ops: 16
+  worker_max_tool_calls_per_order: 200
+  manager_max_tool_calls_per_wake: 12
+  team_internal_rework_max: 3
+  stall_minutes: 10
+  stall_same_error_repeats: 3
+
+# 每请求预算（P-05）。token 或金额上限留空时，拒绝调用真实模型。
+budget_defaults:
+  max_input_tokens: null
+  max_output_tokens: null
+  max_cost_usd: null
+  max_wall_minutes: 120
+  warn_at_fraction: 0.8
+
+context:
+  compaction_at_fraction: 0.6
+  snapshot_decision_log_entries: 20
+  schema_retry_max: 2
+
+sandbox:
+  engine: bwrap
+  network_default: none                    # none | host（S2 起支持 allowlist）
+  extra_ro_binds: []
+  run_default_timeout_s: 120
+  run_max_timeout_s: 600
+  team_memory_max: 4G
+  team_pids_max: 512
+
+cleanup:
+  policy: clean_runtime                    # S5 起可选 export_and_purge
+  receipt_ttl_days: 30
+  vacuum_weekly: true
+
+# 记忆（S3 起生效），参数含义见 docs/03_记忆系统v1规格.md 第 12 节
+memory:
+  enabled: false
+  governance: personal
+  auto_merge: false
+  digest_time: "21:00"
+  card_max_per_trigger: 5
+  card_max_tokens: 600
+  recall_max: 10
+  error_trigger_max: 3
+  rules_max_tokens: 2000
+  score_z: 1.0
+  rank_alpha: 0.6
+  warn_min_failures: 2
+  warn_confidence_below: 0.3
+  merge_min_successes: 3
+  merge_min_failures: 3
+  embedding_model_ref: null                # P-03
+
+# 默认遵循 XDG 目录，一般不用改
+paths:
+  data: "~/.local/share/wls"
+  socket: "${XDG_RUNTIME_DIR}/wls.sock"

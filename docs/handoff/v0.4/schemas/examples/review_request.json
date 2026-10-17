@@ -1,0 +1,17 @@
+{
+  "candidate_ref": "art_01JBC7S1A2B3C4D5E6F7G8H9JK",
+  "criteria": [
+    {
+      "id": "rc1",
+      "text": "汇总结果与清洗后明细核对一致"
+    },
+    {
+      "id": "rc2",
+      "text": "满足需求中的全部约束"
+    }
+  ],
+  "requirements_excerpt": [
+    "把 /input/sales_2026q3.csv 清洗一下（去掉重复行、统一日期格式为 YYYY-MM-DD），然后按月汇总销售额，输出 summary.csv 和一份简短的说明。不要修改原始文件。金额保留两位小数。",
+    "汇总改成按月和地区两个维度，另外加一张按地区的柱状图 PNG。"
+  ]
+}

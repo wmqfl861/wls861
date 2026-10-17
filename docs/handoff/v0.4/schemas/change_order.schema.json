@@ -1,0 +1,218 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/change_order.schema.json",
+  "title": "ChangeOrder",
+  "description": "变更或返工指令。Dispatcher → TeamLead、TeamLead → Worker、运行时（审核返工）→ TeamLead。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "summary",
+    "constraints_verbatim"
+  ],
+  "properties": {
+    "change_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^chg_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "（运行时填写，模型不要提供）"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "（运行时填写，模型不要提供）"
+    },
+    "from_role": {
+      "enum": [
+        "dispatcher",
+        "team_lead",
+        "runtime"
+      ],
+      "description": "（运行时填写，模型不要提供）"
+    },
+    "parent_change_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^chg_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "TeamLead 发出时必填：触发它的上级变更"
+    },
+    "target_requirements_rev": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "（运行时填写，模型不要提供）"
+    },
+    "kind": {
+      "enum": [
+        "amend",
+        "rework"
+      ],
+      "description": "amend：需求修改引起；rework：验收或审核不通过的返工"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "stop": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      },
+      "maxItems": 30,
+      "description": "停止或撤销的内容"
+    },
+    "keep": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      },
+      "maxItems": 30,
+      "description": "已完成且保留的内容"
+    },
+    "add": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      },
+      "maxItems": 30,
+      "description": "新增或接下来要做的内容"
+    },
+    "acceptance_changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "op"
+        ],
+        "properties": {
+          "op": {
+            "enum": [
+              "add",
+              "remove",
+              "modify"
+            ]
+          },
+          "criterion_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8,
+            "pattern": "^ac[0-9]{1,3}$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "op": {
+                  "enum": [
+                    "remove",
+                    "modify"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "criterion_id"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "op": {
+                  "enum": [
+                    "add",
+                    "modify"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "text"
+              ]
+            }
+          }
+        ]
+      },
+      "maxItems": 30
+    },
+    "constraints_verbatim": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      },
+      "maxItems": 50,
+      "description": "从请求原文或需求修改原文逐字摘录的约束；运行时校验每条（去首尾空白后）是某段原文的子串，不是则拒绝整条消息；TeamLead 发出时必须包含上级变更的全部条目"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "severity",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8,
+            "pattern": "^f[0-9]{1,3}$"
+          },
+          "severity": {
+            "enum": [
+              "blocker",
+              "major",
+              "minor",
+              "nit"
+            ]
+          },
+          "location": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "suggestion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        }
+      },
+      "maxItems": 50,
+      "description": "返工时的审核问题，原文复制；TeamLead 发出时必须包含上级变更的全部条目"
+    },
+    "notes": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    }
+  }
+}

@@ -1,0 +1,156 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/v0.4.1/task_brief.schema.json",
+  "title": "TaskBrief",
+  "description": "Dispatcher 给团队的任务说明，放在计划的 team_task 节点里。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "goal",
+    "acceptance_criteria",
+    "constraints_verbatim",
+    "constraint_refs"
+  ],
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "scope": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "maxItems": 30,
+      "description": "要做的范围"
+    },
+    "non_goals": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "maxItems": 30,
+      "description": "明确不做的事"
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8,
+            "pattern": "^ac[0-9]{1,3}$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "check": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "怎么检查：可执行的命令或人工核对方法"
+          }
+        }
+      },
+      "maxItems": 30,
+      "minItems": 1
+    },
+    "constraints_verbatim": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      },
+      "maxItems": 50,
+      "description": "从请求原文或需求修改原文逐字摘录的约束；运行时校验每条（去首尾空白后）是某段原文的子串，不是则拒绝整条消息"
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ref"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "/input 下的路径，或成果 ID（art_…）"
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "maxItems": 50
+    },
+    "expected_outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "description"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "^/work/"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "maxItems": 50
+    },
+    "notes": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "constraint_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40,
+        "pattern": "^c[0-9]{1,6}$"
+      },
+      "maxItems": 50,
+      "minItems": 0,
+      "uniqueItems": true,
+      "description": "引用由宿主冻结并分配给本任务的有效约束目录；不得由模型自行决定省略哪些约束。"
+    }
+  }
+}

@@ -1,0 +1,253 @@
+{
+  "source": "user supplied wuliangshan_S0_v0.4.zip",
+  "zip_sha256": "f093f21e1135dbc4d2fee71f8f98ad5af701e273f3247160ae32022cf10da2e5",
+  "purpose": "Immutable review source, not active development instructions. Corrected specification: docs/spec/v0.4.1/",
+  "file_count": 49,
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "fb36d831b2626e33a081a1f35f78bcf1c9c44f13dd911225f233fa7cb0e3cadc",
+      "size_bytes": 3318
+    },
+    {
+      "path": "CLAUDE.md",
+      "sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
+      "size_bytes": 11
+    },
+    {
+      "path": "README.md",
+      "sha256": "81c82b113aeaf56e686cdbf9e73dc0c0901f1817c5c4ab4a9702ff73dc7ad83c",
+      "size_bytes": 1844
+    },
+    {
+      "path": "config/examples/functions/general/env.yaml",
+      "sha256": "07ebd81fd806e5e92a55ef9eb0e57cfd8bbd898bc0527e0c6cd34ff893e4a23b",
+      "size_bytes": 1772
+    },
+    {
+      "path": "config/examples/functions/general/function.yaml",
+      "sha256": "e803fc45742ac4f19268bbf14d854a2c30b865880a3923285794ce590f97d9e0",
+      "size_bytes": 1840
+    },
+    {
+      "path": "config/examples/functions/general/prompts/dispatcher.md",
+      "sha256": "388d3d8dad53240ee9993c3f5d611a51a826b4021476186b028f9e6b70fe45c1",
+      "size_bytes": 219
+    },
+    {
+      "path": "config/examples/functions/general/prompts/team_lead.md",
+      "sha256": "b1162b17866ea3f2c7557b3f833e95631a8d52c71d198772b7849a32dab611ff",
+      "size_bytes": 140
+    },
+    {
+      "path": "config/examples/functions/general/prompts/worker.md",
+      "sha256": "70d9a49e84c36c303cad10f9c847c08c4488c196067f40f083b07acc5882f8ee",
+      "size_bytes": 348
+    },
+    {
+      "path": "config/examples/system.yaml",
+      "sha256": "7bcf681f251d1ce436df0716e0fe75a7726bdda4ab713a900b5e4501261b2ba8",
+      "size_bytes": 2695
+    },
+    {
+      "path": "db/schema.sql",
+      "sha256": "b841389370abc04ebd2c2b48409170c73b2fcb902a4a77e01cf521a4f819289d",
+      "size_bytes": 16410
+    },
+    {
+      "path": "docs/00_决策记录.md",
+      "sha256": "76eafce0f1702525ad04e4f3890d8b22aa0da44e10fccfabf5e0750c58c6dd81",
+      "size_bytes": 6932
+    },
+    {
+      "path": "docs/01_实施规格_v0.4.md",
+      "sha256": "5f6ddf626f20328b0b5289862df7a651208143e70d6e7208c465ef6c84d27a4a",
+      "size_bytes": 43377
+    },
+    {
+      "path": "docs/02_角色行为规格.md",
+      "sha256": "caeb32227171dd5d61d2a741c458360ed2cec5559565ade889bfa2ac5a15abd8",
+      "size_bytes": 16493
+    },
+    {
+      "path": "docs/03_记忆系统v1规格.md",
+      "sha256": "9f07060dbcce189684a5050b5dbf87189a25bcc488fffbb6108d9defad04c28d",
+      "size_bytes": 18680
+    },
+    {
+      "path": "docs/04_验收计划.md",
+      "sha256": "a7db0a71fc53e8d7c34a9e4c16e01b71873aef6590b341c8a8a75b1ea9e64de8",
+      "size_bytes": 11310
+    },
+    {
+      "path": "docs/05_需求追踪.md",
+      "sha256": "a1a4390837d0964b2f5ce9a80d8a216cc937f480dc1655f0d17663e913f308cf",
+      "size_bytes": 5735
+    },
+    {
+      "path": "docs/06_AI协作开发流程.md",
+      "sha256": "d7f94916d691cbca91816d58a152092c46cff8d219d44630c80541d7135cd63b",
+      "size_bytes": 3998
+    },
+    {
+      "path": "docs/07_S1任务卡.md",
+      "sha256": "13c948762535577d676d338a44b1ae6aa8f935b0b23540d6b60d0be8e99c9170",
+      "size_bytes": 14578
+    },
+    {
+      "path": "docs/history/无量山_v0.3蓝图审核与优化建议.md",
+      "sha256": "3b22f8037fe9addac14cf5c399d636c60910f04061d61e809eea8e7f1964154a",
+      "size_bytes": 29557
+    },
+    {
+      "path": "packaging/systemd/wlsd.service",
+      "sha256": "7470f38b64a95c58187337dcfb2abdf52d34ac3ff77e9cf3f2832c18bf8c4fb7",
+      "size_bytes": 632
+    },
+    {
+      "path": "prompts/common.md",
+      "sha256": "7347a23925b229503c63dce841c1d7f726e5f332b1dc9f49afc11c83ad75003e",
+      "size_bytes": 1593
+    },
+    {
+      "path": "prompts/dispatcher.md",
+      "sha256": "c2e911197ecfe7a1914f2d8f1795765e201e81ce8c763db77772f25e7ce113cc",
+      "size_bytes": 2401
+    },
+    {
+      "path": "prompts/team_lead.md",
+      "sha256": "121e023e36e08e8c2fb25b10ecc298017097e886551adabe2e9fe53adfc831ec",
+      "size_bytes": 2356
+    },
+    {
+      "path": "prompts/worker.md",
+      "sha256": "1c01514fb5e1508fa8733819ea8fef2110a6e5d39c4db6840cca3044bebac228",
+      "size_bytes": 1551
+    },
+    {
+      "path": "schemas/README.md",
+      "sha256": "c378d39cd5d232c7ef5dfe51580a85b396220772e53e00254af6ff486e0e7bbe",
+      "size_bytes": 2318
+    },
+    {
+      "path": "schemas/change_order.schema.json",
+      "sha256": "3e08e11ad0a01ec9f69c7824fb606db946488f366a7a422efa1130a42e83d598",
+      "size_bytes": 5381
+    },
+    {
+      "path": "schemas/delivery_manifest.schema.json",
+      "sha256": "79f072ea366de092f24e5d820d259e0436ffccc298ea6e4646be356855645535",
+      "size_bytes": 7642
+    },
+    {
+      "path": "schemas/examples/change_order.dispatcher.json",
+      "sha256": "c52f944b671840f3fcd1b108c9eeaf8b7270efca3192ec4127cf123c5b90919b",
+      "size_bytes": 794
+    },
+    {
+      "path": "schemas/examples/change_order.team_lead.json",
+      "sha256": "6ad6a5abfa7d0bbd24d9b579538f38158320daf9038570fd049b8d755a017f85",
+      "size_bytes": 1032
+    },
+    {
+      "path": "schemas/examples/delivery_manifest.json",
+      "sha256": "21a0363f93ea16dabf57ed5116426fb4874367c34bc7cf6b3173f3e786449e93",
+      "size_bytes": 1369
+    },
+    {
+      "path": "schemas/examples/experience_report.json",
+      "sha256": "dde7760bd9ad0d1e2124d49722b65494d172cf6c40a0f0357e0b24299a407a8c",
+      "size_bytes": 1451
+    },
+    {
+      "path": "schemas/examples/memory_frontmatter.json",
+      "sha256": "4f496ebe277bf68d2d3678e9580d059355ab5c1aa6bc4b986ed3101126f7cf77",
+      "size_bytes": 883
+    },
+    {
+      "path": "schemas/examples/plan.json",
+      "sha256": "858760a95daf6c43494a876e52d3b667b7c1cd3e7cd810d925d6ec2baf8884fd",
+      "size_bytes": 2058
+    },
+    {
+      "path": "schemas/examples/question.json",
+      "sha256": "3bcdebe9d3a9339bf6c4e69508e4063b83f6ebfb666b02519d073b4ca5e8cf7d",
+      "size_bytes": 398
+    },
+    {
+      "path": "schemas/examples/request_texts.json",
+      "sha256": "fbb661cc078293f8b4f2da575e914a2d83d60c1361f02fefc2e899275da75115",
+      "size_bytes": 525
+    },
+    {
+      "path": "schemas/examples/review_request.json",
+      "sha256": "390407eeac5d45da37a3140c87aa568996a73bede05e748322a555628938b965",
+      "size_bytes": 608
+    },
+    {
+      "path": "schemas/examples/review_verdict.json",
+      "sha256": "69426d5c1cc156fa7286e3984d79f6d6374e00dfff5c5e4a80209416d3eb0cf5",
+      "size_bytes": 670
+    },
+    {
+      "path": "schemas/examples/submission.json",
+      "sha256": "1898f2bce26c604b8c9b8988320620d63054461b4edfd3e755240ec04f8db4be",
+      "size_bytes": 1550
+    },
+    {
+      "path": "schemas/examples/task_brief.json",
+      "sha256": "53ab55e61ec47ed4d4b113bcf2b84eb5f373b877f9c52cbc77a0783957367c9f",
+      "size_bytes": 1406
+    },
+    {
+      "path": "schemas/examples/work_order.json",
+      "sha256": "5485c110839a0cc9da17d9dd39b43451645590751bcafddb6969bcd72837e15a",
+      "size_bytes": 1359
+    },
+    {
+      "path": "schemas/experience_report.schema.json",
+      "sha256": "11945a2dc2b9b8b97559981232c2efdbe39a441b509a76fb52a3b58dd1ec05b1",
+      "size_bytes": 8108
+    },
+    {
+      "path": "schemas/memory_frontmatter.schema.json",
+      "sha256": "3784124cdf6aa8b45afa0e0dd678ace068b724cd984658a2eecc2c36eb75103c",
+      "size_bytes": 5679
+    },
+    {
+      "path": "schemas/plan.schema.json",
+      "sha256": "8287ffde3a2187105407093769742559e13d5bf2c97b907010b52bd7f8cc8b26",
+      "size_bytes": 3815
+    },
+    {
+      "path": "schemas/question.schema.json",
+      "sha256": "a11813d59a5811b2dfa2bc1cd2954143cc8871bf73ee84414d892988a296e9ab",
+      "size_bytes": 3300
+    },
+    {
+      "path": "schemas/review_request.schema.json",
+      "sha256": "179a97117d5a6b3164b9a9d75cd19c2a3514756b776338d1786b1e0d697dd652",
+      "size_bytes": 1834
+    },
+    {
+      "path": "schemas/review_verdict.schema.json",
+      "sha256": "3ed4303bc87fdf947542a2cfc615d5532b79dcda53ff50711d365e6da42041b7",
+      "size_bytes": 2944
+    },
+    {
+      "path": "schemas/submission.schema.json",
+      "sha256": "22869e09e967ce9c0c07e6666b3719f7e80014db06d44976ff2e0ab38280157e",
+      "size_bytes": 5537
+    },
+    {
+      "path": "schemas/task_brief.schema.json",
+      "sha256": "76e28402ccf88bebad977c692d814e900df91e8c85228b0d185a10e9f7b51f2c",
+      "size_bytes": 3374
+    },
+    {
+      "path": "schemas/work_order.schema.json",
+      "sha256": "80d2d6c010513b72e3855ac8a8120fbd6c3d6dd89b28031846b4a237e90e9da1",
+      "size_bytes": 2482
+    }
+  ]
+}

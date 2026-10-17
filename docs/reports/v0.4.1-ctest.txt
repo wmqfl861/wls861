@@ -1,0 +1,22 @@
+Internal ctest changing into directory: <repo>/build-cmake
+Test project <repo>/build-cmake
+    Start 1: journal
+1/8 Test #1: journal ..........................   Passed    1.16 sec
+    Start 2: config
+2/8 Test #2: config ...........................   Passed    0.01 sec
+    Start 3: scheduler
+3/8 Test #3: scheduler ........................   Passed    0.04 sec
+    Start 4: task_engine
+4/8 Test #4: task_engine ......................   Passed    0.62 sec
+    Start 5: handoff_integrity
+5/8 Test #5: handoff_integrity ................   Passed    0.13 sec
+    Start 6: review_source_integrity
+6/8 Test #6: review_source_integrity ..........   Passed    0.10 sec
+    Start 7: specification_contracts
+7/8 Test #7: specification_contracts ..........   Passed    1.84 sec
+    Start 8: demo_smoke
+8/8 Test #8: demo_smoke .......................   Passed    0.17 sec
+
+100% tests passed, 0 tests failed out of 8
+
+Total Test time (real) =   4.09 sec

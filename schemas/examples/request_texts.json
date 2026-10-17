@@ -1,0 +1,43 @@
+{
+  "request_id": "req_01JBC7Q5W8M2N3P4R5S6T7V8X9",
+  "texts": [
+    {
+      "kind": "ORIGINAL",
+      "text": "把 /input/sales_2026q3.csv 清洗一下（去掉重复行、统一日期格式为 YYYY-MM-DD），然后按月汇总销售额，输出 summary.csv 和一份简短的说明。不要修改原始文件。金额保留两位小数。",
+      "requirements_revision": 1
+    },
+    {
+      "kind": "AMEND",
+      "text": "汇总改成按月和地区两个维度，另外加一张按地区的柱状图 PNG。",
+      "requirements_revision": 2
+    }
+  ],
+  "requirements_revision": 2,
+  "constraint_catalog": [
+    {
+      "constraint_id": "c1",
+      "text": "统一日期格式为 YYYY-MM-DD",
+      "source_revision": 1
+    },
+    {
+      "constraint_id": "c2",
+      "text": "不要修改原始文件",
+      "source_revision": 1
+    },
+    {
+      "constraint_id": "c3",
+      "text": "金额保留两位小数",
+      "source_revision": 1
+    },
+    {
+      "constraint_id": "c4",
+      "text": "汇总改成按月和地区两个维度",
+      "source_revision": 2
+    },
+    {
+      "constraint_id": "c5",
+      "text": "加一张按地区的柱状图 PNG",
+      "source_revision": 2
+    }
+  ]
+}

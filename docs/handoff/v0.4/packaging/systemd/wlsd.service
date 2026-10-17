@@ -1,0 +1,18 @@
+# 无量山守护进程：systemd 用户服务（安装到 ~/.config/systemd/user/wlsd.service）
+# systemctl --user daemon-reload && systemctl --user enable --now wlsd
+[Unit]
+Description=Wuliangshan multi-agent daemon (wlsd)
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/wlsd
+Restart=on-failure
+RestartSec=3
+# cgroup 委派：wlsd 自身放在 daemon 子组，团队子组建在服务组下（主规格 9.7）
+Delegate=yes
+DelegateSubgroup=daemon
+# API Key 等密钥放这里（权限 600），wlsd 不会把这些变量传给沙箱里的工具进程
+EnvironmentFile=-%h/.config/wls/secrets.env
+
+[Install]
+WantedBy=default.target

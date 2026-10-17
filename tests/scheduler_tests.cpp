@@ -161,6 +161,54 @@ void admission_and_execution_reserve_protect_control_work() {
     }
 }
 
+void saturated_normals_leave_room_for_host_chained_review_and_handoff() {
+    Gate release;
+    std::promise<void> first_started;
+    std::promise<void> second_started;
+    auto first_event = first_started.get_future();
+    auto second_event = second_started.get_future();
+    std::atomic<int> completed_normals{};
+    std::vector<WorkClass> control_order;
+    Scheduler scheduler(3, 6, 1);
+    // On assertion failure, unblock while captured state and gate still live;
+    // scheduler destruction then joins every callback before those objects die.
+    struct ReleaseOnExit { Gate& gate; ~ReleaseOnExit() { gate.release(); } } unblock{release};
+    std::vector<std::future<void>> normals;
+    normals.push_back(scheduler.submit("first", "first", WorkClass::Normal, [&] {
+        first_started.set_value(); release.wait(); ++completed_normals;
+    }));
+    normals.push_back(scheduler.submit("second", "second", WorkClass::Normal, [&] {
+        second_started.set_value(); release.wait(); ++completed_normals;
+    }));
+    await_ready(first_event); await_ready(second_event);
+    for (int index = 0; index < 3; ++index) {
+        const auto id = "queued-" + std::to_string(index);
+        normals.push_back(scheduler.submit(id, id, WorkClass::Normal, [&] { release.wait(); ++completed_normals; }));
+    }
+    CHECK(scheduler.snapshot().normal_outstanding == 5);
+    expect_error(SchedulerErrorCode::NormalCapacityReserved, [&] {
+        (void)scheduler.submit("normal-overflow", "normal-overflow", WorkClass::Normal, [] {});
+    });
+    auto review = scheduler.submit("review", "delivery-resource", WorkClass::Review, [&] {
+        CHECK(scheduler.snapshot().normal_running == 2);
+        control_order.push_back(WorkClass::Review);
+    });
+    // Only the non-worker host waits for a phase and admits the next one. No
+    // normal callback holds a slot while synchronously awaiting a pool future.
+    await_ready(review); review.get();
+    auto handoff = scheduler.submit("handoff", "delivery-resource", WorkClass::Handoff, [&] {
+        CHECK(scheduler.snapshot().normal_running == 2);
+        control_order.push_back(WorkClass::Handoff);
+    });
+    await_ready(handoff); handoff.get();
+    CHECK(control_order == std::vector<WorkClass>({WorkClass::Review, WorkClass::Handoff}));
+    CHECK(completed_normals.load() == 0);
+    CHECK(scheduler.snapshot().normal_outstanding == 5);
+    release.release();
+    for (auto& normal : normals) normal.get();
+    CHECK(completed_normals.load() == 5); CHECK(scheduler.snapshot().outstanding == 0);
+}
+
 void runnable_classes_take_turns_without_starvation() {
     Scheduler scheduler(2, 32);
     Gate permanent_release;
@@ -273,15 +321,19 @@ void drain_completes_accepted_jobs_and_propagates_exceptions() {
 }
 
 void callback_can_use_scheduler_without_queue_lock() {
+    std::future<void> inner;
     Scheduler scheduler(2, 8);
     auto outer = scheduler.submit("outer", "outer", WorkClass::Normal, [&] {
         CHECK(scheduler.snapshot().running >= 1);
-        auto inner = scheduler.submit("inner", "inner", WorkClass::Review, [] {});
-        inner.get();
+        // Same-key work cannot run until this callback returns. Submission is
+        // nonblocking; the host, rather than this worker, waits for its result.
+        inner = scheduler.submit("inner", "outer", WorkClass::Review, [] {});
         expect_error(SchedulerErrorCode::InvalidShutdown, [&] { scheduler.close(); });
     });
     await_ready(outer);
     outer.get();
+    await_ready(inner);
+    inner.get();
 }
 
 void invalid_and_duplicate_jobs_do_not_get_accepted() {
@@ -323,6 +375,7 @@ int main() {
         {"same resource is FIFO serial while unrelated work progresses", same_resource_serializes_and_other_resource_progresses},
         {"independent keys execute concurrently", independent_keys_truly_run_concurrently},
         {"normal work preserves admission and execution reserve", admission_and_execution_reserve_protect_control_work},
+        {"saturated normals permit host-chained review and handoff", saturated_normals_leave_room_for_host_chained_review_and_handoff},
         {"runnable classes rotate without starvation", runnable_classes_take_turns_without_starvation},
         {"close cancels queued jobs and waits for running callbacks", cancellation_is_explicit_and_running_work_finishes},
         {"drain completes accepted jobs and future preserves exceptions", drain_completes_accepted_jobs_and_propagates_exceptions},

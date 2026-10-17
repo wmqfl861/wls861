@@ -1,0 +1,40 @@
+{
+  "id": "exp-20261017-k3f9",
+  "type": "experience",
+  "status": "active",
+  "scope": "project:default",
+  "title": "在带子模块的仓库里新建 git worktree 前先初始化子模块",
+  "description": "工作区是带子模块的 git 仓库、需要新建 worktree 时使用",
+  "outcome": "failure",
+  "intent": "git-worktree-setup",
+  "tags": [
+    "git",
+    "worktree",
+    "子模块"
+  ],
+  "applies_to": {
+    "functions": [
+      "dev"
+    ],
+    "tools": [
+      "git>=2.40"
+    ],
+    "os": [
+      "linux"
+    ],
+    "conditions": [
+      "仓库包含 .gitmodules"
+    ]
+  },
+  "error_signatures": [
+    "run:git:fatal: not a git repository"
+  ],
+  "source": {
+    "kind": "team_handoff",
+    "ref": "req_01JBC7Q5W8M2N3P4R5S6T7V8X9/team_01JBC7Q6K1M2N3P4Q5R6S7T8V9"
+  },
+  "supersedes": [],
+  "related": [],
+  "created": "2026-10-17",
+  "updated": "2026-10-17"
+}

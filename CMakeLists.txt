@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(wls861 VERSION 0.1.0 LANGUAGES CXX)
+project(wls861 VERSION 0.1.1 LANGUAGES CXX)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "M1 currently requires Linux journal and process semantics")
@@ -45,6 +45,13 @@ target_link_libraries(wls861 PRIVATE wls_kernel)
 include(CTest)
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import jsonschema"
+        RESULT_VARIABLE WLS_CONTRACT_DEPENDENCY_RESULT
+        OUTPUT_QUIET ERROR_QUIET)
+    if(NOT WLS_CONTRACT_DEPENDENCY_RESULT EQUAL 0)
+        message(FATAL_ERROR
+            "Contract tests need jsonschema. Install requirements-test.txt in a virtual environment and set Python3_EXECUTABLE to that environment's Python, or use -DBUILD_TESTING=OFF to build only the C++ runtime.")
+    endif()
     foreach(suite IN ITEMS journal config scheduler task_engine)
         add_executable(${suite}_tests tests/${suite}_tests.cpp)
         target_link_libraries(${suite}_tests PRIVATE wls_kernel)
@@ -54,8 +61,13 @@ if(BUILD_TESTING)
     endforeach()
     add_test(NAME handoff_integrity
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_handoff.py")
+    add_test(NAME review_source_integrity
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_review_source.py")
+    add_test(NAME specification_contracts
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/contracts_tests.py")
     add_test(NAME demo_smoke
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/demo_smoke.py"
                 "$<TARGET_FILE:wls861>")
-    set_tests_properties(handoff_integrity demo_smoke PROPERTIES TIMEOUT 60)
+    set_tests_properties(handoff_integrity review_source_integrity specification_contracts demo_smoke
+        PROPERTIES TIMEOUT 60)
 endif()

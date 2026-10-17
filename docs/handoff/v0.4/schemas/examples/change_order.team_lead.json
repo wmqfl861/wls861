@@ -1,0 +1,31 @@
+{
+  "parent_change_id": "chg_01JBC7R2A3B4C5D6E7F8G9H0JK",
+  "kind": "amend",
+  "summary": "保留 cleaned.csv，重做汇总和说明，新增柱状图。",
+  "stop": [
+    "不要再生成只有 month,total_sales 两列的 summary.csv"
+  ],
+  "keep": [
+    "/work/out/cleaned.csv 已通过检查，直接复用，不要重新清洗"
+  ],
+  "add": [
+    "从 cleaned.csv 按 month、region 分组求和，金额保留两位小数，覆盖 /work/out/summary.csv",
+    "用 matplotlib 画按地区汇总的柱状图，保存为 /work/out/sales_by_region.png",
+    "README.md 补充新的汇总维度和图表说明"
+  ],
+  "acceptance_changes": [
+    {
+      "op": "modify",
+      "criterion_id": "ac1",
+      "text": "/work/out/summary.csv 存在，列为 month,region,total_sales"
+    },
+    {
+      "op": "add",
+      "text": "/work/out/sales_by_region.png 存在，是按地区汇总的柱状图"
+    }
+  ],
+  "constraints_verbatim": [
+    "汇总改成按月和地区两个维度",
+    "加一张按地区的柱状图 PNG"
+  ]
+}

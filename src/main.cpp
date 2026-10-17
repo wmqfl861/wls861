@@ -18,7 +18,7 @@
 namespace {
 
 using namespace wls;
-constexpr std::string_view version = "0.1.0-m1";
+constexpr std::string_view version = "0.1.1-m1";
 constexpr std::string_view fixture_payload = "hello";
 // SHA-256 of the five UTF-8 bytes in fixture_payload. This is a fixed synthetic
 // artifact, not a model response or a receipt from an external delivery system.

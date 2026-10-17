@@ -1,0 +1,91 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "requirements_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "texts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "requirements_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "kind": {
+            "enum": [
+              "ORIGINAL",
+              "AMEND"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "requirements_revision",
+          "kind",
+          "text"
+        ]
+      },
+      "maxItems": 100,
+      "minItems": 1
+    },
+    "constraint_catalog": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "constraint_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "pattern": "^c[0-9]{1,6}$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "source_revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "constraint_id",
+          "text",
+          "source_revision"
+        ]
+      },
+      "maxItems": 200,
+      "minItems": 0
+    }
+  },
+  "required": [
+    "request_id",
+    "requirements_revision",
+    "texts",
+    "constraint_catalog"
+  ],
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RequestSnapshot",
+  "$id": "https://wuliangshan.local/schemas/v0.4.1/request_snapshot.schema.json"
+}

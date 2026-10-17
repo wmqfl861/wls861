@@ -1,0 +1,52 @@
+# S1 功能模板样例，尚不是当前 M1 已接入的配置加载能力。
+schema_version: 1
+spec_version: 0.4.1
+id: general
+version: 1
+description: 通用演示：文件、脚本和数据处理；真实能力完成前只用 fake。
+
+# 每请求创建时冻结以下配置，后建团队和恢复继续用该快照。
+root:
+  model_ref: null
+  reasoning: null
+roles:
+  dispatcher:
+    model_ref: null
+    reasoning: null
+    prompt_append: prompts/dispatcher.md
+  team_lead:
+    model_ref: null
+    reasoning: null
+    prompt_append: prompts/team_lead.md
+  worker:
+    model_ref: null
+    reasoning: null
+    prompt_append: prompts/worker.md
+
+team_templates:
+  default:
+    worker_tools: [fs_list, fs_read, fs_search, fs_write, fs_patch, run, op_status, op_output, op_cancel, ask, progress, ack_change, submit, note, recall, load_memory]
+    network: none
+    workspace: plain
+    env: env.yaml
+    isolation: strong
+
+capabilities:
+  - id: run
+    input: free_text
+    dispatch: plan
+    default: true
+
+pinned_skills: []
+
+# S2 模板能力示例（需要对应注册与验收器，Schema 合格不能直接放行）：
+# capabilities:
+#   - id: review_code
+#     dispatch: template
+#     input_schema: review_request
+#     output_schema: review_verdict
+#     acceptance_validator: current_review_evidence_v1
+#     required_checks_source: review_request.criteria
+#     fail_on_required_not_run: true
+#     team_template: reviewer
+#     brief_template: briefs/review_code.md

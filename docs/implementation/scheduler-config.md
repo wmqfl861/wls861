@@ -1,5 +1,13 @@
 # M1 scheduler and configuration contracts
 
+Revision note: 0.1.1-m1 retains this scheduler/configuration implementation.
+The v0.4.1 blueprint adds logical Dispatcher/Worker admission accounting for
+the future role runner; the current pool alone does not implement that layer.
+Callbacks may enqueue work but must return before waiting for dependent work
+on this pool. The host chains futures, including review followed by handoff.
+The saturation regression checks both phases progress while normal execution
+and normal admission remain full.
+
 ## Bounded synthetic scheduler
 
 `wls::Scheduler(workers, capacity, reserved)` owns a fixed pool of standard C++

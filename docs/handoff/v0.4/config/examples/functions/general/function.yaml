@@ -1,0 +1,52 @@
+# 功能模板样例：general（通用执行，S1 演示用）
+# 新增一个功能 = 复制这个目录、改这里和 env.yaml、prompts/，不改代码。
+schema_version: 1
+id: general
+version: 1
+description: 通用执行：处理文件、写脚本、整理数据等。Worker 只有文件与命令工具。
+
+# 本功能 Root 的默认值；null 表示使用 system.yaml 的 defaults
+root:
+  model_ref: null
+  reasoning: null
+
+# 各角色的覆盖值；null 表示直接取上面 root 的值（不会沿其他角色继承）
+# 例：dispatcher 设了 model_ref，worker 未设 → worker 仍然用 root 的模型
+roles:
+  dispatcher:
+    model_ref: null
+    reasoning: null
+    prompt_append: prompts/dispatcher.md
+  team_lead:
+    model_ref: null
+    reasoning: null
+    prompt_append: prompts/team_lead.md
+  worker:
+    model_ref: null
+    reasoning: null
+    prompt_append: prompts/worker.md
+
+team_templates:
+  default:
+    worker_tools: [fs, proc, collab, memory]
+    network: none            # none | host；S2 起支持 allowlist
+    workspace: plain         # plain | git_worktree（S2）
+    env: env.yaml
+
+capabilities:
+  - id: run                  # 对外名称 general.run
+    input: free_text
+    dispatch: plan           # plan：由 Dispatcher 规划；template：模板化 Dispatcher（S2）
+    default: true
+
+# S3 起生效：常用 Skill 名单，其 name + description 进入缓存前缀
+pinned_skills: []
+
+# 模板化能力的写法（S2，审核功能里使用），仅作参考：
+# capabilities:
+#   - id: review_code
+#     dispatch: template
+#     input_schema: review_request          # schemas/review_request.schema.json
+#     output_schema: review_verdict         # schemas/review_verdict.schema.json
+#     team_template: reviewer
+#     brief_template: briefs/review_code.md # 用输入字段填出 TaskBrief

@@ -1,0 +1,141 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/v0.4.1/question.schema.json",
+  "title": "Question",
+  "description": "向上一级提问。原文在逐级上报中保持不变，各级只能附加 note。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "text"
+  ],
+  "properties": {
+    "question_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^q_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "（运行时填写，模型不要提供）",
+      "x-runtime-field": true
+    },
+    "asked_by": {
+      "enum": [
+        "worker",
+        "team_lead",
+        "dispatcher",
+        "runtime"
+      ],
+      "description": "（运行时填写，模型不要提供）",
+      "x-runtime-field": true
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "（运行时填写，模型不要提供）",
+      "x-runtime-field": true
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "description": "问题原文"
+    },
+    "context": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "description": "背景：已经尝试过什么、为什么需要回答"
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16,
+            "pattern": "^[a-z0-9_-]{1,16}$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "maxItems": 8
+    },
+    "blocking": {
+      "type": "boolean",
+      "default": true
+    },
+    "forwarded": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "enum": [
+              "team_lead",
+              "dispatcher"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        }
+      },
+      "maxItems": 3,
+      "description": "（运行时填写，模型不要提供）",
+      "x-runtime-field": true
+    },
+    "answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "answered_by",
+        "answered_at"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "selected_option": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "answered_by": {
+          "enum": [
+            "team_lead",
+            "dispatcher",
+            "user"
+          ]
+        },
+        "answered_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+        }
+      },
+      "description": "（运行时填写，模型不要提供）",
+      "x-runtime-field": true
+    }
+  }
+}

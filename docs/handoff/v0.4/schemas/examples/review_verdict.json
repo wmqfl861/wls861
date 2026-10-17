@@ -1,0 +1,21 @@
+{
+  "verdict": "changes_requested",
+  "candidate_ref": "art_01JBC7S1A2B3C4D5E6F7G8H9JK",
+  "summary": "汇总口径有一处问题，需要修改后再审。",
+  "findings": [
+    {
+      "id": "f1",
+      "severity": "major",
+      "location": "summary.csv，2026-08，华东",
+      "text": "该组合计比明细少了 3 行退款记录：负数金额被过滤掉了，与说明中'退款计入汇总'不一致。",
+      "suggestion": "汇总时不要过滤负数金额。"
+    }
+  ],
+  "evidence": [
+    {
+      "check": "按地区重新求和对比",
+      "result": "fail",
+      "detail": "华东 2026-08：汇总 1,203,445.10，明细 1,201,987.30"
+    }
+  ]
+}

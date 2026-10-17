@@ -1,0 +1,291 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/v0.4.1/review_verdict.schema.json",
+  "title": "ReviewVerdict",
+  "description": "审核结论。不通过的报告也是合格的审查交付。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "verdict",
+    "candidate_ref",
+    "summary",
+    "findings",
+    "request_id",
+    "task_id",
+    "requirements_revision",
+    "plan_revision",
+    "task_revision",
+    "instruction_revision",
+    "dispatcher_epoch",
+    "review_id",
+    "submission_id",
+    "candidate_sha256",
+    "round",
+    "reviewer_instruction_revision",
+    "reviewer_request_id",
+    "reviewer_task_id",
+    "reviewer_team_id",
+    "reviewer_requirements_revision",
+    "reviewer_plan_revision",
+    "reviewer_task_revision",
+    "reviewer_dispatcher_epoch",
+    "reviewer_execution_epoch",
+    "reviewer_policy_epoch"
+  ],
+  "properties": {
+    "verdict": {
+      "enum": [
+        "pass",
+        "changes_requested",
+        "inconclusive"
+      ]
+    },
+    "candidate_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^art_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "round": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "severity",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8,
+            "pattern": "^f[0-9]{1,3}$"
+          },
+          "severity": {
+            "enum": [
+              "blocker",
+              "major",
+              "minor",
+              "nit"
+            ]
+          },
+          "location": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "suggestion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        }
+      },
+      "maxItems": 100
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "check",
+          "result"
+        ],
+        "properties": {
+          "check": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "result": {
+            "enum": [
+              "pass",
+              "fail",
+              "not_run"
+            ]
+          },
+          "detail": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        }
+      },
+      "maxItems": 50,
+      "description": "审核者的判断与声明；不能代替宿主保存的确定性检查证据，Schema 通过不代表任务验收。"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "requirements_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "plan_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "task_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "instruction_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "dispatcher_epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "review_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^review_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "submission_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^sub_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "candidate_sha256": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "reviewer_instruction_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "reviewer_request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "reviewer_task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "reviewer_team_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^team_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "reviewer_requirements_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "reviewer_plan_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "reviewer_task_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "reviewer_dispatcher_epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "reviewer_execution_epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "reviewer_policy_epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "changes_requested"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "findings": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "team_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^team_[0-9A-HJKMNP-TV-Z]{26}$",
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "requirements_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "plan_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "task_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "instruction_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "dispatcher_epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "execution_epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    },
+    "policy_epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "x-runtime-field": true,
+      "description": "（运行时从已冻结的权威记录填写，模型不要提供）"
+    }
+  },
+  "required": [
+    "request_id",
+    "task_id",
+    "team_id",
+    "requirements_revision",
+    "plan_revision",
+    "task_revision",
+    "instruction_revision",
+    "dispatcher_epoch",
+    "execution_epoch",
+    "policy_epoch"
+  ],
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExecutionBinding",
+  "$id": "https://wuliangshan.local/schemas/v0.4.1/execution_binding.schema.json"
+}

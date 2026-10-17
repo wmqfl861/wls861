@@ -1,0 +1,268 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/v0.4.1/memory_frontmatter.schema.json",
+  "title": "MemoryFrontmatter",
+  "description": "规则、事实、经验文件的 YAML 文件头（Skill 用 SKILL.md 标准，见 03 第 2.4 节）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "type",
+    "status",
+    "scope",
+    "title",
+    "description",
+    "tags",
+    "source",
+    "created",
+    "updated"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^(rul|fct|exp)-[0-9]{8}-[a-z0-9]{4}$"
+    },
+    "type": {
+      "enum": [
+        "rule",
+        "fact",
+        "experience"
+      ]
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "active",
+        "archived",
+        "blocked"
+      ]
+    },
+    "scope": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^(global|function:[a-z0-9_-]+|project:[a-z0-9_-]+)$"
+    },
+    "proposed_scope": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^(global|function:[a-z0-9_-]+|project:[a-z0-9_-]+)$",
+      "description": "待批准的作用域扩大"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "description": "一句话：什么时候用"
+    },
+    "outcome": {
+      "enum": [
+        "success",
+        "failure",
+        "mixed"
+      ]
+    },
+    "intent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 32
+      },
+      "maxItems": 20
+    },
+    "applies_to": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "functions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "maxItems": 20
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "工具名，可带版本约束，如 git>=2.40"
+          },
+          "maxItems": 20
+        },
+        "os": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "linux",
+              "windows",
+              "macos"
+            ]
+          },
+          "maxItems": 3
+        },
+        "conditions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "maxItems": 10,
+          "description": "其他适用条件，自然语言"
+        }
+      },
+      "description": "适用范围；空表示不限"
+    },
+    "error_signatures": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300
+      },
+      "maxItems": 10
+    },
+    "enforcement": {
+      "enum": [
+        "guidance",
+        "policy"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "user",
+            "team_handoff",
+            "import",
+            "merge",
+            "curator"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      }
+    },
+    "revises": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^(rul|fct|exp)-[0-9]{8}-[a-z0-9]{4}$"
+    },
+    "supersedes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "pattern": "^((rul|fct|exp)-[0-9]{8}-[a-z0-9]{4}|skill:[a-z0-9]+(-[a-z0-9]+)*)$"
+      },
+      "maxItems": 20
+    },
+    "superseded_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^((rul|fct|exp)-[0-9]{8}-[a-z0-9]{4}|skill:[a-z0-9]+(-[a-z0-9]+)*)$"
+    },
+    "related": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "pattern": "^((rul|fct|exp)-[0-9]{8}-[a-z0-9]{4}|skill:[a-z0-9]+(-[a-z0-9]+)*)$"
+      },
+      "maxItems": 20
+    },
+    "block_reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "created": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 10,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "updated": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 10,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "experience"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "outcome"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "rule"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "enforcement"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "blocked"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "block_reason"
+        ]
+      }
+    }
+  ]
+}

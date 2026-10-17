@@ -1,0 +1,29 @@
+{
+  "kind": "amend",
+  "summary": "汇总维度改为月份 × 地区，并新增按地区的柱状图。",
+  "stop": [
+    "只按月汇总的输出格式"
+  ],
+  "keep": [
+    "已完成的清洗结果（去重、日期统一）"
+  ],
+  "add": [
+    "summary.csv 改为 month,region,total_sales 三列",
+    "生成按地区汇总的柱状图 /work/out/sales_by_region.png"
+  ],
+  "acceptance_changes": [
+    {
+      "op": "modify",
+      "criterion_id": "ac1",
+      "text": "/work/out/summary.csv 存在，列为 month,region,total_sales"
+    },
+    {
+      "op": "add",
+      "text": "/work/out/sales_by_region.png 存在，是按地区汇总的柱状图"
+    }
+  ],
+  "constraints_verbatim": [
+    "汇总改成按月和地区两个维度",
+    "加一张按地区的柱状图 PNG"
+  ]
+}

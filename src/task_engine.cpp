@@ -42,6 +42,7 @@ bool unsettled(OperationState state) {
 bool control_event(const std::string& kind) {
     return kind == "RuntimeRestarted" || kind == "DispatcherRecovered" ||
         kind == "OperationFinished" || kind == "OperationReconciled" ||
+        kind == "OperationCancelRequested" || kind == "RequirementsApplied" ||
         kind == "RequestCancelled" || kind == "ResourceStateChanged" ||
         kind == "AcceptanceRevoked" ||
         kind == "CandidateAccepted" || kind == "HandoffPrepared" || kind == "DeliveryConfirmed";
@@ -598,6 +599,12 @@ RequestSnapshot TaskEngine::instruct_team(const std::string& id, const Command& 
         auto& team = q.teams.at(cmd.actor.team_id); team.instructions = instructions;
         team.instructions_revision = q.requirements_revision; team.instructions_plan_revision = q.plan_revision;
         team.lease_epoch = q.lease_epoch; team.instructions_version = increment(team.instructions_version);
+        if (q.candidate && q.candidate->producer_team_id == team.team_id) {
+            // Previous evidence remains historical, but it cannot approve an
+            // artifact produced under superseded instructions. Keep immutable
+            // version high-water marks so the old candidate cannot be relabeled.
+            q.candidate.reset(); invalidate_acceptance(q); q.state = RequestState::Running;
+        }
         for (auto& [operation_id, operation] : q.operations) {
             (void)operation_id;
             if (operation.team_id != team.team_id) continue;
@@ -608,10 +615,18 @@ RequestSnapshot TaskEngine::instruct_team(const std::string& id, const Command& 
 }
 RequestSnapshot TaskEngine::acknowledge_applied(const std::string& id, const Command& cmd) {
     return impl_->mutate(id, cmd, Role::Worker, "RequirementsApplied", "", [&](auto& q) {
-        impl_->active(q); auto& t = q.teams.at(cmd.actor.team_id); impl_->no_unknown(q, t.team_id);
+        impl_->active(q); auto& t = q.teams.at(cmd.actor.team_id);
         require(t.lease_epoch == q.lease_epoch && t.instructions_revision == q.requirements_revision &&
-                t.instructions_plan_revision == q.plan_revision && !t.instructions.empty(),
+                t.instructions_plan_revision == q.plan_revision && t.instructions_version > 0 &&
+                q.plan_revision > 0 && q.plan_requirements_revision == q.requirements_revision && !t.instructions.empty(),
                 ErrorCode::StaleRequirements, "TeamLead must explain current change first");
+        // Control must be possible before business readiness is restored, even
+        // with an unresolved old operation. New business retains its UNKNOWN
+        // gates. Each admitted instruction has at most one effective ack; exact
+        // command retries are handled above without consuming more journal space.
+        require(t.applied_revision != q.requirements_revision || t.applied_plan_revision != q.plan_revision ||
+                t.applied_instructions_version != t.instructions_version,
+                ErrorCode::InvalidState, "current instructions are already acknowledged");
         t.applied_revision = q.requirements_revision; t.applied_plan_revision = q.plan_revision;
         t.applied_instructions_version = t.instructions_version;
         if (q.state == RequestState::Adjusting) q.state = RequestState::Running;
@@ -675,6 +690,23 @@ RequestSnapshot TaskEngine::finish_operation(const std::string& id, const Comman
         require(operation.lease_epoch == q.lease_epoch && operation.requirements_revision == q.requirements_revision &&
                 operation.plan_revision == q.plan_revision, ErrorCode::StaleRequirements, "obsolete operation result");
         operation.state = outcome; operation.evidence_ref = evidence;
+    });
+}
+RequestSnapshot TaskEngine::cancel_operation(const std::string& id, const Command& cmd,
+        const std::string& operation_id) {
+    identifier(operation_id, "operation id");
+    return impl_->mutate(id, cmd, Role::Worker, "OperationCancelRequested", operation_id, [&](auto& q) {
+        // Identity, epoch, requirements and CAS are still checked by mutate.
+        // Do not require business readiness to stop the Worker's own admitted
+        // operation, including when another outcome in this team is UNKNOWN.
+        auto it = q.operations.find(operation_id);
+        require(it != q.operations.end(), ErrorCode::NotFound, "operation not found"); auto& operation = it->second;
+        require(operation.team_id == cmd.actor.team_id, ErrorCode::Unauthorized, "operation belongs to another team");
+        require(operation.state != OperationState::Unknown, ErrorCode::UnknownOutcome,
+                "unknown operation outcome requires runtime reconciliation");
+        require(operation.state == OperationState::Prepared || operation.state == OperationState::Running,
+                ErrorCode::InvalidState, "operation is already settled");
+        operation.state = operation.state == OperationState::Prepared ? OperationState::Cancelled : OperationState::Unknown;
     });
 }
 

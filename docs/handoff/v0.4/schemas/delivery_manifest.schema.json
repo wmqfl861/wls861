@@ -1,0 +1,296 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/delivery_manifest.schema.json",
+  "title": "DeliveryManifest",
+  "description": "Dispatcher 用 deliver 提交的交付清单；哈希、大小、用量等由运行时补全。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "deliverables",
+    "acceptance",
+    "limitations"
+  ],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "（运行时填写，模型不要提供）"
+    },
+    "requirements_rev": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "（运行时填写，模型不要提供）"
+    },
+    "plan_rev": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "（运行时填写，模型不要提供）"
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$",
+      "description": "（运行时填写，模型不要提供）"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "deliverables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_id",
+          "name",
+          "description"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "pattern": "^art_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[^/\\\\]+$",
+            "description": "在交付包 deliverables/ 下的文件名"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "sha256": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "（运行时填写，模型不要提供）"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "（运行时填写，模型不要提供）"
+          }
+        }
+      },
+      "maxItems": 200,
+      "minItems": 1
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "criteria_results"
+      ],
+      "properties": {
+        "criteria_results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "node_id",
+              "criterion_id",
+              "met"
+            ],
+            "properties": {
+              "node_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48,
+                "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"
+              },
+              "criterion_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8,
+                "pattern": "^ac[0-9]{1,3}$"
+              },
+              "met": {
+                "enum": [
+                  "yes",
+                  "no",
+                  "partial",
+                  "waived"
+                ]
+              },
+              "evidence": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              }
+            }
+          },
+          "maxItems": 200
+        },
+        "reviews": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "node_id",
+              "verdict",
+              "round"
+            ],
+            "properties": {
+              "node_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48,
+                "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"
+              },
+              "verdict": {
+                "enum": [
+                  "pass",
+                  "changes_requested",
+                  "inconclusive"
+                ]
+              },
+              "round": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "accepted_with_issues": {
+                "type": "boolean"
+              }
+            }
+          },
+          "maxItems": 50
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "maxItems": 50,
+      "description": "限制与未解决问题；带问题验收的审核问题必须列在这里"
+    },
+    "open_issues": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "maxItems": 50
+    },
+    "side_effects": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "maxItems": 50,
+      "description": "对外部产生的影响；没有则为空"
+    },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "reports": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "pattern": "^rep_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "maxItems": 50
+        },
+        "memory_changes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "memory_id",
+              "action"
+            ],
+            "properties": {
+              "memory_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "pattern": "^((rul|fct|exp)-[0-9]{8}-[a-z0-9]{4}|skill:[a-z0-9]+(-[a-z0-9]+)*)$"
+              },
+              "action": {
+                "enum": [
+                  "create",
+                  "revise",
+                  "conflict",
+                  "feedback"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "draft",
+                  "active",
+                  "archived",
+                  "blocked"
+                ]
+              }
+            }
+          },
+          "maxItems": 100
+        }
+      },
+      "description": "（运行时填写，模型不要提供）"
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cache_read_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cache_write_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "description": "（运行时填写，模型不要提供）"
+    }
+  }
+}

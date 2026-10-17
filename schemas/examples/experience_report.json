@@ -1,0 +1,48 @@
+{
+  "no_new_experience": false,
+  "entries": [
+    {
+      "kind": "new",
+      "type": "experience",
+      "outcome": "failure",
+      "title": "pandas 读取带千分位逗号的金额列会得到字符串",
+      "description": "读取导出的财务或销售 CSV、金额列可能带千分位逗号时使用",
+      "body_markdown": "## 场景\n导出的 CSV 金额形如 \"1,234.50\"。\n## 教训\n直接 read_csv 后该列是 object 类型，求和会变成字符串拼接或报错。\n## 做法\nread_csv 时加 thousands=','，或读入后先去掉逗号再 astype(float)。\n## 限制\n欧洲格式（逗号作小数点）不适用。",
+      "tags": [
+        "pandas",
+        "csv",
+        "金额"
+      ],
+      "intent": "csv-amount-parsing",
+      "error_signatures": [
+        "run:python3:TypeError: can only concatenate str (not \"float\") to str"
+      ],
+      "applies_to": {
+        "functions": [
+          "general"
+        ],
+        "tools": [
+          "python3"
+        ],
+        "os": [
+          "linux"
+        ]
+      },
+      "proposed_scope": "project",
+      "evidence": "第一次汇总时 total_sales 报 TypeError；加 thousands=',' 后通过，汇总总额与明细一致（18,734,201.55）。"
+    }
+  ],
+  "memory_assessments": [
+    {
+      "memory_id": "exp-20261012-a7k2",
+      "verdict": "worked",
+      "evidence": "按该经验处理金额列后，类型正确，汇总一次通过。",
+      "load_id": "load_01JBC7Q5W8M2N3P4R5S6T7V8X9",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "report_id": "rep_01JBC7Q5W8M2N3P4R5S6T7V8X9",
+  "request_id": "req_01JBC7Q5W8M2N3P4R5S6T7V8X9",
+  "task_id": "tsk_01JBC7Q5W8M2N3P4R5S6T7V8X9",
+  "team_id": "team_01JBC7Q5W8M2N3P4R5S6T7V8X9"
+}

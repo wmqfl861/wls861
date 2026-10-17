@@ -22,7 +22,7 @@ LIBRARY := $(BUILD_DIR)/libwls861.a
 APPLICATION := $(BUILD_DIR)/wls861
 DEPENDENCIES := $(KERNEL_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d) $(MAIN_OBJECT:.o=.d)
 
-.PHONY: all test test-binaries verify-handoff sanitize ubsan asan
+.PHONY: all test test-binaries verify-handoff verify-contracts sanitize ubsan asan
 
 all: $(APPLICATION)
 
@@ -43,9 +43,15 @@ test-binaries: $(TEST_BINARIES)
 
 verify-handoff:
 	$(PYTHON) scripts/verify_handoff.py
+	$(PYTHON) scripts/verify_review_source.py
+
+verify-contracts:
+	$(PYTHON) tests/contracts_tests.py
 
 test: all $(TEST_BINARIES)
 	$(PYTHON) scripts/verify_handoff.py
+	$(PYTHON) scripts/verify_review_source.py
+	$(PYTHON) tests/contracts_tests.py
 	"$(BUILD_DIR)/journal_tests"
 	"$(BUILD_DIR)/config_tests"
 	"$(BUILD_DIR)/scheduler_tests"
