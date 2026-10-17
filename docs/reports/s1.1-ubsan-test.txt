@@ -1,0 +1,235 @@
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 make BUILD_DIR="build-ubsan" CXXFLAGS="-O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer" LDFLAGS=" -fsanitize=undefined" test
+make[1]: Entering directory '<repo>'
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/src/boost_json.d" -c "src/boost_json.cpp" -o "build-ubsan/src/boost_json.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/src/cli.d" -c "src/cli.cpp" -o "build-ubsan/src/cli.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/src/runtime_types.d" -c "src/runtime_types.cpp" -o "build-ubsan/src/runtime_types.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/src/store.d" -c "src/store.cpp" -o "build-ubsan/src/store.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/src/config_loader.d" -c "src/config_loader.cpp" -o "build-ubsan/src/config_loader.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/src/model.d" -c "src/model.cpp" -o "build-ubsan/src/model.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/src/context.d" -c "src/context.cpp" -o "build-ubsan/src/context.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/src/schema.d" -c "src/schema.cpp" -o "build-ubsan/src/schema.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/src/offline_runtime.d" -c "src/offline_runtime.cpp" -o "build-ubsan/src/offline_runtime.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/tests/runtime_types_tests.d" -c "tests/runtime_types_tests.cpp" -o "build-ubsan/tests/runtime_types_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/tests/store_tests.d" -c "tests/store_tests.cpp" -o "build-ubsan/tests/store_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/tests/config_loader_tests.d" -c "tests/config_loader_tests.cpp" -o "build-ubsan/tests/config_loader_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/tests/model_tests.d" -c "tests/model_tests.cpp" -o "build-ubsan/tests/model_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/tests/schema_tests.d" -c "tests/schema_tests.cpp" -o "build-ubsan/tests/schema_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "build-ubsan/tests/offline_runtime_tests.d" -c "tests/offline_runtime_tests.cpp" -o "build-ubsan/tests/offline_runtime_tests.o"
+ar rcs "build-ubsan/libwls_s1.a" build-ubsan/src/boost_json.o build-ubsan/src/runtime_types.o build-ubsan/src/store.o build-ubsan/src/config_loader.o build-ubsan/src/model.o build-ubsan/src/context.o build-ubsan/src/schema.o build-ubsan/src/offline_runtime.o
+g++ -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -fsanitize=undefined "build-ubsan/src/cli.o" "build-ubsan/libwls_s1.a" "build-ubsan/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "build-ubsan/wls"
+g++ -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -fsanitize=undefined "build-ubsan/tests/runtime_types_tests.o" "build-ubsan/libwls_s1.a" "build-ubsan/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "build-ubsan/runtime_types_tests"
+g++ -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -fsanitize=undefined "build-ubsan/tests/store_tests.o" "build-ubsan/libwls_s1.a" "build-ubsan/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "build-ubsan/store_tests"
+g++ -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -fsanitize=undefined "build-ubsan/tests/config_loader_tests.o" "build-ubsan/libwls_s1.a" "build-ubsan/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "build-ubsan/config_loader_tests"
+g++ -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -fsanitize=undefined "build-ubsan/tests/model_tests.o" "build-ubsan/libwls_s1.a" "build-ubsan/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "build-ubsan/model_tests"
+g++ -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -fsanitize=undefined "build-ubsan/tests/schema_tests.o" "build-ubsan/libwls_s1.a" "build-ubsan/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "build-ubsan/schema_tests"
+g++ -O2 -g -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -fsanitize=undefined "build-ubsan/tests/offline_runtime_tests.o" "build-ubsan/libwls_s1.a" "build-ubsan/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "build-ubsan/offline_runtime_tests"
+/usr/bin/python3 scripts/verify_handoff.py
+PASS handoff: 33 original files; 32 SHA-256 entries plus pinned manifest; 31 payload entries; 51 acceptance cases remain 未执行
+/usr/bin/python3 scripts/verify_review_source.py
+PASS v0.4 review source: 49 original files match the pinned SHA-256 manifest
+/usr/bin/python3 tests/contracts_tests.py
+test_ack_control_can_progress_with_unknown_but_business_remains_blocked (__main__.SQLiteContracts.test_ack_control_can_progress_with_unknown_but_business_remains_blocked) ... ok
+test_amend_omission_blocks_and_keep_needs_new_instruction_and_ack (__main__.SQLiteContracts.test_amend_omission_blocks_and_keep_needs_new_instruction_and_ack) ... ok
+test_amended_accepted_task_requires_new_version_experience_report (__main__.SQLiteContracts.test_amended_accepted_task_requires_new_version_experience_report) ... ok
+test_card_exposure_missing_evidence_and_duplicate_sources_cannot_inflate (__main__.SQLiteContracts.test_card_exposure_missing_evidence_and_duplicate_sources_cannot_inflate) ... ok
+test_cas_competition_and_failed_transaction_leave_no_partial_state (__main__.SQLiteContracts.test_cas_competition_and_failed_transaction_leave_no_partial_state) ... ok
+test_cleanup_rejects_unknown_and_missing_receipt (__main__.SQLiteContracts.test_cleanup_rejects_unknown_and_missing_receipt) ... ok
+test_dispatch_rechecks_live_revocation_policy (__main__.SQLiteContracts.test_dispatch_rechecks_live_revocation_policy) ... ok
+test_dispatcher_and_foreign_root_cannot_amend_original_requirements (__main__.SQLiteContracts.test_dispatcher_and_foreign_root_cannot_amend_original_requirements) ... ok
+test_disposition_cannot_reopen_terminal_request (__main__.SQLiteContracts.test_disposition_cannot_reopen_terminal_request) ... ok
+test_first_instruction_and_worker_ack_are_both_required (__main__.SQLiteContracts.test_first_instruction_and_worker_ack_are_both_required) ... ok
+test_foreign_keys_one_live_team_and_mutable_version_guardrails (__main__.SQLiteContracts.test_foreign_keys_one_live_team_and_mutable_version_guardrails) ... ok
+test_instruction_exact_retry_and_same_key_different_body (__main__.SQLiteContracts.test_instruction_exact_retry_and_same_key_different_body) ... ok
+test_late_disposition_cannot_be_restamped_for_new_amendment (__main__.SQLiteContracts.test_late_disposition_cannot_be_restamped_for_new_amendment) ... ok
+test_memory_scope_rejects_cross_project_and_unknown_scope (__main__.SQLiteContracts.test_memory_scope_rejects_cross_project_and_unknown_scope) ... ok
+test_multiteam_experience_cleanup_survives_reopen_and_request_deletion (__main__.SQLiteContracts.test_multiteam_experience_cleanup_survives_reopen_and_request_deletion) ... ok
+test_operation_business_idempotency_persists_and_binds_arguments_versions (__main__.SQLiteContracts.test_operation_business_idempotency_persists_and_binds_arguments_versions) ... ok
+test_plan_change_fences_prepared_and_running_operations (__main__.SQLiteContracts.test_plan_change_fences_prepared_and_running_operations) ... ok
+test_request_restart_fences_old_actors_and_marks_running_effect_unknown (__main__.SQLiteContracts.test_request_restart_fences_old_actors_and_marks_running_effect_unknown) ... ok
+test_revision_cas_conflict_is_atomic_and_original_load_is_immutable (__main__.SQLiteContracts.test_revision_cas_conflict_is_atomic_and_original_load_is_immutable) ... ok
+test_scoped_admission_retries_bind_original_content_after_amend (__main__.SQLiteContracts.test_scoped_admission_retries_bind_original_content_after_amend) ... ok
+test_sqlite_full_reopen_integrity_and_no_implicit_migration (__main__.SQLiteContracts.test_sqlite_full_reopen_integrity_and_no_implicit_migration) ... ok
+test_usage_binds_actual_load_revision_task_agent_and_instance (__main__.SQLiteContracts.test_usage_binds_actual_load_revision_task_agent_and_instance) ... ok
+test_versions_a_and_b_load_in_same_task_without_inheriting_old_score (__main__.SQLiteContracts.test_versions_a_and_b_load_in_same_task_without_inheriting_old_score) ... ok
+test_all_local_schemas_examples_and_nested_briefs (__main__.SchemaContracts.test_all_local_schemas_examples_and_nested_briefs) ... ok
+test_complete_submission_requires_load_and_revision (__main__.SchemaContracts.test_complete_submission_requires_load_and_revision) ... ok
+test_deterministic_evidence_not_schema_claim_controls_acceptance (__main__.SchemaContracts.test_deterministic_evidence_not_schema_claim_controls_acceptance) ... ok
+test_findings_51_and_100_round_trip_but_101_rejected (__main__.SchemaContracts.test_findings_51_and_100_round_trip_but_101_rejected) ... ok
+test_frozen_review_rejects_old_candidate_and_reviewer_restart (__main__.SchemaContracts.test_frozen_review_rejects_old_candidate_and_reviewer_restart) ... ok
+test_projection_keeps_same_named_business_fields_in_separate_scopes (__main__.SchemaContracts.test_projection_keeps_same_named_business_fields_in_separate_scopes) ... ok
+test_relay_cannot_weaken_findings_or_acceptance (__main__.SchemaContracts.test_relay_cannot_weaken_findings_or_acceptance) ... ok
+test_revision_proposal_requires_expected_base_and_safe_delivery_name (__main__.SchemaContracts.test_revision_proposal_requires_expected_base_and_safe_delivery_name) ... ok
+test_runtime_projection_rejects_forged_metadata_and_worker_self_approval (__main__.SchemaContracts.test_runtime_projection_rejects_forged_metadata_and_worker_self_approval) ... ok
+test_schema_pass_does_not_allow_omitted_original_constraint (__main__.SchemaContracts.test_schema_pass_does_not_allow_omitted_original_constraint) ... ok
+test_submission_cannot_be_retagged_or_omit_current_criteria (__main__.SchemaContracts.test_submission_cannot_be_retagged_or_omit_current_criteria) ... ok
+test_unknown_external_reference_fails_without_network (__main__.SchemaContracts.test_unknown_external_reference_fails_without_network) ... ok
+test_user_waiver_is_bound_and_cannot_waive_failed_deterministic_check (__main__.SchemaContracts.test_user_waiver_is_bound_and_cannot_waive_failed_deterministic_check) ... ok
+
+----------------------------------------------------------------------
+Ran 36 tests in 1.438s
+
+OK
+"build-ubsan/journal_tests"
+PASS version 1 format, empty and binary round trip
+PASS recovery at every incomplete tail byte
+PASS complete corruption fails without truncation
+PASS checksummed abnormal lengths fail closed
+PASS exclusive writer and inherited fork ownership
+PASS SIGKILL recovery preserves acknowledged append
+PASS real partial write poisons writer and recovers
+PASS maximum payload boundary and oversize poisoning
+PASS file mode, symlink, directory and FIFO guards
+PASS concurrent append and replay preserve order
+RESULT 10 passed, 0 failed
+"build-ubsan/config_tests"
+PASS model and reasoning resolve independently from frozen Root
+PASS inherit disabled provider-default and explicit remain distinct
+PASS unknown models and unsupported reasoning reject
+PASS invalid configurations report explicit errors
+PASS tool grants require Worker and all three allowlists
+RESULT 5 passed, 0 failed
+"build-ubsan/scheduler_tests"
+PASS same resource is FIFO serial while unrelated work progresses
+PASS independent keys execute concurrently
+PASS normal work preserves admission and execution reserve
+PASS saturated normals permit host-chained review and handoff
+PASS runnable classes rotate without starvation
+PASS close cancels queued jobs and waits for running callbacks
+PASS drain completes accepted jobs and future preserves exceptions
+PASS callbacks run outside scheduler mutex
+PASS invalid configuration and duplicate jobs reject
+RESULT 9 passed, 0 failed
+"build-ubsan/task_engine_tests"
+PASS admission/durable-scoped-idempotency
+PASS commands/idempotency-CAS-atomic-events
+PASS roles/Worker-only-cross-team-grants
+PASS amend/requirements-plan-instructions-application
+PASS amend/unhandled-second-team-stays-blocked
+PASS plan/both-teams-old-results-stay-fenced
+PASS instructions/fence-prepared-and-running-operations
+PASS replace/distinct-from-independent-NEW
+PASS cancel/late-result-and-unknown-outcome
+PASS operations/Worker-cancel-control-ownership-quota-replay
+PASS operations/idempotency-without-blind-retry
+PASS restart/automatic-fencing-and-reapplication
+PASS review/new-candidate-invalidates-approval
+PASS artifacts/immutable-version-history
+PASS review/all-assigned-reviewers-must-pass
+PASS review/adverse-evidence-revokes-even-at-quota
+PASS review/changed-instructions-require-fresh-evidence
+PASS candidate/producer-instructions-invalidate-old-review
+PASS delivery/receipt-and-cleanup-separation
+PASS quota/ack-control-progress-with-bounded-retries
+PASS quota/control-settlement-cancel-recovery
+PASS quota/new-work-is-bounded-and-atomic
+PASS concurrency/same-request-CAS
+PASS concurrency/independent-requests-progress
+PASS persistence/interrupted-REPLACE-is-atomic
+PASS persistence/unknown-schema-fails-closed
+PASS config/persisted-Root-snapshot-and-unicode
+PASS quota/oversized-frame-preserves-live-journal
+RESULT 28 passed, 0 failed
+/usr/bin/python3 tests/demo_smoke.py "<repo>/build-ubsan/wls861"
+PASS compiled demo completes two parallel synthetic request lifecycles
+PASS CLI help and version
+PASS CLI invalid input and runtime setup failure return nonzero
+RESULT 3 passed, 0 failed
+"build-ubsan/runtime_types_tests"
+PASS strict JSON rejects duplicates, bad UTF-8 and non-finite input
+PASS canonical bytes and SHA-256 preserve content identity
+PASS typed ULIDs are monotonic and unique across threads
+PASS execution binding round trips keep request and task scopes distinct
+RESULT 4 passed, 0 failed
+"build-ubsan/store_tests"
+PASS SQLite FULL/WAL/FK, writer lease, read-only and repeated migration
+PASS unknown and incomplete reference databases remain intact
+PASS scoped immutable admission and original retry after AMEND
+PASS state, plan and event commit atomically
+PASS initial instruction, bounded acknowledgment and durable command retry
+PASS full assigned constraint text and frozen team capacity
+PASS AMEND omission stays paused and old dispositions cannot be retagged
+PASS plan-only rebind fences running effects and old results
+PASS operation idempotency, owner, cancellation and reconciliation
+PASS ordinary tool quota preserves instruction/cancel controls
+PASS durable model reservations, exact retry and nullable accounting
+PASS complete model envelope and frozen permissions precede reservation
+PASS late model response is accounted without current-version retagging
+PASS restart keeps UNKNOWN operation and model reservations
+PASS concurrent request CAS has exactly one successful commit
+PASS cancelled request retains accounting and exact control retry
+PASS process crash retains committed request and rolls back partial SQL
+RESULT 17 passed, 0 failed
+"build-ubsan/config_loader_tests"
+PASS configuration sample loads with field provenance and literal environment paths
+PASS role fields resolve independently from frozen Root
+PASS loaded configuration and restored requests ignore later disk changes
+PASS snapshot fingerprints are independent of checkout location
+PASS snapshot integrity checks dependencies and recomputed role bindings
+PASS strict YAML rejects ambiguous strings duplicate keys anchors and extra documents
+PASS scalar types unknown models and unsupported reasoning reject
+PASS control amendment and review capacity policies remain mandatory
+PASS unimplemented real calls memory cleanup and paid retries reject
+PASS budget durability and explicit weak isolation policies validate
+PASS template references reject traversal and file or directory symlinks
+PASS configuration parsing and frozen payload have explicit capacity bounds
+PASS template dispatch requires a host registered deterministic validator
+PASS environment check commands are data and never execute on load or restore
+PASS unknown functions capabilities roles and tools reject
+RESULT 15 passed, 0 failed
+"build-ubsan/model_tests"
+PASS context hashes actual stable bytes and preserves dynamic originals
+PASS all relevant text and model dependencies affect cache identity
+PASS context canonicalizes declarations and frames ambiguous text
+PASS oversized context and unresolved reasoning fail without truncation
+PASS restoring compiled context checks bytes and cache parameters
+PASS rehashed role/tool metadata and malformed context frames reject
+PASS fake roles and call sequences select independent script steps
+PASS delayed response retains its original frozen execution tuple
+PASS raw tool responses preserve usage before host validation
+PASS partial and error responses cannot authorize tools
+PASS cancel and timeout preserve unknown usage; late transport stays fenced
+PASS missing usage remains null rather than zero
+PASS request and response round trips preserve separate attempt identity
+PASS invalid reservations and frozen-context mismatches reject
+PASS fake script shape, sequences and delay limits are bounded
+RESULT 15 passed, 0 failed
+"build-ubsan/schema_tests"
+PASS all 13 complete examples validate with the closed registry
+PASS complete records enforce binding, usage and strong types
+PASS model input cannot forge host metadata or self-approval
+PASS projection removes host conditions and preserves business conditions
+PASS projection scopes host names without weakening nested business fields
+PASS plan team briefs and draft-07 conditional requirements validate
+PASS 100 findings remain legal and unique constraints are enforced
+PASS registered relative references preserve model projection and deny host fields
+PASS local JSON Pointers, boolean schemas and patterns are enforced
+PASS unvisited remote, file and traversal refs fail before validation
+PASS duplicate IDs, duplicate JSON keys and missing pointers reject
+PASS schema symlinks and unsupported declared drafts reject
+RESULT 12 passed, 0 failed
+"build-ubsan/offline_runtime_tests"
+PASS offline chain persists exact model input, instructions and note evidence
+PASS invalid plan constraints keep accounting but do not change the plan
+PASS forged host fields and undeclared Worker tools never apply
+PASS AMEND fences late output and keep requires fresh instruction and ack
+PASS interrupted usage holds reservation while cancellation retains capacity
+PASS read-only access is inert and restart fences pending call before resume
+PASS published plan resumes task binding after process restart
+PASS explicit cancel disposition does not create a Worker model attempt
+PASS bounded input reads reject parent/leaf symlinks and special files
+RESULT 9 passed, 0 failed
+/usr/bin/python3 tests/s1_cli_smoke.py "<repo>/build-ubsan/wls" "<repo>"
+test_amend_requires_disposition_without_spending_then_updates (__main__.OfflineCliSmoke.test_amend_requires_disposition_without_spending_then_updates) ... ok
+test_budget_exhaustion_preserves_cancel_control (__main__.OfflineCliSmoke.test_budget_exhaustion_preserves_cancel_control) ... ok
+test_config_and_schema_commands_run_from_another_directory (__main__.OfflineCliSmoke.test_config_and_schema_commands_run_from_another_directory) ... ok
+test_duplicate_unknown_and_bad_options_are_structured_errors (__main__.OfflineCliSmoke.test_duplicate_unknown_and_bad_options_are_structured_errors) ... ok
+test_read_only_views_do_not_fence_or_append_events (__main__.OfflineCliSmoke.test_read_only_views_do_not_fence_or_append_events) ... ok
+test_reopen_uses_frozen_config_after_source_files_are_removed (__main__.OfflineCliSmoke.test_reopen_uses_frozen_config_after_source_files_are_removed) ... ok
+test_submit_exact_key_replays_and_changed_input_conflicts (__main__.OfflineCliSmoke.test_submit_exact_key_replays_and_changed_input_conflicts) ... ok
+test_three_role_fake_run_persists_attempts_context_and_note (__main__.OfflineCliSmoke.test_three_role_fake_run_persists_attempts_context_and_note) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 2.412s
+
+OK
+make[1]: Leaving directory '<repo>'

@@ -1,14 +1,16 @@
-# v0.4.1 的 S1/S3 配置样例；当前 M1 C++ 内核不读取此 YAML。
-# 语义见 docs/spec/v0.4.1/01_实施规格_v0.4.1.md；不是安装/调用/清理指令。
+# v0.4.1 的配置样例，已由 S1 C++ wls 配置加载器读取并冻结。
+# M1 wls861 保留独立 Journal。真实调用、环境检查和清理需后续执行器。
 schema_version: 1
 spec_version: 0.4.1
 
 models:
   fake:
     adapter: fake
+    adapter_version: "1"
+    protocol: fake-v1
     model: scripted
     capabilities:
-      streaming: supported
+      streaming: unsupported
       tool_calling: supported
       parallel_tool_calls: supported
       reasoning_modes: [provider_default, "off"]
@@ -79,7 +81,7 @@ storage:
   synchronous: FULL
   foreign_keys: true
   allow_normal_durability: false
-  # SQLite 是 S1 拟采用存储；M1 仍使用原 Journal，不能隐式迁移/删掉历史。
+  # S1 wls 已使用 C++ SQLite Store；M1 Journal 保留且不作隐式迁移。
 
 context:
   compaction_at_fraction: 0.6

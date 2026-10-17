@@ -1,0 +1,36 @@
+Internal ctest changing into directory: <repo>/build-cmake-s1
+Test project <repo>/build-cmake-s1
+      Start  1: journal
+ 1/15 Test  #1: journal ..........................   Passed    1.33 sec
+      Start  2: config
+ 2/15 Test  #2: config ...........................   Passed    0.01 sec
+      Start  3: scheduler
+ 3/15 Test  #3: scheduler ........................   Passed    0.02 sec
+      Start  4: task_engine
+ 4/15 Test  #4: task_engine ......................   Passed    0.35 sec
+      Start  5: runtime_types
+ 5/15 Test  #5: runtime_types ....................   Passed    0.02 sec
+      Start  6: store
+ 6/15 Test  #6: store ............................   Passed    1.54 sec
+      Start  7: config_loader
+ 7/15 Test  #7: config_loader ....................   Passed    0.18 sec
+      Start  8: model
+ 8/15 Test  #8: model ............................   Passed    0.04 sec
+      Start  9: schema
+ 9/15 Test  #9: schema ...........................   Passed    0.05 sec
+      Start 10: offline_runtime
+10/15 Test #10: offline_runtime ..................   Passed    1.61 sec
+      Start 11: handoff_integrity
+11/15 Test #11: handoff_integrity ................   Passed    0.09 sec
+      Start 12: review_source_integrity
+12/15 Test #12: review_source_integrity ..........   Passed    0.13 sec
+      Start 13: specification_contracts
+13/15 Test #13: specification_contracts ..........   Passed    1.82 sec
+      Start 14: demo_smoke
+14/15 Test #14: demo_smoke .......................   Passed    0.21 sec
+      Start 15: s1_cli_smoke
+15/15 Test #15: s1_cli_smoke .....................   Passed    1.81 sec
+
+100% tests passed, 0 tests failed out of 15
+
+Total Test time (real) =   9.21 sec

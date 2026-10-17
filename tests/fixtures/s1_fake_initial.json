@@ -1,0 +1,53 @@
+[
+  {
+    "role": "dispatcher",
+    "role_call_index": 1,
+    "status": "completed",
+    "tool_calls": [{
+      "call_id": "plan-1",
+      "name": "submit_plan",
+      "arguments": {
+        "summary": "把开发验证说明交给一个团队，执行持久化 note。",
+        "nodes": [{
+          "node_id": "development-note",
+          "kind": "team_task",
+          "title": "记录开发验证说明",
+          "depends_on": [],
+          "required": true,
+          "brief": {
+            "title": "开发验证说明",
+            "goal": "读取完整原始需求并保存一条说明。",
+            "acceptance_criteria": [{"id": "ac1", "text": "说明持久化且明确离线运行范围。"}],
+            "constraints_verbatim": ["保留原始需求", "不要调用外部服务"],
+            "constraint_refs": ["c1", "c2"]
+          }
+        }]
+      }
+    }],
+    "usage": {"input_tokens": 100, "output_tokens": 20, "cache_read_tokens": 0, "cache_write_tokens": 0, "cost_micro_usd": 0}
+  },
+  {
+    "role": "team_lead",
+    "role_call_index": 1,
+    "status": "completed",
+    "tool_calls": [{
+      "call_id": "order-1",
+      "name": "issue_work_order",
+      "arguments": {
+        "approach": "确认当前说明，只通过已声明的 note 保存文字。",
+        "steps": [{"id": "s1", "text": "阅读原始需求与约束，记录说明。"}],
+        "constraints_verbatim": ["保留原始需求", "不要调用外部服务"],
+        "constraint_refs": ["c1", "c2"],
+        "done_definition": "note 操作成功持久化；业务交付仍待后续运行器。"
+      }
+    }],
+    "usage": {"input_tokens": 100, "output_tokens": 20, "cache_read_tokens": 0, "cache_write_tokens": 0, "cost_micro_usd": 0}
+  },
+  {
+    "role": "worker",
+    "role_call_index": 1,
+    "status": "completed",
+    "tool_calls": [{"call_id": "note-1", "name": "note", "arguments": {"text": "已读取原始需求。这是离线 FakeModel 开发验证记录；没有执行文件工具或外部服务。"}}],
+    "usage": {"input_tokens": 100, "output_tokens": 20, "cache_read_tokens": 0, "cache_write_tokens": 0, "cost_micro_usd": 0}
+  }
+]

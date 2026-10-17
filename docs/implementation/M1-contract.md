@@ -2,9 +2,10 @@
 
 Status: executable **0.1.1-m1** contract, updated 2026-10-17. This is a
 **Linux, single-host, synthetic execution prototype**. The target blueprint is
-[v0.4.1](../spec/v0.4.1/01_实施规格_v0.4.1.md); its SQLite, role-runner, tool,
-memory and deployment choices are future integrations. This contract describes
-the current C++ implementation, not a completed S1 daemon or a permission to
+[v0.4.1](../spec/v0.4.1/01_实施规格_v0.4.1.md). The separate
+[S1 foundation](S1-foundation.md) now adds a C++ SQLite Store, frozen YAML,
+FakeModel/context/Schema and offline CLI; M1's Journal and API remain unchanged.
+This contract describes the M1 implementation, not a completed S1 daemon or a permission to
 perform real model calls, knowledge publication or user-data cleanup.
 
 ## Scope and sources

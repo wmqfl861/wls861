@@ -43,53 +43,106 @@ class OfflineResolver(RefResolver):
         raise RefResolutionError("unregistered reference refused offline: " + uri)
 
 
-def project_tool_schema(schema):
-    """Remove host fields recursively, including their required declarations.
+SAME_INSTANCE_ARRAYS = frozenset(("allOf", "anyOf", "oneOf"))
+SAME_INSTANCE_SCHEMAS = frozenset(("if", "then", "else", "not"))
+CHILD_SCHEMA_MAPS = frozenset(("properties", "patternProperties", "definitions"))
+CHILD_SCHEMAS = frozenset(("items", "additionalProperties", "additionalItems", "contains", "propertyNames"))
 
-    x-runtime-field is a protocol annotation, not a JSON Schema keyword. The
-    projection must also apply to referenced schemas in the local registry.
+
+def _subschemas(schema):
+    """Yield only Draft-07 schema children and whether their instance is shared.
+
+    const/default/enum contain business data, not recursively interpreted schemas.
     """
-    if isinstance(schema, list):
-        return [project_tool_schema(item) for item in schema]
+    if not isinstance(schema, dict):
+        return
+    for key, value in schema.items():
+        if key in SAME_INSTANCE_ARRAYS:
+            yield from ((child, True) for child in value)
+        elif key in SAME_INSTANCE_SCHEMAS:
+            yield value, True
+        elif key in CHILD_SCHEMA_MAPS:
+            yield from ((child, False) for child in value.values())
+        elif key == "items" and isinstance(value, list):
+            yield from ((child, False) for child in value)
+        elif key in CHILD_SCHEMAS:
+            yield value, False
+        elif key == "dependencies":
+            yield from ((child, True) for child in value.values() if not isinstance(child, list))
+
+
+def _runtime_names(schema):
+    if not isinstance(schema, dict):
+        return set()
+    names = {key for key, value in schema.get("properties", {}).items()
+             if isinstance(value, dict) and value.get("x-runtime-field") is True}
+    for child, same_instance in _subschemas(schema):
+        if same_instance:
+            names.update(_runtime_names(child))
+    return names
+
+
+def _condition_uses_runtime(schema, runtime_names):
+    if not isinstance(schema, dict):
+        return False
+    if set(schema.get("properties", {})) & runtime_names or set(schema.get("required", [])) & runtime_names:
+        return True
+    return any(same_instance and _condition_uses_runtime(child, runtime_names)
+               for child, same_instance in _subschemas(schema))
+
+
+def project_tool_schema(schema, inherited_names=frozenset()):
+    """Remove trusted fields within their exact instance-object scope.
+
+    Combinators share their object's host names. Properties, items and definitions
+    start new scopes, so a normal nested field with the same name stays required.
+    Referenced schemas are separately projected in the closed local registry.
+    Full-record validation still checks host-dependent conditions after filling.
+    """
     if not isinstance(schema, dict):
         return copy.deepcopy(schema)
-    properties = schema.get("properties", {})
-    removed = {key for key, value in properties.items() if value.get("x-runtime-field")}
+    runtime_names = set(inherited_names) | _runtime_names(schema)
+    removed = set(schema.get("properties", {})) & runtime_names
+    strip_condition = "if" in schema and _condition_uses_runtime(schema["if"], runtime_names)
     result = {}
     for key, value in schema.items():
-        if key == "properties":
-            result[key] = {name: project_tool_schema(prop) for name, prop in value.items() if name not in removed}
-        elif key == "required":
-            # allOf/then can require a removed runtime property declared higher up.
-            result[key] = [name for name in value if name not in removed]
-            if not result[key]:
-                del result[key]
-        else:
-            result[key] = project_tool_schema(value)
-    return result
-
-
-def _strip_runtime_conditions(schema, runtime_names):
-    """A projected input cannot be conditioned on a removed trusted property.
-
-    Full-record validation still enforces the original role-specific condition
-    after the host fills metadata from the frozen call context.
-    """
-    if isinstance(schema, list):
-        return [_strip_runtime_conditions(item, runtime_names) for item in schema]
-    if not isinstance(schema, dict):
-        return schema
-    result = {}
-    for key, value in schema.items():
+        if strip_condition and key in ("if", "then", "else"):
+            continue
+        if key == "not" and _condition_uses_runtime(value, runtime_names):
+            continue
         if key == "required":
             value = [name for name in value if name not in runtime_names]
             if not value:
                 continue
-        result[key] = _strip_runtime_conditions(value, runtime_names)
-    if "if" in result and set(schema["if"].get("properties", {})) & runtime_names:
-        result.pop("if", None)
-        result.pop("then", None)
-        result.pop("else", None)
+        if key in SAME_INSTANCE_ARRAYS:
+            result[key] = [project_tool_schema(child, runtime_names) for child in value]
+        elif key in SAME_INSTANCE_SCHEMAS:
+            result[key] = project_tool_schema(value, runtime_names)
+        elif key in CHILD_SCHEMA_MAPS:
+            result[key] = {name: project_tool_schema(child) for name, child in value.items()
+                           if key != "properties" or name not in removed}
+        elif key == "items" and isinstance(value, list):
+            result[key] = [project_tool_schema(child) for child in value]
+        elif key in CHILD_SCHEMAS:
+            result[key] = project_tool_schema(value)
+        elif key == "dependencies":
+            dependencies = {}
+            for name, dependency in value.items():
+                if name in runtime_names:
+                    continue
+                if isinstance(dependency, list):
+                    dependency = [item for item in dependency if item not in runtime_names]
+                    if dependency:
+                        dependencies[name] = dependency
+                else:
+                    dependencies[name] = project_tool_schema(dependency, runtime_names)
+            result[key] = dependencies
+        else:
+            result[key] = copy.deepcopy(value)
+    if removed:
+        # A permissive additionalProperties still cannot authorize model-supplied
+        # host metadata after its property declaration has been removed.
+        result.setdefault("allOf", []).append({"propertyNames": {"not": {"enum": sorted(removed)}}})
     return result
 
 
@@ -104,16 +157,12 @@ class Registry:
             self.store[schema["$id"]] = schema
         # Check all references eagerly: even an unvisited branch must be local.
         def check_refs(value, base):
-            if isinstance(value, dict):
-                if "$ref" in value:
-                    from urllib.parse import urljoin
-                    uri, _ = urldefrag(urljoin(base, value["$ref"]))
-                    require(uri in self.store, "unknown/offline $ref: " + uri)
-                for child in value.values():
-                    check_refs(child, base)
-            elif isinstance(value, list):
-                for child in value:
-                    check_refs(child, base)
+            if isinstance(value, dict) and "$ref" in value:
+                from urllib.parse import urljoin
+                uri, _ = urldefrag(urljoin(base, value["$ref"]))
+                require(uri in self.store, "unknown/offline $ref: " + uri)
+            for child, _ in _subschemas(value):
+                check_refs(child, base)
         for schema in self.schemas.values():
             check_refs(schema, schema["$id"])
 
@@ -121,21 +170,7 @@ class Registry:
         schema = self.schemas[name]
         store = self.store
         if model_input:
-            def projected(item):
-                runtime_names = set()
-                def collect(value):
-                    if isinstance(value, dict):
-                        for key, prop in value.get("properties", {}).items():
-                            if prop.get("x-runtime-field"):
-                                runtime_names.add(key)
-                        for child in value.values():
-                            collect(child)
-                    elif isinstance(value, list):
-                        for child in value:
-                            collect(child)
-                collect(item)
-                return _strip_runtime_conditions(project_tool_schema(item), runtime_names)
-            store = {key: projected(item) for key, item in self.store.items()}
+            store = {key: project_tool_schema(item) for key, item in self.store.items()}
             schema = store[schema["$id"]]
         resolver = OfflineResolver.from_schema(schema, store=store)
         return Draft7Validator(schema, resolver=resolver)

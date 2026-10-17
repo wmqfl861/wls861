@@ -1,4 +1,4 @@
-name: C++20 kernel and specification contracts
+name: C++20 kernel, S1 foundation and specification contracts
 
 on:
   push:
@@ -12,7 +12,7 @@ jobs:
   build-and-test:
     name: Linux C++20 (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -30,6 +30,10 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Install C++ development dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libyaml-dev
       - name: Configure
         run: |
           python3 -m venv .local/test-venv

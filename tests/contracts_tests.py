@@ -85,6 +85,53 @@ class SchemaContracts(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.registry.validate("submission", bad)
 
+    def test_projection_keeps_same_named_business_fields_in_separate_scopes(self):
+        business = {
+            "type": "object",
+            "properties": {"host_epoch": {"type": "integer"}, "proof": {"type": "string"},
+                           "inner_token": {"type": "string", "x-runtime-field": True}},
+            "required": ["host_epoch", "inner_token"],
+            "allOf": [{"if": {"required": ["host_epoch"]}, "then": {"required": ["proof"]}}],
+        }
+        literal = {"id": "business literal", "$ref": "https://unregistered.invalid/literal",
+                   "properties": {"literal": {"x-runtime-field": True}}, "required": ["literal"]}
+        schema = {
+            "$schema": "http://json-schema.org/draft-07/schema#", "$id": "https://local.invalid/scopes",
+            "type": "object",
+            "properties": {
+                "host_epoch": {"type": "integer", "x-runtime-field": True},
+                "inner_token": {"type": "string"}, "business": business,
+                "entries": {"type": "array", "items": business}, "literal": {"const": literal},
+            },
+            "required": ["host_epoch", "inner_token", "business", "entries", "literal"],
+            "allOf": [{"required": ["host_epoch"]},
+                      {"if": {"required": ["host_epoch"]}, "then": {"required": ["host_only_detail"]}}],
+        }
+        good = {"inner_token": "normal root business value", "business": {"host_epoch": 7, "proof": "yes"},
+                "entries": [{"host_epoch": 8, "proof": "yes"}], "literal": literal}
+        with tempfile.TemporaryDirectory() as temp:
+            Path(temp, "scopes.schema.json").write_text(json.dumps(schema))
+            registry = contracts.Registry(temp)
+            registry.validate("scopes", good, model_input=True)
+            for field in ("host_epoch", "proof"):
+                for location in ("business", "entries"):
+                    with self.subTest(field=field, location=location):
+                        bad = copy.deepcopy(good)
+                        target = bad[location] if location == "business" else bad[location][0]
+                        del target[field]
+                        with self.assertRaises(ValidationError):
+                            registry.validate("scopes", bad, model_input=True)
+            missing = copy.deepcopy(good)
+            del missing["inner_token"]
+            forged = copy.deepcopy(good)
+            forged["host_epoch"] = 99
+            nested_forged = copy.deepcopy(good)
+            nested_forged["business"]["inner_token"] = "forged"
+            for bad in (missing, forged, nested_forged):
+                with self.assertRaises(ValidationError):
+                    registry.validate("scopes", bad, model_input=True)
+            self.assertEqual(contracts.project_tool_schema(schema)["properties"]["literal"]["const"], literal)
+
     def test_findings_51_and_100_round_trip_but_101_rejected(self):
         for count in (51, 100):
             verdict = self.example("review_verdict.json")

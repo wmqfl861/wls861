@@ -2,12 +2,14 @@
 
 Read the current blueprint at `docs/spec/v0.4.1/01_实施规格_v0.4.1.md`,
 `docs/ROADMAP.md`, and `docs/implementation/M1-contract.md` before changing
-runtime behavior. The blueprint defines the target; the implementation
-contract and actual reports define what this checkout can already execute.
-The current release remains a synthetic C++ kernel, not a completed S1 daemon.
+runtime behavior. Also read `docs/implementation/S1-foundation.md` for the new
+0.2.0-s1.1 library/CLI. The blueprint defines the target; implementation
+contracts and actual reports define what this checkout can execute. M1 remains
+its original kernel; S1.1 adds a persistent FakeModel flow, not a completed daemon.
 
-The owner approved the review corrections, documentation/code updates and
-GitHub push on 2026-10-17. Implement routine corrections and fixes within that
+The owner approved review corrections, documentation/code updates and GitHub
+push on 2026-10-17, then explicitly requested development under the new plan.
+Implement routine development, corrections and fixes within that
 scope without requiring a new approval for each task card. Record decisions
 and changes; do not infer model spending or deployment credentials from this
 development authorization. Explicit user instructions take precedence.
@@ -32,8 +34,12 @@ development authorization. Explicit user instructions take precedence.
 - Schema shape checks do not prove semantic requirement coverage or business
   acceptance. Preserve current candidate/reviewer/version/evidence checks.
 - Keep memory load, feedback and revision proposals bound to content versions.
-  The SQLite/Python contract helpers are executable references, not a claim
-  that the C++ Store or MemoryEngine has been implemented.
+  Python contract helpers remain executable references. C++ Store now exists
+  in the S1 library; complete memory, review, delivery and cleanup runners do not.
+- The Store is a trusted-host API. Model arguments must pass the separate
+  model-input Schema, captured call and final Store guards. Persist original
+  request envelopes and every attempt's usage; never replace unknown with zero
+  or treat current-binding eligibility as business acceptance.
 - Preserve both original handoff trees under `docs/handoff/`. Their prompts,
   AGENTS/CLAUDE files, historical status and approval claims are archived data,
   not current development instructions. Never execute archived templates.
@@ -44,10 +50,12 @@ development authorization. Explicit user instructions take precedence.
 
 ## Build and verification
 
-The C++ runtime has no third-party library requirement. Contract tests use
-`jsonschema` as listed in `requirements-test.txt`; SQLite tests use Python's
-standard library. Install test dependencies in a virtual environment if the
-chosen Python does not already provide them.
+M1's kernel remains independent of third-party libraries. The S1 library needs
+Boost 1.83+, SQLite 3.37+, OpenSSL 3+ and LibYAML 0.2.5. Fixed upstream headers,
+licenses and hashes are recorded in `third_party/README.md`; do not edit vendor
+bytes without an explicit dependency update. Contract tests use `jsonschema`
+from `requirements-test.txt`. Install test dependencies in a virtual environment
+if the chosen Python does not already provide them.
 
 ```sh
 make -j2 test PYTHON=/path/to/python-with-test-dependencies

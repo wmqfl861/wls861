@@ -1,0 +1,5 @@
+[
+  {"constraint_id": "c1", "source_revision": 1, "text": "保留原始需求"},
+  {"constraint_id": "c2", "source_revision": 1, "text": "不要调用外部服务"},
+  {"constraint_id": "c3", "source_revision": 2, "text": "改为中文"}
+]

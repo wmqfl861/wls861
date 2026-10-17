@@ -1,0 +1,53 @@
+[
+  {
+    "role": "dispatcher",
+    "role_call_index": 1,
+    "status": "completed",
+    "tool_calls": [{
+      "call_id": "plan-2",
+      "name": "submit_plan",
+      "arguments": {
+        "summary": "按 AMEND 记录中文说明，保留原需求的全部约束。",
+        "nodes": [{
+          "node_id": "development-note",
+          "kind": "team_task",
+          "title": "记录中文开发验证说明",
+          "depends_on": [],
+          "required": true,
+          "brief": {
+            "title": "中文开发验证说明",
+            "goal": "读取完整原始需求和 AMEND，用中文保存一条说明。",
+            "acceptance_criteria": [{"id": "ac1", "text": "中文说明持久化且明确离线运行范围。"}],
+            "constraints_verbatim": ["保留原始需求", "不要调用外部服务", "改为中文"],
+            "constraint_refs": ["c1", "c2", "c3"]
+          }
+        }]
+      }
+    }],
+    "usage": {"input_tokens": 120, "output_tokens": 30, "cache_read_tokens": 0, "cache_write_tokens": 0, "cost_micro_usd": 0}
+  },
+  {
+    "role": "team_lead",
+    "role_call_index": 1,
+    "status": "completed",
+    "tool_calls": [{
+      "call_id": "order-2",
+      "name": "issue_work_order",
+      "arguments": {
+        "approach": "确认新版说明，通过 note 记录中文内容。",
+        "steps": [{"id": "s1", "text": "阅读所有原文与 AMEND，使用中文并保留原约束。"}],
+        "constraints_verbatim": ["保留原始需求", "不要调用外部服务", "改为中文"],
+        "constraint_refs": ["c1", "c2", "c3"],
+        "done_definition": "新版 note 成功持久化；不声称完成业务交付。"
+      }
+    }],
+    "usage": {"input_tokens": 120, "output_tokens": 30, "cache_read_tokens": 0, "cache_write_tokens": 0, "cost_micro_usd": 0}
+  },
+  {
+    "role": "worker",
+    "role_call_index": 1,
+    "status": "completed",
+    "tool_calls": [{"call_id": "note-2", "name": "note", "arguments": {"text": "按新版需求，说明已改为中文。原始需求与全部修改均保留；未调用外部服务。此记录仅验证离线流程。"}}],
+    "usage": {"input_tokens": 120, "output_tokens": 30, "cache_read_tokens": 0, "cache_write_tokens": 0, "cost_micro_usd": 0}
+  }
+]

@@ -4,6 +4,13 @@
 *.journal.*
 *.db
 *.db-*
+*.db.*
+*.sqlite
+*.sqlite-*
+*.sqlite.*
+*.sqlite3
+*.sqlite3-*
+*.sqlite3.*
 *.log
 *.core
 core

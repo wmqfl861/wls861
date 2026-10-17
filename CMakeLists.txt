@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(wls861 VERSION 0.1.1 LANGUAGES CXX)
+project(wls861 VERSION 0.2.0 LANGUAGES CXX)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "M1 currently requires Linux journal and process semantics")
@@ -13,6 +13,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(THREADS_PREFER_PTHREAD_FLAG TRUE)
 find_package(Threads REQUIRED)
+find_package(Boost 1.83 REQUIRED)
+find_package(SQLite3 3.37 REQUIRED)
+find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
+find_library(WLS_YAML_LIBRARY NAMES yaml libyaml-0.so.2 REQUIRED)
 
 option(WLS_ENABLE_UBSAN "Enable undefined-behavior sanitizer" OFF)
 option(WLS_ENABLE_ASAN "Enable address sanitizer" OFF)
@@ -42,6 +46,26 @@ target_link_libraries(wls_kernel PUBLIC wls_build_options Threads::Threads)
 add_executable(wls861 src/main.cpp)
 target_link_libraries(wls861 PRIVATE wls_kernel)
 
+# M1 remains its original independent kernel. The S1 foundation has an explicit
+# SQLite backend and external configuration; opening a Journal is never a
+# migration path. Boost.JSON uses its documented single-TU library build.
+add_library(wls_s1 STATIC
+    src/boost_json.cpp
+    src/runtime_types.cpp
+    src/store.cpp
+    src/config_loader.cpp
+    src/model.cpp
+    src/context.cpp
+    src/schema.cpp
+    src/offline_runtime.cpp)
+target_include_directories(wls_s1 SYSTEM PUBLIC
+    ${Boost_INCLUDE_DIRS}
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/valijson/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libyaml/include")
+target_link_libraries(wls_s1 PUBLIC wls_kernel SQLite::SQLite3 OpenSSL::Crypto ${WLS_YAML_LIBRARY})
+add_executable(wls src/cli.cpp)
+target_link_libraries(wls PRIVATE wls_s1)
+
 include(CTest)
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
@@ -59,6 +83,14 @@ if(BUILD_TESTING)
         add_test(NAME ${suite} COMMAND ${suite}_tests)
         set_tests_properties(${suite} PROPERTIES TIMEOUT 90)
     endforeach()
+    foreach(suite IN ITEMS runtime_types store config_loader model schema offline_runtime)
+        add_executable(${suite}_tests tests/${suite}_tests.cpp)
+        target_link_libraries(${suite}_tests PRIVATE wls_s1)
+        target_include_directories(${suite}_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+        target_compile_definitions(${suite}_tests PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+        add_test(NAME ${suite} COMMAND ${suite}_tests)
+        set_tests_properties(${suite} PROPERTIES TIMEOUT 90)
+    endforeach()
     add_test(NAME handoff_integrity
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_handoff.py")
     add_test(NAME review_source_integrity
@@ -68,6 +100,10 @@ if(BUILD_TESTING)
     add_test(NAME demo_smoke
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/demo_smoke.py"
                 "$<TARGET_FILE:wls861>")
+    add_test(NAME s1_cli_smoke
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/s1_cli_smoke.py"
+                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(s1_cli_smoke PROPERTIES TIMEOUT 90)
     set_tests_properties(handoff_integrity review_source_integrity specification_contracts demo_smoke
         PROPERTIES TIMEOUT 60)
 endif()

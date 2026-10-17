@@ -1,0 +1,147 @@
+[
+  {
+    "path": "third_party/valijson/LICENSE",
+    "blob_sha1": "f75db55a40f4dd27209787ee0f04dba613374eaf",
+    "bytes": 1346
+  },
+  {
+    "path": "third_party/valijson/include/valijson/adapters/boost_json_adapter.hpp",
+    "blob_sha1": "99dc3a6e93d664903980f8515b93608a811c23b3",
+    "bytes": 19450
+  },
+  {
+    "path": "third_party/valijson/include/valijson/adapters/std_string_adapter.hpp",
+    "blob_sha1": "3089bbe30694876f5957ad5a2c341d9169fe8642",
+    "bytes": 9888
+  },
+  {
+    "path": "third_party/valijson/include/valijson/constraint_builder.hpp",
+    "blob_sha1": "53407a95e0eeadff154f5fc378bb278958ebf406",
+    "bytes": 318
+  },
+  {
+    "path": "third_party/valijson/include/valijson/constraints/basic_constraint.hpp",
+    "blob_sha1": "f7d3ce6c672b25d407b32b3657388bf2a24f9d75",
+    "bytes": 1983
+  },
+  {
+    "path": "third_party/valijson/include/valijson/constraints/concrete_constraints.hpp",
+    "blob_sha1": "8ba30e23e0a3a26a54c28dc83fc98cf3d7642ffe",
+    "bytes": 34793
+  },
+  {
+    "path": "third_party/valijson/include/valijson/constraints/constraint.hpp",
+    "blob_sha1": "5b3ae3dc1d48005ed0d610d0d036b82bde15f300",
+    "bytes": 2030
+  },
+  {
+    "path": "third_party/valijson/include/valijson/constraints/constraint_visitor.hpp",
+    "blob_sha1": "6faffbddce6d9551aeb16c1b91ae783d20d852ab",
+    "bytes": 4649
+  },
+  {
+    "path": "third_party/valijson/include/valijson/exceptions.hpp",
+    "blob_sha1": "3ddd5a966674cff23432403d9b3a81bdb7f36a49",
+    "bytes": 856
+  },
+  {
+    "path": "third_party/valijson/include/valijson/internal/adapter.hpp",
+    "blob_sha1": "27c9e61df59162d8bb06d384f26055415413c1f0",
+    "bytes": 16614
+  },
+  {
+    "path": "third_party/valijson/include/valijson/internal/basic_adapter.hpp",
+    "blob_sha1": "a03847c816e92e5d094d93a0fdf3d2015acbe0d5",
+    "bytes": 25608
+  },
+  {
+    "path": "third_party/valijson/include/valijson/internal/custom_allocator.hpp",
+    "blob_sha1": "fb34b9f5c622b824d0fd7b77baf2310dee341525",
+    "bytes": 2355
+  },
+  {
+    "path": "third_party/valijson/include/valijson/internal/debug.hpp",
+    "blob_sha1": "25c3dd770f8983abf00af03fee29b22b7f61be03",
+    "bytes": 649
+  },
+  {
+    "path": "third_party/valijson/include/valijson/internal/frozen_value.hpp",
+    "blob_sha1": "bf8ddc465f45741e110a1d3456aa415dc53fd067",
+    "bytes": 1543
+  },
+  {
+    "path": "third_party/valijson/include/valijson/internal/json_pointer.hpp",
+    "blob_sha1": "507aea9b0549293da5954c121e67c96f19fa0274",
+    "bytes": 10130
+  },
+  {
+    "path": "third_party/valijson/include/valijson/internal/json_reference.hpp",
+    "blob_sha1": "ba453c3055d7501fafa58d73f61c711dc981c70b",
+    "bytes": 1644
+  },
+  {
+    "path": "third_party/valijson/include/valijson/internal/optional.hpp",
+    "blob_sha1": "c9bc47b61c3cd55f62f453a7f90ba3ee79667915",
+    "bytes": 339
+  },
+  {
+    "path": "third_party/valijson/include/valijson/internal/regex.hpp",
+    "blob_sha1": "4e5011dc802c81e027c3de4c41cb25b24d371a90",
+    "bytes": 489
+  },
+  {
+    "path": "third_party/valijson/include/valijson/internal/uri.hpp",
+    "blob_sha1": "435a1ce2b833c6db433f2a5ba13d65e0e3ef5a25",
+    "bytes": 1239
+  },
+  {
+    "path": "third_party/valijson/include/valijson/schema.hpp",
+    "blob_sha1": "b5b6c71b333b15d77d30f3c30fca488b4cabc1b7",
+    "bytes": 7155
+  },
+  {
+    "path": "third_party/valijson/include/valijson/schema_cache.hpp",
+    "blob_sha1": "ea5aa5f1daed05a21f604f129c7d89b20344eed8",
+    "bytes": 193
+  },
+  {
+    "path": "third_party/valijson/include/valijson/schema_parser.hpp",
+    "blob_sha1": "0cde5060c68a79701c4d085d15cf98f04e5aedf5",
+    "bytes": 102062
+  },
+  {
+    "path": "third_party/valijson/include/valijson/subschema.hpp",
+    "blob_sha1": "d5955c4b55c81e33ee39aa92f0e53214dc8a85b5",
+    "bytes": 9704
+  },
+  {
+    "path": "third_party/valijson/include/valijson/utils/utf8_utils.hpp",
+    "blob_sha1": "74c49d0322705603499952564bfc2240caa02ab6",
+    "bytes": 1173
+  },
+  {
+    "path": "third_party/valijson/include/valijson/validation_results.hpp",
+    "blob_sha1": "b821317938897134ab1c42d22c333b9b7dd01628",
+    "bytes": 2488
+  },
+  {
+    "path": "third_party/valijson/include/valijson/validation_visitor.hpp",
+    "blob_sha1": "73cee6925ae73f7f8b008631982f9e94f303cc74",
+    "bytes": 71220
+  },
+  {
+    "path": "third_party/valijson/include/valijson/validator.hpp",
+    "blob_sha1": "f5cc309661c66a7ced31f76e7c08f9b0ee98e4bf",
+    "bytes": 3256
+  },
+  {
+    "path": "third_party/libyaml/License",
+    "blob_sha1": "3d82c281ee8ceb45368153139f5935bd8d39c816",
+    "bytes": 1101
+  },
+  {
+    "path": "third_party/libyaml/include/yaml.h",
+    "blob_sha1": "89050e4f7dc60c6f9fd606b849d1096d503d4991",
+    "bytes": 54439
+  }
+]
