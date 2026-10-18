@@ -4,6 +4,8 @@
 `af1e99bf8e8eab3662275309c6d1c2260173fcdb`。用户在审阅结论后明确要求：
 “好，按你说的修改计划蓝图和文档和代码，并推送到github仓库”。
 
+本记录保留 v0.4.1 审核修订时的历史实现范围。后续 S1.1 和 S1.2 的当前状态见 [路线图](ROADMAP.md)、[Worker 工具契约](implementation/S1-worker-tools.md) 与 [S1.2 验证](reports/s1-worker-tools-validation.md)，不反向改写本记录的原批次成绩。
+
 本次规格版本为 v0.4.1，代码版本为 0.1.1-m1。规格描述目标系统；当前代码
 仍是合成内核和新增的契约参考。实际执行结果见
 [验证报告](reports/v0.4.1-validation.md)，完整实施顺序见 [路线图](ROADMAP.md)。

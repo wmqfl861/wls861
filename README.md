@@ -1,8 +1,8 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.2.0-s1.1；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，新 `wls` 提供 S1 基础层的持久化离线流程。
+C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.3.0-s1.2；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
-本批按新计划接入了真正的 **C++ SQLite Store、YAML 加载与冻结、Draft-07 Schema、FakeModel、ContextCompiler 和本地 CLI**。现在可以提交请求，让 Dispatcher 规划、TeamLead 下发说明、Worker 确认并写入持久 note，再执行 AMEND、重开和迟到响应的回归。S1 的真实文件／进程工具、沙箱、供应商调用、守护进程与业务交付仍待后续任务卡。
+本批沿 S1-06/07 新增 **真实文件读写/搜索/哈希补丁、唯一派发权、原始结果与二进制输出持久化、独立控制分支，以及 bwrap/cgroup 强进程入口和 doctor**。FakeModel 可在一个独立任务中连续调用这些工具，结果进入后续完整上下文。当前环境已验证文件闭环和强模式拒绝，完整强沙箱正向验收仍待具备条件的环境；真实模型、守护进程、业务验收/交付和可恢复清理继续按任务卡开发。
 
 ## 蓝图、计划与审核入口
 
@@ -14,7 +14,9 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.2.0-s1.1；当前
 | [本次审核修订说明](docs/REVISION-v0.4.1.md) | 每项审核发现如何进入文档、契约或内核修复 |
 | [决策记录](docs/spec/v0.4.1/00_决策记录.md) | 用户明确决定、工程默认值与实际接入参数 |
 | [S1 基础实现契约](docs/implementation/S1-foundation.md) | 新 C++ Store、配置、模型、Schema、CLI 与明确未实现的部分 |
-| [本批验证报告](docs/reports/s1-foundation-validation.md) | S1.1 实际构建、回归、独立复核与限制 |
+| [S1.2 Worker 工具契约](docs/implementation/S1-worker-tools.md) | 文件边界、强进程条件、派发/结果/控制、403 迁移与当前限制 |
+| [本批验证报告](docs/reports/s1-worker-tools-validation.md) | S1.2 实际构建、文件/进程/SQLite/CLI 分层证据与限制 |
+| [S1.1 历史验证](docs/reports/s1-foundation-validation.md) | 基础层交付时的实际构建与回归 |
 | [M1 实现契约](docs/implementation/M1-contract.md) | 原 Journal 内核的 API、持久化、身份和合成验收 |
 | [v0.4.1 修订验证](docs/reports/v0.4.1-validation.md) | 前一批审核修正的历史证据 |
 
@@ -22,16 +24,18 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.2.0-s1.1；当前
 
 ## 当前可以运行什么
 
-`wls` 已有 `config check/explain`、`schema check`、`submit`、`show`、`events`、`budget`、`config-snapshot`、`run-fake`、`amend`、`cancel`、`pending` 入口。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与操作结果。
+`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
 
-| S1.1 模块 | 本批实现 |
+| S1 模块 | 当前实现 |
 | --- | --- |
-| SQLite Store | 真正的 C++ 事务、WAL/FULL、外键、CAS、状态与事件原子提交、独占写者、迁移检查与启动恢复 |
+| SQLite Store | 真正的 C++ WAL/FULL、外键、CAS/事件、独占写者；非空 402→403 迁移，原 tuple 结果及二进制输出不可变保存 |
 | 配置 | LibYAML 严格解析、完整依赖快照、逐字段直接继承冻结 Root、哈希恢复、来源解释；环境 check 保持为数据 |
 | JSON / Schema | 严格 JSON、SHA-256、typed ULID；Valijson Draft-07、本地引用注册表、完整记录与模型输入投影 |
 | 模型和上下文 | 有界脚本 FakeModel；实际前缀字节及依赖哈希；完整原文、AMEND、任务和说明；不截断约束 |
 | 尝试与预算 | 完整调用输入先持久化，响应保留原 tuple；每次尝试独立计数，错误／迟到也记账，未知用量保留预留 |
-| 离线角色流程 | 一个独立任务，最多三次显式 Fake 调用，当前说明确认后执行持久 note；中途变更需显式 update/keep/cancel |
+| Worker 文件工具 | dirfd/openat2 限定工作目录；分页读取、字面搜索、创建、完整 SHA 覆盖/唯一匹配 patch、原子写入及 UNKNOWN |
+| 进程与控制 | 显式 argv/env、固定运行文件 SHA、强 bwrap/cgroup 入口；缺条件拒绝；ack/cancel 精确重放与诊断不被业务门禁锁死 |
+| 离线角色流程 | 一个独立任务；显式 workspace 时 1–16 次 Worker 调用，默认一次；逐次保存反馈，失败/UNKNOWN 停止本批，中途变更仍需显式处置 |
 
 `wls861 demo` 创建两个独立请求，各自使用 `Root → Dispatcher → TeamLead → Worker`，并行完成合成工作、独立审核、交付回执与资源状态收尾，输出 JSON 证据。演示使用固定字节和符号模型，模型调用数为零。
 
@@ -65,7 +69,7 @@ make -j2 test PYTHON=.local/test-venv/bin/python
 make -j2 ubsan PYTHON=.local/test-venv/bin/python
 ```
 
-如果所用 Python 已有测试依赖，可直接指定它。本次工作区的测试使用 `PYTHON=/usr/bin/python3`。构建不会联网获取 C++ 源码；固定导入的上游文件有逐文件哈希清单。
+如果所用 Python 已有测试依赖，可直接指定它。本批使用独立环境 `.local/test-venv/bin/python` 安装仓库固定的测试依赖。构建不会联网获取 C++ 源码；固定导入的上游文件有逐文件哈希清单。
 
 ```sh
 cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release \
@@ -107,8 +111,33 @@ mkdir -p .local/demo
 
 `req_YOUR_RETURNED_ID` 是待替换占位符。脚本中的 token 和费用是明确的合成用量；实际供应商调用数为零。note 是数据库中的操作记录，成功不等于业务成果已验收或交付。初始 `--constraints-file` 省略时目录为空，CLI 不会宣称已从自由文本抽取完整约束；AMEND 必须提供整份有效约束目录。运行目录不同时使用 `--source-root /path/to/wls861`。
 
+## 运行真实文件工具
+
+以下示例在一个独立开发目录中创建并修改 `result.txt`，固定模型脚本不访问外部服务。数据库放在工作目录之外；同一团队的目录身份和执行策略首次绑定后不自动改变。
+
+```sh
+mkdir -p .local/s12/work
+./build/wls submit --db .local/s12/runtime.db --key s12-file-example \
+  --text-file tests/fixtures/s12_request.txt \
+  --constraints-file tests/fixtures/s12_constraints.json
+./build/wls run-fake --db .local/s12/runtime.db --request req_YOUR_RETURNED_ID \
+  --workspace .local/s12/work --worker-calls 3 \
+  --script tests/fixtures/s12_fake_workspace.json
+```
+
+预期文件内容为 `verified from S1.2` 加换行；总共 5 次 Fake 调用，两个文件写操作和一次只读操作。覆盖已有文件需要正确旧 SHA，重复使用这个新建示例不会覆盖已经存在的结果。将输出中的 `task_id` 用于只读查询：
+
+```sh
+./build/wls tool-query --db .local/s12/runtime.db --request req_YOUR_RETURNED_ID \
+  --task task_YOUR_RETURNED_ID --workspace .local/s12/work \
+  --tool fs_read --input tests/fixtures/s12_read_query.json
+./build/wls doctor
+```
+
+进程工具需要另行准备的强环境及 [manifest](config/examples/sandbox-manifest.json)。该样例故意没有 launcher SHA、可写 cgroup 委派和运行文件，doctor 会列出缺项，run 会拒绝启动。实际使用前填写 bwrap 和每个运行文件的 SHA-256、白名单目标及已委派路径，并在新请求的首次工作目录绑定前传入 `--sandbox-manifest`。程序不会安装 bwrap、修改 user namespace/AppArmor 或创建宿主委派。完整参数与边界见 [Worker 工具契约](docs/implementation/S1-worker-tools.md)。
+
 ## 后续实施边界
 
-当前内核是受信宿主进程内 API，`Actor` 由宿主构造。真实外部身份认证、文件与进程工具、bubblewrap/cgroup、模型网关、异步角色运行器、交付包和记忆模块按 S1–S5 增量实现。
+当前内核是受信宿主进程内 API，`Actor` 由宿主构造。本机 CLI 不提供远程认证；诊断速率限制在单进程内，写者持租约期间没有第二个 CLI 的 socket 取消通道。文件容量是代理的逻辑上限，不是任意进程磁盘配额；合作锁不防任意同 UID 宿主绕过。强进程正向测试、残留 cgroup 恢复及完整 SBX/SEC 验收仍需独立证据。
 
-下一批沿 S1-06/07 接入实际文件／进程工具及 bubblewrap/cgroup 能力检查，再补完整角色唤醒循环、交付包、回执和清理，以及 wlsd/API。真实模型协议在外部端点、凭据引用、能力和预算齐备后独立接入。配置样例保持 FakeModel、记忆关闭、真实调用关闭、付费重试为零；本批没有提供服务部署或真实模型授权。
+下一批沿 S1-03/09/10 接持久事件、等待/唤醒和多任务 AMEND，并继续完成 S1-06/07 正向隔离验收与恢复；随后是交付包、回执、清理和 wlsd/API。真实模型协议在外部端点、凭据引用、能力和预算齐备后独立接入。配置样例保持 FakeModel、记忆关闭、真实调用关闭、付费重试为零。

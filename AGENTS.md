@@ -3,9 +3,12 @@
 Read the current blueprint at `docs/spec/v0.4.1/01_实施规格_v0.4.1.md`,
 `docs/ROADMAP.md`, and `docs/implementation/M1-contract.md` before changing
 runtime behavior. Also read `docs/implementation/S1-foundation.md` for the new
-0.2.0-s1.1 library/CLI. The blueprint defines the target; implementation
+foundation, and `docs/implementation/S1-worker-tools.md` for the current
+0.3.0-s1.2 library/CLI. The blueprint defines the target; implementation
 contracts and actual reports define what this checkout can execute. M1 remains
-its original kernel; S1.1 adds a persistent FakeModel flow, not a completed daemon.
+its original kernel; S1.2 adds bounded real files and a strong-only process
+entry point. A completed daemon and positive deployment sandbox acceptance
+remain separate task cards.
 
 The owner approved review corrections, documentation/code updates and GitHub
 push on 2026-10-17, then explicitly requested development under the new plan.
@@ -16,7 +19,8 @@ development authorization. Explicit user instructions take precedence.
 
 - Keep the core in C++20 and isolate Linux platform code. Keep provider
   endpoints, credentials, model aliases and budgets in external configuration.
-  This revision uses synthetic tests; no real model or production tool calls.
+  Tests use FakeModel and self-created temporary fixtures, including real
+  file effects. Do not call real models or operate production data/services.
 - Preserve Root -> Dispatcher -> TeamLead -> Worker. Only Workers execute
   business tools. Each independent request has its own fenced Dispatcher.
 - Keep request requirements, task revisions, plans, TeamLead instructions,
@@ -28,6 +32,12 @@ development authorization. Explicit user instructions take precedence.
   action needed to restore readiness. Preserve bounded settlement capacity.
 - Unknown non-idempotent outcomes require reconciliation, including effects
   inside a workspace. Never infer that cancellation undid an effect.
+- Real tools must obtain a durable first-dispatch claim. Command replay is
+  never execution permission. Persist original operation facts and raw output;
+  a settlement failure must stop new business, even if storage is unavailable.
+- Keep the control database outside bound business workspaces. Preserve pinned
+  workspace identity, frozen runtime hashes, explicit env and strong-process
+  refusal. Never enable a weak production path to make a test pass.
 - Resolve each unspecified model/reasoning field directly from the request's
   frozen Root snapshot. Tool grants use role/task policies. Configuration
   updates must not silently change an existing request.
@@ -65,8 +75,8 @@ cmake --build build-cmake --parallel 2
 ctest --test-dir build-cmake --output-on-failure
 ```
 
-For a normal development virtual environment use `.local/test-venv/bin/python`.
-In the current validated Ubuntu workspace `/usr/bin/python3` already supplies
-the contract-test dependency. Add meaningful regression coverage for changed
+For a development virtual environment use `.local/test-venv/bin/python`; this
+batch installs the pinned contract-test dependency there. Add meaningful
+regression coverage for changed
 state, concurrency, persistence or permission semantics; report synthetic,
 contract-reference and real integration results separately.

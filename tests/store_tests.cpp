@@ -5,7 +5,9 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <csignal>
+#include <barrier>
 #include <fstream>
 #include <future>
 #include <iterator>
@@ -25,6 +27,7 @@ using Array = boost::json::array;
 namespace {
 std::string base_sql;
 std::string migration_sql;
+std::string tools_migration_sql;
 std::filesystem::path source_root;
 std::string read(const std::filesystem::path& path) {
     std::ifstream stream(path, std::ios::binary);
@@ -46,6 +49,16 @@ void raw_exec(const std::filesystem::path& path, const std::string& sql) {
     const std::string reason = message ? message : "SQLite fixture failure";
     sqlite3_free(message); sqlite3_close(db);
     if (result != SQLITE_OK) throw std::runtime_error(reason);
+}
+std::int64_t raw_number(const std::filesystem::path& path, const std::string& sql) {
+    sqlite3* db = nullptr;
+    CHECK(sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+    sqlite3_stmt* statement = nullptr;
+    CHECK(sqlite3_prepare_v2(db, sql.c_str(), -1, &statement, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(statement) == SQLITE_ROW);
+    const auto result = static_cast<std::int64_t>(sqlite3_column_int64(statement, 0));
+    sqlite3_finalize(statement); sqlite3_close(db);
+    return result;
 }
 AdmissionInput input(std::string key = "first", std::int64_t teams = 4, std::int64_t tools = 200) {
     AdmissionInput result;
@@ -140,6 +153,30 @@ struct Fixture {
         return result;
     }
 };
+
+AdmissionInput tools_input(std::int64_t tools = 200) {
+    auto result = input("worker-tools", 4, tools);
+    result.tool_allowlist = {"fs_list", "fs_read", "fs_search", "fs_write", "fs_patch", "run", "note", "op_status", "op_output", "op_cancel", "ack_change"};
+    return result;
+}
+void upgrade_tools(Fixture& fixture) {
+    fixture.store.reset();
+    fixture.store = std::make_unique<Store>(fixture.path, base_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql);
+}
+Json bind_tools(Fixture& fixture, const Json& policy = Object{{"mode", "fixture-no-process"}}) {
+    const auto path = fixture.temp.path / "workspace";
+    std::filesystem::create_directory(path);
+    struct stat info{}; CHECK(::stat(path.c_str(), &info) == 0);
+    return fixture.store->bind_workspace(fixture.team_id, std::filesystem::canonical(path).string(),
+        static_cast<std::uint64_t>(info.st_dev), static_cast<std::uint64_t>(info.st_ino), policy);
+}
+Json prepare_tool(Fixture& fixture, const std::string& key = "write-once", const Json& arguments = Object{{"path", "/work/a.txt"}, {"text", "bounded"}}) {
+    return fixture.store->prepare_tool_operation(fixture.actor(Role::Worker), fixture.store->binding(fixture.task_id), fixture.tv(),
+        key, "fs_write", arguments, new_id("cmd"));
+}
+Json start_tool(Fixture& fixture, const Json& op) {
+    return fixture.store->start_operation(fixture.actor(Role::Worker), s(op, "op_id"), n(op, "state_version"), new_id("cmd"));
+}
 
 void durability_migration_and_readonly() {
     Fixture f;
@@ -393,6 +430,363 @@ void cancelled_request_retains_accounting_and_control_retry() {
     CHECK(n(f.store->budget(f.request_id), "unknown_cost") == 100);
     CHECK(f.store->cancel_request(root, version, "cancel-request") == cancelled);
 }
+void populated_402_migrates_without_replacing_request_history() {
+    Fixture f(tools_input()); f.ready();
+    const auto original_snapshot = f.store->request_snapshot(f.request_id);
+    const auto original_config = f.store->request(f.request_id).at("config_snapshot");
+    auto op = f.prepare();
+    op = f.store->start_operation(f.actor(Role::Worker), s(op, "op_id"), n(op, "state_version"), "start-before-upgrade");
+    const auto reservation = f.reservation("pending-before-upgrade");
+    f.store->reserve_attempt(f.actor(Role::Worker), f.store->binding(f.task_id), reservation);
+    upgrade_tools(f);
+    CHECK(n(f.store->diagnostics(), "user_version") == 403);
+    CHECK(f.store->request_snapshot(f.request_id) == original_snapshot);
+    CHECK(f.store->request(f.request_id).at("config_snapshot") == original_config);
+    CHECK(s(f.store->operation(s(op, "op_id")), "status") == "UNKNOWN");
+    CHECK(f.store->operation(s(op, "op_id")).at("arguments") == op.at("arguments"));
+    CHECK(s(f.store->attempt(reservation.attempt_id), "status") == "UNKNOWN");
+    CHECK(n(f.store->budget(f.request_id), "reserved_cost") == 100);
+    CHECK(f.store->workspace(f.team_id).is_null());
+    CHECK(raw_number(f.path, "SELECT COUNT(*) FROM schema_migrations WHERE version=5") == 1);
+    const auto before = f.store->binding(f.task_id);
+    const auto count = f.store->events(f.request_id).size();
+    {
+        Store observer(f.path, base_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql);
+        CHECK(observer.binding(f.task_id) == before);
+        CHECK(observer.request_snapshot(f.request_id) == original_snapshot);
+        error(ErrorCode::Unauthorized, [&] { observer.bind_workspace(f.team_id, "/tmp/observer", 1, 2); });
+    }
+    CHECK(f.store->events(f.request_id).size() == count);
+    error(ErrorCode::Unsupported, [&] { Store observer(f.path, base_sql, migration_sql, StoreOpenMode::ReadOnly); });
+    error(ErrorCode::Corrupt, [&] { Store observer(f.path, base_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql + "\n-- altered"); });
+    upgrade_tools(f);
+    CHECK(n(f.store->diagnostics(), "user_version") == 403);
+    CHECK(raw_number(f.path, "SELECT COUNT(*) FROM schema_migrations WHERE version=5") == 1);
+    CHECK(f.store->request_snapshot(f.request_id) == original_snapshot);
+}
+void tools_migration_failure_rolls_back_all_schema_changes() {
+    Fixture f(tools_input()); f.ready();
+    const auto before = f.store->request(f.request_id);
+    const auto before_events = f.store->events(f.request_id);
+    f.store.reset();
+    error(ErrorCode::Storage, [&] {
+        Store failed(f.path, base_sql, migration_sql, StoreOpenMode::Takeover,
+            tools_migration_sql + "\nINSERT INTO deliberately_absent_table VALUES(1);\n");
+    });
+    {
+        Store observer(f.path, base_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql);
+        CHECK(n(observer.diagnostics(), "user_version") == 402);
+        CHECK(observer.request(f.request_id) == before);
+        CHECK(observer.events(f.request_id) == before_events);
+        error(ErrorCode::Unsupported, [&] { observer.workspace(f.team_id); });
+    }
+    CHECK(raw_number(f.path, "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('worker_tools_metadata','workspace_bindings','operation_results','operation_output_bytes')") == 0);
+    CHECK(raw_number(f.path, "SELECT COUNT(*) FROM schema_migrations WHERE version=5") == 0);
+    upgrade_tools(f);
+    CHECK(n(f.store->diagnostics(), "user_version") == 403);
+}
+void workspace_identity_policy_and_team_aliases_are_immutable() {
+    Fixture f(tools_input()); upgrade_tools(f);
+    const Json policy = Object{{"mode", "strong"}, {"runtime_manifest", Array{"sha256:fixture"}}, {"network", "none"}};
+    const auto identity = bind_tools(f, policy);
+    const auto path = s(identity, "canonical_path");
+    const auto device = static_cast<std::uint64_t>(n(identity, "device"));
+    const auto inode = static_cast<std::uint64_t>(n(identity, "inode"));
+    CHECK(identity.at("execution_policy") == policy);
+    CHECK(s(identity, "execution_policy_sha256") == sha256_hex(canonical_json(policy)));
+    const auto event_count = f.store->events(f.request_id).size();
+    CHECK(f.store->bind_workspace(f.team_id, path, device, inode, policy) == identity);
+    CHECK(f.store->events(f.request_id).size() == event_count);
+    error(ErrorCode::Conflict, [&] { f.store->bind_workspace(f.team_id, path, device, inode, Object{{"mode", "weak"}}); });
+    error(ErrorCode::Conflict, [&] { f.store->bind_workspace(f.team_id, path, device, inode + 1, policy); });
+    error(ErrorCode::Conflict, [&] { f.store->bind_workspace(f.team_id, path + "-other", device, inode, policy); });
+    error(ErrorCode::InvalidInput, [&] { f.store->bind_workspace(f.team_id, "", device, inode, policy); });
+    error(ErrorCode::InvalidInput, [&] { f.store->bind_workspace(f.team_id, "/tmp/../workspace", device, inode, policy); });
+    error(ErrorCode::InvalidInput, [&] { f.store->bind_workspace(f.team_id, path, 0, inode, policy); });
+    error(ErrorCode::InvalidInput, [&] { f.store->bind_workspace(f.team_id, path, device, 0, policy); });
+    const auto other = f.create("separate-team");
+    const auto other_id = s(other, "team_id");
+    error(ErrorCode::Conflict, [&] { f.store->bind_workspace(other_id, path, device, inode, policy); });
+    error(ErrorCode::Conflict, [&] { f.store->bind_workspace(other_id, path + "-alias", device, inode, policy); });
+    error(ErrorCode::Conflict, [&] { f.store->bind_workspace(other_id, path + "/nested", device, inode + 1, policy); });
+    CHECK(f.store->workspace(other_id).is_null());
+    upgrade_tools(f);
+    CHECK(f.store->workspace(f.team_id) == identity);
+    CHECK(f.store->bind_workspace(f.team_id, path, device, inode, policy) == identity);
+}
+void workspace_cannot_enclose_its_store_control_files() {
+    Fixture f(tools_input()); upgrade_tools(f);
+    const auto request = f.store->request(f.request_id);
+    const auto events = f.store->events(f.request_id);
+    const auto parent = std::filesystem::canonical(f.temp.path);
+    struct stat identity{}; CHECK(::stat(parent.c_str(), &identity) == 0 && S_ISDIR(identity.st_mode));
+    CHECK(std::filesystem::is_regular_file(f.path));
+    CHECK(std::filesystem::is_regular_file(f.path.string() + ".writer-lock"));
+    CHECK(std::filesystem::is_regular_file(f.path.string() + "-wal"));
+    error(ErrorCode::Unauthorized, [&] {
+        f.store->bind_workspace(f.team_id, parent.string(), static_cast<std::uint64_t>(identity.st_dev), static_cast<std::uint64_t>(identity.st_ino));
+    });
+    CHECK(f.store->workspace(f.team_id).is_null());
+    CHECK(f.store->request(f.request_id) == request && f.store->events(f.request_id) == events);
+    const auto safe = bind_tools(f);
+    CHECK(s(safe, "canonical_path") == (parent / "workspace").string());
+    CHECK(f.store->request(f.request_id) == request);
+}
+void registered_business_tools_preserve_quota_and_exact_intents() {
+    Fixture f(tools_input(1)); upgrade_tools(f); bind_tools(f); f.ready();
+    const auto actor = f.actor(Role::Worker); const auto binding = f.store->binding(f.task_id);
+    const Json args = Object{{"path", "/work/a"}, {"text", "bounded"}};
+    const auto expected = f.tv();
+    auto op = f.store->prepare_tool_operation(actor, binding, expected, "intent", "fs_write", args, "prepare-registered");
+    CHECK(s(op, "side_effect") == "workspace");
+    error(ErrorCode::Unsupported, [&] { f.store->prepare_tool_operation(actor, binding, f.tv(), "diagnostic-spoof", "fs_read", args, "bad-class"); });
+    error(ErrorCode::Unsupported, [&] { f.store->prepare_tool_operation(actor, binding, f.tv(), "control-spoof", "op_cancel", args, "bad-control"); });
+    op = start_tool(f, op);
+    const auto recorded = f.store->record_operation_result(s(op, "op_id"), binding, "SUCCEEDED", Object{{"written", 7}}, Object{{"fixture", "verified once"}});
+    CHECK(n(recorded, "accepted") == 1 && s(recorded, "operation_status") == "SUCCEEDED");
+    const auto replay = f.store->prepare_tool_operation(actor, binding, expected, "intent", "fs_write", args, "prepare-registered");
+    CHECK(s(replay, "status") == "SUCCEEDED");
+    CHECK(f.store->operation_for_key(actor, binding, "intent", "fs_write", args) == replay);
+    error(ErrorCode::Conflict, [&] { f.store->operation_for_key(actor, binding, "intent", "fs_write", Object{{"text", "different"}}); });
+    error(ErrorCode::Conflict, [&] { f.store->operation_for_key(actor, binding, "intent", "run", args); });
+    error(ErrorCode::Quota, [&] { prepare_tool(f, "second"); });
+    CHECK(n(f.store->authorize_diagnostic(actor, binding, "fs_read"), "max_queries_per_minute") == 60);
+    CHECK(f.store->operation_for_key(actor, binding, "missing", "fs_write", args).is_null());
+}
+void concurrent_registered_intent_has_one_dispatch_claim() {
+    Fixture f(tools_input()); upgrade_tools(f); bind_tools(f); f.ready();
+    const auto actor = f.actor(Role::Worker);
+    const auto binding = f.store->binding(f.task_id);
+    const auto expected = f.tv();
+    const Json args = Object{{"path", "/work/once"}, {"content", "one effect"}};
+    std::barrier gate(2);
+    const auto execute = [&] {
+        const auto old = f.store->operation_for_key(actor, binding, "race-key", "fs_write", args);
+        CHECK(old.is_null());
+        gate.arrive_and_wait();
+        const auto prepared = f.store->prepare_tool_operation(actor, binding, expected, "race-key", "fs_write", args, "same-prepare");
+        gate.arrive_and_wait();
+        return f.store->start_tool_operation(actor, s(prepared, "op_id"), n(prepared, "state_version"), "same-start");
+    };
+    auto first = std::async(std::launch::async, execute);
+    auto second = std::async(std::launch::async, execute);
+    const auto a = first.get(); const auto b = second.get();
+    CHECK(a.at("dispatch_claimed").as_bool() != b.at("dispatch_claimed").as_bool());
+    const auto id = s(a.at("operation"), "op_id");
+    CHECK(id == s(b.at("operation"), "op_id"));
+    CHECK(s(a.at("operation"), "status") == "RUNNING" && s(b.at("operation"), "status") == "RUNNING");
+    CHECK(raw_number(f.path, "SELECT COUNT(*) FROM ops") == 1);
+    CHECK(raw_number(f.path, "SELECT COUNT(*) FROM events WHERE type='start_tool_op'") == 1);
+    CHECK(!f.store->start_tool_operation(actor, id, 1, "same-start").at("dispatch_claimed").as_bool());
+    CHECK(!f.store->start_tool_operation(actor, id, 2, "different-start").at("dispatch_claimed").as_bool());
+    f.store->record_operation_result(id, binding, "SUCCEEDED", Object{{"once", true}}, Object{{"fixture", "only claim winner executes"}});
+    const auto replay = f.store->start_tool_operation(actor, id, 1, "same-start");
+    CHECK(!replay.at("dispatch_claimed").as_bool() && s(replay.at("operation"), "status") == "SUCCEEDED");
+    CHECK(raw_number(f.path, "SELECT COUNT(*) FROM events WHERE type='start_tool_op'") == 1);
+}
+void execution_results_and_binary_output_commit_atomically() {
+    Fixture f(tools_input()); upgrade_tools(f); bind_tools(f); f.ready();
+    const auto binding = f.store->binding(f.task_id);
+    auto op = start_tool(f, prepare_tool(f)); const auto id = s(op, "op_id");
+    const Json result = Object{{"bytes_written", 7}};
+    const Json evidence = Object{{"path", "/work/a.txt"}, {"observed_sha256", sha256_hex("bounded")}};
+    const std::string output = std::string("A\0\xFF", 3) + "B";
+    const auto original_fields = to_json(binding);
+    for (const auto& field : original_fields.as_object()) {
+        auto forged = to_json(binding);
+        if (field.value().is_string()) forged.at(field.key()) = new_id(field.key() == "request_id" ? "req" : field.key() == "task_id" ? "tsk" : "team");
+        else forged.at(field.key()) = field.value().as_int64() + 1;
+        error(ErrorCode::Stale, [&] { f.store->record_operation_result(id, execution_binding_from_json(forged), "SUCCEEDED", result, evidence, output); });
+    }
+    error(ErrorCode::Quota, [&] { f.store->record_operation_result(id, binding, "SUCCEEDED", result, evidence, std::string(1048577, 'x')); });
+    error(ErrorCode::InvalidInput, [&] { f.store->record_operation_result(id, binding, "SUCCEEDED", result, Object{}); });
+    raw_exec(f.path, "CREATE TRIGGER reject_execution_record BEFORE INSERT ON events WHEN NEW.type='record_op_result' BEGIN SELECT RAISE(ABORT,'fixture event failure'); END;");
+    error(ErrorCode::Conflict, [&] { f.store->record_operation_result(id, binding, "SUCCEEDED", result, evidence, output, "stderr\n", true); });
+    CHECK(s(f.store->operation(id), "status") == "RUNNING");
+    CHECK(f.store->operation_result(id).is_null());
+    CHECK(raw_number(f.path, "SELECT COUNT(*) FROM operation_output_bytes") == 0);
+    raw_exec(f.path, "DROP TRIGGER reject_execution_record;");
+    const auto recorded = f.store->record_operation_result(id, binding, "SUCCEEDED", result, evidence, output, "stderr\n", true);
+    CHECK(recorded.at("original_binding") == to_json(binding));
+    CHECK(recorded.at("result") == result && recorded.at("evidence") == evidence);
+    CHECK(n(recorded, "stdout_bytes") == 4 && s(recorded, "stdout_sha256") == sha256_hex(output));
+    CHECK(f.store->record_operation_result(id, binding, "SUCCEEDED", result, evidence, output, "stderr\n", true) == recorded);
+    error(ErrorCode::Conflict, [&] { f.store->record_operation_result(id, binding, "SUCCEEDED", result, evidence, output + "!"); });
+    const auto actor = f.actor(Role::Worker);
+    const auto page = f.store->operation_output(actor, binding, id, "stdout", 0, 3);
+    CHECK(s(page, "data") == "QQD/" && n(page, "next_offset") == 3 && page.at("truncated").as_bool() && !page.at("eof").as_bool());
+    const auto last = f.store->operation_output(actor, binding, id, "stdout", 3, 3);
+    CHECK(s(last, "data") == "Qg==" && last.at("eof").as_bool());
+    CHECK(s(f.store->operation_output(actor, binding, id, "stdout", 1, 2), "data") == "AP8=");
+    error(ErrorCode::InvalidInput, [&] { f.store->operation_output(actor, binding, id, "stdout", 5); });
+    error(ErrorCode::InvalidInput, [&] { f.store->operation_output(actor, binding, id, "stdout", 0, 65537); });
+    const auto extra = f.create("foreign-reader");
+    error(ErrorCode::Unauthorized, [&] { f.store->operation_output(f.actor(Role::Worker, s(extra, "team_id")), f.store->binding(s(extra, "task_id")), id, "stdout"); });
+    Store reader(f.path, base_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql);
+    CHECK(reader.operation_result(id) == recorded);
+    CHECK(reader.operation_output(actor, binding, id, "stdout", 0, 3) == page);
+}
+void stale_execution_facts_survive_amend_cancel_and_reopen() {
+    for (const std::string action : {"amend", "cancel", "reopen"}) {
+        Fixture f(tools_input()); upgrade_tools(f); bind_tools(f); f.ready();
+        const auto original = f.store->binding(f.task_id);
+        auto op = start_tool(f, prepare_tool(f)); const auto id = s(op, "op_id");
+        if (action == "amend") f.store->amend(f.actor(Role::Root), f.rv(), "preserve original input; use cents; changed direction", input().constraint_catalog, "amend-late");
+        else if (action == "cancel") f.store->cancel_request(f.actor(Role::Root), f.rv(), "cancel-late");
+        else upgrade_tools(f);
+        CHECK(s(f.store->operation(id), "status") == "UNKNOWN");
+        const Json evidence = Object{{"fixture", "original write occurred"}, {"action", action}};
+        const auto recorded = f.store->record_operation_result(id, original, "SUCCEEDED", Object{{"observed", true}}, evidence, "old-output");
+        CHECK(n(recorded, "accepted") == 0 && s(recorded, "operation_status") == "UNKNOWN");
+        CHECK(recorded.at("original_binding") == to_json(original));
+        CHECK(f.store->record_operation_result(id, original, "SUCCEEDED", Object{{"observed", true}}, evidence, "old-output") == recorded);
+        error(ErrorCode::Stale, [&] { f.store->record_operation_result(id, f.store->binding(f.task_id), "SUCCEEDED", Object{{"observed", true}}, evidence, "old-output"); });
+        CHECK(n(f.store->authorize_diagnostic(f.actor(Role::Worker), f.store->binding(f.task_id), "fs_read"), "max_page_bytes") == 65536);
+        const auto reconciled = f.store->reconcile_operation(id, n(f.store->operation(id), "state_version"), "SUCCEEDED", "host checked original write evidence", new_id("cmd"));
+        CHECK(s(reconciled, "status") == "SUCCEEDED");
+        CHECK(n(f.store->operation_result(id), "accepted") == 0);
+        CHECK(f.store->operation_result(id).at("evidence") == evidence);
+    }
+}
+void completed_business_key_does_not_reexecute_after_new_instruction() {
+    Fixture f(tools_input()); upgrade_tools(f); bind_tools(f); f.ready();
+    const auto original_actor = f.actor(Role::Worker);
+    const auto original = f.store->binding(f.task_id);
+    auto op = start_tool(f, prepare_tool(f)); const auto id = s(op, "op_id");
+    const auto args = op.at("arguments");
+    f.store->record_operation_result(id, original, "SUCCEEDED", Object{{"once", true}}, Object{{"fixture", "one write"}});
+    f.instruction();
+    const auto current_actor = f.actor(Role::Worker);
+    const auto current = f.store->binding(f.task_id);
+    CHECK(current.instruction_revision > original.instruction_revision);
+    const auto before = f.store->events(f.request_id).size();
+    const auto historical = f.store->operation_for_key(current_actor, current, "write-once", "fs_write", args);
+    CHECK(s(historical, "op_id") == id && n(historical, "instruction_revision") == original.instruction_revision);
+    CHECK(f.store->prepare_tool_operation(current_actor, current, f.tv(), "write-once", "fs_write", args, new_id("cmd")) == historical);
+    CHECK(f.store->events(f.request_id).size() == before);
+    error(ErrorCode::Stale, [&] { f.store->operation_for_key(original_actor, original, "write-once", "fs_write", args); });
+    error(ErrorCode::Conflict, [&] { f.store->prepare_tool_operation(current_actor, current, f.tv(), "write-once", "fs_write", Object{{"text", "different"}}, new_id("cmd")); });
+    upgrade_tools(f);
+    const auto restored = f.store->operation_for_key(f.actor(Role::Worker), f.store->binding(f.task_id), "write-once", "fs_write", args);
+    CHECK(restored == historical && n(f.store->operation_result(id), "accepted") == 1);
+    CHECK(raw_number(f.path, "SELECT COUNT(*) FROM ops") == 1);
+    CHECK(f.store->workspace(f.team_id).at("execution_policy").is_object());
+}
+void diagnostic_and_control_guards_are_current_bounded_and_readonly() {
+    Fixture f(tools_input(1)); upgrade_tools(f); bind_tools(f); f.ready();
+    const auto original = f.store->binding(f.task_id);
+    const auto original_actor = f.actor(Role::Worker);
+    auto op = start_tool(f, prepare_tool(f)); const auto id = s(op, "op_id");
+    f.store->cancel_operation(original_actor, id, n(op, "state_version"), "controlled-cancel");
+    f.instruction();
+    const auto current = f.store->binding(f.task_id);
+    const auto actor = f.actor(Role::Worker);
+    CHECK(s(f.store->operation(id), "status") == "UNKNOWN");
+    const auto before_request = f.store->request(f.request_id);
+    const auto before_events = f.store->events(f.request_id);
+    Store reader(f.path, base_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql);
+    CHECK(n(reader.authorize_diagnostic(actor, current, "fs_read"), "max_queries_per_minute") == 60);
+    CHECK(n(reader.authorize_control(actor, current, "ack_change"), "max_queries_per_minute") == 60);
+    CHECK(n(reader.authorize_control(actor, current, "op_cancel"), "max_output_bytes") == 1048576);
+    error(ErrorCode::Unauthorized, [&] { reader.authorize_diagnostic(actor, current, "run"); });
+    error(ErrorCode::Unauthorized, [&] { reader.authorize_control(actor, current, "run"); });
+    error(ErrorCode::Unauthorized, [&] { reader.authorize_diagnostic(f.actor(Role::TeamLead), current, "fs_read"); });
+    error(ErrorCode::Stale, [&] { reader.authorize_diagnostic(original_actor, original, "fs_read"); });
+    auto forged = actor; forged.principal_id = "not-the-worker";
+    error(ErrorCode::Unauthorized, [&] { reader.authorize_diagnostic(forged, current, "fs_read"); });
+    CHECK(f.store->request(f.request_id) == before_request && f.store->events(f.request_id) == before_events);
+    raw_exec(f.path, "UPDATE runtime_policy SET policy_epoch=policy_epoch+1,denied_tools='[\"fs_read\"]',state_version=state_version+1 WHERE singleton=1;");
+    error(ErrorCode::Stale, [&] { reader.authorize_diagnostic(actor, current, "fs_read"); });
+    const auto policy_current = f.store->binding(f.task_id);
+    error(ErrorCode::Unauthorized, [&] { reader.authorize_diagnostic(actor, policy_current, "fs_read"); });
+    CHECK(reader.authorize_diagnostic(actor, policy_current, "op_status").is_object());
+}
+void revoked_tool_preserves_other_model_declarations_and_business_grants() {
+    Fixture f(tools_input()); upgrade_tools(f); bind_tools(f); f.ready();
+    const auto actor = f.actor(Role::Worker);
+    const auto old_binding = f.store->binding(f.task_id);
+    raw_exec(f.path, "UPDATE runtime_policy SET policy_epoch=policy_epoch+1,denied_tools='[\"fs_read\"]',state_version=state_version+1 WHERE singleton=1;");
+    error(ErrorCode::Stale, [&] { f.store->authorized_worker_tools(actor, old_binding); });
+    const auto current = f.store->binding(f.task_id);
+    const auto grants = f.store->authorized_worker_tools(actor, current);
+    CHECK(std::find(grants.begin(), grants.end(), "fs_read") == grants.end());
+    CHECK(std::find(grants.begin(), grants.end(), "fs_write") != grants.end());
+    auto reservation = f.reservation("after-revocation", [&](ContextInput& context) {
+        for (const auto& name : grants) context.tools.push_back({name, "fixture-v1", Object{{"type", "object"}}});
+    });
+    const auto attempt = f.store->reserve_attempt(actor, current, reservation);
+    CHECK(s(attempt, "status") == "PENDING");
+    CHECK(n(f.store->budget(f.request_id), "attempts") == 1);
+    auto still_denied = f.reservation("old-declaration", [](ContextInput& context) {
+        context.tools.push_back({"fs_read", "fixture-v1", Object{{"type", "object"}}});
+    });
+    error(ErrorCode::Unauthorized, [&] { f.store->reserve_attempt(actor, current, still_denied); });
+    CHECK(n(f.store->budget(f.request_id), "attempts") == 1);
+    const auto op = prepare_tool(f);
+    CHECK(s(op, "tool_id") == "fs_write");
+    error(ErrorCode::Unauthorized, [&] { f.store->authorize_diagnostic(actor, current, "fs_read"); });
+}
+void tool_ack_exact_replay_cannot_apply_a_new_instruction() {
+    Fixture f(tools_input()); upgrade_tools(f); bind_tools(f); f.instruction();
+    const auto actor = f.actor(Role::Worker);
+    const auto original = f.store->binding(f.task_id);
+    const auto expected = f.tv();
+    const auto before = f.store->task(f.task_id);
+    raw_exec(f.path, "CREATE TRIGGER reject_tool_control BEFORE INSERT ON events WHEN NEW.type='execute_tool_control' BEGIN SELECT RAISE(ABORT,'control event failure'); END;");
+    error(ErrorCode::Conflict, [&] { f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "tool-ack"); });
+    CHECK(f.store->task(f.task_id) == before);
+    raw_exec(f.path, "DROP TRIGGER reject_tool_control;");
+    const auto acknowledged = f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "tool-ack");
+    CHECK(n(f.store->task(f.task_id), "applied_instruction_revision") == original.instruction_revision);
+    f.instruction();
+    const auto next_instruction = n(f.store->task(f.task_id), "instruction_revision");
+    const auto count = f.store->events(f.request_id).size();
+    CHECK(next_instruction > original.instruction_revision);
+    CHECK(f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "tool-ack") == acknowledged);
+    CHECK(f.store->events(f.request_id).size() == count);
+    CHECK(n(f.store->task(f.task_id), "applied_instruction_revision") == original.instruction_revision);
+    error(ErrorCode::Stale, [&] { f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "fresh-old-ack"); });
+    error(ErrorCode::Conflict, [&] { f.store->execute_tool_control(actor, original, expected + 1, "ack_change", Object{}, "tool-ack"); });
+    upgrade_tools(f);
+    CHECK(f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "tool-ack") == acknowledged);
+    CHECK(n(f.store->task(f.task_id), "instruction_revision") == next_instruction);
+    CHECK(n(f.store->task(f.task_id), "applied_instruction_revision") == original.instruction_revision);
+    error(ErrorCode::Stale, [&] { f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "new-command-old-epoch"); });
+    f.instruction();
+    const auto current = f.store->binding(f.task_id);
+    const auto current_actor = f.actor(Role::Worker);
+    f.store->execute_tool_control(current_actor, current, f.tv(), "ack_change", Object{}, "ack-current");
+    CHECK(n(f.store->task(f.task_id), "applied_instruction_revision") == current.instruction_revision);
+    raw_exec(f.path, "UPDATE runtime_policy SET policy_epoch=policy_epoch+1,denied_tools='[\"ack_change\"]',state_version=state_version+1 WHERE singleton=1;");
+    error(ErrorCode::Unauthorized, [&] { f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "tool-ack"); });
+}
+void tool_cancel_retries_use_original_command_not_changed_op_version() {
+    Fixture f(tools_input(1)); upgrade_tools(f); bind_tools(f); f.ready();
+    const auto actor = f.actor(Role::Worker);
+    const auto original = f.store->binding(f.task_id);
+    const auto op = start_tool(f, prepare_tool(f));
+    const auto id = s(op, "op_id");
+    const auto expected = f.tv();
+    const Json args = Object{{"op_id", id}};
+    const auto cancelled = f.store->execute_tool_control(actor, original, expected, "op_cancel", args, "stable-cancel");
+    CHECK(s(cancelled, "status") == "UNKNOWN");
+    const auto count = f.store->events(f.request_id).size();
+    CHECK(f.store->execute_tool_control(actor, original, expected, "op_cancel", args, "stable-cancel") == cancelled);
+    CHECK(f.store->events(f.request_id).size() == count);
+    error(ErrorCode::NotReady, [&] { f.store->execute_tool_control(actor, original, expected, "op_cancel", args, "new-cancel"); });
+    error(ErrorCode::Conflict, [&] { f.store->execute_tool_control(actor, original, expected + 1, "op_cancel", args, "stable-cancel"); });
+    error(ErrorCode::InvalidInput, [&] { f.store->execute_tool_control(actor, original, expected, "op_cancel", Object{{"op_id", id}, {"class", "control"}}, "bad-shape"); });
+    error(ErrorCode::Unauthorized, [&] { f.store->execute_tool_control(actor, original, expected, "run", Object{}, "not-control"); });
+    f.instruction();
+    CHECK(f.store->execute_tool_control(actor, original, expected, "op_cancel", args, "stable-cancel") == cancelled);
+    error(ErrorCode::Stale, [&] { f.store->execute_tool_control(actor, original, expected, "op_cancel", args, "stale-fresh-cancel"); });
+    f.store->reconcile_operation(id, n(f.store->operation(id), "state_version"), "SUCCEEDED", "host observed completed original write", "checked-old-write");
+    CHECK(f.store->execute_tool_control(actor, original, expected, "op_cancel", args, "stable-cancel") == cancelled);
+    CHECK(s(f.store->operation(id), "status") == "SUCCEEDED");
+    upgrade_tools(f);
+    CHECK(f.store->execute_tool_control(actor, original, expected, "op_cancel", args, "stable-cancel") == cancelled);
+    CHECK(s(f.store->operation(id), "status") == "SUCCEEDED");
+}
 void process_crash_keeps_commits_and_rolls_back_uncommitted_change() {
     test::TempDir temp;
     const auto path = temp.path / "crash.sqlite";
@@ -432,6 +826,7 @@ int main(int argc, char** argv) {
     try {
         base_sql = read(root / "db/schema.sql");
         migration_sql = read(root / "db/migrations/004_s1_store.sql");
+        tools_migration_sql = read(root / "db/migrations/005_worker_tools.sql");
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
     return test::run({
         {"SQLite FULL/WAL/FK, writer lease, read-only and repeated migration", durability_migration_and_readonly},
@@ -450,6 +845,19 @@ int main(int argc, char** argv) {
         {"restart keeps UNKNOWN operation and model reservations", recovery_preserves_unknown_attempt_reservations},
         {"concurrent request CAS has exactly one successful commit", concurrent_cas_has_one_winner},
         {"cancelled request retains accounting and exact control retry", cancelled_request_retains_accounting_and_control_retry},
-        {"process crash retains committed request and rolls back partial SQL", process_crash_keeps_commits_and_rolls_back_uncommitted_change}
+        {"process crash retains committed request and rolls back partial SQL", process_crash_keeps_commits_and_rolls_back_uncommitted_change},
+        {"populated 402 migration preserves snapshots, attempts and intents", populated_402_migrates_without_replacing_request_history},
+        {"failed 403 migration leaves data, schema version and events intact", tools_migration_failure_rolls_back_all_schema_changes},
+        {"workspace identities and execution policies are immutable across teams and recovery", workspace_identity_policy_and_team_aliases_are_immutable},
+        {"workspace cannot enclose this Store database, writer lease or SQLite side files", workspace_cannot_enclose_its_store_control_files},
+        {"static business registry preserves quota and exact durable intents", registered_business_tools_preserve_quota_and_exact_intents},
+        {"concurrent same-key intent and command have one durable dispatch claim", concurrent_registered_intent_has_one_dispatch_claim},
+        {"original execution facts and bounded binary output commit atomically", execution_results_and_binary_output_commit_atomically},
+        {"AMEND, cancellation and restart retain stale facts without resolving UNKNOWN", stale_execution_facts_survive_amend_cancel_and_reopen},
+        {"old business keys return original results across instruction changes and restart", completed_business_key_does_not_reexecute_after_new_instruction},
+        {"diagnostics and controls keep current identity, grants and read-only guards", diagnostic_and_control_guards_are_current_bounded_and_readonly},
+        {"revoking one tool preserves other model declarations and business grants", revoked_tool_preserves_other_model_declarations_and_business_grants},
+        {"exact tool ack replay preserves new pending instructions across epochs", tool_ack_exact_replay_cannot_apply_a_new_instruction},
+        {"tool cancellation retries retain the original command despite changed op state", tool_cancel_retries_use_original_command_not_changed_op_version}
     });
 }

@@ -11,6 +11,8 @@
 
 namespace wls::s1 {
 
+class WorkerTools;
+
 // Host-held value: only reserve_call constructs this from authenticated Store
 // actors and persisted records. Never deserialize it from model arguments.
 struct CapturedModelCall {
@@ -21,28 +23,33 @@ struct CapturedModelCall {
 
 // A deliberately bounded first S1 runner. It connects real configuration,
 // Schema, SQLite accounting and version gates to FakeModel. It supports one
-// independent task and a durable note operation; it does not claim delivery,
-// file/process execution, sandbox checks, a daemon, or supplier integration.
+// independent task. An explicit WorkerTools host adds bounded real tools; the
+// default preserves the note-only path. Neither path claims business delivery,
+// a daemon, a complete event-driven role loop, or supplier integration.
 class OfflineRuntime final {
 public:
-    OfflineRuntime(Store& store, const SchemaRegistry& schemas);
+    OfflineRuntime(Store& store, const SchemaRegistry& schemas,
+                   WorkerTools* worker_tools = nullptr);
     CapturedModelCall reserve_call(const ModelAdapter& adapter,
                                   const std::string& request_id, Role role,
                                   const std::string& task_id = {},
-                                  std::int64_t role_call_index = 1);
+                                  std::int64_t role_call_index = 1,
+                                  const std::vector<Json>& tool_feedback = {});
     // Record usage and the raw response first. Invalid/stale responses never
     // authorize a tool; their consumed or unknown budget is still retained.
     Json accept_response(const CapturedModelCall& call,
                          const ModelResponse& response,
                          const std::string& amendment_disposition = {});
-    // Each explicit invocation performs at most three fake calls, with no
-    // implicit retries and no new threads. The caller owns its Store lease.
+    // At most one Dispatcher, one TeamLead and 1..16 explicit Worker calls.
+    // No implicit retries or new threads. The caller owns its Store lease.
     Json run(const std::string& request_id,
              const std::vector<FakeModelStep>& steps,
-             const std::string& amendment_disposition = {});
+             const std::string& amendment_disposition = {},
+             std::int64_t max_worker_calls = 1);
 private:
     Store& store_;
     const SchemaRegistry& schemas_;
+    WorkerTools* worker_tools_;
 };
 
 // Bounded regular-file read for explicit CLI inputs and trusted SQL assets.

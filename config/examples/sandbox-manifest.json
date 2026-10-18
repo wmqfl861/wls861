@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "bwrap_path": "/usr/bin/bwrap",
+  "cgroup_root": "",
+  "runtime_files": [],
+  "memory_max_bytes": 268435456,
+  "pids_max": 64,
+  "cpu_quota_us": 100000,
+  "cpu_period_us": 100000,
+  "cleanup_timeout_ms": 2000,
+  "max_output_bytes": 65536
+}

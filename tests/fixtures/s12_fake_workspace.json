@@ -1,0 +1,162 @@
+[
+  {
+    "role": "dispatcher",
+    "role_call_index": 1,
+    "status": "completed",
+    "tool_calls": [
+      {
+        "call_id": "plan-1",
+        "name": "submit_plan",
+        "arguments": {
+          "summary": "在一个明确的临时工作目录中写入、读取并精确修改样例文件。",
+          "nodes": [
+            {
+              "node_id": "workspace-example",
+              "kind": "team_task",
+              "title": "验证受控文件工具",
+              "depends_on": [],
+              "required": true,
+              "brief": {
+                "title": "受控文件操作",
+                "goal": "创建 result.txt，读取其内容和哈希，再把 hello 精确替换为 verified。",
+                "acceptance_criteria": [
+                  {
+                    "id": "ac1",
+                    "text": "文件内容为 verified from S1.2\\n，执行事实与原始绑定持久化。"
+                  }
+                ],
+                "constraints_verbatim": [
+                  "只读写明确指定的工作目录",
+                  "不要调用外部服务"
+                ],
+                "constraint_refs": [
+                  "c1",
+                  "c2"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 20,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost_micro_usd": 0
+    }
+  },
+  {
+    "role": "team_lead",
+    "role_call_index": 1,
+    "status": "completed",
+    "tool_calls": [
+      {
+        "call_id": "order-1",
+        "name": "issue_work_order",
+        "arguments": {
+          "approach": "确认当前说明后，依次使用 fs_write、fs_read 和 fs_patch；修改前核对完整旧内容 SHA-256。",
+          "steps": [
+            {
+              "id": "s1",
+              "text": "创建 result.txt，内容为 hello from S1.2 换行。"
+            },
+            {
+              "id": "s2",
+              "text": "读取文件及其完整 SHA-256。"
+            },
+            {
+              "id": "s3",
+              "text": "在偏移零把唯一的 hello 替换为 verified。"
+            }
+          ],
+          "constraints_verbatim": [
+            "只读写明确指定的工作目录",
+            "不要调用外部服务"
+          ],
+          "constraint_refs": [
+            "c1",
+            "c2"
+          ],
+          "done_definition": "文件修改结果和原绑定已保存；不据此声明完成独立业务验收或交付。"
+        }
+      }
+    ],
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 20,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost_micro_usd": 0
+    }
+  },
+  {
+    "role": "worker",
+    "role_call_index": 1,
+    "status": "completed",
+    "tool_calls": [
+      {
+        "call_id": "file-1",
+        "name": "fs_write",
+        "arguments": {
+          "path": "result.txt",
+          "content": "hello from S1.2\n"
+        }
+      }
+    ],
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 20,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost_micro_usd": 0
+    }
+  },
+  {
+    "role": "worker",
+    "role_call_index": 2,
+    "status": "completed",
+    "tool_calls": [
+      {
+        "call_id": "file-2",
+        "name": "fs_read",
+        "arguments": {
+          "path": "result.txt"
+        }
+      }
+    ],
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 20,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost_micro_usd": 0
+    }
+  },
+  {
+    "role": "worker",
+    "role_call_index": 3,
+    "status": "completed",
+    "tool_calls": [
+      {
+        "call_id": "file-3",
+        "name": "fs_patch",
+        "arguments": {
+          "path": "result.txt",
+          "expected_sha256": "1c585057691728bedef253b6e7da176924d2d5efd50c0aae95c5114672cf7f81",
+          "offset": 0,
+          "expected": "hello",
+          "replacement": "verified"
+        }
+      }
+    ],
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 20,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost_micro_usd": 0
+    }
+  }
+]

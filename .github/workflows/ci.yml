@@ -1,4 +1,4 @@
-name: C++20 kernel, S1 foundation and specification contracts
+name: C++20 kernel, Worker tools and specification contracts
 
 on:
   push:

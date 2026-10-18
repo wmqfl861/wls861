@@ -1,0 +1,93 @@
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Found Boost: /usr/lib/x86_64-linux-gnu/cmake/Boost-1.83.0/BoostConfig.cmake (found suitable version "1.83.0", minimum required is "1.83")
+-- Found SQLite3: /usr/include (found suitable version "3.45.1", minimum required is "3.37")
+-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found suitable version "3.0.13", minimum required is "3") found components: Crypto
+-- Found Python3: <repo>/.local/test-venv/bin/python (found version "3.12.14") found components: Interpreter
+-- Configuring done (0.6s)
+-- Generating done (0.1s)
+-- Build files have been written to: <repo>/build-cmake-s12
+
+[ 10%] Built target wls_kernel
+[ 14%] Built target wls861
+[ 17%] Building CXX object CMakeFiles/wls_s1.dir/src/offline_runtime.cpp.o
+[ 21%] Built target journal_tests
+[ 25%] Built target config_tests
+[ 29%] Built target scheduler_tests
+[ 34%] Built target task_engine_tests
+[ 36%] Building CXX object CMakeFiles/wls_s1.dir/src/worker_tools.cpp.o
+[ 38%] Linking CXX static library libwls_s1.a
+[ 57%] Built target wls_s1
+[ 59%] Linking CXX executable runtime_types_tests
+[ 61%] Linking CXX executable wls
+[ 63%] Built target runtime_types_tests
+[ 65%] Linking CXX executable store_tests
+[ 68%] Built target wls
+[ 70%] Linking CXX executable config_loader_tests
+[ 72%] Built target store_tests
+[ 74%] Linking CXX executable model_tests
+[ 76%] Built target config_loader_tests
+[ 78%] Linking CXX executable schema_tests
+[ 80%] Built target model_tests
+[ 82%] Linking CXX executable offline_runtime_tests
+[ 85%] Built target schema_tests
+[ 87%] Linking CXX executable workspace_tests
+[ 89%] Built target offline_runtime_tests
+[ 91%] Linking CXX executable sandbox_tests
+[ 93%] Built target workspace_tests
+[ 95%] Building CXX object CMakeFiles/worker_tools_tests.dir/tests/worker_tools_tests.cpp.o
+[ 97%] Built target sandbox_tests
+[100%] Linking CXX executable worker_tools_tests
+[100%] Built target worker_tools_tests
+
+Internal ctest changing into directory: <repo>/build-cmake-s12
+Test project <repo>/build-cmake-s12
+      Start  1: journal
+ 1/19 Test  #1: journal ..........................   Passed    0.27 sec
+      Start  2: config
+ 2/19 Test  #2: config ...........................   Passed    0.00 sec
+      Start  3: scheduler
+ 3/19 Test  #3: scheduler ........................   Passed    0.00 sec
+      Start  4: task_engine
+ 4/19 Test  #4: task_engine ......................   Passed    0.14 sec
+      Start  5: runtime_types
+ 5/19 Test  #5: runtime_types ....................   Passed    0.01 sec
+      Start  6: store
+ 6/19 Test  #6: store ............................   Passed    1.16 sec
+      Start  7: config_loader
+ 7/19 Test  #7: config_loader ....................   Passed    0.09 sec
+      Start  8: model
+ 8/19 Test  #8: model ............................   Passed    0.03 sec
+      Start  9: schema
+ 9/19 Test  #9: schema ...........................   Passed    0.01 sec
+      Start 10: offline_runtime
+10/19 Test #10: offline_runtime ..................   Passed    0.53 sec
+      Start 11: workspace
+11/19 Test #11: workspace ........................   Passed    0.03 sec
+      Start 12: sandbox
+12/19 Test #12: sandbox ..........................   Passed    2.87 sec
+      Start 13: worker_tools
+13/19 Test #13: worker_tools .....................   Passed    2.77 sec
+      Start 14: handoff_integrity
+14/19 Test #14: handoff_integrity ................   Passed    0.04 sec
+      Start 15: review_source_integrity
+15/19 Test #15: review_source_integrity ..........   Passed    0.04 sec
+      Start 16: specification_contracts
+16/19 Test #16: specification_contracts ..........   Passed    0.58 sec
+      Start 17: demo_smoke
+17/19 Test #17: demo_smoke .......................   Passed    0.06 sec
+      Start 18: s1_cli_smoke
+18/19 Test #18: s1_cli_smoke .....................   Passed    0.70 sec
+      Start 19: s12_cli_smoke
+19/19 Test #19: s12_cli_smoke ....................   Passed    1.36 sec
+
+100% tests passed, 0 tests failed out of 19
+
+Total Test time (real) =  10.70 sec

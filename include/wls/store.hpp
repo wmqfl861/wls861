@@ -69,7 +69,8 @@ public:
     // live requests before actors can be issued and makes pending calls UNKNOWN.
     Store(const std::filesystem::path& database_path,
           std::string_view base_schema_sql, std::string_view migration_sql,
-          StoreOpenMode mode = StoreOpenMode::Takeover);
+          StoreOpenMode mode = StoreOpenMode::Takeover,
+          std::string_view tools_migration_sql = {});
     ~Store();
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;
@@ -140,6 +141,13 @@ public:
     Json start_operation(const StoreActor& actor, const std::string& op_id,
                          std::int64_t expected_op_version,
                          const std::string& command_id);
+    // Atomic execution claim for registered real tools. Only the transaction
+    // that changes PREPARED to RUNNING returns dispatch_claimed=true. Retried
+    // commands and already claimed/settled operations return false, never a
+    // fresh permission to repeat an external effect.
+    Json start_tool_operation(const StoreActor& actor, const std::string& op_id,
+                              std::int64_t expected_op_version,
+                              const std::string& command_id);
     Json finish_operation(const StoreActor& actor, const std::string& op_id,
                           const ExecutionBinding& original_binding,
                           std::int64_t expected_op_version,
@@ -154,6 +162,73 @@ public:
                              const std::string& outcome,
                              const std::string& host_evidence,
                              const std::string& command_id);
+
+    // S1.2 APIs require the known 403 schema. Passing the additional 005 asset
+    // migrates a populated 402 database without replacing its frozen records.
+    // Existing 402-only callers continue to work with the original API.
+    // Workspace identities are supplied by the trusted host after opening a
+    // canonical directory; models never choose a host path or device/inode.
+    Json bind_workspace(const std::string& team_id,
+                        const std::string& canonical_path,
+                        std::uint64_t device, std::uint64_t inode,
+                        const Json& execution_policy = boost::json::object{});
+    Json workspace(const std::string& team_id) const;
+    Json prepare_tool_operation(const StoreActor& actor,
+                                const ExecutionBinding& frozen_binding,
+                                std::int64_t expected_task_version,
+                                const std::string& business_key,
+                                const std::string& tool_id,
+                                const Json& arguments,
+                                const std::string& command_id);
+    // A current authorized Worker may retrieve its old intent by business key
+    // without a new dispatch, even after an instruction change or restart.
+    // Different arguments/tool/team remain a conflict. Missing keys return null.
+    Json operation_for_key(const StoreActor& actor,
+                           const ExecutionBinding& current_binding,
+                           const std::string& business_key,
+                           const std::string& tool_id,
+                           const Json& arguments) const;
+    // Bounded diagnostic authorization is separate from business readiness,
+    // UNKNOWN and ordinary budgets. This method is read-only and never fences.
+    // The executor applies returned max_queries_per_minute and path/byte caps.
+    Json authorize_diagnostic(const StoreActor& actor,
+                              const ExecutionBinding& current_binding,
+                              const std::string& tool_id) const;
+    Json authorize_control(const StoreActor& actor,
+                           const ExecutionBinding& current_binding,
+                           const std::string& tool_id) const;
+    std::vector<std::string> authorized_worker_tools(
+        const StoreActor& actor, const ExecutionBinding& current_binding) const;
+    // The original host command (including its captured binding/version) is
+    // the durable retry identity. An old successful ack/cancel may replay after
+    // newer instructions or epochs, but a fresh stale command cannot mutate.
+    // Cancel reads its current operation CAS inside the same transaction; that
+    // changing CAS is never substituted into the original command fingerprint.
+    Json execute_tool_control(const StoreActor& actor,
+                              const ExecutionBinding& original_binding,
+                              std::int64_t expected_task_version,
+                              const std::string& tool_id, const Json& arguments,
+                              const std::string& command_id);
+    // Host-only durable execution facts. Captured original bindings are checked
+    // against the intent, not replaced with the current binding. Stale/UNKNOWN
+    // facts are retained with accepted=false; only explicit reconciliation can
+    // settle an UNKNOWN operation. Exact recording retries are idempotent.
+    Json record_operation_result(const std::string& op_id,
+                                 const ExecutionBinding& original_binding,
+                                 const std::string& outcome,
+                                 const Json& result, const Json& evidence,
+                                 const std::string& stdout_bytes = {},
+                                 const std::string& stderr_bytes = {},
+                                 bool stdout_truncated = false,
+                                 bool stderr_truncated = false);
+    Json operation_result(const std::string& op_id) const;
+    // Returns base64-encoded bytes, offset/next_offset, retained byte count and
+    // truncation metadata. The caller must enforce the diagnostic rate limit.
+    Json operation_output(const StoreActor& actor,
+                          const ExecutionBinding& current_binding,
+                          const std::string& op_id, const std::string& stream,
+                          std::int64_t offset = 0,
+                          std::int64_t limit = 65536) const;
 
     Json reserve_attempt(const StoreActor& actor,
                          const ExecutionBinding& frozen_binding,

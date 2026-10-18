@@ -1,0 +1,29 @@
+{
+  "bwrap_available": true,
+  "cgroup_v2": true,
+  "config_snapshot_sha256": "230f126591f16c6a26c8a66f964c5457ef452ff75b5abd7f55bf9c3d72e30378",
+  "delegated_root_ready": false,
+  "environment_checks_executed": false,
+  "evidence": {
+    "/proc/sys/kernel/apparmor_restrict_unprivileged_userns": "unavailable",
+    "/proc/sys/kernel/unprivileged_userns_clone": "unavailable",
+    "/proc/sys/user/max_user_namespaces": "2147483647\n",
+    "bwrap_sha256": "52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712",
+    "bwrap_version": "not-executed",
+    "namespace_execution_tested": false,
+    "network": "none",
+    "probe": "read-only-prerequisites",
+    "programs_executed": 0,
+    "weak_fallback_available": false
+  },
+  "issues": [
+    "a frozen bubblewrap SHA-256 is required for strong execution",
+    "no trusted runtime file manifest configured",
+    "no dedicated delegated cgroup v2 root configured"
+  ],
+  "linux_supported": true,
+  "process_isolation_verified": false,
+  "runtime_files_ready": false,
+  "strong_prerequisites": false,
+  "template_id": "default"
+}

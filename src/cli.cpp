@@ -1,10 +1,12 @@
 #include "wls/offline_runtime.hpp"
+#include "wls/worker_tools.hpp"
 
 #include <charconv>
 #include <cmath>
 #include <iostream>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
 
 namespace {
@@ -94,7 +96,7 @@ Json request_view(Store& store, const std::string& id) {
 }
 
 void help() {
-    std::cout << R"(wls 0.2.0-s1.1 — persistent offline S1 foundation
+    std::cout << R"(wls 0.3.0-s1.2 — persistent Worker tools with offline models
 
 Resource paths default to the source checkout in the current directory.
 Use --source-root PATH from another directory. Outputs are JSON; errors go to stderr.
@@ -102,6 +104,7 @@ Use --source-root PATH from another directory. Outputs are JSON; errors go to st
   wls config check [--config FILE] [--function ID]
   wls config explain [--config FILE] [--function ID] [--role worker]
   wls schema check --schema NAME --input FILE [--model-input]
+  wls doctor [--config FILE] [--template default] [--sandbox-manifest FILE]
   wls init --db FILE
   wls submit --db FILE --key KEY --text-file FILE [--constraints-file FILE]
              [--tenant local] [--project local] [--root local-root]
@@ -112,6 +115,9 @@ Use --source-root PATH from another directory. Outputs are JSON; errors go to st
   wls budget --db FILE --request ID
   wls config-snapshot --db FILE --request ID [--role worker]
   wls run-fake --db FILE --request ID --script FILE [--disposition update|keep|cancel]
+               [--workspace DIRECTORY] [--worker-calls 1..16] [--sandbox-manifest FILE]
+  wls tool-query --db FILE --request ID --task ID --workspace DIRECTORY
+                 --tool NAME --input FILE [--sandbox-manifest FILE]
   wls amend --db FILE --request ID --text-file FILE --constraints-file FILE
   wls cancel --db FILE --request ID
   wls pending --db FILE
@@ -119,11 +125,14 @@ Use --source-root PATH from another directory. Outputs are JSON; errors go to st
 submit freezes original text, explicit constraints, configuration and budgets.
 An omitted initial catalog is empty; this CLI does not extract or certify requirements.
 amend takes the entire effective constraint catalog; every existing task then needs
-an explicit disposition. run-fake supports one independent team and durable note
-operations. It does not execute file/shell tools or produce a business delivery.
-show/events/budget/config-snapshot/pending use read-only database connections.
+an explicit disposition. run-fake supports one independent team. An explicit
+workspace enables bounded file tools and process execution with verified strong
+isolation. A process requires a pinned host manifest and delegated cgroup v2;
+missing prerequisites refuse execution. Worker tools do not establish delivery.
+tool-query accepts only registered diagnostics. Read commands do not fence a writer.
 Opening a writer fences interrupted executions and keeps their unknown budgets.
-No command starts a daemon, runs environment checks or calls a real provider.
+doctor observes prerequisites without changing host policy or running template checks.
+No command starts a daemon or calls a real model provider.
 )";
 }
 
@@ -132,7 +141,7 @@ int run_cli(int argc, char** argv) {
     const std::string command(argv[1]);
     if (command == "--version" || command == "version") {
         if (argc != 2) throw Error(ErrorCode::InvalidInput, "version takes no options");
-        output(Object{{"version", "0.2.0-s1.1"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
+        output(Object{{"version", "0.3.0-s1.2"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
     }
     int start = 2;
     std::string action;
@@ -164,13 +173,27 @@ int run_cli(int argc, char** argv) {
         output(Object{{"valid", true}, {"schema", name}, {"model_input", model_input}, {"semantic_acceptance", "not_evaluated"}});
         return 0;
     }
-    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "amend", "cancel", "pending"};
+    if (command == "doctor") {
+        const auto frozen = live_config(options, source);
+        const auto template_id = options.take("--template", "default");
+        const auto manifest_path = options.take("--sandbox-manifest");
+        const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
+        options.finish();
+        auto result = to_json(sandbox_doctor(worker_sandbox_policy(frozen, template_id, manifest)));
+        result.as_object()["config_snapshot_sha256"] = frozen.sha256();
+        result.as_object()["template_id"] = template_id;
+        result.as_object()["environment_checks_executed"] = false;
+        result.as_object()["process_isolation_verified"] = false;
+        output(result); return 0;
+    }
+    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "tool-query", "amend", "cancel", "pending"};
     if (!commands.contains(command)) throw Error(ErrorCode::InvalidInput, "unknown command: " + command);
     const auto database = options.required("--db");
     const auto schema_sql = read_runtime_file(source / "db/schema.sql");
     const auto migration_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");
+    const auto tools_migration_sql = read_runtime_file(source / "db/migrations/005_worker_tools.sql");
     if (command == "init") {
-        options.finish(); Store store(database, schema_sql, migration_sql); output(store.diagnostics()); return 0;
+        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql); output(store.diagnostics()); return 0;
     }
     if (command == "submit") {
         const auto frozen = live_config(options, source);
@@ -201,21 +224,37 @@ int run_cli(int argc, char** argv) {
         }
         admission.budget.cost_micro_usd = options.number("--cost-budget-micro-usd", cost_limit);
         options.finish();
-        Store store(database, schema_sql, migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql);
         const auto admitted = store.admit(admission);
         output(request_view(store, text(admitted.at("request_id")))); return 0;
     }
     if (command == "pending") {
-        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly);
+        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql);
         output(store.pending_recovery()); return 0;
     }
     const auto request = options.required("--request");
+    if (command == "tool-query") {
+        const auto task = options.required("--task");
+        const auto workspace = options.required("--workspace");
+        const auto tool = options.required("--tool");
+        const auto arguments = parse_json_strict(read_runtime_file(options.required("--input"), 262144));
+        const auto manifest_path = options.take("--sandbox-manifest");
+        const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
+        options.finish();
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql);
+        const auto binding = store.binding(task);
+        if (binding.request_id != request) throw Error(ErrorCode::Unauthorized, "task belongs to another request");
+        const auto actor = store.host_actor(Role::Worker, request, binding.team_id);
+        WorkerTools worker_tools(store, workspace, manifest, true);
+        worker_tools.bind(actor);
+        output(worker_tools.diagnostic(actor, binding, tool, arguments)); return 0;
+    }
     if (command == "show" || command == "events" || command == "budget" || command == "config-snapshot") {
         const auto after = command == "events" ? options.number("--after", 0) : 0;
         const auto limit = command == "events" ? options.number("--limit", 100, 1) : 100;
         const auto role = command == "config-snapshot" ? role_from_string(options.take("--role", "worker")) : Role::Root;
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql);
         if (command == "show") output(request_view(store, request));
         if (command == "events") output(array_of(store.events(request, after, limit)));
         if (command == "budget") output(store.budget(request));
@@ -226,22 +265,30 @@ int run_cli(int argc, char** argv) {
         const auto amendment = read_runtime_file(options.required("--text-file"), 65536);
         const auto catalog = parse_json_strict(read_runtime_file(options.required("--constraints-file")));
         options.finish();
-        Store store(database, schema_sql, migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql);
         const auto actor = store.host_actor(Role::Root, request);
         output(store.amend(actor, integer(store.request(request).at("state_version")), amendment, catalog, new_id("amend")));
         return 0;
     }
     if (command == "cancel") {
-        options.finish(); Store store(database, schema_sql, migration_sql);
+        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql);
         output(store.cancel_request(store.host_actor(Role::Root, request), integer(store.request(request).at("state_version")), new_id("cancel")));
         return 0;
     }
     const auto script = fake_model_steps_from_json(parse_json_strict(read_runtime_file(options.required("--script"))));
     const auto disposition = options.take("--disposition");
+    const auto workspace = options.take("--workspace");
+    const auto manifest_path = options.take("--sandbox-manifest");
+    const auto worker_calls = options.number("--worker-calls", 1, 1);
+    if (worker_calls > 16 || (workspace.empty() && (worker_calls != 1 || !manifest_path.empty())))
+        throw Error(ErrorCode::InvalidInput, "multiple Worker calls and sandbox manifests require --workspace; limit is 16");
+    const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
     options.finish();
     const SchemaRegistry schemas(source / "schemas");
-    Store store(database, schema_sql, migration_sql);
-    output(OfflineRuntime(store, schemas).run(request, script, disposition));
+    Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql);
+    std::unique_ptr<WorkerTools> worker_tools;
+    if (!workspace.empty()) worker_tools = std::make_unique<WorkerTools>(store, workspace, manifest);
+    output(OfflineRuntime(store, schemas, worker_tools.get()).run(request, script, disposition, worker_calls));
     return 0;
 }
 } // namespace

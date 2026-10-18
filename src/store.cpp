@@ -83,7 +83,8 @@ Row payload(const StoreActor& actor, std::string_view type, Row fields = {}) {
 Json exposed(Row row) {
     for (const auto* key : {"config_snapshot", "budget", "usage", "tool_allowlist", "denied_tools",
              "body", "brief", "work_order", "lead_config", "worker_config", "frozen_binding",
-             "response", "request_envelope", "arguments", "payload", "result", "source_snapshot", "manifest_snapshot"}) {
+             "response", "request_envelope", "arguments", "payload", "result", "source_snapshot", "manifest_snapshot",
+             "original_binding", "evidence", "execution_policy"}) {
         if (auto* value = row.if_contains(key); value && value->is_string())
             *value = parse_json_strict(value->as_string(), 16 * 1024 * 1024);
     }
@@ -112,6 +113,44 @@ bool contains(const Json& list, std::string_view value) {
     return std::any_of(list.as_array().begin(), list.as_array().end(), [&](const Json& item) {
         return item.is_string() && item.as_string() == value;
     });
+}
+std::string tool_side_effect(std::string_view tool_id) {
+    if (tool_id == "fs_write" || tool_id == "fs_patch" || tool_id == "run") return "workspace";
+    if (tool_id == "note") return "none";
+    fail(ErrorCode::Unsupported, "tool is not a registered S1.2 business implementation");
+}
+bool diagnostic_tool(std::string_view tool_id) {
+    return tool_id == "fs_list" || tool_id == "fs_read" || tool_id == "fs_search" ||
+        tool_id == "op_status" || tool_id == "op_output";
+}
+std::string base64_bytes(std::string_view value) {
+    static constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string result;
+    result.reserve(((value.size() + 2) / 3) * 4);
+    for (std::size_t i = 0; i < value.size(); i += 3) {
+        const auto first = static_cast<unsigned char>(value[i]);
+        const auto second = i + 1 < value.size() ? static_cast<unsigned char>(value[i + 1]) : 0U;
+        const auto third = i + 2 < value.size() ? static_cast<unsigned char>(value[i + 2]) : 0U;
+        const auto word = (static_cast<unsigned int>(first) << 16U) | (second << 8U) | third;
+        result.push_back(alphabet[(word >> 18U) & 63U]);
+        result.push_back(alphabet[(word >> 12U) & 63U]);
+        result.push_back(i + 1 < value.size() ? alphabet[(word >> 6U) & 63U] : '=');
+        result.push_back(i + 2 < value.size() ? alphabet[word & 63U] : '=');
+    }
+    return result;
+}
+std::string unhex(std::string_view value) {
+    require(value.size() % 2 == 0, ErrorCode::Corrupt, "invalid stored output hex");
+    const auto digit = [](char c) -> unsigned int {
+        if (c >= '0' && c <= '9') return static_cast<unsigned int>(c - '0');
+        if (c >= 'A' && c <= 'F') return static_cast<unsigned int>(c - 'A' + 10);
+        fail(ErrorCode::Corrupt, "invalid stored output hex digit");
+    };
+    std::string result;
+    result.reserve(value.size() / 2);
+    for (std::size_t i = 0; i < value.size(); i += 2)
+        result.push_back(static_cast<char>((digit(value[i]) << 4U) | digit(value[i + 1])));
+    return result;
 }
 // Parse the JSON decimal spelling without a binary floating-point multiply.
 // A fractional micro-dollar rounds down as a limit, never grants extra budget.
@@ -212,11 +251,13 @@ private:
 class Store::Impl {
 public:
     Impl(const std::filesystem::path& database_path, std::string_view base_sql,
-         std::string_view migration_sql, StoreOpenMode selected_mode) : mode(selected_mode) {
+         std::string_view migration_sql, StoreOpenMode selected_mode,
+         std::string_view tools_migration_sql) : mode(selected_mode) {
         require(database_path != ":memory:", ErrorCode::InvalidInput, "Store requires a durable file path");
         const auto absolute = std::filesystem::absolute(database_path).lexically_normal();
         const auto path = (std::filesystem::canonical(absolute.parent_path()) / absolute.filename()).string();
         text_field(path, "database path", 4096);
+        database_file_path = path;
         try {
             if (mode == StoreOpenMode::Takeover) {
                 const auto lock_path = path + ".writer-lock";
@@ -251,16 +292,28 @@ public:
                 exec(base_sql);
                 version = number(one("PRAGMA user_version"), "user_version");
             }
-            require(version == 401 || version == 402, ErrorCode::Unsupported, "unknown database version; explicit migration required");
+            require(version == 401 || version == 402 || version == 403, ErrorCode::Unsupported, "unknown database version; explicit migration required");
             require(str(one("SELECT schema_version FROM contract_metadata WHERE singleton=1"), "schema_version") == "0.4.1",
                     ErrorCode::Unsupported, "unsupported base contract metadata");
             const auto migration_hash = sha256_hex(migration_sql);
+            const auto tools_migration_hash = sha256_hex(tools_migration_sql);
             if (version == 401) {
                 require(mode == StoreOpenMode::Takeover, ErrorCode::Unsupported, "database needs Store migration before read-only inspection");
                 // Python reference rows did not capture a complete configuration.
                 // Their original data must not acquire invented frozen settings.
                 require(!optional("SELECT request_id FROM requests LIMIT 1"), ErrorCode::Unsupported,
                         "v0.4.1 reference database contains requests without full snapshots; explicit data migration required");
+            }
+            if (version >= 402) {
+                const auto metadata = one("SELECT * FROM store_runtime_metadata WHERE singleton=1");
+                require(number(metadata, "store_version") == 4 && str(metadata, "migration_sha256") == migration_hash,
+                        ErrorCode::Corrupt, "Store migration asset does not match durable metadata");
+            }
+            if (version == 403) {
+                require(!tools_migration_sql.empty(), ErrorCode::Unsupported, "403 database requires the distributed worker-tools migration asset");
+                const auto metadata = one("SELECT * FROM worker_tools_metadata WHERE singleton=1");
+                require(number(metadata, "store_version") == 5 && str(metadata, "migration_sha256") == tools_migration_hash,
+                        ErrorCode::Corrupt, "worker-tools migration asset does not match durable metadata");
             }
             // Validate ownership/version before any persistent journal-mode
             // change; rejecting an unrelated database preserves its bytes.
@@ -274,12 +327,27 @@ public:
                     require(!migration_sql.empty(), ErrorCode::InvalidInput, "migration asset required");
                     exec(migration_sql);
                     execute("INSERT INTO store_runtime_metadata VALUES (1,4,?)", {migration_hash});
+                    require(number(one("PRAGMA user_version"), "user_version") == 402,
+                        ErrorCode::Corrupt, "Store migration did not produce the expected version");
                     exec("COMMIT");
+                    version = 402;
                 } catch (...) { rollback(); throw; }
             }
             const auto metadata = one("SELECT * FROM store_runtime_metadata WHERE singleton=1");
             require(number(metadata, "store_version") == 4 && str(metadata, "migration_sha256") == migration_hash,
                     ErrorCode::Corrupt, "Store migration asset does not match durable metadata");
+            if (version == 402 && !tools_migration_sql.empty() && mode == StoreOpenMode::Takeover) {
+                exec("BEGIN IMMEDIATE");
+                try {
+                    exec(tools_migration_sql);
+                    execute("INSERT INTO worker_tools_metadata VALUES (1,5,?)", {tools_migration_hash});
+                    require(number(one("PRAGMA user_version"), "user_version") == 403,
+                        ErrorCode::Corrupt, "worker-tools migration did not produce the expected version");
+                    exec("COMMIT");
+                    version = 403;
+                } catch (...) { rollback(); throw; }
+            }
+            tools_schema = version == 403;
             require(str(one("PRAGMA quick_check"), "quick_check") == "ok", ErrorCode::Corrupt, "SQLite quick_check failed");
             require(!optional("PRAGMA foreign_key_check"), ErrorCode::Corrupt, "SQLite foreign key check failed");
             if (mode == StoreOpenMode::Takeover) {
@@ -354,6 +422,24 @@ public:
     Row op_row(const std::string& id) const {
         return one("SELECT o.*,i.arguments,i.evidence_ref FROM ops o JOIN operation_intents i USING(op_id) WHERE o.op_id=?", {id});
     }
+    void require_tools_schema() const {
+        require(tools_schema, ErrorCode::Unsupported, "worker-tool persistence requires the 403 migration");
+    }
+    Json workspace_info(const std::string& team_id) const {
+        require_tools_schema();
+        (void)team_row(team_id);
+        const auto row = optional("SELECT * FROM workspace_bindings WHERE team_id=?", {team_id});
+        if (!row) return nullptr;
+        require(sha256_hex(str(*row, "execution_policy")) == str(*row, "execution_policy_sha256"),
+                ErrorCode::Corrupt, "workspace execution policy hash mismatch");
+        return exposed(*row);
+    }
+    Json result_info(const std::string& op_id) const {
+        require_tools_schema();
+        (void)op_row(op_id);
+        const auto row = optional("SELECT r.*,o.status AS operation_status FROM operation_results r JOIN ops o USING(op_id) WHERE r.op_id=?", {op_id});
+        return row ? exposed(*row) : Json(nullptr);
+    }
     Row authorize(const StoreActor& actor, std::initializer_list<Role> roles, bool current_epochs = true) const {
         require(std::find(roles.begin(), roles.end(), actor.role) != roles.end(), ErrorCode::Unauthorized, "role is not authorized");
         const auto r = request_row(actor.request_id);
@@ -408,6 +494,31 @@ public:
                 actor.dispatcher_epoch == b.dispatcher_epoch && actor.execution_epoch == b.execution_epoch,
                 ErrorCode::Unauthorized, "actor and frozen binding disagree");
     }
+    void tool_grant(const Row& r, const Row& team, std::string_view tool_id) const {
+        const auto frozen_config = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256"));
+        const auto template_tools = frozen_config.worker_tools(str(team, "template_id"));
+        const auto denied = parse_json_strict(str(one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
+        require(template_tools.contains(std::string(tool_id)) && contains(parse_json_strict(str(r, "tool_allowlist")), tool_id) && !contains(denied, tool_id),
+                ErrorCode::Unauthorized, "tool grant absent or revoked");
+    }
+    Json control_authorization(const StoreActor& actor, const ExecutionBinding& b,
+                               const std::string& tool_id, bool diagnostic) const {
+        require_tools_schema();
+        require(diagnostic ? diagnostic_tool(tool_id) : tool_id == "op_cancel" || tool_id == "ack_change",
+                ErrorCode::Unauthorized, "tool is not registered for this control branch");
+        const auto r = authorize(actor, {Role::Worker});
+        actor_binding(actor, b); matches(b);
+        tool_grant(r, team_row(actor.team_id), tool_id);
+        const auto frozen = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256"));
+        const auto& control = frozen.json().at("system").at("control").as_object();
+        if (diagnostic) require(contains(control.at("diagnostic_tools"), tool_id), ErrorCode::Unauthorized, "diagnostic tool absent from frozen control policy");
+        const auto limit = number(control, "max_queries_per_minute");
+        require(limit > 0 && limit <= 10000, ErrorCode::Corrupt, "invalid frozen diagnostic query limit");
+        const auto identity = workspace_info(actor.team_id);
+        if (tool_id.starts_with("fs_")) require(!identity.is_null(), ErrorCode::NotReady, "team workspace has not been bound");
+        return Row{{"tool_id", tool_id}, {"max_queries_per_minute", limit}, {"max_output_bytes", 1048576},
+            {"max_page_bytes", 65536}, {"workspace", identity}};
+    }
     void ready(const StoreActor& actor, const ExecutionBinding& b, std::string_view tool_id = {}) const {
         const auto r = authorize(actor, {Role::Worker});
         actor_binding(actor, b);
@@ -423,13 +534,7 @@ public:
             number(t, "applied_instruction_revision") == number(t, "instruction_revision"), ErrorCode::NotReady, "business execution is not ready");
         require(!optional("SELECT op_id FROM ops WHERE team_id=? AND status='UNKNOWN' LIMIT 1", {actor.team_id}),
                 ErrorCode::UnknownOutcome, "unknown operation requires host reconciliation");
-        if (!tool_id.empty()) {
-            const auto frozen_config = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256"));
-            const auto template_tools = frozen_config.worker_tools(str(team, "template_id"));
-            const auto denied = parse_json_strict(str(one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
-            require(template_tools.contains(std::string(tool_id)) && contains(parse_json_strict(str(r, "tool_allowlist")), tool_id) && !contains(denied, tool_id),
-                    ErrorCode::Unauthorized, "tool grant absent or revoked");
-        }
+        if (!tool_id.empty()) tool_grant(r, team, tool_id);
     }
     std::optional<Json> replay(const std::string& request_id, const std::string& command_id, const Json& command) const {
         text_field(command_id, "command_id");
@@ -442,7 +547,7 @@ public:
                const Row& command, const Json& result, std::string_view actor = "runtime") {
         text_field(command_id, "command_id");
         const auto type = str(command, "type");
-        const bool control = type == "ack" || type == "cancel_op" || type == "finish_op" || type == "reconcile_op" ||
+        const bool control = type == "ack" || type == "cancel_op" || type == "finish_op" || type == "reconcile_op" || type == "record_op_result" || type == "execute_tool_control" ||
             type == "recover" || type == "cancel_request" || type == "settle_attempt" || type == "attempts_unknown";
         const auto count = number(one("SELECT COUNT(*) AS n FROM events WHERE request_id=?", {request_id}), "n");
         require(count < (control ? 8192 : 4096), ErrorCode::Quota, "bounded Store event capacity exhausted");
@@ -530,14 +635,23 @@ public:
         return n;
     }
 
+    Json prepare_operation(const StoreActor& actor, const ExecutionBinding& frozen,
+                           std::int64_t expected, const std::string& business_key,
+                           const std::string& tool_id, const Json& arguments,
+                           const std::string& side_effect, const std::string& command_id,
+                           bool registered);
+
     sqlite3* db{};
     int lease_fd{-1};
     StoreOpenMode mode;
+    bool tools_schema{false};
+    std::string database_file_path;
     mutable std::mutex mutex;
 };
 
-Store::Store(const std::filesystem::path& path, std::string_view base, std::string_view migration, StoreOpenMode mode)
-    : impl_(std::make_unique<Impl>(path, base, migration, mode)) {}
+Store::Store(const std::filesystem::path& path, std::string_view base, std::string_view migration, StoreOpenMode mode,
+             std::string_view tools_migration)
+    : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration)) {}
 Store::~Store() = default;
 
 Json Store::diagnostics() const {
@@ -868,10 +982,9 @@ Json Store::acknowledge(const StoreActor& actor, const ExecutionBinding& frozen,
     tx.commit(); return result;
 }
 
-Json Store::prepare_operation(const StoreActor& actor, const ExecutionBinding& frozen,
+Json Store::Impl::prepare_operation(const StoreActor& actor, const ExecutionBinding& frozen,
         std::int64_t expected, const std::string& business_key, const std::string& tool_id,
-        const Json& arguments, const std::string& side_effect, const std::string& command_id) {
-    const std::lock_guard lock(impl_->mutex);
+        const Json& arguments, const std::string& side_effect, const std::string& command_id, bool registered) {
     text_field(business_key, "business idempotency key"); text_field(tool_id, "tool id");
     require(side_effect == "none" || side_effect == "workspace" || side_effect == "external", ErrorCode::InvalidInput, "invalid side-effect class");
     require(arguments.is_object(), ErrorCode::InvalidInput, "tool arguments must be an object");
@@ -879,32 +992,58 @@ Json Store::prepare_operation(const StoreActor& actor, const ExecutionBinding& f
     const auto args_hash = sha256_hex(encoded_arguments);
     const auto command = payload(actor, "prepare_op", Row{{"binding", to_json(frozen)}, {"expected_task_version", expected},
         {"business_key", business_key}, {"tool_id", tool_id}, {"arguments_sha256", args_hash}, {"side_effect", side_effect}});
-    Impl::Transaction tx(*impl_);
-    (void)impl_->authorize(actor, {Role::Worker}, false); impl_->actor_binding(actor, frozen);
-    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
-    const auto existing = impl_->optional("SELECT * FROM ops WHERE request_id=? AND task_id=? AND business_idempotency_key=?", {actor.request_id, actor.task_id, business_key});
+    Transaction tx(*this);
+    (void)authorize(actor, {Role::Worker}, false); actor_binding(actor, frozen);
+    if (registered) {
+        require_tools_schema();
+        (void)authorize(actor, {Role::Worker}); matches(frozen);
+        tool_grant(request_row(actor.request_id), team_row(actor.team_id), tool_id);
+    }
+    if (auto old = replay(actor.request_id, command_id, command)) {
+        const auto result = registered ? exposed(op_row(str(old->as_object(), "op_id"))) : *old;
+        tx.commit(); return result;
+    }
+    const auto existing = optional("SELECT * FROM ops WHERE request_id=? AND task_id=? AND business_idempotency_key=?", {actor.request_id, actor.task_id, business_key});
     if (existing) {
         require(str(*existing, "team_id") == actor.team_id && str(*existing, "tool_id") == tool_id && str(*existing, "args_sha256") == args_hash &&
             str(*existing, "side_effect") == side_effect, ErrorCode::Conflict, "business key reused with different intent");
         const auto frozen_document = to_json(frozen);
-        for (const auto& field : frozen_document.as_object()) require(existing->at(field.key()) == field.value(), ErrorCode::Conflict, "business key reused with different execution binding");
-        const auto result = exposed(impl_->op_row(str(*existing, "op_id"))); tx.commit(); return result;
+        if (!registered) for (const auto& field : frozen_document.as_object()) require(existing->at(field.key()) == field.value(), ErrorCode::Conflict, "business key reused with different execution binding");
+        const auto result = exposed(op_row(str(*existing, "op_id"))); tx.commit(); return result;
     }
-    impl_->ready(actor, frozen, tool_id);
-    const auto r = impl_->request_row(actor.request_id);
-    const auto team = impl_->team_row(actor.team_id);
-    require(number(team, "tool_calls_used") < impl_->configured_limit(r, "worker_max_tool_calls_per_order"), ErrorCode::Quota, "instruction tool-call budget exhausted");
-    require(number(impl_->one("SELECT COUNT(*) AS n FROM ops WHERE request_id=?", {actor.request_id}), "n") < 1024, ErrorCode::Quota, "operation capacity exhausted");
-    impl_->cas("UPDATE tasks SET status='RUNNING',state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?", {stamp(), actor.task_id, expected});
+    ready(actor, frozen, tool_id);
+    if (registered && side_effect == "workspace")
+        require(!workspace_info(actor.team_id).is_null(), ErrorCode::NotReady, "team workspace has not been bound");
+    const auto r = request_row(actor.request_id);
+    const auto team = team_row(actor.team_id);
+    require(number(team, "tool_calls_used") < configured_limit(r, "worker_max_tool_calls_per_order"), ErrorCode::Quota, "instruction tool-call budget exhausted");
+    require(number(one("SELECT COUNT(*) AS n FROM ops WHERE request_id=?", {actor.request_id}), "n") < 1024, ErrorCode::Quota, "operation capacity exhausted");
+    cas("UPDATE tasks SET status='RUNNING',state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?", {stamp(), actor.task_id, expected});
     const auto id = new_id("op");
-    impl_->execute("INSERT INTO ops(op_id,request_id,task_id,team_id,tool_id,business_idempotency_key,args_sha256,requirements_revision,plan_revision,task_revision,instruction_revision,dispatcher_epoch,execution_epoch,policy_epoch,side_effect,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'PREPARED',?)",
+    execute("INSERT INTO ops(op_id,request_id,task_id,team_id,tool_id,business_idempotency_key,args_sha256,requirements_revision,plan_revision,task_revision,instruction_revision,dispatcher_epoch,execution_epoch,policy_epoch,side_effect,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'PREPARED',?)",
         {id, frozen.request_id, frozen.task_id, frozen.team_id, tool_id, business_key, args_hash, frozen.requirements_revision, frozen.plan_revision,
          frozen.task_revision, frozen.instruction_revision, frozen.dispatcher_epoch, frozen.execution_epoch, frozen.policy_epoch, side_effect, stamp()});
-    impl_->execute("INSERT INTO operation_intents(op_id,arguments) VALUES (?,?)", {id, encoded_arguments});
-    impl_->execute("UPDATE teams SET tool_calls_used=tool_calls_used+1,state_version=state_version+1,updated_at=? WHERE team_id=?", {stamp(), actor.team_id});
-    const auto result = exposed(impl_->op_row(id));
-    impl_->event(actor.request_id, command_id, command, result, "worker");
+    execute("INSERT INTO operation_intents(op_id,arguments) VALUES (?,?)", {id, encoded_arguments});
+    execute("UPDATE teams SET tool_calls_used=tool_calls_used+1,state_version=state_version+1,updated_at=? WHERE team_id=?", {stamp(), actor.team_id});
+    const auto result = exposed(op_row(id));
+    event(actor.request_id, command_id, command, result, "worker");
     tx.commit(); return result;
+}
+
+Json Store::prepare_operation(const StoreActor& actor, const ExecutionBinding& frozen,
+        std::int64_t expected, const std::string& business_key, const std::string& tool_id,
+        const Json& arguments, const std::string& side_effect, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex);
+    return impl_->prepare_operation(actor, frozen, expected, business_key, tool_id, arguments, side_effect, command_id, false);
+}
+
+Json Store::prepare_tool_operation(const StoreActor& actor, const ExecutionBinding& frozen,
+        std::int64_t expected, const std::string& business_key, const std::string& tool_id,
+        const Json& arguments, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_tools_schema();
+    const auto side_effect = tool_side_effect(tool_id);
+    return impl_->prepare_operation(actor, frozen, expected, business_key, tool_id, arguments, side_effect, command_id, true);
 }
 
 Json Store::start_operation(const StoreActor& actor, const std::string& id,
@@ -923,6 +1062,40 @@ Json Store::start_operation(const StoreActor& actor, const std::string& id,
     require(str(op, "status") == "PREPARED", ErrorCode::NotReady, "only a PREPARED operation may dispatch");
     impl_->cas("UPDATE ops SET status='RUNNING',state_version=state_version+1,started_at=? WHERE op_id=? AND state_version=?", {stamp(), id, expected});
     const auto result = exposed(impl_->op_row(id));
+    impl_->event(actor.request_id, command_id, command, result, "worker");
+    tx.commit(); return result;
+}
+
+Json Store::start_tool_operation(const StoreActor& actor, const std::string& id,
+        std::int64_t expected, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_tools_schema();
+    const auto command = payload(actor, "start_tool_op", Row{{"op_id", id}, {"expected_op_version", expected}});
+    Impl::Transaction tx(*impl_);
+    (void)impl_->authorize(actor, {Role::Worker}, false);
+    const auto op = impl_->op_row(id);
+    require(str(op, "request_id") == actor.request_id && str(op, "task_id") == actor.task_id && str(op, "team_id") == actor.team_id,
+            ErrorCode::Unauthorized, "operation owner mismatch");
+    require(tool_side_effect(str(op, "tool_id")) == str(op, "side_effect"), ErrorCode::Unauthorized, "operation differs from static tool classification");
+    if (impl_->replay(actor.request_id, command_id, command)) {
+        const Json result = Row{{"operation", exposed(op)}, {"dispatch_claimed", false}};
+        tx.commit(); return result;
+    }
+    const auto request = impl_->authorize(actor, {Role::Worker});
+    impl_->tool_grant(request, impl_->team_row(actor.team_id), str(op, "tool_id"));
+    if (str(op, "status") != "PREPARED") {
+        const Json result = Row{{"operation", exposed(op)}, {"dispatch_claimed", false}};
+        tx.commit(); return result;
+    }
+    Row binding_fields;
+    const auto current_document = to_json(impl_->binding(actor.task_id));
+    for (const auto& field : current_document.as_object()) binding_fields[field.key()] = op.at(field.key());
+    impl_->ready(actor, execution_binding_from_json(binding_fields), str(op, "tool_id"));
+    if (str(op, "side_effect") == "workspace")
+        require(!impl_->workspace_info(actor.team_id).is_null(), ErrorCode::NotReady, "team workspace has not been bound");
+    impl_->cas("UPDATE ops SET status='RUNNING',state_version=state_version+1,started_at=? WHERE op_id=? AND state_version=?",
+        {stamp(), id, expected});
+    const Json result = Row{{"operation", exposed(impl_->op_row(id))}, {"dispatch_claimed", true}};
     impl_->event(actor.request_id, command_id, command, result, "worker");
     tx.commit(); return result;
 }
@@ -982,6 +1155,242 @@ Json Store::reconcile_operation(const std::string& id, std::int64_t expected,
     const auto result = exposed(impl_->op_row(id));
     impl_->event(request_id, command_id, command, result);
     tx.commit(); return result;
+}
+
+Json Store::bind_workspace(const std::string& team_id, const std::string& path,
+        std::uint64_t device, std::uint64_t inode, const Json& execution_policy) {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_tools_schema();
+    text_field(team_id, "workspace team"); text_field(path, "workspace path", 4096);
+    const std::filesystem::path directory(path);
+    require(directory.is_absolute() && path != "/" && path.back() != '/' && directory.lexically_normal().string() == path,
+            ErrorCode::InvalidInput, "workspace path must be an absolute canonical directory");
+    // Workers may mutate every permitted path below their directory. Never
+    // place this Store's control plane (including its lease and SQLite side
+    // files) inside such a directory. Separate Stores remain a deployment
+    // ownership boundary; this check does not scan other users' databases.
+    for (const auto* suffix : {"", ".writer-lock", "-wal", "-shm"}) {
+        const auto control_path = impl_->database_file_path + suffix;
+        require(control_path != path && !control_path.starts_with(path + "/"), ErrorCode::Unauthorized,
+                "business workspace would expose this Store's database or control files");
+    }
+    require(device > 0 && inode > 0 && device <= static_cast<std::uint64_t>(INT64_MAX) && inode <= static_cast<std::uint64_t>(INT64_MAX),
+            ErrorCode::InvalidInput, "workspace device/inode out of range");
+    require(execution_policy.is_object(), ErrorCode::InvalidInput, "execution policy must be an object");
+    const auto encoded_policy = json_text(execution_policy, 262144);
+    const auto policy_hash = sha256_hex(encoded_policy);
+    const auto signed_device = static_cast<std::int64_t>(device);
+    const auto signed_inode = static_cast<std::int64_t>(inode);
+    Impl::Transaction tx(*impl_);
+    const auto team = impl_->team_row(team_id);
+    if (const auto old = impl_->optional("SELECT * FROM workspace_bindings WHERE team_id=?", {team_id})) {
+        require(str(*old, "canonical_path") == path && number(*old, "device") == signed_device && number(*old, "inode") == signed_inode &&
+                str(*old, "execution_policy") == encoded_policy && str(*old, "execution_policy_sha256") == policy_hash,
+                ErrorCode::Conflict, "team workspace identity or execution policy changed");
+        const auto result = exposed(*old); tx.commit(); return result;
+    }
+    require(str(team, "status") == "STARTING" || str(team, "status") == "ACTIVE", ErrorCode::NotReady, "stopped/draining team cannot acquire a new workspace");
+    for (const auto& other : impl_->all("SELECT canonical_path,device,inode FROM workspace_bindings")) {
+        const auto other_path = str(other, "canonical_path");
+        require(path != other_path && !path.starts_with(other_path + "/") && !other_path.starts_with(path + "/") &&
+                !(number(other, "device") == signed_device && number(other, "inode") == signed_inode),
+                ErrorCode::Conflict, "workspace overlaps or aliases another team's workspace");
+    }
+    impl_->execute("INSERT INTO workspace_bindings VALUES (?,?,?,?,?,?,?)", {team_id, path, signed_device, signed_inode, encoded_policy, policy_hash, stamp()});
+    impl_->execute("UPDATE teams SET workspace_path=?,state_version=state_version+1,updated_at=? WHERE team_id=?", {path, stamp(), team_id});
+    const auto result = impl_->workspace_info(team_id);
+    impl_->event(str(team, "request_id"), new_id("workspace"), Row{{"type", "bind_workspace"}, {"team_id", team_id},
+        {"canonical_path", path}, {"device", signed_device}, {"inode", signed_inode}, {"execution_policy_sha256", policy_hash}}, result);
+    tx.commit(); return result;
+}
+
+Json Store::workspace(const std::string& team_id) const {
+    const std::lock_guard lock(impl_->mutex); return impl_->workspace_info(team_id);
+}
+
+Json Store::operation_for_key(const StoreActor& actor, const ExecutionBinding& current,
+        const std::string& business_key, const std::string& tool_id, const Json& arguments) const {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_tools_schema();
+    text_field(business_key, "business idempotency key");
+    const auto side_effect = tool_side_effect(tool_id);
+    require(arguments.is_object(), ErrorCode::InvalidInput, "tool arguments must be an object");
+    const auto hash = sha256_hex(json_text(arguments));
+    const auto request = impl_->authorize(actor, {Role::Worker});
+    impl_->actor_binding(actor, current); impl_->matches(current);
+    impl_->tool_grant(request, impl_->team_row(actor.team_id), tool_id);
+    const auto old = impl_->optional("SELECT * FROM ops WHERE request_id=? AND task_id=? AND business_idempotency_key=?", {actor.request_id, actor.task_id, business_key});
+    if (!old) return nullptr;
+    require(str(*old, "team_id") == actor.team_id && str(*old, "tool_id") == tool_id && str(*old, "side_effect") == side_effect && str(*old, "args_sha256") == hash,
+            ErrorCode::Conflict, "business key reused with different tool, arguments or owner");
+    return exposed(impl_->op_row(str(*old, "op_id")));
+}
+
+Json Store::authorize_diagnostic(const StoreActor& actor, const ExecutionBinding& current,
+        const std::string& tool_id) const {
+    const std::lock_guard lock(impl_->mutex);
+    return impl_->control_authorization(actor, current, tool_id, true);
+}
+
+Json Store::authorize_control(const StoreActor& actor, const ExecutionBinding& current,
+        const std::string& tool_id) const {
+    const std::lock_guard lock(impl_->mutex);
+    return impl_->control_authorization(actor, current, tool_id, false);
+}
+
+std::vector<std::string> Store::authorized_worker_tools(const StoreActor& actor,
+        const ExecutionBinding& current) const {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_tools_schema();
+    const auto request = impl_->authorize(actor, {Role::Worker});
+    impl_->actor_binding(actor, current); impl_->matches(current);
+    const auto team = impl_->team_row(actor.team_id);
+    const auto frozen = FrozenRequestConfig::restore(str(request, "config_snapshot"), str(request, "config_snapshot_sha256"));
+    const auto template_tools = frozen.worker_tools(str(team, "template_id"));
+    const auto allowed = parse_json_strict(str(request, "tool_allowlist"));
+    const auto denied = parse_json_strict(str(impl_->one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
+    std::vector<std::string> result;
+    for (const auto& tool : template_tools) if (contains(allowed, tool) && !contains(denied, tool)) result.push_back(tool);
+    return result;
+}
+
+Json Store::execute_tool_control(const StoreActor& actor, const ExecutionBinding& original,
+        std::int64_t expected, const std::string& tool_id, const Json& arguments,
+        const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_tools_schema();
+    require(tool_id == "ack_change" || tool_id == "op_cancel", ErrorCode::Unauthorized, "tool is not registered for control execution");
+    require(expected > 0 && arguments.is_object(), ErrorCode::InvalidInput, "invalid original control command");
+    (void)json_text(arguments, 4096);
+    std::string op_id;
+    if (tool_id == "ack_change") require(arguments.as_object().empty(), ErrorCode::InvalidInput, "ack_change takes no model arguments");
+    else {
+        require(arguments.as_object().size() == 1 && arguments.as_object().contains("op_id") && arguments.at("op_id").is_string(),
+                ErrorCode::InvalidInput, "op_cancel takes exactly one operation identifier");
+        op_id = std::string(arguments.at("op_id").as_string());
+        require(is_typed_id(op_id, "op"), ErrorCode::InvalidInput, "invalid control operation id");
+    }
+    const auto command = payload(actor, "execute_tool_control", Row{{"binding", to_json(original)}, {"expected_task_version", expected},
+        {"tool_id", tool_id}, {"arguments", arguments}});
+    Impl::Transaction tx(*impl_);
+    const auto request = impl_->authorize(actor, {Role::Worker}, false);
+    impl_->actor_binding(actor, original);
+    impl_->tool_grant(request, impl_->team_row(actor.team_id), tool_id);
+    if (!op_id.empty()) {
+        const auto op = impl_->op_row(op_id);
+        require(str(op, "request_id") == actor.request_id && str(op, "task_id") == actor.task_id && str(op, "team_id") == actor.team_id,
+                ErrorCode::Unauthorized, "control operation belongs to another team");
+    }
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    (void)impl_->authorize(actor, {Role::Worker}); impl_->matches(original);
+    Json result;
+    if (tool_id == "ack_change") {
+        const auto task = impl_->task_row(actor.task_id);
+        require(!terminal_request(str(request, "status")) && !terminal_task(str(task, "status")) && number(task, "instruction_revision") > 0 &&
+            number(task, "based_on_requirements_revision") == number(request, "requirements_revision") && number(task, "plan_revision") == number(request, "plan_revision"),
+            ErrorCode::NotReady, "ack requires current live instruction");
+        const auto instruction = impl_->one("SELECT * FROM instructions WHERE task_id=? AND instruction_revision=?", {actor.task_id, number(task, "instruction_revision")});
+        require(str(instruction, "team_id") == actor.team_id && number(instruction, "task_revision") == number(task, "task_revision") &&
+            number(instruction, "plan_revision") == number(task, "plan_revision") && number(instruction, "based_on_requirements_revision") == number(request, "requirements_revision") &&
+            number(instruction, "dispatcher_epoch") == actor.dispatcher_epoch && number(instruction, "execution_epoch") == actor.execution_epoch,
+            ErrorCode::Stale, "instruction belongs to an obsolete execution context");
+        require(number(task, "applied_task_revision") != number(task, "task_revision") || number(task, "applied_plan_revision") != number(task, "plan_revision") ||
+            number(task, "applied_instruction_revision") != number(task, "instruction_revision"), ErrorCode::NotReady, "no pending instruction to acknowledge");
+        impl_->cas("UPDATE tasks SET applied_task_revision=task_revision,applied_plan_revision=plan_revision,applied_instruction_revision=instruction_revision,state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?",
+            {stamp(), actor.task_id, expected});
+        impl_->execute("UPDATE teams SET paused_for_change=0,state_version=state_version+1,updated_at=? WHERE team_id=?", {stamp(), actor.team_id});
+        result = Row{{"binding", to_json(original)}, {"state_version", next(expected)}};
+    } else {
+        const auto op = impl_->op_row(op_id);
+        require(str(op, "status") == "PREPARED" || str(op, "status") == "RUNNING", ErrorCode::NotReady, "cannot repeatedly cancel a settled or UNKNOWN operation");
+        impl_->cas("UPDATE ops SET status=?,state_version=state_version+1 WHERE op_id=? AND state_version=?",
+            {str(op, "status") == "PREPARED" ? "CANCELLED" : "UNKNOWN", op_id, number(op, "state_version")});
+        result = exposed(impl_->op_row(op_id));
+    }
+    impl_->event(actor.request_id, command_id, command, result, "worker");
+    tx.commit(); return result;
+}
+
+Json Store::record_operation_result(const std::string& id, const ExecutionBinding& original,
+        const std::string& outcome, const Json& result, const Json& evidence,
+        const std::string& stdout_bytes, const std::string& stderr_bytes,
+        bool stdout_truncated, bool stderr_truncated) {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_tools_schema();
+    require(outcome == "SUCCEEDED" || outcome == "FAILED" || outcome == "TIMED_OUT" || outcome == "CANCELLED" || outcome == "UNKNOWN",
+            ErrorCode::InvalidInput, "invalid recorded operation outcome");
+    require(evidence.is_object() && !evidence.as_object().empty(), ErrorCode::InvalidInput, "execution evidence must be a nonempty object");
+    require(stdout_bytes.size() <= 1048576 && stderr_bytes.size() <= 1048576, ErrorCode::Quota, "operation output exceeds retained byte capacity");
+    const auto result_text = json_text(result, 262144);
+    const auto evidence_text = json_text(evidence, 262144);
+    const auto binding_json = to_json(original);
+    const auto binding_text = json_text(binding_json);
+    const auto stdout_hash = sha256_hex(stdout_bytes);
+    const auto stderr_hash = sha256_hex(stderr_bytes);
+    const auto stdout_size = static_cast<std::int64_t>(stdout_bytes.size());
+    const auto stderr_size = static_cast<std::int64_t>(stderr_bytes.size());
+    const auto record_hash = sha256_hex(canonical_json(Row{{"op_id", id}, {"original_binding", binding_json}, {"outcome", outcome},
+        {"result", result}, {"evidence", evidence}, {"stdout_bytes", stdout_size}, {"stderr_bytes", stderr_size},
+        {"stdout_sha256", stdout_hash}, {"stderr_sha256", stderr_hash}, {"stdout_truncated", stdout_truncated}, {"stderr_truncated", stderr_truncated}}));
+    Impl::Transaction tx(*impl_);
+    const auto op = impl_->op_row(id);
+    for (const auto& field : binding_json.as_object())
+        require(op.at(field.key()) == field.value(), ErrorCode::Stale, "recorded execution fact differs from original operation binding");
+    if (const auto old = impl_->optional("SELECT record_sha256 FROM operation_results WHERE op_id=?", {id})) {
+        require(str(*old, "record_sha256") == record_hash, ErrorCode::Conflict, "operation execution fact already recorded with different content");
+        const auto persisted = impl_->result_info(id); tx.commit(); return persisted;
+    }
+    require(!op.at("started_at").is_null(), ErrorCode::NotReady, "an undispatched operation cannot have an execution result");
+    const auto request = impl_->request_row(original.request_id);
+    const auto task = impl_->task_row(original.task_id);
+    const auto team = impl_->team_row(original.team_id);
+    const auto policy_epoch = number(impl_->one("SELECT policy_epoch FROM runtime_policy WHERE singleton=1"), "policy_epoch");
+    const bool eligible = str(op, "status") == "RUNNING" &&
+        (str(request, "status") == "RUNNING" || str(request, "status") == "VERIFYING") &&
+        (str(task, "status") == "READY" || str(task, "status") == "RUNNING") && str(team, "status") == "ACTIVE" && number(team, "paused_for_change") == 0 &&
+        original.requirements_revision == number(request, "requirements_revision") && original.requirements_revision == number(task, "based_on_requirements_revision") &&
+        original.plan_revision == number(request, "plan_revision") && original.plan_revision == number(task, "plan_revision") &&
+        original.task_revision == number(task, "task_revision") && original.instruction_revision == number(task, "instruction_revision") &&
+        original.dispatcher_epoch == number(request, "dispatcher_epoch") && original.execution_epoch == number(team, "execution_epoch") && original.policy_epoch == policy_epoch;
+    const bool accepted = eligible && outcome != "UNKNOWN";
+    if (str(op, "status") == "RUNNING") {
+        impl_->cas("UPDATE ops SET status=?,state_version=state_version+1,ended_at=? WHERE op_id=? AND state_version=?",
+            {eligible ? outcome : "UNKNOWN", stamp(), id, number(op, "state_version")});
+    }
+    impl_->execute("INSERT INTO operation_results VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        {id, binding_text, outcome, accepted, result_text, evidence_text, stdout_size, stderr_size,
+         stdout_truncated, stderr_truncated, stdout_hash, stderr_hash, record_hash, stamp()});
+    impl_->execute("INSERT INTO operation_output_bytes VALUES (?,'stdout',CAST(? AS BLOB))", {id, stdout_bytes});
+    impl_->execute("INSERT INTO operation_output_bytes VALUES (?,'stderr',CAST(? AS BLOB))", {id, stderr_bytes});
+    impl_->execute("UPDATE operation_intents SET evidence_ref=?,state_version=state_version+1 WHERE op_id=?", {"store:operation_result:" + id + "#" + record_hash, id});
+    const auto persisted = impl_->result_info(id);
+    const Row command{{"type", "record_op_result"}, {"op_id", id}, {"original_binding", binding_json}, {"record_sha256", record_hash}};
+    impl_->event(original.request_id, "result:" + id, command, persisted);
+    tx.commit(); return persisted;
+}
+
+Json Store::operation_result(const std::string& id) const {
+    const std::lock_guard lock(impl_->mutex); return impl_->result_info(id);
+}
+
+Json Store::operation_output(const StoreActor& actor, const ExecutionBinding& current,
+        const std::string& id, const std::string& stream, std::int64_t offset, std::int64_t limit) const {
+    const std::lock_guard lock(impl_->mutex);
+    (void)impl_->control_authorization(actor, current, "op_output", true);
+    require((stream == "stdout" || stream == "stderr") && offset >= 0 && limit > 0 && limit <= 65536 && offset <= 1048576,
+            ErrorCode::InvalidInput, "invalid operation output page");
+    const auto op = impl_->op_row(id);
+    require(str(op, "request_id") == actor.request_id && str(op, "task_id") == actor.task_id && str(op, "team_id") == actor.team_id,
+            ErrorCode::Unauthorized, "operation output belongs to another team");
+    const auto record = impl_->result_info(id);
+    require(!record.is_null(), ErrorCode::NotReady, "operation output is not durably recorded yet");
+    const auto total = number(record.as_object(), stream + "_bytes");
+    require(offset <= total, ErrorCode::InvalidInput, "output offset exceeds retained bytes");
+    const auto row = impl_->one("SELECT hex(substr(bytes,?,?)) AS data FROM operation_output_bytes WHERE op_id=? AND stream=?", {offset + 1, limit, id, stream});
+    const auto bytes = unhex(str(row, "data"));
+    const auto next_offset = offset + static_cast<std::int64_t>(bytes.size());
+    return Row{{"op_id", id}, {"stream", stream}, {"encoding", "base64"}, {"data", base64_bytes(bytes)}, {"offset", offset},
+        {"next_offset", next_offset}, {"total_bytes", total}, {"truncated", number(record.as_object(), stream + "_truncated") == 1}, {"eof", next_offset == total}};
 }
 
 Json Store::recover_request(const std::string& id, std::int64_t expected) {
