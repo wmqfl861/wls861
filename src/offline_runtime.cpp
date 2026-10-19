@@ -8,6 +8,9 @@
 #include <algorithm>
 #include <cerrno>
 #include <limits>
+#include <map>
+#include <memory>
+#include <mutex>
 #include <set>
 
 namespace wls::s1 {
@@ -34,6 +37,26 @@ std::int64_t integer_at(const Json& value, std::string_view key) {
 std::int64_t increment(std::int64_t value) {
     require(value < std::numeric_limits<std::int64_t>::max(), ErrorCode::Quota, "revision exhausted");
     return value + 1;
+}
+
+// A second delivery of one captured response must wait for the first delivery's
+// durable receipt, including diagnostic observations. Different attempts never
+// share this lock. The database receipt remains authoritative after restart;
+// this bounded registry only closes the same-process concurrent-delivery race.
+std::shared_ptr<std::mutex> feedback_mutex(const std::string& attempt_id) {
+    static std::mutex registry_mutex;
+    static std::map<std::string, std::weak_ptr<std::mutex>> registry;
+    const std::lock_guard lock(registry_mutex);
+    if (const auto found = registry.find(attempt_id); found != registry.end())
+        if (auto existing = found->second.lock()) return existing;
+    if (registry.size() >= 4096) {
+        for (auto entry = registry.begin(); entry != registry.end();)
+            if (entry->second.expired()) entry = registry.erase(entry); else ++entry;
+        require(registry.size() < 4096, ErrorCode::Quota, "concurrent response settlement capacity exhausted");
+    }
+    auto result = std::make_shared<std::mutex>();
+    registry[attempt_id] = result;
+    return result;
 }
 
 const ConfigDependency& dependency(const FrozenRequestConfig& config, std::string_view path) {
@@ -117,6 +140,20 @@ void check_plan_supported(const Json& plan, const FrozenRequestConfig& config, b
         "selected Worker template has no implemented tool");
     else require(grants.contains("note"), ErrorCode::Unauthorized, "selected Worker template does not grant note");
 }
+void check_independent_plan_supported(const Json& plan, const FrozenRequestConfig& config, bool real_tools) {
+    require(!plan.at("nodes").as_array().empty(), ErrorCode::InvalidInput, "independent plan has no task");
+    for (const auto& node : plan.at("nodes").as_array()) {
+        require(string_at(node, "kind") == "team_task" && node.at("depends_on").as_array().empty() &&
+            !node.as_object().contains("review"), ErrorCode::Unsupported,
+            "event pump supports independent team_task nodes without DAG or automatic review");
+        const auto template_id = node.as_object().contains("template") ? string_at(node, "template") : "default";
+        const auto grants = config.worker_tools(template_id);
+        if (real_tools) require(std::any_of(worker_tool_registry().begin(), worker_tool_registry().end(),
+            [&](const auto& tool) { return grants.contains(tool.name); }), ErrorCode::Unauthorized,
+            "selected Worker template has no implemented tool");
+        else require(grants.contains("note"), ErrorCode::Unauthorized, "selected Worker template does not grant note");
+    }
+}
 std::string outcome(ModelResultStatus status) {
     switch (status) {
     case ModelResultStatus::Completed: return "COMPLETED";
@@ -191,8 +228,29 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
     if (role == Role::Worker && !worker_tools_)
         require(config.worker_tools(template_id).contains("note"), ErrorCode::Unauthorized, "frozen Worker template does not grant note");
     Json contract = Object{{"request", store_.request_snapshot(request_id)}, {"task", task},
-                           {"binding", to_json(binding)}};
+                           {"binding", to_json(binding)}, {"budget", store_.budget(request_id)}};
     if (!task_id.empty()) contract.as_object()["instruction"] = store_.instruction(task_id);
+    if (store_.event_runtime_enabled()) {
+        Array pending;
+        for (const auto& item : store_.inbox(actor)) pending.push_back(item);
+        contract.as_object()["pending_events"] = std::move(pending);
+        if (role == Role::Dispatcher) {
+            Array current_tasks;
+            for (const auto& item : store_.tasks(request_id)) current_tasks.push_back(item);
+            contract.as_object()["tasks"] = std::move(current_tasks);
+            contract.as_object()["plan"] = binding.plan_revision == 0 ? Json(nullptr) : store_.plan(request_id);
+        } else {
+            const auto waiting = store_.worker_wait(task_id);
+            // The task snapshot above is also the instruction commit CAS. A
+            // wait already present must block this automatic management call;
+            // a wait arriving after this check changes that captured version
+            // and prevents the returned order from superseding the new wait.
+            if (role == Role::TeamLead)
+                require(waiting.is_null() || string_at(waiting, "status") != "WAITING", ErrorCode::NotReady,
+                        "Worker is durably waiting; TeamLead model reservation requires an explicit wake");
+            contract.as_object()["wait"] = waiting;
+        }
+    }
     ModelRequest request;
     request.call_id = new_id("call"); request.attempt_id = new_id("attempt");
     request.role = role; request.role_call_index = index; request.binding = binding;
@@ -219,7 +277,20 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
         context.project_snapshot = "Use bounded file diagnostics to observe the explicitly bound workspace. No implicit file loading.";
     }
     require(role == Role::Worker || tool_feedback.empty(), ErrorCode::InvalidInput, "tool feedback belongs to the Worker context");
-    for (const auto& feedback : tool_feedback) context.messages.push_back({"tool", canonical_json(feedback)});
+    if (store_.event_runtime_enabled() && role == Role::Worker) {
+        // Each original attempt is represented exactly once. Never recursively
+        // copy its captured prompt/history into this new prompt, and never
+        // replace an old binding or a missing observation with current facts.
+        for (const auto& attempt : store_.attempt_history(actor)) {
+            Object history = attempt.as_object();
+            history.erase("request_envelope");
+            context.messages.push_back({"tool", canonical_json(history)});
+        }
+        // This parameter is only a 402/403 compatibility transport. On 404
+        // receipts are authoritative, so a caller cannot append duplicate or
+        // invented feedback over immutable stored history.
+    } else if (!store_.event_runtime_enabled())
+        for (const auto& feedback : tool_feedback) context.messages.push_back({"tool", canonical_json(feedback)});
     request.context = ContextCompiler().compile(context);
     const auto profile = config.model_profile(role);
     require(string_at(profile.at("capabilities"), "tool_calling") == "supported",
@@ -246,13 +317,54 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
 
 Json OfflineRuntime::accept_response(const CapturedModelCall& call, const ModelResponse& response,
                                     const std::string& disposition) {
+    return accept_captured_response(call, response, disposition, false, Object{});
+}
+
+Json OfflineRuntime::accept_independent_response(const CapturedModelCall& call, const ModelResponse& response,
+                                                const Json& dispositions) {
+    require(store_.event_runtime_enabled(), ErrorCode::Unsupported, "independent event runner requires schema 404");
+    require(dispositions.is_object(), ErrorCode::InvalidInput, "AMEND dispositions must be keyed by node_id");
+    return accept_captured_response(call, response, {}, true, dispositions);
+}
+
+Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, const ModelResponse& response,
+                                             const std::string& disposition, bool independent_plan,
+                                             const Json& dispositions) {
     const auto& captured = call.request;
     // No current-row metadata is copied onto a response. A corrupted envelope
     // cannot impersonate another pending attempt; its reservation remains held.
     require(response.call_id == captured.call_id && response.attempt_id == captured.attempt_id,
             ErrorCode::Stale, "response call identity differs from captured attempt");
+    const bool durable_feedback = store_.event_runtime_enabled();
+    const auto response_mutex = durable_feedback ? feedback_mutex(captured.attempt_id) : nullptr;
+    std::unique_lock<std::mutex> response_lock;
+    if (response_mutex) response_lock = std::unique_lock<std::mutex>(*response_mutex);
+    const auto original_attempt = store_.attempt(captured.attempt_id);
+    require(original_attempt.at("request_envelope") == to_json(captured), ErrorCode::Conflict,
+            "captured model call differs from its original durable request");
+    const bool previously_settled = !original_attempt.at("settlement_sha256").is_null();
     const auto settlement = store_.settle_attempt(captured.attempt_id, response.binding,
         response.config_snapshot_id, outcome(response.status), to_json(response.usage), to_json(response));
+    if (durable_feedback && previously_settled) {
+        const auto receipt = store_.tool_feedback(captured.attempt_id);
+        require(!receipt.is_null(), ErrorCode::NotReady,
+                "attempt was already settled without durable feedback; original observation remains missing");
+        require(receipt.at("original_binding") == to_json(captured.binding) &&
+                receipt.at("response") == to_json(response), ErrorCode::Conflict,
+                "saved feedback differs from the original captured response");
+        const auto& result = receipt.at("result");
+        const auto* runtime_error = result.is_object() ? result.as_object().if_contains("runtime_error") : nullptr;
+        if (runtime_error && runtime_error->is_bool() && runtime_error->as_bool()) {
+            const auto code = string_at(result, "error_code");
+            for (const auto candidate : {ErrorCode::InvalidInput, ErrorCode::Unauthorized, ErrorCode::Conflict,
+                 ErrorCode::Stale, ErrorCode::NotReady, ErrorCode::UnknownOutcome, ErrorCode::Quota,
+                 ErrorCode::Storage, ErrorCode::Unsupported, ErrorCode::Corrupt})
+                if (error_name(candidate) == code) throw Error(candidate, string_at(result, "message"));
+            throw Error(ErrorCode::Storage, string_at(result, "message"));
+        }
+        return result;
+    }
+    const auto apply = [&]() -> Json {
     require_complete_response(captured, response);
     const auto& accepted = settlement.at("accepted");
     require((accepted.is_bool() && accepted.as_bool()) || (accepted.is_int64() && accepted.as_int64() == 1),
@@ -263,6 +375,19 @@ Json OfflineRuntime::accept_response(const CapturedModelCall& call, const ModelR
     if (captured.role == Role::Dispatcher) {
         schemas_.validate("plan", tool.arguments, true);
         const auto config = restore_request_config(store_.request(captured.binding.request_id));
+        if (independent_plan) {
+            check_independent_plan_supported(tool.arguments, config, worker_tools_ != nullptr);
+            Json plan = tool.arguments;
+            plan.as_object()["plan_revision"] = increment(captured.binding.plan_revision);
+            plan.as_object()["based_on_requirements_revision"] = captured.binding.requirements_revision;
+            schemas_.validate("plan", plan);
+            for (const auto& node : plan.at("nodes").as_array()) {
+                schemas_.validate("task_brief", node.at("brief"));
+                store_.validate_brief(captured.binding.request_id, node.at("brief"));
+            }
+            return store_.apply_independent_plan(call.actor, call.expected_state_version,
+                captured.binding.requirements_revision, plan, dispositions, command + ":independent-plan");
+        }
         check_plan_supported(tool.arguments, config, worker_tools_ != nullptr);
         const auto existing = store_.tasks(captured.binding.request_id);
         require(existing.size() <= 1, ErrorCode::Unsupported, "offline runner cannot replace an existing multi-task plan");
@@ -318,6 +443,26 @@ Json OfflineRuntime::accept_response(const CapturedModelCall& call, const ModelR
     const auto started = store_.start_operation(call.actor, id, integer_at(prepared, "state_version"), command + ":start");
     return store_.finish_operation(call.actor, id, captured.binding, integer_at(started, "state_version"),
         "SUCCEEDED", "sqlite:operation_intents/" + id + "#sha256=" + sha256_hex(canonical_json(tool.arguments)), command + ":finish");
+    };
+    Json result;
+    try {
+        result = apply();
+    } catch (const Error& error) {
+        if (store_.event_runtime_enabled())
+            static_cast<void>(store_.record_tool_feedback(captured.attempt_id, captured.binding, to_json(response),
+                Object{{"status", "ERROR"}, {"runtime_error", true}, {"error_code", error_name(error.code())}, {"message", error.what()},
+                    {"observation_complete", false}}));
+        throw;
+    } catch (const std::exception& error) {
+        if (store_.event_runtime_enabled())
+            static_cast<void>(store_.record_tool_feedback(captured.attempt_id, captured.binding, to_json(response),
+                Object{{"status", "ERROR"}, {"runtime_error", true}, {"error_code", "unexpected"}, {"message", error.what()},
+                    {"observation_complete", false}}));
+        throw;
+    }
+    if (store_.event_runtime_enabled())
+        static_cast<void>(store_.record_tool_feedback(captured.attempt_id, captured.binding, to_json(response), result));
+    return result;
 }
 
 Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>& steps, const std::string& disposition,
@@ -326,6 +471,15 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
         ErrorCode::InvalidInput, "Worker calls must be 1..16 and multiple calls require an explicit workspace");
     auto tasks = store_.tasks(id);
     require(tasks.size() <= 1, ErrorCode::Unsupported, "offline runner supports one task per request");
+    if (store_.event_runtime_enabled() && !tasks.empty()) {
+        const auto waiting = store_.worker_wait(string_at(tasks.front(), "task_id"));
+        // This compatibility runner automatically rebinds plans and reissues
+        // instructions. Neither convenience transition is an explicit wake:
+        // changing an order here would otherwise supersede WAITING and let the
+        // subsequent Worker bypass the persisted wait's dispatch gate.
+        require(waiting.is_null() || string_at(waiting, "status") != "WAITING", ErrorCode::NotReady,
+                "Worker is durably waiting; an explicit wake is required before the offline runner resumes");
+    }
     auto record = store_.request(id);
     const auto config = restore_request_config(record);
     if (!tasks.empty() && integer_at(tasks.front(), "based_on_requirements_revision") == integer_at(record, "requirements_revision") &&

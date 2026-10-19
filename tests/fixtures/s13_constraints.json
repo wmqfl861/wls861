@@ -1,0 +1,12 @@
+[
+  {
+    "constraint_id": "c1",
+    "source_revision": 1,
+    "text": "只读写明确指定的工作目录"
+  },
+  {
+    "constraint_id": "c2",
+    "source_revision": 1,
+    "text": "不要调用外部服务"
+  }
+]

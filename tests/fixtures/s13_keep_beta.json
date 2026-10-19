@@ -1,0 +1,6 @@
+{
+  "beta": {
+    "disposition": "keep",
+    "rationale": "保留 beta 的独立目标；适用当前全部约束，新内容写入独立文件，重新下达与确认说明。"
+  }
+}

@@ -40,6 +40,13 @@ public:
     Json accept_response(const CapturedModelCall& call,
                          const ModelResponse& response,
                          const std::string& amendment_disposition = {});
+    // Used only by the durable event host. The Dispatcher can atomically
+    // allocate independent tasks or publish a plan with explicit per-node
+    // AMEND decisions. Omitted existing tasks stay blocked. Other roles keep
+    // the same captured-envelope and final Store guards as accept_response.
+    Json accept_independent_response(const CapturedModelCall& call,
+                                     const ModelResponse& response,
+                                     const Json& amendment_dispositions = boost::json::object{});
     // At most one Dispatcher, one TeamLead and 1..16 explicit Worker calls.
     // No implicit retries or new threads. The caller owns its Store lease.
     Json run(const std::string& request_id,
@@ -47,6 +54,11 @@ public:
              const std::string& amendment_disposition = {},
              std::int64_t max_worker_calls = 1);
 private:
+    Json accept_captured_response(const CapturedModelCall& call,
+                                  const ModelResponse& response,
+                                  const std::string& amendment_disposition,
+                                  bool independent_plan,
+                                  const Json& amendment_dispositions);
     Store& store_;
     const SchemaRegistry& schemas_;
     WorkerTools* worker_tools_;

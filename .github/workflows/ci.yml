@@ -1,4 +1,4 @@
-name: C++20 kernel, Worker tools and specification contracts
+name: C++20 kernel, event runtime and specification contracts
 
 on:
   push:

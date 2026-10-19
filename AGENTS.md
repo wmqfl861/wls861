@@ -3,11 +3,13 @@
 Read the current blueprint at `docs/spec/v0.4.1/01_实施规格_v0.4.1.md`,
 `docs/ROADMAP.md`, and `docs/implementation/M1-contract.md` before changing
 runtime behavior. Also read `docs/implementation/S1-foundation.md` for the new
-foundation, and `docs/implementation/S1-worker-tools.md` for the current
-0.3.0-s1.2 library/CLI. The blueprint defines the target; implementation
+foundation, and `docs/implementation/S1-worker-tools.md` for the file/process boundary,
+then `docs/implementation/S1-event-runtime.md` for the current 0.4.0-s1.3
+library/CLI. The blueprint defines the target; implementation
 contracts and actual reports define what this checkout can execute. M1 remains
 its original kernel; S1.2 adds bounded real files and a strong-only process
-entry point. A completed daemon and positive deployment sandbox acceptance
+entry point; S1.3 adds a bounded durable event pump, isolated independent tasks,
+explicit waits and original cross-run feedback. A completed daemon and positive deployment sandbox acceptance
 remain separate task cards.
 
 The owner approved review corrections, documentation/code updates and GitHub
@@ -35,6 +37,14 @@ development authorization. Explicit user instructions take precedence.
 - Real tools must obtain a durable first-dispatch claim. Command replay is
   never execution permission. Persist original operation facts and raw output;
   a settlement failure must stop new business, even if storage is unavailable.
+- Consume only the explicitly completed IDs from a captured event claim.
+  Omitted AMEND subjects, errors and exhausted batches retain pending work.
+  Worker waits are Store dispatch gates; waking cannot clear AMEND, applied
+  versions or UNKNOWN. A takeover releases claims without executing them.
+- Preserve every original attempt/feedback binding when rebuilding history.
+  Missing observations stay explicit; never reread a file to invent old output
+  or recursively embed prior compiled contexts. Context overflow blocks before
+  another reservation. Independent plan allocation is one bounded transaction.
 - Keep the control database outside bound business workspaces. Preserve pinned
   workspace identity, frozen runtime hashes, explicit env and strong-process
   refusal. Never enable a weak production path to make a test pass.

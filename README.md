@@ -1,8 +1,8 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.3.0-s1.2；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.4.0-s1.3；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
-本批沿 S1-06/07 新增 **真实文件读写/搜索/哈希补丁、唯一派发权、原始结果与二进制输出持久化、独立控制分支，以及 bwrap/cgroup 强进程入口和 doctor**。FakeModel 可在一个独立任务中连续调用这些工具，结果进入后续完整上下文。当前环境已验证文件闭环和强模式拒绝，完整强沙箱正向验收仍待具备条件的环境；真实模型、守护进程、业务验收/交付和可恢复清理继续按任务卡开发。
+本批沿 S1-03/08/09/10 新增 **持久角色待办和逐项领取/确认、独立多任务原子计划、逐任务 AMEND、Worker 等待/唤醒、原始反馈与跨运行上下文**。新的 `pump-fake` 在明确目录内运行有界真实文件任务，错误、遗漏和调用上限保留待办，重启不盲重做旧工具。已有文件/强进程边界保留；完整强沙箱正向、真实模型、守护进程、业务验收/交付和可恢复清理继续按任务卡实施。
 
 ## 蓝图、计划与审核入口
 
@@ -15,7 +15,9 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.3.0-s1.2；当前
 | [决策记录](docs/spec/v0.4.1/00_决策记录.md) | 用户明确决定、工程默认值与实际接入参数 |
 | [S1 基础实现契约](docs/implementation/S1-foundation.md) | 新 C++ Store、配置、模型、Schema、CLI 与明确未实现的部分 |
 | [S1.2 Worker 工具契约](docs/implementation/S1-worker-tools.md) | 文件边界、强进程条件、派发/结果/控制、403 迁移与当前限制 |
-| [本批验证报告](docs/reports/s1-worker-tools-validation.md) | S1.2 实际构建、文件/进程/SQLite/CLI 分层证据与限制 |
+| [S1.3 事件运行器契约](docs/implementation/S1-event-runtime.md) | 持久待办、404迁移、原子多任务、原反馈、等待与CLI边界 |
+| [本批验证报告](docs/reports/s1-event-runtime-validation.md) | S1.3实际构建、Store/运行器/CLI分层证据与限制 |
+| [S1.2 历史验证](docs/reports/s1-worker-tools-validation.md) | 文件/进程/SQLite/CLI交付时的实际证据 |
 | [S1.1 历史验证](docs/reports/s1-foundation-validation.md) | 基础层交付时的实际构建与回归 |
 | [M1 实现契约](docs/implementation/M1-contract.md) | 原 Journal 内核的 API、持久化、身份和合成验收 |
 | [v0.4.1 修订验证](docs/reports/v0.4.1-validation.md) | 前一批审核修正的历史证据 |
@@ -24,18 +26,19 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.3.0-s1.2；当前
 
 ## 当前可以运行什么
 
-`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
+`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/wait/wake`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
 
 | S1 模块 | 当前实现 |
 | --- | --- |
-| SQLite Store | 真正的 C++ WAL/FULL、外键、CAS/事件、独占写者；非空 402→403 迁移，原 tuple 结果及二进制输出不可变保存 |
+| SQLite Store | 真正的 C++ WAL/FULL、外键、CAS/事件、独占写者；非空402→403→404迁移，原tuple结果/输出/完整反馈不可变；独立计划及初始团队原子分配 |
 | 配置 | LibYAML 严格解析、完整依赖快照、逐字段直接继承冻结 Root、哈希恢复、来源解释；环境 check 保持为数据 |
 | JSON / Schema | 严格 JSON、SHA-256、typed ULID；Valijson Draft-07、本地引用注册表、完整记录与模型输入投影 |
 | 模型和上下文 | 有界脚本 FakeModel；实际前缀字节及依赖哈希；完整原文、AMEND、任务和说明；不截断约束 |
 | 尝试与预算 | 完整调用输入先持久化，响应保留原 tuple；每次尝试独立计数，错误／迟到也记账，未知用量保留预留 |
 | Worker 文件工具 | dirfd/openat2 限定工作目录；分页读取、字面搜索、创建、完整 SHA 覆盖/唯一匹配 patch、原子写入及 UNKNOWN |
 | 进程与控制 | 显式 argv/env、固定运行文件 SHA、强 bwrap/cgroup 入口；缺条件拒绝；ack/cancel 精确重放与诊断不被业务门禁锁死 |
-| 离线角色流程 | 一个独立任务；显式 workspace 时 1–16 次 Worker 调用，默认一次；逐次保存反馈，失败/UNKNOWN 停止本批，中途变更仍需显式处置 |
+| 离线角色流程 | 原单任务run-fake保留；pump-fake按持久待办推进独立多任务，逐项确认，AMEND遗漏保持暂停，后补keep使用同一计划 |
+| 等待与历史 | 宿主wait/wake持久化，Store阻断等待中的新调用和业务；原响应/完整反馈/绑定跨运行恢复，缺失明确标记，容量超限先阻止预约 |
 
 `wls861 demo` 创建两个独立请求，各自使用 `Root → Dispatcher → TeamLead → Worker`，并行完成合成工作、独立审核、交付回执与资源状态收尾，输出 JSON 证据。演示使用固定字节和符号模型，模型调用数为零。
 
@@ -136,8 +139,66 @@ mkdir -p .local/s12/work
 
 进程工具需要另行准备的强环境及 [manifest](config/examples/sandbox-manifest.json)。该样例故意没有 launcher SHA、可写 cgroup 委派和运行文件，doctor 会列出缺项，run 会拒绝启动。实际使用前填写 bwrap 和每个运行文件的 SHA-256、白名单目标及已委派路径，并在新请求的首次工作目录绑定前传入 `--sandbox-manifest`。程序不会安装 bwrap、修改 user namespace/AppArmor 或创建宿主委派。完整参数与边界见 [Worker 工具契约](docs/implementation/S1-worker-tools.md)。
 
+## 运行持久事件与两个独立任务
+
+以下使用新增的确定性脚本，各任务各有一个目录。调用次数达到上限时，后续工作仍在 inbox 中；示例输出不声明完成业务验收或交付。
+
+```sh
+mkdir -p .local/s13/alpha .local/s13/beta
+python3 - <<'PYMAP'
+import json
+from pathlib import Path
+root = Path('.local/s13').resolve()
+(root / 'workspaces.json').write_text(json.dumps({
+    'alpha': str(root / 'alpha'), 'beta': str(root / 'beta')
+}))
+PYMAP
+./build/wls submit --db .local/s13/runtime.db --key s13-events \
+  --text-file tests/fixtures/s13_request.txt \
+  --constraints-file tests/fixtures/s13_constraints.json
+./build/wls pump-fake --db .local/s13/runtime.db --request req_YOUR_RETURNED_ID \
+  --script tests/fixtures/s13_fake_initial.json \
+  --workspaces-file .local/s13/workspaces.json --worker-calls 2
+```
+
+第一次 pump 在 alpha/beta 目录各新建 `r1.txt` 并读取一次，共 7 次 Fake 调用。下面的变更只处置 alpha，beta 保持暂停；随后显式 keep beta，仍要求它取得新说明和 ack：
+
+```sh
+./build/wls amend --db .local/s13/runtime.db --request req_YOUR_RETURNED_ID \
+  --text-file tests/fixtures/s13_amendment.txt \
+  --constraints-file tests/fixtures/s13_amended_constraints.json
+./build/wls pump-fake --db .local/s13/runtime.db --request req_YOUR_RETURNED_ID \
+  --script tests/fixtures/s13_fake_amended.json \
+  --workspaces-file .local/s13/workspaces.json \
+  --dispositions-file tests/fixtures/s13_update_alpha.json
+./build/wls inbox --db .local/s13/runtime.db --request req_YOUR_RETURNED_ID
+```
+
+补 beta 时，使用只包含 beta 后续步骤的脚本，避免再次要求 alpha 执行其文件新建动作。显式 keep 继续使用当前计划：
+
+```sh
+./build/wls pump-fake --db .local/s13/runtime.db --request req_YOUR_RETURNED_ID \
+  --script tests/fixtures/s13_fake_keep_beta.json \
+  --workspaces-file .local/s13/workspaces.json \
+  --dispositions-file tests/fixtures/s13_keep_beta.json
+```
+
+只读历史和持久暂停的入口为：
+
+```sh
+./build/wls history --db .local/s13/runtime.db --request req_YOUR_RETURNED_ID \
+  --role worker --task tsk_YOUR_RETURNED_ID
+./build/wls wait --db .local/s13/runtime.db --request req_YOUR_RETURNED_ID \
+  --task tsk_YOUR_RETURNED_ID --reason '等待宿主补充当前任务资料'
+./build/wls show --db .local/s13/runtime.db --request req_YOUR_RETURNED_ID
+./build/wls wake --db .local/s13/runtime.db --request req_YOUR_RETURNED_ID \
+  --task tsk_YOUR_RETURNED_ID --wait-generation 1
+```
+
+`--task` 与 `--wait-generation` 使用实际输出值。wake 不代替新的 AMEND 处置、说明确认或 UNKNOWN 核对。本批 wait/wake 为宿主控制；完整模型 ask/逐级问题/ANSWER 仍待实现。脚本分组、部分目录和错误语义见 [S1.3 契约](docs/implementation/S1-event-runtime.md)。
+
 ## 后续实施边界
 
 当前内核是受信宿主进程内 API，`Actor` 由宿主构造。本机 CLI 不提供远程认证；诊断速率限制在单进程内，写者持租约期间没有第二个 CLI 的 socket 取消通道。文件容量是代理的逻辑上限，不是任意进程磁盘配额；合作锁不防任意同 UID 宿主绕过。强进程正向测试、残留 cgroup 恢复及完整 SBX/SEC 验收仍需独立证据。
 
-下一批沿 S1-03/09/10 接持久事件、等待/唤醒和多任务 AMEND，并继续完成 S1-06/07 正向隔离验收与恢复；随后是交付包、回执、清理和 wlsd/API。真实模型协议在外部端点、凭据引用、能力和预算齐备后独立接入。配置样例保持 FakeModel、记忆关闭、真实调用关闭、付费重试为零。
+下一批复用持久事件与原始反馈，接逐级问题/回答、Worker提交与TeamLead检查/返工，再推进交付包、回执、经验、可恢复清理和wlsd/API。S1-06/07强环境正向与残留恢复保持独立验收。真实模型协议在外部端点、凭据引用、能力和预算齐备后独立接入。配置样例保持 FakeModel、记忆关闭、真实调用关闭、付费重试为零。

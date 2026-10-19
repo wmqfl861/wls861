@@ -76,7 +76,7 @@ class WorkerCliSmoke(unittest.TestCase):
                            "--task", task_id, "--workspace", workspace or self.workspace,
                            "--tool", tool, "--input", source, error=error)
 
-    def test_doctor_is_read_only_and_new_database_uses_403(self):
+    def test_doctor_is_read_only_and_new_database_uses_current_schema(self):
         before = set(self.directory.iterdir())
         doctor = self.invoke("doctor")
         self.assertFalse(doctor["strong_prerequisites"])
@@ -86,7 +86,7 @@ class WorkerCliSmoke(unittest.TestCase):
         self.assertTrue(doctor["issues"])
         self.assertEqual(set(self.directory.iterdir()), before)
         initialized = self.invoke("init", "--db", self.database)
-        self.assertEqual(initialized["user_version"], 403)
+        self.assertEqual(initialized["user_version"], 404)
         self.assertEqual(initialized["journal_mode"], "wal")
         self.assertEqual(initialized["synchronous"], 2)
 

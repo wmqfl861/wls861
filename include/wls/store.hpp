@@ -70,7 +70,8 @@ public:
     Store(const std::filesystem::path& database_path,
           std::string_view base_schema_sql, std::string_view migration_sql,
           StoreOpenMode mode = StoreOpenMode::Takeover,
-          std::string_view tools_migration_sql = {});
+          std::string_view tools_migration_sql = {},
+          std::string_view events_migration_sql = {});
     ~Store();
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;
@@ -92,6 +93,44 @@ public:
     std::vector<Json> tasks(const std::string& request_id) const;
     Json pending_recovery() const;
 
+    // S1.3 durable inbox/role-loop support requires the distributed 006 asset.
+    // Dispatcher is request-scoped; subject_task_id on individual inbox items
+    // keeps separate AMEND decisions distinct without inventing task actors.
+    bool event_runtime_enabled() const;
+    // Trusted-host inspection of every remaining actor/subject, including
+    // retired teams. A smaller requested capacity fails instead of hiding work.
+    std::vector<Json> request_inbox(const std::string& request_id,
+                                    std::int64_t limit = 4096) const;
+    std::vector<Json> inbox(const StoreActor& actor, std::int64_t limit = 256) const;
+    Json claim_events(const StoreActor& actor, std::int64_t max_items = 64);
+    // Completes exactly the captured IDs supplied here. Omitted captured items
+    // return to PENDING; items that arrived during the claim remain untouched.
+    Json finish_events(const StoreActor& actor, const std::string& claim_id,
+                       std::int64_t generation,
+                       const std::vector<std::int64_t>& completed_ids);
+
+    Json worker_wait(const std::string& task_id) const;
+    Json wait_worker(const StoreActor& actor, const ExecutionBinding& binding,
+                     std::int64_t expected_task_version, const std::string& reason,
+                     const std::string& command_id);
+    // Epoch-only recovery may wake the same semantic target. An old wait may
+    // never wake changed requirements, plan, task or instruction revisions.
+    Json wake_worker(const StoreActor& actor, const ExecutionBinding& binding,
+                     std::int64_t expected_wait_generation,
+                     const std::string& command_id);
+
+    // Complete feedback is immutable and paired with the already persisted
+    // original attempt/response, including rejected or diagnostic results.
+    Json record_tool_feedback(const std::string& attempt_id,
+                              const ExecutionBinding& original_binding,
+                              const Json& response, const Json& result);
+    Json tool_feedback(const std::string& attempt_id) const;
+    // Chronological, actor-scoped original facts. request_envelope is omitted
+    // here to prevent recursive context embedding; attempt() retains it intact.
+    // More than limit records fails explicitly rather than dropping history.
+    std::vector<Json> attempt_history(const StoreActor& actor,
+                                      std::int64_t limit = 256) const;
+
     StoreActor host_actor(Role role, const std::string& request_id,
                           const std::string& team_id = {}) const;
     ExecutionBinding binding(const std::string& task_id) const;
@@ -100,6 +139,20 @@ public:
     Json publish_plan(const StoreActor& actor, std::int64_t expected_request_version,
                       std::int64_t based_on_requirements_revision, const Json& body,
                       const std::string& command_id);
+    // Bounded independent team-task plan plus initial team allocation is one
+    // transaction. Later plans preserve every existing node/template identity.
+    // Dispositions are keyed by node_id; omitted AMEND tasks stay paused.
+    Json apply_independent_plan(const StoreActor& actor,
+                                std::int64_t expected_request_version,
+                                std::int64_t based_on_requirements_revision,
+                                const Json& body, const Json& dispositions,
+                                const std::string& command_id);
+    Json apply_independent_dispositions(const StoreActor& actor,
+                                        std::int64_t expected_request_version,
+                                        std::int64_t based_on_requirements_revision,
+                                        std::int64_t target_plan_revision,
+                                        const Json& dispositions,
+                                        const std::string& command_id);
     Json create_task(const StoreActor& actor, std::int64_t expected_request_version,
                      std::int64_t based_on_requirements_revision,
                      std::int64_t target_plan_revision, const std::string& node_id,

@@ -1,0 +1,66 @@
+{
+  "nodes": {
+    "beta": [
+      {
+        "role": "team_lead",
+        "role_call_index": 1,
+        "status": "completed",
+        "tool_calls": [
+          {
+            "call_id": "order-beta",
+            "name": "issue_work_order",
+            "arguments": {
+              "approach": "确认当前说明后执行本任务的受控文件工具。",
+              "steps": [
+                {
+                  "id": "s1",
+                  "text": "新建本版本文件，必要时进行分页诊断；不覆盖旧版事实。"
+                }
+              ],
+              "constraints_verbatim": [
+                "只读写明确指定的工作目录",
+                "不要调用外部服务",
+                "新版内容必须写入独立文件"
+              ],
+              "constraint_refs": [
+                "c1",
+                "c2",
+                "c3"
+              ],
+              "done_definition": "原始工具结果已经保存；业务验收与交付仍未执行。"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost_micro_usd": 0
+        }
+      },
+      {
+        "role": "worker",
+        "role_call_index": 1,
+        "status": "completed",
+        "tool_calls": [
+          {
+            "call_id": "amended-beta",
+            "name": "fs_write",
+            "arguments": {
+              "path": "r2.txt",
+              "content": "beta revision 2\n"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost_micro_usd": 0
+        }
+      }
+    ]
+  }
+}

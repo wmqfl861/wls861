@@ -1,16 +1,18 @@
 # v0.4.1 SQLite 契约与可执行事务参考
 
-`schema.sql` 是修订蓝图的目标数据库结构。`contract_store.py` 用真实 SQLite 事务验证审核发现的状态、版本和恢复边界。下文主要描述这个 Python 参考，不将它当作运行器。C++ `Store` 已在 S1.1 接入，S1.2 新增真实 Worker 工具与 403 迁移；原 M1 仍保留独立 Journal。MemoryEngine、完整角色事件循环、Git Writer 和业务清理作业仍待实现。不要把本模块注册成面向模型或网络调用方的工具服务。
+`schema.sql` 是修订蓝图的目标数据库结构。`contract_store.py` 用真实 SQLite 事务验证审核发现的状态、版本和恢复边界。下文主要描述这个 Python 参考，不将它当作运行器。C++ `Store` 已在 S1.1 接入，S1.2 新增真实 Worker 工具与 403 迁移，S1.3 增加持久事件运行器与 404 迁移；原 M1 仍保留独立 Journal。MemoryEngine、完整问题/提交/审核事件循环、Git Writer 和业务清理作业仍待实现。不要把本模块注册成面向模型或网络调用方的工具服务。
 
-## C++ 运行版本：402 与 403
+## C++ 运行版本：402、403 与 404
 
 `src/store.cpp` 及其 C++ 回归与 Python 参考分别验证。004 将已知空 401 参考库升级为 S1.1 的 402；005 将包括非空请求的 402 原地升级为 S1.2 的 403。每份迁移指纹须匹配，失败在事务内回滚；原 schema/004 字节保留。缺完整配置快照的非空 401 仍拒绝自动升级。
 
 403 新增不可变团队 workspace identity/execution policy、operation_results 和原始输出 BLOB。真实工具使用唯一首次派发 claim，原 tuple 结果与事件同事务保存；旧结果不自动解除 UNKNOWN。控制数据库/租约/WAL/SHM 不得位于本 Store 的业务 workspace 中。C++ ReadOnly 查询不迁移或接管，403 打开仍需已分发的 005 资产。详细语义见 [Worker 工具契约](../docs/implementation/S1-worker-tools.md)。
 
+006 将已知非空 403 原子升级到 404，新增逐角色/任务主题 `event_inbox`、捕获具体项的 `event_actor_claims`、`worker_waits` 和不可变 `model_tool_feedback`。领取不算消费，明确完成的子集才标 DONE；遗漏、新到项和重启释放的项继续待办。独立计划及初始团队分配在一个事务提交。迁移保留原请求/快照/操作/输出/账本，原 005 字节也不改变。404 打开要求相应分发资产，原接口可以继续打开402/403；ReadOnly仍不升级。详细边界见 [S1.3 契约](../docs/implementation/S1-event-runtime.md)。
+
 ## 运行与数据库版本
 
-以下章节仅描述 Python `contract_store.py` 的事务参考；C++ 运行器当前行为以此前的 402/403 说明和对应实现契约为准。
+以下章节仅描述 Python `contract_store.py` 的事务参考；C++ 运行器当前行为以此前的 402/403/404 说明和对应实现契约为准。
 
 ```sh
 /usr/bin/python3 tests/contracts_tests.py

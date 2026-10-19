@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <iomanip>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -84,7 +85,7 @@ Json exposed(Row row) {
     for (const auto* key : {"config_snapshot", "budget", "usage", "tool_allowlist", "denied_tools",
              "body", "brief", "work_order", "lead_config", "worker_config", "frozen_binding",
              "response", "request_envelope", "arguments", "payload", "result", "source_snapshot", "manifest_snapshot",
-             "original_binding", "evidence", "execution_policy"}) {
+             "original_binding", "evidence", "execution_policy", "captured_ids"}) {
         if (auto* value = row.if_contains(key); value && value->is_string())
             *value = parse_json_strict(value->as_string(), 16 * 1024 * 1024);
     }
@@ -252,7 +253,9 @@ class Store::Impl {
 public:
     Impl(const std::filesystem::path& database_path, std::string_view base_sql,
          std::string_view migration_sql, StoreOpenMode selected_mode,
-         std::string_view tools_migration_sql) : mode(selected_mode) {
+         std::string_view tools_migration_sql, std::string_view events_migration_sql) : mode(selected_mode) {
+        require(events_migration_sql.empty() || !tools_migration_sql.empty(), ErrorCode::InvalidInput,
+                "event-runtime migration requires the worker-tools asset");
         require(database_path != ":memory:", ErrorCode::InvalidInput, "Store requires a durable file path");
         const auto absolute = std::filesystem::absolute(database_path).lexically_normal();
         const auto path = (std::filesystem::canonical(absolute.parent_path()) / absolute.filename()).string();
@@ -292,11 +295,12 @@ public:
                 exec(base_sql);
                 version = number(one("PRAGMA user_version"), "user_version");
             }
-            require(version == 401 || version == 402 || version == 403, ErrorCode::Unsupported, "unknown database version; explicit migration required");
+            require(version == 401 || version == 402 || version == 403 || version == 404, ErrorCode::Unsupported, "unknown database version; explicit migration required");
             require(str(one("SELECT schema_version FROM contract_metadata WHERE singleton=1"), "schema_version") == "0.4.1",
                     ErrorCode::Unsupported, "unsupported base contract metadata");
             const auto migration_hash = sha256_hex(migration_sql);
             const auto tools_migration_hash = sha256_hex(tools_migration_sql);
+            const auto events_migration_hash = sha256_hex(events_migration_sql);
             if (version == 401) {
                 require(mode == StoreOpenMode::Takeover, ErrorCode::Unsupported, "database needs Store migration before read-only inspection");
                 // Python reference rows did not capture a complete configuration.
@@ -309,11 +313,17 @@ public:
                 require(number(metadata, "store_version") == 4 && str(metadata, "migration_sha256") == migration_hash,
                         ErrorCode::Corrupt, "Store migration asset does not match durable metadata");
             }
-            if (version == 403) {
+            if (version >= 403) {
                 require(!tools_migration_sql.empty(), ErrorCode::Unsupported, "403 database requires the distributed worker-tools migration asset");
                 const auto metadata = one("SELECT * FROM worker_tools_metadata WHERE singleton=1");
                 require(number(metadata, "store_version") == 5 && str(metadata, "migration_sha256") == tools_migration_hash,
                         ErrorCode::Corrupt, "worker-tools migration asset does not match durable metadata");
+            }
+            if (version == 404) {
+                require(!events_migration_sql.empty(), ErrorCode::Unsupported, "404 database requires the distributed event-runtime migration asset");
+                const auto event_metadata = one("SELECT * FROM event_runtime_metadata WHERE singleton=1");
+                require(number(event_metadata, "store_version") == 6 && str(event_metadata, "migration_sha256") == events_migration_hash,
+                        ErrorCode::Corrupt, "event-runtime migration asset does not match durable metadata");
             }
             // Validate ownership/version before any persistent journal-mode
             // change; rejecting an unrelated database preserves its bytes.
@@ -347,12 +357,33 @@ public:
                     version = 403;
                 } catch (...) { rollback(); throw; }
             }
-            tools_schema = version == 403;
+            tools_schema = version >= 403;
+            if (version == 403 && !events_migration_sql.empty() && mode == StoreOpenMode::Takeover) {
+                exec("BEGIN IMMEDIATE");
+                try {
+                    exec(events_migration_sql);
+                    execute("INSERT INTO event_runtime_metadata VALUES (1,6,?)", {events_migration_hash});
+                    require(number(one("PRAGMA user_version"), "user_version") == 404,
+                        ErrorCode::Corrupt, "event-runtime migration did not produce the expected version");
+                    events_schema = true;
+                    for (const auto& existing : all("SELECT request_id FROM requests WHERE status NOT IN ('DELIVERED','FAILED','CANCELLED','SUPERSEDED')")) {
+                        const auto id = str(existing, "request_id");
+                        event(id, "event-runtime-bootstrap", Row{{"type", "event_bootstrap"}}, Row{{"request_id", id}});
+                    }
+                    exec("COMMIT");
+                    version = 404;
+                } catch (...) { events_schema = false; rollback(); throw; }
+            }
+            events_schema = version == 404;
             require(str(one("PRAGMA quick_check"), "quick_check") == "ok", ErrorCode::Corrupt, "SQLite quick_check failed");
             require(!optional("PRAGMA foreign_key_check"), ErrorCode::Corrupt, "SQLite foreign key check failed");
             if (mode == StoreOpenMode::Takeover) {
                 exec("BEGIN IMMEDIATE");
                 try {
+                    if (events_schema) {
+                        execute("UPDATE event_inbox SET status='PENDING',claim_id=NULL WHERE status='CLAIMED'");
+                        execute("UPDATE event_actor_claims SET status='RELEASED',updated_at=? WHERE status='ACTIVE'", {stamp()});
+                    }
                     for (const auto& request_row : all("SELECT * FROM requests WHERE status NOT IN ('DELIVERED','FAILED','CANCELLED','SUPERSEDED')"))
                         recover(request_row);
                     // Accounting survives even if business already entered a
@@ -424,6 +455,26 @@ public:
     }
     void require_tools_schema() const {
         require(tools_schema, ErrorCode::Unsupported, "worker-tool persistence requires the 403 migration");
+    }
+    void require_events_schema() const {
+        require(events_schema, ErrorCode::Unsupported, "event runtime requires the 404 migration");
+    }
+    Json wait_info(const std::string& task_id) const {
+        require_events_schema();
+        (void)task_row(task_id);
+        const auto row = optional("SELECT * FROM worker_waits WHERE task_id=?", {task_id});
+        return row ? exposed(*row) : Json(nullptr);
+    }
+    Json feedback_info(const std::string& attempt_id) const {
+        require_events_schema();
+        const auto row = optional("SELECT * FROM model_tool_feedback WHERE attempt_id=?", {attempt_id});
+        if (!row) return nullptr;
+        const auto value = exposed(*row);
+        const Row fact{{"attempt_id", attempt_id}, {"original_binding", value.at("original_binding")},
+            {"response", value.at("response")}, {"result", value.at("result")}};
+        require(sha256_hex(canonical_json(fact)) == str(*row, "record_sha256"), ErrorCode::Corrupt,
+                "model feedback fingerprint differs from its immutable content");
+        return value;
     }
     Json workspace_info(const std::string& team_id) const {
         require_tools_schema();
@@ -534,6 +585,8 @@ public:
             number(t, "applied_instruction_revision") == number(t, "instruction_revision"), ErrorCode::NotReady, "business execution is not ready");
         require(!optional("SELECT op_id FROM ops WHERE team_id=? AND status='UNKNOWN' LIMIT 1", {actor.team_id}),
                 ErrorCode::UnknownOutcome, "unknown operation requires host reconciliation");
+        if (events_schema) require(!optional("SELECT task_id FROM worker_waits WHERE task_id=? AND status='WAITING'", {actor.task_id}),
+                ErrorCode::NotReady, "Worker is durably waiting for an explicit wake");
         if (!tool_id.empty()) tool_grant(r, team, tool_id);
     }
     std::optional<Json> replay(const std::string& request_id, const std::string& command_id, const Json& command) const {
@@ -548,11 +601,75 @@ public:
         text_field(command_id, "command_id");
         const auto type = str(command, "type");
         const bool control = type == "ack" || type == "cancel_op" || type == "finish_op" || type == "reconcile_op" || type == "record_op_result" || type == "execute_tool_control" ||
+            type == "wait_worker" || type == "wake_worker" || type == "tool_feedback" || type == "event_bootstrap" ||
             type == "recover" || type == "cancel_request" || type == "settle_attempt" || type == "attempts_unknown";
         const auto count = number(one("SELECT COUNT(*) AS n FROM events WHERE request_id=?", {request_id}), "n");
         require(count < (control ? 8192 : 4096), ErrorCode::Quota, "bounded Store event capacity exhausted");
         execute("INSERT INTO events(event_id,request_id,type,actor,command_id,command_sha256,payload,result,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
             {new_id("evt"), request_id, type, actor, command_id, sha256_hex(canonical_json(command)), json_text(command), json_text(result, 16 * 1024 * 1024), stamp()});
+        if (events_schema) route_event(request_id, type, command, result, sqlite3_last_insert_rowid(db));
+    }
+    void release_claims(const std::string& request_id) {
+        if (!events_schema) return;
+        execute("UPDATE event_inbox SET status='PENDING',claim_id=NULL WHERE request_id=? AND status='CLAIMED'", {request_id});
+        execute("UPDATE event_actor_claims SET status='RELEASED',updated_at=? WHERE request_id=? AND status='ACTIVE'", {stamp(), request_id});
+    }
+    void supersede_waits(const std::string& request_id, const std::string& task_id = {}) {
+        if (!events_schema) return;
+        if (task_id.empty()) execute("UPDATE worker_waits SET status='SUPERSEDED',updated_at=? WHERE request_id=? AND status='WAITING'", {stamp(), request_id});
+        else execute("UPDATE worker_waits SET status='SUPERSEDED',updated_at=? WHERE request_id=? AND task_id=? AND status='WAITING'", {stamp(), request_id, task_id});
+    }
+    void route_event(const std::string& request_id, const std::string& type,
+                     const Row& command, const Json& result, std::int64_t seq) {
+        const auto request = request_row(request_id);
+        const auto revision = number(request, "requirements_revision");
+        const auto enqueue = [&](std::string_view role, const std::string& task_id) {
+            execute("INSERT OR IGNORE INTO event_inbox(event_seq,request_id,role,actor_task_id,subject_task_id,event_requirements_revision) VALUES (?,?,?,?,?,?)",
+                {seq, request_id, role, role == "dispatcher" ? std::string{} : task_id, task_id, revision});
+        };
+        const auto live = all("SELECT * FROM tasks WHERE request_id=? AND status NOT IN ('CANCELLED','SKIPPED','SUPERSEDED') ORDER BY rowid", {request_id});
+        if (type == "amend" || type == "plan" || type == "independent_plan" || type == "cancel_request") supersede_waits(request_id);
+        if (type == "disposition" || type == "rebind_task") supersede_waits(request_id, str(command, "task_id"));
+        if (type == "instruction") supersede_waits(request_id, str(command.at("binding").as_object(), "task_id"));
+        if (terminal_request(str(request, "status"))) return;
+        if (type == "admit") { enqueue("dispatcher", ""); return; }
+        if (type == "amend") {
+            if (live.empty()) enqueue("dispatcher", "");
+            for (const auto& task : live) enqueue("dispatcher", str(task, "task_id"));
+            return;
+        }
+        if (type == "event_bootstrap" || type == "recover") {
+            if (live.empty()) { enqueue("dispatcher", ""); return; }
+            for (const auto& task : live) {
+                if (number(task, "based_on_requirements_revision") != revision ||
+                    number(task, "plan_revision") != number(request, "plan_revision"))
+                    enqueue("dispatcher", str(task, "task_id"));
+                else if (!terminal_task(str(task, "status"))) enqueue("team_lead", str(task, "task_id"));
+            }
+            return;
+        }
+        if (type == "create_task" || type == "disposition" || type == "rebind_task") {
+            const auto task_id = str(result.as_object(), "task_id");
+            if (!terminal_task(str(task_row(task_id), "status"))) enqueue("team_lead", task_id);
+            return;
+        }
+        if (type == "independent_plan" || type == "independent_dispositions") {
+            for (const auto& changed : result.at("tasks").as_array()) {
+                const auto task_id = str(changed.as_object(), "task_id");
+                supersede_waits(request_id, task_id);
+                if (!terminal_task(str(task_row(task_id), "status"))) enqueue("team_lead", task_id);
+            }
+            return;
+        }
+        if (type == "instruction" || type == "ack" || type == "wake_worker" ||
+            (type == "execute_tool_control" && str(command, "tool_id") == "ack_change")) {
+            enqueue("worker", str(command.at("binding").as_object(), "task_id"));
+            return;
+        }
+        if (type == "tool_feedback") {
+            const auto attempt = one("SELECT role,task_id FROM call_attempts WHERE attempt_id=?", {str(command, "attempt_id")});
+            if (str(attempt, "role") == "worker") enqueue("worker", str(attempt, "task_id"));
+        }
     }
     void fence_ops(const std::string& request_id, const std::string& team_id = {}) {
         const auto sql = "UPDATE ops SET status=CASE WHEN status='PREPARED' THEN 'CANCELLED' ELSE 'UNKNOWN' END,state_version=state_version+1 WHERE request_id=?" +
@@ -569,6 +686,7 @@ public:
     }
     void recover(const Row& r) {
         const auto id = str(r, "request_id");
+        release_claims(id);
         cas("UPDATE requests SET dispatcher_epoch=dispatcher_epoch+1,state_version=state_version+1,updated_at=? WHERE request_id=? AND state_version=?",
             {stamp(), id, number(r, "state_version")});
         execute("UPDATE teams SET execution_epoch=execution_epoch+1,paused_for_change=1,state_version=state_version+1,updated_at=? WHERE request_id=? AND status IN ('STARTING','ACTIVE','DRAINING')", {stamp(), id});
@@ -635,6 +753,103 @@ public:
         return n;
     }
 
+    std::map<std::string, Row> independent_nodes(const Row& request, const Json& body) const {
+        require(body.is_object() && body.as_object().contains("nodes") && body.at("nodes").is_array(),
+                ErrorCode::InvalidInput, "independent plan requires nodes");
+        const auto& values = body.at("nodes").as_array();
+        require(!values.empty() && values.size() <= 20 && values.size() <= static_cast<std::size_t>(configured_limit(request, "max_teams_per_request")),
+                ErrorCode::Quota, "independent plan exceeds its frozen team capacity");
+        const auto config = FrozenRequestConfig::restore(str(request, "config_snapshot"), str(request, "config_snapshot_sha256"));
+        std::map<std::string, Row> nodes;
+        for (const auto& value : values) {
+            require(value.is_object(), ErrorCode::InvalidInput, "independent plan node must be an object");
+            const auto& node = value.as_object();
+            for (const auto* key : {"node_id", "kind"}) require(node.contains(key) && node.at(key).is_string(), ErrorCode::InvalidInput, "plan node identity is missing");
+            const auto id = str(node, "node_id"); text_field(id, "node_id", 48);
+            require(id.front() != '-' && std::all_of(id.begin(), id.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'; }),
+                    ErrorCode::InvalidInput, "invalid independent node_id");
+            require(str(node, "kind") == "team_task" && node.contains("depends_on") && node.at("depends_on").is_array() &&
+                node.at("depends_on").as_array().empty() && !node.contains("review") && !node.contains("capability") && !node.contains("input"),
+                ErrorCode::Unsupported, "independent plan cannot include dependencies, capabilities or automatic reviews");
+            require(node.contains("brief"), ErrorCode::InvalidInput, "independent plan node requires a TaskBrief");
+            brief_constraints(request, node.at("brief"));
+            const auto selected = node.contains("template") ? str(node, "template") : "default";
+            (void)config.worker_tools(selected);
+            if (node.contains("required")) require(node.at("required").is_bool(), ErrorCode::InvalidInput, "node required must be boolean");
+            require(nodes.emplace(id, node).second, ErrorCode::InvalidInput, "duplicate independent node_id");
+        }
+        (void)json_text(body);
+        return nodes;
+    }
+    void check_dispositions(const Json& dispositions, const std::map<std::string, Row>& nodes) const {
+        require(dispositions.is_object() && dispositions.as_object().size() <= nodes.size(), ErrorCode::InvalidInput, "AMEND dispositions must be keyed by existing node_id");
+        for (const auto& item : dispositions.as_object()) {
+            require(nodes.contains(std::string(item.key())) && item.value().is_object(), ErrorCode::InvalidInput, "AMEND disposition names an unknown node");
+            const auto& decision = item.value().as_object();
+            require(decision.size() == 2 && decision.contains("disposition") && decision.at("disposition").is_string() &&
+                decision.contains("rationale") && decision.at("rationale").is_string(), ErrorCode::InvalidInput, "disposition requires exactly disposition and rationale");
+            const auto kind = str(decision, "disposition"); const auto reason = str(decision, "rationale");
+            require(kind == "update" || kind == "keep" || kind == "cancel", ErrorCode::InvalidInput, "unknown AMEND disposition");
+            text_field(reason, "AMEND disposition rationale", 4096);
+            require(reason.find_first_not_of(" \t\r\n") != std::string::npos, ErrorCode::InvalidInput, "AMEND disposition rationale is blank");
+        }
+    }
+    void check_independent_identities(const std::vector<Row>& existing, const std::map<std::string, Row>& nodes) const {
+        require(existing.empty() || existing.size() == nodes.size(), ErrorCode::Unsupported, "later independent plan must preserve every allocated node");
+        for (const auto& task : existing) {
+            const auto found = nodes.find(str(task, "node_id"));
+            require(found != nodes.end(), ErrorCode::Unsupported, "later independent plan cannot remove or rename a node");
+            const auto& node = found->second;
+            const auto selected = node.contains("template") ? str(node, "template") : "default";
+            require(str(task, "kind") == "team_task" && str(task, "template_id") == selected, ErrorCode::Unsupported, "later independent plan cannot replace a task template");
+            const auto team = one("SELECT * FROM teams WHERE task_id=?", {str(task, "task_id")});
+            require(str(team, "template_id") == selected, ErrorCode::Corrupt, "task and allocated team template disagree");
+        }
+    }
+    Json allocate_independent(const Row& request, std::int64_t revision, const std::string& node_id, const Row& node) {
+        const auto task_id = new_id("tsk"); const auto team_id = new_id("team"); const auto created = stamp();
+        const auto template_id = node.contains("template") ? str(node, "template") : "default";
+        const auto id = str(request, "request_id");
+        execute("INSERT INTO tasks(task_id,request_id,node_id,plan_revision,based_on_requirements_revision,kind,template_id,status,brief,required,created_at,updated_at) VALUES (?,?,?,?,?,'team_task',?,'READY',?,?,?,?)",
+            {task_id, id, node_id, revision, number(request, "requirements_revision"), template_id,
+             json_text(node.at("brief")), !node.contains("required") || node.at("required").as_bool(), created, created});
+        execute("INSERT INTO teams(team_id,request_id,task_id,lead_id,worker_id,template_id,status,paused_for_change,lead_config,worker_config,workspace_path,created_at,updated_at) VALUES (?,?,?,?,?,?,'ACTIVE',1,?,?,?,?,?)",
+            {team_id, id, task_id, new_id("lead"), new_id("worker"), template_id,
+             canonical_json(Row{{"request_snapshot_sha256", str(request, "config_snapshot_sha256")}}),
+             canonical_json(Row{{"request_snapshot_sha256", str(request, "config_snapshot_sha256")}}),
+             "unallocated:" + team_id, created, created});
+        return Row{{"node_id", node_id}, {"task_id", task_id}, {"team_id", team_id}, {"state_version", 1},
+            {"disposition", "created"}, {"binding", to_json(binding(task_id))}};
+    }
+    Json apply_independent_task(const Row& request, const Row& task, std::int64_t revision,
+                               const Row& node, const Json& decision) {
+        const auto request_id = str(request, "request_id"); const auto task_id = str(task, "task_id");
+        const auto requirements = number(request, "requirements_revision");
+        const auto expected = number(task, "state_version");
+        const auto task_revision = next(number(task, "task_revision"));
+        const bool amended = number(task, "based_on_requirements_revision") != requirements;
+        require(!terminal_request(str(request, "status")) && str(task, "status") != "CANCELLED" &&
+            str(task, "status") != "SKIPPED" && str(task, "status") != "SUPERSEDED", ErrorCode::NotReady, "task cannot be reactivated");
+        const auto disposition = amended ? str(decision.as_object(), "disposition") : "rebind";
+        require(amended || decision.is_null(), ErrorCode::Conflict, "AMEND task already has a disposition for these requirements");
+        require(amended || revision > number(task, "plan_revision"), ErrorCode::Stale, "plan rebind requires a newer plan");
+        if (amended) require(requirements >= 2 && number(task, "based_on_requirements_revision") < requirements, ErrorCode::Stale, "invalid AMEND target revision");
+        const auto team = one("SELECT * FROM teams WHERE task_id=? AND status IN ('STARTING','ACTIVE','DRAINING')", {task_id});
+        const auto team_id = str(team, "team_id");
+        cas("UPDATE tasks SET task_revision=?,based_on_requirements_revision=?,plan_revision=?,status=?,brief=?,required=?,accepted_with_issues=0,review_round=0,state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?",
+            {task_revision, requirements, revision, disposition == "cancel" ? "CANCELLED" : "READY",
+             disposition == "cancel" ? task.at("brief") : Json(json_text(node.at("brief"))),
+             !node.contains("required") || node.at("required").as_bool(), stamp(), task_id, expected});
+        if (amended) execute("INSERT INTO amend_dispositions VALUES (?,?,?,?,?,?,?,?)",
+            {request_id, requirements, task_id, disposition, task_revision, revision, str(decision.as_object(), "rationale"), stamp()});
+        execute("UPDATE teams SET paused_for_change=1,status=CASE WHEN ?='cancel' THEN 'DRAINING' ELSE status END,state_version=state_version+1,updated_at=? WHERE team_id=?",
+            {disposition, stamp(), team_id});
+        fence_ops(request_id, team_id);
+        return Row{{"node_id", str(task, "node_id")}, {"task_id", task_id}, {"team_id", team_id}, {"disposition", disposition},
+            {"expected_task_version", expected}, {"state_version", next(expected)}, {"task_revision", task_revision}, {"plan_revision", revision},
+            {"binding", to_json(binding(task_id))}};
+    }
+
     Json prepare_operation(const StoreActor& actor, const ExecutionBinding& frozen,
                            std::int64_t expected, const std::string& business_key,
                            const std::string& tool_id, const Json& arguments,
@@ -645,13 +860,14 @@ public:
     int lease_fd{-1};
     StoreOpenMode mode;
     bool tools_schema{false};
+    bool events_schema{false};
     std::string database_file_path;
     mutable std::mutex mutex;
 };
 
 Store::Store(const std::filesystem::path& path, std::string_view base, std::string_view migration, StoreOpenMode mode,
-             std::string_view tools_migration)
-    : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration)) {}
+             std::string_view tools_migration, std::string_view events_migration)
+    : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration, events_migration)) {}
 Store::~Store() = default;
 
 Json Store::diagnostics() const {
@@ -732,6 +948,214 @@ Json Store::pending_recovery() const {
         {"cleanup_jobs", collect("SELECT * FROM cleanup_jobs WHERE status<>'DONE'")},
         {"unconfirmed_delivery", collect("SELECT request_id,delivery_status FROM requests WHERE delivery_status='STORED'")}};
 }
+bool Store::event_runtime_enabled() const {
+    const std::lock_guard lock(impl_->mutex);
+    return impl_->events_schema;
+}
+
+std::vector<Json> Store::inbox(const StoreActor& actor, std::int64_t limit) const {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_events_schema();
+    require(limit > 0 && limit <= 256, ErrorCode::InvalidInput, "inbox limit must be 1..256");
+    (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
+    std::vector<Json> result;
+    for (const auto& row : impl_->all("SELECT i.*,e.event_id,e.type,e.payload,e.result,e.created_at FROM event_inbox i JOIN events e ON e.seq=i.event_seq WHERE i.request_id=? AND i.role=? AND i.actor_task_id=? AND i.status<>'DONE' ORDER BY i.inbox_id LIMIT ?",
+            {actor.request_id, role_name(actor.role), actor.task_id, limit})) result.push_back(exposed(row));
+    return result;
+}
+
+std::vector<Json> Store::request_inbox(const std::string& request_id, std::int64_t limit) const {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_events_schema(); (void)impl_->request_row(request_id);
+    require(limit > 0 && limit <= 163840, ErrorCode::InvalidInput, "request inbox limit must be 1..163840");
+    require(number(impl_->one("SELECT COUNT(*) AS n FROM event_inbox WHERE request_id=? AND status<>'DONE'", {request_id}), "n") <= limit,
+            ErrorCode::Quota, "complete request inbox exceeds requested record capacity");
+    std::vector<Json> result;
+    // Request-wide status needs each exact identity, not repeated large plan
+    // payloads. Actor inbox/events retain the complete command and result.
+    for (const auto& row : impl_->all("SELECT i.*,e.event_id,e.type,e.created_at FROM event_inbox i JOIN events e ON e.seq=i.event_seq WHERE i.request_id=? AND i.status<>'DONE' ORDER BY i.inbox_id", {request_id}))
+        result.push_back(exposed(row));
+    return result;
+}
+
+Json Store::claim_events(const StoreActor& actor, std::int64_t max_items) {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_events_schema();
+    require(max_items > 0 && max_items <= 256, ErrorCode::InvalidInput, "event claim limit must be 1..256");
+    Impl::Transaction tx(*impl_);
+    const auto request = impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
+    const auto revision = number(request, "requirements_revision");
+    const Array scope{actor.request_id, role_name(actor.role), actor.task_id};
+    const auto old = impl_->optional("SELECT * FROM event_actor_claims WHERE request_id=? AND role=? AND actor_task_id=?", scope);
+    const auto generation = old ? next(number(*old, "generation")) : 1;
+    if (old && str(*old, "status") == "ACTIVE") {
+        require(number(*old, "requirements_revision") != revision || number(*old, "dispatcher_epoch") != actor.dispatcher_epoch ||
+                number(*old, "execution_epoch") != actor.execution_epoch, ErrorCode::Conflict, "actor already has an active event claim");
+        impl_->execute("UPDATE event_inbox SET status='PENDING',claim_id=NULL WHERE claim_id=? AND status='CLAIMED'", {str(*old, "claim_id")});
+        impl_->execute("UPDATE event_actor_claims SET status='RELEASED',updated_at=? WHERE claim_id=?", {stamp(), str(*old, "claim_id")});
+    }
+    const auto pending = impl_->all("SELECT i.*,e.event_id,e.type,e.payload,e.result,e.created_at FROM event_inbox i JOIN events e ON e.seq=i.event_seq WHERE i.request_id=? AND i.role=? AND i.actor_task_id=? AND i.status='PENDING' ORDER BY i.inbox_id LIMIT ?",
+        {actor.request_id, role_name(actor.role), actor.task_id, max_items});
+    if (pending.empty()) { tx.commit(); return Row{{"claim_id", ""}, {"generation", 0}, {"items", Array{}}}; }
+    const auto claim_id = new_id("claim");
+    Array ids; Array items;
+    for (auto row : pending) {
+        const auto id = number(row, "inbox_id"); ids.emplace_back(id);
+        impl_->cas("UPDATE event_inbox SET status='CLAIMED',claim_id=? WHERE inbox_id=? AND status='PENDING'", {claim_id, id});
+        row["status"] = "CLAIMED"; row["claim_id"] = claim_id; items.emplace_back(exposed(std::move(row)));
+    }
+    impl_->execute("INSERT INTO event_actor_claims(request_id,role,actor_task_id,principal_id,team_id,generation,claim_id,status,requirements_revision,dispatcher_epoch,execution_epoch,captured_ids,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'ACTIVE',?,?,?,?,?,?) ON CONFLICT(request_id,role,actor_task_id) DO UPDATE SET principal_id=excluded.principal_id,team_id=excluded.team_id,generation=excluded.generation,claim_id=excluded.claim_id,status=excluded.status,requirements_revision=excluded.requirements_revision,dispatcher_epoch=excluded.dispatcher_epoch,execution_epoch=excluded.execution_epoch,captured_ids=excluded.captured_ids,created_at=excluded.created_at,updated_at=excluded.updated_at",
+        {actor.request_id, role_name(actor.role), actor.task_id, actor.principal_id, actor.team_id, generation, claim_id, revision,
+         actor.dispatcher_epoch, actor.execution_epoch, canonical_json(ids), stamp(), stamp()});
+    tx.commit();
+    return Row{{"claim_id", claim_id}, {"generation", generation}, {"requirements_revision", revision},
+        {"dispatcher_epoch", actor.dispatcher_epoch}, {"execution_epoch", actor.execution_epoch}, {"items", items}};
+}
+
+Json Store::finish_events(const StoreActor& actor, const std::string& claim_id, std::int64_t generation,
+                         const std::vector<std::int64_t>& completed_ids) {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_events_schema(); text_field(claim_id, "event claim id");
+    require(generation > 0 && completed_ids.size() <= 256, ErrorCode::InvalidInput, "invalid event claim completion");
+    Impl::Transaction tx(*impl_);
+    const auto request = impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
+    const auto claim = impl_->optional("SELECT * FROM event_actor_claims WHERE request_id=? AND role=? AND actor_task_id=?", {actor.request_id, role_name(actor.role), actor.task_id});
+    require(claim && str(*claim, "claim_id") == claim_id && number(*claim, "generation") == generation &&
+        str(*claim, "principal_id") == actor.principal_id && str(*claim, "team_id") == actor.team_id &&
+        number(*claim, "requirements_revision") == number(request, "requirements_revision") &&
+        number(*claim, "dispatcher_epoch") == actor.dispatcher_epoch && number(*claim, "execution_epoch") == actor.execution_epoch,
+        ErrorCode::Stale, "event claim belongs to an obsolete owner or requirement revision");
+    require(str(*claim, "status") == "ACTIVE" || str(*claim, "status") == "CLOSED", ErrorCode::Stale, "event claim was released during recovery");
+    std::set<std::int64_t> completed;
+    for (const auto id : completed_ids) require(id > 0 && completed.insert(id).second, ErrorCode::InvalidInput, "duplicate or invalid completed event id");
+    const auto captured = parse_json_strict(str(*claim, "captured_ids")).as_array();
+    std::set<std::int64_t> captured_set;
+    for (const auto& id : captured) captured_set.insert(id.as_int64());
+    for (const auto id : completed) require(captured_set.contains(id), ErrorCode::Unauthorized, "cannot complete an event outside the captured claim");
+    Array done; Array released;
+    const bool replay = str(*claim, "status") == "CLOSED";
+    for (const auto& value : captured) {
+        const auto id = value.as_int64(); const bool finish = completed.contains(id);
+        if (replay) {
+            const auto row = impl_->one("SELECT status FROM event_inbox WHERE inbox_id=?", {id});
+            require((str(row, "status") == "DONE") == finish, ErrorCode::Conflict, "closed event claim completion changed");
+        } else impl_->cas("UPDATE event_inbox SET status=?,claim_id=NULL,completed_at=? WHERE inbox_id=? AND claim_id=? AND status='CLAIMED'",
+            {finish ? "DONE" : "PENDING", finish ? Json(stamp()) : Json(nullptr), id, claim_id});
+        (finish ? done : released).emplace_back(id);
+    }
+    if (!replay) impl_->cas("UPDATE event_actor_claims SET status='CLOSED',updated_at=? WHERE claim_id=? AND status='ACTIVE'", {stamp(), claim_id});
+    tx.commit();
+    return Row{{"claim_id", claim_id}, {"generation", generation}, {"completed_ids", done}, {"released_ids", released}};
+}
+
+Json Store::worker_wait(const std::string& task_id) const {
+    const std::lock_guard lock(impl_->mutex);
+    return impl_->wait_info(task_id);
+}
+
+Json Store::wait_worker(const StoreActor& actor, const ExecutionBinding& binding,
+                       std::int64_t expected, const std::string& reason, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_events_schema(); text_field(reason, "Worker wait reason", 4096);
+    const auto command = payload(actor, "wait_worker", Row{{"binding", to_json(binding)}, {"expected_task_version", expected}, {"reason", reason}});
+    Impl::Transaction tx(*impl_);
+    (void)impl_->authorize(actor, {Role::Worker}, false); impl_->actor_binding(actor, binding);
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    const auto request = impl_->authorize(actor, {Role::Worker}); impl_->matches(binding);
+    const auto task = impl_->task_row(actor.task_id);
+    require(!terminal_request(str(request, "status")) && !terminal_task(str(task, "status")), ErrorCode::NotReady, "terminal work cannot enter Worker wait");
+    require(number(task, "based_on_requirements_revision") == number(request, "requirements_revision") && number(task, "plan_revision") == number(request, "plan_revision"),
+            ErrorCode::NotReady, "Worker wait requires a current task disposition and plan");
+    const auto old = impl_->optional("SELECT * FROM worker_waits WHERE task_id=?", {actor.task_id});
+    require(!old || str(*old, "status") != "WAITING", ErrorCode::NotReady, "Worker already has an active wait");
+    const auto generation = old ? next(number(*old, "generation")) : 1;
+    impl_->cas("UPDATE tasks SET state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?", {stamp(), actor.task_id, expected});
+    impl_->execute("INSERT INTO worker_waits(task_id,request_id,team_id,generation,status,original_binding,reason,created_at,updated_at) VALUES (?,?,?,?,'WAITING',?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET request_id=excluded.request_id,team_id=excluded.team_id,generation=excluded.generation,status=excluded.status,original_binding=excluded.original_binding,reason=excluded.reason,created_at=excluded.created_at,updated_at=excluded.updated_at",
+        {actor.task_id, actor.request_id, actor.team_id, generation, canonical_json(to_json(binding)), reason, stamp(), stamp()});
+    const auto result = impl_->wait_info(actor.task_id);
+    impl_->event(actor.request_id, command_id, command, result, "worker");
+    tx.commit(); return result;
+}
+
+Json Store::wake_worker(const StoreActor& actor, const ExecutionBinding& binding,
+                       std::int64_t generation, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_events_schema(); require(generation > 0, ErrorCode::InvalidInput, "wait generation must be positive");
+    const auto command = payload(actor, "wake_worker", Row{{"binding", to_json(binding)}, {"expected_wait_generation", generation}});
+    Impl::Transaction tx(*impl_);
+    (void)impl_->authorize(actor, {Role::Worker}, false); impl_->actor_binding(actor, binding);
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    const auto request = impl_->authorize(actor, {Role::Worker}); impl_->matches(binding);
+    const auto task = impl_->task_row(actor.task_id);
+    require(!terminal_request(str(request, "status")) && !terminal_task(str(task, "status")), ErrorCode::NotReady, "terminal Worker cannot wake");
+    const auto waiting = impl_->optional("SELECT * FROM worker_waits WHERE task_id=?", {actor.task_id});
+    require(waiting && number(*waiting, "generation") == generation && str(*waiting, "status") == "WAITING", ErrorCode::Stale, "wait generation is absent or no longer waiting");
+    auto original = execution_binding_from_json(parse_json_strict(str(*waiting, "original_binding")));
+    original.dispatcher_epoch = binding.dispatcher_epoch; original.execution_epoch = binding.execution_epoch;
+    original.policy_epoch = binding.policy_epoch;
+    require(original == binding && number(task, "based_on_requirements_revision") == number(request, "requirements_revision") &&
+        number(task, "plan_revision") == number(request, "plan_revision"), ErrorCode::Stale, "wait target changed semantically");
+    impl_->cas("UPDATE worker_waits SET status='AWAKE',updated_at=? WHERE task_id=? AND generation=? AND status='WAITING'", {stamp(), actor.task_id, generation});
+    impl_->cas("UPDATE tasks SET state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?", {stamp(), actor.task_id, number(task, "state_version")});
+    const auto result = impl_->wait_info(actor.task_id);
+    impl_->event(actor.request_id, command_id, command, result, "worker");
+    tx.commit(); return result;
+}
+
+Json Store::record_tool_feedback(const std::string& attempt_id, const ExecutionBinding& original,
+                                const Json& response, const Json& result) {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_events_schema(); text_field(attempt_id, "feedback attempt id");
+    const Row fact{{"attempt_id", attempt_id}, {"original_binding", to_json(original)}, {"response", response}, {"result", result}};
+    const auto hash = sha256_hex(json_text(fact, 8 * 1024 * 1024));
+    const auto response_text = json_text(response, 4 * 1024 * 1024);
+    const auto result_text = json_text(result, 4 * 1024 * 1024);
+    Impl::Transaction tx(*impl_);
+    const auto attempt = impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {attempt_id});
+    require(execution_binding_from_json(parse_json_strict(str(attempt, "frozen_binding"))) == original, ErrorCode::Conflict, "feedback changed the original attempt binding");
+    require(!attempt.at("settlement_sha256").is_null() && !attempt.at("response").is_null(), ErrorCode::NotReady, "feedback requires a durably settled original response");
+    require(str(attempt, "response") == response_text, ErrorCode::Conflict, "feedback response differs from the settled original response");
+    if (const auto old = impl_->optional("SELECT record_sha256 FROM model_tool_feedback WHERE attempt_id=?", {attempt_id})) {
+        require(str(*old, "record_sha256") == hash, ErrorCode::Conflict, "attempt feedback already records different original facts");
+        const auto value = impl_->feedback_info(attempt_id); tx.commit(); return value;
+    }
+    impl_->execute("INSERT INTO model_tool_feedback VALUES (?,?,?,?,?,?)", {attempt_id, canonical_json(to_json(original)), response_text, result_text, hash, stamp()});
+    const auto value = impl_->feedback_info(attempt_id);
+    // The event contains a reference/hash, not another copy of compiled context.
+    impl_->event(str(attempt, "request_id"), "feedback:" + attempt_id,
+        Row{{"type", "tool_feedback"}, {"attempt_id", attempt_id}, {"binding", to_json(original)}, {"record_sha256", hash}},
+        Row{{"attempt_id", attempt_id}, {"record_sha256", hash}});
+    tx.commit(); return value;
+}
+
+Json Store::tool_feedback(const std::string& attempt_id) const {
+    const std::lock_guard lock(impl_->mutex);
+    return impl_->feedback_info(attempt_id);
+}
+
+std::vector<Json> Store::attempt_history(const StoreActor& actor, std::int64_t limit) const {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_events_schema();
+    require(limit > 0 && limit <= 256, ErrorCode::InvalidInput, "attempt history limit must be 1..256");
+    (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
+    const Array scope{actor.request_id, role_name(actor.role), actor.principal_id, actor.task_id, actor.team_id};
+    require(number(impl_->one("SELECT COUNT(*) AS n FROM call_attempts WHERE request_id=? AND role=? AND principal_id=? AND COALESCE(task_id,'')=? AND COALESCE(team_id,'')=?", scope), "n") <= limit,
+            ErrorCode::Quota, "complete attempt history exceeds requested record capacity");
+    // Fetch the scalar index, never recursively fetch the former input context.
+    Statement query(impl_->db, "SELECT attempt_id,call_id,request_id,task_id,team_id,role,principal_id,config_snapshot_sha256,model_ref,frozen_binding,json_extract(request_envelope,'$.role_call_index') AS role_call_index,status,accepted,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_micro_usd,unknown_input,unknown_output,unknown_cost,response,usage,created_at,settled_at FROM call_attempts WHERE request_id=? AND role=? AND principal_id=? AND COALESCE(task_id,'')=? AND COALESCE(team_id,'')=? ORDER BY rowid", scope);
+    std::vector<Json> result; std::size_t bytes = 0;
+    while (query.step()) {
+        auto record = exposed(query.row());
+        const auto feedback = impl_->feedback_info(str(record.as_object(), "attempt_id"));
+        record.as_object()["feedback"] = feedback;
+        record.as_object()["feedback_missing"] = feedback.is_null();
+        const auto encoded = json_text(record, 8 * 1024 * 1024);
+        require(encoded.size() <= 8U * 1024U * 1024U - bytes, ErrorCode::Quota, "complete attempt history exceeds byte capacity");
+        bytes += encoded.size(); result.emplace_back(std::move(record));
+    }
+    return result;
+}
+
 StoreActor Store::host_actor(Role role, const std::string& id, const std::string& team_id) const {
     const std::lock_guard lock(impl_->mutex);
     const auto r = impl_->request_row(id);
@@ -861,6 +1285,95 @@ Json Store::create_task(const StoreActor& actor, std::int64_t expected, std::int
          canonical_json(Row{{"request_snapshot_sha256", str(r, "config_snapshot_sha256")}}), std::string("unallocated:") + team_id, created, created});
     const Json result = Row{{"task_id", task_id}, {"team_id", team_id}, {"state_version", next(expected)}, {"binding", to_json(impl_->binding(task_id))}};
     impl_->event(actor.request_id, command_id, command, result, role_name(actor.role));
+    tx.commit(); return result;
+}
+
+Json Store::apply_independent_plan(const StoreActor& actor, std::int64_t expected,
+                                  std::int64_t requirements, const Json& body,
+                                  const Json& dispositions, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_events_schema();
+    const auto command = payload(actor, "independent_plan", Row{{"expected_request_version", expected},
+        {"based_on_requirements_revision", requirements}, {"body", body}, {"dispositions", dispositions}});
+    Impl::Transaction tx(*impl_);
+    (void)impl_->authorize(actor, {Role::Dispatcher}, false);
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    const auto request = impl_->authorize(actor, {Role::Dispatcher});
+    require(!terminal_request(str(request, "status")) && number(request, "requirements_revision") == requirements,
+            ErrorCode::Stale, "independent plan does not address current live requirements");
+    const auto revision = next(number(request, "plan_revision"));
+    const auto nodes = impl_->independent_nodes(request, body);
+    for (const auto& target : {std::pair<std::string, std::int64_t>{"plan_revision", revision}, {"based_on_requirements_revision", requirements}})
+        if (body.as_object().contains(target.first)) require(number(body.as_object(), target.first) == target.second, ErrorCode::Stale, "plan body changed its authoritative revision");
+    impl_->check_dispositions(dispositions, nodes);
+    const auto existing = impl_->all("SELECT * FROM tasks WHERE request_id=? ORDER BY node_id", {actor.request_id});
+    impl_->check_independent_identities(existing, nodes);
+    if (existing.empty()) require(dispositions.as_object().empty(), ErrorCode::InvalidInput, "initial task allocation has no AMEND dispositions");
+    // Plan, all initial identities, per-task transitions, audit and inbox routes
+    // commit together. A failing later node leaves no partial allocation.
+    impl_->cas("UPDATE requests SET plan_revision=?,status='RUNNING',delivery_status='NONE',state_version=state_version+1,updated_at=? WHERE request_id=? AND state_version=?",
+        {revision, stamp(), actor.request_id, expected});
+    impl_->execute("INSERT INTO plans VALUES (?,?,?,?,NULL,?)", {actor.request_id, revision, requirements, json_text(body), stamp()});
+    impl_->execute("UPDATE teams SET paused_for_change=1,state_version=state_version+1,updated_at=? WHERE request_id=? AND status IN ('STARTING','ACTIVE','DRAINING')", {stamp(), actor.request_id});
+    impl_->fence_ops(actor.request_id);
+    Array changed; Array pending;
+    if (existing.empty()) {
+        for (const auto& [node_id, node] : nodes) changed.emplace_back(impl_->allocate_independent(request, revision, node_id, node));
+    } else for (const auto& task : existing) {
+        const auto node_id = str(task, "node_id");
+        const auto* decision = dispositions.as_object().if_contains(node_id);
+        if (str(task, "status") == "CANCELLED" || str(task, "status") == "SKIPPED" || str(task, "status") == "SUPERSEDED") {
+            require(!decision, ErrorCode::NotReady, "disposition cannot reactivate a retired independent task");
+            continue;
+        }
+        if (number(task, "based_on_requirements_revision") != requirements && !decision) {
+            pending.emplace_back(Row{{"node_id", node_id}, {"task_id", str(task, "task_id")}, {"reason", "amend_disposition_required"}});
+            continue;
+        }
+        changed.emplace_back(impl_->apply_independent_task(request, task, revision, nodes.at(node_id), decision ? *decision : Json(nullptr)));
+    }
+    const Json result = Row{{"plan_revision", revision}, {"based_on_requirements_revision", requirements},
+        {"state_version", next(expected)}, {"tasks", changed}, {"pending_tasks", pending}};
+    impl_->event(actor.request_id, command_id, command, result, "dispatcher");
+    tx.commit(); return result;
+}
+
+Json Store::apply_independent_dispositions(const StoreActor& actor, std::int64_t expected,
+                                          std::int64_t requirements, std::int64_t revision,
+                                          const Json& dispositions, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_events_schema();
+    const auto command = payload(actor, "independent_dispositions", Row{{"expected_request_version", expected},
+        {"based_on_requirements_revision", requirements}, {"target_plan_revision", revision}, {"dispositions", dispositions}});
+    Impl::Transaction tx(*impl_);
+    (void)impl_->authorize(actor, {Role::Dispatcher}, false);
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    const auto request = impl_->authorize(actor, {Role::Dispatcher});
+    require(!terminal_request(str(request, "status")) && requirements >= 2 && number(request, "requirements_revision") == requirements &&
+        revision > 0 && number(request, "plan_revision") == revision, ErrorCode::Stale, "dispositions require the current AMEND plan");
+    const auto plan = impl_->one("SELECT * FROM plans WHERE request_id=? AND plan_revision=?", {actor.request_id, revision});
+    require(number(plan, "based_on_requirements_revision") == requirements, ErrorCode::Stale, "current plan has obsolete requirements");
+    const auto nodes = impl_->independent_nodes(request, parse_json_strict(str(plan, "body")));
+    impl_->check_dispositions(dispositions, nodes);
+    require(!dispositions.as_object().empty(), ErrorCode::InvalidInput, "explicit dispositions are empty");
+    const auto existing = impl_->all("SELECT * FROM tasks WHERE request_id=? ORDER BY node_id", {actor.request_id});
+    require(!existing.empty(), ErrorCode::NotReady, "there are no independent tasks to amend");
+    impl_->check_independent_identities(existing, nodes);
+    impl_->cas("UPDATE requests SET state_version=state_version+1,updated_at=? WHERE request_id=? AND state_version=?", {stamp(), actor.request_id, expected});
+    Array changed; Array pending;
+    for (const auto& task : existing) {
+        const auto node_id = str(task, "node_id");
+        const auto* decision = dispositions.as_object().if_contains(node_id);
+        if (decision) {
+            require(number(task, "based_on_requirements_revision") < requirements, ErrorCode::Conflict, "task already has a current AMEND disposition");
+            changed.emplace_back(impl_->apply_independent_task(request, task, revision, nodes.at(node_id), *decision));
+        } else if (number(task, "based_on_requirements_revision") < requirements &&
+                str(task, "status") != "CANCELLED" && str(task, "status") != "SKIPPED" && str(task, "status") != "SUPERSEDED")
+            pending.emplace_back(Row{{"node_id", node_id}, {"task_id", str(task, "task_id")}, {"reason", "amend_disposition_required"}});
+    }
+    const Json result = Row{{"plan_revision", revision}, {"based_on_requirements_revision", requirements},
+        {"state_version", next(expected)}, {"tasks", changed}, {"pending_tasks", pending}};
+    impl_->event(actor.request_id, command_id, command, result, "dispatcher");
     tx.commit(); return result;
 }
 
