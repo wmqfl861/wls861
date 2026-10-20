@@ -19,6 +19,10 @@ struct CapturedModelCall {
     ModelRequest request;
     StoreActor actor;
     std::int64_t expected_state_version{};
+    // A single host-selected question/submission target. The identical value
+    // is inside the durable request's task_contract; model arguments never
+    // choose an identity, CAS value, version, or a replacement target.
+    Json workflow_action = nullptr;
 };
 
 // A deliberately bounded first S1 runner. It connects real configuration,
@@ -48,6 +52,8 @@ public:
                                      const ModelResponse& response,
                                      const Json& amendment_dispositions = boost::json::object{});
     // At most one Dispatcher, one TeamLead and 1..16 explicit Worker calls.
+    // Pending questions/submissions require the durable event pump; this
+    // compatibility entry never replaces them with an automatic work order.
     // No implicit retries or new threads. The caller owns its Store lease.
     Json run(const std::string& request_id,
              const std::vector<FakeModelStep>& steps,

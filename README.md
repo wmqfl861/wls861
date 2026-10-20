@@ -1,8 +1,8 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.4.0-s1.3；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.5.0-s1.4；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
-本批沿 S1-03/08/09/10 新增 **持久角色待办和逐项领取/确认、独立多任务原子计划、逐任务 AMEND、Worker 等待/唤醒、原始反馈与跨运行上下文**。新的 `pump-fake` 在明确目录内运行有界真实文件任务，错误、遗漏和调用上限保留待办，重启不盲重做旧工具。已有文件/强进程边界保留；完整强沙箱正向、真实模型、守护进程、业务验收/交付和可恢复清理继续按任务卡实施。
+本批沿 S1-03/07/08/09/10/12 新增 **Worker 持久提问、逐级回答和上报用户、不可变真实文件提交快照、TeamLead 检查与有界返工**。`pump-fake` 在原持久事件和独立任务基础上推进问答/提交流程，旧问题或旧响应不能为新版本任务授权。TeamLead 检查通过产生候选就绪待办；完整强沙箱正向、真实模型、守护进程、业务验收/交付和可恢复清理继续按任务卡实施。
 
 ## 蓝图、计划与审核入口
 
@@ -16,7 +16,9 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.4.0-s1.3；当前
 | [S1 基础实现契约](docs/implementation/S1-foundation.md) | 新 C++ Store、配置、模型、Schema、CLI 与明确未实现的部分 |
 | [S1.2 Worker 工具契约](docs/implementation/S1-worker-tools.md) | 文件边界、强进程条件、派发/结果/控制、403 迁移与当前限制 |
 | [S1.3 事件运行器契约](docs/implementation/S1-event-runtime.md) | 持久待办、404迁移、原子多任务、原反馈、等待与CLI边界 |
-| [本批验证报告](docs/reports/s1-event-runtime-validation.md) | S1.3实际构建、Store/运行器/CLI分层证据与限制 |
+| [S1.4 问答与提交契约](docs/implementation/S1-workflow-runtime.md) | 405迁移、原问题/答案、文件快照、团队检查与返工、CLI边界 |
+| [本批验证报告](docs/reports/s1-workflow-runtime-validation.md) | S1.4实际构建、Store/运行器/CLI分层证据与限制 |
+| [S1.3 历史验证](docs/reports/s1-event-runtime-validation.md) | 持久事件/独立多任务交付时的实际证据 |
 | [S1.2 历史验证](docs/reports/s1-worker-tools-validation.md) | 文件/进程/SQLite/CLI交付时的实际证据 |
 | [S1.1 历史验证](docs/reports/s1-foundation-validation.md) | 基础层交付时的实际构建与回归 |
 | [M1 实现契约](docs/implementation/M1-contract.md) | 原 Journal 内核的 API、持久化、身份和合成验收 |
@@ -26,11 +28,11 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.4.0-s1.3；当前
 
 ## 当前可以运行什么
 
-`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/wait/wake`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
+`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/wait/wake`、`questions/submissions/answer`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
 
 | S1 模块 | 当前实现 |
 | --- | --- |
-| SQLite Store | 真正的 C++ WAL/FULL、外键、CAS/事件、独占写者；非空402→403→404迁移，原tuple结果/输出/完整反馈不可变；独立计划及初始团队原子分配 |
+| SQLite Store | 真正的 C++ WAL/FULL、外键、CAS/事件、独占写者；非空402→403→404→405迁移，原tuple结果/输出/完整反馈与提交字节不可变；独立计划及初始团队原子分配 |
 | 配置 | LibYAML 严格解析、完整依赖快照、逐字段直接继承冻结 Root、哈希恢复、来源解释；环境 check 保持为数据 |
 | JSON / Schema | 严格 JSON、SHA-256、typed ULID；Valijson Draft-07、本地引用注册表、完整记录与模型输入投影 |
 | 模型和上下文 | 有界脚本 FakeModel；实际前缀字节及依赖哈希；完整原文、AMEND、任务和说明；不截断约束 |
@@ -39,6 +41,8 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.4.0-s1.3；当前
 | 进程与控制 | 显式 argv/env、固定运行文件 SHA、强 bwrap/cgroup 入口；缺条件拒绝；ack/cancel 精确重放与诊断不被业务门禁锁死 |
 | 离线角色流程 | 原单任务run-fake保留；pump-fake按持久待办推进独立多任务，逐项确认，AMEND遗漏保持暂停，后补keep使用同一计划 |
 | 等待与历史 | 宿主wait/wake持久化，Store阻断等待中的新调用和业务；原响应/完整反馈/绑定跨运行恢复，缺失明确标记，容量超限先阻止预约 |
+| 问答 | Worker发起，TeamLead/Dispatcher逐级回答或附注转发，Root接收用户ANSWER；原文与原绑定不改，精确对象版本和等待代次防旧答唤醒 |
+| 提交与团队检查 | 实际完整文件字节/哈希同事务保存；TeamLead看原快照、逐项检查，有界返工推进任务/指令并重ack；CANDIDATE_READY不等于业务验收 |
 
 `wls861 demo` 创建两个独立请求，各自使用 `Root → Dispatcher → TeamLead → Worker`，并行完成合成工作、独立审核、交付回执与资源状态收尾，输出 JSON 证据。演示使用固定字节和符号模型，模型调用数为零。
 
@@ -195,10 +199,62 @@ PYMAP
   --task tsk_YOUR_RETURNED_ID --wait-generation 1
 ```
 
-`--task` 与 `--wait-generation` 使用实际输出值。wake 不代替新的 AMEND 处置、说明确认或 UNKNOWN 核对。本批 wait/wake 为宿主控制；完整模型 ask/逐级问题/ANSWER 仍待实现。脚本分组、部分目录和错误语义见 [S1.3 契约](docs/implementation/S1-event-runtime.md)。
+`--task` 与 `--wait-generation` 使用实际输出值。wake 不代替新的 AMEND 处置、说明确认或 UNKNOWN 核对，也不能绕过尚未回答的 blocking question。脚本分组、部分目录和原事件语义见 [S1.3 契约](docs/implementation/S1-event-runtime.md)，新的问答/提交行为见 [S1.4 契约](docs/implementation/S1-workflow-runtime.md)。
+
+## 运行提交、检查和返工
+
+下面的固定脚本在独立 alpha 目录写第一版文件，提交完整快照，接收 TeamLead 返工说明，再写第二版并重新提交检查。该示例没有外部模型调用。
+
+```sh
+mkdir -p .local/s14/alpha
+python3 - <<'PYMAP'
+import json
+from pathlib import Path
+root = Path('.local/s14').resolve()
+(root / 'workspaces.json').write_text(json.dumps({'alpha': str(root / 'alpha')}))
+PYMAP
+./build/wls submit --db .local/s14/runtime.db --key s14-rework \
+  --text-file tests/fixtures/s14_request.txt \
+  --constraints-file tests/fixtures/s14_constraints.json
+./build/wls pump-fake --db .local/s14/runtime.db --request req_YOUR_RETURNED_ID \
+  --script tests/fixtures/s14_fake_rework.json \
+  --workspaces-file .local/s14/workspaces.json --worker-calls 4
+./build/wls show --db .local/s14/runtime.db --request req_YOUR_RETURNED_ID
+./build/wls submissions --db .local/s14/runtime.db --request req_YOUR_RETURNED_ID \
+  --task tsk_YOUR_RETURNED_ID
+```
+
+任务 ID 取实际输出。提交路径使用 `/work/...`；文件工具参数仍使用相对路径。每次最多 8 个文件、每个 64 KiB、合计 256 KiB，必须完整捕获，超限拒绝。旧提交字节和哈希不会随工作目录之后的修改而变化；TeamLead 通过只产生 `CANDIDATE_READY`，不表示业务已经验收或交付。
+
+下面用另一个数据库和 alpha/beta 两个独立目录演示提问。alpha 的 Worker 等待答案时，beta 仍可写文件；脚本随后将 alpha 的原问题从 TeamLead 转给 Dispatcher，再转给用户：
+
+```sh
+mkdir -p .local/s14-questions/alpha .local/s14-questions/beta
+python3 - <<'PY'
+import json
+from pathlib import Path
+root = Path('.local/s14-questions').resolve()
+(root / 'workspaces.json').write_text(json.dumps({
+    'alpha': str(root / 'alpha'),
+    'beta': str(root / 'beta')
+}))
+PY
+./build/wls submit --db .local/s14-questions/runtime.db --key s14-question-route \
+  --text-file tests/fixtures/s14_request.txt \
+  --constraints-file tests/fixtures/s14_constraints.json
+./build/wls pump-fake --db .local/s14-questions/runtime.db --request req_YOUR_RETURNED_ID \
+  --script tests/fixtures/s14_fake_question_route.json \
+  --workspaces-file .local/s14-questions/workspaces.json --worker-calls 1
+./build/wls questions --db .local/s14-questions/runtime.db --request req_YOUR_RETURNED_ID
+./build/wls answer --db .local/s14-questions/runtime.db --request req_YOUR_RETURNED_ID \
+  --question q_YOUR_RETURNED_ID --expected-version QUESTION_STATE_VERSION \
+  --text-file tests/fixtures/s14_answer.txt
+```
+
+`q_YOUR_RETURNED_ID` 和 `QUESTION_STATE_VERSION` 分别替换为查询得到的问题 ID 与 state_version；文本与 `--selected-option` 至少给一项。已答、过期、跨请求或未上报用户的问题不能被此入口重新授权，错误输入在打开写者前检查。回答只结束该问题的等待，恢复后的新说明/ack 和 UNKNOWN 检查继续生效。
 
 ## 后续实施边界
 
 当前内核是受信宿主进程内 API，`Actor` 由宿主构造。本机 CLI 不提供远程认证；诊断速率限制在单进程内，写者持租约期间没有第二个 CLI 的 socket 取消通道。文件容量是代理的逻辑上限，不是任意进程磁盘配额；合作锁不防任意同 UID 宿主绕过。强进程正向测试、残留 cgroup 恢复及完整 SBX/SEC 验收仍需独立证据。
 
-下一批复用持久事件与原始反馈，接逐级问题/回答、Worker提交与TeamLead检查/返工，再推进交付包、回执、经验、可恢复清理和wlsd/API。S1-06/07强环境正向与残留恢复保持独立验收。真实模型协议在外部端点、凭据引用、能力和预算齐备后独立接入。配置样例保持 FakeModel、记忆关闭、真实调用关闭、付费重试为零。
+下一批将候选就绪待办接入当前版本业务验收、交付包、回执、经验与可恢复清理，再推进wlsd/API。跨功能独立审核、DAG和全局审核双容量按S2推进；S1-06/07强环境正向与残留恢复保持独立验收。真实模型协议在外部端点、凭据引用、能力和预算齐备后独立接入。配置样例保持 FakeModel、记忆关闭、真实调用关闭、付费重试为零。

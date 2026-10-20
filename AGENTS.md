@@ -4,12 +4,15 @@ Read the current blueprint at `docs/spec/v0.4.1/01_实施规格_v0.4.1.md`,
 `docs/ROADMAP.md`, and `docs/implementation/M1-contract.md` before changing
 runtime behavior. Also read `docs/implementation/S1-foundation.md` for the new
 foundation, and `docs/implementation/S1-worker-tools.md` for the file/process boundary,
-then `docs/implementation/S1-event-runtime.md` for the current 0.4.0-s1.3
+then `docs/implementation/S1-event-runtime.md` for the event foundation and
+`docs/implementation/S1-workflow-runtime.md` for the current 0.5.0-s1.4
 library/CLI. The blueprint defines the target; implementation
 contracts and actual reports define what this checkout can execute. M1 remains
 its original kernel; S1.2 adds bounded real files and a strong-only process
 entry point; S1.3 adds a bounded durable event pump, isolated independent tasks,
-explicit waits and original cross-run feedback. A completed daemon and positive deployment sandbox acceptance
+explicit waits and original cross-run feedback. S1.4 adds Worker questions,
+upward routing/answers, immutable bounded submission bytes and local TeamLead
+checking/rework. A completed daemon and positive deployment sandbox acceptance
 remain separate task cards.
 
 The owner approved review corrections, documentation/code updates and GitHub
@@ -45,6 +48,15 @@ development authorization. Explicit user instructions take precedence.
   Missing observations stay explicit; never reread a file to invent old output
   or recursively embed prior compiled contexts. Context overflow blocks before
   another reservation. Independent plan allocation is one bounded transaction.
+- Capture each question/submission target and its version before the management
+  model call. Preserve original question text, file bytes and bindings; forwarding
+  only appends notes. An answer ends only its own exact wait, and neither ordinary
+  wake nor automatic instruction reissue may bypass pending workflow state.
+- Worker submissions require current grants, complete captured file bytes and
+  settled operations. TeamLead checking uses the original immutable snapshot;
+  contradictory self-check/evidence cannot pass. Rework is bounded by the frozen
+  team limit, increments task/instruction revisions and requires a new ack.
+  CANDIDATE_READY is not independent review, business acceptance or delivery.
 - Keep the control database outside bound business workspaces. Preserve pinned
   workspace identity, frozen runtime hashes, explicit env and strong-process
   refusal. Never enable a weak production path to make a test pass.
@@ -55,7 +67,7 @@ development authorization. Explicit user instructions take precedence.
   acceptance. Preserve current candidate/reviewer/version/evidence checks.
 - Keep memory load, feedback and revision proposals bound to content versions.
   Python contract helpers remain executable references. C++ Store now exists
-  in the S1 library; complete memory, review, delivery and cleanup runners do not.
+  in the S1 library; complete memory, independent review, delivery and cleanup runners do not.
 - The Store is a trusted-host API. Model arguments must pass the separate
   model-input Schema, captured call and final Store guards. Persist original
   request envelopes and every attempt's usage; never replace unknown with zero

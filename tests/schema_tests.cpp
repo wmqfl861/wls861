@@ -58,7 +58,7 @@ Json basic_schema(const std::string& name, Json properties = boost::json::object
 }
 
 void full_examples_and_registry() {
-    CHECK(registry->schema_names().size() == 13);
+    CHECK(registry->schema_names().size() == 16);
     const std::vector<std::pair<std::string, std::string>> documents{
         {"change_order.dispatcher", "change_order"}, {"change_order.team_lead", "change_order"},
         {"delivery_manifest", "delivery_manifest"}, {"experience_report", "experience_report"},
@@ -305,7 +305,7 @@ int main(int argc, char** argv) {
     try { registry = std::make_unique<SchemaRegistry>(schemas); }
     catch (const std::exception& error) { std::cerr << "FAIL registry setup: " << error.what() << '\n'; return 1; }
     return test::run({
-        {"all 13 complete examples validate with the closed registry", full_examples_and_registry},
+        {"all 13 complete examples validate with the 16-schema closed registry", full_examples_and_registry},
         {"complete records enforce binding, usage and strong types", complete_record_requires_trusted_tuple},
         {"model input cannot forge host metadata or self-approval", model_input_cannot_forge_host_or_approval},
         {"projection removes host conditions and preserves business conditions", runtime_conditions_are_projected_but_business_conditions_remain},

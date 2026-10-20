@@ -85,7 +85,8 @@ Json exposed(Row row) {
     for (const auto* key : {"config_snapshot", "budget", "usage", "tool_allowlist", "denied_tools",
              "body", "brief", "work_order", "lead_config", "worker_config", "frozen_binding",
              "response", "request_envelope", "arguments", "payload", "result", "source_snapshot", "manifest_snapshot",
-             "original_binding", "evidence", "execution_policy", "captured_ids"}) {
+             "original_binding", "evidence", "execution_policy", "captured_ids", "captured_binding",
+             "artifact_snapshot", "check_body", "rework_order"}) {
         if (auto* value = row.if_contains(key); value && value->is_string())
             *value = parse_json_strict(value->as_string(), 16 * 1024 * 1024);
     }
@@ -139,6 +140,155 @@ std::string base64_bytes(std::string_view value) {
         result.push_back(i + 2 < value.size() ? alphabet[word & 63U] : '=');
     }
     return result;
+}
+std::string decoded_base64(std::string_view encoded) {
+    require(encoded.size() <= 87384 && encoded.size() % 4 == 0,
+            ErrorCode::InvalidInput, "invalid bounded snapshot base64");
+    const auto digit = [](char c) -> unsigned int {
+        if (c >= 'A' && c <= 'Z') return static_cast<unsigned int>(c - 'A');
+        if (c >= 'a' && c <= 'z') return static_cast<unsigned int>(c - 'a' + 26);
+        if (c >= '0' && c <= '9') return static_cast<unsigned int>(c - '0' + 52);
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        fail(ErrorCode::InvalidInput, "snapshot base64 contains an invalid character");
+    };
+    std::string result;
+    result.reserve(encoded.size() / 4 * 3);
+    for (std::size_t i = 0; i < encoded.size(); i += 4) {
+        const auto first = digit(encoded[i]); const auto second = digit(encoded[i + 1]);
+        const bool third_padding = encoded[i + 2] == '=';
+        const bool fourth_padding = encoded[i + 3] == '=';
+        require((!third_padding || fourth_padding) &&
+                ((!third_padding && !fourth_padding) || i + 4 == encoded.size()),
+                ErrorCode::InvalidInput, "snapshot base64 has invalid padding");
+        const auto third = third_padding ? 0U : digit(encoded[i + 2]);
+        const auto fourth = fourth_padding ? 0U : digit(encoded[i + 3]);
+        const auto word = (first << 18U) | (second << 12U) | (third << 6U) | fourth;
+        result.push_back(static_cast<char>((word >> 16U) & 255U));
+        if (!third_padding) result.push_back(static_cast<char>((word >> 8U) & 255U));
+        if (!fourth_padding) result.push_back(static_cast<char>(word & 255U));
+    }
+    require(result.size() <= 65536 && base64_bytes(result) == encoded,
+            ErrorCode::InvalidInput, "snapshot requires canonical base64 and at most 64 KiB");
+    return result;
+}
+void object_fields(const Json& value, std::initializer_list<std::string_view> allowed,
+                   std::initializer_list<std::string_view> required = {}) {
+    require(value.is_object(), ErrorCode::InvalidInput, "workflow payload must be an object");
+    for (const auto& item : value.as_object())
+        require(std::find(allowed.begin(), allowed.end(), std::string_view(item.key())) != allowed.end(),
+                ErrorCode::InvalidInput, "unsupported workflow field " + std::string(item.key()));
+    for (const auto key : required)
+        require(value.as_object().contains(key), ErrorCode::InvalidInput, "missing workflow field " + std::string(key));
+}
+void nonblank(std::string_view value, std::string_view field, std::size_t maximum) {
+    text_field(value, field, maximum);
+    require(value.find_first_not_of(" \t\r\n") != std::string_view::npos, ErrorCode::InvalidInput,
+            "blank " + std::string(field));
+}
+std::string workflow_text(const Json& value, std::string_view key, std::size_t maximum,
+                          bool optional = false) {
+    const auto* field = value.as_object().if_contains(key);
+    if (!field && optional) return {};
+    require(field && field->is_string(), ErrorCode::InvalidInput, "workflow text field " + std::string(key));
+    const auto text = std::string(field->as_string()); nonblank(text, key, maximum); return text;
+}
+bool semantic_binding_equal(ExecutionBinding left, ExecutionBinding right, bool current_policy_control = false) {
+    left.dispatcher_epoch = right.dispatcher_epoch;
+    left.execution_epoch = right.execution_epoch;
+    if (current_policy_control) left.policy_epoch = right.policy_epoch;
+    return left == right;
+}
+void work_path(std::string_view path) {
+    text_field(path, "submission path", 500);
+    require(path.starts_with("/work/") && path.size() > 6 && path.back() != '/',
+            ErrorCode::InvalidInput, "submission path must name a file under /work");
+    std::size_t start = 6;
+    while (start < path.size()) {
+        const auto end = path.find('/', start);
+        const auto segment = path.substr(start, end == std::string_view::npos ? path.size() - start : end - start);
+        require(!segment.empty() && segment != "." && segment != ".." &&
+                std::none_of(segment.begin(), segment.end(), [](unsigned char c) { return c < 32 || c == 127; }),
+                ErrorCode::InvalidInput, "submission path is not a canonical workspace path");
+        if (end == std::string_view::npos) break;
+        start = end + 1;
+    }
+}
+std::set<std::string> acceptance_ids(const Json& brief) {
+    require(brief.is_object() && brief.as_object().contains("acceptance_criteria") && brief.at("acceptance_criteria").is_array() &&
+            !brief.at("acceptance_criteria").as_array().empty() && brief.at("acceptance_criteria").as_array().size() <= 30,
+            ErrorCode::InvalidInput, "workflow requires the current explicit acceptance criteria");
+    std::set<std::string> result;
+    for (const auto& item : brief.at("acceptance_criteria").as_array()) {
+        require(item.is_object(), ErrorCode::InvalidInput, "acceptance criterion must be an object");
+        const auto id = workflow_text(item, "id", 8);
+        require(id.starts_with("ac") && id.size() >= 3 && id.size() <= 5 &&
+                std::all_of(id.begin() + 2, id.end(), [](char c) { return c >= '0' && c <= '9'; }) &&
+                result.insert(id).second, ErrorCode::InvalidInput, "acceptance criterion IDs must be valid and unique");
+    }
+    return result;
+}
+void criterion_results(const Json& results, const std::set<std::string>& expected,
+                       bool passing, bool self_check) {
+    require(results.is_array() && !results.as_array().empty() && results.as_array().size() <= 30,
+            ErrorCode::InvalidInput, "criterion results must cover the current criteria");
+    std::set<std::string> seen;
+    for (const auto& result : results.as_array()) {
+        if (self_check) object_fields(result, {"criterion_id", "met", "evidence"}, {"criterion_id", "met"});
+        else object_fields(result, {"criterion_id", "met", "note"}, {"criterion_id", "met"});
+        const auto id = workflow_text(result, "criterion_id", 8);
+        const auto met = workflow_text(result, "met", 8);
+        require(expected.contains(id) && seen.insert(id).second && (met == "yes" || met == "no" || met == "partial"),
+                ErrorCode::InvalidInput, "criterion results contain missing, foreign or duplicate criteria");
+        if (passing) require(met == "yes", ErrorCode::InvalidInput, "passed check contradicts an unmet criterion");
+        if (self_check) (void)workflow_text(result, "evidence", 8000, !passing);
+        else (void)workflow_text(result, "note", 4000, true);
+    }
+    require(seen == expected, ErrorCode::InvalidInput, "criterion results omit current acceptance criteria");
+}
+void submission_verification(const Json& body, bool passing) {
+    if (const auto* records = body.as_object().if_contains("verification")) {
+        require(records->is_array() && records->as_array().size() <= 50, ErrorCode::InvalidInput, "verification records exceed capacity");
+        for (const auto& record : records->as_array()) {
+            object_fields(record, {"check", "method", "result", "evidence"}, {"check", "method", "result"});
+            (void)workflow_text(record, "check", 2000); (void)workflow_text(record, "method", 4000);
+            const auto result = workflow_text(record, "result", 8);
+            require(result == "pass" || result == "fail" || result == "not_run", ErrorCode::InvalidInput, "invalid verification result");
+            if (passing) require(result == "pass", ErrorCode::InvalidInput, "passed check contradicts failed or unrun verification");
+            (void)workflow_text(record, "evidence", 8000, !passing);
+        }
+    }
+    if (const auto* issues = body.as_object().if_contains("known_issues")) {
+        require(issues->is_array() && issues->as_array().size() <= 30, ErrorCode::InvalidInput, "known issues exceed capacity");
+        for (const auto& issue : issues->as_array()) {
+            require(issue.is_string(), ErrorCode::InvalidInput, "known issue must be text");
+            nonblank(issue.as_string(), "known issue", 4000);
+        }
+        if (passing) require(issues->as_array().empty(), ErrorCode::InvalidInput, "known issues require a later explicit acceptance policy");
+    }
+}
+void work_order_shape(const Json& body) {
+    object_fields(body, {"approach", "steps", "constraints_verbatim", "done_definition", "pitfalls", "notes", "constraint_refs"},
+                  {"approach", "steps", "constraints_verbatim", "done_definition", "constraint_refs"});
+    (void)workflow_text(body, "approach", 8000); (void)workflow_text(body, "done_definition", 8000); (void)workflow_text(body, "notes", 8000, true);
+    require(body.at("steps").is_array() && !body.at("steps").as_array().empty() && body.at("steps").as_array().size() <= 40,
+            ErrorCode::InvalidInput, "rework order requires bounded concrete steps");
+    std::set<std::string> ids;
+    for (const auto& step : body.at("steps").as_array()) {
+        object_fields(step, {"id", "text", "check"}, {"id", "text"});
+        const auto id = workflow_text(step, "id", 8);
+        require(id.starts_with('s') && id.size() >= 2 && id.size() <= 4 &&
+                std::all_of(id.begin() + 1, id.end(), [](char c) { return c >= '0' && c <= '9'; }) && ids.insert(id).second,
+                ErrorCode::InvalidInput, "rework step IDs must be valid and unique");
+        (void)workflow_text(step, "text", 4000); (void)workflow_text(step, "check", 2000, true);
+    }
+    if (const auto* pitfalls = body.as_object().if_contains("pitfalls")) {
+        require(pitfalls->is_array() && pitfalls->as_array().size() <= 20, ErrorCode::InvalidInput, "too many rework pitfalls");
+        for (const auto& value : pitfalls->as_array()) {
+            require(value.is_string(), ErrorCode::InvalidInput, "rework pitfall must be text"); nonblank(value.as_string(), "rework pitfall", 2000);
+        }
+    }
+    (void)json_text(body, 262144);
 }
 std::string unhex(std::string_view value) {
     require(value.size() % 2 == 0, ErrorCode::Corrupt, "invalid stored output hex");
@@ -253,9 +403,12 @@ class Store::Impl {
 public:
     Impl(const std::filesystem::path& database_path, std::string_view base_sql,
          std::string_view migration_sql, StoreOpenMode selected_mode,
-         std::string_view tools_migration_sql, std::string_view events_migration_sql) : mode(selected_mode) {
+         std::string_view tools_migration_sql, std::string_view events_migration_sql,
+         std::string_view workflow_migration_sql) : mode(selected_mode) {
         require(events_migration_sql.empty() || !tools_migration_sql.empty(), ErrorCode::InvalidInput,
                 "event-runtime migration requires the worker-tools asset");
+        require(workflow_migration_sql.empty() || !events_migration_sql.empty(), ErrorCode::InvalidInput,
+                "workflow migration requires the event-runtime asset");
         require(database_path != ":memory:", ErrorCode::InvalidInput, "Store requires a durable file path");
         const auto absolute = std::filesystem::absolute(database_path).lexically_normal();
         const auto path = (std::filesystem::canonical(absolute.parent_path()) / absolute.filename()).string();
@@ -295,12 +448,13 @@ public:
                 exec(base_sql);
                 version = number(one("PRAGMA user_version"), "user_version");
             }
-            require(version == 401 || version == 402 || version == 403 || version == 404, ErrorCode::Unsupported, "unknown database version; explicit migration required");
+            require(version >= 401 && version <= 405, ErrorCode::Unsupported, "unknown database version; explicit migration required");
             require(str(one("SELECT schema_version FROM contract_metadata WHERE singleton=1"), "schema_version") == "0.4.1",
                     ErrorCode::Unsupported, "unsupported base contract metadata");
             const auto migration_hash = sha256_hex(migration_sql);
             const auto tools_migration_hash = sha256_hex(tools_migration_sql);
             const auto events_migration_hash = sha256_hex(events_migration_sql);
+            const auto workflow_migration_hash = sha256_hex(workflow_migration_sql);
             if (version == 401) {
                 require(mode == StoreOpenMode::Takeover, ErrorCode::Unsupported, "database needs Store migration before read-only inspection");
                 // Python reference rows did not capture a complete configuration.
@@ -319,11 +473,19 @@ public:
                 require(number(metadata, "store_version") == 5 && str(metadata, "migration_sha256") == tools_migration_hash,
                         ErrorCode::Corrupt, "worker-tools migration asset does not match durable metadata");
             }
-            if (version == 404) {
+            if (version >= 404) {
                 require(!events_migration_sql.empty(), ErrorCode::Unsupported, "404 database requires the distributed event-runtime migration asset");
                 const auto event_metadata = one("SELECT * FROM event_runtime_metadata WHERE singleton=1");
                 require(number(event_metadata, "store_version") == 6 && str(event_metadata, "migration_sha256") == events_migration_hash,
                         ErrorCode::Corrupt, "event-runtime migration asset does not match durable metadata");
+            }
+            if (version == 405) {
+                require(!workflow_migration_sql.empty(), ErrorCode::Unsupported,
+                        "405 database requires the distributed workflow migration asset");
+                const auto workflow_metadata = one("SELECT * FROM workflow_runtime_metadata WHERE singleton=1");
+                require(number(workflow_metadata, "store_version") == 7 &&
+                        str(workflow_metadata, "migration_sha256") == workflow_migration_hash,
+                        ErrorCode::Corrupt, "workflow migration asset does not match durable metadata");
             }
             // Validate ownership/version before any persistent journal-mode
             // change; rejecting an unrelated database preserves its bytes.
@@ -374,7 +536,22 @@ public:
                     version = 404;
                 } catch (...) { events_schema = false; rollback(); throw; }
             }
-            events_schema = version == 404;
+            events_schema = version >= 404;
+            if (version == 404 && !workflow_migration_sql.empty() && mode == StoreOpenMode::Takeover) {
+                exec("BEGIN IMMEDIATE");
+                try {
+                    // S1.3 never created questions or submissions. Do not invent
+                    // original call bindings for externally populated rows.
+                    require(!optional("SELECT question_id FROM questions LIMIT 1"), ErrorCode::Unsupported,
+                            "legacy questions have no captured workflow binding; explicit migration required");
+                    exec(workflow_migration_sql);
+                    execute("INSERT INTO workflow_runtime_metadata VALUES (1,7,?)", {workflow_migration_hash});
+                    require(number(one("PRAGMA user_version"), "user_version") == 405,
+                            ErrorCode::Corrupt, "workflow migration did not produce the expected version");
+                    exec("COMMIT"); version = 405;
+                } catch (...) { rollback(); throw; }
+            }
+            workflow_schema = version == 405;
             require(str(one("PRAGMA quick_check"), "quick_check") == "ok", ErrorCode::Corrupt, "SQLite quick_check failed");
             require(!optional("PRAGMA foreign_key_check"), ErrorCode::Corrupt, "SQLite foreign key check failed");
             if (mode == StoreOpenMode::Takeover) {
@@ -458,6 +635,84 @@ public:
     }
     void require_events_schema() const {
         require(events_schema, ErrorCode::Unsupported, "event runtime requires the 404 migration");
+    }
+    void require_workflow_schema() const {
+        require(workflow_schema, ErrorCode::Unsupported, "question/submission workflow requires the 405 migration");
+    }
+    Row question_row(const std::string& id) const {
+        require_workflow_schema();
+        return one("SELECT q.*,x.original_binding,x.original_sha256,x.status,x.blocking,x.wait_generation FROM questions q JOIN question_runtime x USING(question_id) WHERE q.question_id=?", {id});
+    }
+    Json question_info(const std::string& id) const {
+        auto result = exposed(question_row(id));
+        const auto original = Row{{"body", result.at("body")}, {"original_binding", result.at("original_binding")}};
+        require(sha256_hex(canonical_json(original)) == str(result.as_object(), "original_sha256"),
+                ErrorCode::Corrupt, "original question fingerprint mismatch");
+        if (!result.at("answer").is_null()) result.as_object()["answer"] = parse_json_strict(result.at("answer").as_string(), 32768);
+        Array forwarded; Array transitions;
+        for (const auto& row : all("SELECT * FROM question_transitions WHERE question_id=? ORDER BY state_version", {id})) {
+            auto transition = exposed(row);
+            transition.as_object()["actor"] = parse_json_strict(str(row, "actor"));
+            if (str(row, "kind") == "FORWARDED") forwarded.emplace_back(transition.at("body"));
+            transitions.emplace_back(std::move(transition));
+        }
+        result.as_object()["forwarded"] = forwarded;
+        result.as_object()["transitions"] = transitions;
+        return result;
+    }
+    Row submission_row(const std::string& id) const {
+        require_workflow_schema();
+        return one("SELECT * FROM workflow_submissions WHERE submission_id=?", {id});
+    }
+    Json submission_info(const std::string& id) const {
+        auto result = exposed(submission_row(id));
+        const Row fact{{"body", result.at("body")}, {"original_binding", result.at("original_binding")},
+            {"artifact_snapshot", result.at("artifact_snapshot")}};
+        require(sha256_hex(canonical_json(fact)) == str(result.as_object(), "record_sha256"),
+                ErrorCode::Corrupt, "original submission fingerprint mismatch");
+        Array checks;
+        for (const auto& row : all("SELECT * FROM team_lead_checks WHERE submission_id=? ORDER BY submission_version", {id})) {
+            auto check = exposed(row); check.as_object()["actor"] = parse_json_strict(str(row, "actor"));
+            checks.emplace_back(std::move(check));
+        }
+        result.as_object()["checks"] = checks;
+        const auto counter = optional("SELECT rework_count FROM team_workflow_state WHERE team_id=?", {str(result.as_object(), "team_id")});
+        result.as_object()["team_rework_count"] = counter ? number(*counter, "rework_count") : 0;
+        result.as_object()["business_accepted"] = false;
+        result.as_object()["business_delivered"] = false;
+        return result;
+    }
+    bool has_blocking_question(const std::string& task_id) const {
+        return workflow_schema && optional("SELECT q.question_id FROM questions q JOIN question_runtime x USING(question_id) WHERE q.task_id=? AND x.status='OPEN' AND x.blocking=1 LIMIT 1", {task_id}).has_value();
+    }
+    void workflow_subject(const StoreActor& actor, const ExecutionBinding& captured,
+                          const Row& subject, bool current_policy_control = false) const {
+        const auto request = authorize(actor, {Role::Root, Role::Dispatcher, Role::TeamLead});
+        actor_binding(actor, captured); matches(captured);
+        require(str(subject, "request_id") == actor.request_id,
+                ErrorCode::Unauthorized, "workflow subject belongs to another request");
+        if (actor.role == Role::TeamLead)
+            require(str(subject, "task_id") == actor.task_id && str(subject, "team_id") == actor.team_id,
+                    ErrorCode::Unauthorized, "workflow subject belongs to another team");
+        const auto original = execution_binding_from_json(parse_json_strict(str(subject, "original_binding")));
+        const auto task = task_row(str(subject, "task_id"));
+        require(!terminal_request(str(request, "status")) && !terminal_task(str(task, "status")),
+                ErrorCode::NotReady, "workflow target has terminated");
+        require(semantic_binding_equal(original, binding(str(subject, "task_id")), current_policy_control), ErrorCode::Stale,
+                "workflow subject has an obsolete semantic binding");
+    }
+    void supersede_workflow(const std::string& request_id, const std::string& task_id = {}) {
+        if (!workflow_schema) return;
+        const auto filter = std::string(task_id.empty() ? "" : " AND q.task_id=?");
+        const Array args = task_id.empty() ? Array{request_id} : Array{request_id, task_id};
+        for (const auto& row : all("SELECT q.question_id FROM questions q JOIN question_runtime x USING(question_id) WHERE q.request_id=? AND x.status<>'SUPERSEDED'" + filter, args)) {
+            execute("UPDATE questions SET state_version=state_version+1 WHERE question_id=?", {str(row, "question_id")});
+            execute("UPDATE question_runtime SET status='SUPERSEDED' WHERE question_id=?", {str(row, "question_id")});
+        }
+        const auto sql = "UPDATE workflow_submissions SET status='SUPERSEDED',state_version=state_version+1,updated_at=? WHERE request_id=? AND status IN ('SUBMITTED','CANDIDATE_READY','BLOCKED')" +
+            std::string(task_id.empty() ? "" : " AND task_id=?");
+        if (task_id.empty()) execute(sql, {stamp(), request_id});
+        else execute(sql, {stamp(), request_id, task_id});
     }
     Json wait_info(const std::string& task_id) const {
         require_events_schema();
@@ -602,6 +857,8 @@ public:
         const auto type = str(command, "type");
         const bool control = type == "ack" || type == "cancel_op" || type == "finish_op" || type == "reconcile_op" || type == "record_op_result" || type == "execute_tool_control" ||
             type == "wait_worker" || type == "wake_worker" || type == "tool_feedback" || type == "event_bootstrap" ||
+            type == "ask_question" || type == "forward_question" || type == "answer_question" ||
+            (type == "check_submission" && command.at("adverse_revoke").as_bool()) ||
             type == "recover" || type == "cancel_request" || type == "settle_attempt" || type == "attempts_unknown";
         const auto count = number(one("SELECT COUNT(*) AS n FROM events WHERE request_id=?", {request_id}), "n");
         require(count < (control ? 8192 : 4096), ErrorCode::Quota, "bounded Store event capacity exhausted");
@@ -616,6 +873,7 @@ public:
     }
     void supersede_waits(const std::string& request_id, const std::string& task_id = {}) {
         if (!events_schema) return;
+        supersede_workflow(request_id, task_id);
         if (task_id.empty()) execute("UPDATE worker_waits SET status='SUPERSEDED',updated_at=? WHERE request_id=? AND status='WAITING'", {stamp(), request_id});
         else execute("UPDATE worker_waits SET status='SUPERSEDED',updated_at=? WHERE request_id=? AND task_id=? AND status='WAITING'", {stamp(), request_id, task_id});
     }
@@ -644,8 +902,37 @@ public:
                 if (number(task, "based_on_requirements_revision") != revision ||
                     number(task, "plan_revision") != number(request, "plan_revision"))
                     enqueue("dispatcher", str(task, "task_id"));
-                else if (!terminal_task(str(task, "status"))) enqueue("team_lead", str(task, "task_id"));
+                else if (!terminal_task(str(task, "status"))) {
+                    const auto task_id = str(task, "task_id"); bool workflow_pending = false;
+                    if (workflow_schema) {
+                        for (const auto& question : all("SELECT holder FROM questions q JOIN question_runtime x USING(question_id) WHERE q.task_id=? AND x.status='OPEN'", {task_id})) {
+                            workflow_pending = true;
+                            if (str(question, "holder") != "user") enqueue(str(question, "holder"), task_id);
+                        }
+                        if (const auto submission = optional("SELECT status FROM workflow_submissions WHERE task_id=? AND status IN ('SUBMITTED','CANDIDATE_READY','BLOCKED')", {task_id})) {
+                            workflow_pending = true;
+                            enqueue(str(*submission, "status") == "SUBMITTED" ? "team_lead" : "dispatcher", task_id);
+                        }
+                    }
+                    if (!workflow_pending) enqueue("team_lead", task_id);
+                }
             }
+            return;
+        }
+        if (type == "ask_question" || type == "forward_question") {
+            const auto holder = str(result.as_object(), "holder");
+            if (holder != "user") enqueue(holder, str(result.as_object(), "task_id"));
+            return;
+        }
+        if (type == "answer_question") {
+            const auto task_id = str(result.as_object(), "task_id");
+            enqueue("worker", task_id); enqueue("team_lead", task_id);
+            return;
+        }
+        if (type == "submit_work") { enqueue("team_lead", str(result.as_object(), "task_id")); return; }
+        if (type == "check_submission") {
+            enqueue(str(result.as_object(), "status") == "RETURNED_FOR_REWORK" ? "worker" : "dispatcher",
+                    str(result.as_object(), "task_id"));
             return;
         }
         if (type == "create_task" || type == "disposition" || type == "rebind_task") {
@@ -861,13 +1148,15 @@ public:
     StoreOpenMode mode;
     bool tools_schema{false};
     bool events_schema{false};
+    bool workflow_schema{false};
     std::string database_file_path;
     mutable std::mutex mutex;
 };
 
 Store::Store(const std::filesystem::path& path, std::string_view base, std::string_view migration, StoreOpenMode mode,
-             std::string_view tools_migration, std::string_view events_migration)
-    : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration, events_migration)) {}
+             std::string_view tools_migration, std::string_view events_migration,
+             std::string_view workflow_migration)
+    : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration, events_migration, workflow_migration)) {}
 Store::~Store() = default;
 
 Json Store::diagnostics() const {
@@ -1062,8 +1351,12 @@ Json Store::wait_worker(const StoreActor& actor, const ExecutionBinding& binding
     (void)impl_->authorize(actor, {Role::Worker}, false); impl_->actor_binding(actor, binding);
     if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
     const auto request = impl_->authorize(actor, {Role::Worker}); impl_->matches(binding);
+    require(!impl_->has_blocking_question(actor.task_id), ErrorCode::NotReady,
+            "an unanswered blocking question owns this Worker wait");
     const auto task = impl_->task_row(actor.task_id);
     require(!terminal_request(str(request, "status")) && !terminal_task(str(task, "status")), ErrorCode::NotReady, "terminal work cannot enter Worker wait");
+    if (impl_->workflow_schema) require(str(task, "status") != "SUBMITTED" && str(task, "status") != "REVIEWING" && str(task, "status") != "BLOCKED",
+            ErrorCode::NotReady, "a submission workflow already owns this Worker hold");
     require(number(task, "based_on_requirements_revision") == number(request, "requirements_revision") && number(task, "plan_revision") == number(request, "plan_revision"),
             ErrorCode::NotReady, "Worker wait requires a current task disposition and plan");
     const auto old = impl_->optional("SELECT * FROM worker_waits WHERE task_id=?", {actor.task_id});
@@ -1086,6 +1379,8 @@ Json Store::wake_worker(const StoreActor& actor, const ExecutionBinding& binding
     (void)impl_->authorize(actor, {Role::Worker}, false); impl_->actor_binding(actor, binding);
     if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
     const auto request = impl_->authorize(actor, {Role::Worker}); impl_->matches(binding);
+    require(!impl_->has_blocking_question(actor.task_id), ErrorCode::NotReady,
+            "answer the owning blocking question before waking this Worker");
     const auto task = impl_->task_row(actor.task_id);
     require(!terminal_request(str(request, "status")) && !terminal_task(str(task, "status")), ErrorCode::NotReady, "terminal Worker cannot wake");
     const auto waiting = impl_->optional("SELECT * FROM worker_waits WHERE task_id=?", {actor.task_id});
@@ -1154,6 +1449,345 @@ std::vector<Json> Store::attempt_history(const StoreActor& actor, std::int64_t l
         bytes += encoded.size(); result.emplace_back(std::move(record));
     }
     return result;
+}
+
+bool Store::workflow_runtime_enabled() const {
+    const std::lock_guard lock(impl_->mutex); return impl_->workflow_schema;
+}
+
+Json Store::question(const std::string& id) const {
+    const std::lock_guard lock(impl_->mutex); return impl_->question_info(id);
+}
+
+std::vector<Json> Store::questions(const std::string& request_id, const std::string& task_id,
+                                  std::int64_t limit) const {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_workflow_schema(); (void)impl_->request_row(request_id);
+    require(limit > 0 && limit <= 128, ErrorCode::InvalidInput, "questions limit must be 1..128");
+    if (!task_id.empty()) require(str(impl_->task_row(task_id), "request_id") == request_id,
+            ErrorCode::Unauthorized, "question task belongs to another request");
+    const auto filter = std::string(task_id.empty() ? "" : " AND task_id=?");
+    const Array args = task_id.empty() ? Array{request_id} : Array{request_id, task_id};
+    require(number(impl_->one("SELECT COUNT(*) AS n FROM questions WHERE request_id=?" + filter, args), "n") <= limit,
+            ErrorCode::Quota, "complete question history exceeds requested capacity");
+    std::vector<Json> result; std::size_t bytes = 0;
+    for (const auto& row : impl_->all("SELECT question_id FROM questions WHERE request_id=?" + filter + " ORDER BY rowid", args)) {
+        auto value = impl_->question_info(str(row, "question_id")); const auto encoded = json_text(value);
+        require(encoded.size() <= 8U * 1024U * 1024U - bytes, ErrorCode::Quota, "complete question history exceeds byte capacity");
+        bytes += encoded.size(); result.emplace_back(std::move(value));
+    }
+    return result;
+}
+
+Json Store::submission(const std::string& id) const {
+    const std::lock_guard lock(impl_->mutex); return impl_->submission_info(id);
+}
+
+std::vector<Json> Store::submissions(const std::string& task_id, std::int64_t limit) const {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_workflow_schema(); (void)impl_->task_row(task_id);
+    require(limit > 0 && limit <= 64, ErrorCode::InvalidInput, "submissions limit must be 1..64");
+    require(number(impl_->one("SELECT COUNT(*) AS n FROM workflow_submissions WHERE task_id=?", {task_id}), "n") <= limit,
+            ErrorCode::Quota, "complete submission history exceeds requested capacity");
+    std::vector<Json> result; std::size_t bytes = 0;
+    for (const auto& row : impl_->all("SELECT submission_id FROM workflow_submissions WHERE task_id=? ORDER BY rowid", {task_id})) {
+        auto value = impl_->submission_info(str(row, "submission_id")); const auto encoded = json_text(value, 2 * 1024 * 1024);
+        require(encoded.size() <= 8U * 1024U * 1024U - bytes, ErrorCode::Quota, "complete submission history exceeds byte capacity");
+        bytes += encoded.size(); result.emplace_back(std::move(value));
+    }
+    return result;
+}
+
+Json Store::current_submission(const std::string& task_id) const {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->require_workflow_schema(); (void)impl_->task_row(task_id);
+    const auto row = impl_->optional("SELECT submission_id FROM workflow_submissions WHERE task_id=? AND status IN ('SUBMITTED','CANDIDATE_READY','BLOCKED')", {task_id});
+    return row ? impl_->submission_info(str(*row, "submission_id")) : Json(nullptr);
+}
+
+Json Store::ask_question(const StoreActor& actor, const ExecutionBinding& binding,
+                         std::int64_t expected, const Json& body, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex); impl_->require_workflow_schema();
+    object_fields(body, {"text", "context", "options", "blocking"}, {"text"});
+    (void)workflow_text(body, "text", 16000); (void)workflow_text(body, "context", 16000, true);
+    bool blocking = true;
+    if (const auto* value = body.as_object().if_contains("blocking")) {
+        require(value->is_bool(), ErrorCode::InvalidInput, "question blocking must be a boolean"); blocking = value->as_bool();
+    }
+    if (const auto* options = body.as_object().if_contains("options")) {
+        require(options->is_array() && options->as_array().size() <= 8, ErrorCode::InvalidInput, "question options exceed capacity");
+        std::set<std::string> ids;
+        for (const auto& option : options->as_array()) {
+            object_fields(option, {"id", "label"}, {"id", "label"});
+            const auto id = workflow_text(option, "id", 16); (void)workflow_text(option, "label", 800);
+            require(std::all_of(id.begin(), id.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_'; }) &&
+                    ids.insert(id).second, ErrorCode::InvalidInput, "question option identifiers must be unique");
+        }
+    }
+    (void)json_text(body, 65536);
+    const auto command = payload(actor, "ask_question", Row{{"binding", to_json(binding)}, {"expected_task_version", expected}, {"body", body}});
+    Impl::Transaction tx(*impl_);
+    const auto owner = impl_->authorize(actor, {Role::Worker}, false); impl_->actor_binding(actor, binding);
+    impl_->tool_grant(owner, impl_->team_row(actor.team_id), "ask");
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    const auto request = impl_->authorize(actor, {Role::Worker}); impl_->matches(binding);
+    const auto task = impl_->task_row(actor.task_id);
+    require(!terminal_request(str(request, "status")) && !terminal_task(str(task, "status")), ErrorCode::NotReady, "terminal Worker cannot ask a new question");
+    require(number(impl_->one("SELECT COUNT(*) AS n FROM questions WHERE request_id=?", {actor.request_id}), "n") < 128 &&
+            number(impl_->one("SELECT COUNT(*) AS n FROM questions q JOIN question_runtime x USING(question_id) WHERE q.request_id=? AND x.status='OPEN'", {actor.request_id}), "n") < 32,
+            ErrorCode::Quota, "bounded question capacity exhausted");
+    const auto wait = impl_->optional("SELECT * FROM worker_waits WHERE task_id=?", {actor.task_id});
+    if (blocking) require((!wait || str(*wait, "status") != "WAITING") && !impl_->has_blocking_question(actor.task_id),
+            ErrorCode::NotReady, "another wait already owns this Worker");
+    const auto generation = blocking ? (wait ? next(number(*wait, "generation")) : 1) : 0;
+    const auto id = new_id("q"); auto complete = body.as_object();
+    complete["question_id"] = id; complete["task_id"] = actor.task_id; complete["asked_by"] = "worker"; complete["blocking"] = blocking;
+    const auto original = Row{{"body", complete}, {"original_binding", to_json(binding)}};
+    impl_->cas("UPDATE tasks SET state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?", {stamp(), actor.task_id, expected});
+    impl_->execute("INSERT INTO questions(question_id,request_id,task_id,team_id,asked_by,holder,body,created_at) VALUES (?,?,?,?,'worker','team_lead',?,?)",
+        {id, actor.request_id, actor.task_id, actor.team_id, json_text(complete, 65536), stamp()});
+    impl_->execute("INSERT INTO question_runtime VALUES (?,?,?,'OPEN',?,?)", {id, canonical_json(to_json(binding)), sha256_hex(canonical_json(original)), blocking, blocking ? Json(generation) : Json(nullptr)});
+    if (blocking) impl_->execute("INSERT INTO worker_waits(task_id,request_id,team_id,generation,status,original_binding,reason,created_at,updated_at) VALUES (?,?,?,?,'WAITING',?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET request_id=excluded.request_id,team_id=excluded.team_id,generation=excluded.generation,status=excluded.status,original_binding=excluded.original_binding,reason=excluded.reason,created_at=excluded.created_at,updated_at=excluded.updated_at",
+        {actor.task_id, actor.request_id, actor.team_id, generation, canonical_json(to_json(binding)), "question:" + id, stamp(), stamp()});
+    const auto result = impl_->question_info(id);
+    impl_->event(actor.request_id, command_id, command, result, "worker"); tx.commit(); return result;
+}
+
+Json Store::forward_question(const StoreActor& actor, const ExecutionBinding& captured,
+                             const std::string& id, std::int64_t expected,
+                             const std::string& note, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex); impl_->require_workflow_schema();
+    require(expected > 0, ErrorCode::InvalidInput, "question state_version must be positive");
+    if (!note.empty()) nonblank(note, "question forwarding note", 8000);
+    const auto command = payload(actor, "forward_question", Row{{"binding", to_json(captured)}, {"question_id", id}, {"expected_question_version", expected}, {"note", note}});
+    Impl::Transaction tx(*impl_);
+    (void)impl_->authorize(actor, {Role::TeamLead, Role::Dispatcher}, false); impl_->actor_binding(actor, captured);
+    const auto question = impl_->question_row(id);
+    require(str(question, "request_id") == actor.request_id && (actor.role != Role::TeamLead ||
+        (str(question, "task_id") == actor.task_id && str(question, "team_id") == actor.team_id)), ErrorCode::Unauthorized, "question belongs to another actor");
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    impl_->workflow_subject(actor, captured, question, true);
+    require(str(question, "status") == "OPEN" && str(question, "holder") == role_name(actor.role),
+            ErrorCode::NotReady, "only the current question holder can forward an open question");
+    const auto holder = actor.role == Role::TeamLead ? "dispatcher" : "user";
+    Row transition{{"role", role_name(actor.role)}, {"to", holder}};
+    if (!note.empty()) transition["note"] = note;
+    impl_->cas("UPDATE questions SET holder=?,state_version=state_version+1 WHERE question_id=? AND state_version=?", {holder, id, expected});
+    impl_->execute("INSERT INTO question_transitions VALUES (?,?,'FORWARDED',?,?,?,?)",
+        {id, next(expected), json_text(actor_json(actor)), canonical_json(to_json(captured)), json_text(transition, 16384), stamp()});
+    const auto result = impl_->question_info(id);
+    impl_->event(actor.request_id, command_id, command, result, role_name(actor.role)); tx.commit(); return result;
+}
+
+Json Store::answer_question(const StoreActor& actor, const ExecutionBinding& captured,
+                            const std::string& id, std::int64_t expected,
+                            const Json& answer, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex); impl_->require_workflow_schema();
+    require(expected > 0, ErrorCode::InvalidInput, "question state_version must be positive");
+    object_fields(answer, {"text", "selected_option"});
+    require(!answer.as_object().empty(), ErrorCode::InvalidInput, "answer needs text or selected_option");
+    (void)workflow_text(answer, "text", 16000, true);
+    const auto selected = workflow_text(answer, "selected_option", 16, true);
+    (void)json_text(answer, 32768);
+    const auto command = payload(actor, "answer_question", Row{{"binding", to_json(captured)}, {"question_id", id}, {"expected_question_version", expected}, {"answer", answer}});
+    Impl::Transaction tx(*impl_);
+    (void)impl_->authorize(actor, {Role::Root, Role::Dispatcher, Role::TeamLead}, false); impl_->actor_binding(actor, captured);
+    const auto question = impl_->question_row(id);
+    require(str(question, "request_id") == actor.request_id && (actor.role != Role::TeamLead ||
+        (str(question, "task_id") == actor.task_id && str(question, "team_id") == actor.team_id)), ErrorCode::Unauthorized, "question belongs to another actor");
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    impl_->workflow_subject(actor, captured, question, true);
+    const auto responder = actor.role == Role::Root ? "user" : role_name(actor.role);
+    require(str(question, "status") == "OPEN" && str(question, "holder") == responder,
+            ErrorCode::NotReady, "only the current question holder can answer an open question");
+    const auto body = parse_json_strict(str(question, "body"), 65536);
+    if (!selected.empty()) {
+        const auto* options = body.as_object().if_contains("options");
+        require(options && options->is_array() && std::any_of(options->as_array().begin(), options->as_array().end(), [&](const Json& value) {
+            return value.at("id").as_string() == selected;
+        }), ErrorCode::InvalidInput, "answer selects an option absent from the original question");
+    }
+    auto complete = answer.as_object(); complete["answered_by"] = responder; complete["answered_at"] = stamp();
+    complete["requirements_revision"] = captured.requirements_revision;
+    const auto task_id = str(question, "task_id");
+    const auto task = impl_->task_row(task_id);
+    if (number(question, "blocking") != 0) {
+        const auto wait = impl_->optional("SELECT * FROM worker_waits WHERE task_id=?", {task_id});
+        require(wait && str(*wait, "status") == "WAITING" && number(*wait, "generation") == number(question, "wait_generation") &&
+                str(*wait, "reason") == "question:" + id &&
+                semantic_binding_equal(execution_binding_from_json(parse_json_strict(str(*wait, "original_binding"))), impl_->binding(task_id), true),
+                ErrorCode::Stale, "answer no longer owns the original Worker wait");
+        impl_->cas("UPDATE worker_waits SET status='AWAKE',updated_at=? WHERE task_id=? AND generation=? AND status='WAITING'",
+            {stamp(), task_id, number(question, "wait_generation")});
+    }
+    impl_->cas("UPDATE questions SET holder='answered',answer=?,answered_at=?,state_version=state_version+1 WHERE question_id=? AND state_version=?",
+        {json_text(complete, 32768), stamp(), id, expected});
+    impl_->execute("UPDATE question_runtime SET status='ANSWERED' WHERE question_id=?", {id});
+    impl_->execute("INSERT INTO question_transitions VALUES (?,?,'ANSWERED',?,?,?,?)",
+        {id, next(expected), json_text(actor_json(actor)), canonical_json(to_json(captured)), json_text(complete, 32768), stamp()});
+    impl_->cas("UPDATE tasks SET state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?",
+        {stamp(), task_id, number(task, "state_version")});
+    const auto result = impl_->question_info(id);
+    impl_->event(actor.request_id, command_id, command, result, role_name(actor.role)); tx.commit(); return result;
+}
+
+Json Store::submit_work(const StoreActor& actor, const ExecutionBinding& binding,
+                        std::int64_t expected, const Json& body,
+                        const Json& artifact_snapshot, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex); impl_->require_workflow_schema();
+    object_fields(body, {"summary", "deliverables", "self_check", "verification", "known_issues", "used_memories"},
+                  {"summary", "deliverables", "self_check"});
+    (void)workflow_text(body, "summary", 16000); (void)json_text(body, 262144);
+    if (const auto* memories = body.as_object().if_contains("used_memories"))
+        require(memories->is_array() && memories->as_array().empty(), ErrorCode::Unsupported,
+                "submission memory claims require the later versioned memory runner");
+    require(body.at("deliverables").is_array() && !body.at("deliverables").as_array().empty() &&
+            body.at("deliverables").as_array().size() <= 8, ErrorCode::Quota, "submission needs 1..8 complete file snapshots");
+    std::set<std::string> paths;
+    for (const auto& deliverable : body.at("deliverables").as_array()) {
+        object_fields(deliverable, {"path", "description"}, {"path", "description"});
+        const auto path = workflow_text(deliverable, "path", 500); work_path(path);
+        (void)workflow_text(deliverable, "description", 2000);
+        require(paths.insert(path).second, ErrorCode::InvalidInput, "submission deliverables contain duplicate paths");
+    }
+    require(artifact_snapshot.is_array() && artifact_snapshot.as_array().size() == paths.size(),
+            ErrorCode::InvalidInput, "submission snapshot does not cover every deliverable");
+    std::set<std::string> captured_paths; std::size_t total = 0;
+    for (const auto& file : artifact_snapshot.as_array()) {
+        object_fields(file, {"path", "sha256", "size_bytes", "content_base64"}, {"path", "sha256", "size_bytes", "content_base64"});
+        const auto path = workflow_text(file, "path", 500); work_path(path);
+        require(paths.contains(path) && captured_paths.insert(path).second, ErrorCode::InvalidInput, "submission snapshot contains a foreign or duplicate path");
+        const auto hash = workflow_text(file, "sha256", 64);
+        require(hash.size() == 64 && std::all_of(hash.begin(), hash.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }),
+                ErrorCode::InvalidInput, "snapshot SHA-256 must be lowercase hexadecimal");
+        require(file.at("content_base64").is_string() && (file.at("size_bytes").is_int64() || file.at("size_bytes").is_uint64()),
+                ErrorCode::InvalidInput, "snapshot requires raw bytes and an integer byte count");
+        require((file.at("size_bytes").is_int64() && file.at("size_bytes").as_int64() >= 0 && file.at("size_bytes").as_int64() <= 65536) ||
+                (file.at("size_bytes").is_uint64() && file.at("size_bytes").as_uint64() <= 65536),
+                ErrorCode::InvalidInput, "snapshot file size must be 0..65536 bytes");
+        const auto bytes = decoded_base64(file.at("content_base64").as_string());
+        require(number(file.as_object(), "size_bytes") == static_cast<std::int64_t>(bytes.size()) && sha256_hex(bytes) == hash,
+                ErrorCode::InvalidInput, "snapshot bytes, SHA-256 and size disagree");
+        require(bytes.size() <= 262144U - total, ErrorCode::Quota, "submission files exceed the 256 KiB total capacity"); total += bytes.size();
+    }
+    (void)json_text(artifact_snapshot, 524288);
+    const auto command = payload(actor, "submit_work", Row{{"binding", to_json(binding)}, {"expected_task_version", expected},
+        {"body", body}, {"artifact_snapshot_sha256", sha256_hex(canonical_json(artifact_snapshot))}});
+    Impl::Transaction tx(*impl_);
+    const auto owner = impl_->authorize(actor, {Role::Worker}, false); impl_->actor_binding(actor, binding);
+    const auto team = impl_->team_row(actor.team_id);
+    impl_->tool_grant(owner, team, "submit"); impl_->tool_grant(owner, team, "fs_read");
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    impl_->ready(actor, binding, "submit");
+    (void)impl_->control_authorization(actor, binding, "fs_read", true);
+    const auto task = impl_->task_row(actor.task_id);
+    require(!impl_->has_blocking_question(actor.task_id), ErrorCode::NotReady, "submission has an unanswered blocking question");
+    require(!impl_->optional("SELECT op_id FROM ops WHERE team_id=? AND status IN ('PREPARED','RUNNING','CANCEL_REQUESTED','UNKNOWN') LIMIT 1", {actor.team_id}),
+            ErrorCode::NotReady, "submission requires every producer operation to be settled");
+    require(!impl_->optional("SELECT submission_id FROM workflow_submissions WHERE task_id=? AND status IN ('SUBMITTED','CANDIDATE_READY','BLOCKED')", {actor.task_id}),
+            ErrorCode::Conflict, "producer already has an unresolved submission");
+    require(number(impl_->one("SELECT COUNT(*) AS n FROM workflow_submissions WHERE task_id=?", {actor.task_id}), "n") < 64 &&
+            number(impl_->one("SELECT COUNT(*) AS n FROM workflow_submissions WHERE request_id=?", {actor.request_id}), "n") < 256,
+            ErrorCode::Quota, "bounded submission history capacity exhausted");
+    require(number(team, "tool_calls_used") < impl_->configured_limit(owner, "worker_max_tool_calls_per_order"), ErrorCode::Quota, "instruction tool-call budget exhausted");
+    const auto criteria = acceptance_ids(parse_json_strict(str(task, "brief")));
+    criterion_results(body.at("self_check"), criteria, false, true); submission_verification(body, false);
+    const auto id = new_id("sub"); auto complete = body.as_object(); complete["submission_id"] = id;
+    const auto binding_document = to_json(binding);
+    for (const auto& field : binding_document.as_object()) complete[field.key()] = field.value();
+    const Row fact{{"body", complete}, {"original_binding", to_json(binding)}, {"artifact_snapshot", artifact_snapshot}};
+    impl_->cas("UPDATE tasks SET status='SUBMITTED',state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?", {stamp(), actor.task_id, expected});
+    impl_->execute("UPDATE teams SET tool_calls_used=tool_calls_used+1,state_version=state_version+1,updated_at=? WHERE team_id=?", {stamp(), actor.team_id});
+    impl_->execute("INSERT INTO workflow_submissions(submission_id,request_id,task_id,team_id,original_binding,body,artifact_snapshot,record_sha256,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'SUBMITTED',?,?)",
+        {id, actor.request_id, actor.task_id, actor.team_id, canonical_json(to_json(binding)), json_text(complete, 262144),
+         json_text(artifact_snapshot, 524288), sha256_hex(canonical_json(fact)), stamp(), stamp()});
+    const auto result = impl_->submission_info(id);
+    impl_->event(actor.request_id, command_id, command, result, "worker"); tx.commit(); return result;
+}
+
+Json Store::check_submission(const StoreActor& actor, const ExecutionBinding& captured,
+                             std::int64_t expected_task, const std::string& id,
+                             std::int64_t expected_submission, const Json& check_body,
+                             const Json& rework_order, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex); impl_->require_workflow_schema();
+    require(expected_task > 0 && expected_submission > 0, ErrorCode::InvalidInput, "check requires captured task and submission versions");
+    object_fields(check_body, {"passed", "notes", "criteria_results"}, {"passed"});
+    require(check_body.at("passed").is_bool(), ErrorCode::InvalidInput, "check passed must be a boolean");
+    const bool passed = check_body.at("passed").as_bool();
+    (void)workflow_text(check_body, "notes", 8000, true); (void)json_text(check_body, 65536);
+    if (passed) require(rework_order.is_null(), ErrorCode::InvalidInput, "passing check cannot issue a rework order");
+    else work_order_shape(rework_order);
+    auto command = payload(actor, "check_submission", Row{{"binding", to_json(captured)}, {"expected_task_version", expected_task},
+        {"submission_id", id}, {"expected_submission_version", expected_submission}, {"check_body", check_body}, {"rework_order", rework_order},
+        {"adverse_revoke", !passed && expected_submission > 1}});
+    Impl::Transaction tx(*impl_);
+    (void)impl_->authorize(actor, {Role::TeamLead}, false); impl_->actor_binding(actor, captured);
+    const auto submission = impl_->submission_row(id);
+    require(str(submission, "request_id") == actor.request_id && str(submission, "task_id") == actor.task_id && str(submission, "team_id") == actor.team_id,
+            ErrorCode::Unauthorized, "submission belongs to another TeamLead");
+    // Replay identity is the original captured command, not the present status
+    // that may already have changed as a result of that same command.
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    impl_->workflow_subject(actor, captured, submission, !passed);
+    const auto request = impl_->request_row(actor.request_id); const auto task = impl_->task_row(actor.task_id);
+    const auto status = str(submission, "status");
+    require((status == "SUBMITTED" || (!passed && status == "CANDIDATE_READY")) && str(task, "status") == "SUBMITTED",
+            ErrorCode::NotReady, "submission is not awaiting this local check");
+    require(number(submission, "state_version") == expected_submission &&
+            command.at("adverse_revoke").as_bool() == (status == "CANDIDATE_READY"),
+            ErrorCode::Conflict, "check changed the captured submission or adverse-revocation target");
+    require(!impl_->has_blocking_question(actor.task_id), ErrorCode::NotReady, "answer the pending question before checking this submission");
+    require(number(task, "based_on_requirements_revision") == number(request, "requirements_revision") &&
+            number(task, "plan_revision") == number(request, "plan_revision"), ErrorCode::Stale, "check requires the current task disposition and plan");
+    require(!impl_->optional("SELECT op_id FROM ops WHERE team_id=? AND status IN ('PREPARED','RUNNING','CANCEL_REQUESTED','UNKNOWN') LIMIT 1", {actor.team_id}),
+            ErrorCode::UnknownOutcome, "producer has unsettled operations");
+    const auto brief = parse_json_strict(str(task, "brief")); const auto criteria = acceptance_ids(brief);
+    if (const auto* checks = check_body.as_object().if_contains("criteria_results")) criterion_results(*checks, criteria, passed, false);
+    else require(!passed, ErrorCode::InvalidInput, "passing TeamLead check must cover every current criterion");
+    const auto submitted_body = parse_json_strict(str(submission, "body"), 262144);
+    if (passed) {
+        criterion_results(submitted_body.at("self_check"), criteria, true, true);
+        submission_verification(submitted_body, true);
+    } else {
+        impl_->brief_constraints(request, rework_order);
+        for (const auto& excerpt : brief.at("constraints_verbatim").as_array())
+            require(contains(rework_order.at("constraints_verbatim"), excerpt.as_string()), ErrorCode::InvalidInput, "rework order omits an existing task constraint");
+        const auto previous = impl_->one("SELECT body FROM instructions WHERE task_id=? AND instruction_revision=?", {actor.task_id, number(task, "instruction_revision")});
+        const auto old_order = parse_json_strict(str(previous, "body"));
+        for (const auto& excerpt : old_order.at("constraints_verbatim").as_array())
+            require(contains(rework_order.at("constraints_verbatim"), excerpt.as_string()), ErrorCode::InvalidInput, "rework order drops an existing instruction constraint");
+    }
+    impl_->execute("INSERT OR IGNORE INTO team_workflow_state(team_id,rework_count) VALUES (?,0)", {actor.team_id});
+    const auto used = number(impl_->one("SELECT rework_count FROM team_workflow_state WHERE team_id=?", {actor.team_id}), "rework_count");
+    const auto config = parse_json_strict(str(request, "config_snapshot"), 8 * 1024 * 1024);
+    const auto maximum = number(config.at("system").at("limits").as_object(), "team_internal_rework_max");
+    require(maximum >= 0 && maximum <= 10000, ErrorCode::Corrupt, "invalid frozen internal rework limit");
+    const std::string next_status = passed ? "CANDIDATE_READY" : used < maximum ? "RETURNED_FOR_REWORK" : "BLOCKED";
+    Json saved_order = rework_order;
+    if (next_status == "RETURNED_FOR_REWORK") {
+        auto target = captured; target.task_revision = next(number(task, "task_revision"));
+        target.instruction_revision = next(number(task, "instruction_revision"));
+        auto complete = rework_order.as_object(); const auto target_document = to_json(target);
+        for (const auto& field : target_document.as_object()) complete[field.key()] = field.value();
+        saved_order = complete;
+        impl_->cas("UPDATE tasks SET task_revision=?,instruction_revision=?,status='READY',accepted_with_issues=0,state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?",
+            {target.task_revision, target.instruction_revision, stamp(), actor.task_id, expected_task});
+        impl_->execute("UPDATE teams SET paused_for_change=1,tool_calls_used=0,work_order=?,state_version=state_version+1,updated_at=? WHERE team_id=?",
+            {json_text(complete, 262144), stamp(), actor.team_id});
+        impl_->execute("INSERT INTO instructions VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            {actor.request_id, actor.task_id, actor.team_id, target.instruction_revision, target.requirements_revision, target.plan_revision,
+             target.task_revision, target.dispatcher_epoch, target.execution_epoch, json_text(complete, 262144), stamp()});
+        impl_->execute("UPDATE team_workflow_state SET rework_count=rework_count+1 WHERE team_id=?", {actor.team_id});
+    } else impl_->cas("UPDATE tasks SET status=?,state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?",
+            {passed ? "SUBMITTED" : "BLOCKED", stamp(), actor.task_id, expected_task});
+    impl_->cas("UPDATE workflow_submissions SET status=?,state_version=state_version+1,updated_at=? WHERE submission_id=? AND state_version=?",
+        {next_status, stamp(), id, expected_submission});
+    impl_->execute("INSERT INTO team_lead_checks VALUES (?,?,?,?,?,?,?,?)",
+        {id, next(expected_submission), json_text(actor_json(actor)), canonical_json(to_json(captured)), json_text(check_body, 65536),
+         saved_order.is_null() ? Json(nullptr) : Json(json_text(saved_order, 262144)), next_status, stamp()});
+    if (next_status == "RETURNED_FOR_REWORK") impl_->supersede_waits(actor.request_id, actor.task_id);
+    const auto result = impl_->submission_info(id);
+    impl_->event(actor.request_id, command_id, command, result, "team_lead"); tx.commit(); return result;
 }
 
 StoreActor Store::host_actor(Role role, const std::string& id, const std::string& team_id) const {
@@ -1459,6 +2093,9 @@ Json Store::issue_instruction(const StoreActor& actor, const ExecutionBinding& f
     const auto r = impl_->authorize(actor, {Role::TeamLead}); impl_->actor_binding(actor, frozen); impl_->matches(frozen, false);
     const auto t = impl_->task_row(actor.task_id);
     require(!terminal_request(str(r, "status")) && !terminal_task(str(t, "status")) && number(t, "based_on_requirements_revision") == number(r, "requirements_revision") && number(t, "plan_revision") == number(r, "plan_revision"), ErrorCode::NotReady, "current disposition and plan required before instructions");
+    if (impl_->workflow_schema) require(!impl_->has_blocking_question(actor.task_id) &&
+            str(t, "status") != "SUBMITTED" && str(t, "status") != "REVIEWING" && str(t, "status") != "BLOCKED",
+            ErrorCode::NotReady, "pending question/submission must be handled before new instructions");
     impl_->brief_constraints(r, body);
     const auto revision = next(number(t, "instruction_revision"));
     impl_->cas("UPDATE tasks SET instruction_revision=?,state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?", {revision, stamp(), actor.task_id, expected});

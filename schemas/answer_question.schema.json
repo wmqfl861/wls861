@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/v0.4.1/answer_question.schema.json",
+  "title": "Answer captured question",
+  "description": "Answer the one original question captured by the host for this call. Identity, holder, version and answer metadata are host-owned.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "text": {"type": "string", "minLength": 1, "maxLength": 4000, "pattern": "\\S"},
+    "selected_option": {"type": "string", "minLength": 1, "maxLength": 16, "pattern": "^[a-z0-9_-]{1,16}$"}
+  },
+  "anyOf": [{"required": ["text"]}, {"required": ["selected_option"]}]
+}

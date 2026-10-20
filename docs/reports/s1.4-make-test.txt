@@ -1,0 +1,445 @@
+g++  -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/src/main.d" -c "src/main.cpp" -o "/tmp/wls-s14-make/src/main.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/src/cli.d" -c "src/cli.cpp" -o "/tmp/wls-s14-make/src/cli.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/src/store.d" -c "src/store.cpp" -o "/tmp/wls-s14-make/src/store.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/src/offline_runtime.d" -c "src/offline_runtime.cpp" -o "/tmp/wls-s14-make/src/offline_runtime.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/src/event_runtime.d" -c "src/event_runtime.cpp" -o "/tmp/wls-s14-make/src/event_runtime.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/src/worker_tools.d" -c "src/worker_tools.cpp" -o "/tmp/wls-s14-make/src/worker_tools.o"
+g++  -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/journal_tests.d" -c "tests/journal_tests.cpp" -o "/tmp/wls-s14-make/tests/journal_tests.o"
+g++  -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/config_tests.d" -c "tests/config_tests.cpp" -o "/tmp/wls-s14-make/tests/config_tests.o"
+g++  -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/scheduler_tests.d" -c "tests/scheduler_tests.cpp" -o "/tmp/wls-s14-make/tests/scheduler_tests.o"
+g++  -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/task_engine_tests.d" -c "tests/task_engine_tests.cpp" -o "/tmp/wls-s14-make/tests/task_engine_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/runtime_types_tests.d" -c "tests/runtime_types_tests.cpp" -o "/tmp/wls-s14-make/tests/runtime_types_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/store_tests.d" -c "tests/store_tests.cpp" -o "/tmp/wls-s14-make/tests/store_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/event_store_tests.d" -c "tests/event_store_tests.cpp" -o "/tmp/wls-s14-make/tests/event_store_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/workflow_store_tests.d" -c "tests/workflow_store_tests.cpp" -o "/tmp/wls-s14-make/tests/workflow_store_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/config_loader_tests.d" -c "tests/config_loader_tests.cpp" -o "/tmp/wls-s14-make/tests/config_loader_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/model_tests.d" -c "tests/model_tests.cpp" -o "/tmp/wls-s14-make/tests/model_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/schema_tests.d" -c "tests/schema_tests.cpp" -o "/tmp/wls-s14-make/tests/schema_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/offline_runtime_tests.d" -c "tests/offline_runtime_tests.cpp" -o "/tmp/wls-s14-make/tests/offline_runtime_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/event_runtime_tests.d" -c "tests/event_runtime_tests.cpp" -o "/tmp/wls-s14-make/tests/event_runtime_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/workflow_runtime_tests.d" -c "tests/workflow_runtime_tests.cpp" -o "/tmp/wls-s14-make/tests/workflow_runtime_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/workspace_tests.d" -c "tests/workspace_tests.cpp" -o "/tmp/wls-s14-make/tests/workspace_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/sandbox_tests.d" -c "tests/sandbox_tests.cpp" -o "/tmp/wls-s14-make/tests/sandbox_tests.o"
+g++ -isystem third_party/valijson/include -isystem third_party/libyaml/include -DWLS_SOURCE_DIR='"<repo>"' -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread -Iinclude -Itests -MMD -MP -MF "/tmp/wls-s14-make/tests/worker_tools_tests.d" -c "tests/worker_tools_tests.cpp" -o "/tmp/wls-s14-make/tests/worker_tools_tests.o"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/src/main.o" "/tmp/wls-s14-make/libwls861.a"  -o "/tmp/wls-s14-make/wls861"
+ar rcs "/tmp/wls-s14-make/libwls_s1.a" /tmp/wls-s14-make/src/boost_json.o /tmp/wls-s14-make/src/runtime_types.o /tmp/wls-s14-make/src/store.o /tmp/wls-s14-make/src/config_loader.o /tmp/wls-s14-make/src/model.o /tmp/wls-s14-make/src/context.o /tmp/wls-s14-make/src/schema.o /tmp/wls-s14-make/src/offline_runtime.o /tmp/wls-s14-make/src/event_runtime.o /tmp/wls-s14-make/src/workspace_posix.o /tmp/wls-s14-make/src/sandbox_posix.o /tmp/wls-s14-make/src/worker_tools.o
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/journal_tests.o" "/tmp/wls-s14-make/libwls861.a"  -o "/tmp/wls-s14-make/journal_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/config_tests.o" "/tmp/wls-s14-make/libwls861.a"  -o "/tmp/wls-s14-make/config_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/scheduler_tests.o" "/tmp/wls-s14-make/libwls861.a"  -o "/tmp/wls-s14-make/scheduler_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/task_engine_tests.o" "/tmp/wls-s14-make/libwls861.a"  -o "/tmp/wls-s14-make/task_engine_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/runtime_types_tests.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/runtime_types_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/store_tests.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/store_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/event_store_tests.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/event_store_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/workflow_store_tests.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/workflow_store_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/config_loader_tests.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/config_loader_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/model_tests.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/model_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/schema_tests.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/schema_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/offline_runtime_tests.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/offline_runtime_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/event_runtime_tests.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/event_runtime_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/workflow_runtime_tests.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/workflow_runtime_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/workspace_tests.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/workspace_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/sandbox_tests.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/sandbox_tests"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/src/cli.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/wls"
+g++ -O2 -g -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread  "/tmp/wls-s14-make/tests/worker_tools_tests.o" "/tmp/wls-s14-make/libwls_s1.a" "/tmp/wls-s14-make/libwls861.a" -lsqlite3 -lcrypto -l:libyaml-0.so.2  -o "/tmp/wls-s14-make/worker_tools_tests"
+.local/test-venv/bin/python scripts/verify_handoff.py
+PASS handoff: 33 original files; 32 SHA-256 entries plus pinned manifest; 31 payload entries; 51 acceptance cases remain 未执行
+.local/test-venv/bin/python scripts/verify_review_source.py
+PASS v0.4 review source: 49 original files match the pinned SHA-256 manifest
+.local/test-venv/bin/python tests/contracts_tests.py
+test_ack_control_can_progress_with_unknown_but_business_remains_blocked (__main__.SQLiteContracts.test_ack_control_can_progress_with_unknown_but_business_remains_blocked) ... ok
+test_amend_omission_blocks_and_keep_needs_new_instruction_and_ack (__main__.SQLiteContracts.test_amend_omission_blocks_and_keep_needs_new_instruction_and_ack) ... ok
+test_amended_accepted_task_requires_new_version_experience_report (__main__.SQLiteContracts.test_amended_accepted_task_requires_new_version_experience_report) ... ok
+test_card_exposure_missing_evidence_and_duplicate_sources_cannot_inflate (__main__.SQLiteContracts.test_card_exposure_missing_evidence_and_duplicate_sources_cannot_inflate) ... ok
+test_cas_competition_and_failed_transaction_leave_no_partial_state (__main__.SQLiteContracts.test_cas_competition_and_failed_transaction_leave_no_partial_state) ... ok
+test_cleanup_rejects_unknown_and_missing_receipt (__main__.SQLiteContracts.test_cleanup_rejects_unknown_and_missing_receipt) ... ok
+test_dispatch_rechecks_live_revocation_policy (__main__.SQLiteContracts.test_dispatch_rechecks_live_revocation_policy) ... ok
+test_dispatcher_and_foreign_root_cannot_amend_original_requirements (__main__.SQLiteContracts.test_dispatcher_and_foreign_root_cannot_amend_original_requirements) ... ok
+test_disposition_cannot_reopen_terminal_request (__main__.SQLiteContracts.test_disposition_cannot_reopen_terminal_request) ... ok
+test_first_instruction_and_worker_ack_are_both_required (__main__.SQLiteContracts.test_first_instruction_and_worker_ack_are_both_required) ... ok
+test_foreign_keys_one_live_team_and_mutable_version_guardrails (__main__.SQLiteContracts.test_foreign_keys_one_live_team_and_mutable_version_guardrails) ... ok
+test_instruction_exact_retry_and_same_key_different_body (__main__.SQLiteContracts.test_instruction_exact_retry_and_same_key_different_body) ... ok
+test_late_disposition_cannot_be_restamped_for_new_amendment (__main__.SQLiteContracts.test_late_disposition_cannot_be_restamped_for_new_amendment) ... ok
+test_memory_scope_rejects_cross_project_and_unknown_scope (__main__.SQLiteContracts.test_memory_scope_rejects_cross_project_and_unknown_scope) ... ok
+test_multiteam_experience_cleanup_survives_reopen_and_request_deletion (__main__.SQLiteContracts.test_multiteam_experience_cleanup_survives_reopen_and_request_deletion) ... ok
+test_operation_business_idempotency_persists_and_binds_arguments_versions (__main__.SQLiteContracts.test_operation_business_idempotency_persists_and_binds_arguments_versions) ... ok
+test_plan_change_fences_prepared_and_running_operations (__main__.SQLiteContracts.test_plan_change_fences_prepared_and_running_operations) ... ok
+test_request_restart_fences_old_actors_and_marks_running_effect_unknown (__main__.SQLiteContracts.test_request_restart_fences_old_actors_and_marks_running_effect_unknown) ... ok
+test_revision_cas_conflict_is_atomic_and_original_load_is_immutable (__main__.SQLiteContracts.test_revision_cas_conflict_is_atomic_and_original_load_is_immutable) ... ok
+test_scoped_admission_retries_bind_original_content_after_amend (__main__.SQLiteContracts.test_scoped_admission_retries_bind_original_content_after_amend) ... ok
+test_sqlite_full_reopen_integrity_and_no_implicit_migration (__main__.SQLiteContracts.test_sqlite_full_reopen_integrity_and_no_implicit_migration) ... ok
+test_usage_binds_actual_load_revision_task_agent_and_instance (__main__.SQLiteContracts.test_usage_binds_actual_load_revision_task_agent_and_instance) ... ok
+test_versions_a_and_b_load_in_same_task_without_inheriting_old_score (__main__.SQLiteContracts.test_versions_a_and_b_load_in_same_task_without_inheriting_old_score) ... ok
+test_all_local_schemas_examples_and_nested_briefs (__main__.SchemaContracts.test_all_local_schemas_examples_and_nested_briefs) ... ok
+test_complete_submission_requires_load_and_revision (__main__.SchemaContracts.test_complete_submission_requires_load_and_revision) ... ok
+test_deterministic_evidence_not_schema_claim_controls_acceptance (__main__.SchemaContracts.test_deterministic_evidence_not_schema_claim_controls_acceptance) ... ok
+test_findings_51_and_100_round_trip_but_101_rejected (__main__.SchemaContracts.test_findings_51_and_100_round_trip_but_101_rejected) ... ok
+test_frozen_review_rejects_old_candidate_and_reviewer_restart (__main__.SchemaContracts.test_frozen_review_rejects_old_candidate_and_reviewer_restart) ... ok
+test_projection_keeps_same_named_business_fields_in_separate_scopes (__main__.SchemaContracts.test_projection_keeps_same_named_business_fields_in_separate_scopes) ... ok
+test_relay_cannot_weaken_findings_or_acceptance (__main__.SchemaContracts.test_relay_cannot_weaken_findings_or_acceptance) ... ok
+test_revision_proposal_requires_expected_base_and_safe_delivery_name (__main__.SchemaContracts.test_revision_proposal_requires_expected_base_and_safe_delivery_name) ... ok
+test_runtime_projection_rejects_forged_metadata_and_worker_self_approval (__main__.SchemaContracts.test_runtime_projection_rejects_forged_metadata_and_worker_self_approval) ... ok
+test_schema_pass_does_not_allow_omitted_original_constraint (__main__.SchemaContracts.test_schema_pass_does_not_allow_omitted_original_constraint) ... ok
+test_submission_cannot_be_retagged_or_omit_current_criteria (__main__.SchemaContracts.test_submission_cannot_be_retagged_or_omit_current_criteria) ... ok
+test_unknown_external_reference_fails_without_network (__main__.SchemaContracts.test_unknown_external_reference_fails_without_network) ... ok
+test_user_waiver_is_bound_and_cannot_waive_failed_deterministic_check (__main__.SchemaContracts.test_user_waiver_is_bound_and_cannot_waive_failed_deterministic_check) ... ok
+
+----------------------------------------------------------------------
+Ran 36 tests in 1.084s
+
+OK
+"/tmp/wls-s14-make/journal_tests"
+PASS version 1 format, empty and binary round trip
+PASS recovery at every incomplete tail byte
+PASS complete corruption fails without truncation
+PASS checksummed abnormal lengths fail closed
+PASS exclusive writer and inherited fork ownership
+PASS SIGKILL recovery preserves acknowledged append
+PASS real partial write poisons writer and recovers
+PASS maximum payload boundary and oversize poisoning
+PASS file mode, symlink, directory and FIFO guards
+PASS concurrent append and replay preserve order
+RESULT 10 passed, 0 failed
+"/tmp/wls-s14-make/config_tests"
+PASS model and reasoning resolve independently from frozen Root
+PASS inherit disabled provider-default and explicit remain distinct
+PASS unknown models and unsupported reasoning reject
+PASS invalid configurations report explicit errors
+PASS tool grants require Worker and all three allowlists
+RESULT 5 passed, 0 failed
+"/tmp/wls-s14-make/scheduler_tests"
+PASS same resource is FIFO serial while unrelated work progresses
+PASS independent keys execute concurrently
+PASS normal work preserves admission and execution reserve
+PASS saturated normals permit host-chained review and handoff
+PASS runnable classes rotate without starvation
+PASS close cancels queued jobs and waits for running callbacks
+PASS drain completes accepted jobs and future preserves exceptions
+PASS callbacks run outside scheduler mutex
+PASS invalid configuration and duplicate jobs reject
+RESULT 9 passed, 0 failed
+"/tmp/wls-s14-make/task_engine_tests"
+PASS admission/durable-scoped-idempotency
+PASS commands/idempotency-CAS-atomic-events
+PASS roles/Worker-only-cross-team-grants
+PASS amend/requirements-plan-instructions-application
+PASS amend/unhandled-second-team-stays-blocked
+PASS plan/both-teams-old-results-stay-fenced
+PASS instructions/fence-prepared-and-running-operations
+PASS replace/distinct-from-independent-NEW
+PASS cancel/late-result-and-unknown-outcome
+PASS operations/Worker-cancel-control-ownership-quota-replay
+PASS operations/idempotency-without-blind-retry
+PASS restart/automatic-fencing-and-reapplication
+PASS review/new-candidate-invalidates-approval
+PASS artifacts/immutable-version-history
+PASS review/all-assigned-reviewers-must-pass
+PASS review/adverse-evidence-revokes-even-at-quota
+PASS review/changed-instructions-require-fresh-evidence
+PASS candidate/producer-instructions-invalidate-old-review
+PASS delivery/receipt-and-cleanup-separation
+PASS quota/ack-control-progress-with-bounded-retries
+PASS quota/control-settlement-cancel-recovery
+PASS quota/new-work-is-bounded-and-atomic
+PASS concurrency/same-request-CAS
+PASS concurrency/independent-requests-progress
+PASS persistence/interrupted-REPLACE-is-atomic
+PASS persistence/unknown-schema-fails-closed
+PASS config/persisted-Root-snapshot-and-unicode
+PASS quota/oversized-frame-preserves-live-journal
+RESULT 28 passed, 0 failed
+.local/test-venv/bin/python tests/demo_smoke.py "/tmp/wls-s14-make/wls861"
+PASS compiled demo completes two parallel synthetic request lifecycles
+PASS CLI help and version
+PASS CLI invalid input and runtime setup failure return nonzero
+RESULT 3 passed, 0 failed
+"/tmp/wls-s14-make/runtime_types_tests"
+PASS strict JSON rejects duplicates, bad UTF-8 and non-finite input
+PASS canonical bytes and SHA-256 preserve content identity
+PASS typed ULIDs are monotonic and unique across threads
+PASS execution binding round trips keep request and task scopes distinct
+RESULT 4 passed, 0 failed
+"/tmp/wls-s14-make/store_tests"
+PASS SQLite FULL/WAL/FK, writer lease, read-only and repeated migration
+PASS unknown and incomplete reference databases remain intact
+PASS scoped immutable admission and original retry after AMEND
+PASS state, plan and event commit atomically
+PASS initial instruction, bounded acknowledgment and durable command retry
+PASS full assigned constraint text and frozen team capacity
+PASS AMEND omission stays paused and old dispositions cannot be retagged
+PASS plan-only rebind fences running effects and old results
+PASS operation idempotency, owner, cancellation and reconciliation
+PASS ordinary tool quota preserves instruction/cancel controls
+PASS durable model reservations, exact retry and nullable accounting
+PASS complete model envelope and frozen permissions precede reservation
+PASS late model response is accounted without current-version retagging
+PASS restart keeps UNKNOWN operation and model reservations
+PASS concurrent request CAS has exactly one successful commit
+PASS cancelled request retains accounting and exact control retry
+PASS process crash retains committed request and rolls back partial SQL
+PASS populated 402 migration preserves snapshots, attempts and intents
+PASS failed 403 migration leaves data, schema version and events intact
+PASS workspace identities and execution policies are immutable across teams and recovery
+PASS workspace cannot enclose this Store database, writer lease or SQLite side files
+PASS static business registry preserves quota and exact durable intents
+PASS concurrent same-key intent and command have one durable dispatch claim
+PASS original execution facts and bounded binary output commit atomically
+PASS AMEND, cancellation and restart retain stale facts without resolving UNKNOWN
+PASS old business keys return original results across instruction changes and restart
+PASS diagnostics and controls keep current identity, grants and read-only guards
+PASS revoking one tool preserves other model declarations and business grants
+PASS exact tool ack replay preserves new pending instructions across epochs
+PASS tool cancellation retries retain the original command despite changed op state
+RESULT 30 passed, 0 failed
+"/tmp/wls-s14-make/event_store_tests"
+PASS 403 upgrade rollback, immutable snapshots and read-only 404 fingerprint guards
+PASS captured IDs complete partially and later arrivals remain pending
+PASS competing role claims acquire one durable owner
+PASS takeover releases captured items and fences old tokens
+PASS independent initial allocation rolls back every plan/team/event on failure
+PASS independent plan guards reject duplicate, dependent and identity-changing nodes
+PASS AMEND omission remains pending and later keep uses the same plan
+PASS Worker wait gates new effects and reservations while controls remain available
+PASS wait survives epoch-only recovery and rejects changed semantic targets
+PASS wake never reconciles an UNKNOWN effect
+PASS immutable scoped history retains complete observations and explicit missing results
+PASS late feedback retains its binding and failed feedback/event transaction rolls back
+PASS populated 403 upgrade preserves original operation and model accounting facts
+PASS ordinary event exhaustion preserves feedback, settlement, cancel and wake controls
+PASS request inbox reports unhandled events for retired actors without truncation
+RESULT 15 passed, 0 failed
+"/tmp/wls-s14-make/workflow_store_tests"
+PASS 405 upgrade, rollback, read-only and fingerprints
+PASS question wait is atomic, scoped and cannot be bypassed
+PASS question forwarding preserves original chain and owners
+PASS question controls do not resolve UNKNOWN
+PASS current question policy control rejects stale captures without deadlock
+PASS AMEND supersedes original question and submission
+PASS question retries and exact answer selection
+PASS question failure rolls back wait and row
+PASS nonblocking questions and bounded history
+PASS submission retains original binary snapshot across restart
+PASS invalid snapshot hashes, bytes, paths and coverage
+PASS snapshot capacities and submission atomic rollback
+PASS submission needs grants, workspace, applied and settled ops
+PASS submission hold and TeamLead ownership
+PASS passing check requires complete consistent evidence
+PASS changed policy permits current negative checks before resubmission
+PASS rework revisions, acknowledgement and frozen bound
+PASS invalid rework and failed storage roll back
+PASS one concurrent captured check and exact replay
+PASS normal checks and reserved adverse revocation capacity
+PASS original question and snapshot immutability
+RESULT 21 passed, 0 failed
+"/tmp/wls-s14-make/config_loader_tests"
+PASS configuration sample loads with field provenance and literal environment paths
+PASS role fields resolve independently from frozen Root
+PASS loaded configuration and restored requests ignore later disk changes
+PASS snapshot fingerprints are independent of checkout location
+PASS snapshot integrity checks dependencies and recomputed role bindings
+PASS strict YAML rejects ambiguous strings duplicate keys anchors and extra documents
+PASS scalar types unknown models and unsupported reasoning reject
+PASS control amendment and review capacity policies remain mandatory
+PASS unimplemented real calls memory cleanup and paid retries reject
+PASS budget durability and explicit weak isolation policies validate
+PASS template references reject traversal and file or directory symlinks
+PASS configuration parsing and frozen payload have explicit capacity bounds
+PASS template dispatch requires a host registered deterministic validator
+PASS environment check commands are data and never execute on load or restore
+PASS unknown functions capabilities roles and tools reject
+RESULT 15 passed, 0 failed
+"/tmp/wls-s14-make/model_tests"
+PASS context hashes actual stable bytes and preserves dynamic originals
+PASS all relevant text and model dependencies affect cache identity
+PASS context canonicalizes declarations and frames ambiguous text
+PASS oversized context and unresolved reasoning fail without truncation
+PASS restoring compiled context checks bytes and cache parameters
+PASS rehashed role/tool metadata and malformed context frames reject
+PASS fake roles and call sequences select independent script steps
+PASS delayed response retains its original frozen execution tuple
+PASS raw tool responses preserve usage before host validation
+PASS partial and error responses cannot authorize tools
+PASS cancel and timeout preserve unknown usage; late transport stays fenced
+PASS missing usage remains null rather than zero
+PASS request and response round trips preserve separate attempt identity
+PASS invalid reservations and frozen-context mismatches reject
+PASS fake script shape, sequences and delay limits are bounded
+RESULT 15 passed, 0 failed
+"/tmp/wls-s14-make/schema_tests"
+PASS all 13 complete examples validate with the 16-schema closed registry
+PASS complete records enforce binding, usage and strong types
+PASS model input cannot forge host metadata or self-approval
+PASS projection removes host conditions and preserves business conditions
+PASS projection scopes host names without weakening nested business fields
+PASS plan team briefs and draft-07 conditional requirements validate
+PASS 100 findings remain legal and unique constraints are enforced
+PASS registered relative references preserve model projection and deny host fields
+PASS local JSON Pointers, boolean schemas and patterns are enforced
+PASS unvisited remote, file and traversal refs fail before validation
+PASS duplicate IDs, duplicate JSON keys and missing pointers reject
+PASS schema symlinks and unsupported declared drafts reject
+RESULT 12 passed, 0 failed
+"/tmp/wls-s14-make/offline_runtime_tests"
+PASS offline chain persists exact model input, instructions and note evidence
+PASS invalid plan constraints keep accounting but do not change the plan
+PASS forged host fields and undeclared Worker tools never apply
+PASS AMEND fences late output and keep requires fresh instruction and ack
+PASS interrupted usage holds reservation while cancellation retains capacity
+PASS read-only access is inert and restart fences pending call before resume
+PASS published plan resumes task binding after process restart
+PASS explicit cancel disposition does not create a Worker model attempt
+PASS bounded input reads reject parent/leaf symlinks and special files
+RESULT 9 passed, 0 failed
+"/tmp/wls-s14-make/event_runtime_tests"
+PASS strict grouped scripts reject ambiguity and workspace host aliasing
+PASS independent tasks persist real files and scoped original feedback
+PASS partial AMEND and later keep retain a single current plan
+PASS waiting task leaves all model and tool opportunities to its sibling
+PASS empty groups and bounded calls retain exact pending work
+PASS partial workspace mapping gives no implicit note or sibling access
+PASS claim failure reserves nothing and tool error ends only its actor batch
+PASS duplicate accepted diagnostic returns its exact old observation
+PASS settled attempt without feedback stays explicitly missing
+PASS restart reissues necessary orders and preserves original history bindings
+PASS full history overflow blocks before creating a new reservation
+PASS frozen manager and attempt budgets preserve unprocessed work
+PASS terminal actors retain visible unprocessed event history
+PASS legacy single-task runner cannot supersede a durable Worker wait
+RESULT 14 passed, 0 failed
+"/tmp/wls-s14-make/workflow_runtime_tests"
+PASS bounded submit-check-rework-resubmit keeps original candidates
+PASS TeamLead checks original snapshot despite later workspace mutation
+PASS binary submission bytes remain lossless and explicitly non-text
+PASS question forwarding and user answer release only the matching wait
+PASS captured question identity and CAS reject retargeting and stale decisions
+PASS question model inputs reject identity CAS and order bypass
+PASS submission and check schemas reject self-approval and forged rework
+PASS submission snapshots require complete authorized bounded files
+PASS ask-only Worker policy does not require or declare note
+PASS legacy runner cannot erase a pending question or submission
+PASS restart answers original question before applying new epoch order
+PASS restart checks submitted original bytes without replacing its order
+PASS AMEND rejects stale checks and preserves original candidate bindings
+PASS missing script and exhausted budget retain unprocessed submissions
+RESULT 14 passed, 0 failed
+"/tmp/wls-s14-make/workspace_tests"
+PASS workspace identity, CLOEXEC root descriptor and durable creation
+PASS CAS creation and inode-atomic replacement preserve previous open readers
+PASS paged reads keep full hashes and encode arbitrary bytes losslessly
+PASS read-only policy and relative path/parent boundaries
+PASS symlinks, magic links, hard links and special files fail closed
+PASS root ancestors and directory/file ownership permissions are checked
+PASS directory cursor pages are sorted and bounded
+PASS literal search preserves byte offsets and reports truncation explicitly
+PASS file, workspace, response and entry capacities reject before effects
+PASS patch binds complete digest and exact byte range including binary data
+PASS patch rejects repeated and overlapping expected bytes before any staging
+PASS injected file fsync failure cleans staging without target effects
+PASS injected directory fsync failure after rename remains UNKNOWN
+PASS injected unprovable staging cleanup remains UNKNOWN
+PASS destination and parent changes are rechecked before publish
+PASS two workspace instances serialize a competing CAS
+PASS cooperating processes share a directory inode advisory lock
+PASS renamed root is rejected instead of silently adopting its replacement
+PASS real child seccomp denial of openat2 has no weaker fallback
+RESULT 19 passed, 0 failed
+"/tmp/wls-s14-make/sandbox_tests"
+PASS trusted fixture preserves literal argv, explicit env and both output streams
+PASS exec closes inherited host descriptors
+PASS nonzero exit and signals retain distinct outcome evidence
+PASS timeout and stop_token cancellation are bounded
+PASS combined output cap stops a continuously writing child
+PASS blocked fixture action starts only after the host releases its gate
+PASS exec and pre-exec containment failures cannot run fixture code
+PASS setsid descendant escape stays UNKNOWN in supervisor-only fixture
+PASS failed descendant query cannot reuse an earlier empty observation
+PASS mountinfo rejects nested and propagating workspace mounts
+PASS workspace audit rejects unsafe inodes, modes and traversal overflow
+PASS binary output retains exact bytes and valid JSON
+PASS production policy, arguments and cwd reject unsafe boundaries
+PASS doctor is read-only and production refuses absent or forged isolation
+PASS runtime hash pins sealed bytes and restricts mount destinations
+PASS workspace flock serializes file and process ownership
+[OBSERVED] {"bwrap_available":true,"cgroup_v2":true,"delegated_root_ready":false,"evidence":{"/proc/sys/kernel/apparmor_restrict_unprivileged_userns":"unavailable","/proc/sys/kernel/unprivileged_userns_clone":"unavailable","/proc/sys/user/max_user_namespaces":"2147483647\n","bwrap_sha256":"52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712","bwrap_version":"not-executed","namespace_execution_tested":false,"network":"none","probe":"read-only-prerequisites","programs_executed":0,"weak_fallback_available":false},"issues":["a frozen bubblewrap SHA-256 is required for strong execution","no trusted runtime file manifest configured","no dedicated delegated cgroup v2 root configured"],"linux_supported":true,"runtime_files_ready":false,"strong_prerequisites":false}
+PASS actual environment doctor does not execute programs or claim strong test
+RESULT 17 passed, 0 failed
+"/tmp/wls-s14-make/worker_tools_tests"
+PASS static registration and frozen request tool grants
+PASS durable real file write/read/patch and side-effect-free business replay
+PASS AMEND rejects old model file effects while retaining usage
+PASS old business key only reads its fact during a pending new instruction
+PASS workspace directory and execution manifest binding are immutable
+PASS non-Worker, cross-workspace and model authority forgery are rejected
+PASS missing strong sandbox gives a durable FAILED result without spawning
+PASS read-only diagnostics do not mutate epochs, task state, budgets or events
+PASS UNKNOWN preserves diagnostics and instruction control while blocking business
+PASS bounded model loop preserves original text and complete tool feedback
+PASS Worker call bounds and failed tools stop subsequent model effects
+PASS payload, path and schema restrictions precede filesystem effects
+PASS concurrent exact commands have at most one actual execution owner
+PASS current policy revocation removes tools from new model contexts
+PASS SQLite result-event failure after file effect blocks further business
+PASS prepared concurrent call cannot claim after another result and all fallbacks fail
+PASS exact old ack replay cannot acknowledge a newer instruction
+RESULT 17 passed, 0 failed
+.local/test-venv/bin/python tests/s1_cli_smoke.py "/tmp/wls-s14-make/wls" "<repo>"
+test_amend_requires_disposition_without_spending_then_updates (__main__.OfflineCliSmoke.test_amend_requires_disposition_without_spending_then_updates) ... ok
+test_budget_exhaustion_preserves_cancel_control (__main__.OfflineCliSmoke.test_budget_exhaustion_preserves_cancel_control) ... ok
+test_config_and_schema_commands_run_from_another_directory (__main__.OfflineCliSmoke.test_config_and_schema_commands_run_from_another_directory) ... ok
+test_duplicate_unknown_and_bad_options_are_structured_errors (__main__.OfflineCliSmoke.test_duplicate_unknown_and_bad_options_are_structured_errors) ... ok
+test_read_only_views_do_not_fence_or_append_events (__main__.OfflineCliSmoke.test_read_only_views_do_not_fence_or_append_events) ... ok
+test_reopen_uses_frozen_config_after_source_files_are_removed (__main__.OfflineCliSmoke.test_reopen_uses_frozen_config_after_source_files_are_removed) ... ok
+test_submit_exact_key_replays_and_changed_input_conflicts (__main__.OfflineCliSmoke.test_submit_exact_key_replays_and_changed_input_conflicts) ... ok
+test_three_role_fake_run_persists_attempts_context_and_note (__main__.OfflineCliSmoke.test_three_role_fake_run_persists_attempts_context_and_note) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 1.766s
+
+OK
+.local/test-venv/bin/python tests/s12_cli_smoke.py "/tmp/wls-s14-make/wls" "<repo>"
+test_doctor_is_read_only_and_new_database_uses_current_schema (__main__.WorkerCliSmoke.test_doctor_is_read_only_and_new_database_uses_current_schema) ... ok
+test_invalid_new_options_do_not_open_a_writer (__main__.WorkerCliSmoke.test_invalid_new_options_do_not_open_a_writer) ... ok
+test_multi_step_file_chain_persists_facts_and_complete_feedback (__main__.WorkerCliSmoke.test_multi_step_file_chain_persists_facts_and_complete_feedback) ... ok
+test_overwrite_conflict_stops_the_explicit_worker_batch (__main__.WorkerCliSmoke.test_overwrite_conflict_stops_the_explicit_worker_batch) ... ok
+test_process_without_manifest_refuses_and_persists_no_spawn (__main__.WorkerCliSmoke.test_process_without_manifest_refuses_and_persists_no_spawn) ... ok
+test_read_only_tool_pages_preserve_epochs_events_and_budget (__main__.WorkerCliSmoke.test_read_only_tool_pages_preserve_epochs_events_and_budget) ... ok
+test_read_paths_and_diagnostic_class_cannot_be_forged (__main__.WorkerCliSmoke.test_read_paths_and_diagnostic_class_cannot_be_forged) ... ok
+test_workspace_identity_and_policy_drift_are_rejected (__main__.WorkerCliSmoke.test_workspace_identity_and_policy_drift_are_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 5.593s
+
+OK
+.local/test-venv/bin/python tests/s13_cli_smoke.py "/tmp/wls-s14-make/wls" "<repo>"
+test_amendment_supersedes_old_wait_without_authorizing_the_new_task (__main__.EventCliSmoke.test_amendment_supersedes_old_wait_without_authorizing_the_new_task) ... ok
+test_call_cap_and_missing_group_retain_specific_pending_work (__main__.EventCliSmoke.test_call_cap_and_missing_group_retain_specific_pending_work) ... ok
+test_independent_files_and_original_diagnostic_feedback (__main__.EventCliSmoke.test_independent_files_and_original_diagnostic_feedback) ... ok
+test_invalid_options_and_foreign_scopes_do_not_reserve_attempts (__main__.EventCliSmoke.test_invalid_options_and_foreign_scopes_do_not_reserve_attempts) ... ok
+test_legacy_single_task_runner_preserves_wait_until_exact_wake (__main__.EventCliSmoke.test_legacy_single_task_runner_preserves_wait_until_exact_wake) ... ok
+test_partial_amendment_keeps_omitted_task_pending_then_explicit_keep_applies (__main__.EventCliSmoke.test_partial_amendment_keeps_omitted_task_pending_then_explicit_keep_applies) ... ok
+test_read_only_inbox_history_and_capacity_error_preserve_all_rows (__main__.EventCliSmoke.test_read_only_inbox_history_and_capacity_error_preserve_all_rows) ... ok
+test_reopen_restores_original_bytes_and_only_the_same_workers_history (__main__.EventCliSmoke.test_reopen_restores_original_bytes_and_only_the_same_workers_history) ... ok
+test_wait_survives_reopen_releases_other_task_and_needs_exact_generation (__main__.EventCliSmoke.test_wait_survives_reopen_releases_other_task_and_needs_exact_generation) ... ok
+test_workspace_map_rejects_conflicts_before_opening_a_writer (__main__.EventCliSmoke.test_workspace_map_rejects_conflicts_before_opening_a_writer) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 12.949s
+
+OK
+.local/test-venv/bin/python tests/s14_cli_smoke.py "/tmp/wls-s14-make/wls" "<repo>"
+test_amendment_supersedes_old_questions_and_submissions_without_adopting_them (__main__.WorkflowCliSmoke.test_amendment_supersedes_old_questions_and_submissions_without_adopting_them) ... ok
+test_answer_preflight_rejects_wrong_owner_version_option_and_repeated_answer (__main__.WorkflowCliSmoke.test_answer_preflight_rejects_wrong_owner_version_option_and_repeated_answer) ... ok
+test_blocking_question_survives_reopen_and_releases_sibling_progress (__main__.WorkflowCliSmoke.test_blocking_question_survives_reopen_and_releases_sibling_progress) ... ok
+test_hierarchical_forwarding_preserves_original_question_and_root_answer (__main__.WorkflowCliSmoke.test_hierarchical_forwarding_preserves_original_question_and_root_answer) ... ok
+test_invalid_model_fields_and_missing_scripts_preserve_specific_pending_objects (__main__.WorkflowCliSmoke.test_invalid_model_fields_and_missing_scripts_preserve_specific_pending_objects) ... ok
+test_manual_wake_and_legacy_runner_cannot_bypass_an_open_question (__main__.WorkflowCliSmoke.test_manual_wake_and_legacy_runner_cannot_bypass_an_open_question) ... ok
+test_one_finite_pump_completes_local_rework_without_business_acceptance (__main__.WorkflowCliSmoke.test_one_finite_pump_completes_local_rework_without_business_acceptance) ... ok
+test_rework_requires_new_instruction_ack_before_second_version_submission (__main__.WorkflowCliSmoke.test_rework_requires_new_instruction_ack_before_second_version_submission) ... ok
+test_submission_capture_rejects_missing_and_escaping_files_without_candidates (__main__.WorkflowCliSmoke.test_submission_capture_rejects_missing_and_escaping_files_without_candidates) ... ok
+test_submission_captures_complete_original_bytes_and_stops_further_worker_calls (__main__.WorkflowCliSmoke.test_submission_captures_complete_original_bytes_and_stops_further_worker_calls) ... ok
+test_team_lead_check_uses_original_snapshot_after_host_file_changes (__main__.WorkflowCliSmoke.test_team_lead_check_uses_original_snapshot_after_host_file_changes) ... ok
+test_workflow_queries_and_invalid_host_options_do_not_change_persistent_rows (__main__.WorkflowCliSmoke.test_workflow_queries_and_invalid_host_options_do_not_change_persistent_rows) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 15.625s
+
+OK

@@ -40,6 +40,9 @@ public:
               const EventPumpOptions& options = {});
 
 private:
+    Json pump_workflow(const std::string& request_id,
+                       const EventFakeScript& script,
+                       const EventPumpOptions& options);
     Store& store_;
     const SchemaRegistry& schemas_;
     std::map<std::string, WorkerTools*> tools_by_node_;

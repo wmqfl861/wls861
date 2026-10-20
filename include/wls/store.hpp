@@ -71,7 +71,8 @@ public:
           std::string_view base_schema_sql, std::string_view migration_sql,
           StoreOpenMode mode = StoreOpenMode::Takeover,
           std::string_view tools_migration_sql = {},
-          std::string_view events_migration_sql = {});
+          std::string_view events_migration_sql = {},
+          std::string_view workflow_migration_sql = {});
     ~Store();
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;
@@ -130,6 +131,55 @@ public:
     // More than limit records fails explicitly rather than dropping history.
     std::vector<Json> attempt_history(const StoreActor& actor,
                                       std::int64_t limit = 256) const;
+
+    // S1.4 question/answer and local submission checking require the known 007
+    // asset. These bounded records retain their original semantic bindings;
+    // epoch-only recovery never relabels old observations as new content.
+    bool workflow_runtime_enabled() const;
+    Json question(const std::string& question_id) const;
+    std::vector<Json> questions(const std::string& request_id,
+                                const std::string& task_id = {},
+                                std::int64_t limit = 128) const;
+    Json submission(const std::string& submission_id) const;
+    std::vector<Json> submissions(const std::string& task_id,
+                                  std::int64_t limit = 64) const;
+    Json current_submission(const std::string& task_id) const;
+    Json ask_question(const StoreActor& actor, const ExecutionBinding& binding,
+                      std::int64_t expected_task_version, const Json& body,
+                      const std::string& command_id);
+    // Question controls retain the producer's policy as history while checking
+    // this action's captured/current policy. Unrelated policy changes cannot
+    // strand an unanswered blocking question; stale captured actions still fail.
+    Json forward_question(const StoreActor& actor,
+                          const ExecutionBinding& captured_actor_binding,
+                          const std::string& question_id,
+                          std::int64_t expected_question_version,
+                          const std::string& note, const std::string& command_id);
+    Json answer_question(const StoreActor& actor,
+                         const ExecutionBinding& captured_actor_binding,
+                         const std::string& question_id,
+                         std::int64_t expected_question_version,
+                         const Json& answer, const std::string& command_id);
+    // Host fs_read captures an array of exactly {path,sha256,size_bytes,
+    // content_base64}; Store checks canonical base64, hashes, complete bytes,
+    // path coverage and frozen grants before committing immutable snapshots.
+    // At most 8 files, 64 KiB each and 256 KiB total; no delivery acceptance.
+    Json submit_work(const StoreActor& actor, const ExecutionBinding& binding,
+                     std::int64_t expected_task_version, const Json& body,
+                     const Json& artifact_snapshot,
+                     const std::string& command_id);
+    // check_body is {passed,notes?,criteria_results?}. A failed check requires
+    // a new WorkOrder and is bounded by the frozen team rework limit. A pass
+    // marks CANDIDATE_READY only; it never accepts or delivers the business.
+    // Positive checks require the original producer policy to remain current;
+    // current-policy negative checks may return an obsolete-policy submission.
+    Json check_submission(const StoreActor& actor,
+                          const ExecutionBinding& captured_binding,
+                          std::int64_t expected_task_version,
+                          const std::string& submission_id,
+                          std::int64_t expected_submission_version,
+                          const Json& check_body, const Json& rework_order,
+                          const std::string& command_id);
 
     StoreActor host_actor(Role role, const std::string& request_id,
                           const std::string& team_id = {}) const;

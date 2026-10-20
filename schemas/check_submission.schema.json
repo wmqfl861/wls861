@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/v0.4.1/check_submission.schema.json",
+  "title": "Check captured submission",
+  "description": "TeamLead check of one host-captured immutable submission. A positive check awaits separate acceptance. A negative check includes the next work order without changing the task's acceptance criteria.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["passed"],
+  "properties": {
+    "passed": {"type": "boolean"},
+    "notes": {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": "\\S"},
+    "criteria_results": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterion_id", "met"],
+        "properties": {
+          "criterion_id": {"type": "string", "pattern": "^ac[0-9]{1,3}$", "maxLength": 8},
+          "met": {"enum": ["yes", "no", "partial"]},
+          "note": {"type": "string", "minLength": 1, "maxLength": 1000}
+        }
+      }
+    },
+    "work_order": {"$ref": "work_order.schema.json"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"passed": {"const": false}}, "required": ["passed"]},
+      "then": {"required": ["work_order"]},
+      "else": {"not": {"required": ["work_order"]}}
+    }
+  ]
+}

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0-s1.4 — 2026-10-19
+
+Continue the v0.4.1 blueprint from the S1.3 durable event runtime.
+
+- Add SQLite migration 007 / schema 405 while preserving the earlier migration
+  assets and original question, submission, check and model-call bindings.
+- Route Worker questions through TeamLead and Dispatcher to an explicit user
+  answer. Keep original text and options immutable, and end only the question's
+  exact wait; unrelated tasks continue.
+- Capture complete bounded workspace file bytes, hashes and sizes when a Worker
+  submits. TeamLead views use the saved snapshot even after live files change.
+- Add captured-target local checks, evidence consistency gates, frozen rework
+  limits and new task/instruction revisions requiring a fresh Worker ack.
+- Preserve current-policy control recovery, reject stale responses and keep
+  pending work when scripts, calls, budgets or context capacity run out.
+- Add read-only questions/submissions and explicit answer CLI commands, actual
+  workflow fixtures, C++/CLI regression groups and synchronized planning docs.
+
+TeamLead success is CANDIDATE_READY. Independent review, business acceptance,
+delivery packages, receipts and recoverable cleanup remain separate increments.
+See [the implementation contract](docs/implementation/S1-workflow-runtime.md)
+and [the validation report](docs/reports/s1-workflow-runtime-validation.md).
+The S1.1–S1.3 reports retain their original evidence and scope.
+
 ## 0.1.1-m1 — 2026-10-17
 
 Reconcile the v0.4 review into the v0.4.1 target blueprint while continuing the
