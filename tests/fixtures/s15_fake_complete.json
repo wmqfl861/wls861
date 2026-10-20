@@ -1,0 +1,239 @@
+{
+  "default": [
+    {
+      "role": "dispatcher",
+      "role_call_index": 1,
+      "status": "completed",
+      "tool_calls": [
+        {
+          "call_id": "plan-current",
+          "name": "submit_plan",
+          "arguments": {
+            "summary": "独立任务保存文件，经过团队检查和Dispatcher验收后生成本地交付包。",
+            "nodes": [
+              {
+                "node_id": "alpha",
+                "kind": "team_task",
+                "title": "独立任务 alpha",
+                "depends_on": [],
+                "required": true,
+                "brief": {
+                  "title": "任务 alpha",
+                  "goal": "在任务 alpha 的独立目录记录当前版本的文本及诊断证据。",
+                  "acceptance_criteria": [
+                    {
+                      "id": "ac1",
+                      "text": "文件及其原绑定事实持久化；后续上下文保留原始观察。"
+                    }
+                  ],
+                  "constraints_verbatim": [
+                    "只读写明确指定的工作目录",
+                    "不要调用外部服务"
+                  ],
+                  "constraint_refs": [
+                    "c1",
+                    "c2"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cost_micro_usd": 0
+      }
+    },
+    {
+      "role": "dispatcher",
+      "role_call_index": 2,
+      "status": "completed",
+      "tool_calls": [
+        {
+          "call_id": "dispatcher-accept_candidate-2",
+          "name": "accept_candidate",
+          "arguments": {
+            "passed": true,
+            "notes": "Dispatcher依据当前任务、原提交字节与团队检查做单独业务判断。固定Fake决策只验证运行时流程，不代表真实模型质量。",
+            "criteria_results": [
+              {
+                "criterion_id": "ac1",
+                "met": "yes",
+                "evidence": "result.txt原始完整字节、原绑定和持久化提交/检查记录对应当前任务。"
+              }
+            ]
+          }
+        }
+      ],
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cost_micro_usd": 0
+      }
+    }
+  ],
+  "nodes": {
+    "alpha": [
+      {
+        "role": "team_lead",
+        "role_call_index": 1,
+        "status": "completed",
+        "tool_calls": [
+          {
+            "call_id": "order-alpha",
+            "name": "issue_work_order",
+            "arguments": {
+              "approach": "确认当前说明后执行本任务的受控文件工具。",
+              "steps": [
+                {
+                  "id": "s1",
+                  "text": "新建本版本文件，必要时进行分页诊断；不覆盖旧版事实。"
+                }
+              ],
+              "constraints_verbatim": [
+                "只读写明确指定的工作目录",
+                "不要调用外部服务"
+              ],
+              "constraint_refs": [
+                "c1",
+                "c2"
+              ],
+              "done_definition": "原始工具结果已经保存；业务验收与交付仍未执行。"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost_micro_usd": 0
+        }
+      },
+      {
+        "role": "worker",
+        "role_call_index": 1,
+        "status": "completed",
+        "tool_calls": [
+          {
+            "call_id": "write-result",
+            "name": "fs_write",
+            "arguments": {
+              "path": "result.txt",
+              "content": "alpha candidate version 1\n"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost_micro_usd": 0
+        }
+      },
+      {
+        "role": "worker",
+        "role_call_index": 2,
+        "status": "completed",
+        "tool_calls": [
+          {
+            "call_id": "submit-alpha",
+            "name": "submit",
+            "arguments": {
+              "summary": "保存 alpha 的完整文件快照，并提交 TeamLead 检查。",
+              "deliverables": [
+                {
+                  "path": "/work/result.txt",
+                  "description": "本次提交的 alpha 文件。"
+                }
+              ],
+              "verification": [
+                {
+                  "check": "ac1",
+                  "method": "固定 Fake 文件写入后由宿主捕获完整原始字节和 SHA-256。",
+                  "result": "pass",
+                  "evidence": "/work/result.txt 的提交快照。"
+                }
+              ],
+              "self_check": [
+                {
+                  "criterion_id": "ac1",
+                  "met": "yes",
+                  "evidence": "已保存完整文件快照及其原始执行版本。"
+                }
+              ],
+              "known_issues": [],
+              "used_memories": []
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost_micro_usd": 0
+        }
+      },
+      {
+        "role": "team_lead",
+        "role_call_index": 2,
+        "status": "completed",
+        "tool_calls": [
+          {
+            "call_id": "team_lead-check_submission-2",
+            "name": "check_submission",
+            "arguments": {
+              "passed": true,
+              "notes": "按提交时的原始字节检查；只产生候选，不替代Dispatcher验收。",
+              "criteria_results": [
+                {
+                  "criterion_id": "ac1",
+                  "met": "yes",
+                  "note": "完整文件快照、哈希和绑定已保存，原自检与验证证据一致。"
+                }
+              ]
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost_micro_usd": 0
+        }
+      },
+      {
+        "role": "team_lead",
+        "role_call_index": 3,
+        "status": "completed",
+        "tool_calls": [
+          {
+            "call_id": "team_lead-report_experience-3",
+            "name": "report_experience",
+            "arguments": {
+              "no_new_experience": true,
+              "entries": [],
+              "memory_assessments": []
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost_micro_usd": 0
+        }
+      }
+    ]
+  }
+}

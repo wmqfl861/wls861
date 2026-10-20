@@ -102,17 +102,6 @@ Json captured_contract(const ModelRequest& request) {
     return parse_json_strict(bytes.substr(0, length), 1024U * 1024U);
 }
 
-Json workflow_target(Role role, const std::vector<Json>& questions, const Json& submission) {
-    if (role == Role::Dispatcher || role == Role::TeamLead)
-        for (const auto& question : questions)
-            if (string_at(question, "status") == "OPEN" &&
-                    string_at(question, "holder") == role_name(role))
-                return Object{{"kind", "question"}, {"target", question}};
-    if (role == Role::TeamLead && !submission.is_null() && string_at(submission, "status") == "SUBMITTED")
-        return Object{{"kind", "submission"}, {"target", submission}};
-    return nullptr;
-}
-
 Json submission_snapshot(WorkerTools& tools, Store& store, const StoreActor& actor,
                          const ExecutionBinding& binding, const Json& body) {
     const auto grants = store.authorized_worker_tools(actor, binding);
@@ -314,6 +303,50 @@ FrozenRequestConfig restore_request_config(const Json& record) {
                                         string_at(record, "config_snapshot_sha256"));
 }
 
+Json next_workflow_action(Store& store, Role role, const std::string& request_id,
+                          const std::string& task_id) {
+    if (!store.workflow_runtime_enabled() || (role != Role::Dispatcher && role != Role::TeamLead))
+        return nullptr;
+    const auto request = store.request(request_id);
+    const auto status = string_at(request, "status");
+    const bool terminal_request = status == "DELIVERED" || status == "FAILED" ||
+        status == "CANCELLED" || status == "SUPERSEDED";
+    const auto task_terminal = [&](const std::string& subject) {
+        if (!store.acceptance_runtime_enabled()) return false;
+        const auto current_status = string_at(store.task(subject), "status");
+        return current_status == "ACCEPTED" || current_status == "FAILED" || current_status == "CANCELLED" ||
+            current_status == "SKIPPED" || current_status == "SUPERSEDED";
+    };
+    if (!terminal_request) {
+        for (const auto& question : store.questions(request_id, task_id))
+            if (string_at(question, "status") == "OPEN" &&
+                    string_at(question, "holder") == role_name(role) &&
+                    !task_terminal(string_at(question, "task_id")))
+                return Object{{"kind", "question"}, {"target", question}};
+        if (role == Role::TeamLead && !task_terminal(task_id)) {
+            const auto submission = store.current_submission(task_id);
+            if (!submission.is_null() && string_at(submission, "status") == "SUBMITTED")
+                return Object{{"kind", "submission"}, {"target", submission}};
+        }
+        if (role == Role::Dispatcher && store.acceptance_runtime_enabled()) {
+            for (const auto& task : store.tasks(request_id)) {
+                if (string_at(task, "status") != "SUBMITTED" ||
+                    integer_at(task, "based_on_requirements_revision") != integer_at(request, "requirements_revision") ||
+                    integer_at(task, "plan_revision") != integer_at(request, "plan_revision")) continue;
+                const auto submission = store.current_submission(string_at(task, "task_id"));
+                if (!submission.is_null() && string_at(submission, "status") == "CANDIDATE_READY")
+                    return Object{{"kind", "acceptance"}, {"target", submission},
+                        {"expected_task_version", task.at("state_version")}};
+            }
+        }
+    }
+    if (role == Role::TeamLead && store.acceptance_runtime_enabled())
+        for (const auto& job : store.experience_jobs(request_id, task_id))
+            if (string_at(job, "status") != "DONE")
+                return Object{{"kind", "experience"}, {"target", job}};
+    return nullptr;
+}
+
 OfflineRuntime::OfflineRuntime(Store& store, const SchemaRegistry& schemas, WorkerTools* worker_tools)
     : store_(store), schemas_(schemas), worker_tools_(worker_tools) {}
 
@@ -344,10 +377,29 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
         for (const auto& question : questions) visible_questions.push_back(question);
         contract.as_object()["questions"] = std::move(visible_questions);
         contract.as_object()["submission"] = submission;
-        action = workflow_target(role, questions, submission);
+        action = next_workflow_action(store_, role, request_id, task_id);
         contract.as_object()["workflow_action"] = action;
         if (role == Role::TeamLead && !action.is_null() && string_at(action, "kind") == "submission")
             contract.as_object()["submission_file_views"] = submission_file_views(submission);
+        if (!action.is_null() && string_at(action, "kind") == "acceptance") {
+            const auto& target = action.at("target");
+            const auto producer_task_id = string_at(target, "task_id");
+            contract.as_object()["acceptance_task"] = store_.task(producer_task_id);
+            contract.as_object()["acceptance_instruction"] = store_.instruction(producer_task_id);
+            contract.as_object()["submission_file_views"] = submission_file_views(target);
+        }
+        if (!action.is_null() && string_at(action, "kind") == "experience") {
+            const auto& source = action.at("target").at("source_snapshot");
+            const auto* original_submission = source.as_object().if_contains("submission");
+            if (original_submission) {
+                contract.as_object()["experience_file_views"] = submission_file_views(*original_submission);
+                contract.as_object()["experience_scope"] = Object{
+                    {"control_binding", to_json(binding)},
+                    {"original_source_binding", original_submission->at("original_binding")},
+                    {"source_sha256", action.at("target").at("source_sha256")},
+                    {"subject", "immutable_accepted_source_version"}};
+            }
+        }
         if (role == Role::TeamLead && action.is_null())
             require(submission.is_null(), ErrorCode::NotReady,
                     "submission awaits separate acceptance or controlled escalation; no automatic order is allowed");
@@ -382,6 +434,10 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
         if (string_at(action, "kind") == "question")
             declared_tools = {{"answer_question", "wls-question-answer-v1", schemas_.project_model_input("answer_question")},
                 {"forward_question", "wls-question-forward-v1", schemas_.project_model_input("forward_question")}};
+        else if (string_at(action, "kind") == "acceptance")
+            declared_tools = {{"accept_candidate", "wls-candidate-acceptance-v1", schemas_.project_model_input("accept_candidate")}};
+        else if (string_at(action, "kind") == "experience")
+            declared_tools = {{"report_experience", "wls-experience-report-v1", schemas_.project_model_input("experience_report")}};
         else declared_tools = {{"check_submission", "wls-submission-check-v1", schemas_.project_model_input("check_submission")}};
     }
     if (role == Role::Worker && worker_tools_) {
@@ -429,6 +485,13 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
             "The host captures exactly one management target per call; answer, forward or check only that target. "
             "A submission snapshots at most 8 complete files, 64 KiB each and 256 KiB total. "
             "TeamLead passed means a candidate awaits separate acceptance, never independent review or business delivery.";
+        if (store_.acceptance_runtime_enabled())
+            context.approved_rules += " Dispatcher acceptance is an explicit business judgment about the captured candidate, "
+                "current original requirements, task criteria and preserved evidence. A local TeamLead check or valid JSON is not that judgment. "
+                "Required independent review cannot be invented or waived by this runner. "
+                "An experience call may only report on its immutable source snapshot, even after business termination. "
+                "Report no_new_experience explicitly when applicable; no report or Memory publication is inferred from success. "
+                "memory_assessments must be empty until versioned memory-load receipts are implemented.";
     }
     require(role == Role::Worker || tool_feedback.empty(), ErrorCode::InvalidInput, "tool feedback belongs to the Worker context");
     if (store_.event_runtime_enabled() && role == Role::Worker) {
@@ -465,6 +528,12 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
     reservation.reserved_cost_micro_usd = request.reserved_cost_micro_usd;
     reservation.max_output_tokens = request.max_output_tokens;
     reservation.request_envelope = to_json(request);
+    if (!action.is_null() && string_at(action, "kind") == "experience") {
+        const auto& job = action.at("target");
+        reservation.experience_job_id = string_at(job, "experience_id");
+        reservation.experience_job_version = integer_at(job, "state_version");
+        reservation.experience_source_sha256 = string_at(job, "source_sha256");
+    }
     static_cast<void>(store_.reserve_attempt(actor, binding, reservation));
     return {std::move(request), actor, integer_at(task_id.empty() ? record : task, "state_version"), std::move(action)};
 }
@@ -546,6 +615,32 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
             return store_.forward_question(call.actor, captured.binding, string_at(target, "question_id"),
                 integer_at(target, "state_version"), string_at(tool.arguments, "note"), command);
         }
+        if (string_at(call.workflow_action, "kind") == "acceptance") {
+            require(store_.acceptance_runtime_enabled() && captured.role == Role::Dispatcher &&
+                    tool.name == "accept_candidate", ErrorCode::Unauthorized,
+                    "captured candidate only permits its Dispatcher acceptance decision");
+            schemas_.validate("accept_candidate", tool.arguments, true);
+            return store_.accept_candidate(call.actor, captured.binding,
+                integer_at(call.workflow_action, "expected_task_version"), string_at(target, "submission_id"),
+                integer_at(target, "state_version"), tool.arguments, command);
+        }
+        if (string_at(call.workflow_action, "kind") == "experience") {
+            require(store_.acceptance_runtime_enabled() && captured.role == Role::TeamLead &&
+                    tool.name == "report_experience", ErrorCode::Unauthorized,
+                    "captured experience job only permits its TeamLead report");
+            schemas_.validate("experience_report", tool.arguments, true);
+            require(tool.arguments.at("memory_assessments").as_array().empty(), ErrorCode::Unsupported,
+                    "experience memory assessment requires versioned memory-load receipts");
+            Json report = tool.arguments;
+            report.as_object()["report_id"] = new_id("rep");
+            for (const auto* field : {"request_id", "task_id", "team_id"})
+                report.as_object()[field] = target.at(field);
+            schemas_.validate("experience_report", report);
+            return store_.report_experience(call.actor, captured.binding, string_at(target, "experience_id"),
+                integer_at(target, "state_version"), string_at(target, "source_sha256"), report, command);
+        }
+        require(string_at(call.workflow_action, "kind") == "submission", ErrorCode::Corrupt,
+                "captured workflow action has an unsupported kind");
         require(captured.role == Role::TeamLead && tool.name == "check_submission", ErrorCode::Unauthorized,
                 "captured submission only permits its TeamLead check");
         schemas_.validate("check_submission", tool.arguments, true);

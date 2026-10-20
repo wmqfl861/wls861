@@ -111,7 +111,7 @@ sandbox:
   team_pids_max: 512
 
 cleanup:
-  enabled: false  # 真实执行/回收尚未接入；只在完成 S1 后显式配置启用。
+  enabled: false  # 已保存收尾作业；实际资源清单/删除运行器尚未接入。
   policy: clean_runtime
   cli_receipt_mode: durable_local
   api_receipt_mode: explicit_ack

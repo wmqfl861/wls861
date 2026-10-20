@@ -86,7 +86,8 @@ Json exposed(Row row) {
              "body", "brief", "work_order", "lead_config", "worker_config", "frozen_binding",
              "response", "request_envelope", "arguments", "payload", "result", "source_snapshot", "manifest_snapshot",
              "original_binding", "evidence", "execution_policy", "captured_ids", "captured_binding",
-             "artifact_snapshot", "check_body", "rework_order"}) {
+             "artifact_snapshot", "check_body", "rework_order", "producer_binding", "decision",
+             "frozen_plan", "acceptance_snapshot", "publication"}) {
         if (auto* value = row.if_contains(key); value && value->is_string())
             *value = parse_json_strict(value->as_string(), 16 * 1024 * 1024);
     }
@@ -198,6 +199,23 @@ bool semantic_binding_equal(ExecutionBinding left, ExecutionBinding right, bool 
     left.execution_epoch = right.execution_epoch;
     if (current_policy_control) left.policy_epoch = right.policy_epoch;
     return left == right;
+}
+Json model_contract(const ModelRequest& request) {
+    std::string_view bytes(request.context.dynamic_suffix);
+    constexpr std::string_view prefix = "task_contract ";
+    require(bytes.starts_with(prefix), ErrorCode::Corrupt, "experience attempt lacks captured task contract");
+    bytes.remove_prefix(prefix.size());
+    const auto newline = bytes.find('\n');
+    require(newline != std::string_view::npos, ErrorCode::Corrupt, "invalid contract frame");
+    std::size_t length = 0;
+    const auto parsed = std::from_chars(bytes.data(), bytes.data() + newline, length);
+    require(parsed.ec == std::errc{} && parsed.ptr == bytes.data() + newline, ErrorCode::Corrupt, "invalid contract length");
+    bytes.remove_prefix(newline + 1);
+    require(length < bytes.size() && bytes[length] == '\n', ErrorCode::Corrupt, "incomplete contract frame");
+    return parse_json_strict(bytes.substr(0, length), 1024 * 1024);
+}
+bool overlap(const std::string& left, const std::string& right) {
+    return left == right || left.starts_with(right + "/") || right.starts_with(left + "/");
 }
 void work_path(std::string_view path) {
     text_field(path, "submission path", 500);
@@ -404,11 +422,13 @@ public:
     Impl(const std::filesystem::path& database_path, std::string_view base_sql,
          std::string_view migration_sql, StoreOpenMode selected_mode,
          std::string_view tools_migration_sql, std::string_view events_migration_sql,
-         std::string_view workflow_migration_sql) : mode(selected_mode) {
+         std::string_view workflow_migration_sql, std::string_view acceptance_migration_sql) : mode(selected_mode) {
         require(events_migration_sql.empty() || !tools_migration_sql.empty(), ErrorCode::InvalidInput,
                 "event-runtime migration requires the worker-tools asset");
         require(workflow_migration_sql.empty() || !events_migration_sql.empty(), ErrorCode::InvalidInput,
                 "workflow migration requires the event-runtime asset");
+        require(acceptance_migration_sql.empty() || !workflow_migration_sql.empty(), ErrorCode::InvalidInput,
+                "acceptance migration requires the workflow asset");
         require(database_path != ":memory:", ErrorCode::InvalidInput, "Store requires a durable file path");
         const auto absolute = std::filesystem::absolute(database_path).lexically_normal();
         const auto path = (std::filesystem::canonical(absolute.parent_path()) / absolute.filename()).string();
@@ -448,13 +468,14 @@ public:
                 exec(base_sql);
                 version = number(one("PRAGMA user_version"), "user_version");
             }
-            require(version >= 401 && version <= 405, ErrorCode::Unsupported, "unknown database version; explicit migration required");
+            require(version >= 401 && version <= 406, ErrorCode::Unsupported, "unknown database version; explicit migration required");
             require(str(one("SELECT schema_version FROM contract_metadata WHERE singleton=1"), "schema_version") == "0.4.1",
                     ErrorCode::Unsupported, "unsupported base contract metadata");
             const auto migration_hash = sha256_hex(migration_sql);
             const auto tools_migration_hash = sha256_hex(tools_migration_sql);
             const auto events_migration_hash = sha256_hex(events_migration_sql);
             const auto workflow_migration_hash = sha256_hex(workflow_migration_sql);
+            const auto acceptance_migration_hash = sha256_hex(acceptance_migration_sql);
             if (version == 401) {
                 require(mode == StoreOpenMode::Takeover, ErrorCode::Unsupported, "database needs Store migration before read-only inspection");
                 // Python reference rows did not capture a complete configuration.
@@ -479,13 +500,19 @@ public:
                 require(number(event_metadata, "store_version") == 6 && str(event_metadata, "migration_sha256") == events_migration_hash,
                         ErrorCode::Corrupt, "event-runtime migration asset does not match durable metadata");
             }
-            if (version == 405) {
+            if (version >= 405) {
                 require(!workflow_migration_sql.empty(), ErrorCode::Unsupported,
                         "405 database requires the distributed workflow migration asset");
                 const auto workflow_metadata = one("SELECT * FROM workflow_runtime_metadata WHERE singleton=1");
                 require(number(workflow_metadata, "store_version") == 7 &&
                         str(workflow_metadata, "migration_sha256") == workflow_migration_hash,
                         ErrorCode::Corrupt, "workflow migration asset does not match durable metadata");
+            }
+            if (version == 406) {
+                require(!acceptance_migration_sql.empty(), ErrorCode::Unsupported, "406 database requires the acceptance migration asset");
+                const auto info = one("SELECT * FROM acceptance_runtime_metadata WHERE singleton=1");
+                require(number(info, "store_version") == 8 && str(info, "migration_sha256") == acceptance_migration_hash,
+                        ErrorCode::Corrupt, "acceptance migration asset does not match durable metadata");
             }
             // Validate ownership/version before any persistent journal-mode
             // change; rejecting an unrelated database preserves its bytes.
@@ -551,18 +578,45 @@ public:
                     exec("COMMIT"); version = 405;
                 } catch (...) { rollback(); throw; }
             }
-            workflow_schema = version == 405;
+            workflow_schema = version >= 405;
+            if (version == 405 && !acceptance_migration_sql.empty() && mode == StoreOpenMode::Takeover) {
+                exec("BEGIN IMMEDIATE");
+                try {
+                    require(!optional("SELECT experience_id FROM experience_jobs LIMIT 1") &&
+                        !optional("SELECT cleanup_id FROM cleanup_jobs LIMIT 1") && !optional("SELECT request_id FROM receipts LIMIT 1"),
+                        ErrorCode::Unsupported, "legacy closeout rows require explicit original-evidence migration");
+                    require(!optional("SELECT request_id FROM requests WHERE status='DELIVERED' LIMIT 1"), ErrorCode::Unsupported,
+                            "legacy delivered requests have no original package evidence; explicit migration required");
+                    exec(acceptance_migration_sql);
+                    execute("INSERT INTO acceptance_runtime_metadata VALUES (1,8,?)", {acceptance_migration_hash});
+                    require(number(one("PRAGMA user_version"), "user_version") == 406,
+                            ErrorCode::Corrupt, "acceptance migration did not produce expected version");
+                    exec("COMMIT"); version = 406;
+                } catch (...) { rollback(); throw; }
+            }
+            acceptance_schema = version == 406;
             require(str(one("PRAGMA quick_check"), "quick_check") == "ok", ErrorCode::Corrupt, "SQLite quick_check failed");
             require(!optional("PRAGMA foreign_key_check"), ErrorCode::Corrupt, "SQLite foreign key check failed");
             if (mode == StoreOpenMode::Takeover) {
                 exec("BEGIN IMMEDIATE");
                 try {
+                    if (acceptance_schema) {
+                        for (const auto& terminal : all("SELECT * FROM requests WHERE status IN ('FAILED','CANCELLED','SUPERSEDED')")) retain_closeout(terminal);
+                        // Job CAS fences old post-terminal calls even when a
+                        // terminal request does not need a new business epoch.
+                        execute("UPDATE experience_jobs SET status='PENDING',claimed_by=NULL,lease_epoch=lease_epoch+1,state_version=state_version+1,updated_at=? WHERE status<>'DONE'", {stamp()});
+                        execute("UPDATE cleanup_jobs SET status='PENDING',claimed_by=NULL,lease_epoch=lease_epoch+1,state_version=state_version+1,updated_at=? WHERE status<>'DONE'", {stamp()});
+                    }
                     if (events_schema) {
                         execute("UPDATE event_inbox SET status='PENDING',claim_id=NULL WHERE status='CLAIMED'");
                         execute("UPDATE event_actor_claims SET status='RELEASED',updated_at=? WHERE status='ACTIVE'", {stamp()});
                     }
                     for (const auto& request_row : all("SELECT * FROM requests WHERE status NOT IN ('DELIVERED','FAILED','CANCELLED','SUPERSEDED')"))
                         recover(request_row);
+                    if (acceptance_schema) for (const auto& terminal : all("SELECT DISTINCT r.request_id FROM requests r JOIN experience_jobs e USING(request_id) WHERE r.status IN ('DELIVERED','FAILED','CANCELLED','SUPERSEDED') AND e.status<>'DONE'")) {
+                        const auto id = str(terminal, "request_id");
+                        event(id, new_id("recover"), Row{{"type", "recover_experience"}}, Row{{"request_id", id}});
+                    }
                     // Accounting survives even if business already entered a
                     // terminal state before a process crash.
                     for (const auto& pending : all("SELECT DISTINCT request_id FROM call_attempts WHERE status='PENDING'"))
@@ -639,6 +693,136 @@ public:
     void require_workflow_schema() const {
         require(workflow_schema, ErrorCode::Unsupported, "question/submission workflow requires the 405 migration");
     }
+    void require_acceptance_schema() const {
+        require(acceptance_schema, ErrorCode::Unsupported, "acceptance/delivery requires the 406 migration");
+    }
+    Json acceptance_info(const Row& row) const {
+        auto result = exposed(row); result.as_object()["actor"] = parse_json_strict(str(row, "actor"));
+        const Row fact{{"submission_id", result.at("submission_id")}, {"submission_version", result.at("submission_version")},
+            {"task_version", result.at("task_version")}, {"producer_binding", result.at("producer_binding")},
+            {"actor", result.at("actor")}, {"captured_binding", result.at("captured_binding")}, {"decision", result.at("decision")}};
+        require(sha256_hex(canonical_json(fact)) == str(row, "record_sha256"), ErrorCode::Corrupt, "acceptance evidence fingerprint mismatch");
+        return result;
+    }
+    std::optional<Row> current_acceptance(const std::string& task_id) const {
+        if (!acceptance_schema) return std::nullopt;
+        const auto row = optional("SELECT * FROM candidate_acceptances WHERE task_id=? AND status='ACCEPTED'", {task_id});
+        if (!row || str(task_row(task_id), "status") != "ACCEPTED") return std::nullopt;
+        (void)acceptance_info(*row);
+        const auto source = execution_binding_from_json(parse_json_strict(str(*row, "producer_binding")));
+        if (!semantic_binding_equal(source, binding(task_id))) return std::nullopt;
+        const auto r = request_row(str(*row, "request_id"));
+        if (source.requirements_revision != number(r, "requirements_revision") || source.plan_revision != number(r, "plan_revision")) return std::nullopt;
+        if (str(submission_row(str(*row, "submission_id")), "status") != "CANDIDATE_READY") return std::nullopt;
+        return row;
+    }
+    Json experience_info(const std::string& id) const {
+        require_acceptance_schema();
+        auto row = one("SELECT * FROM experience_jobs WHERE experience_id=?", {id});
+        auto result = exposed(row);
+        result.as_object()["source_sha256"] = sha256_hex(canonical_json(result.at("source_snapshot")));
+        const auto report = optional("SELECT * FROM experience_reports WHERE experience_id=?", {id});
+        if (report) {
+            auto value = exposed(*report); value.as_object()["actor"] = parse_json_strict(str(*report, "actor"));
+            const Row fact{{"body", value.at("body")}, {"source_sha256", value.at("source_sha256")},
+                {"actor", value.at("actor")}, {"captured_binding", value.at("captured_binding")}};
+            require(str(*report, "source_sha256") == str(result.as_object(), "source_sha256") &&
+                sha256_hex(canonical_json(fact)) == str(*report, "record_sha256"), ErrorCode::Corrupt, "experience report fingerprint mismatch");
+            result.as_object()["report"] = value;
+        } else result.as_object()["report"] = nullptr;
+        return result;
+    }
+    Json validate_experience_target(const StoreActor& actor, const ExecutionBinding& captured,
+                                   const std::string& id, std::int64_t expected, const std::string& source_hash) const {
+        (void)authorize(actor, {Role::TeamLead}); actor_binding(actor, captured); matches(captured);
+        const auto job = experience_info(id);
+        require(str(job.as_object(), "request_id") == actor.request_id && str(job.as_object(), "task_id") == actor.task_id &&
+                str(job.as_object(), "team_id") == actor.team_id, ErrorCode::Unauthorized, "experience job belongs to another team");
+        require(number(job.as_object(), "state_version") == expected, ErrorCode::Conflict, "experience job CAS changed");
+        require(str(job.as_object(), "source_sha256") == source_hash, ErrorCode::Conflict, "experience source changed");
+        require(str(job.as_object(), "status") != "DONE", ErrorCode::NotReady, "experience job already completed");
+        return job;
+    }
+    void invalidate_acceptance(const std::string& request_id, const std::string& task_id = {}) {
+        if (!acceptance_schema) return;
+        const auto filter = task_id.empty() ? std::string{} : " AND task_id=?";
+        const auto tasks_sql = "UPDATE tasks SET status='BLOCKED',state_version=state_version+1,updated_at=? WHERE request_id=? AND status='ACCEPTED'" + filter;
+        if (task_id.empty()) execute(tasks_sql, {stamp(), request_id}); else execute(tasks_sql, {stamp(), request_id, task_id});
+        const auto sql = "UPDATE candidate_acceptances SET status='SUPERSEDED',state_version=state_version+1,updated_at=? WHERE request_id=? AND status='ACCEPTED'" + filter;
+        if (task_id.empty()) execute(sql, {stamp(), request_id}); else execute(sql, {stamp(), request_id, task_id});
+        execute("UPDATE delivery_runtime SET status='SUPERSEDED',state_version=state_version+1,updated_at=? WHERE request_id=? AND status IN ('PREPARED','STORED')", {stamp(), request_id});
+    }
+    void require_settled(const std::string& request_id, const std::string& team_id = {}) const {
+        const auto filter = team_id.empty() ? std::string{} : " AND team_id=?";
+        const Array args = team_id.empty() ? Array{request_id} : Array{request_id, team_id};
+        require(!optional("SELECT op_id FROM ops WHERE request_id=? AND status IN ('PREPARED','RUNNING','CANCEL_REQUESTED','UNKNOWN')" + filter + " LIMIT 1", args),
+                ErrorCode::UnknownOutcome, "unsettled operation blocks acceptance or delivery");
+        require(!optional("SELECT attempt_id FROM call_attempts WHERE request_id=? AND (status IN ('PENDING','UNKNOWN') OR unknown_input=1 OR unknown_output=1 OR unknown_cost=1)" + filter + " LIMIT 1", args),
+                ErrorCode::UnknownOutcome, "unsettled model attempt blocks acceptance or delivery");
+    }
+    Row delivery_row(const std::string& id) const {
+        require_acceptance_schema(); return one("SELECT * FROM delivery_runtime WHERE delivery_id=?", {id});
+    }
+    Json delivery_info(const std::string& id) const {
+        auto result = exposed(delivery_row(id));
+        const auto& plan = result.at("frozen_plan");
+        require(plan.at("delivery_id") == result.at("delivery_id") && plan.at("manifest_sha256") == result.at("manifest_sha256") &&
+                sha256_hex(canonical_json(plan.at("manifest"))) == str(result.as_object(), "manifest_sha256"),
+                ErrorCode::Corrupt, "delivery plan fingerprint mismatch");
+        const auto receipt = optional("SELECT body FROM delivery_receipts WHERE delivery_id=?", {id});
+        result.as_object()["receipt"] = receipt ? parse_json_strict(str(*receipt, "body")) : Json(nullptr);
+        return result;
+    }
+    void delivery_current(const Row& delivery) const {
+        const auto request = request_row(str(delivery, "request_id"));
+        require(!terminal_request(str(request, "status")) &&
+            number(request, "requirements_revision") == number(delivery, "requirements_revision") &&
+            number(request, "plan_revision") == number(delivery, "plan_revision"), ErrorCode::Stale, "delivery does not match current live requirements and plan");
+        require(str(delivery, "status") == "PREPARED" || str(delivery, "status") == "STORED", ErrorCode::NotReady, "delivery is not current");
+        std::set<std::string> accepted_tasks;
+        const auto acceptance_snapshot = parse_json_strict(str(delivery, "acceptance_snapshot"));
+        for (const auto& evidence : acceptance_snapshot.as_array()) {
+            const auto& saved = evidence.as_object(); const auto current = current_acceptance(str(saved, "task_id"));
+            require(current && str(*current, "acceptance_id") == str(saved, "acceptance_id") &&
+                str(*current, "record_sha256") == str(saved, "record_sha256"), ErrorCode::Stale, "delivery acceptance was superseded or revoked");
+            accepted_tasks.insert(str(saved, "task_id"));
+        }
+        for (const auto& task : all("SELECT task_id FROM tasks WHERE request_id=? AND required=1", {str(delivery, "request_id")}))
+            require(accepted_tasks.contains(str(task, "task_id")), ErrorCode::NotReady, "delivery lacks a current required task");
+        require(!optional("SELECT q.question_id FROM questions q JOIN question_runtime x USING(question_id) WHERE q.request_id=? AND x.status='OPEN' AND x.blocking=1 LIMIT 1", {str(delivery, "request_id")}),
+                ErrorCode::NotReady, "unanswered blocking question prevents publication or receipt");
+        require_settled(str(delivery, "request_id"));
+    }
+    void verify_publication(const Row& record, const Json& publication) const {
+        require(publication.is_object(), ErrorCode::InvalidInput, "publication must be host evidence");
+        const auto plan = delivery_info(str(record, "delivery_id")).at("frozen_plan");
+        require(publication.as_object().contains("durable") && publication.at("durable").is_bool() && publication.at("durable").as_bool() &&
+                publication.as_object().contains("verified") && publication.at("verified").is_bool() && publication.at("verified").as_bool(),
+                ErrorCode::NotReady, "publication requires complete verified fsync evidence");
+        for (const auto* key : {"delivery_id", "root_identity", "manifest_sha256"})
+            require(publication.as_object().contains(key) && publication.at(key) == plan.at(key), ErrorCode::Conflict, "publication changed frozen package identity");
+        require(workflow_text(publication, "path", 4096) == str(plan.at("root_identity").as_object(), "path") + "/" + str(record, "delivery_id") &&
+            workflow_text(publication, "files_sha256", 64) == sha256_hex(canonical_json(plan.at("manifest").at("files"))),
+            ErrorCode::Conflict, "publication changed frozen path or file inventory");
+    }
+    void retain_closeout(const Row& request, const std::string& delivery_path = {}, const std::string& manifest_hash = {}) {
+        if (!acceptance_schema || optional("SELECT request_id FROM receipts WHERE request_id=?", {str(request, "request_id")})) return;
+        const auto id = str(request, "request_id"); const auto created = stamp();
+        const auto config = parse_json_strict(str(request, "config_snapshot"), 8 * 1024 * 1024);
+        const auto ttl = number(config.at("system").at("cleanup").as_object(), "receipt_ttl_days");
+        require(ttl > 0 && ttl <= 36500, ErrorCode::Unsupported, "receipt TTL must be 1..36500 frozen days");
+        const auto usage = one("SELECT * FROM request_budgets WHERE request_id=?", {id});
+        execute("INSERT INTO receipts(request_id,tenant_id,project_id,root_id,idempotency_key,content_sha256,function_id,final_status,delivery_path,manifest_sha256,usage_summary,cleanup_status,closed_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,'PENDING',?,strftime('%Y-%m-%dT%H:%M:%SZ',?,?))",
+            {id, request.at("tenant_id"), request.at("project_id"), request.at("root_id"), request.at("idempotency_key"), request.at("content_sha256"), request.at("function_id"), request.at("status"),
+             delivery_path.empty() ? Json(nullptr) : Json(delivery_path), manifest_hash.empty() ? Json(nullptr) : Json(manifest_hash), json_text(usage), created, created, "+" + std::to_string(ttl) + " days"});
+        Array resources;
+        for (const auto& workspace : all("SELECT w.* FROM workspace_bindings w JOIN teams t USING(team_id) WHERE t.request_id=?", {id})) resources.emplace_back(exposed(workspace));
+        const Row snapshot{{"request_id", id}, {"final_status", request.at("status")}, {"delivery_path", delivery_path},
+            {"manifest_sha256", manifest_hash}, {"workspaces", resources}, {"deletion_authorized", false}, {"receipt_ttl_days", ttl},
+            {"checkpoint", "RETAINED"}, {"reason", "controlled resource ownership and process-exit cleanup runner not implemented"}};
+        execute("INSERT INTO cleanup_jobs(cleanup_id,request_id,receipt_ref,manifest_snapshot,status,created_at,updated_at) VALUES (?,?,?,?,'PENDING',?,?)",
+            {new_id("cleanup"), id, id, json_text(snapshot, 1048576), created, created});
+    }
     Row question_row(const std::string& id) const {
         require_workflow_schema();
         return one("SELECT q.*,x.original_binding,x.original_sha256,x.status,x.blocking,x.wait_generation FROM questions q JOIN question_runtime x USING(question_id) WHERE q.question_id=?", {id});
@@ -680,6 +864,13 @@ public:
         result.as_object()["team_rework_count"] = counter ? number(*counter, "rework_count") : 0;
         result.as_object()["business_accepted"] = false;
         result.as_object()["business_delivered"] = false;
+        if (acceptance_schema) {
+            const auto current = current_acceptance(str(result.as_object(), "task_id"));
+            const bool accepted = current && str(*current, "submission_id") == id;
+            result.as_object()["business_accepted"] = accepted;
+            result.as_object()["acceptance"] = accepted ? acceptance_info(*current) : Json(nullptr);
+            result.as_object()["business_delivered"] = accepted && str(request_row(str(result.as_object(), "request_id")), "status") == "DELIVERED";
+        }
         return result;
     }
     bool has_blocking_question(const std::string& task_id) const {
@@ -703,6 +894,7 @@ public:
     }
     void supersede_workflow(const std::string& request_id, const std::string& task_id = {}) {
         if (!workflow_schema) return;
+        invalidate_acceptance(request_id, task_id);
         const auto filter = std::string(task_id.empty() ? "" : " AND q.task_id=?");
         const Array args = task_id.empty() ? Array{request_id} : Array{request_id, task_id};
         for (const auto& row : all("SELECT q.question_id FROM questions q JOIN question_runtime x USING(question_id) WHERE q.request_id=? AND x.status<>'SUPERSEDED'" + filter, args)) {
@@ -859,6 +1051,9 @@ public:
             type == "wait_worker" || type == "wake_worker" || type == "tool_feedback" || type == "event_bootstrap" ||
             type == "ask_question" || type == "forward_question" || type == "answer_question" ||
             (type == "check_submission" && command.at("adverse_revoke").as_bool()) ||
+            (type == "accept_candidate" && !command.at("decision").at("passed").as_bool()) ||
+            (type == "reserve_attempt" && command.contains("experience_job_id")) ||
+            type == "report_experience" || type == "recover_experience" || type == "record_delivery_publication" || type == "acknowledge_delivery" ||
             type == "recover" || type == "cancel_request" || type == "settle_attempt" || type == "attempts_unknown";
         const auto count = number(one("SELECT COUNT(*) AS n FROM events WHERE request_id=?", {request_id}), "n");
         require(count < (control ? 8192 : 4096), ErrorCode::Quota, "bounded Store event capacity exhausted");
@@ -889,6 +1084,15 @@ public:
         if (type == "amend" || type == "plan" || type == "independent_plan" || type == "cancel_request") supersede_waits(request_id);
         if (type == "disposition" || type == "rebind_task") supersede_waits(request_id, str(command, "task_id"));
         if (type == "instruction") supersede_waits(request_id, str(command.at("binding").as_object(), "task_id"));
+        if (type == "accept_candidate" && result.as_object().contains("experience_id") && !result.at("experience_id").is_null()) {
+            enqueue("team_lead", str(result.as_object(), "task_id")); enqueue("dispatcher", str(result.as_object(), "task_id"));
+            return;
+        }
+        if (type == "report_experience") { if (!terminal_request(str(request, "status"))) enqueue("dispatcher", str(result.as_object(), "task_id")); return; }
+        if (type == "recover_experience") {
+            for (const auto& job : all("SELECT DISTINCT task_id FROM experience_jobs WHERE request_id=? AND status<>'DONE'", {request_id})) enqueue("team_lead", str(job, "task_id"));
+            return;
+        }
         if (terminal_request(str(request, "status"))) return;
         if (type == "admit") { enqueue("dispatcher", ""); return; }
         if (type == "amend") {
@@ -916,6 +1120,8 @@ public:
                     }
                     if (!workflow_pending) enqueue("team_lead", task_id);
                 }
+                if (acceptance_schema && optional("SELECT experience_id FROM experience_jobs WHERE task_id=? AND status<>'DONE' LIMIT 1", {str(task, "task_id")})) enqueue("team_lead", str(task, "task_id"));
+                if (acceptance_schema && str(task, "status") == "ACCEPTED") enqueue("dispatcher", str(task, "task_id"));
             }
             return;
         }
@@ -1149,14 +1355,15 @@ public:
     bool tools_schema{false};
     bool events_schema{false};
     bool workflow_schema{false};
+    bool acceptance_schema{false};
     std::string database_file_path;
     mutable std::mutex mutex;
 };
 
 Store::Store(const std::filesystem::path& path, std::string_view base, std::string_view migration, StoreOpenMode mode,
              std::string_view tools_migration, std::string_view events_migration,
-             std::string_view workflow_migration)
-    : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration, events_migration, workflow_migration)) {}
+             std::string_view workflow_migration, std::string_view acceptance_migration)
+    : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration, events_migration, workflow_migration, acceptance_migration)) {}
 Store::~Store() = default;
 
 Json Store::diagnostics() const {
@@ -1231,11 +1438,13 @@ std::vector<Json> Store::tasks(const std::string& id) const {
 Json Store::pending_recovery() const {
     const std::lock_guard lock(impl_->mutex);
     auto collect = [&](std::string_view sql) { Array result; for (const auto& row : impl_->all(sql)) result.emplace_back(exposed(row)); return result; };
-    return Row{{"unknown_operations", collect("SELECT op_id,request_id,task_id,team_id,status FROM ops WHERE status='UNKNOWN'")},
+    auto result = Row{{"unknown_operations", collect("SELECT op_id,request_id,task_id,team_id,status FROM ops WHERE status='UNKNOWN'")},
         {"unknown_attempts", collect("SELECT attempt_id,request_id,status FROM call_attempts WHERE status='UNKNOWN' OR unknown_input=1 OR unknown_output=1 OR unknown_cost=1")},
         {"experience_jobs", collect("SELECT * FROM experience_jobs WHERE status<>'DONE'")},
         {"cleanup_jobs", collect("SELECT * FROM cleanup_jobs WHERE status<>'DONE'")},
         {"unconfirmed_delivery", collect("SELECT request_id,delivery_status FROM requests WHERE delivery_status='STORED'")}};
+    if (impl_->acceptance_schema) result["delivery_intents"] = collect("SELECT delivery_id,request_id,requirements_revision,plan_revision,manifest_sha256,status,state_version FROM delivery_runtime WHERE status IN ('PREPARED','STORED')");
+    return result;
 }
 bool Store::event_runtime_enabled() const {
     const std::lock_guard lock(impl_->mutex);
@@ -1790,6 +1999,362 @@ Json Store::check_submission(const StoreActor& actor, const ExecutionBinding& ca
     impl_->event(actor.request_id, command_id, command, result, "team_lead"); tx.commit(); return result;
 }
 
+bool Store::acceptance_runtime_enabled() const {
+    const std::lock_guard lock(impl_->mutex); return impl_->acceptance_schema;
+}
+Json Store::accept_candidate(const StoreActor& actor, const ExecutionBinding& captured,
+        std::int64_t expected_task, const std::string& id, std::int64_t expected_submission,
+        const Json& decision, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex); impl_->require_acceptance_schema();
+    object_fields(decision, {"passed", "criteria_results", "notes"}, {"passed"});
+    require(decision.at("passed").is_bool() && expected_task > 0 && expected_submission > 0,
+            ErrorCode::InvalidInput, "acceptance needs a decision and captured object versions");
+    const bool passed = decision.at("passed").as_bool();
+    (void)workflow_text(decision, "notes", 32000, true); (void)json_text(decision, 262144);
+    const auto command = payload(actor, "accept_candidate", Row{{"binding", to_json(captured)}, {"expected_task_version", expected_task},
+        {"submission_id", id}, {"expected_submission_version", expected_submission}, {"decision", decision}});
+    Impl::Transaction tx(*impl_);
+    (void)impl_->authorize(actor, {Role::Dispatcher}, false); impl_->actor_binding(actor, captured);
+    const auto submission = impl_->submission_row(id);
+    require(str(submission, "request_id") == actor.request_id, ErrorCode::Unauthorized, "candidate belongs to another Dispatcher");
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    const auto request = impl_->authorize(actor, {Role::Dispatcher}); impl_->matches(captured);
+    const auto task_id = str(submission, "task_id"); const auto task = impl_->task_row(task_id);
+    require(!terminal_request(str(request, "status")) && str(submission, "status") == "CANDIDATE_READY" &&
+        (str(task, "status") == "SUBMITTED" || (!passed && str(task, "status") == "ACCEPTED")), ErrorCode::NotReady, "candidate is not awaiting this business decision");
+    require(number(task, "state_version") == expected_task && number(submission, "state_version") == expected_submission,
+            ErrorCode::Conflict, "captured candidate or task CAS changed");
+    const auto original = execution_binding_from_json(parse_json_strict(str(submission, "original_binding")));
+    require(semantic_binding_equal(original, impl_->binding(task_id), !passed) &&
+        original.requirements_revision == number(request, "requirements_revision") && original.plan_revision == number(request, "plan_revision"),
+        ErrorCode::Stale, "candidate has an obsolete semantic binding");
+    const auto brief = parse_json_strict(str(task, "brief")); const auto criteria = acceptance_ids(brief);
+    if (const auto* results = decision.as_object().if_contains("criteria_results")) criterion_results(*results, criteria, passed, true);
+    else require(!passed, ErrorCode::InvalidInput, "positive business acceptance needs complete criterion evidence");
+    if (passed) {
+        require(task.at("review_config").is_null(), ErrorCode::Unsupported, "required independent review is not implemented by this acceptance path");
+        const auto config = parse_json_strict(str(request, "config_snapshot"), 8 * 1024 * 1024);
+        bool ordinary_plan = false;
+        for (const auto& capability : config.at("function").at("capabilities").as_array())
+            if (capability.at("id") == config.at("capability_id")) ordinary_plan = capability.at("dispatch").as_string() == "plan";
+        require(ordinary_plan && str(task, "kind") == "team_task", ErrorCode::Unsupported, "template/capability acceptance requires a registered validator");
+        const auto plan = parse_json_strict(str(impl_->one("SELECT body FROM plans WHERE request_id=? AND plan_revision=?", {actor.request_id, original.plan_revision}), "body"));
+        if (plan.is_object() && plan.as_object().contains("nodes")) for (const auto& node : plan.at("nodes").as_array())
+            if (node.at("node_id") == task.at("node_id")) require(!node.as_object().contains("review"), ErrorCode::Unsupported, "plan requires an independent review");
+        require(!impl_->has_blocking_question(task_id), ErrorCode::NotReady, "unanswered question blocks acceptance");
+        impl_->require_settled(actor.request_id, str(submission, "team_id"));
+        const auto original_submission = impl_->submission_info(id);
+        criterion_results(original_submission.at("body").at("self_check"), criteria, true, true);
+        submission_verification(original_submission.at("body"), true);
+        const auto check = impl_->one("SELECT check_body,status FROM team_lead_checks WHERE submission_id=? ORDER BY submission_version DESC LIMIT 1", {id});
+        const auto check_body = parse_json_strict(str(check, "check_body"));
+        require(str(check, "status") == "CANDIDATE_READY" && check_body.at("passed").as_bool(), ErrorCode::NotReady, "current local TeamLead check did not pass");
+        criterion_results(check_body.at("criteria_results"), criteria, true, false);
+    }
+    require(number(impl_->one("SELECT COUNT(*) AS n FROM candidate_acceptances WHERE request_id=?", {actor.request_id}), "n") < (passed ? 256 : 512),
+            ErrorCode::Quota, "bounded business acceptance history exhausted");
+    if (!passed) {
+        impl_->execute("UPDATE candidate_acceptances SET status='REVOKED',state_version=state_version+1,updated_at=? WHERE task_id=? AND status='ACCEPTED'", {stamp(), task_id});
+        impl_->execute("UPDATE delivery_runtime SET status='SUPERSEDED',state_version=state_version+1,updated_at=? WHERE request_id=? AND status IN ('PREPARED','STORED')", {stamp(), actor.request_id});
+        impl_->execute("UPDATE requests SET status='RUNNING',delivery_status='NONE',state_version=state_version+1,updated_at=? WHERE request_id=?", {stamp(), actor.request_id});
+    }
+    const auto acceptance_id = new_id("acc"); const auto created = stamp();
+    const Row fact{{"submission_id", id}, {"submission_version", expected_submission}, {"task_version", expected_task},
+        {"producer_binding", to_json(original)}, {"actor", actor_json(actor)}, {"captured_binding", to_json(captured)}, {"decision", decision}};
+    impl_->execute("INSERT INTO candidate_acceptances(acceptance_id,request_id,task_id,submission_id,submission_version,task_version,producer_binding,actor,captured_binding,decision,record_sha256,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        {acceptance_id, actor.request_id, task_id, id, expected_submission, expected_task, canonical_json(to_json(original)), canonical_json(actor_json(actor)), canonical_json(to_json(captured)),
+         json_text(decision, 262144), sha256_hex(canonical_json(fact)), passed ? "ACCEPTED" : "REJECTED", created, created});
+    impl_->cas("UPDATE tasks SET status=?,accepted_with_issues=0,state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?",
+        {passed ? "ACCEPTED" : "BLOCKED", created, task_id, expected_task});
+    impl_->cas("UPDATE workflow_submissions SET status=?,state_version=state_version+1,updated_at=? WHERE submission_id=? AND state_version=?",
+        {passed ? "CANDIDATE_READY" : "BLOCKED", created, id, expected_submission});
+    auto result = impl_->submission_info(id);
+    result.as_object()["acceptance"] = impl_->acceptance_info(impl_->one("SELECT * FROM candidate_acceptances WHERE acceptance_id=?", {acceptance_id}));
+    result.as_object()["experience_id"] = nullptr;
+    if (passed) {
+        Array requirements;
+        for (const auto& row : impl_->all("SELECT * FROM request_texts WHERE request_id=? ORDER BY requirements_revision", {actor.request_id})) requirements.emplace_back(row);
+        const Row source{{"submission", result}, {"acceptance", result.at("acceptance")}, {"brief", brief}, {"requirements", requirements},
+            {"instruction", exposed(impl_->one("SELECT * FROM instructions WHERE task_id=? AND instruction_revision=?", {task_id, original.instruction_revision}))}};
+        const auto experience_id = new_id("expjob");
+        impl_->execute("INSERT INTO experience_jobs(experience_id,request_id,task_id,team_id,based_on_requirements_revision,plan_revision,task_revision,instruction_revision,status,source_snapshot,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'PENDING',?,?,?)",
+            {experience_id, actor.request_id, task_id, original.team_id, original.requirements_revision, original.plan_revision, original.task_revision,
+             original.instruction_revision, json_text(source, 8 * 1024 * 1024), created, created});
+        result.as_object()["experience_id"] = experience_id;
+    }
+    impl_->event(actor.request_id, command_id, command, result, "dispatcher"); tx.commit(); return result;
+}
+Json Store::experience_job(const std::string& id) const {
+    const std::lock_guard lock(impl_->mutex); return impl_->experience_info(id);
+}
+std::vector<Json> Store::experience_jobs(const std::string& request_id, const std::string& task_id, std::int64_t limit) const {
+    const std::lock_guard lock(impl_->mutex); impl_->require_acceptance_schema();
+    require(limit > 0 && limit <= 128, ErrorCode::InvalidInput, "experience limit must be 1..128");
+    const auto filter = task_id.empty() ? std::string{} : " AND task_id=?";
+    const Array args = task_id.empty() ? Array{request_id} : Array{request_id, task_id};
+    const auto rows = impl_->all("SELECT experience_id FROM experience_jobs WHERE request_id=?" + filter + " ORDER BY rowid", args);
+    require(rows.size() <= static_cast<std::size_t>(limit), ErrorCode::Quota, "complete experience history exceeds requested capacity");
+    std::vector<Json> result; for (const auto& row : rows) result.push_back(impl_->experience_info(str(row, "experience_id")));
+    return result;
+}
+Json Store::report_experience(const StoreActor& actor, const ExecutionBinding& captured, const std::string& id,
+        std::int64_t expected, const std::string& source_hash, const Json& body, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex); impl_->require_acceptance_schema();
+    object_fields(body, {"report_id", "request_id", "task_id", "team_id", "no_new_experience", "entries", "memory_assessments"},
+        {"report_id", "request_id", "task_id", "team_id", "no_new_experience", "entries", "memory_assessments"});
+    require(body.at("no_new_experience").is_bool() && body.at("entries").is_array() && body.at("memory_assessments").is_array(),
+            ErrorCode::InvalidInput, "invalid experience report structure");
+    require(body.at("entries").as_array().size() <= 20 && body.at("memory_assessments").as_array().empty(),
+            ErrorCode::Unsupported, "memory feedback is not implemented; experience entries are proposals only");
+    require(body.at("no_new_experience").as_bool() == body.at("entries").as_array().empty(), ErrorCode::InvalidInput, "no-new-experience contradicts entries");
+    require(is_typed_id(workflow_text(body, "report_id", 80), "rep") && workflow_text(body, "request_id", 80) == actor.request_id &&
+            workflow_text(body, "task_id", 80) == actor.task_id && workflow_text(body, "team_id", 80) == actor.team_id,
+            ErrorCode::Unauthorized, "experience report host identities disagree");
+    for (const auto& entry : body.at("entries").as_array()) {
+        require(entry.is_object(), ErrorCode::InvalidInput, "experience entry must be an object");
+        for (const auto key : {"kind", "type", "title", "description", "body_markdown", "proposed_scope", "evidence"})
+            (void)workflow_text(entry, key, key == std::string_view("body_markdown") ? 80000 : 16000);
+        const auto kind = workflow_text(entry, "kind", 16); const auto type = workflow_text(entry, "type", 16);
+        require(kind == "new" || kind == "revise" || kind == "conflict", ErrorCode::InvalidInput, "invalid experience proposal kind");
+        require(type == "rule" || type == "fact" || type == "experience" || type == "skill", ErrorCode::InvalidInput, "invalid experience proposal type");
+        if (kind != "new") (void)workflow_text(entry, "target_memory_id", 80);
+        if (kind == "revise") (void)workflow_text(entry, "expected_base_revision", 64);
+        if (type == "experience") (void)workflow_text(entry, "outcome", 16);
+        if (type == "skill") (void)workflow_text(entry, "skill_name", 64);
+    }
+    const auto command = payload(actor, "report_experience", Row{{"binding", to_json(captured)}, {"experience_id", id},
+        {"expected_job_version", expected}, {"source_sha256", source_hash}, {"body", body}});
+    Impl::Transaction tx(*impl_); (void)impl_->authorize(actor, {Role::TeamLead}, false); impl_->actor_binding(actor, captured);
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    (void)impl_->validate_experience_target(actor, captured, id, expected, source_hash);
+    const Row fact{{"body", body}, {"source_sha256", source_hash}, {"actor", actor_json(actor)}, {"captured_binding", to_json(captured)}};
+    impl_->execute("INSERT INTO experience_reports VALUES (?,?,?,?,?,?,?,?)", {id, body.at("report_id"), source_hash,
+        canonical_json(actor_json(actor)), canonical_json(to_json(captured)), json_text(body, 2 * 1024 * 1024), sha256_hex(canonical_json(fact)), stamp()});
+    impl_->cas("UPDATE experience_jobs SET status='DONE',report_ref=?,state_version=state_version+1,updated_at=? WHERE experience_id=? AND state_version=?",
+        {body.at("report_id"), stamp(), id, expected});
+    const auto result = impl_->experience_info(id);
+    impl_->event(actor.request_id, command_id, command, result, "team_lead"); tx.commit(); return result;
+}
+
+Json Store::prepare_delivery(const StoreActor& actor, const ExecutionBinding& captured,
+        std::int64_t expected, const Json& root_identity, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex); impl_->require_acceptance_schema();
+    object_fields(root_identity, {"path", "device", "inode"}, {"path", "device", "inode"});
+    const auto root_path = workflow_text(root_identity, "path", 4096);
+    const std::filesystem::path directory(root_path);
+    require(directory.is_absolute() && root_path != "/" && root_path.back() != '/' && directory.lexically_normal().string() == root_path &&
+            number(root_identity.as_object(), "device") > 0 && number(root_identity.as_object(), "inode") > 0,
+            ErrorCode::InvalidInput, "delivery root requires canonical absolute path and pinned identity");
+    require(!overlap(root_path, impl_->database_file_path), ErrorCode::Unauthorized, "delivery root would contain the control database");
+    const auto command = payload(actor, "prepare_delivery", Row{{"binding", to_json(captured)}, {"expected_request_version", expected}, {"root_identity", root_identity}});
+    Impl::Transaction tx(*impl_); (void)impl_->authorize(actor, {Role::Root}, false); impl_->actor_binding(actor, captured);
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    const auto request = impl_->authorize(actor, {Role::Root}); impl_->matches(captured);
+    require(number(request, "state_version") == expected, ErrorCode::Conflict, "delivery preparation request CAS changed");
+    require(!terminal_request(str(request, "status")) && number(request, "plan_revision") > 0, ErrorCode::NotReady, "delivery needs a live planned request");
+    for (const auto& workspace : impl_->all("SELECT canonical_path,device,inode FROM workspace_bindings"))
+        require(!overlap(root_path, str(workspace, "canonical_path")) &&
+            !(workspace.at("device") == root_identity.at("device") && workspace.at("inode") == root_identity.at("inode")),
+            ErrorCode::Unauthorized, "delivery root overlaps or aliases a business workspace");
+    for (const auto& stored : impl_->all("SELECT frozen_plan FROM delivery_runtime")) {
+        const auto previous = parse_json_strict(str(stored, "frozen_plan"), 8 * 1024 * 1024).at("root_identity");
+        if (previous.at("path") == root_identity.at("path")) require(previous == root_identity, ErrorCode::Conflict, "delivery root identity changed");
+    }
+    impl_->require_settled(actor.request_id);
+    require(!impl_->optional("SELECT q.question_id FROM questions q JOIN question_runtime x USING(question_id) WHERE q.request_id=? AND x.status='OPEN' AND x.blocking=1 LIMIT 1", {actor.request_id}),
+            ErrorCode::NotReady, "unanswered question blocks delivery");
+    for (const auto& old : impl_->all("SELECT * FROM delivery_runtime WHERE request_id=? AND status IN ('PREPARED','STORED') ORDER BY rowid DESC", {actor.request_id})) {
+        const auto plan = parse_json_strict(str(old, "frozen_plan"), 8 * 1024 * 1024);
+        if (plan.at("root_identity") == root_identity && number(old, "requirements_revision") == captured.requirements_revision && number(old, "plan_revision") == captured.plan_revision) {
+            impl_->delivery_current(old);
+            const auto result = impl_->delivery_info(str(old, "delivery_id"));
+            impl_->event(actor.request_id, command_id, command, result, "root"); tx.commit(); return result;
+        }
+    }
+    require(number(impl_->one("SELECT COUNT(*) AS n FROM delivery_runtime WHERE request_id=?", {actor.request_id}), "n") < 64,
+            ErrorCode::Quota, "delivery history capacity exhausted");
+    Array files; Array entries; Array acceptances; Array evidence; Array limitations; Array experience;
+    std::size_t total_bytes = 0;
+    const auto add_file = [&](const std::string& name, const std::string& bytes) {
+        require(bytes.size() <= 2 * 1024 * 1024 && total_bytes <= 4 * 1024 * 1024 - bytes.size() && files.size() < 64,
+                ErrorCode::Quota, "complete delivery exceeds bounded package capacity");
+        total_bytes += bytes.size();
+        files.emplace_back(Row{{"name", name}, {"sha256", sha256_hex(bytes)}, {"size_bytes", static_cast<std::int64_t>(bytes.size())}, {"content_base64", base64_bytes(bytes)}});
+    };
+    const auto tasks = impl_->all("SELECT * FROM tasks WHERE request_id=? ORDER BY node_id", {actor.request_id});
+    require(!tasks.empty(), ErrorCode::NotReady, "delivery has no tasks");
+    for (const auto& task : tasks) {
+        const auto current = impl_->current_acceptance(str(task, "task_id"));
+        if (!current) {
+            require(number(task, "required") == 0, ErrorCode::NotReady, "required task has no current business acceptance");
+            limitations.emplace_back("Optional task " + str(task, "node_id") + " has no current acceptance and is excluded."); continue;
+        }
+        acceptances.emplace_back(Row{{"task_id", task.at("task_id")}, {"acceptance_id", current->at("acceptance_id")}, {"record_sha256", current->at("record_sha256")}});
+        auto submission = impl_->submission_info(str(*current, "submission_id"));
+        Array source_files; std::size_t index = 0;
+        for (const auto& artifact : submission.at("artifact_snapshot").as_array()) {
+            const auto name = "artifact-" + str(task, "node_id") + "-" + std::to_string(++index) + ".bin";
+            const auto bytes = decoded_base64(artifact.at("content_base64").as_string());
+            require(sha256_hex(bytes) == artifact.at("sha256").as_string() && bytes.size() == static_cast<std::size_t>(number(artifact.as_object(), "size_bytes")),
+                    ErrorCode::Corrupt, "stored original artifact bytes changed");
+            add_file(name, bytes);
+            const Row entry{{"name", name}, {"source_path", artifact.at("path")}, {"sha256", artifact.at("sha256")},
+                {"size_bytes", artifact.at("size_bytes")}, {"task_id", task.at("task_id")}, {"submission_id", submission.at("submission_id")},
+                {"acceptance_id", current->at("acceptance_id")}};
+            entries.emplace_back(entry); source_files.emplace_back(entry);
+        }
+        submission.as_object()["artifact_snapshot"] = source_files;
+        evidence.emplace_back(Row{{"task", exposed(task)}, {"submission", submission}, {"acceptance", impl_->acceptance_info(*current)}});
+    }
+    require(!acceptances.empty() && !files.empty(), ErrorCode::NotReady, "delivery requires at least one accepted artifact");
+    Array requirements; for (const auto& text : impl_->all("SELECT * FROM request_texts WHERE request_id=? ORDER BY requirements_revision", {actor.request_id})) requirements.emplace_back(text);
+    Array constraints; for (const auto& constraint : impl_->all("SELECT * FROM request_constraints WHERE request_id=? ORDER BY requirements_revision,constraint_id", {actor.request_id})) constraints.emplace_back(constraint);
+    for (const auto& job : impl_->all("SELECT experience_id FROM experience_jobs WHERE request_id=? ORDER BY rowid", {actor.request_id})) {
+        const auto value = impl_->experience_info(str(job, "experience_id"));
+        experience.emplace_back(Row{{"experience_id", value.at("experience_id")}, {"task_id", value.at("task_id")}, {"team_id", value.at("team_id")},
+            {"status", value.at("status")}, {"source_sha256", value.at("source_sha256")}, {"report", value.at("report")}});
+    }
+    Array side_effects;
+    for (const auto& op : impl_->all("SELECT op_id,task_id,tool_id,side_effect,status FROM ops WHERE request_id=? ORDER BY created_at,op_id", {actor.request_id})) side_effects.emplace_back(op);
+    add_file("requirements.json", canonical_json(Row{{"texts", requirements}, {"constraint_catalog", constraints}}));
+    add_file("plan.json", canonical_json(exposed(impl_->one("SELECT * FROM plans WHERE request_id=? AND plan_revision=?", {actor.request_id, captured.plan_revision}))));
+    Array usage_records;
+    for (const auto& attempt : impl_->all("SELECT attempt_id,role,task_id,team_id,status,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_micro_usd,unknown_input,unknown_output,unknown_cost,usage FROM call_attempts WHERE request_id=? ORDER BY rowid", {actor.request_id})) usage_records.emplace_back(exposed(attempt));
+    add_file("usage.json", canonical_json(Row{{"captured_at", stamp()}, {"budget_ledger", impl_->one("SELECT * FROM request_budgets WHERE request_id=?", {actor.request_id})},
+        {"attempts", usage_records}, {"scope", "Package usage is frozen at preparation; receipt usage is frozen at the business terminal transition. Later terminal experience usage remains in the retained request budget and attempt ledgers and must be settled and summarized before any future purge."}}));
+    Array questions; Array open_questions;
+    for (const auto& question : impl_->all("SELECT question_id FROM questions WHERE request_id=? ORDER BY rowid", {actor.request_id})) {
+        const auto value = impl_->question_info(str(question, "question_id")); questions.emplace_back(value);
+        if (str(value.as_object(), "status") == "OPEN") {
+            open_questions.emplace_back(value.at("question_id"));
+            limitations.emplace_back("Nonblocking question " + str(value.as_object(), "question_id") + " remains unanswered; original context is retained in questions.json.");
+        }
+    }
+    add_file("questions.json", canonical_json(questions));
+    add_file("acceptance.json", canonical_json(evidence));
+    add_file("experience.json", canonical_json(experience));
+    add_file("side-effects.json", canonical_json(side_effects));
+    add_file("delivery.txt", "WLS immutable local delivery package. Artifact names and original paths are mapped in manifest.json.\n"
+        "acceptance.json records Dispatcher decisions and original local evidence. experience.json records reports or explicit pending jobs.\n"
+        "A durable_local receipt records persistent local storage, not whether a person read the package.\n");
+    std::sort(files.begin(), files.end(), [](const Json& a, const Json& b) { return a.at("name").as_string() < b.at("name").as_string(); });
+    Array file_metadata;
+    for (const auto& file : files) file_metadata.emplace_back(Row{{"name", file.at("name")}, {"sha256", file.at("sha256")}, {"size_bytes", file.at("size_bytes")}});
+    const auto id = new_id("dlv"); const auto created = stamp();
+    const Row manifest{{"format", "wls.delivery-package.v1"}, {"delivery_id", id}, {"request_id", actor.request_id},
+        {"requirements_revision", captured.requirements_revision}, {"plan_revision", captured.plan_revision}, {"created_at", created},
+        {"files", file_metadata}, {"artifacts", entries}, {"limitations", limitations},
+        {"requirements_file", "requirements.json"}, {"acceptance_file", "acceptance.json"}, {"experience_file", "experience.json"}, {"side_effects_file", "side-effects.json"},
+        {"plan_file", "plan.json"}, {"usage_file", "usage.json"}, {"questions_file", "questions.json"}, {"open_questions", open_questions},
+        {"independent_review_performed", false}, {"real_model_acceptance_tested", false}};
+    const auto manifest_bytes = json_text(manifest, 1024 * 1024);
+    require(total_bytes <= 4 * 1024 * 1024 - manifest_bytes.size(), ErrorCode::Quota, "manifest and files exceed complete package capacity");
+    const auto hash = sha256_hex(manifest_bytes);
+    const Row plan{{"delivery_id", id}, {"root_identity", root_identity}, {"manifest", manifest}, {"manifest_sha256", hash}, {"files", files}};
+    impl_->execute("INSERT INTO delivery_runtime(delivery_id,request_id,requirements_revision,plan_revision,captured_binding,frozen_plan,manifest_sha256,acceptance_snapshot,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'PREPARED',?,?)",
+        {id, actor.request_id, captured.requirements_revision, captured.plan_revision, canonical_json(to_json(captured)), json_text(plan, 8 * 1024 * 1024), hash, json_text(acceptances), created, created});
+    impl_->cas("UPDATE requests SET status='DELIVERING',state_version=state_version+1,updated_at=? WHERE request_id=? AND state_version=?", {created, actor.request_id, expected});
+    const auto result = impl_->delivery_info(id); impl_->event(actor.request_id, command_id, command, result, "root"); tx.commit(); return result;
+}
+Json Store::delivery(const std::string& id) const {
+    const std::lock_guard lock(impl_->mutex); return impl_->delivery_info(id);
+}
+std::vector<Json> Store::deliveries(const std::string& request_id, std::int64_t limit) const {
+    const std::lock_guard lock(impl_->mutex); impl_->require_acceptance_schema();
+    require(limit > 0 && limit <= 64, ErrorCode::InvalidInput, "delivery limit must be 1..64");
+    const auto rows = impl_->all("SELECT delivery_id FROM delivery_runtime WHERE request_id=? ORDER BY rowid", {request_id});
+    require(rows.size() <= static_cast<std::size_t>(limit), ErrorCode::Quota, "complete delivery history exceeds requested capacity");
+    std::vector<Json> result; for (const auto& row : rows) result.push_back(impl_->delivery_info(str(row, "delivery_id"))); return result;
+}
+Json Store::record_delivery_publication(const StoreActor& actor, const ExecutionBinding& captured, const std::string& id,
+        std::int64_t expected, const Json& publication, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex); impl_->require_acceptance_schema();
+    require(publication.is_object(), ErrorCode::InvalidInput, "publication must be host evidence");
+    const auto command = payload(actor, "record_delivery_publication", Row{{"binding", to_json(captured)}, {"delivery_id", id}, {"expected_delivery_version", expected}, {"publication", publication}});
+    Impl::Transaction tx(*impl_); (void)impl_->authorize(actor, {Role::Root}, false); impl_->actor_binding(actor, captured);
+    const auto record = impl_->delivery_row(id);
+    require(str(record, "request_id") == actor.request_id, ErrorCode::Unauthorized, "delivery belongs to another Root request");
+    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    (void)impl_->authorize(actor, {Role::Root}); impl_->matches(captured); impl_->delivery_current(record);
+    require(number(record, "state_version") == expected, ErrorCode::Conflict, "publication delivery CAS changed");
+    impl_->verify_publication(record, publication);
+    impl_->cas("UPDATE delivery_runtime SET status='STORED',publication=?,state_version=state_version+1,updated_at=? WHERE delivery_id=? AND state_version=?",
+        {json_text(publication, 262144), stamp(), id, expected});
+    impl_->execute("UPDATE requests SET status='DELIVERING',delivery_status='STORED',state_version=state_version+1,updated_at=? WHERE request_id=?", {stamp(), actor.request_id});
+    const auto result = impl_->delivery_info(id); impl_->event(actor.request_id, command_id, command, result, "root"); tx.commit(); return result;
+}
+Json Store::authorize_delivery_publication(const StoreActor& actor, const ExecutionBinding& captured, const std::string& id) const {
+    const std::lock_guard lock(impl_->mutex); impl_->require_acceptance_schema();
+    const auto request = impl_->authorize(actor, {Role::Root}); impl_->actor_binding(actor, captured); impl_->matches(captured);
+    const auto record = impl_->delivery_row(id);
+    require(str(record, "request_id") == actor.request_id, ErrorCode::Unauthorized, "delivery publication belongs to another request");
+    if (str(record, "status") == "CONFIRMED") {
+        require(str(request, "status") == "DELIVERED" && number(request, "requirements_revision") == number(record, "requirements_revision") &&
+            number(request, "plan_revision") == number(record, "plan_revision") &&
+            impl_->optional("SELECT receipt_id FROM delivery_receipts WHERE delivery_id=? AND request_id=? AND root_id=?", {id, actor.request_id, actor.principal_id}).has_value(),
+            ErrorCode::NotReady, "only the exact retained confirmed package may be verified again");
+    } else impl_->delivery_current(record);
+    return impl_->delivery_info(id);
+}
+Json Store::acknowledge_delivery(const StoreActor& actor, const ExecutionBinding& captured, const std::string& id,
+        const std::string& hash, std::int64_t requirements, std::int64_t plan_revision, const std::string& recipient,
+        const std::string& method, const std::string& key, const Json& fresh_publication) {
+    const std::lock_guard lock(impl_->mutex); impl_->require_acceptance_schema();
+    text_field(key, "receipt idempotency key", 256); nonblank(recipient, "receipt recipient", 256);
+    require(method == "durable_local" || method == "explicit_ack", ErrorCode::InvalidInput, "unknown receipt method");
+    const Row intent{{"request_id", actor.request_id}, {"root_id", actor.principal_id}, {"delivery_id", id}, {"manifest_sha256", hash},
+        {"requirements_revision", requirements}, {"plan_revision", plan_revision}, {"recipient", recipient}, {"method", method}, {"idempotency_key", key}};
+    const auto fingerprint = sha256_hex(canonical_json(intent));
+    Impl::Transaction tx(*impl_); (void)impl_->authorize(actor, {Role::Root}, false); impl_->actor_binding(actor, captured);
+    const auto record = impl_->delivery_row(id);
+    require(str(record, "request_id") == actor.request_id, ErrorCode::Unauthorized, "receipt delivery belongs to another request");
+    impl_->verify_publication(record, fresh_publication);
+    if (const auto old = impl_->optional("SELECT * FROM delivery_receipts WHERE request_id=? AND idempotency_key=?", {actor.request_id, key})) {
+        require(str(*old, "root_id") == actor.principal_id && str(*old, "command_sha256") == fingerprint,
+                ErrorCode::Conflict, "receipt key reused for a different exact package or recipient");
+        const auto result = parse_json_strict(str(*old, "result"), 16 * 1024 * 1024); tx.commit(); return result;
+    }
+    (void)impl_->authorize(actor, {Role::Root}); impl_->matches(captured);
+    require(str(record, "status") == "STORED", ErrorCode::NotReady, "only a durably published package can be acknowledged");
+    impl_->delivery_current(record);
+    require(hash == str(record, "manifest_sha256") && requirements == number(record, "requirements_revision") && plan_revision == number(record, "plan_revision"),
+            ErrorCode::Stale, "receipt must bind the exact package and current versions");
+    const auto publication = parse_json_strict(str(record, "publication"));
+    require(publication.at("durable").as_bool() && publication.at("verified").as_bool(), ErrorCode::Corrupt, "stored publication lacks durable evidence");
+    const auto receipt_id = new_id("receipt"); auto receipt = intent;
+    receipt["receipt_id"] = receipt_id; receipt["captured_binding"] = to_json(captured); receipt["created_at"] = stamp(); receipt["publication"] = fresh_publication;
+    impl_->cas("UPDATE delivery_runtime SET status='CONFIRMED',state_version=state_version+1,updated_at=? WHERE delivery_id=? AND state_version=?",
+        {stamp(), id, number(record, "state_version")});
+    // The receipt chooses exactly one package for this request. Other intents
+    // retain their immutable plans and any published bytes as history, but
+    // cannot remain impossible-to-confirm work after the terminal transition.
+    impl_->execute("UPDATE delivery_runtime SET status='SUPERSEDED',state_version=state_version+1,updated_at=? WHERE request_id=? AND delivery_id<>? AND status IN ('PREPARED','STORED')",
+        {stamp(), actor.request_id, id});
+    impl_->execute("UPDATE requests SET status='DELIVERED',delivery_status='CONFIRMED',state_version=state_version+1,updated_at=? WHERE request_id=?", {stamp(), actor.request_id});
+    impl_->execute("UPDATE teams SET paused_for_change=1,state_version=state_version+1,updated_at=? WHERE request_id=? AND status IN ('STARTING','ACTIVE','DRAINING')", {stamp(), actor.request_id});
+    impl_->retain_closeout(impl_->request_row(actor.request_id), str(publication.as_object(), "path"), hash);
+    auto result = impl_->delivery_info(id); result.as_object()["receipt"] = receipt;
+    impl_->execute("INSERT INTO delivery_receipts VALUES (?,?,?,?,?,?,?,?,?)", {receipt_id, actor.request_id, id, actor.principal_id, key, fingerprint, json_text(receipt), json_text(result, 16 * 1024 * 1024), stamp()});
+    impl_->execute("INSERT INTO closeout_commands VALUES (?,?,?,?,?,?)", {actor.request_id, "ack:" + key, actor.principal_id, fingerprint, json_text(result, 16 * 1024 * 1024), stamp()});
+    impl_->event(actor.request_id, "receipt:" + receipt_id, payload(actor, "acknowledge_delivery", receipt), result, "root"); tx.commit(); return result;
+}
+Json Store::closeout(const std::string& request_id) const {
+    const std::lock_guard lock(impl_->mutex); impl_->require_acceptance_schema();
+    (void)impl_->request_row(request_id);
+    const auto job = impl_->optional("SELECT * FROM cleanup_jobs WHERE request_id=?", {request_id});
+    const auto receipt = impl_->optional("SELECT * FROM receipts WHERE request_id=?", {request_id});
+    Array blockers;
+    if (!job) blockers.emplace_back("business_not_terminal");
+    if (impl_->optional("SELECT experience_id FROM experience_jobs WHERE request_id=? AND status<>'DONE' LIMIT 1", {request_id})) blockers.emplace_back("experience_pending");
+    if (impl_->optional("SELECT op_id FROM ops WHERE request_id=? AND status IN ('PREPARED','RUNNING','CANCEL_REQUESTED','UNKNOWN') LIMIT 1", {request_id})) blockers.emplace_back("unsettled_operations");
+    if (impl_->optional("SELECT attempt_id FROM call_attempts WHERE request_id=? AND (status IN ('PENDING','UNKNOWN') OR unknown_input=1 OR unknown_output=1 OR unknown_cost=1) LIMIT 1", {request_id})) blockers.emplace_back("unsettled_model_accounting");
+    if (impl_->optional("SELECT delivery_id FROM delivery_runtime WHERE request_id=? AND status IN ('PREPARED','STORED') LIMIT 1", {request_id})) blockers.emplace_back("delivery_unconfirmed");
+    blockers.emplace_back("controlled_resource_ownership_not_registered");
+    blockers.emplace_back("process_exit_and_cleanup_runner_not_implemented");
+    return Row{{"request_id", request_id}, {"receipt", receipt ? exposed(*receipt) : Json(nullptr)}, {"cleanup_job", job ? exposed(*job) : Json(nullptr)},
+        {"checkpoint", job ? "RETAINED" : "NOT_CREATED"}, {"blockers", blockers}, {"cleanup_complete", false}, {"deletion_performed", false}};
+}
+
 StoreActor Store::host_actor(Role role, const std::string& id, const std::string& team_id) const {
     const std::lock_guard lock(impl_->mutex);
     const auto r = impl_->request_row(id);
@@ -1817,6 +2382,10 @@ Json Store::admit(const AdmissionInput& input) {
             input.budget.output_tokens >= 0 && input.budget.cost_micro_usd >= 0, ErrorCode::InvalidInput, "invalid frozen budget");
     const auto config = json_text(input.config_snapshot, 8 * 1024 * 1024);
     const auto frozen_config = FrozenRequestConfig::restore(config, sha256_hex(config));
+    if (impl_->acceptance_schema) {
+        const auto ttl = number(frozen_config.json().at("system").at("cleanup").as_object(), "receipt_ttl_days");
+        require(ttl > 0 && ttl <= 36500, ErrorCode::Unsupported, "receipt TTL must be 1..36500 frozen days");
+    }
     require(frozen_config.function_id() == input.function_id, ErrorCode::InvalidInput, "admission function differs from frozen configuration");
     std::set<std::string> template_tools;
     for (const auto& entry : frozen_config.json().at("function").at("team_templates").as_object()) {
@@ -2071,7 +2640,7 @@ Json Store::rebind_task(const StoreActor& actor, const std::string& task_id, std
     if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
     const auto r = impl_->authorize(actor, {Role::Dispatcher}); const auto t = impl_->task_row(task_id);
     require(str(t, "request_id") == actor.request_id, ErrorCode::Unauthorized, "task belongs to another request");
-    require(!terminal_request(str(r, "status")) && !terminal_task(str(t, "status")) && requirements == number(r, "requirements_revision") &&
+    require(!terminal_request(str(r, "status")) && (!terminal_task(str(t, "status")) || (impl_->acceptance_schema && str(t, "status") == "ACCEPTED")) && requirements == number(r, "requirements_revision") &&
         requirements == number(t, "based_on_requirements_revision") && plan == number(r, "plan_revision") && plan > number(t, "plan_revision"),
         ErrorCode::Stale, "plan-only rebind cannot substitute for AMEND disposition");
     require(number(impl_->one("SELECT based_on_requirements_revision FROM plans WHERE request_id=? AND plan_revision=?", {actor.request_id, plan}), "based_on_requirements_revision") == requirements, ErrorCode::Stale, "current plan required");
@@ -2346,6 +2915,12 @@ Json Store::bind_workspace(const std::string& team_id, const std::string& path,
                 !(number(other, "device") == signed_device && number(other, "inode") == signed_inode),
                 ErrorCode::Conflict, "workspace overlaps or aliases another team's workspace");
     }
+    if (impl_->acceptance_schema) for (const auto& stored : impl_->all("SELECT frozen_plan FROM delivery_runtime")) {
+        const auto root = parse_json_strict(str(stored, "frozen_plan"), 8 * 1024 * 1024).at("root_identity");
+        require(!overlap(path, str(root.as_object(), "path")) &&
+                !(number(root.as_object(), "device") == signed_device && number(root.as_object(), "inode") == signed_inode),
+                ErrorCode::Unauthorized, "workspace overlaps or aliases a retained delivery root");
+    }
     impl_->execute("INSERT INTO workspace_bindings VALUES (?,?,?,?,?,?,?)", {team_id, path, signed_device, signed_inode, encoded_policy, policy_hash, stamp()});
     impl_->execute("UPDATE teams SET workspace_path=?,state_version=state_version+1,updated_at=? WHERE team_id=?", {path, stamp(), team_id});
     const auto result = impl_->workspace_info(team_id);
@@ -2564,6 +3139,7 @@ Json Store::cancel_request(const StoreActor& root, std::int64_t expected, const 
     impl_->execute("UPDATE tasks SET status='CANCELLED',state_version=state_version+1,updated_at=? WHERE request_id=? AND status NOT IN ('FAILED','CANCELLED','SKIPPED','SUPERSEDED')", {stamp(), root.request_id});
     impl_->execute("UPDATE teams SET status='DRAINING',execution_epoch=execution_epoch+1,paused_for_change=1,state_version=state_version+1,updated_at=? WHERE request_id=? AND status IN ('STARTING','ACTIVE','DRAINING')", {stamp(), root.request_id});
     impl_->fence_ops(root.request_id); impl_->unknown_attempts(root.request_id);
+    if (impl_->acceptance_schema) impl_->retain_closeout(impl_->request_row(root.request_id));
     const auto result = exposed(impl_->request_row(root.request_id));
     impl_->event(root.request_id, command_id, command, result, "root");
     tx.commit(); return result;
@@ -2579,11 +3155,19 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         reservation.reserved_cost_micro_usd >= 0 && reservation.max_output_tokens > 0 &&
         reservation.max_output_tokens <= reservation.reserved_output_tokens,
         ErrorCode::InvalidInput, "model attempt requires bounded nonnegative reservations");
-    const auto command = payload(actor, "reserve_attempt", Row{{"binding", to_json(frozen)}, {"call_id", reservation.call_id},
+    auto command = payload(actor, "reserve_attempt", Row{{"binding", to_json(frozen)}, {"call_id", reservation.call_id},
         {"attempt_id", reservation.attempt_id}, {"config_snapshot_sha256", reservation.config_snapshot_sha256},
         {"model_ref", reservation.model_ref}, {"adapter_kind", reservation.adapter_kind},
         {"reserved_input_tokens", reservation.reserved_input_tokens}, {"reserved_output_tokens", reservation.reserved_output_tokens},
         {"reserved_cost_micro_usd", reservation.reserved_cost_micro_usd}, {"max_output_tokens", reservation.max_output_tokens}, {"request_envelope", reservation.request_envelope}});
+    const bool experience = !reservation.experience_job_id.empty();
+    if (experience) {
+        impl_->require_acceptance_schema();
+        command["experience_job_id"] = reservation.experience_job_id;
+        command["experience_job_version"] = reservation.experience_job_version;
+        command["experience_source_sha256"] = reservation.experience_source_sha256;
+    } else require(reservation.experience_job_version == 0 && reservation.experience_source_sha256.empty(),
+                   ErrorCode::InvalidInput, "experience reservation fields require a job");
     require(reservation.request_envelope.is_object(), ErrorCode::InvalidInput, "complete model request envelope is required");
     const auto original_model_request = model_request_from_json(reservation.request_envelope);
     {
@@ -2608,7 +3192,7 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         const auto result = exposed(*existing); tx.commit(); return result;
     }
     const auto r = impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
-    require(!terminal_request(str(r, "status")), ErrorCode::NotReady, "business model attempt after request termination");
+    require(experience || !terminal_request(str(r, "status")), ErrorCode::NotReady, "business model attempt after request termination");
     impl_->matches(frozen);
     require(str(r, "config_snapshot_sha256") == reservation.config_snapshot_sha256, ErrorCode::Stale, "model attempt changed the frozen request configuration");
     const auto frozen_config = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256"));
@@ -2627,7 +3211,23 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         impl_->ready(actor, frozen);
         for (const auto& tool : original_model_request.context.tool_names) impl_->ready(actor, frozen, tool);
     }
-    if (actor.role == Role::TeamLead) {
+    if (experience) {
+        const auto job = impl_->validate_experience_target(actor, frozen, reservation.experience_job_id,
+            reservation.experience_job_version, reservation.experience_source_sha256);
+        require(original_model_request.context.tool_names.size() == 1 && original_model_request.context.tool_names.front() == "report_experience",
+                ErrorCode::Unauthorized, "experience attempt may declare only report_experience");
+        const auto contract = model_contract(original_model_request);
+        require(contract.is_object() && contract.as_object().contains("workflow_action") && contract.at("workflow_action").is_object(),
+                ErrorCode::Unauthorized, "experience attempt lacks exact captured workflow target");
+        const auto& action = contract.at("workflow_action");
+        require(action.at("kind").as_string() == "experience" && action.at("target").at("experience_id") == job.at("experience_id") &&
+                action.at("target").at("state_version") == job.at("state_version") &&
+                action.at("target").at("source_sha256") == job.at("source_sha256") &&
+                action.at("target").at("source_snapshot") == job.at("source_snapshot"),
+                ErrorCode::Conflict, "experience model context changed the captured source");
+        require(!impl_->optional("SELECT e.attempt_id FROM experience_attempts e JOIN call_attempts c USING(attempt_id) WHERE e.experience_id=? AND c.status='PENDING' LIMIT 1", {reservation.experience_job_id}),
+                ErrorCode::Conflict, "experience job already has an in-flight attempt");
+    } else if (actor.role == Role::TeamLead) {
         const auto t = impl_->task_row(actor.task_id);
         require(!terminal_task(str(t, "status")) && number(t, "based_on_requirements_revision") == number(r, "requirements_revision") &&
             number(t, "plan_revision") == number(r, "plan_revision"), ErrorCode::NotReady, "TeamLead model attempt requires current task disposition");
@@ -2646,6 +3246,8 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
          actor.team_id.empty() ? Json(nullptr) : Json(actor.team_id), role_name(actor.role), actor.principal_id,
          reservation.config_snapshot_sha256, reservation.model_ref, canonical_json(to_json(frozen)), json_text(reservation.request_envelope, 4 * 1024 * 1024), fingerprint,
          reservation.reserved_input_tokens, reservation.reserved_output_tokens, reservation.reserved_cost_micro_usd, reservation.max_output_tokens, stamp()});
+    if (experience) impl_->execute("INSERT INTO experience_attempts VALUES (?,?,?,?)",
+        {reservation.attempt_id, reservation.experience_job_id, reservation.experience_job_version, reservation.experience_source_sha256});
     const auto result = exposed(impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {reservation.attempt_id}));
     impl_->event(actor.request_id, "reserve:" + reservation.attempt_id, command, result, role_name(actor.role));
     tx.commit(); return result;
@@ -2683,8 +3285,16 @@ Json Store::settle_attempt(const std::string& attempt_id, const ExecutionBinding
     }
     require(str(record, "status") == "PENDING" || str(record, "status") == "UNKNOWN", ErrorCode::NotReady, "attempt cannot settle from this state");
     const auto current_request = impl_->request_row(request_id);
-    bool current = !terminal_request(str(current_request, "status")) && frozen.plan_revision == number(current_request, "plan_revision") &&
-        frozen.requirements_revision == number(current_request, "requirements_revision");
+    bool experience_current = false;
+    if (impl_->acceptance_schema) if (const auto job_attempt = impl_->optional("SELECT * FROM experience_attempts WHERE attempt_id=?", {attempt_id})) {
+        const auto job = impl_->experience_info(str(*job_attempt, "experience_id"));
+        experience_current = str(job.as_object(), "status") != "DONE" && number(job.as_object(), "state_version") == number(*job_attempt, "job_version") &&
+            str(job.as_object(), "source_sha256") == str(*job_attempt, "source_sha256") && str(record, "role") == "team_lead" &&
+            job.at("request_id") == record.at("request_id") && job.at("task_id") == record.at("task_id") && job.at("team_id") == record.at("team_id");
+    }
+    bool current = experience_current || (!terminal_request(str(current_request, "status")) && frozen.plan_revision == number(current_request, "plan_revision") &&
+        frozen.requirements_revision == number(current_request, "requirements_revision"));
+    if (impl_->acceptance_schema && impl_->optional("SELECT attempt_id FROM experience_attempts WHERE attempt_id=?", {attempt_id}) && !experience_current) current = false;
     try { impl_->matches(frozen); } catch (const Error& error) {
         if (error.code() != ErrorCode::Stale && error.code() != ErrorCode::InvalidInput && error.code() != ErrorCode::NotReady) throw;
         current = false;

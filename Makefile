@@ -19,9 +19,9 @@ KERNEL_OBJECTS := $(KERNEL_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_NAMES := journal_tests config_tests scheduler_tests task_engine_tests
 TEST_OBJECTS := $(addprefix $(BUILD_DIR)/tests/,$(addsuffix .o,$(TEST_NAMES)))
 TEST_BINARIES := $(addprefix $(BUILD_DIR)/,$(TEST_NAMES))
-S1_SOURCES := src/boost_json.cpp src/runtime_types.cpp src/store.cpp src/config_loader.cpp src/model.cpp src/context.cpp src/schema.cpp src/offline_runtime.cpp src/event_runtime.cpp src/workspace_posix.cpp src/sandbox_posix.cpp src/worker_tools.cpp
+S1_SOURCES := src/boost_json.cpp src/runtime_types.cpp src/store.cpp src/config_loader.cpp src/model.cpp src/context.cpp src/schema.cpp src/offline_runtime.cpp src/event_runtime.cpp src/workspace_posix.cpp src/sandbox_posix.cpp src/worker_tools.cpp src/delivery.cpp
 S1_OBJECTS := $(S1_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
-S1_TEST_NAMES := runtime_types_tests store_tests event_store_tests workflow_store_tests config_loader_tests model_tests schema_tests offline_runtime_tests event_runtime_tests workflow_runtime_tests workspace_tests sandbox_tests worker_tools_tests
+S1_TEST_NAMES := runtime_types_tests store_tests event_store_tests workflow_store_tests acceptance_store_tests config_loader_tests model_tests schema_tests offline_runtime_tests event_runtime_tests workflow_runtime_tests acceptance_runtime_tests workspace_tests sandbox_tests worker_tools_tests delivery_tests
 S1_TEST_OBJECTS := $(addprefix $(BUILD_DIR)/tests/,$(addsuffix .o,$(S1_TEST_NAMES)))
 S1_TEST_BINARIES := $(addprefix $(BUILD_DIR)/,$(S1_TEST_NAMES))
 S1_LIBRARY := $(BUILD_DIR)/libwls_s1.a
@@ -83,19 +83,23 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES)
 	"$(BUILD_DIR)/store_tests"
 	"$(BUILD_DIR)/event_store_tests"
 	"$(BUILD_DIR)/workflow_store_tests"
+	"$(BUILD_DIR)/acceptance_store_tests"
 	"$(BUILD_DIR)/config_loader_tests"
 	"$(BUILD_DIR)/model_tests"
 	"$(BUILD_DIR)/schema_tests"
 	"$(BUILD_DIR)/offline_runtime_tests"
 	"$(BUILD_DIR)/event_runtime_tests"
 	"$(BUILD_DIR)/workflow_runtime_tests"
+	"$(BUILD_DIR)/acceptance_runtime_tests"
 	"$(BUILD_DIR)/workspace_tests"
 	"$(BUILD_DIR)/sandbox_tests"
 	"$(BUILD_DIR)/worker_tools_tests"
+	"$(BUILD_DIR)/delivery_tests"
 	$(PYTHON) tests/s1_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/s12_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/s13_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/s14_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
+	$(PYTHON) tests/s15_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 
 # The default sanitizer gate is UBSan; ASan is independently available so a
 # runtime without working ASan support cannot be mistaken for a code failure.

@@ -1,6 +1,7 @@
 #include "wls/offline_runtime.hpp"
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
+#include "wls/delivery.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -96,6 +97,41 @@ bool path_contains(const std::filesystem::path& parent, const std::filesystem::p
     return true;
 }
 
+void check_delivery_root(Store& store, const std::string& request_id,
+        const std::filesystem::path& database, const Json& identity) {
+    const std::filesystem::path root = text(identity.at("path"));
+    const auto control = std::filesystem::weakly_canonical(std::filesystem::absolute(database));
+    if (path_contains(root, control))
+        throw Error(ErrorCode::Unauthorized, "delivery directory must not contain the control database");
+    for (const auto& task : store.tasks(request_id)) {
+        const auto workspace = store.workspace(text(task.at("team_id")));
+        if (workspace.is_null()) continue;
+        const std::filesystem::path path = text(workspace.at("canonical_path"));
+        if (path_contains(root, path) || path_contains(path, root) ||
+            (identity.at("device") == workspace.at("device") && identity.at("inode") == workspace.at("inode")))
+            throw Error(ErrorCode::Unauthorized, "delivery directory must be separate from business workspaces");
+    }
+}
+
+void check_delivery_scope(const Json& delivery, const std::string& request_id,
+                          const Json& root_identity) {
+    if (text(delivery.at("request_id")) != request_id)
+        throw Error(ErrorCode::Unauthorized, "delivery belongs to another request");
+    if (delivery.at("frozen_plan").at("root_identity") != root_identity)
+        throw Error(ErrorCode::Conflict, "delivery directory identity differs from the frozen publication intent");
+}
+
+Json publish_bundle(DeliveryDirectory& directory, const Json& delivery) {
+    const auto result = directory.publish(delivery.at("frozen_plan"));
+    if (result.status != DeliveryMutationStatus::Succeeded) {
+        const auto code = result.status == DeliveryMutationStatus::OutcomeUnknown
+            ? ErrorCode::UnknownOutcome : result.error_code.value_or(ErrorCode::Storage);
+        throw Error(code, "delivery publication " + std::string(delivery_mutation_status_name(result.status)) +
+            "; retained intent " + text(delivery.at("delivery_id")) + "; " + canonical_json(result.evidence));
+    }
+    return result.publication;
+}
+
 // Check all host-selected roots before opening a writer or allowing task A to
 // run. Store and WorkerTools recheck actual identities at binding/dispatch.
 std::map<std::string, std::filesystem::path> workspace_map(
@@ -176,11 +212,12 @@ Json request_view(Store& store, const std::string& id) {
     }
     return Object{{"request", visible}, {"snapshot", store.request_snapshot(id)}, {"tasks", array_of(tasks)},
                   {"event_runtime_enabled", events_enabled},
-                  {"workflow_runtime_enabled", store.workflow_runtime_enabled()}, {"budget", store.budget(id)}};
+                  {"workflow_runtime_enabled", store.workflow_runtime_enabled()},
+                  {"acceptance_runtime_enabled", store.acceptance_runtime_enabled()}, {"budget", store.budget(id)}};
 }
 
 void help() {
-    std::cout << R"(wls 0.5.0-s1.4 — durable questions and submission checks with offline models
+    std::cout << R"(wls 0.6.0-s1.5 — current acceptance and durable delivery with offline models
 
 Resource paths default to the source checkout in the current directory.
 Use --source-root PATH from another directory. Outputs are JSON; errors go to stderr.
@@ -209,6 +246,14 @@ Use --source-root PATH from another directory. Outputs are JSON; errors go to st
   wls submissions --db FILE --request ID --task ID [--limit N]
   wls answer --db FILE --request ID --question ID --expected-version N
              [--text-file FILE] [--selected-option ID]
+  wls deliveries --db FILE --request ID [--limit 1..64]
+  wls experience --db FILE --request ID [--task ID] [--limit 1..128]
+  wls closeout --db FILE --request ID
+  wls publish-delivery --db FILE --request ID --delivery-dir DIRECTORY [--delivery ID]
+  wls verify-delivery --db FILE --request ID --delivery ID --delivery-dir DIRECTORY
+  wls ack-delivery --db FILE --request ID --delivery ID --delivery-dir DIRECTORY
+                  --manifest-sha256 HASH --requirements-revision N --plan-revision N
+                  --recipient ID --key KEY [--method durable_local|explicit_ack]
   wls wait --db FILE --request ID --task ID --reason TEXT
   wls wake --db FILE --request ID --task ID --wait-generation N
   wls tool-query --db FILE --request ID --task ID --workspace DIRECTORY
@@ -230,6 +275,15 @@ at least text-file or selected-option; Root answers only questions forwarded to
 the user. An answer preserves the question's original binding. Worker submit
 captures bounded immutable file bytes for TeamLead checking and possible rework;
 passing that check does not establish independent review or business acceptance.
+Dispatcher accept_candidate evaluates one captured current candidate separately.
+publish-delivery assembles only previously accepted original bytes and publishes
+an immutable package; --delivery resumes its exact saved intent. It does not sign
+a receipt. ack-delivery verifies and syncs that whole package again, then records
+the exact recipient/method/version/hash intent. durable_local means a persisted
+local package, not proof that a person read it. deliveries, experience, closeout
+and verify-delivery are read-only and never acknowledge delivery. Experience
+jobs remain pending until an explicit TeamLead report. This increment preserves
+cleanup jobs and blockers; it does not delete workspaces or mark cleanup DONE.
 wait/wake are local host controls;
 a wake leaves instruction, AMEND and UNKNOWN gates in force. An explicit
 workspace enables bounded file tools and process execution with verified strong
@@ -247,7 +301,7 @@ int run_cli(int argc, char** argv) {
     const std::string command(argv[1]);
     if (command == "--version" || command == "version") {
         if (argc != 2) throw Error(ErrorCode::InvalidInput, "version takes no options");
-        output(Object{{"version", "0.5.0-s1.4"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
+        output(Object{{"version", "0.6.0-s1.5"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
     }
     int start = 2;
     std::string action;
@@ -292,7 +346,7 @@ int run_cli(int argc, char** argv) {
         result.as_object()["process_isolation_verified"] = false;
         output(result); return 0;
     }
-    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "inbox", "history", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending"};
+    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "inbox", "history", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery"};
     if (!commands.contains(command)) throw Error(ErrorCode::InvalidInput, "unknown command: " + command);
     const auto database = options.required("--db");
     const auto schema_sql = read_runtime_file(source / "db/schema.sql");
@@ -300,8 +354,9 @@ int run_cli(int argc, char** argv) {
     const auto tools_migration_sql = read_runtime_file(source / "db/migrations/005_worker_tools.sql");
     const auto events_migration_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     const auto workflow_migration_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
+    const auto acceptance_migration_sql = read_runtime_file(source / "db/migrations/008_acceptance_runtime.sql");
     if (command == "init") {
-        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql); output(store.diagnostics()); return 0;
+        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql); output(store.diagnostics()); return 0;
     }
     if (command == "submit") {
         const auto frozen = live_config(options, source);
@@ -332,15 +387,120 @@ int run_cli(int argc, char** argv) {
         }
         admission.budget.cost_micro_usd = options.number("--cost-budget-micro-usd", cost_limit);
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
         const auto admitted = store.admit(admission);
         output(request_view(store, text(admitted.at("request_id")))); return 0;
     }
     if (command == "pending") {
-        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql);
+        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
         output(store.pending_recovery()); return 0;
     }
     const auto request = options.required("--request");
+    if (command == "deliveries" || command == "experience" || command == "closeout") {
+        const auto task = command == "experience" ? options.take("--task") : std::string{};
+        const auto limit = command == "closeout" ? 0 : options.number("--limit", command == "experience" ? 128 : 64, 1);
+        if (limit > (command == "experience" ? 128 : 64))
+            throw Error(ErrorCode::InvalidInput, "delivery/experience query limit exceeds its bound");
+        options.finish();
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
+                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
+        (void)store.request(request);
+        if (!task.empty() && text(store.task(task).at("request_id")) != request)
+            throw Error(ErrorCode::Unauthorized, "task belongs to another request");
+        if (command == "deliveries") output(Object{{"request_id", request}, {"deliveries", array_of(store.deliveries(request, limit))}});
+        else if (command == "experience") output(Object{{"request_id", request}, {"experience_jobs", array_of(store.experience_jobs(request, task, limit))}});
+        else output(store.closeout(request));
+        return 0;
+    }
+    if (command == "publish-delivery" || command == "verify-delivery" || command == "ack-delivery") {
+        const auto directory_path = options.required("--delivery-dir");
+        const auto delivery_id = command == "publish-delivery" ? options.take("--delivery") : options.required("--delivery");
+        if (!delivery_id.empty() && !is_typed_id(delivery_id, "dlv"))
+            throw Error(ErrorCode::InvalidInput, "invalid delivery ID");
+        std::string manifest_hash, recipient, receipt_key, method;
+        std::int64_t requirements_revision{}, plan_revision{};
+        if (command == "ack-delivery") {
+            manifest_hash = options.required("--manifest-sha256");
+            if (manifest_hash.size() != 64 || !std::all_of(manifest_hash.begin(), manifest_hash.end(), [](char c) {
+                    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }))
+                throw Error(ErrorCode::InvalidInput, "manifest SHA-256 must be 64 lowercase hexadecimal characters");
+            requirements_revision = options.number("--requirements-revision", 0, 1);
+            plan_revision = options.number("--plan-revision", 0, 1);
+            if (requirements_revision == 0 || plan_revision == 0)
+                throw Error(ErrorCode::InvalidInput, "ack-delivery requires explicit requirements and plan revisions");
+            recipient = options.required("--recipient");
+            receipt_key = options.required("--key");
+            method = options.take("--method", "durable_local");
+            for (const auto& value : {recipient, receipt_key})
+                if (value.size() > 256 || value.find('\0') != std::string::npos ||
+                    value.find_first_not_of(" \t\r\n") == std::string::npos)
+                    throw Error(ErrorCode::InvalidInput, "receipt recipient and key must be bounded nonblank strings");
+            if (method != "durable_local" && method != "explicit_ack")
+                throw Error(ErrorCode::InvalidInput, "receipt method must be durable_local or explicit_ack");
+        }
+        options.finish();
+        DeliveryDirectory directory(directory_path);
+        const auto root_identity = directory.root_identity();
+        // Invalid UI tuples, foreign delivery IDs and changed directories fail
+        // before taking over a writer. The Store repeats version/ownership checks
+        // at the final transaction, after durable filesystem verification.
+        {
+            Store reader(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
+                         events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
+            const auto record = reader.request(request);
+            check_delivery_root(reader, request, database, root_identity);
+            if (!delivery_id.empty()) {
+                const auto delivery = reader.delivery(delivery_id);
+                check_delivery_scope(delivery, request, root_identity);
+                if (command != "verify-delivery") {
+                    if (delivery.at("requirements_revision") != record.at("requirements_revision") ||
+                        delivery.at("plan_revision") != record.at("plan_revision"))
+                        throw Error(ErrorCode::Stale, "delivery versions no longer match the current request");
+                    if (text(delivery.at("status")) == "SUPERSEDED")
+                        throw Error(ErrorCode::Stale, "delivery intent has been superseded");
+                }
+                if (command == "ack-delivery") {
+                    if (text(delivery.at("manifest_sha256")) != manifest_hash ||
+                        integer(delivery.at("requirements_revision")) != requirements_revision ||
+                        integer(delivery.at("plan_revision")) != plan_revision)
+                        throw Error(ErrorCode::Conflict, "receipt hash or versions differ from the exact delivery");
+                    if (text(delivery.at("status")) != "STORED" && text(delivery.at("status")) != "CONFIRMED")
+                        throw Error(ErrorCode::NotReady, "receipt requires a recorded durable publication");
+                }
+                if (command != "publish-delivery") {
+                    const auto verified = directory.inspect(delivery.at("frozen_plan"));
+                    if (command == "verify-delivery") {
+                        output(Object{{"request_id", request}, {"delivery_id", delivery_id}, {"inspection", verified},
+                                      {"receipt_created", false}});
+                        return 0;
+                    }
+                }
+            }
+        }
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
+                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
+        const auto root = store.host_actor(Role::Root, request);
+        const auto binding = store.request_binding(request);
+        auto delivery = delivery_id.empty()
+            ? store.prepare_delivery(root, binding, integer(store.request(request).at("state_version")),
+                                     root_identity, new_id("delivery"))
+            : store.delivery(delivery_id);
+        check_delivery_scope(delivery, request, root_identity);
+        // A concurrent writer may have changed acceptance after the read-only
+        // preflight and before this lease was acquired. Authorize the exact
+        // retained intent again before any filesystem mutation.
+        delivery = store.authorize_delivery_publication(root, binding, text(delivery.at("delivery_id")));
+        const auto publication = publish_bundle(directory, delivery);
+        if (command == "ack-delivery") {
+            output(store.acknowledge_delivery(root, binding, delivery_id, manifest_hash, requirements_revision,
+                plan_revision, recipient, method, receipt_key, publication));
+        } else {
+            delivery = store.record_delivery_publication(root, binding, text(delivery.at("delivery_id")),
+                integer(delivery.at("state_version")), publication, new_id("publish"));
+            output(Object{{"delivery", delivery}, {"publication", publication}, {"receipt_created", false}});
+        }
+        return 0;
+    }
     if (command == "questions" || command == "submissions") {
         const auto task = command == "submissions" ? options.required("--task") : options.take("--task");
         const auto limit = options.number("--limit", command == "questions" ? 128 : 64, 1);
@@ -348,7 +508,7 @@ int run_cli(int argc, char** argv) {
         if (limit > maximum) throw Error(ErrorCode::InvalidInput,
             command == "questions" ? "questions limit must be 1..128" : "submissions limit must be 1..64");
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
         (void)store.request(request);
         if (!task.empty() && text(store.task(task).at("request_id")) != request)
             throw Error(ErrorCode::Unauthorized, "task belongs to another request");
@@ -380,7 +540,7 @@ int run_cli(int argc, char** argv) {
         // Reject stale UI actions, foreign objects and invalid selections before
         // acquiring a writer. Store repeats the guards atomically after takeover.
         {
-            Store reader(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql);
+            Store reader(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
             const auto record = reader.request(request);
             const auto question = reader.question(question_id);
             if (text(question.at("request_id")) != request)
@@ -400,7 +560,7 @@ int run_cli(int argc, char** argv) {
                     throw Error(ErrorCode::InvalidInput, "selected option is absent from the original question");
             }
         }
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
         output(store.answer_question(store.host_actor(Role::Root, request), store.request_binding(request),
             question_id, expected_version, answer, new_id("answer")));
         return 0;
@@ -411,7 +571,7 @@ int run_cli(int argc, char** argv) {
         const auto limit = options.number("--limit", 256, 1);
         if (limit > 256) throw Error(ErrorCode::InvalidInput, "inbox/history limit must be 1..256");
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
         const auto actor = scoped_actor(store, request, role, task);
         output(array_of(command == "inbox" ? store.inbox(actor, limit) : store.attempt_history(actor, limit)));
         return 0;
@@ -427,7 +587,7 @@ int run_cli(int argc, char** argv) {
             if (generation == 0) throw Error(ErrorCode::InvalidInput, "wake requires --wait-generation");
         }
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
         const auto actor = scoped_actor(store, request, Role::Worker, task);
         const auto binding = store.binding(task);
         output(command == "wait"
@@ -455,7 +615,7 @@ int run_cli(int argc, char** argv) {
         const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
         options.finish();
         const SchemaRegistry schemas(source / "schemas");
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
         std::vector<std::unique_ptr<WorkerTools>> owners;
         std::map<std::string, WorkerTools*> tools_by_node;
         for (const auto& [node, path] : paths) {
@@ -473,7 +633,7 @@ int run_cli(int argc, char** argv) {
         const auto manifest_path = options.take("--sandbox-manifest");
         const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
         const auto binding = store.binding(task);
         if (binding.request_id != request) throw Error(ErrorCode::Unauthorized, "task belongs to another request");
         const auto actor = store.host_actor(Role::Worker, request, binding.team_id);
@@ -486,7 +646,7 @@ int run_cli(int argc, char** argv) {
         const auto limit = command == "events" ? options.number("--limit", 100, 1) : 100;
         const auto role = command == "config-snapshot" ? role_from_string(options.take("--role", "worker")) : Role::Root;
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
         if (command == "show") output(request_view(store, request));
         if (command == "events") output(array_of(store.events(request, after, limit)));
         if (command == "budget") output(store.budget(request));
@@ -497,13 +657,13 @@ int run_cli(int argc, char** argv) {
         const auto amendment = read_runtime_file(options.required("--text-file"), 65536);
         const auto catalog = parse_json_strict(read_runtime_file(options.required("--constraints-file")));
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
         const auto actor = store.host_actor(Role::Root, request);
         output(store.amend(actor, integer(store.request(request).at("state_version")), amendment, catalog, new_id("amend")));
         return 0;
     }
     if (command == "cancel") {
-        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql);
+        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
         output(store.cancel_request(store.host_actor(Role::Root, request), integer(store.request(request).at("state_version")), new_id("cancel")));
         return 0;
     }
@@ -517,7 +677,7 @@ int run_cli(int argc, char** argv) {
     const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
     options.finish();
     const SchemaRegistry schemas(source / "schemas");
-    Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql);
+    Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql);
     std::unique_ptr<WorkerTools> worker_tools;
     if (!workspace.empty()) worker_tools = std::make_unique<WorkerTools>(store, workspace, manifest);
     output(OfflineRuntime(store, schemas, worker_tools.get()).run(request, script, disposition, worker_calls));

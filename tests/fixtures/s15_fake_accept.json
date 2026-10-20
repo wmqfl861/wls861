@@ -1,0 +1,60 @@
+{
+  "default": [
+    {
+      "role": "dispatcher",
+      "role_call_index": 1,
+      "status": "completed",
+      "tool_calls": [
+        {
+          "call_id": "dispatcher-accept_candidate-1",
+          "name": "accept_candidate",
+          "arguments": {
+            "passed": true,
+            "notes": "Dispatcher依据当前任务、原提交字节与团队检查做单独业务判断。固定Fake决策只验证运行时流程，不代表真实模型质量。",
+            "criteria_results": [
+              {
+                "criterion_id": "ac1",
+                "met": "yes",
+                "evidence": "result.txt原始完整字节、原绑定和持久化提交/检查记录对应当前任务。"
+              }
+            ]
+          }
+        }
+      ],
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cost_micro_usd": 0
+      }
+    }
+  ],
+  "nodes": {
+    "alpha": [
+      {
+        "role": "team_lead",
+        "role_call_index": 1,
+        "status": "completed",
+        "tool_calls": [
+          {
+            "call_id": "team_lead-report_experience-1",
+            "name": "report_experience",
+            "arguments": {
+              "no_new_experience": true,
+              "entries": [],
+              "memory_assessments": []
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost_micro_usd": 0
+        }
+      }
+    ]
+  }
+}

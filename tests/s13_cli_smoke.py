@@ -225,7 +225,7 @@ class EventCliSmoke(unittest.TestCase):
                              {"path": "r1.txt", "max_bytes": 6})
             self.assert_original_history(self.context_history(attempts[1]), attempts[:1], receipts[:1])
             self.assert_original_history(self.history(request, task["task_id"]), attempts, receipts)
-        self.assertEqual(self.rows("PRAGMA user_version")[0]["user_version"], 405)
+        self.assertEqual(self.rows("PRAGMA user_version")[0]["user_version"], 406)
 
     def test_reopen_restores_original_bytes_and_only_the_same_workers_history(self):
         request = self.submit()

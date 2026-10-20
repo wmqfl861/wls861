@@ -32,6 +32,9 @@ struct EventPumpOptions {
 // retry, delivery, global quota scheduler or real adapter is provided. A batch
 // acknowledges only claim items whose particular transition completed; omitted
 // AMEND items, waits, failures and exhausted caps remain pending.
+// Schema 406 adds explicit candidate acceptance and source-bound experience;
+// terminal requests may run only the remaining experience management jobs.
+// Package publication and receiving acknowledgement stay explicit host actions.
 class EventRuntime final {
 public:
     EventRuntime(Store& store, const SchemaRegistry& schemas,

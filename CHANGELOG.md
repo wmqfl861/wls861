@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.0-s1.5 — 2026-10-20
+
+Continue the v0.4.1 blueprint from the S1.4 immutable submission foundation.
+
+- Add SQLite migration 008 / schema 406 while preserving earlier assets and
+  original acceptance, experience source, package and receipt facts.
+- Capture current candidates for explicit Dispatcher business acceptance;
+  atomically create version-specific experience jobs and retain negative controls.
+- Assemble bounded delivery packages from accepted original bytes, including
+  requirements, plan, evidence, questions, usage and experience snapshots.
+  Persist intent before atomic no-overwrite filesystem publication and recovery.
+- Require exact receipt identity and freshly verified durable publication;
+  recheck late blocking questions and retire sibling delivery intents atomically.
+- Recover explicit TeamLead experience reports after business completion while
+  retaining budgets, source hashes, job CAS and ordinary business fences.
+- Add publication, verification, receipt, experience and closeout CLI commands,
+  retained cleanup jobs, synchronized planning documents and actual evidence.
+- Pass strict Make, UBSan and independent CMake/CTest gates: S1 C++ 263 tests,
+  actual S1 CLI 55 tests, original M1 55 tests, reference contracts 36 tests,
+  and 29 CTest groups; build modes are not additional product acceptance cases.
+
+S1 is still in progress. Actual resource deletion, process-exit proof, private-row
+purge, full daemon/API, real providers and independent review remain separate
+increments. See [the implementation contract](docs/implementation/S1-acceptance-delivery.md)
+and [the validation report](docs/reports/s1-acceptance-delivery-validation.md).
+
 ## 0.5.0-s1.4 — 2026-10-19
 
 Continue the v0.4.1 blueprint from the S1.3 durable event runtime.

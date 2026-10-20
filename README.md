@@ -1,8 +1,8 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.5.0-s1.4；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.6.0-s1.5；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
-本批沿 S1-03/07/08/09/10/12 新增 **Worker 持久提问、逐级回答和上报用户、不可变真实文件提交快照、TeamLead 检查与有界返工**。`pump-fake` 在原持久事件和独立任务基础上推进问答/提交流程，旧问题或旧响应不能为新版本任务授权。TeamLead 检查通过产生候选就绪待办；完整强沙箱正向、真实模型、守护进程、业务验收/交付和可恢复清理继续按任务卡实施。
+本批沿 S1-02/03/08/10/11/12 新增 **Dispatcher 当前候选业务验收、原始字节不可变交付包、精确回执、可恢复经验报告和留存收尾作业**。`pump-fake` 在团队检查后单独捕获候选并完成 Dispatcher 判断；宿主只从已接受原字节组装交付，发布与确认分开。实际资源删除、完整强沙箱正向、真实模型、守护进程和跨功能独立审核继续按任务卡实施；整个 S1 尚未完成。
 
 ## 蓝图、计划与审核入口
 
@@ -17,7 +17,9 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.5.0-s1.4；当前
 | [S1.2 Worker 工具契约](docs/implementation/S1-worker-tools.md) | 文件边界、强进程条件、派发/结果/控制、403 迁移与当前限制 |
 | [S1.3 事件运行器契约](docs/implementation/S1-event-runtime.md) | 持久待办、404迁移、原子多任务、原反馈、等待与CLI边界 |
 | [S1.4 问答与提交契约](docs/implementation/S1-workflow-runtime.md) | 405迁移、原问题/答案、文件快照、团队检查与返工、CLI边界 |
-| [本批验证报告](docs/reports/s1-workflow-runtime-validation.md) | S1.4实际构建、Store/运行器/CLI分层证据与限制 |
+| [S1.5 验收与交付契约](docs/implementation/S1-acceptance-delivery.md) | 406迁移、当前验收、交付恢复、回执、经验和收尾边界 |
+| [本批验证报告](docs/reports/s1-acceptance-delivery-validation.md) | S1.5实际构建、SQLite/文件/运行器/CLI分层证据与限制 |
+| [S1.4 历史验证](docs/reports/s1-workflow-runtime-validation.md) | 原问答/提交/团队检查交付时的实际证据 |
 | [S1.3 历史验证](docs/reports/s1-event-runtime-validation.md) | 持久事件/独立多任务交付时的实际证据 |
 | [S1.2 历史验证](docs/reports/s1-worker-tools-validation.md) | 文件/进程/SQLite/CLI交付时的实际证据 |
 | [S1.1 历史验证](docs/reports/s1-foundation-validation.md) | 基础层交付时的实际构建与回归 |
@@ -28,11 +30,11 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.5.0-s1.4；当前
 
 ## 当前可以运行什么
 
-`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/wait/wake`、`questions/submissions/answer`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
+`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/wait/wake`、`questions/submissions/answer`、`deliveries/experience/closeout`、`publish-delivery/verify-delivery/ack-delivery`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
 
 | S1 模块 | 当前实现 |
 | --- | --- |
-| SQLite Store | 真正的 C++ WAL/FULL、外键、CAS/事件、独占写者；非空402→403→404→405迁移，原tuple结果/输出/完整反馈与提交字节不可变；独立计划及初始团队原子分配 |
+| SQLite Store | 真正的 C++ WAL/FULL、外键、CAS/事件、独占写者；非空402→403→404→405→406迁移，原tuple结果/输出/完整反馈与提交字节不可变；独立计划及初始团队原子分配 |
 | 配置 | LibYAML 严格解析、完整依赖快照、逐字段直接继承冻结 Root、哈希恢复、来源解释；环境 check 保持为数据 |
 | JSON / Schema | 严格 JSON、SHA-256、typed ULID；Valijson Draft-07、本地引用注册表、完整记录与模型输入投影 |
 | 模型和上下文 | 有界脚本 FakeModel；实际前缀字节及依赖哈希；完整原文、AMEND、任务和说明；不截断约束 |
@@ -43,6 +45,9 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.5.0-s1.4；当前
 | 等待与历史 | 宿主wait/wake持久化，Store阻断等待中的新调用和业务；原响应/完整反馈/绑定跨运行恢复，缺失明确标记，容量超限先阻止预约 |
 | 问答 | Worker发起，TeamLead/Dispatcher逐级回答或附注转发，Root接收用户ANSWER；原文与原绑定不改，精确对象版本和等待代次防旧答唤醒 |
 | 提交与团队检查 | 实际完整文件字节/哈希同事务保存；TeamLead看原快照、逐项检查，有界返工推进任务/指令并重ack；CANDIDATE_READY不等于业务验收 |
+| 业务验收 | Dispatcher捕获单一当前候选、逐项业务判断；Store核原字节/检查/AC/版本/权限/UNKNOWN，肯定接受与经验作业同事务 |
+| 交付与回执 | 先持久意图，原字节fsync与目录原子发布，再记录STORED；精确回执后DELIVERED，查询不代签，AMEND失效未确认包 |
+| 经验与收尾 | 显式报告或无新增经验；终态可恢复专用TL管理调用，预算不足保留pending；留存cleanup作业和阻塞原因，尚无实际删除 |
 
 `wls861 demo` 创建两个独立请求，各自使用 `Root → Dispatcher → TeamLead → Worker`，并行完成合成工作、独立审核、交付回执与资源状态收尾，输出 JSON 证据。演示使用固定字节和符号模型，模型调用数为零。
 
@@ -253,8 +258,51 @@ PY
 
 `q_YOUR_RETURNED_ID` 和 `QUESTION_STATE_VERSION` 分别替换为查询得到的问题 ID 与 state_version；文本与 `--selected-option` 至少给一项。已答、过期、跨请求或未上报用户的问题不能被此入口重新授权，错误输入在打开写者前检查。回答只结束该问题的等待，恢复后的新说明/ack 和 UNKNOWN 检查继续生效。
 
+## 运行当前验收与真实本地交付
+
+使用新的演示目录，保持业务 workspace、控制数据库和交付目录分离：
+
+```sh
+mkdir -p -m 700 .local/s15-demo/alpha .local/s15-demo/deliveries
+python3 - <<'PY'
+import json
+from pathlib import Path
+base = Path('.local/s15-demo').resolve()
+(base / 'workspaces.json').write_text(json.dumps({'alpha': str(base / 'alpha')}))
+PY
+./build/wls submit --db .local/s15-demo/runtime.db --key s15-complete \
+  --text-file tests/fixtures/s14_request.txt \
+  --constraints-file tests/fixtures/s14_constraints.json
+./build/wls pump-fake --db .local/s15-demo/runtime.db --request req_YOUR_RETURNED_ID \
+  --script tests/fixtures/s15_fake_complete.json \
+  --workspaces-file .local/s15-demo/workspaces.json --worker-calls 2
+./build/wls experience --db .local/s15-demo/runtime.db --request req_YOUR_RETURNED_ID
+./build/wls publish-delivery --db .local/s15-demo/runtime.db --request req_YOUR_RETURNED_ID \
+  --delivery-dir .local/s15-demo/deliveries
+./build/wls deliveries --db .local/s15-demo/runtime.db --request req_YOUR_RETURNED_ID
+```
+
+这个固定脚本包含七次 Fake 调用：计划、说明、写文件、提交、TL 检查、Dispatcher 验收、明确经验报告。实际文件、SQLite 和发布目录由 C++ 执行；验收判断是测试脚本，不表示真实模型质量已验证。发布后为 `STORED`，尚没有回执。
+
+将发布输出中的 `delivery_id`、`manifest_sha256`、`requirements_revision` 和 `plan_revision` 分别替换到下面的占位符。查询和 `verify-delivery` 不会确认接收：
+
+```sh
+./build/wls verify-delivery --db .local/s15-demo/runtime.db --request req_YOUR_RETURNED_ID \
+  --delivery dlv_YOUR_RETURNED_ID --delivery-dir .local/s15-demo/deliveries
+./build/wls ack-delivery --db .local/s15-demo/runtime.db --request req_YOUR_RETURNED_ID \
+  --delivery dlv_YOUR_RETURNED_ID --delivery-dir .local/s15-demo/deliveries \
+  --manifest-sha256 YOUR_MANIFEST_SHA256 \
+  --requirements-revision REQUIREMENTS_REVISION --plan-revision PLAN_REVISION \
+  --recipient local-user --method durable_local --key s15-local-receipt
+./build/wls closeout --db .local/s15-demo/runtime.db --request req_YOUR_RETURNED_ID
+```
+
+ACK 会重新核验并同步完整包，随后原子保存精确回执和收尾作业，业务状态成为 `DELIVERED`。`durable_local` 只表示约定位置已有持久包，不表示人已阅读。不同意图不能复用同一回执键；AMEND 或撤销验收后，旧未确认包只能作为历史保留。
+
+若发布中断，使用 `publish-delivery --delivery dlv_YOUR_RETURNED_ID` 恢复原意图；重试不会覆盖包或读取后来变化的 workspace。经验未完成时可用 `s15_fake_report.json` 在后续 pump 中继续，预算耗尽则保持待办。`closeout` 会明确保留未完成清理；本批没有删除 workspace 或私有数据库行的入口。更多边界见 [S1.5契约](docs/implementation/S1-acceptance-delivery.md)。
+
 ## 后续实施边界
 
 当前内核是受信宿主进程内 API，`Actor` 由宿主构造。本机 CLI 不提供远程认证；诊断速率限制在单进程内，写者持租约期间没有第二个 CLI 的 socket 取消通道。文件容量是代理的逻辑上限，不是任意进程磁盘配额；合作锁不防任意同 UID 宿主绕过。强进程正向测试、残留 cgroup 恢复及完整 SBX/SEC 验收仍需独立证据。
 
-下一批将候选就绪待办接入当前版本业务验收、交付包、回执、经验与可恢复清理，再推进wlsd/API。跨功能独立审核、DAG和全局审核双容量按S2推进；S1-06/07强环境正向与残留恢复保持独立验收。真实模型协议在外部端点、凭据引用、能力和预算齐备后独立接入。配置样例保持 FakeModel、记忆关闭、真实调用关闭、付费重试为零。
+下一批承接现有验收、包、回执与经验记录，补受控资源所有权清单、停止/退出证据及可恢复删除checkpoint，再推进wlsd/API。跨功能独立审核、DAG和审核双容量按S2推进，S3记忆、S4 MCP/评测和S5证据驱动扩展保持原路线。S1-06/07强环境正向与残留恢复继续独立验收；真实协议按外部端点、凭据引用、能力和预算接入。示例保持FakeModel、记忆/真实调用/清理关闭，付费重试为零。

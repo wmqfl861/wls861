@@ -5,15 +5,18 @@ Read the current blueprint at `docs/spec/v0.4.1/01_实施规格_v0.4.1.md`,
 runtime behavior. Also read `docs/implementation/S1-foundation.md` for the new
 foundation, and `docs/implementation/S1-worker-tools.md` for the file/process boundary,
 then `docs/implementation/S1-event-runtime.md` for the event foundation and
-`docs/implementation/S1-workflow-runtime.md` for the current 0.5.0-s1.4
+`docs/implementation/S1-workflow-runtime.md` for the submission foundation,
+then `docs/implementation/S1-acceptance-delivery.md` for the current 0.6.0-s1.5
 library/CLI. The blueprint defines the target; implementation
 contracts and actual reports define what this checkout can execute. M1 remains
 its original kernel; S1.2 adds bounded real files and a strong-only process
 entry point; S1.3 adds a bounded durable event pump, isolated independent tasks,
 explicit waits and original cross-run feedback. S1.4 adds Worker questions,
 upward routing/answers, immutable bounded submission bytes and local TeamLead
-checking/rework. A completed daemon and positive deployment sandbox acceptance
-remain separate task cards.
+checking/rework. S1.5 adds explicit Dispatcher acceptance, immutable local
+delivery, exact receipts and recoverable experience records. Actual resource
+deletion, a completed daemon and positive deployment sandbox acceptance remain
+separate task cards.
 
 The owner approved review corrections, documentation/code updates and GitHub
 push on 2026-10-17, then explicitly requested development under the new plan.
@@ -57,6 +60,19 @@ development authorization. Explicit user instructions take precedence.
   contradictory self-check/evidence cannot pass. Rework is bounded by the frozen
   team limit, increments task/instruction revisions and requires a new ack.
   CANDIDATE_READY is not independent review, business acceptance or delivery.
+- Dispatcher acceptance captures one current candidate with its task/submission
+  CAS and complete original evidence. Root only assembles already accepted bytes
+  and handles technical publication/receipts. Required independent review cannot
+  be replaced by a local check or a model manifest.
+- Persist exact delivery intent before filesystem publication. Verify every
+  original byte, file set and pinned root identity; atomically publish without
+  overwrite, then commit the Store reference. Inspecting is not acknowledgment.
+  Receipt identity includes package/hash/versions/recipient/method/key.
+- Acceptance creates an original-source experience job atomically. Terminal
+  requests may finish only specifically captured experience management calls;
+  ordinary business remains forbidden. Missing reports/budget stay pending.
+  Retained cleanup jobs are not proof of process exit or completed deletion.
+  This increment has no workspace deletion or private-row purge runner.
 - Keep the control database outside bound business workspaces. Preserve pinned
   workspace identity, frozen runtime hashes, explicit env and strong-process
   refusal. Never enable a weak production path to make a test pass.
@@ -67,7 +83,8 @@ development authorization. Explicit user instructions take precedence.
   acceptance. Preserve current candidate/reviewer/version/evidence checks.
 - Keep memory load, feedback and revision proposals bound to content versions.
   Python contract helpers remain executable references. C++ Store now exists
-  in the S1 library; complete memory, independent review, delivery and cleanup runners do not.
+  in the S1 library; local delivery and experience records are implemented, while
+  complete memory, independent review and destructive cleanup runners are not.
 - The Store is a trusted-host API. Model arguments must pass the separate
   model-input Schema, captured call and final Store guards. Persist original
   request envelopes and every attempt's usage; never replace unknown with zero

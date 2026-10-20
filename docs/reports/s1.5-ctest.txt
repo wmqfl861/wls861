@@ -1,0 +1,111 @@
+-- Configuring done (0.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /tmp/wls-s15-cmake
+[  7%] Built target wls_kernel
+[ 11%] Built target wls861
+[ 12%] Building CXX object CMakeFiles/wls_s1.dir/src/store.cpp.o
+[ 15%] Built target journal_tests
+[ 19%] Built target config_tests
+[ 22%] Built target scheduler_tests
+[ 25%] Built target task_engine_tests
+[ 26%] Linking CXX static library libwls_s1.a
+[ 46%] Built target wls_s1
+[ 47%] Linking CXX executable wls
+[ 49%] Linking CXX executable runtime_types_tests
+[ 50%] Built target runtime_types_tests
+[ 52%] Linking CXX executable store_tests
+[ 53%] Built target wls
+[ 55%] Linking CXX executable event_store_tests
+[ 57%] Built target store_tests
+[ 58%] Linking CXX executable workflow_store_tests
+[ 60%] Built target event_store_tests
+[ 61%] Building CXX object CMakeFiles/acceptance_store_tests.dir/tests/acceptance_store_tests.cpp.o
+[ 63%] Built target workflow_store_tests
+[ 65%] Linking CXX executable config_loader_tests
+[ 66%] Built target config_loader_tests
+[ 68%] Linking CXX executable model_tests
+[ 69%] Built target model_tests
+[ 71%] Linking CXX executable schema_tests
+[ 73%] Built target schema_tests
+[ 74%] Linking CXX executable offline_runtime_tests
+[ 76%] Built target offline_runtime_tests
+[ 77%] Linking CXX executable event_runtime_tests
+[ 79%] Built target event_runtime_tests
+[ 80%] Linking CXX executable workflow_runtime_tests
+[ 82%] Built target workflow_runtime_tests
+[ 84%] Linking CXX executable acceptance_runtime_tests
+[ 85%] Built target acceptance_runtime_tests
+[ 87%] Linking CXX executable workspace_tests
+[ 88%] Built target workspace_tests
+[ 90%] Linking CXX executable sandbox_tests
+[ 92%] Built target sandbox_tests
+[ 93%] Linking CXX executable worker_tools_tests
+[ 95%] Built target worker_tools_tests
+[ 96%] Linking CXX executable delivery_tests
+[ 98%] Built target delivery_tests
+[100%] Linking CXX executable acceptance_store_tests
+[100%] Built target acceptance_store_tests
+Internal ctest changing into directory: /tmp/wls-s15-cmake
+Test project /tmp/wls-s15-cmake
+      Start  1: journal
+ 1/29 Test  #1: journal ..........................   Passed    0.33 sec
+      Start  2: config
+ 2/29 Test  #2: config ...........................   Passed    0.00 sec
+      Start  3: scheduler
+ 3/29 Test  #3: scheduler ........................   Passed    0.01 sec
+      Start  4: task_engine
+ 4/29 Test  #4: task_engine ......................   Passed    0.21 sec
+      Start  5: runtime_types
+ 5/29 Test  #5: runtime_types ....................   Passed    0.01 sec
+      Start  6: store
+ 6/29 Test  #6: store ............................   Passed    2.08 sec
+      Start  7: event_store
+ 7/29 Test  #7: event_store ......................   Passed    1.01 sec
+      Start  8: workflow_store
+ 8/29 Test  #8: workflow_store ...................   Passed    1.66 sec
+      Start  9: acceptance_store
+ 9/29 Test  #9: acceptance_store .................   Passed    2.39 sec
+      Start 10: config_loader
+10/29 Test #10: config_loader ....................   Passed    0.15 sec
+      Start 11: model
+11/29 Test #11: model ............................   Passed    0.06 sec
+      Start 12: schema
+12/29 Test #12: schema ...........................   Passed    0.06 sec
+      Start 13: offline_runtime
+13/29 Test #13: offline_runtime ..................   Passed    0.87 sec
+      Start 14: event_runtime
+14/29 Test #14: event_runtime ....................   Passed    5.00 sec
+      Start 15: workflow_runtime
+15/29 Test #15: workflow_runtime .................   Passed    4.25 sec
+      Start 16: acceptance_runtime
+16/29 Test #16: acceptance_runtime ...............   Passed    9.50 sec
+      Start 17: workspace
+17/29 Test #17: workspace ........................   Passed    0.06 sec
+      Start 18: sandbox
+18/29 Test #18: sandbox ..........................   Passed    4.68 sec
+      Start 19: worker_tools
+19/29 Test #19: worker_tools .....................   Passed    3.59 sec
+      Start 20: delivery
+20/29 Test #20: delivery .........................   Passed    0.10 sec
+      Start 21: handoff_integrity
+21/29 Test #21: handoff_integrity ................   Passed    0.05 sec
+      Start 22: review_source_integrity
+22/29 Test #22: review_source_integrity ..........   Passed    0.05 sec
+      Start 23: specification_contracts
+23/29 Test #23: specification_contracts ..........   Passed    0.78 sec
+      Start 24: demo_smoke
+24/29 Test #24: demo_smoke .......................   Passed    0.11 sec
+      Start 25: s1_cli_smoke
+25/29 Test #25: s1_cli_smoke .....................   Passed    1.29 sec
+      Start 26: s12_cli_smoke
+26/29 Test #26: s12_cli_smoke ....................   Passed    2.70 sec
+      Start 27: s13_cli_smoke
+27/29 Test #27: s13_cli_smoke ....................   Passed    8.57 sec
+      Start 28: s14_cli_smoke
+28/29 Test #28: s14_cli_smoke ....................   Passed    8.49 sec
+      Start 29: s15_cli_smoke
+29/29 Test #29: s15_cli_smoke ....................   Passed    9.37 sec
+
+100% tests passed, 0 tests failed out of 29
+
+Total Test time (real) =  67.45 sec

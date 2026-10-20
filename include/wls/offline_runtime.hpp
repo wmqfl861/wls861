@@ -19,8 +19,8 @@ struct CapturedModelCall {
     ModelRequest request;
     StoreActor actor;
     std::int64_t expected_state_version{};
-    // A single host-selected question/submission target. The identical value
-    // is inside the durable request's task_contract; model arguments never
+    // A single host-selected question, submission, acceptance or experience
+    // target. The identical value is inside the durable task_contract; model arguments never
     // choose an identity, CAS value, version, or a replacement target.
     Json workflow_action = nullptr;
 };
@@ -28,8 +28,10 @@ struct CapturedModelCall {
 // A deliberately bounded first S1 runner. It connects real configuration,
 // Schema, SQLite accounting and version gates to FakeModel. It supports one
 // independent task. An explicit WorkerTools host adds bounded real tools; the
-// default preserves the note-only path. Neither path claims business delivery,
-// a daemon, a complete event-driven role loop, or supplier integration.
+// default preserves the note-only path. Schema 406 adds explicit Dispatcher
+// acceptance and source-bound TeamLead experience. Package publication and
+// receipts remain separate host operations; this is not a daemon or supplier
+// integration.
 class OfflineRuntime final {
 public:
     OfflineRuntime(Store& store, const SchemaRegistry& schemas,
@@ -75,5 +77,11 @@ private:
 std::string read_runtime_file(const std::filesystem::path& path,
                               std::size_t max_bytes = 1048576);
 FrozenRequestConfig restore_request_config(const Json& request_record);
+
+// Read-only host selection shared by reservation and the finite event pump.
+// A returned target is observation, not authorization; its original ID, CAS
+// and source remain inside the durable model input and final Store guards.
+Json next_workflow_action(Store& store, Role role, const std::string& request_id,
+                          const std::string& task_id = {});
 
 } // namespace wls::s1

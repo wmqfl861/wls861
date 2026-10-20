@@ -388,10 +388,12 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     };
     const auto recovery_item = [](const Json& item) {
         const auto type = text(item, "type");
-        return type == "recover" || type == "event_bootstrap" || type == "workflow_bootstrap";
+        return type == "recover" || type == "event_bootstrap" || type == "workflow_bootstrap" ||
+            type == "recover_experience";
     };
     const auto action_in_claim = [&](const Json& action, const Json& claim) {
-        const auto field = text(action, "kind") == "question" ? "question_id" : "submission_id";
+        const auto kind = text(action, "kind");
+        const auto field = kind == "question" ? "question_id" : kind == "experience" ? "experience_id" : "submission_id";
         const auto target_id = text(action.at("target"), field);
         const auto target_task = text(action.at("target"), "task_id");
         return std::any_of(claim.at("items").as_array().begin(), claim.at("items").as_array().end(),
@@ -407,15 +409,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         return text(question, "status") != "OPEN" || text(question, "holder") != role_name(role);
     };
     const auto management_target = [&](Role role, const std::string& task) -> Json {
-        for (const auto& question : store_.questions(id, task))
-            if (text(question, "status") == "OPEN" && text(question, "holder") == role_name(role))
-                return Object{{"kind", "question"}, {"target", question}};
-        if (role == Role::TeamLead) {
-            const auto submission = store_.current_submission(task);
-            if (!submission.is_null() && text(submission, "status") == "SUBMITTED")
-                return Object{{"kind", "submission"}, {"target", submission}};
-        }
-        return nullptr;
+        return next_workflow_action(store_, role, id, task);
     };
     const auto invoke = [&](Role role, const std::string& node, const std::string& task,
                             WorkerTools* tools, const Json& claim) -> std::optional<Json> {
@@ -499,11 +493,11 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     // rounds instead of discarding those events or waiting inside a transaction.
     // Ordinary errors and missing script steps stop only that actor for this
     // explicit pump; another round is never an implicit retry of its failure.
-    for (std::int64_t round = 0; round < 128 && !request_terminal(); ++round) {
+    for (std::int64_t round = 0; round < 128 && (!request_terminal() || store_.acceptance_runtime_enabled()); ++round) {
         bool progress = false;
         const auto dispatcher = store_.host_actor(Role::Dispatcher, id);
         Json dispatcher_claim = nullptr;
-        if (!stopped.contains({Role::Dispatcher, {}})) try {
+        if (!request_terminal() && !stopped.contains({Role::Dispatcher, {}})) try {
             dispatcher_claim = store_.claim_events(dispatcher);
             auto current_tasks = store_.tasks(id);
             if (!dispositions_applied) for (const auto& decision : options.amendment_dispositions.as_object())
@@ -554,8 +548,19 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                                 number(*found, "plan_revision") == number(request, "plan_revision");
                         }
                     }
-                    // check_submission is deliberately retained: this runner
-                    // has no independent review or business acceptance action.
+                    else if (store_.acceptance_runtime_enabled() && type == "check_submission") {
+                        const auto submission_id = event_object_id(item, "submission_id");
+                        if (!submission_id.empty()) {
+                            const auto submission = store_.submission(submission_id);
+                            const auto task = store_.task(text(submission, "task_id"));
+                            const auto status = text(submission, "status");
+                            done = status == "SUPERSEDED" || status == "RETURNED_FOR_REWORK" ||
+                                text(task, "status") == "ACCEPTED";
+                        }
+                    }
+                    // Delivery assembly is an explicit host action. Its
+                    // acceptance/report notices are retained, never treated
+                    // as implicit package publication or receipt.
                     if (done) completed.push_back(number(item, "inbox_id"));
                 }
                 finish(dispatcher, dispatcher_claim, completed);
@@ -575,14 +580,23 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         }
 
         for (const auto& assigned : store_.tasks(id)) {
-            if (terminal(assigned)) continue;
             const auto node = text(assigned, "node_id"), task_id = text(assigned, "task_id");
+            const auto queued_action = management_target(Role::TeamLead, task_id);
+            const bool experience_pending = !queued_action.is_null() && text(queued_action, "kind") == "experience";
+            const bool finished_business = terminal(assigned) || request_terminal();
+            // A report committed through a direct host call may still have an
+            // unconsumed acceptance notice. Complete only the proven DONE job
+            // items without resurrecting an order or a Worker execution.
+            const bool experience_history = finished_business && store_.acceptance_runtime_enabled() &&
+                !store_.experience_jobs(id, task_id).empty();
+            if (finished_business && !experience_pending && !experience_history) continue;
             Json active_claim = nullptr;
             StoreActor active_actor;
             try {
                 const auto current_request = store_.request(id);
-                if (number(assigned, "based_on_requirements_revision") != number(current_request, "requirements_revision") ||
-                        number(assigned, "plan_revision") != number(current_request, "plan_revision")) continue;
+                if (!experience_pending && !experience_history &&
+                    (number(assigned, "based_on_requirements_revision") != number(current_request, "requirements_revision") ||
+                     number(assigned, "plan_revision") != number(current_request, "plan_revision"))) continue;
                 const auto mapped = tools_by_node_.find(node);
                 WorkerTools* tools = mapped == tools_by_node_.end() ? nullptr : mapped->second;
                 auto binding = store_.binding(task_id);
@@ -593,7 +607,8 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                         const auto action = management_target(Role::TeamLead, task_id);
                         const auto waiting = store_.worker_wait(task_id);
                         const auto submission = store_.current_submission(task_id);
-                        const bool order_needed = action.is_null() && submission.is_null() &&
+                        const bool order_needed = !terminal(assigned) && !request_terminal() &&
+                            action.is_null() && submission.is_null() &&
                             (waiting.is_null() || text(waiting, "status") != "WAITING") &&
                             !instruction_current(store_.instruction(task_id), binding);
                         if ((!action.is_null() && action_in_claim(action, active_claim)) || order_needed)
@@ -605,6 +620,11 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                         const bool question_pending = std::any_of(questions.begin(), questions.end(), [](const auto& question) {
                             return text(question, "status") == "OPEN";
                         });
+                        const auto jobs = store_.acceptance_runtime_enabled()
+                            ? store_.experience_jobs(id, task_id) : std::vector<Json>{};
+                        const bool unfinished_experience = std::any_of(jobs.begin(), jobs.end(), [](const auto& job) {
+                            return text(job, "status") != "DONE";
+                        });
                         std::vector<std::int64_t> completed;
                         for (const auto& item : active_claim.at("items").as_array()) {
                             const auto type = text(item, "type");
@@ -614,9 +634,16 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                             else if (type == "submit_work") {
                                 const auto submission_id = event_object_id(item, "submission_id");
                                 done = !submission_id.empty() && text(store_.submission(submission_id), "status") != "SUBMITTED";
+                            } else if (store_.acceptance_runtime_enabled() && type == "accept_candidate") {
+                                const auto experience_id = event_object_id(item, "experience_id");
+                                done = !experience_id.empty() && text(store_.experience_job(experience_id), "status") == "DONE";
                             } else if (type == "create_task" || type == "disposition" || type == "rebind_task" ||
                                        type == "independent_plan" || type == "independent_dispositions" || recovery_item(item))
                                 done = current_order || !current_submission.is_null() || question_pending;
+                            if (store_.acceptance_runtime_enabled() && recovery_item(item)) {
+                                if (unfinished_experience) done = false;
+                                else if (experience_pending || type == "recover_experience") done = true;
+                            }
                             if (done) completed.push_back(number(item, "inbox_id"));
                         }
                         finish(active_actor, active_claim, completed);
@@ -626,6 +653,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 }
 
                 const auto current_task = store_.task(task_id);
+                if (request_terminal()) continue;
                 const auto status = text(current_task, "status");
                 const auto waiting = store_.worker_wait(task_id);
                 if ((status != "READY" && status != "RUNNING") ||
@@ -677,6 +705,8 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     for (const auto& task : store_.tasks(id)) {
         tasks.push_back(task);
         const auto node = text(task, "node_id"), task_id = text(task, "task_id");
+        const auto submission = store_.current_submission(task_id);
+        if (store_.acceptance_runtime_enabled() && !submission.is_null()) submissions.push_back(submission);
         if (terminal(task)) continue;
         if (number(task, "based_on_requirements_revision") != number(final_request, "requirements_revision") ||
                 number(task, "plan_revision") != number(final_request, "plan_revision"))
@@ -684,12 +714,13 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         const auto waiting = store_.worker_wait(task_id);
         if (!waiting.is_null() && text(waiting, "status") == "WAITING")
             block(Role::Worker, node, task_id, "waiting", text(waiting, "reason"));
-        const auto submission = store_.current_submission(task_id);
         if (!submission.is_null()) {
-            submissions.push_back(submission);
+            if (!store_.acceptance_runtime_enabled()) submissions.push_back(submission);
             const auto status = text(submission, "status");
             if (status == "CANDIDATE_READY") block(Role::Dispatcher, node, task_id, "acceptance_pending",
-                "TeamLead check produced a candidate; separate independent review and business acceptance remain pending");
+                store_.acceptance_runtime_enabled()
+                    ? "the candidate still needs its explicit current Dispatcher business acceptance"
+                    : "TeamLead check produced a candidate; separate independent review and business acceptance remain pending");
             else if (status == "BLOCKED") block(Role::Dispatcher, node, task_id, "rework_blocked",
                 "the bounded TeamLead rework limit requires controlled escalation");
             else block(Role::Worker, node, task_id, "submission_pending", "Worker submission awaits its captured TeamLead check");
@@ -698,13 +729,22 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     for (const auto& question : store_.questions(id)) questions.push_back(question);
     if (static_cast<std::int64_t>(calls.size()) >= options.max_calls && !pending.empty())
         block(Role::Dispatcher, {}, {}, "call_limit", "this explicit pump reached its total call limit; remaining events stay durable");
-    return Object{{"mode", "event_fake"}, {"workflow_runtime", true}, {"request_id", id},
+    Object result{{"mode", "event_fake"}, {"workflow_runtime", true}, {"request_id", id},
         {"config_snapshot_sha256", config.sha256()}, {"calls", std::move(calls)}, {"blocked", std::move(blocked)},
         {"pending", std::move(pending)}, {"tasks", std::move(tasks)}, {"questions", std::move(questions)},
         {"submissions", std::move(submissions)}, {"request_status", final_request.at("status")}, {"budget", store_.budget(id)},
         {"max_calls", options.max_calls}, {"max_worker_calls_per_task", options.max_worker_calls_per_task},
         {"manager_calls", manager_calls}, {"worker_tools_enabled", !tools_by_node_.empty()},
-        {"business_delivered", false}, {"environment_checks_executed", false}, {"real_model_calls", 0}};
+        {"business_delivered", store_.acceptance_runtime_enabled() && text(final_request, "status") == "DELIVERED" &&
+            text(final_request, "delivery_status") == "CONFIRMED"},
+        {"environment_checks_executed", false}, {"real_model_calls", 0}};
+    if (store_.acceptance_runtime_enabled()) {
+        Array jobs;
+        for (const auto& job : store_.experience_jobs(id)) jobs.push_back(job);
+        result["acceptance_runtime"] = true;
+        result["experience_jobs"] = std::move(jobs);
+    }
+    return result;
 }
 
 } // namespace wls::s1

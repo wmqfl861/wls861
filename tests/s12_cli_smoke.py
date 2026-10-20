@@ -86,7 +86,7 @@ class WorkerCliSmoke(unittest.TestCase):
         self.assertTrue(doctor["issues"])
         self.assertEqual(set(self.directory.iterdir()), before)
         initialized = self.invoke("init", "--db", self.database)
-        self.assertEqual(initialized["user_version"], 405)
+        self.assertEqual(initialized["user_version"], 406)
         self.assertEqual(initialized["journal_mode"], "wal")
         self.assertEqual(initialized["synchronous"], 2)
 

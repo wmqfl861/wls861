@@ -1,8 +1,8 @@
 # v0.4.1 SQLite 契约与可执行事务参考
 
-`schema.sql` 是修订蓝图的目标数据库结构。`contract_store.py` 用真实 SQLite 事务验证审核发现的状态、版本和恢复边界。下文主要描述这个 Python 参考，不将它当作运行器。C++ `Store` 已在 S1.1 接入，S1.2 新增真实 Worker 工具与 403 迁移，S1.3 增加持久事件运行器与 404 迁移，S1.4 增加问答、提交快照与团队检查的 405 迁移；原 M1 仍保留独立 Journal。MemoryEngine、跨功能独立审核、Git Writer、交付与业务清理作业仍待实现。不要把本模块注册成面向模型或网络调用方的工具服务。
+`schema.sql` 是修订蓝图的目标数据库结构。`contract_store.py` 用真实 SQLite 事务验证审核发现的状态、版本和恢复边界。下文主要描述这个 Python 参考，不将它当作运行器。C++ `Store` 已在 S1.1 接入，S1.2 新增真实 Worker 工具与 403 迁移，S1.3 增加持久事件运行器与 404 迁移，S1.4 增加问答、提交快照与团队检查的405迁移，S1.5增加当前验收/交付/回执/经验的406迁移；原M1仍保留独立Journal。MemoryEngine、跨功能独立审核、Git Writer和实际资源删除运行器仍待实现。不要把本模块注册成面向模型或网络调用方的工具服务。
 
-## C++ 运行版本：402、403、404 与 405
+## C++ 运行版本：402、403、404、405 与 406
 
 `src/store.cpp` 及其 C++ 回归与 Python 参考分别验证。004 将已知空 401 参考库升级为 S1.1 的 402；005 将包括非空请求的 402 原地升级为 S1.2 的 403。每份迁移指纹须匹配，失败在事务内回滚；原 schema/004 字节保留。缺完整配置快照的非空 401 仍拒绝自动升级。
 
@@ -12,9 +12,11 @@
 
 007 将已知非空 404 事务升级到 405，复用原 questions 并增加原 binding/状态/等待代次和不可变转发/回答记录；workflow_submissions 保存原提交与完整文件快照，team_lead_checks 保存检查和返工，team_workflow_state 保存冻结上限下的返工计数。快照严格核字节、规范 base64、SHA 和路径覆盖，状态/事件与快照同事务提交。纯 epoch 恢复保留语义目标；AMEND 或语义版本改变使旧工作流失效。TeamLead 检查通过不等于业务验收。原 schema/004/005/006 不改；405 打开需匹配分发的007，ReadOnly仍不升级。完整边界见 [S1.4 契约](../docs/implementation/S1-workflow-runtime.md)。
 
+008将已知非空405事务升级406；原schema/004–007保留。独立Dispatcher验收与experience_job同事务，报告保留原source快照和哈希；专用经验调用可在业务终态恢复，普通业务门禁不开放。交付先保存frozen intent，再由POSIX模块发布原字节目录，最后记录STORED；精确ACK与DELIVERED、留存receipt、cleanup_job同事务。取消也保存独立收尾记录，UNKNOWN仍需核清。只读查询不产生回执，实际workspace删除和私有行purge尚未实现。完整字段、容量与信任边界见 [S1.5契约](../docs/implementation/S1-acceptance-delivery.md)。
+
 ## 运行与数据库版本
 
-以下章节仅描述 Python `contract_store.py` 的事务参考；C++ 运行器当前行为以此前的 402/403/404/405 说明和对应实现契约为准。
+以下章节仅描述 Python `contract_store.py` 的事务参考；C++ 运行器当前行为以此前的402/403/404/405/406说明和对应实现契约为准。
 
 ```sh
 /usr/bin/python3 tests/contracts_tests.py

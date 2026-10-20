@@ -57,6 +57,11 @@ struct AttemptReservation {
     // Every attempt supplies the complete to_json(ModelRequest); reserve
     // rejects a missing envelope before allocating budget or writing events.
     Json request_envelope = nullptr;
+    // Host-selected post-acceptance job. This exceptional management attempt
+    // can declare only report_experience; it never authorizes business tools.
+    std::string experience_job_id;
+    std::int64_t experience_job_version{};
+    std::string experience_source_sha256;
 };
 
 enum class StoreOpenMode { Takeover, ReadOnly };
@@ -72,7 +77,8 @@ public:
           StoreOpenMode mode = StoreOpenMode::Takeover,
           std::string_view tools_migration_sql = {},
           std::string_view events_migration_sql = {},
-          std::string_view workflow_migration_sql = {});
+          std::string_view workflow_migration_sql = {},
+          std::string_view acceptance_migration_sql = {});
     ~Store();
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;
@@ -180,6 +186,58 @@ public:
                           std::int64_t expected_submission_version,
                           const Json& check_body, const Json& rework_order,
                           const std::string& command_id);
+
+    // S1.5 current Dispatcher acceptance is separate from local TL checking.
+    // False decisions may revoke an accepted candidate before delivery using
+    // the bounded control path. All original evidence remains immutable.
+    bool acceptance_runtime_enabled() const;
+    Json accept_candidate(const StoreActor& dispatcher,
+                          const ExecutionBinding& captured_request_binding,
+                          std::int64_t expected_task_version,
+                          const std::string& submission_id,
+                          std::int64_t expected_submission_version,
+                          const Json& decision, const std::string& command_id);
+    Json experience_job(const std::string& experience_id) const;
+    std::vector<Json> experience_jobs(const std::string& request_id,
+                                     const std::string& task_id = {},
+                                     std::int64_t limit = 128) const;
+    Json report_experience(const StoreActor& team_lead,
+                           const ExecutionBinding& captured_binding,
+                           const std::string& experience_id,
+                           std::int64_t expected_job_version,
+                           const std::string& captured_source_sha256,
+                           const Json& body, const std::string& command_id);
+    // Technical host assembly from previously accepted immutable evidence.
+    // No live workspace reads and no new Root business judgment occur here.
+    Json prepare_delivery(const StoreActor& root,
+                          const ExecutionBinding& captured_request_binding,
+                          std::int64_t expected_request_version,
+                          const Json& output_root_identity,
+                          const std::string& command_id);
+    Json delivery(const std::string& delivery_id) const;
+    std::vector<Json> deliveries(const std::string& request_id,
+                                std::int64_t limit = 64) const;
+    Json authorize_delivery_publication(const StoreActor& root,
+                                        const ExecutionBinding& captured_binding,
+                                        const std::string& delivery_id) const;
+    Json record_delivery_publication(const StoreActor& root,
+                                     const ExecutionBinding& captured_binding,
+                                     const std::string& delivery_id,
+                                     std::int64_t expected_delivery_version,
+                                     const Json& publication,
+                                     const std::string& command_id);
+    // Exact receipt intent is replayable across epochs; querying never acks.
+    Json acknowledge_delivery(const StoreActor& root,
+                              const ExecutionBinding& captured_binding,
+                              const std::string& delivery_id,
+                              const std::string& manifest_sha256,
+                              std::int64_t requirements_revision,
+                              std::int64_t plan_revision,
+                              const std::string& recipient,
+                              const std::string& method,
+                              const std::string& idempotency_key,
+                              const Json& fresh_publication);
+    Json closeout(const std::string& request_id) const;
 
     StoreActor host_actor(Role role, const std::string& request_id,
                           const std::string& team_id = {}) const;
