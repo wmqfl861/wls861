@@ -69,6 +69,9 @@ public:
     // a receipt. publication includes verified=true, durable=false. publish's
     // success includes durable=true. Neither result proves business acceptance.
     Json inspect(const Json& frozen_plan) const;
+    // Existing-only durable recheck for cleanup. Never rebuilds a missing
+    // bundle and never changes receipt or business state.
+    Json verify_and_sync_existing(const Json& frozen_plan) const;
 
 private:
     struct Impl;

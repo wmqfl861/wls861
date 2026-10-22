@@ -7,6 +7,7 @@ disposable files. TeamLead checks here are scripted local checks, not product
 acceptance, provider calls, strong-sandbox acceptance or business delivery.
 """
 from __future__ import annotations
+from contextlib import closing
 
 import base64
 import copy
@@ -60,7 +61,7 @@ class WorkflowCliSmoke(unittest.TestCase):
         return json.loads(completed.stdout)
 
     def rows(self, query, arguments=()):
-        with sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True) as db:
+        with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True)) as db, db:
             db.row_factory = sqlite3.Row
             return [dict(row) for row in db.execute(query, arguments)]
 
@@ -321,7 +322,7 @@ class WorkflowCliSmoke(unittest.TestCase):
         # A host policy change must reject already captured old-policy calls,
         # while a fresh Root control answer can still settle the same question.
         # Otherwise the open question also blocks wake and new instructions.
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db, db:
             db.execute("UPDATE runtime_policy SET denied_tools=?,policy_epoch=policy_epoch+1,"
                        "state_version=state_version+1 WHERE singleton=1", (json.dumps(["run"]),))
         self.answer(request, question, selected_option="approved")

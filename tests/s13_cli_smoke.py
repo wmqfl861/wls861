@@ -6,6 +6,7 @@ supplies fixed FakeModel scripts, reads durable evidence, and manages disposable
 directories. No provider or process-isolation acceptance is exercised here.
 """
 from __future__ import annotations
+from contextlib import closing
 
 import base64
 from collections import Counter
@@ -60,7 +61,7 @@ class EventCliSmoke(unittest.TestCase):
         return json.loads(completed.stdout)
 
     def rows(self, query, arguments=()):
-        with sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True) as db:
+        with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True)) as db, db:
             db.row_factory = sqlite3.Row
             return [dict(row) for row in db.execute(query, arguments)]
 
@@ -225,7 +226,7 @@ class EventCliSmoke(unittest.TestCase):
                              {"path": "r1.txt", "max_bytes": 6})
             self.assert_original_history(self.context_history(attempts[1]), attempts[:1], receipts[:1])
             self.assert_original_history(self.history(request, task["task_id"]), attempts, receipts)
-        self.assertEqual(self.rows("PRAGMA user_version")[0]["user_version"], 406)
+        self.assertEqual(self.rows("PRAGMA user_version")[0]["user_version"], 407)
 
     def test_reopen_restores_original_bytes_and_only_the_same_workers_history(self):
         request = self.submit()

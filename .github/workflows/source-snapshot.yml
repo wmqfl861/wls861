@@ -1,0 +1,35 @@
+name: Verifiable committed source snapshot
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the exact revision without stored credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Archive committed source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-snapshot"
+          git archive --format=tar HEAD | gzip -n > "$RUNNER_TEMP/source-snapshot/source.tar.gz"
+          git rev-parse HEAD > "$RUNNER_TEMP/source-snapshot/COMMIT"
+          git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/source-snapshot/TREE"
+          (cd "$RUNNER_TEMP/source-snapshot" && sha256sum source.tar.gz > SHA256SUMS)
+      - name: Retain the exact source and provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: source-${{ github.sha }}
+          path: ${{ runner.temp }}/source-snapshot/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

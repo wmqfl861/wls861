@@ -6,6 +6,7 @@ model decisions test identity, publication and recovery mechanics, not model
 judgment quality, independent review, provider calls or real data deletion.
 """
 from __future__ import annotations
+from contextlib import closing
 
 import base64
 import hashlib
@@ -58,7 +59,7 @@ class AcceptanceCliSmoke(unittest.TestCase):
         return json.loads(completed.stdout)
 
     def rows(self, query, arguments=()):
-        with sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True) as database:
+        with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True)) as database, database:
             database.row_factory = sqlite3.Row
             return [dict(row) for row in database.execute(query, arguments)]
 
@@ -159,7 +160,7 @@ class AcceptanceCliSmoke(unittest.TestCase):
 
     def test_complete_acceptance_package_receipt_and_retained_closeout(self):
         request = self.accepted()
-        self.assertEqual(self.rows("PRAGMA user_version")[0]["user_version"], 406)
+        self.assertEqual(self.rows("PRAGMA user_version")[0]["user_version"], 407)
         self.assertEqual([job["status"] for job in self.jobs(request)], ["DONE"])
         delivery = self.publish(request)
         self.assert_bundle_bytes(delivery)

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(wls861 VERSION 0.6.0 LANGUAGES CXX)
+project(wls861 VERSION 0.7.0 LANGUAGES CXX)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "M1 currently requires Linux journal and process semantics")
@@ -62,7 +62,9 @@ add_library(wls_s1 STATIC
     src/workspace_posix.cpp
     src/sandbox_posix.cpp
     src/worker_tools.cpp
-    src/delivery.cpp)
+    src/delivery.cpp
+    src/cleanup_posix.cpp
+    src/cleanup_runtime.cpp)
 target_include_directories(wls_s1 SYSTEM PUBLIC
     ${Boost_INCLUDE_DIRS}
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/valijson/include"
@@ -88,7 +90,7 @@ if(BUILD_TESTING)
         add_test(NAME ${suite} COMMAND ${suite}_tests)
         set_tests_properties(${suite} PROPERTIES TIMEOUT 90)
     endforeach()
-    foreach(suite IN ITEMS runtime_types store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery)
+    foreach(suite IN ITEMS runtime_types store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery cleanup cleanup_runtime)
         add_executable(${suite}_tests tests/${suite}_tests.cpp)
         target_link_libraries(${suite}_tests PRIVATE wls_s1)
         target_include_directories(${suite}_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
@@ -127,4 +129,9 @@ if(BUILD_TESTING)
     set_tests_properties(s15_cli_smoke PROPERTIES TIMEOUT 120)
     set_tests_properties(handoff_integrity review_source_integrity specification_contracts demo_smoke
         PROPERTIES TIMEOUT 60)
+    set_tests_properties(cleanup_runtime PROPERTIES TIMEOUT 180)
+    add_test(NAME s16_cli_smoke
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/s16_cli_smoke.py"
+                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(s16_cli_smoke PROPERTIES TIMEOUT 120)
 endif()

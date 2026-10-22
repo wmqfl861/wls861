@@ -6,17 +6,18 @@ runtime behavior. Also read `docs/implementation/S1-foundation.md` for the new
 foundation, and `docs/implementation/S1-worker-tools.md` for the file/process boundary,
 then `docs/implementation/S1-event-runtime.md` for the event foundation and
 `docs/implementation/S1-workflow-runtime.md` for the submission foundation,
-then `docs/implementation/S1-acceptance-delivery.md` for the current 0.6.0-s1.5
-library/CLI. The blueprint defines the target; implementation
+then `docs/implementation/S1-acceptance-delivery.md` for acceptance and
+`docs/implementation/S1-owned-cleanup.md` for the current 0.7.0-s1.6 library/CLI. The blueprint defines the target; implementation
 contracts and actual reports define what this checkout can execute. M1 remains
 its original kernel; S1.2 adds bounded real files and a strong-only process
 entry point; S1.3 adds a bounded durable event pump, isolated independent tasks,
 explicit waits and original cross-run feedback. S1.4 adds Worker questions,
 upward routing/answers, immutable bounded submission bytes and local TeamLead
 checking/rework. S1.5 adds explicit Dispatcher acceptance, immutable local
-delivery, exact receipts and recoverable experience records. Actual resource
-deletion, a completed daemon and positive deployment sandbox acceptance remain
-separate task cards.
+delivery, exact receipts and recoverable experience records. Actual
+private-row purge, a completed daemon and positive deployment sandbox acceptance remain
+separate task cards. S1.6 only deletes explicitly allocated runtime-owned workspaces
+after the exact success-receipt, experience, accounting and original process-exit gates.
 
 The owner approved review corrections, documentation/code updates and GitHub
 push on 2026-10-17, then explicitly requested development under the new plan.
@@ -72,7 +73,13 @@ development authorization. Explicit user instructions take precedence.
   requests may finish only specifically captured experience management calls;
   ordinary business remains forbidden. Missing reports/budget stay pending.
   Retained cleanup jobs are not proof of process exit or completed deletion.
-  This increment has no workspace deletion or private-row purge runner.
+  S1.6 has an opt-in owned-workspace phase, not a private-row purge runner.
+- Persist ownership intent before mkdir and the complete immutable inventory before
+  unlink. Never adopt legacy directories. Recheck existing delivery bytes without
+  republishing missing files; use exact filesystem generations and bounded passes.
+  Preserve the original inventory after interruption and fence old cleanup claims.
+  Workspace DONE is not global cleanup DONE: retain private rows and owner receipts,
+  and keep the global job PENDING. Failed/cancelled work is not eligible in this phase.
 - Keep the control database outside bound business workspaces. Preserve pinned
   workspace identity, frozen runtime hashes, explicit env and strong-process
   refusal. Never enable a weak production path to make a test pass.
@@ -84,7 +91,7 @@ development authorization. Explicit user instructions take precedence.
 - Keep memory load, feedback and revision proposals bound to content versions.
   Python contract helpers remain executable references. C++ Store now exists
   in the S1 library; local delivery and experience records are implemented, while
-  complete memory, independent review and destructive cleanup runners are not.
+  complete memory, independent review and private-row purge runners are not.
 - The Store is a trusted-host API. Model arguments must pass the separate
   model-input Schema, captured call and final Store guards. Persist original
   request envelopes and every attempt's usage; never replace unknown with zero
@@ -98,6 +105,12 @@ development authorization. Explicit user instructions take precedence.
   Git. Do not rewrite shared history or force-push over an unseen remote head.
 
 ## Build and verification
+
+Run release and sanitizer tests as a non-root user. The hosted CI checks its
+UID explicitly. Fault-injection tests must arrange damage only in their own
+throwaway fixtures, restore published modes, and verify the injected fault
+before invoking the runtime guard. Never relax production permissions or skip
+a safety assertion to make a fixture pass under an unprivileged account.
 
 M1's kernel remains independent of third-party libraries. The S1 library needs
 Boost 1.83+, SQLite 3.37+, OpenSSL 3+ and LibYAML 0.2.5. Fixed upstream headers,
@@ -115,7 +128,7 @@ ctest --test-dir build-cmake --output-on-failure
 ```
 
 For a development virtual environment use `.local/test-venv/bin/python`; this
-batch installs the pinned contract-test dependency there. Add meaningful
+batch may use an already provisioned compatible test interpreter; report its actual version. Add meaningful
 regression coverage for changed
 state, concurrency, persistence or permission semantics; report synthetic,
 contract-reference and real integration results separately.

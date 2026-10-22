@@ -1,0 +1,107 @@
+Path-normalized log: <CHECKOUT> substitutes the working checkout path.
+CMake Warning (dev) at CMakeLists.txt:16 (find_package):
+  Policy CMP0167 is not set: The FindBoost module is removed.  Run "cmake
+  --help-policy CMP0167" for policy details.  Use the cmake_policy command to
+  set the policy and suppress this warning.
+
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+-- Configuring done (7.8s)
+-- Generating done (0.1s)
+-- Build files have been written to: <CHECKOUT>/build-cmake-s16
+[  7%] Built target wls_kernel
+[ 10%] Built target wls861
+[ 13%] Built target journal_tests
+[ 36%] Built target wls_s1
+[ 39%] Built target config_tests
+[ 42%] Built target scheduler_tests
+[ 44%] Built target task_engine_tests
+[ 47%] Built target runtime_types_tests
+[ 50%] Built target store_tests
+[ 53%] Built target event_store_tests
+[ 56%] Built target acceptance_store_tests
+[ 59%] Built target workflow_store_tests
+[ 65%] Built target config_loader_tests
+[ 65%] Built target model_tests
+[ 69%] Built target schema_tests
+[ 71%] Built target offline_runtime_tests
+[ 73%] Built target event_runtime_tests
+[ 76%] Built target workflow_runtime_tests
+[ 79%] Built target workspace_tests
+[ 82%] Built target acceptance_runtime_tests
+[ 85%] Built target sandbox_tests
+[ 88%] Built target worker_tools_tests
+[ 94%] Built target cleanup_tests
+[ 94%] Built target delivery_tests
+[ 97%] Built target wls
+[100%] Built target cleanup_runtime_tests
+Internal ctest changing into directory: <CHECKOUT>/build-cmake-s16
+Test project <CHECKOUT>/build-cmake-s16
+      Start  1: journal
+ 1/32 Test  #1: journal ..........................   Passed    0.32 sec
+      Start  2: config
+ 2/32 Test  #2: config ...........................   Passed    0.00 sec
+      Start  3: scheduler
+ 3/32 Test  #3: scheduler ........................   Passed    0.00 sec
+      Start  4: task_engine
+ 4/32 Test  #4: task_engine ......................   Passed    0.17 sec
+      Start  5: runtime_types
+ 5/32 Test  #5: runtime_types ....................   Passed    0.01 sec
+      Start  6: store
+ 6/32 Test  #6: store ............................   Passed    1.49 sec
+      Start  7: event_store
+ 7/32 Test  #7: event_store ......................   Passed    0.73 sec
+      Start  8: workflow_store
+ 8/32 Test  #8: workflow_store ...................   Passed    1.56 sec
+      Start  9: acceptance_store
+ 9/32 Test  #9: acceptance_store .................   Passed    2.02 sec
+      Start 10: config_loader
+10/32 Test #10: config_loader ....................   Passed    0.09 sec
+      Start 11: model
+11/32 Test #11: model ............................   Passed    0.04 sec
+      Start 12: schema
+12/32 Test #12: schema ...........................   Passed    0.02 sec
+      Start 13: offline_runtime
+13/32 Test #13: offline_runtime ..................   Passed    0.64 sec
+      Start 14: event_runtime
+14/32 Test #14: event_runtime ....................   Passed    3.99 sec
+      Start 15: workflow_runtime
+15/32 Test #15: workflow_runtime .................   Passed    3.23 sec
+      Start 16: acceptance_runtime
+16/32 Test #16: acceptance_runtime ...............   Passed    7.15 sec
+      Start 17: workspace
+17/32 Test #17: workspace ........................   Passed    0.04 sec
+      Start 18: sandbox
+18/32 Test #18: sandbox ..........................   Passed    3.32 sec
+      Start 19: worker_tools
+19/32 Test #19: worker_tools .....................   Passed    2.64 sec
+      Start 20: delivery
+20/32 Test #20: delivery .........................   Passed    0.08 sec
+      Start 21: cleanup
+21/32 Test #21: cleanup ..........................   Passed    0.05 sec
+      Start 22: cleanup_runtime
+22/32 Test #22: cleanup_runtime ..................   Passed    4.55 sec
+      Start 23: handoff_integrity
+23/32 Test #23: handoff_integrity ................   Passed    0.70 sec
+      Start 24: review_source_integrity
+24/32 Test #24: review_source_integrity ..........   Passed    0.77 sec
+      Start 25: specification_contracts
+25/32 Test #25: specification_contracts ..........   Passed    2.24 sec
+      Start 26: demo_smoke
+26/32 Test #26: demo_smoke .......................   Passed    0.86 sec
+      Start 27: s1_cli_smoke
+27/32 Test #27: s1_cli_smoke .....................   Passed    1.88 sec
+      Start 28: s12_cli_smoke
+28/32 Test #28: s12_cli_smoke ....................   Passed    2.61 sec
+      Start 29: s13_cli_smoke
+29/32 Test #29: s13_cli_smoke ....................   Passed    8.89 sec
+      Start 30: s14_cli_smoke
+30/32 Test #30: s14_cli_smoke ....................   Passed    8.85 sec
+      Start 31: s15_cli_smoke
+31/32 Test #31: s15_cli_smoke ....................   Passed   10.06 sec
+      Start 32: s16_cli_smoke
+32/32 Test #32: s16_cli_smoke ....................   Passed    6.98 sec
+
+100% tests passed, 0 tests failed out of 32
+
+Total Test time (real) =  75.98 sec
