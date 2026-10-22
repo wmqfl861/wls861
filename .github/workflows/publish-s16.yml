@@ -3,7 +3,7 @@ name: Validate and publish exact S1.6 development tree
 on:
   push:
     branches: [work/s1.6-owned-cleanup]
-    paths: ['.development/s16/**']
+    paths: ['.development/s16/**', '.development/s16-followup/**', '.github/workflows/publish-s16.yml']
   workflow_dispatch:
 
 permissions:
@@ -24,11 +24,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Verify and apply the exact locally tested source
+      - name: Verify and apply the exact rootless-tested source
         shell: bash
         run: |
           set -euo pipefail
-          git diff --exit-code 860e27388889e868f85d79dbdda5f9a3ed486e2d HEAD -- . ':(exclude).development/s16/**' ':(exclude).github/workflows/publish-s16.yml'
+          test "$(id -u)" -ne 0
+          id
+          git diff --exit-code 860e27388889e868f85d79dbdda5f9a3ed486e2d HEAD -- . ':(exclude).development/s16/**' ':(exclude).development/s16-followup/**' ':(exclude).github/workflows/publish-s16.yml'
           test "$(find .development/s16 -maxdepth 1 -type f | wc -l)" -eq 12
           cat .development/s16/part-{00..11} > "$RUNNER_TEMP/s16.patch.xz"
           echo 'a7372cea303620a63289f30b91f9fc127a92e1f10e2461c5d264cad1af685099  '"$RUNNER_TEMP/s16.patch.xz" | sha256sum -c -
@@ -36,12 +38,20 @@ jobs:
           echo 'a51996dbf99db795c24bc84413dd3c50d505a80e88a47bf983f6e29e937abbba  '"$RUNNER_TEMP/s16.patch" | sha256sum -c -
           git apply --check --index "$RUNNER_TEMP/s16.patch"
           git apply --index "$RUNNER_TEMP/s16.patch"
-          git rm -r .development/s16
+          sha256sum -c docs/reports/s1.6-source-SHA256SUMS.txt
+          test "$(find .development/s16-followup -maxdepth 1 -type f | wc -l)" -eq 4
+          cat .development/s16-followup/part-{00..03} > "$RUNNER_TEMP/s16-followup.patch.xz"
+          echo '824351917a06be6908175e4e81063b5a8f334e4ca2c9f5fc61f3d7a6d645cbea  '"$RUNNER_TEMP/s16-followup.patch.xz" | sha256sum -c -
+          xz -dc "$RUNNER_TEMP/s16-followup.patch.xz" > "$RUNNER_TEMP/s16-followup.patch"
+          echo 'c094f21593494a8aa65cf8aba85f26423a464af31b537cd9e9e3e9924e2aab4e  '"$RUNNER_TEMP/s16-followup.patch" | sha256sum -c -
+          git apply --check --index "$RUNNER_TEMP/s16-followup.patch"
+          git apply --index "$RUNNER_TEMP/s16-followup.patch"
+          git rm -r .development/s16 .development/s16-followup
           git update-index --force-remove .github/workflows/publish-s16.yml
-          test "$(git write-tree)" = feeb86ce668d2f7840f8a28d6ca7153327a2aeeb
+          test "$(git write-tree)" = 3d6476a3a10b2f58faaea44471fabeaab3a70ece
           git add .github/workflows/publish-s16.yml
           git diff --cached --check
-          sha256sum -c docs/reports/s1.6-source-SHA256SUMS.txt
+          sha256sum -c docs/reports/s1.6-followup-source-SHA256SUMS.txt
       - name: Install build and contract-test dependencies
         shell: bash
         run: |
@@ -50,17 +60,19 @@ jobs:
           sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libyaml-dev
           python3 -m venv .local/test-venv
           .local/test-venv/bin/python -m pip install -r requirements-test.txt
-      - name: Strict release build and complete CTest
+      - name: Non-root strict release build and complete CTest
         shell: bash
         run: |
           set -euo pipefail
+          test "$(id -u)" -ne 0
           cmake -S . -B build-s16-release -DCMAKE_BUILD_TYPE=Release -DWLS_ENABLE_UBSAN=OFF -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
           cmake --build build-s16-release --parallel 2
           ctest --test-dir build-s16-release --output-on-failure
-      - name: UBSan build and complete CTest
+      - name: Non-root UBSan build and complete CTest
         shell: bash
         run: |
           set -euo pipefail
+          test "$(id -u)" -ne 0
           cmake -S . -B build-s16-ubsan -DCMAKE_BUILD_TYPE=Debug -DWLS_ENABLE_UBSAN=ON -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
           cmake --build build-s16-ubsan --parallel 2
           ctest --test-dir build-s16-ubsan --output-on-failure
@@ -71,15 +83,15 @@ jobs:
           GIT_TERMINAL_PROMPT: '0'
         run: |
           set -euo pipefail
-          sha256sum -c docs/reports/s1.6-source-SHA256SUMS.txt
+          sha256sum -c docs/reports/s1.6-followup-source-SHA256SUMS.txt
           git diff --exit-code
           git diff --cached --check
           git update-index --force-remove .github/workflows/publish-s16.yml
-          test "$(git write-tree)" = feeb86ce668d2f7840f8a28d6ca7153327a2aeeb
+          test "$(git write-tree)" = 3d6476a3a10b2f58faaea44471fabeaab3a70ece
           git add .github/workflows/publish-s16.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat(s1): add owned workspace cleanup with durable recovery' -m 'Implement 0.7.0-s1.6: additive schema 407, host-created resource ownership, fixed deletion inventories, original process exit gates, existing-delivery reverification and resumable checkpoints. Preserve private records and delivery packages; do not claim global CLEANED. Synchronize blueprint, roadmap, task cards, implementation contract and measured validation. Strict release and UBSan each passed all 32 CTest groups on this exact source tree.'
+          git commit -m 'feat(s1): add owned workspace cleanup with rootless recovery tests' -m 'Implement 0.7.0-s1.6: additive schema 407, host-created resource ownership, fixed deletion inventories, original process exit gates, existing-delivery reverification and resumable checkpoints. Repair only fixture fault injection for read-only packages; enforce non-root tests and verify delivery bytes and modes survive cleanup. Preserve private records and delivery packages; do not claim global CLEANED. Strict release and UBSan each passed all 32 CTest groups on the hash-verified source tree.'
           askpass="$RUNNER_TEMP/s16-git-askpass"
           printf '%s\n' '#!/bin/sh' 'case "$1" in *Username*) printf "%s\n" x-access-token ;; *) printf "%s\n" "$GH_TOKEN" ;; esac' > "$askpass"
           chmod 700 "$askpass"
