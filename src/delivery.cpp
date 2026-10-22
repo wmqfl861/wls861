@@ -641,4 +641,13 @@ Json DeliveryDirectory::inspect(const Json& frozen_plan) const {
     return impl_->publication(plan, false, true);
 }
 
+Json DeliveryDirectory::verify_and_sync_existing(const Json& frozen_plan) const {
+    std::lock_guard lock(impl_->mutex);
+    const auto plan = impl_->parse_plan(frozen_plan);
+    DirectoryLock directory_lock(impl_->root.get(), true);
+    bool sync_started = false;
+    impl_->verify(plan, plan.delivery_id, true, sync_started);
+    return impl_->publication(plan, true, true);
+}
+
 } // namespace wls::s1

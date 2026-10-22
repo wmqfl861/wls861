@@ -1,8 +1,8 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.6.0-s1.5；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.7.0-s1.6；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
-本批沿 S1-02/03/08/10/11/12 新增 **Dispatcher 当前候选业务验收、原始字节不可变交付包、精确回执、可恢复经验报告和留存收尾作业**。`pump-fake` 在团队检查后单独捕获候选并完成 Dispatcher 判断；宿主只从已接受原字节组装交付，发布与确认分开。实际资源删除、完整强沙箱正向、真实模型、守护进程和跨功能独立审核继续按任务卡实施；整个 S1 尚未完成。
+本批接入 **受控自建工作目录、原始进程退出证据门禁、固定清单下的有限删除与中断恢复**。默认清理关闭；只有显式配置及当前成功交付/经验/结算条件满足时，Root 才可删除已登记的 `work`。交付包、所有权收据和私有数据库行继续保留，工作目录阶段完成不会将全局清理标为 DONE。私有行清除、强环境正向与残留进程恢复、真实模型、daemon/API 和 S2–S5 继续按任务卡实施；整个 S1 尚未完成。
 
 ## 蓝图、计划与审核入口
 
@@ -18,7 +18,10 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.6.0-s1.5；当前
 | [S1.3 事件运行器契约](docs/implementation/S1-event-runtime.md) | 持久待办、404迁移、原子多任务、原反馈、等待与CLI边界 |
 | [S1.4 问答与提交契约](docs/implementation/S1-workflow-runtime.md) | 405迁移、原问题/答案、文件快照、团队检查与返工、CLI边界 |
 | [S1.5 验收与交付契约](docs/implementation/S1-acceptance-delivery.md) | 406迁移、当前验收、交付恢复、回执、经验和收尾边界 |
-| [本批验证报告](docs/reports/s1-acceptance-delivery-validation.md) | S1.5实际构建、SQLite/文件/运行器/CLI分层证据与限制 |
+| [S1.6 受控清理契约](docs/implementation/S1-owned-cleanup.md) | 407迁移、所有权清单、退出证据、交付重核、有限删除与恢复边界 |
+| [本批发布复验](docs/reports/s1-owned-cleanup-followup-validation.md) | 非root复现、夹具修复、只读保护与完整门禁；本次发布依据 |
+| [S1.6首次本地验证](docs/reports/s1-owned-cleanup-validation.md) | 原始本地记录与边界；不能替代后续CI权限失败修复后的复验 |
+| [S1.5 历史验证](docs/reports/s1-acceptance-delivery-validation.md) | 验收/交付/经验增量交付时的实际证据 |
 | [S1.4 历史验证](docs/reports/s1-workflow-runtime-validation.md) | 原问答/提交/团队检查交付时的实际证据 |
 | [S1.3 历史验证](docs/reports/s1-event-runtime-validation.md) | 持久事件/独立多任务交付时的实际证据 |
 | [S1.2 历史验证](docs/reports/s1-worker-tools-validation.md) | 文件/进程/SQLite/CLI交付时的实际证据 |
@@ -30,11 +33,11 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.6.0-s1.5；当前
 
 ## 当前可以运行什么
 
-`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/wait/wake`、`questions/submissions/answer`、`deliveries/experience/closeout`、`publish-delivery/verify-delivery/ack-delivery`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
+`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/wait/wake`、`questions/submissions/answer`、`deliveries/experience/closeout`、`publish-delivery/verify-delivery/ack-delivery`、`allocate-workspace/owned-workspaces/cleanup-workspaces`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
 
 | S1 模块 | 当前实现 |
 | --- | --- |
-| SQLite Store | 真正的 C++ WAL/FULL、外键、CAS/事件、独占写者；非空402→403→404→405→406迁移，原tuple结果/输出/完整反馈与提交字节不可变；独立计划及初始团队原子分配 |
+| SQLite Store | 真正的 C++ WAL/FULL、外键、CAS/事件、独占写者；非空402→403→404→405→406→407迁移，原tuple结果/输出/完整反馈与提交字节不可变；独立计划及初始团队原子分配 |
 | 配置 | LibYAML 严格解析、完整依赖快照、逐字段直接继承冻结 Root、哈希恢复、来源解释；环境 check 保持为数据 |
 | JSON / Schema | 严格 JSON、SHA-256、typed ULID；Valijson Draft-07、本地引用注册表、完整记录与模型输入投影 |
 | 模型和上下文 | 有界脚本 FakeModel；实际前缀字节及依赖哈希；完整原文、AMEND、任务和说明；不截断约束 |
@@ -47,7 +50,7 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.6.0-s1.5；当前
 | 提交与团队检查 | 实际完整文件字节/哈希同事务保存；TeamLead看原快照、逐项检查，有界返工推进任务/指令并重ack；CANDIDATE_READY不等于业务验收 |
 | 业务验收 | Dispatcher捕获单一当前候选、逐项业务判断；Store核原字节/检查/AC/版本/权限/UNKNOWN，肯定接受与经验作业同事务 |
 | 交付与回执 | 先持久意图，原字节fsync与目录原子发布，再记录STORED；精确回执后DELIVERED，查询不代签，AMEND失效未确认包 |
-| 经验与收尾 | 显式报告或无新增经验；终态可恢复专用TL管理调用，预算不足保留pending；留存cleanup作业和阻塞原因，尚无实际删除 |
+| 经验与收尾 | 显式报告或无新增经验；终态可恢复专用TL管理调用，预算不足保留pending；留存全局cleanup作业；受控工作目录可删除/恢复，私有行仍保留 |
 
 `wls861 demo` 创建两个独立请求，各自使用 `Root → Dispatcher → TeamLead → Worker`，并行完成合成工作、独立审核、交付回执与资源状态收尾，输出 JSON 证据。演示使用固定字节和符号模型，模型调用数为零。
 
@@ -81,7 +84,7 @@ make -j2 test PYTHON=.local/test-venv/bin/python
 make -j2 ubsan PYTHON=.local/test-venv/bin/python
 ```
 
-如果所用 Python 已有测试依赖，可直接指定它。本批使用独立环境 `.local/test-venv/bin/python` 安装仓库固定的测试依赖。构建不会联网获取 C++ 源码；固定导入的上游文件有逐文件哈希清单。
+如果所用 Python 已有测试依赖，可直接指定它。本批本地使用预装 `jsonschema` 的 `/opt/pyvenv/bin/python3`；GitHub CI 使用 `requirements-test.txt` 固定版本。构建不会联网获取 C++ 源码；固定导入的上游文件有逐文件哈希清单。
 
 ```sh
 cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release \
@@ -93,6 +96,23 @@ ctest --test-dir build-cmake --output-on-failure
 仅构建 C++ 程序可使用 `make -j2`，或 CMake 的 `-DBUILD_TESTING=OFF`。只核对契约用 `make verify-contracts PYTHON=...`；原件核对用 `make verify-handoff PYTHON=...`。
 
 完整测试入口包含 C++ 模块、CLI 演示、两个原始包校验及跨模块契约回归。严格编译启用主要警告和 `-Werror`，GitHub Actions 对 Release 与 UBSan 两种构建运行相同检查。原 51 项产品验收仍保留历史“未执行”，每批实际证据独立记录。
+
+## S1.6 受控清理
+
+现有目录不会自动获得删除权限。先由 `allocate-workspace` 为已规划任务创建新目录，将返回的
+`identity.workspace_identity.path` 传给该任务的工作目录映射。完成正常验收、精确交付回执、
+经验报告与用量结算后，显式 `cleanup-workspaces --confirm-request REQUEST` 才执行。
+`cleanup.enabled` 必须在该请求准入时冻结为 true；例子配置仍为 false。
+
+完整、可重复且仅使用临时目录的演示是：
+
+```sh
+python3 tests/s16_cli_smoke.py "$PWD/build/wls" "$PWD"
+```
+
+它实际启动 C++ CLI 验证默认拒绝、分批删除、跨进程恢复、丢失/篡改交付包和删除后记录失败。
+结果中的 `workspace_cleanup_recorded=true` 不等于 `cleanup_complete=true`；本版本全局清理
+仍为 PENDING，私有证据与原交付包继续保留。详见 [接口与边界](docs/implementation/S1-owned-cleanup.md)。
 
 ## 运行一次持久化离线流程
 
@@ -299,10 +319,10 @@ PY
 
 ACK 会重新核验并同步完整包，随后原子保存精确回执和收尾作业，业务状态成为 `DELIVERED`。`durable_local` 只表示约定位置已有持久包，不表示人已阅读。不同意图不能复用同一回执键；AMEND 或撤销验收后，旧未确认包只能作为历史保留。
 
-若发布中断，使用 `publish-delivery --delivery dlv_YOUR_RETURNED_ID` 恢复原意图；重试不会覆盖包或读取后来变化的 workspace。经验未完成时可用 `s15_fake_report.json` 在后续 pump 中继续，预算耗尽则保持待办。`closeout` 会明确保留未完成清理；本批没有删除 workspace 或私有数据库行的入口。更多边界见 [S1.5契约](docs/implementation/S1-acceptance-delivery.md)。
+若发布中断，使用 `publish-delivery --delivery dlv_YOUR_RETURNED_ID` 恢复原意图；重试不会覆盖包或读取后来变化的 workspace。经验未完成时可用 `s15_fake_report.json` 在后续 pump 中继续，预算耗尽则保持待办。`closeout` 会明确保留未完成清理；本例的普通目录不具备S1.6所有权，不能直接清理；新受控目录的创建/清理见上文S1.6，私有行仍保留。原验收/交付边界见 [S1.5契约](docs/implementation/S1-acceptance-delivery.md)。
 
 ## 后续实施边界
 
 当前内核是受信宿主进程内 API，`Actor` 由宿主构造。本机 CLI 不提供远程认证；诊断速率限制在单进程内，写者持租约期间没有第二个 CLI 的 socket 取消通道。文件容量是代理的逻辑上限，不是任意进程磁盘配额；合作锁不防任意同 UID 宿主绕过。强进程正向测试、残留 cgroup 恢复及完整 SBX/SEC 验收仍需独立证据。
 
-下一批承接现有验收、包、回执与经验记录，补受控资源所有权清单、停止/退出证据及可恢复删除checkpoint，再推进wlsd/API。跨功能独立审核、DAG和审核双容量按S2推进，S3记忆、S4 MCP/评测和S5证据驱动扩展保持原路线。S1-06/07强环境正向与残留恢复继续独立验收；真实协议按外部端点、凭据引用、能力和预算接入。示例保持FakeModel、记忆/真实调用/清理关闭，付费重试为零。
+下一批承接S1.6受控目录清理，补私有行purge、失败成果保留包和残留资源退出证据，再推进wlsd/API。跨功能独立审核、DAG和审核双容量按S2推进，S3记忆、S4 MCP/评测和S5证据驱动扩展保持原路线。S1-06/07强环境正向与残留恢复继续独立验收；真实协议按外部端点、凭据引用、能力和预算接入。示例保持FakeModel、记忆/真实调用/清理关闭，付费重试为零。

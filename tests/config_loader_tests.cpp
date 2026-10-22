@@ -271,7 +271,7 @@ void control_amendment_and_review_reservations_cannot_be_disabled() {
 void unsupported_runtime_features_never_silently_enable() {
     Fixture fixture;
     const auto original = fixture.system_json();
-    for (const auto change : {0, 1, 2, 3, 4, 5, 6}) {
+    for (const auto change : {0, 1, 2, 4, 5, 6}) {
         auto system = original;
         switch (change) {
         case 0: field(field(system, "model_calls"), "real_calls_enabled") = true; break;
@@ -286,6 +286,17 @@ void unsupported_runtime_features_never_silently_enable() {
         fixture.system(system);
         expect_error(ErrorCode::Unsupported, [&] { (void)fixture.load(); });
     }
+}
+
+void cleanup_opt_in_is_frozen_but_not_an_execution_authorization() {
+    Fixture fixture;
+    auto system = fixture.system_json();
+    field(field(system, "cleanup"), "enabled") = true;
+    fixture.system(system);
+    const auto frozen = fixture.load().freeze("general");
+    CHECK(frozen.json().at("system").at("cleanup").at("enabled") == true);
+    const auto restored = FrozenRequestConfig::restore(frozen.serialize(), frozen.sha256());
+    CHECK(restored.json().at("system").at("cleanup").at("enabled") == true);
 }
 
 void budgets_durability_and_isolation_values_are_checked() {
@@ -452,7 +463,8 @@ int main() {
         {"strict YAML rejects ambiguous strings duplicate keys anchors and extra documents", yaml_rejects_ambiguous_or_compound_unauthorized_structures},
         {"scalar types unknown models and unsupported reasoning reject", scalar_types_and_reasoning_capabilities_fail_explicitly},
         {"control amendment and review capacity policies remain mandatory", control_amendment_and_review_reservations_cannot_be_disabled},
-        {"unimplemented real calls memory cleanup and paid retries reject", unsupported_runtime_features_never_silently_enable},
+        {"cleanup opt-in is frozen and requires separate execution guards", cleanup_opt_in_is_frozen_but_not_an_execution_authorization},
+        {"unimplemented real calls memory and paid retries reject", unsupported_runtime_features_never_silently_enable},
         {"budget durability and explicit weak isolation policies validate", budgets_durability_and_isolation_values_are_checked},
         {"template references reject traversal and file or directory symlinks", template_paths_and_symbolic_links_cannot_escape_config_roots},
         {"configuration parsing and frozen payload have explicit capacity bounds", parser_and_snapshot_capacity_are_bounded},

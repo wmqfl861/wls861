@@ -422,13 +422,16 @@ public:
     Impl(const std::filesystem::path& database_path, std::string_view base_sql,
          std::string_view migration_sql, StoreOpenMode selected_mode,
          std::string_view tools_migration_sql, std::string_view events_migration_sql,
-         std::string_view workflow_migration_sql, std::string_view acceptance_migration_sql) : mode(selected_mode) {
+         std::string_view workflow_migration_sql, std::string_view acceptance_migration_sql,
+         std::string_view cleanup_migration_sql) : mode(selected_mode) {
         require(events_migration_sql.empty() || !tools_migration_sql.empty(), ErrorCode::InvalidInput,
                 "event-runtime migration requires the worker-tools asset");
         require(workflow_migration_sql.empty() || !events_migration_sql.empty(), ErrorCode::InvalidInput,
                 "workflow migration requires the event-runtime asset");
         require(acceptance_migration_sql.empty() || !workflow_migration_sql.empty(), ErrorCode::InvalidInput,
                 "acceptance migration requires the workflow asset");
+        require(cleanup_migration_sql.empty() || !acceptance_migration_sql.empty(), ErrorCode::InvalidInput,
+                "owned cleanup migration requires the acceptance asset");
         require(database_path != ":memory:", ErrorCode::InvalidInput, "Store requires a durable file path");
         const auto absolute = std::filesystem::absolute(database_path).lexically_normal();
         const auto path = (std::filesystem::canonical(absolute.parent_path()) / absolute.filename()).string();
@@ -468,7 +471,7 @@ public:
                 exec(base_sql);
                 version = number(one("PRAGMA user_version"), "user_version");
             }
-            require(version >= 401 && version <= 406, ErrorCode::Unsupported, "unknown database version; explicit migration required");
+            require(version >= 401 && version <= 407, ErrorCode::Unsupported, "unknown database version; explicit migration required");
             require(str(one("SELECT schema_version FROM contract_metadata WHERE singleton=1"), "schema_version") == "0.4.1",
                     ErrorCode::Unsupported, "unsupported base contract metadata");
             const auto migration_hash = sha256_hex(migration_sql);
@@ -508,11 +511,17 @@ public:
                         str(workflow_metadata, "migration_sha256") == workflow_migration_hash,
                         ErrorCode::Corrupt, "workflow migration asset does not match durable metadata");
             }
-            if (version == 406) {
+            if (version >= 406) {
                 require(!acceptance_migration_sql.empty(), ErrorCode::Unsupported, "406 database requires the acceptance migration asset");
                 const auto info = one("SELECT * FROM acceptance_runtime_metadata WHERE singleton=1");
                 require(number(info, "store_version") == 8 && str(info, "migration_sha256") == acceptance_migration_hash,
                         ErrorCode::Corrupt, "acceptance migration asset does not match durable metadata");
+            }
+            if (version >= 407) {
+                require(!cleanup_migration_sql.empty(), ErrorCode::Unsupported, "407 database requires owned cleanup asset");
+                const auto info = one("SELECT * FROM owned_cleanup_metadata WHERE singleton=1");
+                require(number(info, "store_version") == 9 && str(info, "migration_sha256") == sha256_hex(cleanup_migration_sql),
+                        ErrorCode::Corrupt, "owned cleanup migration fingerprint mismatch");
             }
             // Validate ownership/version before any persistent journal-mode
             // change; rejecting an unrelated database preserves its bytes.
@@ -594,7 +603,18 @@ public:
                     exec("COMMIT"); version = 406;
                 } catch (...) { rollback(); throw; }
             }
-            acceptance_schema = version == 406;
+            acceptance_schema = version >= 406;
+            if (version == 406 && !cleanup_migration_sql.empty() && mode == StoreOpenMode::Takeover) {
+                exec("BEGIN IMMEDIATE");
+                try {
+                    exec(cleanup_migration_sql);
+                    execute("INSERT INTO owned_cleanup_metadata VALUES (1,9,?)", {sha256_hex(cleanup_migration_sql)});
+                    require(number(one("PRAGMA user_version"), "user_version") == 407,
+                            ErrorCode::Corrupt, "owned cleanup migration did not produce 407");
+                    exec("COMMIT"); version = 407;
+                } catch (...) { rollback(); throw; }
+            }
+            cleanup_schema = version >= 407;
             require(str(one("PRAGMA quick_check"), "quick_check") == "ok", ErrorCode::Corrupt, "SQLite quick_check failed");
             require(!optional("PRAGMA foreign_key_check"), ErrorCode::Corrupt, "SQLite foreign key check failed");
             if (mode == StoreOpenMode::Takeover) {
@@ -819,7 +839,9 @@ public:
         for (const auto& workspace : all("SELECT w.* FROM workspace_bindings w JOIN teams t USING(team_id) WHERE t.request_id=?", {id})) resources.emplace_back(exposed(workspace));
         const Row snapshot{{"request_id", id}, {"final_status", request.at("status")}, {"delivery_path", delivery_path},
             {"manifest_sha256", manifest_hash}, {"workspaces", resources}, {"deletion_authorized", false}, {"receipt_ttl_days", ttl},
-            {"checkpoint", "RETAINED"}, {"reason", "controlled resource ownership and process-exit cleanup runner not implemented"}};
+            {"checkpoint", "RETAINED"}, {"reason", cleanup_schema ?
+                "owned workspace cleanup requires separate authorization; private data remains retained" :
+                "controlled resource ownership and process-exit cleanup runner not implemented"}};
         execute("INSERT INTO cleanup_jobs(cleanup_id,request_id,receipt_ref,manifest_snapshot,status,created_at,updated_at) VALUES (?,?,?,?,'PENDING',?,?)",
             {new_id("cleanup"), id, id, json_text(snapshot, 1048576), created, created});
     }
@@ -1356,14 +1378,21 @@ public:
     bool events_schema{false};
     bool workflow_schema{false};
     bool acceptance_schema{false};
+    bool cleanup_schema{false};
+    Json owned_info(const Row& row) const;
+    Array cleanup_blockers(const std::string& id) const;
+    Json cleanup_status(const std::string& id) const;
+    void cleanup_authorize(const StoreActor& actor, const Json& claim) const;
+    void cleanup_publication(const std::string& id, const Json& publication) const;
+    Json cleanup_process_facts(const std::string& id) const;
     std::string database_file_path;
     mutable std::mutex mutex;
 };
 
 Store::Store(const std::filesystem::path& path, std::string_view base, std::string_view migration, StoreOpenMode mode,
              std::string_view tools_migration, std::string_view events_migration,
-             std::string_view workflow_migration, std::string_view acceptance_migration)
-    : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration, events_migration, workflow_migration, acceptance_migration)) {}
+             std::string_view workflow_migration, std::string_view acceptance_migration, std::string_view cleanup_migration)
+    : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration, events_migration, workflow_migration, acceptance_migration, cleanup_migration)) {}
 Store::~Store() = default;
 
 Json Store::diagnostics() const {
@@ -2156,6 +2185,11 @@ Json Store::prepare_delivery(const StoreActor& actor, const ExecutionBinding& ca
         require(!overlap(root_path, str(workspace, "canonical_path")) &&
             !(workspace.at("device") == root_identity.at("device") && workspace.at("inode") == root_identity.at("inode")),
             ErrorCode::Unauthorized, "delivery root overlaps or aliases a business workspace");
+    if (impl_->cleanup_schema) for (const auto& owned : impl_->all("SELECT intent FROM owned_workspaces")) {
+        const auto intent = parse_json_strict(str(owned, "intent"));
+        const auto envelope = str(intent.at("parent_identity").as_object(), "path") + "/" + str(intent.as_object(), "leaf");
+        require(!overlap(root_path, envelope), ErrorCode::Unauthorized, "delivery root overlaps retained ownership envelope");
+    }
     for (const auto& stored : impl_->all("SELECT frozen_plan FROM delivery_runtime")) {
         const auto previous = parse_json_strict(str(stored, "frozen_plan"), 8 * 1024 * 1024).at("root_identity");
         if (previous.at("path") == root_identity.at("path")) require(previous == root_identity, ErrorCode::Conflict, "delivery root identity changed");
@@ -2341,6 +2375,7 @@ Json Store::acknowledge_delivery(const StoreActor& actor, const ExecutionBinding
 Json Store::closeout(const std::string& request_id) const {
     const std::lock_guard lock(impl_->mutex); impl_->require_acceptance_schema();
     (void)impl_->request_row(request_id);
+    if (impl_->cleanup_schema) return impl_->cleanup_status(request_id);
     const auto job = impl_->optional("SELECT * FROM cleanup_jobs WHERE request_id=?", {request_id});
     const auto receipt = impl_->optional("SELECT * FROM receipts WHERE request_id=?", {request_id});
     Array blockers;
@@ -2382,6 +2417,8 @@ Json Store::admit(const AdmissionInput& input) {
             input.budget.output_tokens >= 0 && input.budget.cost_micro_usd >= 0, ErrorCode::InvalidInput, "invalid frozen budget");
     const auto config = json_text(input.config_snapshot, 8 * 1024 * 1024);
     const auto frozen_config = FrozenRequestConfig::restore(config, sha256_hex(config));
+    if (frozen_config.json().at("system").at("cleanup").at("enabled").as_bool())
+        require(impl_->cleanup_schema, ErrorCode::Unsupported, "enabled cleanup requires the 407 Store");
     if (impl_->acceptance_schema) {
         const auto ttl = number(frozen_config.json().at("system").at("cleanup").as_object(), "receipt_ttl_days");
         require(ttl > 0 && ttl <= 36500, ErrorCode::Unsupported, "receipt TTL must be 1..36500 frozen days");
@@ -2902,6 +2939,14 @@ Json Store::bind_workspace(const std::string& team_id, const std::string& path,
     const auto signed_inode = static_cast<std::int64_t>(inode);
     Impl::Transaction tx(*impl_);
     const auto team = impl_->team_row(team_id);
+    if (impl_->cleanup_schema) {
+        if (const auto owned = impl_->optional("SELECT * FROM owned_workspaces WHERE team_id=?", {team_id})) {
+            require(str(*owned, "status") == "OWNED", ErrorCode::NotReady, "owned workspace is not ready for binding");
+            const auto identity = impl_->owned_info(*owned).at("identity").at("workspace_identity").as_object();
+            require(str(identity, "path") == path && number(identity, "device") == signed_device && number(identity, "inode") == signed_inode,
+                    ErrorCode::Conflict, "owned team cannot bind a different directory");
+        }
+    }
     if (const auto old = impl_->optional("SELECT * FROM workspace_bindings WHERE team_id=?", {team_id})) {
         require(str(*old, "canonical_path") == path && number(*old, "device") == signed_device && number(*old, "inode") == signed_inode &&
                 str(*old, "execution_policy") == encoded_policy && str(*old, "execution_policy_sha256") == policy_hash,
@@ -2914,6 +2959,12 @@ Json Store::bind_workspace(const std::string& team_id, const std::string& path,
         require(path != other_path && !path.starts_with(other_path + "/") && !other_path.starts_with(path + "/") &&
                 !(number(other, "device") == signed_device && number(other, "inode") == signed_inode),
                 ErrorCode::Conflict, "workspace overlaps or aliases another team's workspace");
+    }
+    if (impl_->cleanup_schema) for (const auto& resource : impl_->all("SELECT team_id,intent FROM owned_workspaces")) {
+        if (str(resource, "team_id") == team_id) continue;
+        const auto intent = parse_json_strict(str(resource, "intent"));
+        const auto envelope = str(intent.at("parent_identity").as_object(), "path") + "/" + str(intent.as_object(), "leaf");
+        require(!overlap(path, envelope), ErrorCode::Unauthorized, "business workspace overlaps another ownership envelope");
     }
     if (impl_->acceptance_schema) for (const auto& stored : impl_->all("SELECT frozen_plan FROM delivery_runtime")) {
         const auto root = parse_json_strict(str(stored, "frozen_plan"), 8 * 1024 * 1024).at("root_identity");
@@ -3325,5 +3376,7 @@ Json Store::settle_attempt(const std::string& attempt_id, const ExecutionBinding
     impl_->event(request_id, "settle:" + attempt_id, command, result);
     tx.commit(); return result;
 }
+
+#include "store_cleanup.inc"
 
 } // namespace wls::s1

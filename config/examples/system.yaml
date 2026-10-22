@@ -111,7 +111,7 @@ sandbox:
   team_pids_max: 512
 
 cleanup:
-  enabled: false  # 已保存收尾作业；实际资源清单/删除运行器尚未接入。
+  enabled: false  # 显式开启仅允许受控自建 workspace 清理；默认保留，私有数据库行仍不清除。
   policy: clean_runtime
   cli_receipt_mode: durable_local
   api_receipt_mode: explicit_ack

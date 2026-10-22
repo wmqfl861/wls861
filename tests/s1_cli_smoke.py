@@ -6,6 +6,7 @@ responses; no provider, environment command, shell business tool or delivery
 is executed. Existing project assets are read only.
 """
 from __future__ import annotations
+from contextlib import closing
 
 import json
 from pathlib import Path
@@ -77,7 +78,7 @@ class OfflineCliSmoke(unittest.TestCase):
                            "--constraints-file", FIXTURES / "s1_amended_constraints.json")
 
     def rows(self, query, arguments=()):
-        with sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True) as connection:
+        with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True)) as connection, connection:
             connection.row_factory = sqlite3.Row
             return [dict(row) for row in connection.execute(query, arguments)]
 

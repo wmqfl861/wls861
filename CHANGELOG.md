@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.0-s1.6 — 2026-10-21 (UTC)
+
+- Add SQLite 407 / migration 009, durable runtime-owned workspace allocation and
+  immutable identity/inventory/removal facts. Preserve all earlier migration bytes.
+- Require frozen cleanup opt-in, exact success receipt, completed experience and
+  accounting, settled operations and original hashed process-exit observations.
+- Verify and sync existing delivery packages without recreating missing packages.
+- Delete only bounded original inventories through Linux dirfds; reject links,
+  special files, replacement generations, changed bytes and new inventory entries.
+- Recover bounded passes, stale claims, SIGKILL and database failures after unlink.
+- Add explicit allocation/query/cleanup CLI commands and real temporary-file tests.
+- Fix non-root fault injection for missing/corrupt read-only delivery packages;
+  restore original modes and verify the actual corruption before checking guards.
+- Test that cleanup preserves every original delivery byte and read-only mode;
+  require non-root identity in hosted CI, without weakening runtime permissions.
+- Retain ownership envelopes, original packages and private database rows. Workspace
+  completion is a phase checkpoint; global cleanup remains PENDING. S1–S5 are not
+  complete. See [contract](docs/implementation/S1-owned-cleanup.md) and
+  [release revalidation](docs/reports/s1-owned-cleanup-followup-validation.md).
+
 ## 0.6.0-s1.5 — 2026-10-20
 
 Continue the v0.4.1 blueprint from the S1.4 immutable submission foundation.

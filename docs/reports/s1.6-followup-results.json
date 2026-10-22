@@ -1,0 +1,72 @@
+{
+  "implementation": "0.7.0-s1.6",
+  "blueprint": "v0.4.1",
+  "local_validation_utc_date": "2026-10-22",
+  "test_user": {
+    "name": "oai",
+    "uid": 1000,
+    "root": false
+  },
+  "counts": {
+    "S1_cpp": 304,
+    "S1_cli": 69,
+    "M1_cpp_and_cli": 55,
+    "python_reference": 36,
+    "ctest_groups": 32
+  },
+  "gates": {
+    "cmake_release_ctest": 0,
+    "make_strict": 0,
+    "make_ubsan": 0
+  },
+  "root_preflight": {
+    "expected_exit": 1,
+    "fixtures_created": false
+  },
+  "model_provider_calls": 0,
+  "production_data_used": false,
+  "independent_reviewer": false,
+  "raw_logs": [
+    {
+      "file": "s16-rootless-before-cpp.txt",
+      "bytes": 1013,
+      "sha256": "3abe9cfb3278aa31c06ea0ed891f74b1a67825fb82914e51718e3a82477ce270"
+    },
+    {
+      "file": "s16-rootless-before-cli.txt",
+      "bytes": 2580,
+      "sha256": "3b77b7d4f5c535aa4870d1cdd142ac54a145a752c1ee15c25f509fa74910c726"
+    },
+    {
+      "file": "s16-rootless-after-cpp.txt",
+      "bytes": 836,
+      "sha256": "8304f9d550763fae798ec97d9b988aa455747b9b93a47546c70fde73c3c5d72c"
+    },
+    {
+      "file": "s16-rootless-after-cli.txt",
+      "bytes": 1897,
+      "sha256": "f14b5ab71bfef339655c8c52a10b272ef500984bb15f65b464878b7c0dd52c78"
+    },
+    {
+      "file": "s16-root-refusal.txt",
+      "bytes": 83,
+      "sha256": "0350f4295caff20357582e1b35f24d3df9b16901fc684a22936753de60f00f56"
+    },
+    {
+      "file": "s16-final-release.txt",
+      "bytes": 52282,
+      "sha256": "8fec751428741fa8c6d22b577255f9936a22af558b97fc1ca3e2f9dc319249c1"
+    },
+    {
+      "file": "s16-final-make.txt",
+      "bytes": 42062,
+      "sha256": "5c66203566823f8e7595d28cfd62b28f894176bb2a8eab7b6df7df34309f9595"
+    },
+    {
+      "file": "s16-final-ubsan.txt",
+      "bytes": 42551,
+      "sha256": "29ed932e9a388bb281ed42d9c0b07e747e789f79bb3c3645b6f6eb0993a94a1e"
+    }
+  ],
+  "publication_status_at_report_creation": "not_yet_published; inspect final commit and its workflow runs"
+}

@@ -78,7 +78,8 @@ public:
           std::string_view tools_migration_sql = {},
           std::string_view events_migration_sql = {},
           std::string_view workflow_migration_sql = {},
-          std::string_view acceptance_migration_sql = {});
+          std::string_view acceptance_migration_sql = {},
+          std::string_view cleanup_migration_sql = {});
     ~Store();
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;
@@ -99,6 +100,23 @@ public:
                              std::int64_t limit = 100) const;
     std::vector<Json> tasks(const std::string& request_id) const;
     Json pending_recovery() const;
+
+    // S1.6 trusted-host APIs. A persisted intent precedes physical creation;
+    // only that new private work directory may become a deletion target.
+    Json prepare_owned_workspace(const StoreActor& root, const std::string& task_id,
+                                 const Json& parent_identity, const std::string& key);
+    Json register_owned_workspace(const StoreActor& root, const std::string& resource_id,
+                                  const Json& observed_identity);
+    std::vector<Json> owned_workspaces(const std::string& request_id) const;
+    Json workspace_cleanup_status(const std::string& request_id) const;
+    Json begin_workspace_cleanup(const StoreActor& root, const Json& fresh_publication,
+                                 const Json& inventories);
+    void authorize_workspace_cleanup(const StoreActor& root, const Json& claim) const;
+    Json record_workspace_removal(const StoreActor& root, const Json& claim,
+                                  const std::string& resource_id, const Json& proof);
+    Json finish_workspace_cleanup(const StoreActor& root, const Json& claim,
+                                  const Json& fresh_publication, const Json& fresh_proofs);
+
 
     // S1.3 durable inbox/role-loop support requires the distributed 006 asset.
     // Dispatcher is request-scoped; subject_task_id on individual inbox items

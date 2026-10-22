@@ -6,6 +6,7 @@ runtime manifest or cgroup and verifies refusal without executing its argv.
 Positive strong isolation requires a separately provisioned environment.
 """
 from __future__ import annotations
+from contextlib import closing
 
 import base64
 import hashlib
@@ -51,7 +52,7 @@ class WorkerCliSmoke(unittest.TestCase):
         return json.loads(completed.stdout)
 
     def rows(self, sql, values=()):
-        with sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True) as db:
+        with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True)) as db, db:
             db.row_factory = sqlite3.Row
             return [dict(row) for row in db.execute(sql, values)]
 
@@ -86,7 +87,7 @@ class WorkerCliSmoke(unittest.TestCase):
         self.assertTrue(doctor["issues"])
         self.assertEqual(set(self.directory.iterdir()), before)
         initialized = self.invoke("init", "--db", self.database)
-        self.assertEqual(initialized["user_version"], 406)
+        self.assertEqual(initialized["user_version"], 407)
         self.assertEqual(initialized["journal_mode"], "wal")
         self.assertEqual(initialized["synchronous"], 2)
 

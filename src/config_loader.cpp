@@ -589,7 +589,8 @@ CapabilityRegistry validate_system(const Json& system) {
     fields(cleanup, "system.cleanup", {{"enabled", 'b'}, {"policy", 's'}, {"cli_receipt_mode", 's'}, {"api_receipt_mode", 's'},
         {"receipt_ttl_days", 'i'}, {"require_all_team_experience_jobs", 'b'}, {"require_unknown_outcomes_reconciled", 'b'},
         {"preserve_job_manifest_until_complete", 'b'}, {"resume_terminal_jobs", 'b'}, {"vacuum_weekly", 'b'}});
-    if (bool_value(required(cleanup, "enabled", "system.cleanup"), "system.cleanup.enabled")) unsupported("system.cleanup.enabled", "real filesystem cleanup is not implemented in this increment");
+    (void)bool_value(required(cleanup, "enabled", "system.cleanup"), "system.cleanup.enabled");
+    // Opt-in only; Store 407 and explicit host cleanup authorize deletion.
     literal(cleanup, "policy", "clean_runtime", "system.cleanup");
     literal(cleanup, "cli_receipt_mode", "durable_local", "system.cleanup");
     literal(cleanup, "api_receipt_mode", "explicit_ack", "system.cleanup");
