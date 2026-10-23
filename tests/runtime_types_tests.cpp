@@ -37,6 +37,43 @@ void canonical_and_digest() {
     test::throws<Error>([] { (void)canonical_json(Json(std::string(1, static_cast<char>(0xff)))); });
 }
 
+void decimal_money_limits_do_not_lose_microdollars() {
+    for (int cents = 0; cents <= 20000; ++cents) {
+        const auto spelling = std::to_string(cents / 100) + "." +
+            (cents % 100 < 10 ? "0" : "") + std::to_string(cents % 100);
+        CHECK(cost_limit_micro(parse_json_strict(spelling)) == static_cast<std::int64_t>(cents) * 10000);
+    }
+    CHECK(cost_limit_micro(parse_json_strict("2.01")) == 2010000);
+    CHECK(cost_limit_micro(parse_json_strict("1e-6")) == 1);
+    CHECK(cost_limit_micro(parse_json_strict("1e-7")) == 0);
+    CHECK(cost_limit_micro(parse_json_strict("1.2345679")) == 1234567);
+    CHECK(cost_limit_micro(parse_json_strict("2e2")) == 200000000);
+    for (const auto spelling : {"-1", "true", "null", "\"2.01\"", "[]", "1e30"}) {
+        bool invalid = false;
+        try { (void)cost_limit_micro(parse_json_strict(spelling)); }
+        catch (const Error& error) { invalid = error.code() == ErrorCode::InvalidInput; }
+        CHECK(invalid);
+    }
+}
+
+void catalog_shape_errors_are_user_errors() {
+    validate_constraint_catalog_shape(parse_json_strict("[]"));
+    validate_constraint_catalog_shape(parse_json_strict(R"([{"constraint_id":"c1","text":"original","source_revision":1}])"));
+    for (const auto spelling : {R"([{"a":1,"b":2,"c":3}])",
+         R"([{"constraint_id":5,"text":"x","source_revision":1}])",
+         R"([{"constraint_id":"c1","text":5,"source_revision":1}])",
+         R"([{"constraint_id":"c1","text":"x","source_revision":"1"}])",
+         R"([{"constraint_id":"c1","text":"x","source_revision":true}])",
+         R"([{"constraint_id":"c1","text":"x","source_revision":1.0}])",
+         R"([{"constraint_id":"c1","text":"x","source_revision":18446744073709551615}])",
+         R"([{"constraint_id":"c1","text":"x","source_revision":0}])", "{}", "[null]"}) {
+        bool invalid = false;
+        try { validate_constraint_catalog_shape(parse_json_strict(spelling)); }
+        catch (const Error& error) { invalid = error.code() == ErrorCode::InvalidInput; }
+        CHECK(invalid);
+    }
+}
+
 void typed_ulids() {
     auto previous = new_id("req");
     CHECK(is_typed_id(previous, "req"));
@@ -102,6 +139,8 @@ int main() {
     return test::run({
         {"strict JSON rejects duplicates, bad UTF-8 and non-finite input", strict_json},
         {"canonical bytes and SHA-256 preserve content identity", canonical_and_digest},
+        {"decimal money limits preserve every cent and round down sub-micro amounts", decimal_money_limits_do_not_lose_microdollars},
+        {"catalog input shape rejects missing keys and wrong types as invalid input", catalog_shape_errors_are_user_errors},
         {"typed ULIDs are monotonic and unique across threads", typed_ulids},
         {"execution binding round trips keep request and task scopes distinct", binding_round_trip_and_boundaries}
     });

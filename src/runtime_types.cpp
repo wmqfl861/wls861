@@ -8,6 +8,7 @@
 #include <array>
 #include <cerrno>
 #include <chrono>
+#include <charconv>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -296,6 +297,62 @@ ExecutionBinding execution_binding_from_json(const Json& value) {
     if (result.task_id.empty() && (result.task_revision != 0 || result.instruction_revision != 0 || result.execution_epoch != 0))
         throw Error(ErrorCode::InvalidInput, "request binding contains task versions");
     return result;
+}
+
+// Parse the JSON decimal spelling without a binary floating-point multiply.
+// A fractional micro-dollar rounds down as a limit, never grants extra budget.
+std::int64_t cost_limit_micro(const Json& value) {
+    const auto require = [](bool valid, ErrorCode code, const char* reason) {
+        if (!valid) throw Error(code, reason);
+    };
+    require(value.is_number(), ErrorCode::InvalidInput, "cost limit must be a nonnegative number");
+    const auto spelling = canonical_json(value);
+    const auto exponent_at = spelling.find_first_of("eE");
+    const auto coefficient = spelling.substr(0, exponent_at);
+    int exponent = 0;
+    if (exponent_at != std::string::npos) {
+        auto exponent_text = std::string_view(spelling).substr(exponent_at + 1);
+        if (exponent_text.starts_with('+')) exponent_text.remove_prefix(1);
+        const auto parsed = std::from_chars(exponent_text.data(), exponent_text.data() + exponent_text.size(), exponent);
+        require(parsed.ec == std::errc{} && parsed.ptr == exponent_text.data() + exponent_text.size() && exponent >= -1000 && exponent <= 1000,
+            ErrorCode::InvalidInput, "invalid decimal cost limit");
+    }
+    std::int64_t digits = 0;
+    int fractional_digits = 0;
+    bool fractional = false;
+    for (const auto c : coefficient) {
+        if (c == '.' && !fractional) { fractional = true; continue; }
+        require(c >= '0' && c <= '9', ErrorCode::InvalidInput, "cost limit must be a nonnegative number");
+        require(digits <= (INT64_MAX - (c - '0')) / 10, ErrorCode::InvalidInput, "cost limit is out of range");
+        digits = digits * 10 + (c - '0');
+        if (fractional) ++fractional_digits;
+    }
+    const auto scale = exponent - fractional_digits + 6;
+    if (digits == 0) return 0;
+    if (scale >= 0) {
+        require(scale <= 18, ErrorCode::InvalidInput, "cost limit exceeds integer capacity");
+        for (int i = 0; i < scale; ++i) { require(digits <= INT64_MAX / 10, ErrorCode::InvalidInput, "cost limit exceeds integer capacity"); digits *= 10; }
+    } else {
+        for (int i = 0; i > scale && digits > 0; --i) digits /= 10;
+    }
+    return digits;
+}
+
+void validate_constraint_catalog_shape(const Json& catalog) {
+    const auto reject = [] { throw Error(ErrorCode::InvalidInput, "constraint catalog requires records with string constraint_id/text and a positive integer source_revision"); };
+    if (!catalog.is_array() || catalog.as_array().size() > 200) reject();
+    for (const auto& item : catalog.as_array()) {
+        if (!item.is_object() || item.as_object().size() != 3) reject();
+        const auto& object = item.as_object();
+        const auto* id = object.if_contains("constraint_id");
+        const auto* text = object.if_contains("text");
+        const auto* revision = object.if_contains("source_revision");
+        if (id == nullptr || !id->is_string() || text == nullptr || !text->is_string() || revision == nullptr) reject();
+        const bool positive = (revision->is_int64() && revision->as_int64() > 0) ||
+            (revision->is_uint64() && revision->as_uint64() > 0 &&
+             revision->as_uint64() <= static_cast<std::uint64_t>(INT64_MAX));
+        if (!positive) reject();
+    }
 }
 
 } // namespace wls::s1

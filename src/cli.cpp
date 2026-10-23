@@ -218,7 +218,7 @@ Json request_view(Store& store, const std::string& id) {
 }
 
 void help() {
-    std::cout << R"(wls 0.7.0-s1.6 — owned workspace cleanup with offline models
+    std::cout << R"(wls 0.7.1-s1.6 — owned workspace cleanup with offline models
 
 Resource paths default to the source checkout in the current directory.
 Use --source-root PATH from another directory. Outputs are JSON; errors go to stderr.
@@ -311,7 +311,7 @@ int run_cli(int argc, char** argv) {
     const std::string command(argv[1]);
     if (command == "--version" || command == "version") {
         if (argc != 2) throw Error(ErrorCode::InvalidInput, "version takes no options");
-        output(Object{{"version", "0.7.0-s1.6"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
+        output(Object{{"version", "0.7.1-s1.6"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
     }
     int start = 2;
     std::string action;
@@ -329,7 +329,8 @@ int run_cli(int argc, char** argv) {
         if (action == "explain") output(frozen.explain(role));
         else output(Object{{"valid", true}, {"function_id", frozen.function_id()}, {"capability_id", frozen.capability_id()},
             {"snapshot_sha256", frozen.sha256()}, {"dependency_count", frozen.dependencies().size()},
-            {"snapshot_bytes", frozen.serialize().size()}, {"real_calls_enabled", false}, {"environment_checks_executed", false}});
+            {"snapshot_bytes", frozen.serialize().size()}, {"real_calls_enabled", false}, {"environment_checks_executed", false},
+            {"runtime_support", frozen.runtime_support()}});
         return 0;
     }
     if (command == "schema") {
@@ -380,6 +381,7 @@ int run_cli(int argc, char** argv) {
         admission.original_text = read_runtime_file(options.required("--text-file"), 65536);
         const auto constraints = options.take("--constraints-file");
         if (!constraints.empty()) admission.constraint_catalog = parse_json_strict(read_runtime_file(constraints));
+        validate_constraint_catalog_shape(admission.constraint_catalog);
         admission.config_snapshot = frozen.json();
         const auto grants = frozen.worker_tools();
         admission.tool_allowlist = std::vector<std::string>(grants.begin(), grants.end());
@@ -387,15 +389,8 @@ int run_cli(int argc, char** argv) {
         admission.budget.max_attempts = options.number("--max-attempts", 64, 1);
         admission.budget.input_tokens = options.number("--input-budget", defaults.at("max_input_tokens").is_null() ? 1000000 : integer(defaults.at("max_input_tokens")));
         admission.budget.output_tokens = options.number("--output-budget", defaults.at("max_output_tokens").is_null() ? 100000 : integer(defaults.at("max_output_tokens")));
-        std::int64_t cost_limit{};
-        if (!defaults.at("max_cost_usd").is_null()) {
-            const auto& cost = defaults.at("max_cost_usd");
-            const double dollars = cost.is_double() ? cost.as_double() : static_cast<double>(integer(cost));
-            const double micro = std::floor(dollars * 1000000.0);
-            if (!std::isfinite(micro) || micro < 0 || micro >= static_cast<double>(std::numeric_limits<std::int64_t>::max()))
-                throw Error(ErrorCode::InvalidInput, "cost budget overflow");
-            cost_limit = static_cast<std::int64_t>(micro);
-        }
+        const auto& cost = defaults.at("max_cost_usd");
+        const auto cost_limit = cost.is_null() ? 0 : cost_limit_micro(cost);
         admission.budget.cost_micro_usd = options.number("--cost-budget-micro-usd", cost_limit);
         options.finish();
         Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
@@ -632,6 +627,44 @@ int run_cli(int argc, char** argv) {
             if (generation == 0) throw Error(ErrorCode::InvalidInput, "wake requires --wait-generation");
         }
         options.finish();
+        {
+            Store inspect(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+            (void)scoped_actor(inspect, request, Role::Worker, task);
+            const auto record = inspect.task(task);
+            const auto request_record = inspect.request(request);
+            const auto terminal = [](const std::string& status) {
+                return status == "ACCEPTED" || status == "DELIVERED" || status == "FAILED" ||
+                    status == "CANCELLED" || status == "SKIPPED" || status == "SUPERSEDED";
+            };
+            if (terminal(text(record.at("status"))) || terminal(text(request_record.at("status"))))
+                throw Error(ErrorCode::NotReady, "terminal work cannot wait or wake");
+            for (const auto& question : inspect.questions(request, task)) {
+                if (text(question.at("status")) == "OPEN" && integer(question.at("blocking")) != 0)
+                    throw Error(ErrorCode::NotReady, "answer the owning blocking question before changing this Worker wait");
+            }
+            const bool current_plan = integer(record.at("based_on_requirements_revision")) == integer(request_record.at("requirements_revision")) &&
+                integer(record.at("plan_revision")) == integer(request_record.at("plan_revision"));
+            if (command == "wait" && (!current_plan || text(record.at("status")) == "SUBMITTED" ||
+                text(record.at("status")) == "REVIEWING" || text(record.at("status")) == "BLOCKED"))
+                throw Error(ErrorCode::NotReady, "Worker wait requires a current disposition without a submission hold");
+            const auto waiting = inspect.worker_wait(task);
+            if (command == "wait" && !waiting.is_null() && text(waiting.at("status")) == "WAITING")
+                throw Error(ErrorCode::NotReady, "Worker already has an active wait");
+            if (command == "wake" && (waiting.is_null() || text(waiting.at("status")) != "WAITING" ||
+                integer(waiting.at("generation")) != generation))
+                throw Error(ErrorCode::Stale, "wait generation is absent or no longer waiting");
+            if (command == "wake") {
+                auto original = execution_binding_from_json(waiting.at("original_binding"));
+                const auto current = inspect.binding(task);
+                original.dispatcher_epoch = current.dispatcher_epoch;
+                original.execution_epoch = current.execution_epoch;
+                original.policy_epoch = current.policy_epoch;
+                if (!current_plan || original != current)
+                    throw Error(ErrorCode::Stale, "wait target changed semantically");
+            }
+        }
+        // This is a preflight, not authorization. Store repeats all guards with
+        // the current binding after acquiring the exclusive writer lease.
         Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
         const auto actor = scoped_actor(store, request, Role::Worker, task);
         const auto binding = store.binding(task);
@@ -701,6 +734,7 @@ int run_cli(int argc, char** argv) {
     if (command == "amend") {
         const auto amendment = read_runtime_file(options.required("--text-file"), 65536);
         const auto catalog = parse_json_strict(read_runtime_file(options.required("--constraints-file")));
+        validate_constraint_catalog_shape(catalog);
         options.finish();
         Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
         const auto actor = store.host_actor(Role::Root, request);

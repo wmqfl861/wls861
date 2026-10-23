@@ -321,40 +321,6 @@ std::string unhex(std::string_view value) {
         result.push_back(static_cast<char>((digit(value[i]) << 4U) | digit(value[i + 1])));
     return result;
 }
-// Parse the JSON decimal spelling without a binary floating-point multiply.
-// A fractional micro-dollar rounds down as a limit, never grants extra budget.
-std::int64_t cost_limit_micro(const Json& value) {
-    const auto spelling = canonical_json(value);
-    const auto exponent_at = spelling.find_first_of("eE");
-    const auto coefficient = spelling.substr(0, exponent_at);
-    int exponent = 0;
-    if (exponent_at != std::string::npos) {
-        auto exponent_text = std::string_view(spelling).substr(exponent_at + 1);
-        if (exponent_text.starts_with('+')) exponent_text.remove_prefix(1);
-        const auto parsed = std::from_chars(exponent_text.data(), exponent_text.data() + exponent_text.size(), exponent);
-        require(parsed.ec == std::errc{} && parsed.ptr == exponent_text.data() + exponent_text.size() && exponent >= -1000 && exponent <= 1000,
-            ErrorCode::InvalidInput, "invalid decimal cost limit");
-    }
-    std::int64_t digits = 0;
-    int fractional_digits = 0;
-    bool fractional = false;
-    for (const auto c : coefficient) {
-        if (c == '.' && !fractional) { fractional = true; continue; }
-        require(c >= '0' && c <= '9', ErrorCode::InvalidInput, "cost limit must be a nonnegative number");
-        require(digits <= (INT64_MAX - (c - '0')) / 10, ErrorCode::InvalidInput, "cost limit is out of range");
-        digits = digits * 10 + (c - '0');
-        if (fractional) ++fractional_digits;
-    }
-    const auto scale = exponent - fractional_digits + 6;
-    if (digits == 0) return 0;
-    if (scale >= 0) {
-        require(scale <= 18, ErrorCode::InvalidInput, "cost limit exceeds integer capacity");
-        for (int i = 0; i < scale; ++i) { require(digits <= INT64_MAX / 10, ErrorCode::InvalidInput, "cost limit exceeds integer capacity"); digits *= 10; }
-    } else {
-        for (int i = 0; i > scale && digits > 0; --i) digits /= 10;
-    }
-    return digits;
-}
 void sqlite_failure(sqlite3* db, int result, std::string_view operation) {
     if (result == SQLITE_OK || result == SQLITE_ROW || result == SQLITE_DONE) return;
     const auto primary = result & 255;
@@ -1210,7 +1176,7 @@ public:
         event(id, new_id("recover"), Row{{"type", "recover"}}, Row{{"dispatcher_epoch", next(number(r, "dispatcher_epoch"))}});
     }
     void catalog(const std::string& request_id, std::int64_t revision, const Json& value) {
-        require(value.is_array() && value.as_array().size() <= 200, ErrorCode::InvalidInput, "constraint catalog must be a bounded array");
+        validate_constraint_catalog_shape(value);
         std::set<std::string> ids;
         for (const auto& item : value.as_array()) {
             require(item.is_object() && item.as_object().size() == 3, ErrorCode::InvalidInput, "invalid constraint record");

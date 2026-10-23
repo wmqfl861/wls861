@@ -40,6 +40,14 @@ Json parse_json_strict(std::string_view text, std::size_t max_bytes = 1048576,
 std::string canonical_json(const Json& value);
 std::string sha256_hex(std::string_view bytes);
 
+// Parse the canonical JSON decimal spelling. Fractional micro-dollars round
+// down; no binary multiply, hidden extra spending authority or null coercion.
+std::int64_t cost_limit_micro(const Json& value);
+
+// Input validation only; Store separately verifies source revisions and
+// verbatim coverage inside the admission/AMEND transaction.
+void validate_constraint_catalog_shape(const Json& catalog);
+
 // Linux getrandom + a mutex-protected monotonic ULID generator. Typed prefixes
 // are host-owned lower-case identifiers, not model-provided authorization.
 std::string new_id(std::string_view prefix);

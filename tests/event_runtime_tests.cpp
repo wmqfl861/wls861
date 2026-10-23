@@ -379,12 +379,12 @@ void context_overflow_blocks_before_another_attempt() {
     EventPumpOptions options; options.max_calls = 64; options.max_worker_calls_per_task = 16;
     const auto result = EventRuntime(f.store, *schemas, {{"alpha", f.alpha.get()}}).pump(f.id, script, options);
     CHECK(result.at("calls").as_array().size() > 3 && result.at("calls").as_array().size() < 18);
-    CHECK(blocked(result, "invalid_input", "alpha"));
+    CHECK(blocked(result, "quota", "alpha"));
     CHECK(number(f.store.budget(f.id).at("attempts")) == static_cast<std::int64_t>(result.at("calls").as_array().size()));
     const auto before = f.store.budget(f.id).at("attempts");
     const FakeModel fake(read_steps("big.txt"));
     OfflineRuntime runtime(f.store, *schemas, f.alpha.get());
-    expect(ErrorCode::InvalidInput, [&] { (void)runtime.reserve_call(fake, f.id, Role::Worker, text(task(f.store, f.id, "alpha").at("task_id"))); });
+    expect(ErrorCode::Quota, [&] { (void)runtime.reserve_call(fake, f.id, Role::Worker, text(task(f.store, f.id, "alpha").at("task_id"))); });
     CHECK(f.store.budget(f.id).at("attempts") == before);
 }
 

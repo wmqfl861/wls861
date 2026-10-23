@@ -102,7 +102,8 @@ void roles_resolve_independently_and_explain_each_field() {
     auto& root_profile = field(field(system, "models"), "fake");
     field(root_profile, "capabilities").as_object()["reasoning_modes"] = Array{"provider_default", "off", "effort"};
     field(root_profile, "capabilities").as_object()["reasoning_efforts"] = Array{"low", "high", "max"};
-    field(system, "models").as_object()["alternate"] = root_profile;
+    const Json alternate_profile = root_profile;
+    field(system, "models").as_object()["alternate"] = alternate_profile;
     field(system, "defaults") = Object{{"model_ref", "fake"}, {"reasoning", Object{{"mode", "effort"}, {"effort", "high"}}}};
     auto function = fixture.function_json();
     field(function, "root") = Object{{"model_ref", "alternate"}, {"reasoning", Object{{"mode", "off"}}}};
@@ -133,7 +134,8 @@ void loaded_catalog_and_restoration_ignore_later_disk_changes() {
     const auto old_catalog = fixture.load();
     const auto old = old_catalog.freeze("general");
     auto system = old.json().at("system");
-    field(system, "models").as_object()["alternate"] = field(field(system, "models"), "fake");
+    const Json fake_profile = field(field(system, "models"), "fake");
+    field(system, "models").as_object()["alternate"] = fake_profile;
     field(field(system, "defaults"), "model_ref") = "alternate";
     fixture.system(system);
     write(fixture.prompts / "worker.md", read(fixture.prompts / "worker.md") + "\nNew global role instruction.\n");
@@ -438,6 +440,56 @@ void environment_checks_are_frozen_as_data_and_never_executed() {
     CHECK(!std::filesystem::exists(sentinel));
 }
 
+void simple_format_validators_preserve_the_original_grammar() {
+    Fixture fixture;
+    const auto original = fixture.system_json();
+    for (const auto value : {"1", "1024", "1K", "4M", "64G"}) {
+        auto system = original;
+        field(field(system, "sandbox"), "team_memory_max") = value;
+        fixture.system(system); (void)fixture.load();
+    }
+    for (const auto value : {"0", "01", "G", "1g", "1GB", "1 M", "+1", "-1", "1.5G", "1\n", ""}) {
+        auto system = original;
+        field(field(system, "sandbox"), "team_memory_max") = value;
+        fixture.system(system);
+        expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
+    }
+    for (const auto value : {"00:00", "09:59", "23:59"}) {
+        auto system = original;
+        field(field(system, "memory"), "digest_time") = value;
+        fixture.system(system); (void)fixture.load();
+    }
+    for (const auto value : {"24:00", "23:60", "1:00", "01:0", "ab:cd", "99:99", "01:00x", ""}) {
+        auto system = original;
+        field(field(system, "memory"), "digest_time") = value;
+        fixture.system(system);
+        expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
+    }
+}
+
+void unsupported_enforcement_is_visible_without_changing_frozen_bytes() {
+    Fixture fixture;
+    const auto frozen = fixture.freeze();
+    const auto bytes = frozen.serialize();
+    const auto support = frozen.runtime_support();
+    CHECK(!support.at("real_calls_ready").as_bool());
+    CHECK(!support.at("all_configured_controls_enforced").as_bool());
+    std::set<std::string> paths;
+    for (const auto& entry : support.at("unenforced_settings").as_array()) {
+        CHECK(entry.at("status") == "validated_only");
+        paths.insert(std::string(entry.at("path").as_string()));
+    }
+    CHECK(paths.contains("system.budget_defaults.max_wall_minutes"));
+    CHECK(paths.contains("system.budget_defaults.warn_at_fraction"));
+    CHECK(paths.contains("system.context.compaction_at_fraction"));
+    CHECK(paths.contains("system.limits.reserve_dispatchers_for_review"));
+    CHECK(paths.contains("system.limits.max_concurrent_ops"));
+    CHECK(!paths.contains("system.limits.worker_max_tool_calls_per_order"));
+    CHECK(frozen.explain(Role::Worker).at("runtime_support") == support);
+    CHECK(frozen.serialize() == bytes);
+    CHECK(FrozenRequestConfig::restore(bytes, frozen.sha256()).runtime_support() == support);
+}
+
 void unknown_functions_capabilities_and_tools_are_rejected() {
     Fixture fixture;
     const auto catalog = fixture.load();
@@ -470,6 +522,8 @@ int main() {
         {"configuration parsing and frozen payload have explicit capacity bounds", parser_and_snapshot_capacity_are_bounded},
         {"template dispatch requires a host registered deterministic validator", template_dispatch_requires_registered_deterministic_acceptance},
         {"environment check commands are data and never execute on load or restore", environment_checks_are_frozen_as_data_and_never_executed},
+        {"size and time validators preserve the exact ASCII grammar without regex", simple_format_validators_preserve_the_original_grammar},
+        {"validated but unenforced settings are explicit and do not change frozen config", unsupported_enforcement_is_visible_without_changing_frozen_bytes},
         {"unknown functions capabilities roles and tools reject", unknown_functions_capabilities_and_tools_are_rejected}
     });
 }

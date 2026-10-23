@@ -103,6 +103,7 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES)
 	$(PYTHON) tests/s14_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/s15_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/s16_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
+	$(PYTHON) tests/review_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 
 # The default sanitizer gate is UBSan; ASan is independently available so a
 # runtime without working ASan support cannot be mistaken for a code failure.

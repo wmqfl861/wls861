@@ -11,7 +11,6 @@
 #include <fcntl.h>
 #include <limits>
 #include <optional>
-#include <regex>
 #include <set>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -581,8 +580,12 @@ CapabilityRegistry validate_system(const Json& system) {
     flag(sandbox, "require_cgroup_for_strong_isolation", true, "system.sandbox");
     const auto maximum_timeout = integer_value(required(sandbox, "run_max_timeout_s", "system.sandbox"), "system.sandbox.run_max_timeout_s", 1, 86400);
     (void)integer_value(required(sandbox, "run_default_timeout_s", "system.sandbox"), "system.sandbox.run_default_timeout_s", 1, maximum_timeout);
-    static const std::regex memory_size(R"([1-9][0-9]*[KMG]?)");
-    if (!std::regex_match(string_value(required(sandbox, "team_memory_max", "system.sandbox"), "system.sandbox.team_memory_max", false, 64), memory_size)) invalid("system.sandbox.team_memory_max", "expected positive bytes or K/M/G size");
+    const auto memory_size = string_value(required(sandbox, "team_memory_max", "system.sandbox"), "system.sandbox.team_memory_max", false, 64);
+    auto memory_digits = std::string_view(memory_size);
+    if (!memory_digits.empty() && (memory_digits.back() == 'K' || memory_digits.back() == 'M' || memory_digits.back() == 'G')) memory_digits.remove_suffix(1);
+    if (memory_digits.empty() || memory_digits.front() < '1' || memory_digits.front() > '9' ||
+        !std::all_of(memory_digits.begin(), memory_digits.end(), [](char c) { return c >= '0' && c <= '9'; }))
+        invalid("system.sandbox.team_memory_max", "expected positive bytes or K/M/G size");
     if (!strings(required(sandbox, "extra_ro_binds", "system.sandbox"), "system.sandbox.extra_ro_binds").empty()) unsupported("system.sandbox.extra_ro_binds", "additional host mounts need the later sandbox integration");
 
     const auto& cleanup = required(system, "cleanup", "system");
@@ -614,8 +617,12 @@ CapabilityRegistry validate_system(const Json& system) {
     literal(memory, "rules_overflow", "block_execution", "system.memory");
     literal(memory, "revocation_gate", "policy_epoch", "system.memory");
     if (!required(memory, "embedding_model_ref", "system.memory").is_null()) unsupported("system.memory.embedding_model_ref", "embedding models are not implemented in this increment");
-    static const std::regex time_pattern(R"(([01][0-9]|2[0-3]):[0-5][0-9])");
-    if (!std::regex_match(string_value(required(memory, "digest_time", "system.memory"), "system.memory.digest_time", false, 5), time_pattern)) invalid("system.memory.digest_time", "expected HH:MM");
+    const auto time = string_value(required(memory, "digest_time", "system.memory"), "system.memory.digest_time", false, 5);
+    const auto digit = [](char c) { return c >= '0' && c <= '9'; };
+    if (time.size() != 5 || !digit(time[0]) || !digit(time[1]) || time[2] != ':' ||
+        !digit(time[3]) || !digit(time[4]) || time[0] > '2' ||
+        (time[0] == '2' && time[1] > '3') || time[3] > '5')
+        invalid("system.memory.digest_time", "expected HH:MM");
     for (const auto key : {"rank_alpha", "warn_confidence_below"}) (void)number_value(required(memory, key, "system.memory"), child("system.memory", key), 0, 1);
 
     fields(required(system, "paths", "system"), "system.paths", {{"data", 's'}, {"socket", 's'}});
@@ -855,7 +862,32 @@ Json FrozenRequestConfig::explain(Role role) const {
     return Object{{"snapshot_format", 1}, {"snapshot_sha256", sha256_}, {"function_id", function_id_},
         {"capability_id", capability_id_}, {"role", name},
         {"resolution", required(required(document_, "role_resolutions", "snapshot"), name, "snapshot.role_resolutions")},
-        {"profile", model_profile(role)}, {"environment_checks_executed", false}, {"configuration_migration", "explicit_only"}};
+        {"profile", model_profile(role)}, {"environment_checks_executed", false}, {"configuration_migration", "explicit_only"},
+        {"runtime_support", runtime_support()}};
+}
+
+Json FrozenRequestConfig::runtime_support() const {
+    Array deferred;
+    const auto add = [&](std::string_view section, std::string_view key, std::string_view reason) {
+        const auto& system = required(document_, "system", "snapshot");
+        const auto& value = required(required(system, section, "system"), key, section);
+        deferred.emplace_back(Object{{"path", "system." + std::string(section) + "." + std::string(key)},
+            {"configured_value", value}, {"status", "validated_only"}, {"reason", reason}});
+    };
+    for (const auto key : {"max_wall_minutes", "warn_at_fraction"})
+        add("budget_defaults", key, "requires the paid-call deadline and warning runtime");
+    for (const auto key : {"compaction_at_fraction", "schema_retry_max", "snapshot_decision_log_entries"})
+        add("context", key, "requires bounded structured history/compaction; no automatic retry");
+    for (const auto key : {"max_active_dispatchers", "max_active_workers", "reserve_dispatchers_for_review",
+                          "reserve_workers_for_review", "review_reservation_policy", "release_slots_while_waiting",
+                          "max_concurrent_model_calls_per_endpoint", "max_concurrent_ops"})
+        add("limits", key, "the current S1 pump is serial, not the global concurrent scheduler");
+    for (const auto key : {"stall_minutes", "stall_same_error_repeats"})
+        add("limits", key, "requires persistent stall detection and escalation");
+    add("cleanup", "vacuum_weekly", "no periodic private-data purge or maintenance scheduler");
+    return Object{{"validation_scope", "configuration_shape_references_and_policies"},
+        {"execution_mode", "offline_fake"}, {"real_calls_ready", false},
+        {"all_configured_controls_enforced", false}, {"unenforced_settings", deferred}};
 }
 
 Json FrozenRequestConfig::model_profile(Role role) const {

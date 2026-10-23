@@ -160,11 +160,11 @@ void context_refuses_silent_truncation() {
     limits.max_prefix_bytes = 4096;
     limits.max_total_bytes = 8192;
     input.task_contract += std::string(8192, 'x');
-    expect_error(ErrorCode::InvalidInput, [&] { (void)ContextCompiler(limits).compile(input); });
+    expect_error(ErrorCode::Quota, [&] { (void)ContextCompiler(limits).compile(input); });
     CHECK(input.task_contract.ends_with(std::string(8192, 'x')));
     input = context_input();
     input.system_prompt = std::string(4096, 'y');
-    expect_error(ErrorCode::InvalidInput, [&] { (void)ContextCompiler(limits).compile(input); });
+    expect_error(ErrorCode::Quota, [&] { (void)ContextCompiler(limits).compile(input); });
     input = context_input();
     input.model.reasoning.mode = ReasoningMode::Inherit;
     expect_error(ErrorCode::InvalidInput, [&] { (void)ContextCompiler().compile(input); });

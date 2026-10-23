@@ -41,6 +41,7 @@ void error(ErrorCode code, const std::function<void()>& operation) {
     catch (const Error& e) { CHECK(e.code() == code); return; }
     throw std::runtime_error("expected Store error was not thrown");
 }
+void catalog_shape_rejected_at_store_boundary();
 void raw_exec(const std::filesystem::path& path, const std::string& sql) {
     sqlite3* db = nullptr;
     CHECK(sqlite3_open(path.c_str(), &db) == SQLITE_OK);
@@ -818,6 +819,18 @@ void process_crash_keeps_commits_and_rolls_back_uncommitted_change() {
     CHECK(n(request, "dispatcher_epoch") == 2 && n(request, "state_version") == 2);
     CHECK(recovered.request_snapshot(s(request, "request_id")).at("texts").as_array().size() == 1);
 }
+void catalog_shape_rejected_at_store_boundary() {
+    test::TempDir temp;
+    const auto path = temp.path / "catalog.sqlite";
+    Store store(path, base_sql, migration_sql);
+    auto admission = input();
+    admission.constraint_catalog = Array{Object{{"a", 1}, {"b", 2}, {"c", 3}}};
+    error(ErrorCode::InvalidInput, [&] { (void)store.admit(admission); });
+    CHECK(raw_number(path, "SELECT count(*) FROM requests") == 0);
+    admission.constraint_catalog = Array{Object{{"constraint_id", 5}, {"text", "x"}, {"source_revision", 1}}};
+    error(ErrorCode::InvalidInput, [&] { (void)store.admit(admission); });
+    CHECK(raw_number(path, "SELECT count(*) FROM events") == 0);
+}
 }
 
 int main(int argc, char** argv) {
@@ -829,6 +842,7 @@ int main(int argc, char** argv) {
         tools_migration_sql = read(root / "db/migrations/005_worker_tools.sql");
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
     return test::run({
+        {"malformed catalog is invalid input and creates no rows", catalog_shape_rejected_at_store_boundary},
         {"SQLite FULL/WAL/FK, writer lease, read-only and repeated migration", durability_migration_and_readonly},
         {"unknown and incomplete reference databases remain intact", unknown_database_is_preserved},
         {"scoped immutable admission and original retry after AMEND", scoped_admission_and_original_retry},

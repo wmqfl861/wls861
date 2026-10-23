@@ -49,6 +49,7 @@ public:
 
     ModelSelection resolve(Role role) const;
     Json explain(Role role) const;
+    Json runtime_support() const;
     Json model_profile(Role role) const;
     ToolSet worker_tools(std::string_view template_id = "default") const;
 

@@ -13,6 +13,9 @@ namespace {
 void require(bool valid, const std::string& message) {
     if (!valid) throw Error(ErrorCode::InvalidInput, message);
 }
+void capacity(bool valid, const std::string& message) {
+    if (!valid) throw Error(ErrorCode::Quota, message);
+}
 
 std::string role_text(Role role) {
     switch (role) {
@@ -59,10 +62,10 @@ void append_frame(std::string& destination, std::string_view name,
                   const std::string& content, std::size_t maximum) {
     const std::string header = std::string(name) + " " +
                                std::to_string(content.size()) + "\n";
-    require(destination.size() <= maximum && header.size() <= maximum - destination.size(),
+    capacity(destination.size() <= maximum && header.size() <= maximum - destination.size(),
             "context byte limit exceeded; no content was truncated");
     const auto available = maximum - destination.size() - header.size();
-    require(content.size() < available,
+    capacity(content.size() < available,
             "context byte limit exceeded; no content was truncated");
     destination += header;
     destination += content;
@@ -205,7 +208,7 @@ CompiledContext ContextCompiler::compile(const ContextInput& input) const {
     require(!input.system_prompt.empty() && !input.role_prompt.empty() &&
             !input.function_prompt.empty() && !input.task_contract.empty(),
             "context requires system, role, function and authoritative task content");
-    require(input.tools.size() <= limits_.max_tools &&
+    capacity(input.tools.size() <= limits_.max_tools &&
             input.dependencies.size() <= limits_.max_dependencies &&
             input.messages.size() <= limits_.max_messages, "context item limit exceeded");
 
