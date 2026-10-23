@@ -1,0 +1,105 @@
+name: Verify and import focused audit fixes
+
+on:
+  push:
+    branches: [work/claude-audit-import]
+    paths: ['.development/claude-review/**', '.github/workflows/import-claude-review.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  import:
+    if: github.repository == 'wmqfl861/wls861' && github.ref == 'refs/heads/work/claude-audit-import'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the transport revision without stored credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify and restore exactly three locally tested commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          test "$(find .development/claude-review -maxdepth 1 -type f | wc -l)" -eq 9
+          cat .development/claude-review/part-{00..08} > "$RUNNER_TEMP/review-payload.xz"
+          echo '943a41d97124a24b037c15ca3acf33a2806cb4af9b77fa577aee305d2a20912d  '"$RUNNER_TEMP/review-payload.xz" | sha256sum -c -
+          git checkout --detach fcdbdd0eff537fa1d157e7207d5803830e8ef0ec
+          python3 - <<'PY'
+          import json, lzma, os, pathlib, subprocess
+          def git(*args, data=None):
+              return subprocess.check_output(['git', *args], input=data)
+          tmp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          payload = json.loads(lzma.decompress((tmp / 'review-payload.xz').read_bytes()))
+          base = 'fcdbdd0eff537fa1d157e7207d5803830e8ef0ec'
+          expected = [
+              ('1034a91be7e2bbe0da015ebb572ed095b10cb024', '890ecd13a7da29f4a2cef8d8eab6ba44bb5ccc25'),
+              ('612973a1692b0d9c277716cc3ad80cd97c12b271', 'f25a34ea6b327cb0d9656ca9d6656db85100d781'),
+              ('8872b69cecd4a614c3f43059886d3f27bfc7eeaa', 'c7768626cbe9d53b49053b3c3ccd99e871cbdfc8'),
+          ]
+          assert payload['base'] == base and len(payload['entries']) == len(expected)
+          previous = base
+          for index, (entry, (sha, tree)) in enumerate(zip(payload['entries'], expected)):
+              assert entry['sha'] == sha and entry['tree'] == tree
+              raw = entry['commit'].encode('utf-8')
+              header = raw.split(b'\n\n', 1)[0].splitlines()
+              assert [v for v in header if v.startswith(b'parent ')] == [b'parent ' + previous.encode()]
+              assert header[0] == b'tree ' + tree.encode()
+              assert git('rev-parse', 'HEAD').decode().strip() == previous
+              patch = tmp / f'review-{index}.patch'
+              patch.write_text(entry['patch'], encoding='utf-8')
+              git('apply', '--unidiff-zero', '--check', '--index', str(patch))
+              git('apply', '--unidiff-zero', '--index', str(patch))
+              assert git('write-tree').decode().strip() == tree
+              assert git('hash-object', '-w', '-t', 'commit', '--stdin', data=raw).decode().strip() == sha
+              git('update-ref', 'HEAD', sha, previous)
+              git('diff', '--exit-code')
+              git('diff', '--cached', '--exit-code')
+              previous = sha
+              print('Verified native commit', sha, 'tree', tree)
+          assert previous == expected[-1][0]
+          PY
+          sha256sum -c docs/reports/claude-review-fixes-source-SHA256SUMS.txt
+          echo 'e098b3964fcd1acdb5b95411d238859a4e0e7f44533ef0383566854abf88de4b  docs/reviews/claude-2026-10-23.md' | sha256sum -c -
+          git diff --check fcdbdd0eff537fa1d157e7207d5803830e8ef0ec HEAD
+      - name: Install reference build and contract-test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libyaml-dev
+          python3 -m venv .local/test-venv
+          .local/test-venv/bin/python -m pip install -r requirements-test.txt
+      - name: Rebuild and run the full suite under non-root umask 0002
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          umask 0002
+          cmake -S . -B build-import -DCMAKE_BUILD_TYPE=Release -DWLS_ENABLE_UBSAN=OFF -DWLS_ENABLE_ASAN=OFF -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
+          cmake --build build-import --parallel 2
+          ctest --test-dir build-import --output-on-failure
+      - name: Publish only the verified development branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 8872b69cecd4a614c3f43059886d3f27bfc7eeaa
+          test "$(git rev-parse 'HEAD^{tree}')" = c7768626cbe9d53b49053b3c3ccd99e871cbdfc8
+          git diff --exit-code
+          git diff --cached --exit-code
+          sha256sum -c docs/reports/claude-review-fixes-source-SHA256SUMS.txt
+          test "$(git ls-remote origin refs/heads/work/claude-audit-fixes | cut -f1)" = fcdbdd0eff537fa1d157e7207d5803830e8ef0ec
+          askpass="$RUNNER_TEMP/review-git-askpass"
+          printf '%s\n' '#!/bin/sh' 'case "$1" in *Username*) printf "%s\n" x-access-token ;; *) printf "%s\n" "$GH_TOKEN" ;; esac' > "$askpass"
+          chmod 700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          GIT_ASKPASS="$askpass" git push origin HEAD:refs/heads/work/claude-audit-fixes
