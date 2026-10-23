@@ -13,6 +13,7 @@ import base64
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -31,6 +32,8 @@ sys.argv = [sys.argv[0]]
 
 class WorkflowCliSmoke(unittest.TestCase):
     def setUp(self):
+        original_umask = os.umask(0o077)
+        self.addCleanup(os.umask, original_umask)
         temporary = tempfile.TemporaryDirectory(prefix="wls-s14-cli-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)

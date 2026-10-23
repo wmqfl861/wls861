@@ -282,7 +282,8 @@ DemoSummary run_synthetic_workflow(const std::filesystem::path& workspace) {
 void json_string(std::ostream& output, std::string_view value) {
     constexpr char hex[] = "0123456789abcdef";
     output << '"';
-    for (const unsigned char character : value) {
+    for (const char byte : value) {
+        const auto character = static_cast<unsigned char>(byte);
         switch (character) {
         case '"': output << "\\\""; break;
         case '\\': output << "\\\\"; break;

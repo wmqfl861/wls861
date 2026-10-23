@@ -221,7 +221,7 @@ struct Workspace::Impl {
     void check_directory(const struct stat& info) const {
         if (!S_ISDIR(info.st_mode) || info.st_uid != ::geteuid() || info.st_dev != identity.st_dev ||
             (info.st_mode & (S_IWGRP | S_IWOTH)) != 0 || info.st_nlink == 0)
-            throw Error(ErrorCode::Unauthorized, "workspace directory must be owned, linked and not writable by other users");
+            throw Error(ErrorCode::Unauthorized, "workspace directory must be owned, linked and not writable by other users; check ownership and remove group/other write permissions (chmod go-w)");
     }
     void check_file(const struct stat& info) const {
         if (!S_ISREG(info.st_mode) || info.st_nlink != 1 || info.st_uid != ::geteuid() || info.st_dev != identity.st_dev ||

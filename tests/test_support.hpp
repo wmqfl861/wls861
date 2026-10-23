@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <unistd.h>
+#include <sys/stat.h>
 
 namespace test {
 inline void check(bool condition, const char* expression, const char* file, int line) {
@@ -37,6 +38,9 @@ public:
 };
 using Case = std::pair<std::string, std::function<void()>>;
 inline int run(const std::vector<Case>& cases) {
+    // Tests own only disposable fixtures. Do not rely on the invoking shell's
+    // umask for their modes; production permission guards stay unchanged.
+    const auto original_umask = ::umask(0077);
     int failed = 0;
     for (const auto& [name, function] : cases) {
         try { function(); std::cout << "PASS " << name << '\n'; }
@@ -46,6 +50,7 @@ inline int run(const std::vector<Case>& cases) {
     }
     std::cout << "RESULT " << cases.size() - static_cast<std::size_t>(failed)
               << " passed, " << failed << " failed\n";
+    ::umask(original_umask);
     return failed ? 1 : 0;
 }
 } // namespace test

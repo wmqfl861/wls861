@@ -564,6 +564,9 @@ SupervisionResult supervise(const ChildSpec& spec, DescendantControl control,
     if (child < 0) system_error("fork process launcher");
     if (child == 0) {
         const int original_error = owned[3].get();
+        // The workload must create objects acceptable to the same workspace
+        // checks on its next call, regardless of the host shell's umask.
+        ::umask(0077);
         if (::prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) != 0 || ::getppid() != parent)
             child_error(original_error, 1, errno == 0 ? ESRCH : errno);
         if (::syscall(SYS_close_range, 3U, UINT_MAX, CLOSE_RANGE_CLOEXEC) != 0)

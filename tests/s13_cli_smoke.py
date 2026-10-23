@@ -13,6 +13,7 @@ from collections import Counter
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -31,6 +32,8 @@ sys.argv = [sys.argv[0]]
 
 class EventCliSmoke(unittest.TestCase):
     def setUp(self):
+        original_umask = os.umask(0o077)
+        self.addCleanup(os.umask, original_umask)
         self.temporary = tempfile.TemporaryDirectory(prefix="wls-s13-cli-")
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)

@@ -49,6 +49,12 @@ int fixture(int argc, char** argv) {
         std::cerr << "fixture stderr\n";
         return 0;
     }
+    if (mode == "create-private") {
+        const int file = ::open("child-file", O_WRONLY | O_CREAT | O_EXCL, 0666);
+        if (file < 0) return 81;
+        ::close(file);
+        return ::mkdir("child-directory", 0777) == 0 ? 0 : 82;
+    }
     if (mode == "sleep") {
         std::this_thread::sleep_for(std::chrono::seconds(3));
         return 0;
@@ -138,6 +144,30 @@ void explicit_argv_env_and_dual_output() {
     CHECK(result.stderr_text == "fixture stderr\n");
     CHECK(!result.strong_isolation && !result.all_descendants_exited);
     CHECK(result.evidence.as_object().at("supervision") == "trusted-fixture-only");
+}
+
+void child_creation_ignores_permissive_parent_umask() {
+    Temp temp;
+    FixtureSpec spec("create-private");
+    Fd directory(::open(temp.root.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC));
+    CHECK(directory.get() >= 0);
+    spec.child.working_directory_fd = directory.get();
+    // Deliberately override the safe test-harness mask. Only the child's
+    // supervisor may fix this; the parent's process-global state must not change.
+    struct MaskGuard {
+        mode_t saved{::umask(0002)};
+        ~MaskGuard() { ::umask(saved); }
+    } guard;
+    const auto result = spec.run().process;
+    CHECK(result.spawned && result.exit_code == 0);
+    const auto parent_mask = ::umask(0002);
+    CHECK(parent_mask == 0002);
+    struct stat file{}, child_directory{};
+    CHECK(::stat((temp.root / "child-file").c_str(), &file) == 0);
+    CHECK(::stat((temp.root / "child-directory").c_str(), &child_directory) == 0);
+    CHECK((file.st_mode & 0777) == 0600);
+    CHECK((child_directory.st_mode & 0777) == 0700);
+    CHECK(!result.strong_isolation); // supervision fixture, not bwrap acceptance
 }
 
 void no_inherited_descriptors() {
@@ -516,6 +546,7 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::string_view(argv[1]) == "--process-fixture") return fixture(argc, argv);
     return test::run({
         {"trusted fixture preserves literal argv, explicit env and both output streams", explicit_argv_env_and_dual_output},
+        {"child umask is private even when host mask is 0002", child_creation_ignores_permissive_parent_umask},
         {"exec closes inherited host descriptors", no_inherited_descriptors},
         {"nonzero exit and signals retain distinct outcome evidence", exit_and_signal},
         {"timeout and stop_token cancellation are bounded", timeout_and_cancellation},

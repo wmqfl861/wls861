@@ -11,6 +11,7 @@ from contextlib import closing
 import base64
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -28,6 +29,8 @@ sys.argv = [sys.argv[0]]
 
 class AcceptanceCliSmoke(unittest.TestCase):
     def setUp(self):
+        original_umask = os.umask(0o077)
+        self.addCleanup(os.umask, original_umask)
         temporary = tempfile.TemporaryDirectory(prefix="wls-s15-cli-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)

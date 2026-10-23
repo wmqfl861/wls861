@@ -9,6 +9,7 @@ from __future__ import annotations
 from contextlib import closing
 
 import json
+import os
 from pathlib import Path
 import shutil
 import sqlite3
@@ -28,6 +29,8 @@ FIXTURES = SOURCE / "tests" / "fixtures"
 
 class OfflineCliSmoke(unittest.TestCase):
     def setUp(self):
+        original_umask = os.umask(0o077)
+        self.addCleanup(os.umask, original_umask)
         self.temporary = tempfile.TemporaryDirectory(prefix="wls-s1-cli-")
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
