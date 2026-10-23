@@ -1,5 +1,13 @@
 # WLS861 development contract
 
+Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
+review fixes and priority changes. Model contract/context/rework and an approved
+small real loop now precede expanding private-data purge or daemon/API. Keep
+paid calls disabled until the endpoint, capabilities and budget are configured.
+New code must preserve ordinary-user, permissive-umask, ASan/UBSan and Clang
+regressions; private fixtures do not relax production workspace permissions.
+
+
 Read the current blueprint at `docs/spec/v0.4.1/01_实施规格_v0.4.1.md`,
 `docs/ROADMAP.md`, and `docs/implementation/M1-contract.md` before changing
 runtime behavior. Also read `docs/implementation/S1-foundation.md` for the new

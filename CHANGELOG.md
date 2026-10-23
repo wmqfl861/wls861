@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.1-s1.6 — Claude audit follow-up
+
+- Fix two test JSON-reference lifetime defects; replace simple config regex format checks.
+- Make private fixtures independent of ambient umask; restrict child-only umask; retain negative permission tests.
+- Preserve mandatory Make includes with user CPPFLAGS and fix Clang sign conversion.
+- Share exact decimal money parsing and catalog shape validation across CLI/Store; preflight wait/wake read-only.
+- Report unenforced configuration controls; classify context compile capacity as quota without claiming compaction.
+- Add ASan/Clang/permissive-umask CI and focused CLI regressions.
+- Centralize status; prioritize structured model requests, recoverable history/events/rework and a controlled real loop.
+
+
 ## 0.7.0-s1.6 — 2026-10-21 (UTC)
 
 - Add SQLite 407 / migration 009, durable runtime-owned workspace allocation and

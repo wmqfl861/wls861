@@ -1,0 +1,89 @@
+{
+  "baseline": "fcdbdd0eff537fa1d157e7207d5803830e8ef0ec",
+  "implementation_version": "0.7.1-s1.6",
+  "execution_inputs": 156,
+  "environment": {
+    "test_user": "oai",
+    "uid": 1000,
+    "gcc": "14.2.0",
+    "clang": "17.0.0",
+    "python": "3.13.5",
+    "jsonschema": "4.26.0",
+    "real_model_calls": 0
+  },
+  "results": {
+    "s1_cpp": 310,
+    "s1_cli": 78,
+    "m1_cpp": 52,
+    "m1_synthetic_cli": 3,
+    "reference_contracts": 36,
+    "ctest_groups": 33,
+    "release_umasks": [
+      "0002",
+      "0022"
+    ],
+    "make_exit": 0,
+    "ubsan_exit": 0,
+    "clang_asan_exit": 0
+  },
+  "limitations": [
+    "Local Clang17 and GCC14 do not substitute for hosted Clang18/GCC13",
+    "Context compaction, event archival, controlled rejection escalation and PREPARED allocation recovery remain open",
+    "No positive bwrap/cgroup deployment or paid model call",
+    "Same-implementer review, not a second-model or human independent review"
+  ],
+  "logs": {
+    "baseline-asan-build.log": {
+      "bytes": 3020,
+      "sha256": "dd702d8db20ea1e1f62b3af1221cee709f052beac411b83d7d96b9912db5e403"
+    },
+    "baseline-asan.log": {
+      "bytes": 10340,
+      "sha256": "16ac1adcbb597b1db59bf99af700fe01d8c9c4f764d55c7d0ed9a6813a8d445c"
+    },
+    "baseline-build.log": {
+      "bytes": 5606,
+      "sha256": "a1b5a1e1b563c14494a72929d9b73692bee1da8236c3ea44047115fc8be66d15"
+    },
+    "baseline-cli-umask0002.log": {
+      "bytes": 14894,
+      "sha256": "a195b7b78e34f3f2197004ca248a539bbdd67651e84a87792d3728afc79943b2"
+    },
+    "baseline-configure.log": {
+      "bytes": 1293,
+      "sha256": "f650c280db3c9fb8f37dd3b251d9387c458c22255b3256734cb05b53a322f3b1"
+    },
+    "baseline-umask0002.log": {
+      "bytes": 18306,
+      "sha256": "8add4892c7c78424766e0167e7214d25098aa93a007c397bc68281d14282eb85"
+    },
+    "final-asan.log": {
+      "bytes": 55843,
+      "sha256": "e039be61487e4439996e837c87abdc4b2c42eeb910d06241d09ba91cb827ca7c"
+    },
+    "final-make.log": {
+      "bytes": 65542,
+      "sha256": "122639128c2787823da086b1c186eeec9f3bad40a4da18d4d639afe24e594a4a"
+    },
+    "final-release.log": {
+      "bytes": 59027,
+      "sha256": "a5007478e5da6a6f237ff71e552ad539454ec226a2805881e87fd32242586d4a"
+    },
+    "final-ubsan.log": {
+      "bytes": 73340,
+      "sha256": "bc7c69b295b68b64176b27414b41bc3322afe756c3201ca8a157f153ae5b4c7b"
+    },
+    "fixed-asan.log": {
+      "bytes": 62957,
+      "sha256": "78baf083f48f255bda75ee9e352710b59da330f91a664729e0e05661f2717766"
+    },
+    "fixed-release-build.log": {
+      "bytes": 5636,
+      "sha256": "c27f33792c34ce0324a19ad7ce915ad24b58d82745d6f02b80295791c336e5c7"
+    },
+    "fixed-release-umask0002.log": {
+      "bytes": 56424,
+      "sha256": "65d35c46eb876ffa70f34b12087601cfc6272771de8b5fae7a1859b6faae7e6b"
+    }
+  }
+}

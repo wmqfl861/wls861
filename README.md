@@ -1,13 +1,17 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.7.0-s1.6；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.7.1-s1.6；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
-本批接入 **受控自建工作目录、原始进程退出证据门禁、固定清单下的有限删除与中断恢复**。默认清理关闭；只有显式配置及当前成功交付/经验/结算条件满足时，Root 才可删除已登记的 `work`。交付包、所有权收据和私有数据库行继续保留，工作目录阶段完成不会将全局清理标为 DONE。私有行清除、强环境正向与残留进程恢复、真实模型、daemon/API 和 S2–S5 继续按任务卡实施；整个 S1 尚未完成。
+本批落实审核中的权限、ASan测试内存安全、编译可移植性、输入/金额和控制预检修复。
+[当前能力/证据矩阵](docs/STATUS.md)集中记录实现边界；[审核采纳记录](docs/reviews/claude-disposition.md)
+区分已修复和开放问题。近期优先可用模型闭环，不继续优先扩大私有数据清除。
 
 ## 蓝图、计划与审核入口
 
 | 文件 | 用途 |
 | --- | --- |
+| [STATUS](docs/STATUS.md) | 唯一当前能力和阶段状态入口 |
+| [审核修复验证](docs/reports/claude-review-fixes-validation.md) | 本轮复现、修复和测试证据 |
 | [实施蓝图 v0.4.1](docs/spec/v0.4.1/01_实施规格_v0.4.1.md) | 当前目标架构、版本关系、运行行为与各切片边界 |
 | [实施路线](docs/ROADMAP.md) | 已有 M1 与 S0–S5 的承接、优先顺序和完成条件 |
 | [S1 任务卡](docs/spec/v0.4.1/07_S1任务卡.md) | 基于现有代码的增量任务，不从空项目重建 |
@@ -30,6 +34,13 @@ C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.7.0-s1.6；当前
 | [v0.4.1 修订验证](docs/reports/v0.4.1-validation.md) | 前一批审核修正的历史证据 |
 
 原 v0.3 的 33 个文件和本次 v0.4 审核包的 49 个文件分别保存在 [docs/handoff/v0.3](docs/handoff/v0.3) 与 [docs/handoff/v0.4](docs/handoff/v0.4)，有独立 SHA-256 校验。原件里的历史状态、提示词和 AGENTS 文件只作来源档案；当前开发入口是本页、根 AGENTS 和 v0.4.1 蓝图。
+
+## 示例目录与权限
+
+以下示例用于新建的一次性目录，先设置 `umask 077` 并以 `mkdir -p -m 700` 创建工作目录。
+`-m` 不修复已存在目录；已有目录须由所有者检查用途、归属后自行去掉 group/other 写权限，
+不要递归改动未知用户数据。运行时仍拒绝不安全权限，不能靠 root 跑测试规避检查。
+`config check` 的 valid 表示形状/引用有效；查阅 runtime_support 才能区分已执行与 validated_only 设置。
 
 ## 当前可以运行什么
 
@@ -119,7 +130,8 @@ python3 tests/s16_cli_smoke.py "$PWD/build/wls" "$PWD"
 在仓库根目录执行；`--db` 指向你选定的运行数据路径，以下使用被 Git 忽略的开发目录：
 
 ```sh
-mkdir -p .local/demo
+umask 077
+mkdir -p -m 700 .local/demo
 ./build/wls config check
 ./build/wls config explain --role worker
 ./build/wls submit --db .local/demo/request.db --key s1-example \
@@ -148,7 +160,8 @@ mkdir -p .local/demo
 以下示例在一个独立开发目录中创建并修改 `result.txt`，固定模型脚本不访问外部服务。数据库放在工作目录之外；同一团队的目录身份和执行策略首次绑定后不自动改变。
 
 ```sh
-mkdir -p .local/s12/work
+umask 077
+mkdir -p -m 700 .local/s12/work
 ./build/wls submit --db .local/s12/runtime.db --key s12-file-example \
   --text-file tests/fixtures/s12_request.txt \
   --constraints-file tests/fixtures/s12_constraints.json
@@ -173,7 +186,8 @@ mkdir -p .local/s12/work
 以下使用新增的确定性脚本，各任务各有一个目录。调用次数达到上限时，后续工作仍在 inbox 中；示例输出不声明完成业务验收或交付。
 
 ```sh
-mkdir -p .local/s13/alpha .local/s13/beta
+umask 077
+mkdir -p -m 700 .local/s13/alpha .local/s13/beta
 python3 - <<'PYMAP'
 import json
 from pathlib import Path
@@ -231,7 +245,8 @@ PYMAP
 下面的固定脚本在独立 alpha 目录写第一版文件，提交完整快照，接收 TeamLead 返工说明，再写第二版并重新提交检查。该示例没有外部模型调用。
 
 ```sh
-mkdir -p .local/s14/alpha
+umask 077
+mkdir -p -m 700 .local/s14/alpha
 python3 - <<'PYMAP'
 import json
 from pathlib import Path
@@ -254,7 +269,8 @@ PYMAP
 下面用另一个数据库和 alpha/beta 两个独立目录演示提问。alpha 的 Worker 等待答案时，beta 仍可写文件；脚本随后将 alpha 的原问题从 TeamLead 转给 Dispatcher，再转给用户：
 
 ```sh
-mkdir -p .local/s14-questions/alpha .local/s14-questions/beta
+umask 077
+mkdir -p -m 700 .local/s14-questions/alpha .local/s14-questions/beta
 python3 - <<'PY'
 import json
 from pathlib import Path
@@ -283,6 +299,7 @@ PY
 使用新的演示目录，保持业务 workspace、控制数据库和交付目录分离：
 
 ```sh
+umask 077
 mkdir -p -m 700 .local/s15-demo/alpha .local/s15-demo/deliveries
 python3 - <<'PY'
 import json
