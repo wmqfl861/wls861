@@ -1,4 +1,4 @@
-name: C++20 kernel, workflow runtime and specification contracts
+name: C++20 runtime and specification contracts
 
 on:
   push:
@@ -12,34 +12,71 @@ jobs:
   build-and-test:
     name: Linux C++20 (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: strict
+            compiler: g++
             build_type: Release
             ubsan: "OFF"
+            asan: "OFF"
+            test_umask: "0022"
+          - name: strict-umask-0002
+            compiler: g++
+            build_type: Release
+            ubsan: "OFF"
+            asan: "OFF"
+            test_umask: "0002"
           - name: UBSan
+            compiler: g++
             build_type: Debug
             ubsan: "ON"
+            asan: "OFF"
+            test_umask: "0002"
+          - name: ASan
+            compiler: g++
+            build_type: Debug
+            ubsan: "OFF"
+            asan: "ON"
+            test_umask: "0002"
+          - name: Clang-18
+            compiler: clang++-18
+            build_type: Release
+            ubsan: "OFF"
+            asan: "OFF"
+            test_umask: "0002"
     env:
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
     steps:
       - name: Check out the requested revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
       - name: Install C++ development dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libyaml-dev
+          if [ "${{ matrix.compiler }}" = clang++-18 ]; then
+            sudo apt-get install --yes clang-18
+          fi
       - name: Configure
         run: |
           python3 -m venv .local/test-venv
           .local/test-venv/bin/python -m pip install -r requirements-test.txt
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }} -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
-      - name: Build
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }} -DWLS_ENABLE_ASAN=${{ matrix.asan }} -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
+      - name: Build with warnings as errors
         run: cmake --build build --parallel 2
-      - name: Run CTest
-        run: ctest --test-dir build --output-on-failure
+      - name: Run complete CTest as an ordinary user
+        run: |
+          test "$(id -u)" -ne 0
+          umask "${{ matrix.test_umask }}"
+          ctest --test-dir build --output-on-failure
+      - name: Verify the original GCC ASan Make target and user CPPFLAGS
+        if: matrix.name == 'ASan'
+        run: |
+          test "$(id -u)" -ne 0
+          umask 0002
+          make -j2 asan BUILD_DIR=build-make CPPFLAGS=-DWLS_CI_USER_CPPFLAGS=1 PYTHON="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
