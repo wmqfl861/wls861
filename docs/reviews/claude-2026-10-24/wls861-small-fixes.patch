@@ -1,0 +1,39 @@
+diff --git a/Makefile b/Makefile
+index 1c9f64a..82d3e0f 100644
+--- a/Makefile
++++ b/Makefile
+@@ -36,8 +36,8 @@ DEPENDENCIES := $(KERNEL_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d) $(MAIN_OBJECT:.o=.
+ 
+ all: $(APPLICATION) $(S1_APPLICATION)
+ 
+-$(S1_OBJECTS) $(S1_TEST_OBJECTS) $(S1_MAIN_OBJECT): CPPFLAGS += $(S1_INCLUDES)
+-$(S1_TEST_OBJECTS): CPPFLAGS += -DWLS_SOURCE_DIR='"$(abspath .)"'
++$(S1_OBJECTS) $(S1_TEST_OBJECTS) $(S1_MAIN_OBJECT): override CPPFLAGS += $(S1_INCLUDES)
++$(S1_TEST_OBJECTS): override CPPFLAGS += -DWLS_SOURCE_DIR='"$(abspath .)"'
+ 
+ $(BUILD_DIR)/%.o: %.cpp
+ 	@mkdir -p "$(dir $@)"
+diff --git a/tests/config_loader_tests.cpp b/tests/config_loader_tests.cpp
+index 36e1249..e0770cd 100644
+--- a/tests/config_loader_tests.cpp
++++ b/tests/config_loader_tests.cpp
+@@ -102,7 +102,8 @@ void roles_resolve_independently_and_explain_each_field() {
+     auto& root_profile = field(field(system, "models"), "fake");
+     field(root_profile, "capabilities").as_object()["reasoning_modes"] = Array{"provider_default", "off", "effort"};
+     field(root_profile, "capabilities").as_object()["reasoning_efforts"] = Array{"low", "high", "max"};
+-    field(system, "models").as_object()["alternate"] = root_profile;
++    const Json alternate_profile = root_profile;  // copy before the parent object may reallocate
++    field(system, "models").as_object()["alternate"] = alternate_profile;
+     field(system, "defaults") = Object{{"model_ref", "fake"}, {"reasoning", Object{{"mode", "effort"}, {"effort", "high"}}}};
+     auto function = fixture.function_json();
+     field(function, "root") = Object{{"model_ref", "alternate"}, {"reasoning", Object{{"mode", "off"}}}};
+@@ -133,7 +134,8 @@ void loaded_catalog_and_restoration_ignore_later_disk_changes() {
+     const auto old_catalog = fixture.load();
+     const auto old = old_catalog.freeze("general");
+     auto system = old.json().at("system");
+-    field(system, "models").as_object()["alternate"] = field(field(system, "models"), "fake");
++    const Json fake_profile = field(field(system, "models"), "fake");  // copy before insertion may reallocate
++    field(system, "models").as_object()["alternate"] = fake_profile;
+     field(field(system, "defaults"), "model_ref") = "alternate";
+     fixture.system(system);
+     write(fixture.prompts / "worker.md", read(fixture.prompts / "worker.md") + "\nNew global role instruction.\n");
