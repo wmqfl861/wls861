@@ -1,0 +1,105 @@
+name: Verify and publish exact R1 history commit series
+
+on:
+  push:
+    branches: [work/r1-history-publish-cb6a52a]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  import-and-verify:
+    if: github.repository == 'wmqfl861/wls861' && github.ref == 'refs/heads/work/r1-history-publish-cb6a52a'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - name: Check out transport without persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify bounded transport and reconstruct original commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          cat .development/r1-history/part-{00..04} > "$RUNNER_TEMP/r1-series.tar.xz"
+          echo '18320fc418aa745aecec3451e51a9fc874aae903be448c3c32e878c50ac51fae  '"$RUNNER_TEMP/r1-series.tar.xz" | sha256sum -c -
+          python3 - <<'PY'
+          import os, pathlib, tarfile
+          dest = pathlib.Path(os.environ['RUNNER_TEMP']) / 'r1-series'
+          dest.mkdir()
+          expected = {'manifest.json'} | {f'{i:02d}.{ext}' for i in range(4) for ext in ('patch', 'commit')}
+          with tarfile.open(dest.parent / 'r1-series.tar.xz', 'r:xz') as archive:
+              members = archive.getmembers()
+              assert len(members) == len(expected)
+              assert {m.name for m in members} == expected
+              assert all(m.isfile() and m.size < 1048576 for m in members)
+              for member in members:
+                  (dest / member.name).write_bytes(archive.extractfile(member).read())
+          PY
+          git checkout --detach 673a6df4134a4059827df12ac7e5b2fd0214b411
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'r1-series'
+          manifest = json.loads((root / 'manifest.json').read_text())
+          expected = ['43b45168594f98ad62268102893c293a736f18e6', 'aa0f79b1eb306102449a6a463de3bcdc93d58a74', '62072928382eb86c3e7cc9895f6e2942537a24d1', 'cb6a52a09c68f0f804e0b1dfee7d15472cdac363']
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          assert manifest['base'] == '673a6df4134a4059827df12ac7e5b2fd0214b411'
+          assert [c['sha'] for c in manifest['commits']] == expected
+          for entry in manifest['commits']:
+              assert git('rev-parse', 'HEAD') == entry['parent']
+              patch = str(root / (entry['prefix'] + '.patch'))
+              git('apply', '--check', '--index', patch)
+              git('apply', '--index', patch)
+              assert git('write-tree') == entry['tree']
+              sha = git('hash-object', '-t', 'commit', '-w', str(root / (entry['prefix'] + '.commit')))
+              assert sha == entry['sha']
+              git('update-ref', 'HEAD', sha, entry['parent'])
+              git('diff', '--exit-code')
+              git('diff', '--cached', '--exit-code')
+              print('Verified commit', sha, 'tree', entry['tree'])
+          assert git('rev-parse', 'HEAD^{tree}') == '1c7174e826f788ea5a4c86fad5eb38c63ee30514'
+          assert not pathlib.Path('.development/r1-history').exists()
+          assert not pathlib.Path('.github/workflows/import-r1-history.yml').exists()
+          assert pathlib.Path('.github/workflows/ci.yml').is_file()
+          PY
+      - name: Install build and contract-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libyaml-dev
+          python3 -m venv .local/test-venv
+          .local/test-venv/bin/python -m pip install -r requirements-test.txt
+      - name: Verify the clean source with ordinary-user Release CTest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          umask 0002
+          cmake -S . -B build-r1-import -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
+          cmake --build build-r1-import --parallel 2
+          ctest --test-dir build-r1-import --output-on-failure
+          test "$(git rev-parse HEAD)" = cb6a52a09c68f0f804e0b1dfee7d15472cdac363
+          test "$(git write-tree)" = 1c7174e826f788ea5a4c86fad5eb38c63ee30514
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Fast-forward only the expected implementation branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          askpass="$RUNNER_TEMP/r1-history-askpass"
+          printf '%s\n' '#!/bin/sh' 'case "$1" in *Username*) printf "%s\n" x-access-token ;; *) printf "%s\n" "$GH_TOKEN" ;; esac' > "$askpass"
+          chmod 700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          actual=$(git ls-remote origin refs/heads/work/r1-structured-history | cut -f1)
+          test "$actual" = 673a6df4134a4059827df12ac7e5b2fd0214b411
+          git push origin HEAD:refs/heads/work/r1-structured-history
+          test "$(git ls-remote origin refs/heads/work/r1-structured-history | cut -f1)" = cb6a52a09c68f0f804e0b1dfee7d15472cdac363
