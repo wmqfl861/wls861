@@ -1,0 +1,775 @@
+{
+  "code_commit": "43b45168594f98ad62268102893c293a736f18e6",
+  "code_tree": "65bf365803d61f7f49ca9f401ad51b6aa0fe541b",
+  "source_input_count": 203,
+  "source_manifest_sha256": "f406dbfeabca9aaa2ca51dc52968b5ee5118930bcfe2b4bbb4a48813cbfea412",
+  "execution_identity": "oai uid 1000; ordinary user; no sudo tests",
+  "environment": {
+    "gcc": "14.2.0",
+    "clang": "17.0.0",
+    "cmake": "3.31.6",
+    "boost": "1.83",
+    "sqlite": "3.46.1",
+    "openssl": "3.5.5",
+    "libyaml": "0.2.5",
+    "python": "3.13.5",
+    "jsonschema": "4.26.0"
+  },
+  "cases": {
+    "s1_cpp": 338,
+    "s1_cli": 90,
+    "m1_cpp": 52,
+    "m1_demo": 3,
+    "python_reference": 36
+  },
+  "gates": {
+    "release_umask0002": "41/41",
+    "release_umask0022": "41/41",
+    "ubsan": "41/41",
+    "asan": "1/1 acceptance_runtime plus all remaining 40/40 groups, same frozen code",
+    "clang17_release": "41/41",
+    "make_strict_user_cppflags": "complete target exit 0"
+  },
+  "exit_codes": {
+    "release-v3": 0,
+    "ubsan-v3": 0,
+    "asan-acceptance-v3": 0,
+    "asan-rest-v3": 0,
+    "make-strict-v3": 0,
+    "clang-v3": 0,
+    "release-0022-v3": 0
+  },
+  "logs": {
+    "release-tests-v3.log": {
+      "bytes": 61103,
+      "sha256": "3b8cf06159c050ff9595673e8688725d382111215a6b8159395b70db8fdec9dd",
+      "ctest_summaries": [
+        [
+          "100",
+          "0",
+          "41"
+        ]
+      ],
+      "cpp_results": [
+        {
+          "passed": 10,
+          "failed": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0
+        },
+        {
+          "passed": 9,
+          "failed": 0
+        },
+        {
+          "passed": 28,
+          "failed": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0
+        },
+        {
+          "passed": 31,
+          "failed": 0
+        },
+        {
+          "passed": 15,
+          "failed": 0
+        },
+        {
+          "passed": 21,
+          "failed": 0
+        },
+        {
+          "passed": 25,
+          "failed": 0
+        },
+        {
+          "passed": 18,
+          "failed": 0
+        },
+        {
+          "passed": 15,
+          "failed": 0
+        },
+        {
+          "passed": 12,
+          "failed": 0
+        },
+        {
+          "passed": 9,
+          "failed": 0
+        },
+        {
+          "passed": 14,
+          "failed": 0
+        },
+        {
+          "passed": 14,
+          "failed": 0
+        },
+        {
+          "passed": 19,
+          "failed": 0
+        },
+        {
+          "passed": 19,
+          "failed": 0
+        },
+        {
+          "passed": 18,
+          "failed": 0
+        },
+        {
+          "passed": 17,
+          "failed": 0
+        },
+        {
+          "passed": 17,
+          "failed": 0
+        },
+        {
+          "passed": 20,
+          "failed": 0
+        },
+        {
+          "passed": 20,
+          "failed": 0
+        },
+        {
+          "passed": 7,
+          "failed": 0
+        },
+        {
+          "passed": 8,
+          "failed": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0
+        },
+        {
+          "passed": 8,
+          "failed": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0
+        }
+      ],
+      "python_test_counts": [
+        36,
+        8,
+        8,
+        10,
+        12,
+        17,
+        14,
+        4,
+        2,
+        9,
+        6
+      ],
+      "sanitizer_errors": 0
+    },
+    "ubsan-tests-v3.log": {
+      "bytes": 60937,
+      "sha256": "afe5e0b9bdd6549fa2e676cbd12716dcef221409d9aad00a547d926c1f3a5e8a",
+      "ctest_summaries": [
+        [
+          "100",
+          "0",
+          "41"
+        ]
+      ],
+      "cpp_results": [
+        {
+          "passed": 10,
+          "failed": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0
+        },
+        {
+          "passed": 9,
+          "failed": 0
+        },
+        {
+          "passed": 28,
+          "failed": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0
+        },
+        {
+          "passed": 31,
+          "failed": 0
+        },
+        {
+          "passed": 15,
+          "failed": 0
+        },
+        {
+          "passed": 21,
+          "failed": 0
+        },
+        {
+          "passed": 25,
+          "failed": 0
+        },
+        {
+          "passed": 18,
+          "failed": 0
+        },
+        {
+          "passed": 15,
+          "failed": 0
+        },
+        {
+          "passed": 12,
+          "failed": 0
+        },
+        {
+          "passed": 9,
+          "failed": 0
+        },
+        {
+          "passed": 14,
+          "failed": 0
+        },
+        {
+          "passed": 14,
+          "failed": 0
+        },
+        {
+          "passed": 19,
+          "failed": 0
+        },
+        {
+          "passed": 19,
+          "failed": 0
+        },
+        {
+          "passed": 18,
+          "failed": 0
+        },
+        {
+          "passed": 17,
+          "failed": 0
+        },
+        {
+          "passed": 17,
+          "failed": 0
+        },
+        {
+          "passed": 20,
+          "failed": 0
+        },
+        {
+          "passed": 20,
+          "failed": 0
+        },
+        {
+          "passed": 7,
+          "failed": 0
+        },
+        {
+          "passed": 8,
+          "failed": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0
+        },
+        {
+          "passed": 8,
+          "failed": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0
+        }
+      ],
+      "python_test_counts": [
+        36,
+        8,
+        8,
+        10,
+        12,
+        17,
+        14,
+        4,
+        2,
+        9,
+        6
+      ],
+      "sanitizer_errors": 0
+    },
+    "asan-acceptance-v3.log": {
+      "bytes": 2448,
+      "sha256": "f83cead98900f17613b61448fac141fbbf34ad3dbc0bb10328626ad17af7c4f1",
+      "ctest_summaries": [
+        [
+          "100",
+          "0",
+          "1"
+        ]
+      ],
+      "cpp_results": [
+        {
+          "passed": 19,
+          "failed": 0
+        }
+      ],
+      "python_test_counts": [],
+      "sanitizer_errors": 0
+    },
+    "asan-rest-v3.log": {
+      "bytes": 59803,
+      "sha256": "262e49d7155fd09252dac767a69aede2ccf91ed07551ab10fe36505625d8d471",
+      "ctest_summaries": [
+        [
+          "100",
+          "0",
+          "40"
+        ]
+      ],
+      "cpp_results": [
+        {
+          "passed": 10,
+          "failed": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0
+        },
+        {
+          "passed": 9,
+          "failed": 0
+        },
+        {
+          "passed": 28,
+          "failed": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0
+        },
+        {
+          "passed": 31,
+          "failed": 0
+        },
+        {
+          "passed": 15,
+          "failed": 0
+        },
+        {
+          "passed": 21,
+          "failed": 0
+        },
+        {
+          "passed": 25,
+          "failed": 0
+        },
+        {
+          "passed": 18,
+          "failed": 0
+        },
+        {
+          "passed": 15,
+          "failed": 0
+        },
+        {
+          "passed": 12,
+          "failed": 0
+        },
+        {
+          "passed": 9,
+          "failed": 0
+        },
+        {
+          "passed": 14,
+          "failed": 0
+        },
+        {
+          "passed": 14,
+          "failed": 0
+        },
+        {
+          "passed": 19,
+          "failed": 0
+        },
+        {
+          "passed": 18,
+          "failed": 0
+        },
+        {
+          "passed": 17,
+          "failed": 0
+        },
+        {
+          "passed": 17,
+          "failed": 0
+        },
+        {
+          "passed": 20,
+          "failed": 0
+        },
+        {
+          "passed": 20,
+          "failed": 0
+        },
+        {
+          "passed": 7,
+          "failed": 0
+        },
+        {
+          "passed": 8,
+          "failed": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0
+        },
+        {
+          "passed": 8,
+          "failed": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0
+        }
+      ],
+      "python_test_counts": [
+        36,
+        8,
+        8,
+        10,
+        12,
+        17,
+        14,
+        4,
+        2,
+        9,
+        6
+      ],
+      "sanitizer_errors": 0
+    },
+    "make-strict-v3.log": {
+      "bytes": 56415,
+      "sha256": "84dc81959bc01e18f66ab51ab8b378ba4480a4a90e2b48921f589e210630d7e3",
+      "ctest_summaries": [],
+      "cpp_results": [
+        {
+          "passed": 10,
+          "failed": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0
+        },
+        {
+          "passed": 9,
+          "failed": 0
+        },
+        {
+          "passed": 28,
+          "failed": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0
+        },
+        {
+          "passed": 31,
+          "failed": 0
+        },
+        {
+          "passed": 15,
+          "failed": 0
+        },
+        {
+          "passed": 21,
+          "failed": 0
+        },
+        {
+          "passed": 25,
+          "failed": 0
+        },
+        {
+          "passed": 18,
+          "failed": 0
+        },
+        {
+          "passed": 15,
+          "failed": 0
+        },
+        {
+          "passed": 12,
+          "failed": 0
+        },
+        {
+          "passed": 9,
+          "failed": 0
+        },
+        {
+          "passed": 14,
+          "failed": 0
+        },
+        {
+          "passed": 14,
+          "failed": 0
+        },
+        {
+          "passed": 19,
+          "failed": 0
+        },
+        {
+          "passed": 19,
+          "failed": 0
+        },
+        {
+          "passed": 18,
+          "failed": 0
+        },
+        {
+          "passed": 17,
+          "failed": 0
+        },
+        {
+          "passed": 17,
+          "failed": 0
+        },
+        {
+          "passed": 20,
+          "failed": 0
+        },
+        {
+          "passed": 20,
+          "failed": 0
+        },
+        {
+          "passed": 7,
+          "failed": 0
+        },
+        {
+          "passed": 8,
+          "failed": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0
+        },
+        {
+          "passed": 8,
+          "failed": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0
+        }
+      ],
+      "python_test_counts": [
+        36,
+        8,
+        8,
+        10,
+        12,
+        17,
+        14,
+        6,
+        4,
+        2,
+        9
+      ],
+      "sanitizer_errors": 0
+    },
+    "clang-tests-v3.log": {
+      "bytes": 61613,
+      "sha256": "8a7c2238a9508f37d6a72f5b32d0c8ca40d9e9129e31714d8547d2d58ed96aec",
+      "ctest_summaries": [
+        [
+          "100",
+          "0",
+          "41"
+        ]
+      ],
+      "cpp_results": [
+        {
+          "passed": 10,
+          "failed": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0
+        },
+        {
+          "passed": 9,
+          "failed": 0
+        },
+        {
+          "passed": 28,
+          "failed": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0
+        },
+        {
+          "passed": 31,
+          "failed": 0
+        },
+        {
+          "passed": 15,
+          "failed": 0
+        },
+        {
+          "passed": 21,
+          "failed": 0
+        },
+        {
+          "passed": 25,
+          "failed": 0
+        },
+        {
+          "passed": 18,
+          "failed": 0
+        },
+        {
+          "passed": 15,
+          "failed": 0
+        },
+        {
+          "passed": 12,
+          "failed": 0
+        },
+        {
+          "passed": 9,
+          "failed": 0
+        },
+        {
+          "passed": 14,
+          "failed": 0
+        },
+        {
+          "passed": 14,
+          "failed": 0
+        },
+        {
+          "passed": 19,
+          "failed": 0
+        },
+        {
+          "passed": 19,
+          "failed": 0
+        },
+        {
+          "passed": 18,
+          "failed": 0
+        },
+        {
+          "passed": 17,
+          "failed": 0
+        },
+        {
+          "passed": 17,
+          "failed": 0
+        },
+        {
+          "passed": 20,
+          "failed": 0
+        },
+        {
+          "passed": 20,
+          "failed": 0
+        },
+        {
+          "passed": 7,
+          "failed": 0
+        },
+        {
+          "passed": 8,
+          "failed": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0
+        },
+        {
+          "passed": 8,
+          "failed": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0
+        }
+      ],
+      "python_test_counts": [
+        36,
+        8,
+        8,
+        10,
+        12,
+        17,
+        14,
+        4,
+        2,
+        9,
+        6
+      ],
+      "sanitizer_errors": 0
+    },
+    "release-0022-v3.log": {
+      "bytes": 4410,
+      "sha256": "e43c304382c432717663847455d3f841b84e7403bb07c1ce9fc7133602233928",
+      "ctest_summaries": [
+        [
+          "100",
+          "0",
+          "41"
+        ]
+      ],
+      "cpp_results": [],
+      "python_test_counts": [],
+      "sanitizer_errors": 0
+    }
+  },
+  "publication": {
+    "code_commit_pushed": false,
+    "new_code_ci_verified": false,
+    "last_verified_main": "e7fa64b231f1f7d3002aaf330e6c9b2616e06a37",
+    "last_verified_work_branch": "673a6df4134a4059827df12ac7e5b2fd0214b411"
+  },
+  "limits": [
+    "No real model or paid calls",
+    "No strong bwrap/cgroup deployment acceptance",
+    "No independent second-model/human review",
+    "Earlier ASan acceptance timeout retained, then unnecessary target lookup removed and complete ASan set rerun in two disjoint groups",
+    "Original source artifacts, vendor bytes and published SQL unchanged"
+  ]
+}
