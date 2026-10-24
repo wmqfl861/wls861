@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-24",
+  "version": "0.7.3-r1.1",
+  "blueprint": "0.4.1",
+  "restored_base": "aa0f79b1eb306102449a6a463de3bcdc93d58a74",
+  "code_commit": "cb6a52a09c68f0f804e0b1dfee7d15472cdac363",
+  "code_tree": "1c7174e826f788ea5a4c86fad5eb38c63ee30514",
+  "design_commit": "62072928382eb86c3e7cc9895f6e2942537a24d1",
+  "retained_capacity_commit": "43b45168594f98ad62268102893c293a736f18e6",
+  "counts": {
+    "s1_cpp": 348,
+    "s1_cli": 97,
+    "m1_cpp": 52,
+    "m1_demo": 3,
+    "reference_contracts": 36,
+    "ctest_groups": 43,
+    "new_cpp": 10,
+    "new_cli": 7
+  },
+  "local_gates": {
+    "release-full": {
+      "exit_code": 0,
+      "sha256": "845b15219dbd96d1c388283f92e54aee731200121df5c1186ad73f91faa26671"
+    },
+    "ubsan-full": {
+      "exit_code": 0,
+      "sha256": "7af55df9efb55656e4c9af19c67954c3aaaae15c8fdf1f8616ccb84aca31c1e4"
+    },
+    "asan-full": {
+      "exit_code": 0,
+      "sha256": "059c66fb9ff63b22dbd974738d9036d4116ab38bec786929cfcd706ceca55735"
+    },
+    "make-full": {
+      "exit_code": 0,
+      "sha256": "1891028b7a0841646667fa5f961dbca00c1c0eab416829bb76c7085b24d43cf0"
+    }
+  },
+  "environment": {
+    "uid": 1000,
+    "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+    "python": "3.13.5",
+    "jsonschema": "4.26.0",
+    "sqlite_python": "3.46.1",
+    "openssl_python": "OpenSSL 3.5.5 27 Jan 2026",
+    "g++": "g++ (Debian 14.2.0-19) 14.2.0",
+    "cmake": "cmake version 3.31.6",
+    "code_sha": "cb6a52a09c68f0f804e0b1dfee7d15472cdac363",
+    "source_count": 211,
+    "source_manifest_sha256": "d521cd1e80842fd8f4bab1a08af58a650f8bf245b3ca3a3bfa62ab8df5030e3b"
+  },
+  "source_count": 211,
+  "source_manifest_sha256": "d521cd1e80842fd8f4bab1a08af58a650f8bf245b3ca3a3bfa62ab8df5030e3b",
+  "model_calls": "FakeModel only",
+  "paid_model_calls": 0,
+  "independent_second_model_review": false,
+  "scope": "read-only host history APIs and CLI; Worker context/window integration is still open",
+  "publication": {
+    "mechanism": "hash-verified exact commit transport; normal fast-forward only",
+    "candidate_import_run": 40116579064,
+    "main_ci": "Read the Actions run for the final report commit; do not infer success from a different SHA."
+  }
+}
