@@ -41,6 +41,12 @@ jobs:
             ubsan: "OFF"
             asan: "ON"
             test_umask: "0002"
+          - name: Make-ASan
+            compiler: g++
+            build_type: Debug
+            ubsan: "OFF"
+            asan: "ON"
+            test_umask: "0002"
           - name: Clang-18
             compiler: clang++-18
             build_type: Release
@@ -62,20 +68,25 @@ jobs:
           if [ "${{ matrix.compiler }}" = clang++-18 ]; then
             sudo apt-get install --yes clang-18
           fi
-      - name: Configure
+      - name: Prepare contract-test environment
         run: |
           python3 -m venv .local/test-venv
           .local/test-venv/bin/python -m pip install -r requirements-test.txt
+      - name: Configure CMake
+        if: matrix.name != 'Make-ASan'
+        run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }} -DWLS_ENABLE_ASAN=${{ matrix.asan }} -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
       - name: Build with warnings as errors
+        if: matrix.name != 'Make-ASan'
         run: cmake --build build --parallel 2
       - name: Run complete CTest as an ordinary user
+        if: matrix.name != 'Make-ASan'
         run: |
           test "$(id -u)" -ne 0
           umask "${{ matrix.test_umask }}"
           ctest --test-dir build --output-on-failure
       - name: Verify the original GCC ASan Make target and user CPPFLAGS
-        if: matrix.name == 'ASan'
+        if: matrix.name == 'Make-ASan'
         run: |
           test "$(id -u)" -ne 0
           umask 0002

@@ -8,6 +8,11 @@ CPPFLAGS ?=
 CXXFLAGS ?= -O2 -g
 LDFLAGS ?=
 LDLIBS ?=
+# Match CMake Debug ASan by default. GCC 13 libstdc++ <regex> emits
+# false maybe-uninitialized diagnostics with -O1 + ASan (GCC PR105616),
+# also through Valijson. Keep -Werror and all sanitizer checks enabled.
+# Use ASAN_OPTIMIZATION=-O1 explicitly on toolchains that support it.
+ASAN_OPTIMIZATION ?= -O0
 
 REQUIRED_CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread
 INCLUDES := -Iinclude -Itests
@@ -113,6 +118,6 @@ ubsan:
 	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(MAKE) BUILD_DIR="$(BUILD_DIR)-ubsan" CXXFLAGS="$(CXXFLAGS) -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer" LDFLAGS="$(LDFLAGS) -fsanitize=undefined" test
 
 asan:
-	ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 $(MAKE) BUILD_DIR="$(BUILD_DIR)-asan" CXXFLAGS="$(CXXFLAGS) -O1 -g -fsanitize=address -fno-omit-frame-pointer" LDFLAGS="$(LDFLAGS) -fsanitize=address" test
+	ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 $(MAKE) BUILD_DIR="$(BUILD_DIR)-asan" CXXFLAGS="$(CXXFLAGS) $(ASAN_OPTIMIZATION) -g -fsanitize=address -fno-omit-frame-pointer" LDFLAGS="$(LDFLAGS) -fsanitize=address" test
 
 -include $(DEPENDENCIES)
