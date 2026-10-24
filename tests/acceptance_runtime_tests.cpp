@@ -1,6 +1,7 @@
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "test_support.hpp"
+#include "capacity_test_support.hpp"
 
 #include <sqlite3.h>
 
@@ -29,17 +30,6 @@ std::int64_t number(const Json& value) {
 Json fixture(const std::string& name) { return parse_json_strict(read_runtime_file(source / "tests/fixtures" / name)); }
 void write(const std::filesystem::path& path, const std::string& bytes) {
     std::ofstream output(path, std::ios::binary); output << bytes; CHECK(static_cast<bool>(output));
-}
-void fill_ordinary_event_capacity(const std::filesystem::path& path) {
-    sqlite3* raw = nullptr;
-    CHECK(sqlite3_open_v2(path.c_str(), &raw, SQLITE_OPEN_READWRITE, nullptr) == SQLITE_OK);
-    const auto close = [](sqlite3* value) { sqlite3_close(value); };
-    const std::unique_ptr<sqlite3, decltype(close)> database(raw, close);
-    const char* sql = "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<4096-(SELECT COUNT(*) FROM events)) "
-        "INSERT INTO events(event_id,request_id,type,actor,command_id,command_sha256,payload,result,created_at) "
-        "SELECT 'capacity-'||x,(SELECT request_id FROM requests LIMIT 1),'fixture','runtime','capacity-'||x,"
-        "printf('%064d',0),'{}','{}','2026-10-20T00:00:00Z' FROM n";
-    CHECK(sqlite3_exec(database.get(), sql, nullptr, nullptr, nullptr) == SQLITE_OK);
 }
 void expect(ErrorCode code, const std::function<void()>& action) {
     bool caught = false;
@@ -480,10 +470,10 @@ void independent_candidates_and_experience_do_not_share_targets() {
 
 void ordinary_event_capacity_keeps_only_bounded_experience_reservation() {
     Fixture f; const auto job = f.accepted();
-    fill_ordinary_event_capacity(f.directory.path / "control.db");
+    test::fill_business_capacity(*f.store, f.directory.path / "control.db", f.id);
     const auto budget = f.store->budget(f.id);
     const auto plan = full_script().default_steps.front();
-    expect(ErrorCode::Quota, [&] { (void)f.capture(Role::Dispatcher, FakeModel({plan})); });
+    expect(ErrorCode::NotReady, [&] { (void)f.capture(Role::Dispatcher, FakeModel({plan})); });
     CHECK(f.store->budget(f.id) == budget);
     f.cancel(); f.reopen();
     EventFakeScript script; script.by_node["alpha"] = {step(Role::TeamLead, "report_experience", no_experience())};

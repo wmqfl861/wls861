@@ -52,6 +52,7 @@ target_link_libraries(wls861 PRIVATE wls_kernel)
 add_library(wls_s1 STATIC
     src/boost_json.cpp
     src/runtime_types.cpp
+    src/capacity.cpp
     src/store.cpp
     src/config_loader.cpp
     src/model.cpp
@@ -91,7 +92,7 @@ if(BUILD_TESTING)
         add_test(NAME ${suite} COMMAND ${suite}_tests)
         set_tests_properties(${suite} PROPERTIES TIMEOUT 90)
     endforeach()
-    foreach(suite IN ITEMS runtime_types store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery cleanup cleanup_runtime audit24_reopen process_evidence audit24_reconcile)
+    foreach(suite IN ITEMS runtime_types store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery cleanup cleanup_runtime audit24_reopen process_evidence audit24_reconcile audit24_capacity audit24_capacity_repro)
         add_executable(${suite}_tests tests/${suite}_tests.cpp)
         target_link_libraries(${suite}_tests PRIVATE wls_s1)
         target_include_directories(${suite}_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
@@ -131,6 +132,7 @@ if(BUILD_TESTING)
     set_tests_properties(handoff_integrity review_source_integrity specification_contracts demo_smoke
         PROPERTIES TIMEOUT 60)
     set_tests_properties(cleanup_runtime PROPERTIES TIMEOUT 180)
+    set_tests_properties(audit24_capacity_repro PROPERTIES TIMEOUT 300)
     add_test(NAME s16_cli_smoke
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/s16_cli_smoke.py"
                 "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -147,4 +149,8 @@ if(BUILD_TESTING)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/review_cli_smoke.py"
                 "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
     set_tests_properties(review_cli_smoke PROPERTIES TIMEOUT 120)
+    add_test(NAME audit24_capacity_cli_smoke
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/audit24_capacity_cli_smoke.py"
+                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(audit24_capacity_cli_smoke PROPERTIES TIMEOUT 180)
 endif()

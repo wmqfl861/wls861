@@ -347,3 +347,11 @@ ACK 会重新核验并同步完整包，随后原子保存精确回执和收尾�
 当前内核是受信宿主进程内 API，`Actor` 由宿主构造。本机 CLI 不提供远程认证；诊断速率限制在单进程内，写者持租约期间没有第二个 CLI 的 socket 取消通道。文件容量是代理的逻辑上限，不是任意进程磁盘配额；合作锁不防任意同 UID 宿主绕过。强进程正向测试、残留 cgroup 恢复及完整 SBX/SEC 验收仍需独立证据。
 
 下一批承接S1.6受控目录清理，补私有行purge、失败成果保留包和残留资源退出证据，再推进wlsd/API。跨功能独立审核、DAG和审核双容量按S2推进，S3记忆、S4 MCP/评测和S5证据驱动扩展保持原路线。S1-06/07强环境正向与残留恢复继续独立验收；真实协议按外部端点、凭据引用、能力和预算接入。示例保持FakeModel、记忆/真实调用/清理关闭，付费重试为零。
+
+### 存储准入窗口和人工续进
+
+`wls capacity --db DB --request ID` 只读显示冻结上限、告警/暂停和窗口号；`pending`也列出容量暂停。
+达到水位后，宿主先核清未决操作及用量，再执行 `wls capacity-checkpoint --db DB --request ID
+--expected-window N --evidence-file FILE --key KEY`。证据文件为非空文本。
+检查点不会重置工具/费用/返工，也不代替AMEND处置、问题回答或UNKNOWN核对；原事件和重放结果保留。
+参见[容量契约](docs/implementation/S1-capacity-windows.md)及[当前状态](docs/STATUS.md)。

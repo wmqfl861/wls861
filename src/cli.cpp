@@ -300,6 +300,9 @@ reconcile-op is a trusted-local-host Root control: it records a definite host
 observation for one UNKNOWN operation with explicit CAS and an idempotency key.
 Evidence does not rewrite original output or prove descendant exit for cleanup.
 It neither runs a command nor automatically resumes business.
+capacity is read-only. capacity-checkpoint requires Root, --expected-window,
+--evidence-file and --key, and refuses unsettled effects or unknown accounting.
+It advances a storage admission window without deleting audit or resetting budgets.
 wait/wake are local host controls;
 a wake leaves instruction, AMEND and UNKNOWN gates in force. An explicit
 workspace enables bounded file tools and process execution with verified strong
@@ -363,7 +366,7 @@ int run_cli(int argc, char** argv) {
         result.as_object()["process_isolation_verified"] = false;
         output(result); return 0;
     }
-    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "inbox", "history", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "owned-workspaces", "cleanup-workspaces", "reconcile-op"};
+    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "inbox", "history", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "owned-workspaces", "cleanup-workspaces", "reconcile-op", "capacity", "capacity-checkpoint"};
     if (!commands.contains(command)) throw Error(ErrorCode::InvalidInput, "unknown command: " + command);
     const auto database = options.required("--db");
     const auto schema_sql = read_runtime_file(source / "db/schema.sql");
@@ -373,6 +376,26 @@ int run_cli(int argc, char** argv) {
     const auto workflow_migration_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
     const auto acceptance_migration_sql = read_runtime_file(source / "db/migrations/008_acceptance_runtime.sql");
     const auto cleanup_migration_sql = read_runtime_file(source / "db/migrations/009_owned_cleanup.sql");
+    if (command == "capacity" || command == "capacity-checkpoint") {
+        const auto request = options.required("--request");
+        if (command == "capacity") {
+            options.finish();
+            Store inspect(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
+                events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+            output(inspect.capacity_status(request)); return 0;
+        }
+        const auto expected = options.number("--expected-window", -1, 0);
+        const auto evidence = read_runtime_file(options.required("--evidence-file"), 4096);
+        const auto key = options.required("--key"); options.finish();
+        {
+            Store inspect(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
+                events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+            inspect.validate_capacity_checkpoint(inspect.host_actor(Role::Root, request), expected, evidence, key);
+        }
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
+            events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+        output(store.checkpoint_capacity(store.host_actor(Role::Root, request), expected, evidence, key)); return 0;
+    }
     if (command == "reconcile-op") {
         const auto request = options.required("--request");
         const auto op = options.required("--op");

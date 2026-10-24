@@ -2,6 +2,7 @@
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
 #include "test_support.hpp"
+#include "capacity_test_support.hpp"
 
 #include <sqlite3.h>
 
@@ -419,10 +420,10 @@ void ordinary_event_capacity_preserves_settlement_controls() {
     const auto reservation = f.reservation(); const auto response = response_for(reservation, original);
     f.store->reserve_attempt(f.actor(Role::Worker), original, reservation);
     const auto wait = f.store->wait_worker(f.actor(Role::Worker), original, f.tv(), "pause active fixture", new_id("wait"));
-    raw_exec(f.path, "WITH RECURSIVE counter(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM counter WHERE n<4096) INSERT INTO events(event_id,request_id,type,actor,command_id,command_sha256,payload,result,created_at) SELECT 'fixture-event-'||n,request_id,'fixture','runtime','fixture-command-'||n,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','{}','{}','fixture' FROM counter,requests WHERE n<=4096-(SELECT COUNT(*) FROM events);");
-    CHECK(scalar(f.path, "SELECT COUNT(*) FROM events") == 4096);
+    test::fill_business_capacity(*f.store, f.path, f.request_id);
+    const auto control_before = f.store->capacity_status(f.request_id).at("counts").at("control_events").as_int64();
     const auto request_before = f.store->request(f.request_id);
-    error(ErrorCode::Quota, [&] { f.store->publish_plan(f.actor(Role::Dispatcher), f.rv(), 1, plan_body(), new_id("full")); });
+    error(ErrorCode::NotReady, [&] { f.store->publish_plan(f.actor(Role::Dispatcher), f.rv(), 1, plan_body(), new_id("full")); });
     CHECK(f.store->request(f.request_id) == request_before);
     settle(f, reservation, original, response);
     f.store->record_tool_feedback(reservation.attempt_id, original, response, Object{{"complete", true}});
@@ -430,7 +431,10 @@ void ordinary_event_capacity_preserves_settlement_controls() {
     const auto fact = f.store->record_operation_result(s(prepared, "op_id"), original, "SUCCEEDED", Object{{"late", true}}, Object{{"proof", "retained"}});
     CHECK(n(fact, "accepted") == 0);
     CHECK(s(f.store->wake_worker(f.actor(Role::Worker), original, n(wait, "generation"), new_id("wake")), "status") == "AWAKE");
-    CHECK(scalar(f.path, "SELECT COUNT(*) FROM events") == 4101);
+    const auto capacity = f.store->capacity_status(f.request_id);
+    CHECK(capacity.at("counts").at("business_events") == capacity.at("limits").at("business_events"));
+    CHECK(capacity.at("counts").at("control_events").as_int64() == control_before + 5);
+    CHECK(capacity.at("recorded_hold").as_bool());
     CHECK(s(f.store->operation(s(prepared, "op_id")), "status") == "UNKNOWN");
 }
 

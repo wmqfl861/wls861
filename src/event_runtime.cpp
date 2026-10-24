@@ -143,6 +143,10 @@ Json EventRuntime::pump(const std::string& id, const EventFakeScript& script,
     };
     const auto invoke = [&](Role role, const std::string& node, const std::string& task,
                             WorkerTools* tools) -> std::optional<Json> {
+        if (store_.capacity_status(id).at("status") == "WAITING_INPUT") {
+            block(role, node, task, "capacity_waiting_input", "Root capacity-checkpoint required; no new model reservation");
+            return std::nullopt;
+        }
         if (static_cast<std::int64_t>(calls.size()) >= options.max_calls) {
             block(role, node, task, "call_limit", "this explicit pump reached its total call limit");
             return std::nullopt;
@@ -415,6 +419,15 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                             WorkerTools* tools, const Json& claim) -> std::optional<Json> {
         const ActorKey key{role, node};
         if (stopped.contains(key)) return std::nullopt;
+        if (store_.capacity_status(id).at("status") == "WAITING_INPUT") {
+            // Resolve a potentially large immutable target only for a hold.
+            // The normal path already captures/validates it in reserve_call.
+            const auto pending_action = role == Role::Worker ? Json(nullptr) : management_target(role, task);
+            if (pending_action.is_null() || text(pending_action, "kind") != "experience") {
+                block(role, node, task, "capacity_waiting_input", "Root capacity-checkpoint required; no new model reservation");
+                stopped.insert(key); return std::nullopt;
+            }
+        }
         if (static_cast<std::int64_t>(calls.size()) >= options.max_calls) {
             block(role, node, task, "call_limit", "this explicit pump reached its total call limit");
             stopped.insert(key); return std::nullopt;

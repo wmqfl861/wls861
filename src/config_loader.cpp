@@ -1,4 +1,5 @@
 #include "wls/config_loader.hpp"
+#include "wls/capacity.hpp"
 
 #include <yaml.h>
 
@@ -513,7 +514,9 @@ CapabilityRegistry validate_system(const Json& system) {
         {"reserve_dispatchers_for_review", 'i'}, {"reserve_workers_for_review", 'i'}, {"review_reservation_policy", 's'},
         {"release_slots_while_waiting", 'b'}, {"max_teams_per_request", 'i'}, {"max_concurrent_model_calls_per_endpoint", 'i'},
         {"max_concurrent_ops", 'i'}, {"worker_max_tool_calls_per_order", 'i'}, {"manager_max_tool_calls_per_wake", 'i'},
-        {"team_internal_rework_max", 'z'}, {"stall_minutes", 'i'}, {"stall_same_error_repeats", 'i'}});
+        {"team_internal_rework_max", 'z'}, {"stall_minutes", 'i'}, {"stall_same_error_repeats", 'i'}, {"store_capacity", '-'}}, {"store_capacity"});
+    (void)store_capacity_limits(system);
+    if (limits.as_object().contains("store_capacity")) validate_store_capacity_admission(system);
     for (const auto& [total_key, reserve_key] : {std::pair{"max_active_dispatchers", "reserve_dispatchers_for_review"},
                                                std::pair{"max_active_workers", "reserve_workers_for_review"}}) {
         const auto total = integer_value(required(limits, total_key, "system.limits"), child("system.limits", total_key), 2, 4096);

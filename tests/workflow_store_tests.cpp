@@ -2,6 +2,7 @@
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
 #include "test_support.hpp"
+#include "capacity_test_support.hpp"
 
 #include <sqlite3.h>
 #include <sys/stat.h>
@@ -283,7 +284,7 @@ void nonblocking_question_keeps_worker_ready_and_uses_bounded_history() {
     Fixture f; f.ready(); const auto first = f.ask(false); CHECK(first.at("wait_generation").is_null());
     CHECK(f.store->worker_wait(f.tid()).is_null()); CHECK(!f.prepare().is_null());
     for (int i = 1; i < 32; ++i) f.ask(false);
-    error(ErrorCode::Quota, [&] { f.ask(false); });
+    error(ErrorCode::NotReady, [&] { f.ask(false); });
     error(ErrorCode::Quota, [&] { f.store->questions(f.request_id, {}, 31); });
     CHECK(f.store->questions(f.request_id).size() == 32);
     f.answer(first); CHECK(!f.ask(false).is_null());
@@ -443,12 +444,14 @@ void concurrent_checks_have_one_captured_winner_and_replay_is_exact() {
 
 void normal_check_capacity_does_not_borrow_adverse_revocation_reserve() {
     Fixture f; f.ready(); f.bind(); const auto submitted = f.submit();
-    raw_exec(f.path, "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<4096-(SELECT COUNT(*) FROM events)) INSERT INTO events(event_id,request_id,type,actor,command_id,command_sha256,payload,result,created_at) SELECT 'capacity-'||x,(SELECT request_id FROM requests LIMIT 1),'fixture','runtime','capacity-'||x,printf('%064d',0),'{}','{}','2026-10-19T00:00:00Z' FROM n;");
-    error(ErrorCode::Quota, [&] { f.check(submitted); }); error(ErrorCode::Quota, [&] { f.check(submitted, false); });
+    test::fill_business_capacity(*f.store, f.path, f.request_id);
+    error(ErrorCode::NotReady, [&] { f.check(submitted); }); error(ErrorCode::NotReady, [&] { f.check(submitted, false); });
     CHECK(s(f.store->submission(s(submitted, "submission_id")), "status") == "SUBMITTED");
     const auto question = f.ask(); CHECK(s(f.answer(question), "status") == "ANSWERED");
+    CHECK(f.store->capacity_status(f.request_id).at("recorded_hold").as_bool());
+    CHECK(!f.ask(false).is_null()); // independent control pool remains available after the business hold
     Fixture g; g.ready(); g.bind(); const auto ready = g.check(g.submit());
-    raw_exec(g.path, "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<4096-(SELECT COUNT(*) FROM events)) INSERT INTO events(event_id,request_id,type,actor,command_id,command_sha256,payload,result,created_at) SELECT 'capacity-'||x,(SELECT request_id FROM requests LIMIT 1),'fixture','runtime','capacity-'||x,printf('%064d',0),'{}','{}','2026-10-19T00:00:00Z' FROM n;");
+    test::fill_business_capacity(*g.store, g.path, g.request_id);
     const auto returned = g.check(ready, false); CHECK(s(returned, "status") == "RETURNED_FOR_REWORK");
     CHECK(returned.at("checks").as_array().size() == 2); CHECK(!returned.at("business_accepted").as_bool());
 }

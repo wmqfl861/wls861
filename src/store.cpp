@@ -1,4 +1,5 @@
 #include "wls/store.hpp"
+#include "wls/capacity.hpp"
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
 
@@ -669,7 +670,7 @@ public:
             require(owner_.mode == StoreOpenMode::Takeover, ErrorCode::Unauthorized, "read-only Store cannot mutate");
             owner_.exec("BEGIN IMMEDIATE");
         }
-        ~Transaction() { if (!committed_) owner_.rollback(); }
+        ~Transaction() { if (!committed_) { owner_.capacity_event_cache.clear(); owner_.capacity_limit_cache.clear(); owner_.rollback(); } }
         void commit() { owner_.exec("COMMIT"); committed_ = true; }
     private:
         Impl& owner_;
@@ -1045,23 +1046,18 @@ public:
         require(str(*row, "command_sha256") == sha256_hex(canonical_json(command)), ErrorCode::Conflict, "command_id reused with different intent");
         return parse_json_strict(str(*row, "result"), 16 * 1024 * 1024);
     }
+#include "store_capacity.inc"
+
     void event(const std::string& request_id, const std::string& command_id,
                const Row& command, const Json& result, std::string_view actor = "runtime") {
         text_field(command_id, "command_id");
         const auto type = str(command, "type");
-        const bool control = type == "ack" || type == "cancel_op" || type == "finish_op" || type == "reconcile_op" || type == "record_op_result" || type == "execute_tool_control" ||
-            type == "wait_worker" || type == "wake_worker" || type == "tool_feedback" || type == "event_bootstrap" ||
-            type == "ask_question" || type == "forward_question" || type == "answer_question" ||
-            (type == "check_submission" && command.at("adverse_revoke").as_bool()) ||
-            (type == "accept_candidate" && !command.at("decision").at("passed").as_bool()) ||
-            (type == "reserve_attempt" && command.contains("experience_job_id")) ||
-            type == "report_experience" || type == "recover_experience" || type == "record_delivery_publication" || type == "acknowledge_delivery" ||
-            type == "recover" || type == "cancel_request" || type == "settle_attempt" || type == "attempts_unknown";
-        const auto count = number(one("SELECT COUNT(*) AS n FROM events WHERE request_id=?", {request_id}), "n");
-        require(count < (control ? 8192 : 4096), ErrorCode::Quota, "bounded Store event capacity exhausted");
+        guard_capacity_event(request_id, command);
         execute("INSERT INTO events(event_id,request_id,type,actor,command_id,command_sha256,payload,result,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
             {new_id("evt"), request_id, type, actor, command_id, sha256_hex(canonical_json(command)), json_text(command), json_text(result, 16 * 1024 * 1024), stamp()});
+        capacity_event_inserted(request_id, command);
         if (events_schema) route_event(request_id, type, command, result, sqlite3_last_insert_rowid(db));
+        observe_capacity(request_id);
     }
     void release_claims(const std::string& request_id) {
         if (!events_schema) return;
@@ -1524,6 +1520,12 @@ Json Store::pending_recovery() const {
         {"cleanup_jobs", collect("SELECT * FROM cleanup_jobs WHERE status<>'DONE'")},
         {"unconfirmed_delivery", collect("SELECT request_id,delivery_status FROM requests WHERE delivery_status='STORED'")}};
     if (impl_->acceptance_schema) result["delivery_intents"] = collect("SELECT delivery_id,request_id,requirements_revision,plan_revision,manifest_sha256,status,state_version FROM delivery_runtime WHERE status IN ('PREPARED','STORED')");
+    Array capacity_holds;
+    for (const auto& request : impl_->all("SELECT request_id FROM requests")) {
+        const auto state = impl_->capacity_state(str(request, "request_id"));
+        if (state.at("status") == "WAITING_INPUT") capacity_holds.emplace_back(state);
+    }
+    result["capacity_holds"] = std::move(capacity_holds);
     return result;
 }
 bool Store::event_runtime_enabled() const {
@@ -1822,9 +1824,8 @@ Json Store::ask_question(const StoreActor& actor, const ExecutionBinding& bindin
     const auto request = impl_->authorize(actor, {Role::Worker}); impl_->matches(binding);
     const auto task = impl_->task_row(actor.task_id);
     require(!terminal_request(str(request, "status")) && !terminal_task(str(task, "status")), ErrorCode::NotReady, "terminal Worker cannot ask a new question");
-    require(number(impl_->one("SELECT COUNT(*) AS n FROM questions WHERE request_id=?", {actor.request_id}), "n") < 128 &&
-            number(impl_->one("SELECT COUNT(*) AS n FROM questions q JOIN question_runtime x USING(question_id) WHERE q.request_id=? AND x.status='OPEN'", {actor.request_id}), "n") < 32,
-            ErrorCode::Quota, "bounded question capacity exhausted");
+    impl_->capacity_available(actor.request_id, "questions");
+    impl_->capacity_available(actor.request_id, "open_questions");
     const auto wait = impl_->optional("SELECT * FROM worker_waits WHERE task_id=?", {actor.task_id});
     if (blocking) require((!wait || str(*wait, "status") != "WAITING") && !impl_->has_blocking_question(actor.task_id),
             ErrorCode::NotReady, "another wait already owns this Worker");
@@ -1975,9 +1976,8 @@ Json Store::submit_work(const StoreActor& actor, const ExecutionBinding& binding
             ErrorCode::NotReady, "submission requires every producer operation to be settled");
     require(!impl_->optional("SELECT submission_id FROM workflow_submissions WHERE task_id=? AND status IN ('SUBMITTED','CANDIDATE_READY','BLOCKED')", {actor.task_id}),
             ErrorCode::Conflict, "producer already has an unresolved submission");
-    require(number(impl_->one("SELECT COUNT(*) AS n FROM workflow_submissions WHERE task_id=?", {actor.task_id}), "n") < 64 &&
-            number(impl_->one("SELECT COUNT(*) AS n FROM workflow_submissions WHERE request_id=?", {actor.request_id}), "n") < 256,
-            ErrorCode::Quota, "bounded submission history capacity exhausted");
+    impl_->capacity_available(actor.request_id, "submissions_per_task", actor.task_id);
+    impl_->capacity_available(actor.request_id, "submissions");
     require(number(team, "tool_calls_used") < impl_->configured_limit(owner, "worker_max_tool_calls_per_order"), ErrorCode::Quota, "instruction tool-call budget exhausted");
     const auto criteria = acceptance_ids(parse_json_strict(str(task, "brief")));
     criterion_results(body.at("self_check"), criteria, false, true); submission_verification(body, false);
@@ -2131,8 +2131,7 @@ Json Store::accept_candidate(const StoreActor& actor, const ExecutionBinding& ca
         require(str(check, "status") == "CANDIDATE_READY" && check_body.at("passed").as_bool(), ErrorCode::NotReady, "current local TeamLead check did not pass");
         criterion_results(check_body.at("criteria_results"), criteria, true, false);
     }
-    require(number(impl_->one("SELECT COUNT(*) AS n FROM candidate_acceptances WHERE request_id=?", {actor.request_id}), "n") < (passed ? 256 : 512),
-            ErrorCode::Quota, "bounded business acceptance history exhausted");
+    impl_->capacity_available(actor.request_id, passed ? "acceptances" : "adverse_acceptances");
     if (!passed) {
         impl_->execute("UPDATE candidate_acceptances SET status='REVOKED',state_version=state_version+1,updated_at=? WHERE task_id=? AND status='ACCEPTED'", {stamp(), task_id});
         impl_->execute("UPDATE delivery_runtime SET status='SUPERSEDED',state_version=state_version+1,updated_at=? WHERE request_id=? AND status IN ('PREPARED','STORED')", {stamp(), actor.request_id});
@@ -2256,8 +2255,7 @@ Json Store::prepare_delivery(const StoreActor& actor, const ExecutionBinding& ca
             impl_->event(actor.request_id, command_id, command, result, "root"); tx.commit(); return result;
         }
     }
-    require(number(impl_->one("SELECT COUNT(*) AS n FROM delivery_runtime WHERE request_id=?", {actor.request_id}), "n") < 64,
-            ErrorCode::Quota, "delivery history capacity exhausted");
+    impl_->capacity_available(actor.request_id, "deliveries");
     Array files; Array entries; Array acceptances; Array evidence; Array limitations; Array experience;
     std::size_t total_bytes = 0;
     const auto add_file = [&](const std::string& name, const std::string& bytes) {
@@ -2459,6 +2457,37 @@ StoreActor Store::host_actor(Role role, const std::string& id, const std::string
     return actor;
 }
 
+Json Store::capacity_status(const std::string& id) const {
+    const std::lock_guard lock(impl_->mutex); return impl_->capacity_state(id);
+}
+
+void Store::validate_capacity_checkpoint(const StoreActor& root, std::int64_t expected_window,
+        const std::string& evidence, const std::string& command_id) const {
+    const std::lock_guard lock(impl_->mutex);
+    text_field(command_id, "command_id");
+    const auto command = impl_->checkpoint_intent(root, expected_window, evidence);
+    (void)impl_->authorize(root, {Role::Root}, false);
+    if (impl_->replay(root.request_id, command_id, command)) return;
+    (void)impl_->checkpoint_state(root.request_id, expected_window);
+}
+
+Json Store::checkpoint_capacity(const StoreActor& root, std::int64_t expected_window,
+        const std::string& evidence, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex);
+    text_field(command_id, "command_id");
+    const auto command = impl_->checkpoint_intent(root, expected_window, evidence);
+    Impl::Transaction tx(*impl_);
+    (void)impl_->authorize(root, {Role::Root}, false);
+    if (auto old = impl_->replay(root.request_id, command_id, command)) { tx.commit(); return *old; }
+    const auto state = impl_->checkpoint_state(root.request_id, expected_window);
+    const Row result{{"request_id", root.request_id}, {"window", next(expected_window)},
+        {"totals", state.at("totals")}, {"task_submissions", state.at("task_submissions")},
+        {"closed_counts", state.at("counts")}, {"limits", state.at("limits")},
+        {"audit_rows_retained", true}, {"budgets_reset", false}};
+    impl_->capacity_raw_event(root.request_id, command_id, command, result);
+    tx.commit(); return result;
+}
+
 Json Store::admit(const AdmissionInput& input) {
     const std::lock_guard lock(impl_->mutex);
     for (const auto* field : {&input.tenant_id, &input.project_id, &input.root_id, &input.function_id, &input.idempotency_key}) text_field(*field, "admission scope");
@@ -2504,6 +2533,7 @@ Json Store::admit(const AdmissionInput& input) {
             tx.commit(); return result;
         }
     }
+    validate_store_capacity_admission(frozen_config.json().at("system"));
     const auto id = new_id("req");
     const auto created = stamp();
     impl_->execute("INSERT INTO requests(request_id,tenant_id,project_id,root_id,function_id,origin,idempotency_key,content_sha256,dispatcher_id,status,config_snapshot,budget,created_at,updated_at) VALUES (?,?,?,?,?,'cli',?,?,?,'RECEIVED',?,?,?,?)",
@@ -2679,7 +2709,7 @@ Json Store::amend(const StoreActor& root, std::int64_t expected, const std::stri
     const auto r = impl_->authorize(root, {Role::Root});
     require(!terminal_request(str(r, "status")), ErrorCode::NotReady, "terminal request requires NEW");
     const auto revision = next(number(r, "requirements_revision"));
-    require(revision <= 100, ErrorCode::Quota, "request text history capacity exhausted");
+    impl_->capacity_available(root.request_id, "requirement_revisions");
     impl_->cas("UPDATE requests SET requirements_revision=?,status='RUNNING',delivery_status='NONE',state_version=state_version+1,updated_at=? WHERE request_id=? AND state_version=?", {revision, stamp(), root.request_id, expected});
     impl_->execute("INSERT INTO request_texts VALUES (?,?,'AMEND',?,?)", {root.request_id, revision, text, stamp()});
     impl_->catalog(root.request_id, revision, catalog);
@@ -2824,7 +2854,7 @@ Json Store::Impl::prepare_operation(const StoreActor& actor, const ExecutionBind
     const auto r = request_row(actor.request_id);
     const auto team = team_row(actor.team_id);
     require(number(team, "tool_calls_used") < configured_limit(r, "worker_max_tool_calls_per_order"), ErrorCode::Quota, "instruction tool-call budget exhausted");
-    require(number(one("SELECT COUNT(*) AS n FROM ops WHERE request_id=?", {actor.request_id}), "n") < 1024, ErrorCode::Quota, "operation capacity exhausted");
+    capacity_available(actor.request_id, "operations");
     cas("UPDATE tasks SET status='RUNNING',state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?", {stamp(), actor.task_id, expected});
     const auto id = new_id("op");
     execute("INSERT INTO ops(op_id,request_id,task_id,team_id,tool_id,business_idempotency_key,args_sha256,requirements_revision,plan_revision,task_revision,instruction_revision,dispatcher_epoch,execution_epoch,policy_epoch,side_effect,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'PREPARED',?)",

@@ -47,6 +47,20 @@ limits:
   max_teams_per_request: 4
   max_concurrent_model_calls_per_endpoint: 8
   max_concurrent_ops: 16
+  # Per-checkpoint storage admission windows, frozen with each new request.
+  # Settlement and recovery retain their own guards; this is not a disk quota.
+  store_capacity:
+    business_events: 32768
+    control_events: 32768
+    operations: 4096
+    questions: 128
+    open_questions: 32
+    submissions_per_task: 64
+    submissions: 256
+    acceptances: 256
+    adverse_acceptances: 512
+    deliveries: 64
+    requirement_revisions: 100
   worker_max_tool_calls_per_order: 200
   manager_max_tool_calls_per_wake: 12
   team_internal_rework_max: 3

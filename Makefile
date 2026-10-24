@@ -24,9 +24,9 @@ KERNEL_OBJECTS := $(KERNEL_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_NAMES := journal_tests config_tests scheduler_tests task_engine_tests
 TEST_OBJECTS := $(addprefix $(BUILD_DIR)/tests/,$(addsuffix .o,$(TEST_NAMES)))
 TEST_BINARIES := $(addprefix $(BUILD_DIR)/,$(TEST_NAMES))
-S1_SOURCES := src/boost_json.cpp src/runtime_types.cpp src/store.cpp src/config_loader.cpp src/model.cpp src/context.cpp src/schema.cpp src/offline_runtime.cpp src/event_runtime.cpp src/workspace_posix.cpp src/sandbox_posix.cpp src/process_evidence.cpp src/worker_tools.cpp src/delivery.cpp src/cleanup_posix.cpp src/cleanup_runtime.cpp
+S1_SOURCES := src/boost_json.cpp src/runtime_types.cpp src/capacity.cpp src/store.cpp src/config_loader.cpp src/model.cpp src/context.cpp src/schema.cpp src/offline_runtime.cpp src/event_runtime.cpp src/workspace_posix.cpp src/sandbox_posix.cpp src/process_evidence.cpp src/worker_tools.cpp src/delivery.cpp src/cleanup_posix.cpp src/cleanup_runtime.cpp
 S1_OBJECTS := $(S1_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
-S1_TEST_NAMES := runtime_types_tests store_tests event_store_tests workflow_store_tests acceptance_store_tests config_loader_tests model_tests schema_tests offline_runtime_tests event_runtime_tests workflow_runtime_tests acceptance_runtime_tests workspace_tests sandbox_tests worker_tools_tests delivery_tests cleanup_tests cleanup_runtime_tests audit24_reopen_tests process_evidence_tests audit24_reconcile_tests
+S1_TEST_NAMES := runtime_types_tests store_tests event_store_tests workflow_store_tests acceptance_store_tests config_loader_tests model_tests schema_tests offline_runtime_tests event_runtime_tests workflow_runtime_tests acceptance_runtime_tests workspace_tests sandbox_tests worker_tools_tests delivery_tests cleanup_tests cleanup_runtime_tests audit24_reopen_tests process_evidence_tests audit24_reconcile_tests audit24_capacity_tests audit24_capacity_repro_tests
 S1_TEST_OBJECTS := $(addprefix $(BUILD_DIR)/tests/,$(addsuffix .o,$(S1_TEST_NAMES)))
 S1_TEST_BINARIES := $(addprefix $(BUILD_DIR)/,$(S1_TEST_NAMES))
 S1_LIBRARY := $(BUILD_DIR)/libwls_s1.a
@@ -103,6 +103,8 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES)
 	"$(BUILD_DIR)/cleanup_tests"
 	"$(BUILD_DIR)/cleanup_runtime_tests"
 	"$(BUILD_DIR)/audit24_reopen_tests"
+	"$(BUILD_DIR)/audit24_capacity_tests"
+	"$(BUILD_DIR)/audit24_capacity_repro_tests"
 	"$(BUILD_DIR)/process_evidence_tests"
 	"$(BUILD_DIR)/audit24_reconcile_tests"
 	$(PYTHON) tests/s1_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
@@ -111,6 +113,7 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES)
 	$(PYTHON) tests/s14_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/s15_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/s16_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
+	$(PYTHON) tests/audit24_capacity_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/audit24_reconcile_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/audit24_reopen_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/review_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"

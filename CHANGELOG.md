@@ -10,9 +10,17 @@
   failed strong runs only with full namespace/network/cgroup/observation evidence.
 - Add Root-only trusted-local-host reconcile-op with read-only preflight, final CAS,
   immutable evidence, exact replay and rollback on event failure.
-- Keep capacity P1-2, long-context and escalation gaps explicit; no new provider calls,
+- Keep long-context and escalation gaps explicit; capacity recovery is recorded below. No new provider calls,
   migration/vendor edits, weak isolation or claimed strong-deployment acceptance.
 
+
+### 同批容量恢复（P1-2）
+
+- system.limits.store_capacity冻结存储上限；旧快照缺块按旧常量解释，新准入做工具/团队/返工一致性校验。
+- 独立业务/控制计数、必要控制预留、持久告警与准入暂停；Root CAS检查点续进，不清审计、不重置业务预算。
+- 新增capacity/capacity-checkpoint、pending容量状态；事件计数缓存随回滚/外部数据版本变化失效。
+- 原event_cap复现转成长流量回归，另加SQLite/CLI的窗口恢复、未知效果/费用、AMEND、配置冻结和故障注入。
+- 真实模型、上下文压缩、否定验收返工、按请求租约及强环境正向不由本补丁外推为已完成。
 
 ## 0.7.1-s1.6 — Claude audit follow-up
 

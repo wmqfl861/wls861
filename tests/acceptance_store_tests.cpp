@@ -2,6 +2,7 @@
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
 #include "test_support.hpp"
+#include "capacity_test_support.hpp"
 
 #include <sqlite3.h>
 #include <sys/stat.h>
@@ -389,8 +390,8 @@ void concurrent_acceptance_has_one_captured_winner() {
     CHECK(scalar(f.path,"SELECT COUNT(*) FROM candidate_acceptances WHERE status='ACCEPTED'") == 1); CHECK(f.store->experience_jobs(f.request_id).size() == 1);
 }
 void ordinary_event_exhaustion_preserves_bounded_finalization_controls() {
-    const auto fill = [](Fixture& f) { raw_exec(f.path,"WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<4096-(SELECT COUNT(*) FROM events)) INSERT INTO events(event_id,request_id,type,actor,command_id,command_sha256,payload,result,created_at) SELECT 'capacity-'||x,(SELECT request_id FROM requests LIMIT 1),'fixture','runtime','capacity-'||x,printf('%064d',0),'{}','{}','2026-10-20T00:00:00Z' FROM n"); };
-    Fixture f; const auto c = candidate(f); fill(f); error(ErrorCode::Quota,[&] { accept(f,c); });
+    const auto fill = [](Fixture& f) { test::fill_business_capacity(*f.store, f.path, f.request_id); };
+    Fixture f; const auto c = candidate(f); fill(f); error(ErrorCode::NotReady,[&] { accept(f,c); });
     CHECK(f.store->experience_jobs(f.request_id).empty());
     const auto rejected = f.store->accept_candidate(f.actor(Role::Dispatcher),f.store->request_binding(f.request_id),f.tv(),s(c,"submission_id"),n(c,"state_version"),decision(false),"quota-negative");
     CHECK(s(rejected,"status") == "BLOCKED");
@@ -426,7 +427,7 @@ void publication_preflight_and_fresh_ack_proof_are_required() {
 void ordinary_acceptance_history_cannot_exhaust_negative_control() {
     Fixture f; accept(f,candidate(f)); const auto second = candidate(f,"beta");
     raw_exec(f.path,"WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<255) INSERT INTO candidate_acceptances(acceptance_id,request_id,task_id,submission_id,submission_version,task_version,producer_binding,actor,captured_binding,decision,record_sha256,status,created_at,updated_at) SELECT 'history-'||n.x,a.request_id,a.task_id,a.submission_id,a.submission_version,a.task_version,a.producer_binding,a.actor,a.captured_binding,a.decision,a.record_sha256,'REJECTED',a.created_at,a.updated_at FROM n CROSS JOIN (SELECT * FROM candidate_acceptances LIMIT 1) a");
-    error(ErrorCode::Quota,[&] { accept(f,second,"beta"); });
+    error(ErrorCode::NotReady,[&] { accept(f,second,"beta"); });
     const auto current = f.store->current_submission(f.tid());
     const auto rejected = f.store->accept_candidate(f.actor(Role::Dispatcher),f.store->request_binding(f.request_id),f.tv(),s(current,"submission_id"),n(current,"state_version"),decision(false),"negative-after-history-limit");
     CHECK(!rejected.at("business_accepted").as_bool()); CHECK(scalar(f.path,"SELECT COUNT(*) FROM candidate_acceptances") == 257);

@@ -100,6 +100,13 @@ public:
                              std::int64_t limit = 100) const;
     std::vector<Json> tasks(const std::string& request_id) const;
     Json pending_recovery() const;
+    // Storage window checkpoints retain all audit/replay facts and every
+    // semantic/budget counter. Root only, CAS on an independent window ID.
+    Json capacity_status(const std::string& request_id) const;
+    void validate_capacity_checkpoint(const StoreActor& root, std::int64_t expected_window,
+                             const std::string& evidence, const std::string& command_id) const;
+    Json checkpoint_capacity(const StoreActor& root, std::int64_t expected_window,
+                             const std::string& evidence, const std::string& command_id);
 
     // S1.6 trusted-host APIs. A persisted intent precedes physical creation;
     // only that new private work directory may become a deletion target.
