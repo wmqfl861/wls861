@@ -6,8 +6,11 @@ and `docs/implementation/S1-process-settlement.md` for the current recovery/sett
 contracts. Original instructions stay immutable; a recovery event authorizes only
 an epoch projection. A definite run failure requires complete isolation, network,
 exit and pre/post workspace observations. Root reconciliation preserves original
-executor evidence and never substitutes for cleanup exit proof. Capacity P1-2
-remains open until frozen compatibility, settlement reserve and recovery are tested.
+executor evidence and never substitutes for cleanup exit proof. Frozen capacity
+windows and their tested compatibility/settlement reserve are defined in
+`docs/implementation/S1-capacity-windows.md`. For the R1 evidence prerequisite,
+read `docs/adr/067-paged-history.md` and `docs/implementation/R1-history-evidence.md`.
+Do not mistake paginated host reads for integrated model context windowing.
 
 Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
 review fixes and priority changes. Model contract/context/rework and an approved

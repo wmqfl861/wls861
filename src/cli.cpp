@@ -218,7 +218,7 @@ Json request_view(Store& store, const std::string& id) {
 }
 
 void help() {
-    std::cout << R"(wls 0.7.2-s1.6 — owned workspace cleanup with offline models
+    std::cout << R"(wls 0.7.3-r1.1 — scoped immutable history with offline models
 
 Resource paths default to the source checkout in the current directory.
 Use --source-root PATH from another directory. Outputs are JSON; errors go to stderr.
@@ -243,6 +243,9 @@ Use --source-root PATH from another directory. Outputs are JSON; errors go to st
                 [--sandbox-manifest FILE]
   wls inbox --db FILE --request ID [--role dispatcher] [--task ID] [--limit N]
   wls history --db FILE --request ID --role ROLE [--task ID] [--limit N]
+  wls history-page --db FILE --request ID --role ROLE [--task ID] [--after N] [--through N] [--limit N]
+  wls history-read --db FILE --request ID --role ROLE [--task ID] --attempt ID --record-sha256 SHA
+      --section response|result [--offset N] [--max-bytes N]
   wls questions --db FILE --request ID [--task ID] [--limit N]
   wls submissions --db FILE --request ID --task ID [--limit N]
   wls answer --db FILE --request ID --question ID --expected-version N
@@ -320,7 +323,7 @@ int run_cli(int argc, char** argv) {
     const std::string command(argv[1]);
     if (command == "--version" || command == "version") {
         if (argc != 2) throw Error(ErrorCode::InvalidInput, "version takes no options");
-        output(Object{{"version", "0.7.2-s1.6"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
+        output(Object{{"version", "0.7.3-r1.1"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
     }
     int start = 2;
     std::string action;
@@ -366,7 +369,7 @@ int run_cli(int argc, char** argv) {
         result.as_object()["process_isolation_verified"] = false;
         output(result); return 0;
     }
-    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "inbox", "history", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "owned-workspaces", "cleanup-workspaces", "reconcile-op", "capacity", "capacity-checkpoint"};
+    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "inbox", "history", "history-page", "history-read", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "owned-workspaces", "cleanup-workspaces", "reconcile-op", "capacity", "capacity-checkpoint"};
     if (!commands.contains(command)) throw Error(ErrorCode::InvalidInput, "unknown command: " + command);
     const auto database = options.required("--db");
     const auto schema_sql = read_runtime_file(source / "db/schema.sql");
@@ -652,6 +655,28 @@ int run_cli(int argc, char** argv) {
         Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
         output(store.answer_question(store.host_actor(Role::Root, request), store.request_binding(request),
             question_id, expected_version, answer, new_id("answer")));
+        return 0;
+    }
+    if (command == "history-page" || command == "history-read") {
+        const auto role = role_from_string(options.required("--role"));
+        const auto task = options.take("--task");
+        std::int64_t after = 0, through = 0, limit = 32;
+        std::string attempt, hash, section;
+        std::int64_t offset = 0, max_bytes = 16384;
+        if (command == "history-read") {
+            attempt = options.required("--attempt"); hash = options.required("--record-sha256");
+            section = options.required("--section");
+            offset = options.number("--offset", 0, 0); max_bytes = options.number("--max-bytes", 16384, 1);
+        } else {
+            after = options.number("--after", 0, 0); through = options.number("--through", 0, 0);
+            limit = options.number("--limit", 32, 1);
+        }
+        options.finish();
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
+                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+        const auto actor = scoped_actor(store, request, role, task);
+        output(command == "history-page" ? store.attempt_history_page(actor, after, through, limit)
+            : store.read_history_feedback(actor, attempt, hash, section, offset, max_bytes));
         return 0;
     }
     if (command == "inbox" || command == "history") {

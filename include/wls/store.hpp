@@ -163,6 +163,21 @@ public:
     std::vector<Json> attempt_history(const StoreActor& actor,
                                       std::int64_t limit = 256) const;
 
+    // R1 evidence reads: bounded metadata pages over an insertion high-water
+    // snapshot, then hash-pinned raw feedback bytes. Cursors and records are
+    // actor-scoped. Neither method takes a writer or alters any durable state.
+    // A zero through_sequence captures the current actor high-water mark.
+    Json attempt_history_page(const StoreActor& actor,
+                              std::int64_t after_sequence = 0,
+                              std::int64_t through_sequence = 0,
+                              std::int64_t limit = 32) const;
+    Json read_history_feedback(const StoreActor& actor,
+                               const std::string& attempt_id,
+                               const std::string& expected_record_sha256,
+                               const std::string& section,
+                               std::int64_t offset = 0,
+                               std::int64_t max_bytes = 16384) const;
+
     // S1.4 question/answer and local submission checking require the known 007
     // asset. These bounded records retain their original semantic bindings;
     // epoch-only recovery never relabels old observations as new content.

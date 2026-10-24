@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.3-r1.1 — bounded original-history evidence access
+
+- Add actor-scoped, high-watermark attempt metadata pages without loading request
+  envelopes or large feedback bodies. Preserve the original binding and missing-feedback state.
+- Add hash-bound response/result byte reads, verifying both the feedback digest and
+  its settled original attempt; return canonical JSON in base64 slices with full-section hashes.
+- Expose read-only history-page/history-read CLI commands; retain legacy history semantics,
+  original SQL/vendor bytes, epoch checks and every business readiness guard.
+- Add 10 C++ and 7 actual CLI checks for 270-attempt pagination, interleaving, append races,
+  actor isolation, immutable original bytes, tampering, UTF-8/binary content and no database effects.
+- This is the R1 evidence prerequisite, not integrated context windowing or a real model adapter.
+  Full-history Worker overflow and paid-call readiness remain explicitly open.
+
 ## 0.7.2-s1.6 — audit24 first runtime fixes
 
 - Define ADR-064/065/066 and the second review disposition before runtime changes.

@@ -1,9 +1,11 @@
 # 当前实现与证据
 
-当前补丁 **0.7.2-s1.6**，目标蓝图 **v0.4.1**。本批为 Claude 审核后的可靠性修复，
-本批来源为 main e7fa64b、审核材料合并012bed74及恢复的分项提交673a6df。
-发布与验证分开记录：本地完成不等于GitHub main已更新，准确边界见[第二份审核报告](reports/audit24-recovery-validation.md)。
-原始审核与采纳范围见[逐项决定](reviews/claude-disposition.md)，首次结果见[修复验证](reports/claude-review-fixes-validation.md)，接续发布依据见[本轮复验](reports/claude-review-resume-validation.md)。
+当前实现 **0.7.3-r1.1**，目标蓝图 **v0.4.1**。本批以完整恢复的
+`aa0f79b1eb306102449a6a463de3bcdc93d58a74` 为基线，保留此前容量修复。
+新增[作用域历史索引与原反馈分片](implementation/R1-history-evidence.md)，
+设计依据见[ADR-067](adr/067-paged-history.md)。当前Worker仍使用旧全历史编译，
+结构化消息、窗口集成和可继续执行的大结果回归是R1后续项，不由本批读取接口代替。
+实际验证见[本批报告](reports/r1-history-evidence-validation.md)。发布状态以报告及GitHub对应提交为准。
 
 ## 能力矩阵
 
@@ -13,7 +15,7 @@
 | 文件/进程 | fs_list/read/search/write/patch；完整强证明与前后清单可结算失败，Root专用核对；子进程固定0077 | 真实文件和监督夹具；强 bwrap/cgroup 部署正向、mkdir 和后台操作待完成 |
 | 问答/候选/验收 | Worker问题、原字节提交、TL有限返工、Dispatcher验收 | 固定脚本闭环；否定验收/返工耗尽的受控后继尚缺 |
 | 交付/清理 | 不可变包、精确回执、经验作业、固定清单受控 work 删除 | 实际发布/删除/恢复；私有行、owner收据保留；全局cleanup仍PENDING；PREPARED分配中断缺恢复出口 |
-| 上下文/模型 | 自定义帧、完整历史、FakeModel；容量错误为quota | 没有压缩或真实适配器；大结果多轮仍会到限。Native工具消息与wire指纹待接入 |
+| 上下文/模型 | 现有自定义帧/完整历史/FakeModel；新增只读作用域分页和原反馈分片 | 原证据可分批读取，支持超过256次的索引；Worker窗口、压缩、原生工具消息及wire指纹仍待接入，大结果多轮仍会到限 |
 | 事件/并发 | 持久inbox、逐任务AMEND、串行pump；冻结准入窗口/独立计数/Root检查点 | 旧快照不改写；到限可核对后续进；不清审计/不重置预算。全库恢复范围和全局并发仍待完成 |
 | 配置执行状态 | check/explain显示 runtime_support 和 validated_only 项 | 形状有效不代表墙钟/告警/压缩/并发/停滞检测已执行 |
 | 记忆、MCP、跨功能审核 | 规格/参考契约 | 完整C++闭环及真实互通未实现 |
@@ -34,6 +36,6 @@ S2 独立审核/DAG，S3 记忆，S4 MCP/评测，S5 按证据扩展仍为后续
 保留原分项提交。P1-2本批接入冻结容量、独立池、预留/告警/暂停、Root CAS检查点及旧快照兼容。
 原两个复现已转成回归，记录基线失败；运行状态和完整门禁见[本批报告](reports/audit24-recovery-validation.md)。
 
-当前实现为 0.7.2-s1.6，不代表三个P1的所有生产部署条件均已实测：强bwrap/cgroup正向仍缺环境。
+该历史增量实现为 0.7.2-s1.6，不代表三个P1的所有生产部署条件均已实测：强bwrap/cgroup正向仍缺环境。
 R1上下文容量、R2否定验收/全库恢复范围、R2a分配中断/fs_mkdir等仍开放；新存储检查点不解决这些问题。
 [逐项处置](reviews/claude-2026-10-24-disposition.md)区分已覆盖、实际修复和延期方案。

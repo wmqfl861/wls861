@@ -1,11 +1,13 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.7.2-s1.6；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.7.3-r1.1；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
 本批接续第二份审核：同语义说明的恢复无需重写，强进程结果按完整证据结算，新增Root核对入口。
 [当前能力/证据矩阵](docs/STATUS.md)集中记录实现边界；[审核采纳记录](docs/reviews/claude-disposition.md)
 及[第二份审核处置](docs/reviews/claude-2026-10-24-disposition.md)区分已修复和开放问题。
-容量P1-2仍待实施；近期优先可用模型闭环，不继续优先扩大私有数据清除。
+冻结容量窗口及Root检查点已接入；近期优先可用模型闭环，不继续优先扩大私有数据清除。
+R1.1 新增任务内的只读历史索引与原反馈分片，见[实现契约](docs/implementation/R1-history-evidence.md)。
+这是上下文窗口的证据基础，当前Worker仍走全历史编译，大结果多轮触顶问题尚未关闭。
 
 新增入口及证据要求见[进程结算/核对契约](docs/implementation/S1-process-settlement.md)，
 说明恢复见[epoch恢复契约](docs/implementation/S1-epoch-recovery.md)。本地控制CLI不是网络认证服务。
@@ -15,6 +17,7 @@ C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.7.2-s1.6；当前
 | 文件 | 用途 |
 | --- | --- |
 | [STATUS](docs/STATUS.md) | 唯一当前能力和阶段状态入口 |
+| [R1.1 原始历史读取](docs/implementation/R1-history-evidence.md) | 只读分页、原反馈哈希、字节分片及兼容边界 |
 | [首次审核修复验证](docs/reports/claude-review-fixes-validation.md) | 10-23审核补丁的历史复现、修复和测试证据 |
 | [实施蓝图 v0.4.1](docs/spec/v0.4.1/01_实施规格_v0.4.1.md) | 当前目标架构、版本关系、运行行为与各切片边界 |
 | [实施路线](docs/ROADMAP.md) | 已有 M1 与 S0–S5 的承接、优先顺序和完成条件 |
@@ -48,7 +51,7 @@ C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.7.2-s1.6；当前
 
 ## 当前可以运行什么
 
-`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/wait/wake`、`questions/submissions/answer`、`deliveries/experience/closeout`、`publish-delivery/verify-delivery/ack-delivery`、`allocate-workspace/owned-workspaces/cleanup-workspaces`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
+`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/history-page/history-read/wait/wake`、`questions/submissions/answer`、`deliveries/experience/closeout`、`publish-delivery/verify-delivery/ack-delivery`、`allocate-workspace/owned-workspaces/cleanup-workspaces`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
 
 | S1 模块 | 当前实现 |
 | --- | --- |

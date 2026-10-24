@@ -1742,6 +1742,8 @@ std::vector<Json> Store::attempt_history(const StoreActor& actor, std::int64_t l
     return result;
 }
 
+#include "store_history.inc"
+
 bool Store::workflow_runtime_enabled() const {
     const std::lock_guard lock(impl_->mutex); return impl_->workflow_schema;
 }
