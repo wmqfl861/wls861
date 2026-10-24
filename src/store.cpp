@@ -1165,6 +1165,37 @@ public:
         execute("UPDATE call_attempts SET status='UNKNOWN',unknown_input=1,unknown_output=1,unknown_cost=1,state_version=state_version+1 WHERE request_id=? AND status='PENDING'", {request_id});
         event(request_id, new_id("recover"), Row{{"type", "attempts_unknown"}}, Row{{"attempts", number(values, "n")}});
     }
+    Row current_instruction(const Row& t) const {
+        auto order = one("SELECT * FROM instructions WHERE task_id=? AND instruction_revision=?",
+            {str(t, "task_id"), number(t, "instruction_revision")});
+        if (!optional("SELECT team_id FROM teams WHERE task_id=? AND status IN ('STARTING','ACTIVE','DRAINING')", {str(t, "task_id")}))
+            return order; // Retired history remains readable without a live actor.
+        const auto current = binding(str(t, "task_id"));
+        // The original row is append-only. Epoch-only rebinding is an audited
+        // host projection, never an UPDATE of the original semantic decision.
+        const auto recovery = optional("SELECT result FROM events WHERE request_id=? AND type='recover' ORDER BY seq DESC LIMIT 1",
+            {str(t, "request_id")});
+        if (!recovery) return order;
+        const auto result = parse_json_strict(str(*recovery, "result"), 16 * 1024 * 1024);
+        const auto* entries = result.as_object().if_contains("rebound_instructions");
+        if (!entries) return order; // Legacy recover events do not grant a rebind.
+        for (const auto& entry : entries->as_array()) {
+            const auto& e = entry.as_object();
+            if (str(e, "task_id") != current.task_id || number(e, "instruction_revision") != current.instruction_revision) continue;
+            if (number(e, "dispatcher_epoch") != current.dispatcher_epoch || number(e, "execution_epoch") != current.execution_epoch ||
+                str(e, "body_sha256") != sha256_hex(str(order, "body")) ||
+                number(e, "previous_dispatcher_epoch") != number(order, "dispatcher_epoch") ||
+                number(e, "previous_execution_epoch") != number(order, "execution_epoch")) continue;
+            // Recheck semantics even when reading a once-valid recovery event.
+            if (str(order, "team_id") != current.team_id || number(order, "task_revision") != current.task_revision ||
+                number(order, "plan_revision") != current.plan_revision ||
+                number(order, "based_on_requirements_revision") != current.requirements_revision) continue;
+            order["dispatcher_epoch"] = current.dispatcher_epoch;
+            order["execution_epoch"] = current.execution_epoch;
+            break;
+        }
+        return order;
+    }
     void recover(const Row& r) {
         const auto id = str(r, "request_id");
         release_claims(id);
@@ -1173,7 +1204,36 @@ public:
         execute("UPDATE teams SET execution_epoch=execution_epoch+1,paused_for_change=1,state_version=state_version+1,updated_at=? WHERE request_id=? AND status IN ('STARTING','ACTIVE','DRAINING')", {stamp(), id});
         fence_ops(id);
         unknown_attempts(id);
-        event(id, new_id("recover"), Row{{"type", "recover"}}, Row{{"dispatcher_epoch", next(number(r, "dispatcher_epoch"))}});
+        // Instructions are semantic decisions, not leases. The recovery event
+        // grants only a current matching epoch projection; original instruction
+        // rows, attempts and operation bindings remain immutable audit evidence.
+        // The writer transaction encloses epochs, projection, ack invalidation
+        // and this event, so a failed append cannot leave a half-recovered team.
+        Array rebound;
+        for (const auto& order : all(
+                "SELECT i.*,g.execution_epoch AS new_execution_epoch FROM instructions i "
+                "JOIN tasks t ON t.task_id=i.task_id JOIN teams g ON g.task_id=t.task_id "
+                "WHERE t.request_id=? AND t.instruction_revision=i.instruction_revision "
+                "AND i.team_id=g.team_id AND i.task_revision=t.task_revision "
+                "AND i.plan_revision=t.plan_revision AND t.plan_revision=? "
+                "AND i.based_on_requirements_revision=t.based_on_requirements_revision "
+                "AND t.based_on_requirements_revision=? "
+                "AND g.status IN ('STARTING','ACTIVE','DRAINING') "
+                "AND t.status NOT IN ('CANCELLED','FAILED','SKIPPED','SUPERSEDED') ORDER BY t.rowid",
+                {id, number(r, "plan_revision"), number(r, "requirements_revision")})) {
+            const auto task_id = str(order, "task_id");
+            const auto revision = number(order, "instruction_revision");
+            const auto epoch = number(order, "new_execution_epoch");
+            execute("UPDATE tasks SET applied_instruction_revision=0,state_version=state_version+1,updated_at=? "
+                "WHERE task_id=? AND status IN ('READY','RUNNING')", {stamp(), task_id});
+            rebound.emplace_back(Row{{"task_id", task_id}, {"instruction_revision", revision},
+                {"body_sha256", sha256_hex(str(order, "body"))},
+                {"previous_dispatcher_epoch", number(order, "dispatcher_epoch")},
+                {"previous_execution_epoch", number(order, "execution_epoch")},
+                {"dispatcher_epoch", next(number(r, "dispatcher_epoch"))}, {"execution_epoch", epoch}});
+        }
+        event(id, new_id("recover"), Row{{"type", "recover"}},
+            Row{{"dispatcher_epoch", next(number(r, "dispatcher_epoch"))}, {"rebound_instructions", rebound}});
     }
     void catalog(const std::string& request_id, std::int64_t revision, const Json& value) {
         validate_constraint_catalog_shape(value);
@@ -1385,7 +1445,7 @@ Json Store::instruction(const std::string& id) const {
     const std::lock_guard lock(impl_->mutex);
     const auto t = impl_->task_row(id);
     if (number(t, "instruction_revision") == 0) return nullptr;
-    return exposed(impl_->one("SELECT * FROM instructions WHERE task_id=? AND instruction_revision=?", {id, number(t, "instruction_revision")}));
+    return exposed(impl_->current_instruction(t));
 }
 void Store::validate_brief(const std::string& id, const Json& brief) const {
     const std::lock_guard lock(impl_->mutex);
@@ -2690,7 +2750,7 @@ Json Store::acknowledge(const StoreActor& actor, const ExecutionBinding& frozen,
     const auto t = impl_->task_row(actor.task_id);
     require(!terminal_request(str(r, "status")) && !terminal_task(str(t, "status")) && number(t, "instruction_revision") > 0 &&
         number(t, "based_on_requirements_revision") == number(r, "requirements_revision") && number(t, "plan_revision") == number(r, "plan_revision"), ErrorCode::NotReady, "ack requires current live instruction");
-    const auto instruction = impl_->one("SELECT * FROM instructions WHERE task_id=? AND instruction_revision=?", {actor.task_id, number(t, "instruction_revision")});
+    const auto instruction = impl_->current_instruction(t);
     require(str(instruction, "team_id") == actor.team_id && number(instruction, "task_revision") == number(t, "task_revision") &&
         number(instruction, "plan_revision") == number(t, "plan_revision") && number(instruction, "based_on_requirements_revision") == number(r, "requirements_revision") &&
         number(instruction, "dispatcher_epoch") == actor.dispatcher_epoch && number(instruction, "execution_epoch") == actor.execution_epoch,
@@ -3031,7 +3091,7 @@ Json Store::execute_tool_control(const StoreActor& actor, const ExecutionBinding
         require(!terminal_request(str(request, "status")) && !terminal_task(str(task, "status")) && number(task, "instruction_revision") > 0 &&
             number(task, "based_on_requirements_revision") == number(request, "requirements_revision") && number(task, "plan_revision") == number(request, "plan_revision"),
             ErrorCode::NotReady, "ack requires current live instruction");
-        const auto instruction = impl_->one("SELECT * FROM instructions WHERE task_id=? AND instruction_revision=?", {actor.task_id, number(task, "instruction_revision")});
+        const auto instruction = impl_->current_instruction(task);
         require(str(instruction, "team_id") == actor.team_id && number(instruction, "task_revision") == number(task, "task_revision") &&
             number(instruction, "plan_revision") == number(task, "plan_revision") && number(instruction, "based_on_requirements_revision") == number(request, "requirements_revision") &&
             number(instruction, "dispatcher_epoch") == actor.dispatcher_epoch && number(instruction, "execution_epoch") == actor.execution_epoch,

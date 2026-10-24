@@ -835,10 +835,21 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
     require(tasks.size() == 1, ErrorCode::NotReady, "plan has no executable task");
     const auto task_id = string_at(tasks.front(), "task_id");
     if (string_at(tasks.front(), "status") != "CANCELLED") {
-        calls.push_back(invoke(Role::TeamLead, task_id));
+        const auto prior = store_.instruction(task_id);
+        const auto current = store_.binding(task_id);
+        const bool semantic_current = !prior.is_null() && string_at(prior, "team_id") == current.team_id &&
+            integer_at(prior, "based_on_requirements_revision") == current.requirements_revision &&
+            integer_at(prior, "plan_revision") == current.plan_revision &&
+            integer_at(prior, "task_revision") == current.task_revision &&
+            integer_at(prior, "instruction_revision") == current.instruction_revision;
+        if (!semantic_current) calls.push_back(invoke(Role::TeamLead, task_id));
         const auto binding = store_.binding(task_id);
         const auto worker = store_.host_actor(Role::Worker, id, binding.team_id);
-        static_cast<void>(store_.acknowledge(worker, binding, integer_at(store_.task(task_id), "state_version"), new_id("ack")));
+        const auto task = store_.task(task_id);
+        if (integer_at(task, "applied_task_revision") != binding.task_revision ||
+            integer_at(task, "applied_plan_revision") != binding.plan_revision ||
+            integer_at(task, "applied_instruction_revision") != binding.instruction_revision)
+            static_cast<void>(store_.acknowledge(worker, binding, integer_at(task, "state_version"), new_id("ack")));
         for (std::int64_t index = 1; index <= max_worker_calls; ++index) {
             auto call = invoke(Role::Worker, task_id, index);
             const auto& result = call.at("result");

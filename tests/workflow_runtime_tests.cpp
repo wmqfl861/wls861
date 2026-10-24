@@ -344,22 +344,20 @@ void restart_answers_same_question_then_applies_new_epoch_order() {
     f.reopen();
     CHECK(f.binding().execution_epoch > number(original.at("execution_epoch")));
     EventFakeScript resumed;
-    const auto order = script().by_node.at("alpha").front().tool_calls.front().arguments;
     resumed.by_node["alpha"] = {
         step(Role::TeamLead, "answer_question", Object{{"text", "The original requested value remains correct."}}, 1),
-        step(Role::TeamLead, "issue_work_order", order, 2),
         step(Role::Worker, "fs_write", Object{{"path", "after-restart.txt"}, {"content", "new execution, original answer\n"}}, 1)};
     const auto result = f.runtime().pump(f.id, resumed);
-    CHECK(result.at("calls").as_array().size() == 3);
+    CHECK(result.at("calls").as_array().size() == 2);
     const auto answered = f.store->question(text(question.at("question_id")));
-    // The new instruction supersedes the old semantic answer's applicability,
-    // while preserving the original answer and the complete question history.
-    CHECK(answered.at("status") == "SUPERSEDED" && answered.at("original_binding") == original);
+    // Recovery needs no new interpretation: the answered semantic question
+    // remains applicable and the original answer/history stay unchanged.
+    CHECK(answered.at("status") == "ANSWERED" && answered.at("original_binding") == original);
     CHECK(answered.at("answer").at("text") == "The original requested value remains correct.");
     CHECK(std::any_of(answered.at("transitions").as_array().begin(), answered.at("transitions").as_array().end(),
         [](const auto& transition) { return transition.at("kind") == "ANSWERED"; }));
     CHECK(answered.at("body") == question.at("body"));
-    CHECK(f.task().at("instruction_revision") == 2 && f.task().at("applied_instruction_revision") == 2);
+    CHECK(f.task().at("instruction_revision") == 1 && f.task().at("applied_instruction_revision") == 1);
     CHECK(read_runtime_file(f.directory.path / "alpha/after-restart.txt") == "new execution, original answer\n");
 }
 

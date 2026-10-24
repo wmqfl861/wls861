@@ -9,7 +9,8 @@
 写者恢复照常递增 epoch，取消 PREPARED、将 RUNNING/待定调用置 UNKNOWN，并释放旧 claim。
 对仍匹配当前请求/计划/任务/团队的当前说明，宿主只重绑定 epoch，不改正文、语义修订、
 已用工具额度、返工计数或原始调用记录。recover 事件保存重绑定前后的元数据及正文哈希；
-instructions 行是当前绑定投影，最初 instruction 事件保留来源。事务失败全部回滚。
+instructions 行及最初 instruction 事件均保持不可变；当前绑定是经最新 recover 事件核验的读取投影。
+不删除或放松 immutable instruction 触发器。事务失败全部回滚。
 
 恢复使 Worker 的 applied_instruction 失效；只能用新身份、当前 CAS 重新 ack。
 ack 本身不解除 WAITING、阻塞问题、AMEND 或 UNKNOWN。模型层按语义判断是否真的需要新说明，

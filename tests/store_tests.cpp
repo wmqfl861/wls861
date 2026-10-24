@@ -751,7 +751,7 @@ void tool_ack_exact_replay_cannot_apply_a_new_instruction() {
     upgrade_tools(f);
     CHECK(f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "tool-ack") == acknowledged);
     CHECK(n(f.store->task(f.task_id), "instruction_revision") == next_instruction);
-    CHECK(n(f.store->task(f.task_id), "applied_instruction_revision") == original.instruction_revision);
+    CHECK(n(f.store->task(f.task_id), "applied_instruction_revision") == 0); // takeover requires a fresh control ack
     error(ErrorCode::Stale, [&] { f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "new-command-old-epoch"); });
     f.instruction();
     const auto current = f.store->binding(f.task_id);

@@ -581,8 +581,8 @@ class EventCliSmoke(unittest.TestCase):
         worker["role_call_index"] = 1
         worker["tool_calls"][0]["arguments"] = {"path": "result.txt", "max_bytes": 64}
         resumed = self.invoke(*run_arguments, "--script", self.json_file("legacy-after-wake.json", [lead, worker]))
-        self.assertEqual([call["role"] for call in resumed["calls"]], ["team_lead", "worker"])
-        self.assertEqual(resumed["budget"]["attempts"], budget["attempts"] + 2)
+        self.assertEqual([call["role"] for call in resumed["calls"]], ["worker"])
+        self.assertEqual(resumed["budget"]["attempts"], budget["attempts"] + 1)
         self.assertEqual(base64.b64decode(resumed["calls"][-1]["result"]["content_base64"], validate=True), expected)
         self.assertEqual(self.rows("SELECT * FROM ops ORDER BY rowid"), operations,
                          "waking and observing the result must not repeat the old write or patch")

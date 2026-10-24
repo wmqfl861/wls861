@@ -209,9 +209,10 @@ void restart_fences_pending_call_and_preserves_frozen_config() {
     expect(ErrorCode::Stale, [&] { (void)runtime.accept_response(*pending, fake.complete(pending->request)); });
     CHECK(store.budget(id).at("unknown_input") == 0);
     const auto resumed = runtime.run(id, initial_steps());
-    CHECK(resumed.at("calls").as_array().size() == 2);
+    CHECK(resumed.at("calls").as_array().size() == 1);
+    CHECK(resumed.at("calls").as_array().front().at("role") == "worker");
     CHECK(text(resumed.at("config_snapshot_sha256")) == hash);
-    CHECK(store.task(task_id(store, id)).at("instruction_revision") == 2);
+    CHECK(store.task(task_id(store, id)).at("instruction_revision") == 1);
 }
 
 void published_plan_resumes_before_any_new_model_call() {

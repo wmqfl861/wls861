@@ -352,9 +352,9 @@ void reopen_recovers_orders_and_rebuilds_original_scoped_history() {
         steps = {steps.front(), read};
     }
     const auto result = EventRuntime(store, *schemas, {{"alpha", &alpha}, {"beta", &beta}}).pump(id, script);
-    CHECK(result.at("calls").as_array().size() == 4);
+    CHECK(result.at("calls").as_array().size() == 2);
     for (const auto& call : result.at("calls").as_array()) {
-        CHECK(call.at("role") != "dispatcher");
+        CHECK(call.at("role") == "worker");
         if (call.at("role") == "worker" && call.at("node_id") == "alpha") {
             const auto captured = model_request_from_json(store.attempt(text(call.at("attempt_id"))).at("request_envelope"));
             CHECK(messages(captured) == original);
@@ -362,7 +362,7 @@ void reopen_recovers_orders_and_rebuilds_original_scoped_history() {
             CHECK(call.at("result").at("content") == "host c");
         }
     }
-    CHECK(store.task(alpha_id).at("instruction_revision") == 2);
+    CHECK(store.task(alpha_id).at("instruction_revision") == 1);
     CHECK(store.tool_feedback(text(original.back().at("attempt_id"))) == original.back().at("feedback"));
 }
 
@@ -461,10 +461,11 @@ void legacy_single_task_runner_cannot_supersede_a_durable_wait() {
     CHECK(!std::filesystem::exists(f.directory.path / "alpha/after-wake.txt"));
     (void)f.store.wake_worker(worker, binding, number(waiting.at("generation")), new_id("wake"));
     const auto resumed = legacy.run(f.id, steps);
-    CHECK(resumed.at("calls").as_array().size() == 2);
-    CHECK(number(f.store.budget(f.id).at("attempts")) == number(budget.at("attempts")) + 2);
-    CHECK(f.store.task(binding.task_id).at("instruction_revision") == 2);
-    CHECK(f.store.task(binding.task_id).at("applied_instruction_revision") == 2);
+    CHECK(resumed.at("calls").as_array().size() == 1);
+    CHECK(resumed.at("calls").as_array().front().at("role") == "worker");
+    CHECK(number(f.store.budget(f.id).at("attempts")) == number(budget.at("attempts")) + 1);
+    CHECK(f.store.task(binding.task_id).at("instruction_revision") == 1);
+    CHECK(f.store.task(binding.task_id).at("applied_instruction_revision") == 1);
     CHECK(read_runtime_file(f.directory.path / "alpha/after-wake.txt") == "explicit wake permits this new effect\n");
 }
 } // namespace
@@ -485,7 +486,7 @@ int main() {
         {"claim failure reserves nothing and tool error ends only its actor batch", claim_failure_and_tool_error_do_not_implicitly_retry},
         {"duplicate accepted diagnostic returns its exact old observation", duplicate_response_returns_original_diagnostic_after_file_and_epoch_change},
         {"settled attempt without feedback stays explicitly missing", settled_without_feedback_is_missing_and_cannot_reread},
-        {"restart reissues necessary orders and preserves original history bindings", reopen_recovers_orders_and_rebuilds_original_scoped_history},
+        {"restart rebinds semantic orders without management calls and preserves original history bindings", reopen_recovers_orders_and_rebuilds_original_scoped_history},
         {"full history overflow blocks before creating a new reservation", context_overflow_blocks_before_another_attempt},
         {"frozen manager and attempt budgets preserve unprocessed work", frozen_manager_capacity_and_budget_keep_unprocessed_work},
         {"terminal actors retain visible unprocessed event history", terminal_tasks_remain_visible_as_unprocessed_history},

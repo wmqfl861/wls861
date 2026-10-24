@@ -49,9 +49,9 @@ bool instruction_current(const Json& instruction, const ExecutionBinding& bindin
         number(instruction, "based_on_requirements_revision") == binding.requirements_revision &&
         number(instruction, "task_revision") == binding.task_revision &&
         number(instruction, "plan_revision") == binding.plan_revision &&
-        number(instruction, "instruction_revision") == binding.instruction_revision &&
-        number(instruction, "dispatcher_epoch") == binding.dispatcher_epoch &&
-        number(instruction, "execution_epoch") == binding.execution_epoch;
+        number(instruction, "instruction_revision") == binding.instruction_revision;
+    // Epoch-only recovery is a host rebind + Worker control ack, never a new
+    // TeamLead interpretation. Store still fences every old actor and result.
 }
 std::vector<std::int64_t> ids(const Json& claim) {
     std::vector<std::int64_t> result;

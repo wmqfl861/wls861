@@ -9,7 +9,7 @@
 
 | 条目 | 类别 / 核对依据 | 决定和工作项 |
 | --- | --- | --- |
-| P1-3 重开原说明失效 | 新增具体反例；recover 只增 epoch，ack 比较说明 epoch，instruction_current 也比较 epoch；旧 run-fake 无条件调 TL | 采纳，ADR-064，首先转回归再修；保留所有语义/在途围栏 |
+| P1-3 重开原说明失效 | 新增具体反例；recover 只增 epoch，ack 比较说明 epoch，instruction_current 也比较 epoch；旧 run-fake 无条件调 TL | 采纳，ADR-064已实现；原复现失败后修复，7项C++/2项CLI及Release35组通过；当前说明为恢复事件授权投影，原行不改 |
 | P1-1 run 失败为 UNKNOWN | 新问题；WorkerTools::execute 只结算强隔离零退出，reconcile_operation 无 CLI | 采纳，ADR-065 先定契约；仅完整隔离/退出/前后清单允许结算失败 |
 | P1-2 容量 | 事件部分重复10-23 #2，操作及其他行数新增；event/prepare_operation 使用常量 | 采纳，并入 R2、ADR-066；先原复现，再冻结配置/控制预留/恢复测试 |
 | P2 否定验收 BLOCKED | 重复10-23 #3，accept_candidate 和 pump 的 rework_blocked 分支确认 | 采纳并入R2，不重复立项，本批不声称已修 |

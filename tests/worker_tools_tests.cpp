@@ -471,9 +471,10 @@ void batch_limits_and_failed_tool_stop_further_calls() {
         {"conflicting-create", "fs_write", Object{{"path", "first.txt"}, {"content", "must not overwrite"}}},
         {"must-not-run", "fs_write", Object{{"path", "after-failure"}, {"content", "x"}}}
     }), "", 2);
-    CHECK(failure.at("calls").as_array().size() == 2);
+    CHECK(failure.at("calls").as_array().size() == 1);
+    CHECK(failure.at("calls").as_array().front().at("role") == "worker");
     CHECK(operation(failure.at("calls").as_array().back().at("result")).at("status") == "FAILED");
-    CHECK(number(session.store->budget(session.request_id).at("attempts")) == before + 2);
+    CHECK(number(session.store->budget(session.request_id).at("attempts")) == before + 1);
     CHECK(host_read(session.work / "first.txt") == "first");
     CHECK(!std::filesystem::exists(session.work / "after-failure"));
 }
