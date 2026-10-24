@@ -18,13 +18,13 @@
 
 | 报告编号 | 核对依据 | 采纳与本批边界 |
 | --- | --- | --- |
-| 1 上下文容量 | 全历史重放、1 MiB 和 256 次上限在源码中成立；不将原报告第 8 次的数值当作所有任务的固定阈值 | 本批只将编译容量错误改为 `quota`；压缩/窗口/分页尚未实现，保持 P1 开放。R1 必须证明大结果多轮和跨运行能继续，不可静默截断有效约束 |
+| 1 上下文容量 | 全历史重放、1 MiB 和 256 次上限在源码中成立；不将原报告第 8 次的数值当作所有任务的固定阈值 | 接续复验中61100字节结果重复读取仍在7次Worker成功后触顶，重开未恢复；本批只将编译容量错误改为 `quota`；压缩/窗口/分页尚未实现，保持 P1 开放。R1 必须证明大结果多轮和跨运行能继续，不可静默截断有效约束 |
 | 2 事件总量及重开 | `event()` 按总行数限制 4096/8192，Takeover 对活动请求执行恢复，源码确认 | 不简单提高常数或删除审计行。本批只消除所覆盖无效 wait/wake 的提前接管；分离恢复配额、分段事件与幂等索引迁移属 R2 |
-| 3 否定验收/耗尽返工 | Store 与 pump 的 BLOCKED 路径缺少受控 Dispatcher 后继，源码确认 | 接受并列入 R2；新增 change_task、上报用户及模型产出 AMEND 处置，冻结返工预算不能被重新开说明无限重置。本批未实现 |
+| 3 否定验收/耗尽返工 | Store 与 pump 的 BLOCKED 路径缺少受控 Dispatcher 后继，源码确认 | 接续复验确认否定验收后再次pump为0次调用且仍BLOCKED。接受并列入 R2；新增 change_task、上报用户及模型产出 AMEND 处置，冻结返工预算不能被重新开说明无限重置。本批未实现 |
 | 4 分配中断 | `mkdirat(envelope)` 早于 owner 标记写入，缺失标记时不接管；PREPARED 阻止收尾，源码确认 | 接受为优先恢复缺陷，单独小补丁实施临时名发布与显式放弃。放弃只能停止逻辑阻塞，未知目录仍隔离保留，不能宣称物理删除；本批不改变资源分配协议 |
 | 5 umask | 本轮普通用户/0002 复现 8 个 C++ 套件共 105 项失败，并复现 s15 CLI 失败 | 已修复夹具私有权限、README 新目录示例、友好权限错误；CI 增加 0002。负向 chmod 反例保留，生产目录权限要求不降低 |
 | 6 子进程 umask | 源码缺少设置；本轮增加实际私有进程监督夹具 | fork 子进程显式 0077，测试验证宽松父 umask 下文件 0600、目录 0700，父 umask 不变；不据此宣称 bwrap/cgroup 强环境已验收 |
-| 7 ASan/UAF | 本轮 Clang ASan 实际复现首次失效引用；两处相同插入/引用模式已读源码核对 | 两处均先复制再插入；两处简单 regex 改为等价 ASCII 格式检查；新增 ASan CI。GCC 13 特定误报是否消失由对应 CI 判定，不冒充本地 GCC14 为 GCC13 |
+| 7 ASan/UAF | 本轮 Clang ASan 实际复现首次失效引用；两处相同插入/引用模式已读源码核对 | 两处均先复制再插入；两处简单 regex 改为等价 ASCII 格式检查；新增 ASan CI。后续CI确认Valijson仍会在GCC13/ASan/-O1触发regex误报；Make ASan默认-O0与CMake Debug一致，保留-Werror和地址/泄漏检查，不宣称修复了优化版编译器诊断；单设Make-ASan CI，见接续报告 |
 | 8 构建移植性 | Make 目标 CPPFLAGS 可被命令行覆盖；char 到 unsigned char 的隐式转换确认 | target-specific override 保留用户 flags 与必需 includes；显式转换；新增 Clang18 CI。本地编译器实际为 Clang17，分开记录 |
 | 9 输入错误分类 | 键名/类型路径原本会落到 Boost at/内部 Corrupt | CLI 与 Store 共用 catalog 形状校验，统一 invalid_input；CLI submit/amend 在 writer 前拒绝；Store 仍做原文、版本和重复 ID 等语义校验 |
 | 10 金额换算 | CLI floor(double*1e6) 与 Store 十进制解析不一致 | 提取原 Store 精确解析为共用函数，含所有 0..20000 分、指数、小数和越界回归；2.01 的实际 CLI 账本为 2010000 微美元 |
@@ -54,4 +54,4 @@
 - catalog 预检不替代事务中的语义与权限检查；wait/wake 获取 writer 后再次核对。
 - frozen 配置正文、已发布迁移及旧调用原始证据不改；support 是运行时解释，不塞回旧快照。
 - 不新增付费调用、弱隔离、自动重试、全局 CLOSED/CLEANED 或独立审核通过的推断。
-- [当前状态](../STATUS.md)、[开发顺序](../ROADMAP.md)、[本批验证](../reports/claude-review-fixes-validation.md)分列。
+- [当前状态](../STATUS.md)、[开发顺序](../ROADMAP.md)、[首次验证](../reports/claude-review-fixes-validation.md)和[接续发布复验](../reports/claude-review-resume-validation.md)分列。

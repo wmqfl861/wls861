@@ -2,7 +2,7 @@
 
 当前补丁 **0.7.1-s1.6**，目标蓝图 **v0.4.1**。本批为 Claude 审核后的可靠性修复，
 实现来源为 fcdbdd0；最终 GitHub 提交以本文件所在提交和相同 SHA 的 Actions 为准。
-原始审核与采纳范围见[逐项决定](reviews/claude-disposition.md)，实际结果见[本批验证](reports/claude-review-fixes-validation.md)。
+原始审核与采纳范围见[逐项决定](reviews/claude-disposition.md)，首次结果见[修复验证](reports/claude-review-fixes-validation.md)，接续发布依据见[本轮复验](reports/claude-review-resume-validation.md)。
 
 ## 能力矩阵
 
@@ -16,7 +16,7 @@
 | 事件/并发 | 持久inbox、逐任务AMEND、串行pump | 合法写者重开仍恢复所有活动请求；4096/8192总行数上限仍在；S1无全局并发调度 |
 | 配置执行状态 | check/explain显示 runtime_support 和 validated_only 项 | 形状有效不代表墙钟/告警/压缩/并发/停滞检测已执行 |
 | 记忆、MCP、跨功能审核 | 规格/参考契约 | 完整C++闭环及真实互通未实现 |
-| 测试工具链 | 严格、UBSan、ASan、Clang、普通用户及umask矩阵 | 每轮实际执行见报告；CI结果以同SHA为准 |
+| 测试工具链 | 严格、UBSan、ASan、Clang、普通用户及umask矩阵 | 六路CI：Release/两种umask、UBSan、CMake ASan、Make ASan、Clang18；Make ASan默认-O0，其他优化构建保留；实际结果见报告 |
 
 ## 阶段
 
