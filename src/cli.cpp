@@ -218,7 +218,7 @@ Json request_view(Store& store, const std::string& id) {
 }
 
 void help() {
-    std::cout << R"(wls 0.7.1-s1.6 — owned workspace cleanup with offline models
+    std::cout << R"(wls 0.7.2-s1.6 — owned workspace cleanup with offline models
 
 Resource paths default to the source checkout in the current directory.
 Use --source-root PATH from another directory. Outputs are JSON; errors go to stderr.
@@ -262,6 +262,8 @@ Use --source-root PATH from another directory. Outputs are JSON; errors go to st
   wls amend --db FILE --request ID --text-file FILE --constraints-file FILE
   wls cancel --db FILE --request ID
   wls pending --db FILE
+  wls reconcile-op --db FILE --request ID --op ID --expected-version N
+                   --outcome SUCCEEDED|FAILED|CANCELLED|TIMED_OUT --evidence-file FILE --key KEY
   wls allocate-workspace --db FILE --request ID --task ID --parent DIRECTORY --key KEY
   wls owned-workspaces --db FILE --request ID
   wls cleanup-workspaces --db FILE --request ID --confirm-request ID [--max-unlinks N]
@@ -294,6 +296,10 @@ completed experience/accounting and original process exit facts. It freezes the 
 before bounded deletion and resumes only that inventory. It never recreates a lost delivery.
 The ownership envelope, private database records and delivery package remain retained;
 workspace completion does not mark the global cleanup job DONE.
+reconcile-op is a trusted-local-host Root control: it records a definite host
+observation for one UNKNOWN operation with explicit CAS and an idempotency key.
+Evidence does not rewrite original output or prove descendant exit for cleanup.
+It neither runs a command nor automatically resumes business.
 wait/wake are local host controls;
 a wake leaves instruction, AMEND and UNKNOWN gates in force. An explicit
 workspace enables bounded file tools and process execution with verified strong
@@ -311,7 +317,7 @@ int run_cli(int argc, char** argv) {
     const std::string command(argv[1]);
     if (command == "--version" || command == "version") {
         if (argc != 2) throw Error(ErrorCode::InvalidInput, "version takes no options");
-        output(Object{{"version", "0.7.1-s1.6"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
+        output(Object{{"version", "0.7.2-s1.6"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
     }
     int start = 2;
     std::string action;
@@ -357,7 +363,7 @@ int run_cli(int argc, char** argv) {
         result.as_object()["process_isolation_verified"] = false;
         output(result); return 0;
     }
-    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "inbox", "history", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "owned-workspaces", "cleanup-workspaces"};
+    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "inbox", "history", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "owned-workspaces", "cleanup-workspaces", "reconcile-op"};
     if (!commands.contains(command)) throw Error(ErrorCode::InvalidInput, "unknown command: " + command);
     const auto database = options.required("--db");
     const auto schema_sql = read_runtime_file(source / "db/schema.sql");
@@ -367,6 +373,26 @@ int run_cli(int argc, char** argv) {
     const auto workflow_migration_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
     const auto acceptance_migration_sql = read_runtime_file(source / "db/migrations/008_acceptance_runtime.sql");
     const auto cleanup_migration_sql = read_runtime_file(source / "db/migrations/009_owned_cleanup.sql");
+    if (command == "reconcile-op") {
+        const auto request = options.required("--request");
+        const auto op = options.required("--op");
+        const auto expected = options.number("--expected-version", 0, 1);
+        const auto outcome = options.required("--outcome");
+        const auto evidence = read_runtime_file(options.required("--evidence-file"), 4096);
+        const auto key = options.required("--key");
+        options.finish();
+        // Invalid evidence/CAS/ownership cannot take over the writer or fence
+        // unrelated requests. Repeat the identical guard after acquiring it.
+        {
+            Store inspect(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
+                events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+            inspect.validate_reconciliation(inspect.host_actor(Role::Root, request), op, expected, outcome, evidence, key);
+        }
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
+            events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+        output(store.reconcile_operation(store.host_actor(Role::Root, request), op, expected, outcome, evidence, key));
+        return 0;
+    }
     if (command == "init") {
         options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql); output(store.diagnostics()); return 0;
     }

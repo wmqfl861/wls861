@@ -1,5 +1,14 @@
 # WLS861 development contract
 
+Read `docs/reviews/claude-2026-10-24-disposition.md`,
+`docs/adr/064-audit24-recovery.md`, `docs/implementation/S1-epoch-recovery.md`
+and `docs/implementation/S1-process-settlement.md` for the current recovery/settlement
+contracts. Original instructions stay immutable; a recovery event authorizes only
+an epoch projection. A definite run failure requires complete isolation, network,
+exit and pre/post workspace observations. Root reconciliation preserves original
+executor evidence and never substitutes for cleanup exit proof. Capacity P1-2
+remains open until frozen compatibility, settlement reserve and recovery are tested.
+
 Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
 review fixes and priority changes. Model contract/context/rework and an approved
 small real loop now precede expanding private-data purge or daemon/API. Keep

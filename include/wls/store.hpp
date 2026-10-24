@@ -342,6 +342,15 @@ public:
                              const std::string& host_evidence,
                              const std::string& command_id);
 
+    // Local host control, never a registered Worker/model business tool.
+    // Preflight is read-only; mutation repeats all checks under a transaction.
+    void validate_reconciliation(const StoreActor& root, const std::string& op_id,
+                                 std::int64_t expected_op_version, const std::string& outcome,
+                                 const std::string& host_evidence, const std::string& command_id) const;
+    Json reconcile_operation(const StoreActor& root, const std::string& op_id,
+                             std::int64_t expected_op_version, const std::string& outcome,
+                             const std::string& host_evidence, const std::string& command_id);
+
     // S1.2 APIs require the known 403 schema. Passing the additional 005 asset
     // migrates a populated 402 database without replacing its frozen records.
     // Existing 402-only callers continue to work with the original API.

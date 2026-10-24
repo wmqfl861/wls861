@@ -1,6 +1,6 @@
 # 当前实现与证据
 
-当前补丁 **0.7.1-s1.6**，目标蓝图 **v0.4.1**。本批为 Claude 审核后的可靠性修复，
+当前补丁 **0.7.2-s1.6**，目标蓝图 **v0.4.1**。本批为 Claude 审核后的可靠性修复，
 实现来源为 fcdbdd0；最终 GitHub 提交以本文件所在提交和相同 SHA 的 Actions 为准。
 原始审核与采纳范围见[逐项决定](reviews/claude-disposition.md)，首次结果见[修复验证](reports/claude-review-fixes-validation.md)，接续发布依据见[本轮复验](reports/claude-review-resume-validation.md)。
 
@@ -31,5 +31,8 @@ S2 独立审核/DAG，S3 记忆，S4 MCP/评测，S5 按证据扩展仍为后续
 
 已核验工作基线012bed74，仅合入审核材料；此前声称的未发布修复不能核验。设计先更新。
 本批P1-3已实现：恢复事件授权当前说明的epoch投影，原说明行不可变；Worker重新ack，不新增TeamLead解释。
-新增7项C++及2项实际CLI回归，普通用户Release全部35组通过。P1-1/P1-2继续按ADR顺序实施；
+新增7项C++及2项实际CLI回归，普通用户Release全部35组通过。
+P1-1已接入完整清单/差异分类和Root核对CLI，纯分类、真实扫描/SQLite/CLI分别记录；强环境正向未执行。
+P1-2原复现已确认1024操作及共享事件上限，冻结兼容/分区容量/结算预留/可恢复触顶尚未实施。
+不能用提高常量代替这些原子保证；本批先发布前两项可单独验证的修复。
 全套sanitizer和最终发布状态以本批报告及对应SHA的CI为准。[处置记录](reviews/claude-2026-10-24-disposition.md)。

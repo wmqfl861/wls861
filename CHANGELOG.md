@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.2-s1.6 — audit24 first runtime fixes
+
+- Define ADR-064/065/066 and the second review disposition before runtime changes.
+- Rebind unchanged instructions through immutable recovery-event projections; require
+  a fresh Worker acknowledgment without another TeamLead attempt. Preserve quotas,
+  waits, AMEND, original rows and stale-operation/model fences.
+- Observe bounded complete pre/post workspace trees under the process lock; settle
+  failed strong runs only with full namespace/network/cgroup/observation evidence.
+- Add Root-only trusted-local-host reconcile-op with read-only preflight, final CAS,
+  immutable evidence, exact replay and rollback on event failure.
+- Keep capacity P1-2, long-context and escalation gaps explicit; no new provider calls,
+  migration/vendor edits, weak isolation or claimed strong-deployment acceptance.
+
+
 ## 0.7.1-s1.6 — Claude audit follow-up
 
 - Fix two test JSON-reference lifetime defects; replace simple config regex format checks.

@@ -1,17 +1,21 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.7.1-s1.6；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.7.2-s1.6；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
-本批落实审核中的权限、ASan测试内存安全、编译可移植性、输入/金额和控制预检修复。
+本批接续第二份审核：同语义说明的恢复无需重写，强进程结果按完整证据结算，新增Root核对入口。
 [当前能力/证据矩阵](docs/STATUS.md)集中记录实现边界；[审核采纳记录](docs/reviews/claude-disposition.md)
-区分已修复和开放问题。近期优先可用模型闭环，不继续优先扩大私有数据清除。
+及[第二份审核处置](docs/reviews/claude-2026-10-24-disposition.md)区分已修复和开放问题。
+容量P1-2仍待实施；近期优先可用模型闭环，不继续优先扩大私有数据清除。
+
+新增入口及证据要求见[进程结算/核对契约](docs/implementation/S1-process-settlement.md)，
+说明恢复见[epoch恢复契约](docs/implementation/S1-epoch-recovery.md)。本地控制CLI不是网络认证服务。
 
 ## 蓝图、计划与审核入口
 
 | 文件 | 用途 |
 | --- | --- |
 | [STATUS](docs/STATUS.md) | 唯一当前能力和阶段状态入口 |
-| [审核修复验证](docs/reports/claude-review-fixes-validation.md) | 本轮复现、修复和测试证据 |
+| [首次审核修复验证](docs/reports/claude-review-fixes-validation.md) | 10-23审核补丁的历史复现、修复和测试证据 |
 | [实施蓝图 v0.4.1](docs/spec/v0.4.1/01_实施规格_v0.4.1.md) | 当前目标架构、版本关系、运行行为与各切片边界 |
 | [实施路线](docs/ROADMAP.md) | 已有 M1 与 S0–S5 的承接、优先顺序和完成条件 |
 | [S1 任务卡](docs/spec/v0.4.1/07_S1任务卡.md) | 基于现有代码的增量任务，不从空项目重建 |

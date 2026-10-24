@@ -111,7 +111,7 @@ stdout/stderr 有界保留，达到可保留范围外的输出会终止操作并
 
 最后一次后代查询失败时，不能复用先前的空组观察；证据写为未确认并保留 UNKNOWN。fork 后异常展开（例如分配失败）目前只尽力终止 cgroup，不能据此声称直接子进程及全部后代已回收；对应持久 UNKNOWN 和后续恢复责任仍保留。对象销毁会关闭目录 fd，其合作锁不能替代跨进程恢复围栏。
 
-只有退出零、强隔离证明与全部后代退出均成立，WorkerTools 才保存 SUCCEEDED。任何已产生子进程的其它结果保守为 UNKNOWN，包含超时、取消、非零码、输出上限及无法确认收尾；发现原 op_id 残留 cgroup 或其它 CleanupUnknown 即使本次没有新 spawn，也保存 UNKNOWN。确定未启动且没有残留不确定性的拒绝可保存 FAILED。进程退出证明不等于副作用回滚。cgroup 名可由原 op_id 追踪，但启动后扫描/终止全部历史残留 cgroup 的恢复执行器仍待完成。
+当前结算语义由 [ADR-065实现契约](S1-process-settlement.md) 更新：只有强隔离、断网、全部后代退出及完整前后清单/差异均满足，才可把成功或失败结算为确定结果。非零退出、超时和输出超限不再一律成为UNKNOWN；任何缺证据、执行器异常或结果未持久化仍失败关闭。Root核对不能替代原始退出证明。残留cgroup恢复执行器和部署正向验收仍待完成。
 
 doctor 只报告前置条件。`strong_prerequisites` 不是一次 sandbox 成功运行，`process_isolation_verified=false`、`programs_executed=0` 明确保留；内核支持 cgroup v2 与已经获得可写委派分开报告。本批环境未完成强模式正向验收，不能由拒绝路径或内部监督测试推断 SBX-01/SEC-01/V3-020–023 整体通过。
 

@@ -1,4 +1,5 @@
 #include "wls/worker_tools.hpp"
+#include "wls/process_evidence.hpp"
 #include "wls/offline_runtime.hpp"
 
 #include <unistd.h>
@@ -458,8 +459,9 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
             result.as_object()["stdout_bytes"] = stdout_bytes.size();
             result.as_object()["stderr_bytes"] = stderr_bytes.size();
             result.as_object()["output_location"] = "op_output";
-            if (process.status == ProcessStatus::Exited && process.exit_code == 0 && process.strong_isolation && process.all_descendants_exited) outcome = "SUCCEEDED";
-            else if (process.spawned || process.status == ProcessStatus::CleanupUnknown) outcome = "UNKNOWN";
+            // Failed commands may have known partial /work effects. Only a
+            // complete strong/exit/inventory proof permits definite settlement.
+            outcome = process_operation_outcome(process);
         }
     } catch (const Error& error) {
         result = Object{{"error", error_name(error.code())}, {"message", error.what()}};

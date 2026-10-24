@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(wls861 VERSION 0.7.1 LANGUAGES CXX)
+project(wls861 VERSION 0.7.2 LANGUAGES CXX)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "M1 currently requires Linux journal and process semantics")
@@ -61,6 +61,7 @@ add_library(wls_s1 STATIC
     src/event_runtime.cpp
     src/workspace_posix.cpp
     src/sandbox_posix.cpp
+    src/process_evidence.cpp
     src/worker_tools.cpp
     src/delivery.cpp
     src/cleanup_posix.cpp
@@ -90,7 +91,7 @@ if(BUILD_TESTING)
         add_test(NAME ${suite} COMMAND ${suite}_tests)
         set_tests_properties(${suite} PROPERTIES TIMEOUT 90)
     endforeach()
-    foreach(suite IN ITEMS runtime_types store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery cleanup cleanup_runtime audit24_reopen)
+    foreach(suite IN ITEMS runtime_types store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery cleanup cleanup_runtime audit24_reopen process_evidence audit24_reconcile)
         add_executable(${suite}_tests tests/${suite}_tests.cpp)
         target_link_libraries(${suite}_tests PRIVATE wls_s1)
         target_include_directories(${suite}_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
@@ -134,6 +135,10 @@ if(BUILD_TESTING)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/s16_cli_smoke.py"
                 "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
     set_tests_properties(s16_cli_smoke PROPERTIES TIMEOUT 120)
+    add_test(NAME audit24_reconcile_cli_smoke
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/audit24_reconcile_cli_smoke.py"
+            "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(audit24_reconcile_cli_smoke PROPERTIES TIMEOUT 120)
     add_test(NAME audit24_reopen_cli_smoke
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/audit24_reopen_cli_smoke.py"
             "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")

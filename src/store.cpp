@@ -329,6 +329,20 @@ void sqlite_failure(sqlite3* db, int result, std::string_view operation) {
         primary == SQLITE_CORRUPT || primary == SQLITE_NOTADB ? ErrorCode::Corrupt : ErrorCode::Storage;
     fail(code, std::string(operation) + ": " + (db ? sqlite3_errmsg(db) : sqlite3_errstr(result)));
 }
+Row reconciliation_command(const StoreActor& root, const std::string& id, std::int64_t expected,
+                           const std::string& outcome, const std::string& evidence, const std::string& command_id) {
+    require(root.role == Role::Root, ErrorCode::Unauthorized, "only the authenticated Root may reconcile an operation");
+    require(expected > 0 && (outcome == "SUCCEEDED" || outcome == "FAILED" || outcome == "CANCELLED" || outcome == "TIMED_OUT"),
+        ErrorCode::InvalidInput, "reconciliation requires a positive CAS and a definite outcome");
+    text_field(command_id, "reconciliation key"); text_field(id, "operation id"); text_field(evidence, "host evidence", 4096);
+    require(evidence.find_first_not_of(" \t\r\n") != std::string::npos, ErrorCode::InvalidInput, "host evidence cannot be blank");
+    // Stable authenticated owner + explicit op CAS, not the current ephemeral
+    // Dispatcher epoch: exact CLI retries must work after a writer reopen.
+    const Row command{{"type", "reconcile_op"}, {"root_id", root.principal_id}, {"request_id", root.request_id},
+        {"op_id", id}, {"expected_op_version", expected}, {"outcome", outcome}, {"host_evidence", evidence}};
+    (void)canonical_json(command); // Validate UTF-8 before taking over a writer.
+    return command;
+}
 class Statement {
 public:
     Statement(sqlite3* db, std::string_view sql, const Array& parameters = {}) : db_(db) {
@@ -1151,6 +1165,17 @@ public:
             const auto attempt = one("SELECT role,task_id FROM call_attempts WHERE attempt_id=?", {str(command, "attempt_id")});
             if (str(attempt, "role") == "worker") enqueue("worker", str(attempt, "task_id"));
         }
+    }
+    std::optional<Json> check_reconciliation(const StoreActor& root, const std::string& id,
+            std::int64_t expected, const std::string& command_id, const Row& command) const {
+        (void)authorize(root, {Role::Root}, false);
+        const auto op = op_row(id);
+        require(str(op, "request_id") == root.request_id, ErrorCode::Unauthorized, "operation belongs to another request");
+        if (auto old = replay(root.request_id, command_id, command)) return old;
+        (void)authorize(root, {Role::Root});
+        require(str(op, "status") == "UNKNOWN", ErrorCode::NotReady, "only UNKNOWN operation needs reconciliation");
+        require(number(op, "state_version") == expected, ErrorCode::Conflict, "operation reconciliation CAS failed");
+        return std::nullopt;
     }
     void fence_ops(const std::string& request_id, const std::string& team_id = {}) {
         const auto sql = "UPDATE ops SET status=CASE WHEN status='PREPARED' THEN 'CANCELLED' ELSE 'UNKNOWN' END,state_version=state_version+1 WHERE request_id=?" +
@@ -2936,6 +2961,29 @@ Json Store::reconcile_operation(const std::string& id, std::int64_t expected,
     impl_->execute("UPDATE operation_intents SET evidence_ref=?,state_version=state_version+1 WHERE op_id=?", {evidence, id});
     const auto result = exposed(impl_->op_row(id));
     impl_->event(request_id, command_id, command, result);
+    tx.commit(); return result;
+}
+
+void Store::validate_reconciliation(const StoreActor& root, const std::string& id, std::int64_t expected,
+        const std::string& outcome, const std::string& evidence, const std::string& command_id) const {
+    const std::lock_guard lock(impl_->mutex);
+    const auto command = reconciliation_command(root, id, expected, outcome, evidence, command_id);
+    (void)impl_->check_reconciliation(root, id, expected, command_id, command);
+}
+Json Store::reconcile_operation(const StoreActor& root, const std::string& id, std::int64_t expected,
+        const std::string& outcome, const std::string& evidence, const std::string& command_id) {
+    const std::lock_guard lock(impl_->mutex);
+    const auto command = reconciliation_command(root, id, expected, outcome, evidence, command_id);
+    Impl::Transaction tx(*impl_);
+    if (auto old = impl_->check_reconciliation(root, id, expected, command_id, command)) { tx.commit(); return *old; }
+    impl_->cas("UPDATE ops SET status=?,state_version=state_version+1,ended_at=? WHERE op_id=? AND state_version=?",
+        {outcome, stamp(), id, expected});
+    // Preserve original result/BLOB/exit evidence. The host observation is a
+    // separate immutable event, not a rewritten executor fact or cleanup proof.
+    impl_->execute("UPDATE operation_intents SET evidence_ref=?,state_version=state_version+1 WHERE op_id=?",
+        {"sha256:" + sha256_hex(evidence), id});
+    const auto result = exposed(impl_->op_row(id));
+    impl_->event(root.request_id, command_id, command, result, "root");
     tx.commit(); return result;
 }
 

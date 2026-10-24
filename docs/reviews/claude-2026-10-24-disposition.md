@@ -10,8 +10,8 @@
 | 条目 | 类别 / 核对依据 | 决定和工作项 |
 | --- | --- | --- |
 | P1-3 重开原说明失效 | 新增具体反例；recover 只增 epoch，ack 比较说明 epoch，instruction_current 也比较 epoch；旧 run-fake 无条件调 TL | 采纳，ADR-064已实现；原复现失败后修复，7项C++/2项CLI及Release35组通过；当前说明为恢复事件授权投影，原行不改 |
-| P1-1 run 失败为 UNKNOWN | 新问题；WorkerTools::execute 只结算强隔离零退出，reconcile_operation 无 CLI | 采纳，ADR-065 先定契约；仅完整隔离/退出/前后清单允许结算失败 |
-| P1-2 容量 | 事件部分重复10-23 #2，操作及其他行数新增；event/prepare_operation 使用常量 | 采纳，并入 R2、ADR-066；先原复现，再冻结配置/控制预留/恢复测试 |
+| P1-1 run 失败为 UNKNOWN | 新问题；WorkerTools::execute 只结算强隔离零退出，reconcile_operation 无 CLI | 采纳，ADR-065已先定契约，现接入完整清单/差异结算及Root核对；强环境正向未执行 |
+| P1-2 容量 | 事件部分重复10-23 #2，操作及其他行数新增；event/prepare_operation 使用常量 | 采纳，并入 R2、ADR-066；原程序已实测1024操作后失败，业务事件仍受控制事件侵占。冻结兼容、分区容量、结算预留及恢复尚未实现；保持开放，不提高常量冒充修复 |
 | P2 否定验收 BLOCKED | 重复10-23 #3，accept_candidate 和 pump 的 rework_blocked 分支确认 | 采纳并入R2，不重复立项，本批不声称已修 |
 | P2 UAF / ASan | 612973a、807b060 已改拷贝/优化级别；CI已有ASan与Make-ASan | 已覆盖，保留现有反例，不应用旧patch |
 | P2 CPPFLAGS | 1034a91 已用 override；CI保留命令行 CPPFLAGS 验证 | 已覆盖 |

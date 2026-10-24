@@ -1,4 +1,5 @@
 #include "wls/sandbox.hpp"
+#include "wls/process_evidence.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1084,6 +1085,7 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
                 return !hash_string(file.expected_sha256);
             }))
             throw Error(ErrorCode::InvalidInput, "strong execution requires frozen SHA-256 for bubblewrap and every runtime file");
+        const auto workspace_before = observe_process_workspace(workspace_fd_);
         auto launcher = pin_file(policy_.bwrap_path, policy_.expected_bwrap_sha256, true, false);
         std::vector<PinnedFile> runtime_files;
         std::uint64_t total = 0;
@@ -1247,6 +1249,10 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
         if ((!result.strong_isolation || !reported_exit) && result.status == ProcessStatus::Exited) {
             result.status = ProcessStatus::SpawnFailed;
             add_error(result.error, "bubblewrap did not confirm sandbox setup and command exit");
+        }
+        if (result.strong_isolation && result.all_descendants_exited) {
+            const auto after = observe_process_workspace(workspace_fd_);
+            evidence["workspace_observation"] = process_workspace_changes(workspace_before, after);
         }
     } catch (const Error& error) {
         add_error(result.error, error.what());
