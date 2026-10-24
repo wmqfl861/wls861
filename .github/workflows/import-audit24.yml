@@ -1,0 +1,105 @@
+name: Verify and publish exact audit24 commit series
+
+on:
+  push:
+    branches: [work/audit24-publish-673a6df]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  import-and-verify:
+    if: github.repository == 'wmqfl861/wls861' && github.ref == 'refs/heads/work/audit24-publish-673a6df'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the transport branch without persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify transport and reconstruct the three exact commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          cat .development/audit24/part-{00..04} > "$RUNNER_TEMP/audit24-series.tar.xz"
+          echo 'd9703263fb2617c573fdb9ca7050a4d7d961dc845a459d059a24679e0f3a262a  '"$RUNNER_TEMP/audit24-series.tar.xz" | sha256sum -c -
+          python3 - <<'PY'
+          import os, pathlib, tarfile
+          dest = pathlib.Path(os.environ['RUNNER_TEMP']) / 'audit24-series'
+          dest.mkdir()
+          expected = {'manifest.json'} | {f'{i:02d}.{ext}' for i in range(3) for ext in ('patch', 'commit')}
+          with tarfile.open(dest.parent / 'audit24-series.tar.xz', 'r:xz') as archive:
+              members = archive.getmembers()
+              assert len(members) == len(expected)
+              assert {m.name for m in members} == expected
+              assert all(m.isfile() and m.size < 200000 for m in members)
+              for member in members:
+                  (dest / member.name).write_bytes(archive.extractfile(member).read())
+          PY
+          git checkout --detach 012bed74a8e688ce4831c09b0800c4cd14cdfc2a
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'audit24-series'
+          manifest = json.loads((root / 'manifest.json').read_text())
+          expected = ['1e8f376c39c0e69773d10282d5f1e67fe9009e8b', 'b0b519219d216013dd932c00951a7c3cb247daff', '673a6df4134a4059827df12ac7e5b2fd0214b411']
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          assert manifest['base'] == '012bed74a8e688ce4831c09b0800c4cd14cdfc2a'
+          assert [c['sha'] for c in manifest['commits']] == expected
+          for entry in manifest['commits']:
+              assert git('rev-parse', 'HEAD') == entry['parent']
+              patch = str(root / (entry['prefix'] + '.patch'))
+              git('apply', '--check', '--index', patch)
+              git('apply', '--index', patch)
+              assert git('write-tree') == entry['tree']
+              sha = git('hash-object', '-t', 'commit', '-w', str(root / (entry['prefix'] + '.commit')))
+              assert sha == entry['sha']
+              git('update-ref', 'HEAD', sha, entry['parent'])
+              git('diff', '--exit-code')
+              git('diff', '--cached', '--exit-code')
+              print('Verified commit', sha, 'tree', entry['tree'])
+          assert git('rev-parse', 'HEAD^{tree}') == '49fe4d583dffb2204b41e354406c9655242a7405'
+          assert not pathlib.Path('.development/audit24').exists()
+          assert not pathlib.Path('.github/workflows/import-audit24.yml').exists()
+          PY
+      - name: Install ordinary build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libyaml-dev
+          python3 -m venv .local/test-venv
+          .local/test-venv/bin/python -m pip install -r requirements-test.txt
+      - name: Verify clean candidate with non-root Release CTest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          umask 0002
+          cmake -S . -B build-audit24-import -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
+          cmake --build build-audit24-import --parallel 2
+          ctest --test-dir build-audit24-import --output-on-failure
+          test "$(git rev-parse HEAD)" = 673a6df4134a4059827df12ac7e5b2fd0214b411
+          test "$(git write-tree)" = 49fe4d583dffb2204b41e354406c9655242a7405
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Fast-forward only the expected audit work branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          askpass="$RUNNER_TEMP/audit24-askpass"
+          printf '%s\n' '#!/bin/sh' 'case "$1" in *Username*) printf "%s\n" x-access-token ;; *) printf "%s\n" "$GH_TOKEN" ;; esac' > "$askpass"
+          chmod 700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          expected=012bed74a8e688ce4831c09b0800c4cd14cdfc2a
+          actual=$(git ls-remote origin refs/heads/work/claude-2026-10-24-fixes | cut -f1)
+          test "$actual" = "$expected"
+          git push origin HEAD:refs/heads/work/claude-2026-10-24-fixes
+          test "$(git ls-remote origin refs/heads/work/claude-2026-10-24-fixes | cut -f1)" = 673a6df4134a4059827df12ac7e5b2fd0214b411
