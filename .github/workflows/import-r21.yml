@@ -1,0 +1,114 @@
+name: Verify request-scoped recovery candidate
+
+on:
+  push:
+    branches: [work/r21-publish-scope]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'wmqfl861/wls861' && github.ref == 'refs/heads/work/r21-publish-scope'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - name: Check out bounded source transport without stored credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify exact source patches and reconstruct clean ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          cat .development/r21/part-{00..02} > "$RUNNER_TEMP/r21-source.tar.xz"
+          echo '6af38e7cef323763cef1959da87ea11441be6dbb60dd3e2545c8edc0c6b6dcec  '"$RUNNER_TEMP/r21-source.tar.xz" | sha256sum -c -
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, tarfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'r21-source'
+          root.mkdir()
+          with tarfile.open(root.parent / 'r21-source.tar.xz', 'r:xz') as archive:
+              members = archive.getmembers()
+              expected = {'design.patch', 'code.patch', 'manifest.json'}
+              assert len(members) == 3 and {m.name for m in members} == expected
+              assert all(m.isfile() and m.size < 524288 for m in members)
+              for member in members:
+                  (root / member.name).write_bytes(archive.extractfile(member).read())
+          manifest = json.loads((root / 'manifest.json').read_text())
+          assert manifest['base'] == '19ea603dd52bbcd0f34d29fb4b07f088d4f2693c'
+          for name, digest in manifest['sha256'].items():
+              assert name in {'design.patch', 'code.patch'}
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest
+          PY
+          git checkout --detach 19ea603dd52bbcd0f34d29fb4b07f088d4f2693c
+          test "$(git write-tree)" = 38b9dc4440b5939b193d835bdbfe4604f4a4d3f5
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git apply --check --index "$RUNNER_TEMP/r21-source/design.patch"
+          git apply --index "$RUNNER_TEMP/r21-source/design.patch"
+          test "$(git write-tree)" = 79e20ddf2ed4900c6ef8b33a4583e5444e3478f7
+          git commit -m 'docs(r2): define request-scoped recovery and admission isolation'
+          git rev-parse HEAD > "$RUNNER_TEMP/r21-design-commit"
+          git apply --check --index "$RUNNER_TEMP/r21-source/code.patch"
+          git apply --index "$RUNNER_TEMP/r21-source/code.patch"
+          test "$(git write-tree)" = 347d949c7953d55f72b08b0bb0571001a305674e
+          git diff --cached --check
+          git diff --exit-code 19ea603dd52bbcd0f34d29fb4b07f088d4f2693c -- db third_party docs/handoff docs/reviews/claude-2026-10-23.md docs/reviews/claude-2026-10-24.md
+          test -f .github/workflows/ci.yml
+          test ! -e .github/workflows/import-r21.yml
+          test ! -e .development/r21
+      - name: Install build and contract dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libyaml-dev
+          python3 -m venv .local/test-venv
+          .local/test-venv/bin/python -m pip install -r requirements-test.txt
+      - name: Validate exact candidate as an ordinary user
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          umask 0002
+          cmake -S . -B build-r21-import -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
+          cmake --build build-r21-import --parallel 2
+          ctest --test-dir build-r21-import --output-on-failure
+          test "$(git write-tree)" = 347d949c7953d55f72b08b0bb0571001a305674e
+          git diff --exit-code
+      - name: Publish only the verified implementation branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          git diff --cached --check
+          test "$(git write-tree)" = 347d949c7953d55f72b08b0bb0571001a305674e
+          git commit -m 'feat(r2): isolate request recovery and admission without weakening fences' -m 'Implement 0.7.6-r2.1 with typed request and admission-only Store scopes, scoped CLI writes and target-only job/attempt recovery. Preserve the global exclusive writer lock, UNKNOWN/AMEND/wait and late-response fences, semantic instruction reuse and accounting. Refuse foreign writes and implicit populated migrations; keep all-request init compatibility. Twelve C++ and six actual CLI regressions cover sibling preservation, actorless APIs, rollback and migration. All 49 hosted ordinary-user Release CTest groups passed on the exact hash-verified tree. Full sanitizer evidence is recorded separately. No real models, production data, migration/vendor changes or weak isolation.'
+          askpass="$RUNNER_TEMP/r21-askpass"
+          printf '%s\n' '#!/bin/sh' 'case "$1" in *Username*) printf "%s\n" x-access-token ;; *) printf "%s\n" "$GH_TOKEN" ;; esac' > "$askpass"
+          chmod 700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          test -z "$(git ls-remote origin refs/heads/work/r2-request-recovery)"
+          git push origin HEAD:refs/heads/work/r2-request-recovery
+          test "$(git ls-remote origin refs/heads/work/r2-request-recovery | cut -f1)" = "$(git rev-parse HEAD)"
+          dest="$RUNNER_TEMP/r21-tested-history"
+          mkdir -p "$dest"
+          git bundle create "$dest/tested.bundle" HEAD
+          git rev-parse HEAD > "$dest/COMMIT"
+          git rev-parse 'HEAD^{tree}' > "$dest/TREE"
+          cp "$RUNNER_TEMP/r21-design-commit" "$dest/DESIGN"
+          (cd "$dest" && sha256sum tested.bundle > SHA256SUMS)
+      - name: Retain exact tested ancestry for local synchronization
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r21-tested-history
+          path: ${{ runner.temp }}/r21-tested-history/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
