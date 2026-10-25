@@ -65,6 +65,12 @@ struct CompiledContext {
     std::string cache_identity;
     std::vector<std::string> tool_names;
 
+    // Null means the unchanged v1 frame format. V2 carries independent fields
+    // for adapters; prompt() is then canonical logical JSON for measurement,
+    // NOT actual provider wire bytes or a single user message.
+    Json logical_input = nullptr;
+    std::string logical_input_sha256;
+    bool structured() const noexcept { return !logical_input.is_null(); }
     std::string prompt() const;
 };
 
@@ -79,6 +85,7 @@ private:
     ContextLimits limits_;
 };
 
+std::string compiled_task_contract(const CompiledContext& context);
 Json to_json(const CompiledContext& context);
 // Restores canonical frames under the standard ContextLimits and checks their
 // role/tool contents against metadata; hashes alone do not establish authority.

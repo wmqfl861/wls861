@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.4-r1.2 — frozen structured model input
+
+- Add opt-in structured-v2 system sections, native tool schemas and validated ID-paired messages to the actual offline runtime.
+- Bind canonical input and complete captured request separately; do not fabricate wire fingerprints.
+- Preserve legacy-v1 snapshots/serialized frames and enforce frozen format at Store reservation.
+- Preserve original attempt provenance across reused provider IDs, errors, missing feedback and reopening.
+- Windowing/compaction, real transport and paid calls remain separate milestones.
+
+
 ## 0.7.3-r1.1 — bounded original-history evidence access
 
 - Add actor-scoped, high-watermark attempt metadata pages without loading request

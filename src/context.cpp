@@ -1,4 +1,5 @@
 #include "wls/context.hpp"
+#include "wls/structured_context.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -192,7 +193,7 @@ void validate_compiled_frames(const CompiledContext& context) {
 } // namespace
 
 std::string CompiledContext::prompt() const {
-    return stable_prefix + dynamic_suffix;
+    return structured() ? canonical_json(logical_input) : stable_prefix + dynamic_suffix;
 }
 
 ContextCompiler::ContextCompiler(ContextLimits limits) : limits_(limits) {
@@ -276,7 +277,14 @@ CompiledContext ContextCompiler::compile(const ContextInput& input) const {
     return result;
 }
 
+std::string compiled_task_contract(const CompiledContext& context) {
+    if (context.structured()) return string_field(object(context.logical_input), "task_contract");
+    std::string_view bytes(context.dynamic_suffix);
+    return read_frame(bytes, "task_contract");
+}
+
 Json to_json(const CompiledContext& context) {
+    if (context.structured()) return structured_context_to_json(context);
     validate_model(context.model);
     return boost::json::object{
         {"format", "wls-compiled-context-v1"}, {"role", role_text(context.role)},
@@ -292,6 +300,8 @@ Json to_json(const CompiledContext& context) {
 
 CompiledContext compiled_context_from_json(const Json& value) {
     const auto& source = object(value);
+    if (string_field(source, "format") == "wls-compiled-context-v2")
+        return structured_context_from_json(value);
     check_fields(source, {"format", "role", "model_ref", "reasoning_mode", "reasoning_effort",
         "adapter_version", "protocol_version", "stable_prefix", "dynamic_suffix",
         "prefix_sha256", "cache_identity", "tool_names"});

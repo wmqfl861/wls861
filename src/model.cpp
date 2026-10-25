@@ -303,8 +303,8 @@ ModelUsage model_usage_from_json(const Json& value) {
 
 Json to_json(const ModelRequest& request) {
     validate_envelope(request);
-    return boost::json::object{
-        {"format", "wls-model-request-v1"}, {"call_id", request.call_id},
+    boost::json::object result{
+        {"format", request.context.structured() ? "wls-model-request-v2" : "wls-model-request-v1"}, {"call_id", request.call_id},
         {"attempt_id", request.attempt_id}, {"role_call_index", request.role_call_index},
         {"role", role_name(request.role)}, {"binding", to_json(request.binding)},
         {"config_snapshot_id", request.config_snapshot_id}, {"context", to_json(request.context)},
@@ -313,14 +313,25 @@ Json to_json(const ModelRequest& request) {
         {"reserved_output_tokens", request.reserved_output_tokens},
         {"reserved_cost_micro_usd", request.reserved_cost_micro_usd},
         {"timeout_ms", request.timeout.count()}};
+    if (request.context.structured()) {
+        // Full captured logical envelope, before adding its own fingerprint or
+        // transport receipt. Includes binding, output cap, timeout and budget.
+        result["logical_request_sha256"] = sha256_hex(canonical_json(result));
+        result["wire_request_sha256"] = nullptr;
+    }
+    return result;
 }
 
 ModelRequest model_request_from_json(const Json& value) {
     const auto& source = object(value, "model request");
-    exact_fields(source, {"format", "call_id", "attempt_id", "role_call_index", "role", "binding",
+    const auto format = string_field(source, "format");
+    const bool structured = format == "wls-model-request-v2";
+    require(structured || format == "wls-model-request-v1", "unsupported model request format");
+    std::set<std::string> fields{"format", "call_id", "attempt_id", "role_call_index", "role", "binding",
         "config_snapshot_id", "context", "max_output_tokens", "reserved_input_tokens",
-        "reserved_output_tokens", "reserved_cost_micro_usd", "timeout_ms"});
-    require(string_field(source, "format") == "wls-model-request-v1", "unsupported model request format");
+        "reserved_output_tokens", "reserved_cost_micro_usd", "timeout_ms"};
+    if (structured) { fields.insert("logical_request_sha256"); fields.insert("wire_request_sha256"); }
+    exact_fields(source, fields);
     ModelRequest request;
     request.call_id = string_field(source, "call_id");
     request.attempt_id = string_field(source, "attempt_id");
@@ -336,6 +347,8 @@ ModelRequest model_request_from_json(const Json& value) {
     request.reserved_cost_micro_usd = integer_field(source, "reserved_cost_micro_usd");
     request.timeout = std::chrono::milliseconds(integer_field(source, "timeout_ms"));
     validate_envelope(request);
+    require(request.context.structured() == structured, "model envelope and context formats disagree");
+    if (structured) require(to_json(request) == value, "logical model request fingerprint or transport evidence mismatch");
     return request;
 }
 

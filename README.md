@@ -1,6 +1,6 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.7.3-r1.1；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.7.4-r1.2；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
 本批接续第二份审核：同语义说明的恢复无需重写，强进程结果按完整证据结算，新增Root核对入口。
 [当前能力/证据矩阵](docs/STATUS.md)集中记录实现边界；[审核采纳记录](docs/reviews/claude-disposition.md)
@@ -358,3 +358,12 @@ ACK 会重新核验并同步完整包，随后原子保存精确回执和收尾�
 --expected-window N --evidence-file FILE --key KEY`。证据文件为非空文本。
 检查点不会重置工具/费用/返工，也不代替AMEND处置、问题回答或UNKNOWN核对；原事件和重放结果保留。
 参见[容量契约](docs/implementation/S1-capacity-windows.md)及[当前状态](docs/STATUS.md)。
+
+### R1.2 结构化输入（新请求显式选择）
+
+在新请求使用的system配置中将`context.request_format`设为`structured-v2`，其余配置保持完整；
+`submit --config /path/to/system.yaml --functions-dir /path/to/functions ...` 会冻结此选择。
+`run-fake`和`pump-fake`随后使用独立工具Schema和ID配对的消息，`config explain`披露所选格式。
+兼容样例仍为`framed-v1`；旧快照缺字段也保持旧格式，不因当前配置变化迁移。
+这一步不启用真实模型、窗口压缩或付费重试；[契约](docs/implementation/R1-structured-context.md)
+列出完整边界，当前状态见[STATUS](docs/STATUS.md)。

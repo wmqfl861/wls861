@@ -11,6 +11,10 @@ windows and their tested compatibility/settlement reserve are defined in
 `docs/implementation/S1-capacity-windows.md`. For the R1 evidence prerequisite,
 read `docs/adr/067-paged-history.md` and `docs/implementation/R1-history-evidence.md`.
 Do not mistake paginated host reads for integrated model context windowing.
+Read `docs/adr/068-structured-model-input.md` and
+`docs/implementation/R1-structured-context.md` for frozen v1/v2 selection, logical
+input/request fingerprints and native tool-turn provenance. Missing old policy
+means framed-v1; never rewrite old snapshots or fabricate wire receipts.
 
 Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
 review fixes and priority changes. Model contract/context/rework and an approved

@@ -565,7 +565,13 @@ CapabilityRegistry validate_system(const Json& system) {
 
     const auto& context = required(system, "context", "system");
     fields(context, "system.context", {{"compaction_at_fraction", 'n'}, {"snapshot_decision_log_entries", 'i'},
-        {"schema_retry_max", 'z'}, {"cache_dependencies", 'a'}, {"policy_updates_use_runtime_gate", 'b'}});
+        {"schema_retry_max", 'z'}, {"cache_dependencies", 'a'}, {"policy_updates_use_runtime_gate", 'b'},
+        {"request_format", 's'}}, {"request_format"});
+    if (const auto* format = optional(context, "request_format")) {
+        const auto name = string_value(*format, "system.context.request_format");
+        if (name != "framed-v1" && name != "structured-v2")
+            invalid("system.context.request_format", "expected framed-v1 or structured-v2");
+    }
     (void)number_value(required(context, "compaction_at_fraction", "system.context"), "system.context.compaction_at_fraction", 0.1, 0.95);
     flag(context, "policy_updates_use_runtime_gate", true, "system.context");
     const std::set<std::string> required_dependencies{"adapter_version", "effective_model_and_reasoning", "tool_definitions_hash",
@@ -869,6 +875,12 @@ Json FrozenRequestConfig::explain(Role role) const {
         {"runtime_support", runtime_support()}};
 }
 
+std::string FrozenRequestConfig::context_request_format() const {
+    const auto& context = required(required(document_, "system", "snapshot"), "context", "system");
+    const auto* format = optional(context, "request_format");
+    return format ? string_value(*format, "system.context.request_format") : "framed-v1";
+}
+
 Json FrozenRequestConfig::runtime_support() const {
     Array deferred;
     const auto add = [&](std::string_view section, std::string_view key, std::string_view reason) {
@@ -889,7 +901,8 @@ Json FrozenRequestConfig::runtime_support() const {
         add("limits", key, "requires persistent stall detection and escalation");
     add("cleanup", "vacuum_weekly", "no periodic private-data purge or maintenance scheduler");
     return Object{{"validation_scope", "configuration_shape_references_and_policies"},
-        {"execution_mode", "offline_fake"}, {"real_calls_ready", false},
+        {"execution_mode", "offline_fake"}, {"context_request_format", context_request_format()},
+        {"history_window_integrated", false}, {"real_calls_ready", false},
         {"all_configured_controls_enforced", false}, {"unenforced_settings", deferred}};
 }
 

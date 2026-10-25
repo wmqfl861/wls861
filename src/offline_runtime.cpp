@@ -1,5 +1,6 @@
 #include "wls/offline_runtime.hpp"
 #include "wls/worker_tools.hpp"
+#include "wls/structured_context.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -83,23 +84,7 @@ std::vector<ContextTool> tools_for(const SchemaRegistry& schemas, Role role) {
 }
 
 Json captured_contract(const ModelRequest& request) {
-    // ContextCompiler has already validated the complete canonical framing.
-    // Read the first dynamic frame so the separately held host target cannot
-    // drift away from the immutable input actually delivered to the adapter.
-    std::string_view bytes(request.context.dynamic_suffix);
-    constexpr std::string_view prefix = "task_contract ";
-    require(bytes.starts_with(prefix), ErrorCode::Corrupt, "model context has no task contract");
-    bytes.remove_prefix(prefix.size());
-    const auto newline = bytes.find('\n');
-    require(newline != std::string_view::npos, ErrorCode::Corrupt, "model contract frame has no length");
-    std::size_t length = 0;
-    const auto parsed = std::from_chars(bytes.data(), bytes.data() + newline, length);
-    require(parsed.ec == std::errc{} && parsed.ptr == bytes.data() + newline, ErrorCode::Corrupt,
-            "model contract frame length is invalid");
-    bytes.remove_prefix(newline + 1);
-    require(length < bytes.size() && bytes[length] == '\n', ErrorCode::Corrupt,
-            "model contract frame is incomplete");
-    return parse_json_strict(bytes.substr(0, length), 1024U * 1024U);
+    return parse_json_strict(compiled_task_contract(request.context), 1024U * 1024U);
 }
 
 Json submission_snapshot(WorkerTools& tools, Store& store, const StoreActor& actor,
@@ -494,21 +479,27 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
                 "memory_assessments must be empty until versioned memory-load receipts are implemented.";
     }
     require(role == Role::Worker || tool_feedback.empty(), ErrorCode::InvalidInput, "tool feedback belongs to the Worker context");
+    const bool structured = config.context_request_format() == "structured-v2";
+    std::vector<StructuredContextMessage> native_messages;
     if (store_.event_runtime_enabled() && role == Role::Worker) {
-        // Each original attempt is represented exactly once. Never recursively
-        // copy its captured prompt/history into this new prompt, and never
-        // replace an old binding or a missing observation with current facts.
-        for (const auto& attempt : store_.attempt_history(actor)) {
-            Object history = attempt.as_object();
-            history.erase("request_envelope");
-            context.messages.push_back({"tool", canonical_json(history)});
+        const auto history = store_.attempt_history(actor);
+        if (structured) native_messages = structured_attempt_history(history);
+        else for (const auto& attempt : history) {
+            Object original = attempt.as_object();
+            original.erase("request_envelope");
+            context.messages.push_back({"tool", canonical_json(original)});
         }
-        // This parameter is only a 402/403 compatibility transport. On 404
-        // receipts are authoritative, so a caller cannot append duplicate or
-        // invented feedback over immutable stored history.
-    } else if (!store_.event_runtime_enabled())
-        for (const auto& feedback : tool_feedback) context.messages.push_back({"tool", canonical_json(feedback)});
-    request.context = ContextCompiler().compile(context);
+        // Durable feedback is authoritative. The compatibility argument cannot
+        // append invented or duplicate observations on an event Store.
+    } else if (!store_.event_runtime_enabled()) {
+        for (const auto& feedback : tool_feedback) {
+            if (structured) native_messages.push_back({"user", canonical_json(feedback), {}, {},
+                Object{{"kind", "legacy_host_observation"}, {"not_execution_authority", true}}});
+            else context.messages.push_back({"tool", canonical_json(feedback)});
+        }
+    }
+    request.context = structured ? compile_structured_context(context, native_messages)
+                                 : ContextCompiler().compile(context);
     const auto profile = config.model_profile(role);
     require(string_at(profile.at("capabilities"), "tool_calling") == "supported",
             ErrorCode::Unsupported, "frozen model profile does not support required tool calls");

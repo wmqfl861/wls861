@@ -98,6 +98,10 @@ storage:
   # S1 wls 已使用 C++ SQLite Store；M1 Journal 保留且不作隐式迁移。
 
 context:
+  # Explicitly select structured-v2 for a NEW request to use native logical
+  # tool turns. Existing snapshots keep their original format. Windowing is
+  # a separate R1 acceptance; this compatibility example stays framed-v1.
+  request_format: framed-v1
   compaction_at_fraction: 0.6
   snapshot_decision_log_entries: 20
   schema_retry_max: 2  # 上限，不授权付费纠错；每次仍受 model_calls/预算检查。

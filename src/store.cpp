@@ -202,18 +202,7 @@ bool semantic_binding_equal(ExecutionBinding left, ExecutionBinding right, bool 
     return left == right;
 }
 Json model_contract(const ModelRequest& request) {
-    std::string_view bytes(request.context.dynamic_suffix);
-    constexpr std::string_view prefix = "task_contract ";
-    require(bytes.starts_with(prefix), ErrorCode::Corrupt, "experience attempt lacks captured task contract");
-    bytes.remove_prefix(prefix.size());
-    const auto newline = bytes.find('\n');
-    require(newline != std::string_view::npos, ErrorCode::Corrupt, "invalid contract frame");
-    std::size_t length = 0;
-    const auto parsed = std::from_chars(bytes.data(), bytes.data() + newline, length);
-    require(parsed.ec == std::errc{} && parsed.ptr == bytes.data() + newline, ErrorCode::Corrupt, "invalid contract length");
-    bytes.remove_prefix(newline + 1);
-    require(length < bytes.size() && bytes[length] == '\n', ErrorCode::Corrupt, "incomplete contract frame");
-    return parse_json_strict(bytes.substr(0, length), 1024 * 1024);
+    return parse_json_strict(compiled_task_contract(request.context), 1024U * 1024U);
 }
 bool overlap(const std::string& left, const std::string& right) {
     return left == right || left.starts_with(right + "/") || right.starts_with(left + "/");
@@ -3353,6 +3342,9 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
     impl_->matches(frozen);
     require(str(r, "config_snapshot_sha256") == reservation.config_snapshot_sha256, ErrorCode::Stale, "model attempt changed the frozen request configuration");
     const auto frozen_config = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256"));
+    require(original_model_request.context.structured() ==
+            (frozen_config.context_request_format() == "structured-v2"), ErrorCode::Unauthorized,
+            "model context format differs from frozen request policy");
     const auto selected_model = frozen_config.resolve(actor.role);
     const auto profile = frozen_config.model_profile(actor.role);
     require(selected_model.model == reservation.model_ref, ErrorCode::Unauthorized, "model reference differs from frozen role selection");

@@ -16,7 +16,8 @@
 Store 在新预约时核对格式与冻结配置，精确重放已有预约不受新的默认值干扰。
 
 结构化 prefix_sha256 仅对规范化稳定前缀计算；cache_identity 另含模型、reasoning 和协议版本；
-logical_request_sha256 覆盖选择、前缀及动态输入。它们都不是实际 HTTP 请求指纹。
+logical_input_sha256 覆盖选择、前缀及动态输入。v2 模型请求另以 logical_request_sha256
+绑定完整预约封装（含身份、版本、输出上限、超时和预算），不包含哈希自身或 wire 回执字段。它们都不是实际 HTTP 请求指纹。
 本批无网络发送，wire_sha256 为 null；未来适配器必须保存其实际发送表示，不能复制逻辑哈希。
 `prompt()` 在 v2 仅返回逻辑规范 JSON 用于容量/保守字节预留，不是可直接发送给模型的扁平 prompt。
 
