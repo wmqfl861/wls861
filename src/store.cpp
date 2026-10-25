@@ -393,7 +393,15 @@ public:
          std::string_view migration_sql, StoreOpenMode selected_mode,
          std::string_view tools_migration_sql, std::string_view events_migration_sql,
          std::string_view workflow_migration_sql, std::string_view acceptance_migration_sql,
-         std::string_view cleanup_migration_sql) : mode(selected_mode) {
+         std::string_view cleanup_migration_sql, StoreRecoveryScope selected_scope)
+        : mode(selected_mode), recovery_scope(std::move(selected_scope)) {
+        using Kind = StoreRecoveryScope::Kind;
+        require(recovery_scope.kind == Kind::AllRequests || recovery_scope.kind == Kind::OneRequest ||
+                recovery_scope.kind == Kind::AdmissionOnly, ErrorCode::InvalidInput, "invalid Store recovery scope");
+        require(mode == StoreOpenMode::Takeover || recovery_scope.kind == Kind::AllRequests,
+                ErrorCode::InvalidInput, "read-only Store does not accept a writer recovery scope");
+        if (recovery_scope.kind == Kind::OneRequest) text_field(recovery_scope.request_id, "recovery request_id");
+        else require(recovery_scope.request_id.empty(), ErrorCode::InvalidInput, "unexpected recovery request_id");
         require(events_migration_sql.empty() || !tools_migration_sql.empty(), ErrorCode::InvalidInput,
                 "event-runtime migration requires the worker-tools asset");
         require(workflow_migration_sql.empty() || !events_migration_sql.empty(), ErrorCode::InvalidInput,
@@ -417,14 +425,16 @@ public:
                         info.st_uid == ::geteuid() && ::fchmod(lease_fd, 0600) == 0,
                         ErrorCode::Storage, "Store lock must be a private regular file with one link");
                 require(::flock(lease_fd, LOCK_EX | LOCK_NB) == 0, ErrorCode::Conflict, "another Store writer owns this database");
-                const auto database_fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+                const int create = recovery_scope.kind == Kind::OneRequest ? 0 : O_CREAT;
+                const auto database_fd = ::open(path.c_str(), O_RDWR | create | O_CLOEXEC | O_NOFOLLOW, 0600);
                 require(database_fd >= 0, ErrorCode::Storage, "cannot create private SQLite file");
                 const bool private_file = ::fstat(database_fd, &info) == 0 && S_ISREG(info.st_mode) &&
                     info.st_nlink == 1 && info.st_uid == ::geteuid() && ::fchmod(database_fd, 0600) == 0;
                 ::close(database_fd);
                 require(private_file, ErrorCode::Storage, "SQLite database must be a private regular file with one link");
             }
-            const int flags = (mode == StoreOpenMode::ReadOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)
+            const int flags = (mode == StoreOpenMode::ReadOnly ? SQLITE_OPEN_READONLY :
+                SQLITE_OPEN_READWRITE | (recovery_scope.kind == Kind::OneRequest ? 0 : SQLITE_OPEN_CREATE))
                 | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_NOFOLLOW;
             sqlite_failure(nullptr, sqlite3_open_v2(path.c_str(), &db, flags, nullptr), "open SQLite");
             sqlite3_extended_result_codes(db, 1);
@@ -435,6 +445,8 @@ public:
             require(sqlite3_libversion_number() >= 3037000, ErrorCode::Unsupported, "SQLite 3.37+ required");
             auto version = number(one("PRAGMA user_version"), "user_version");
             if (version == 0 && mode == StoreOpenMode::Takeover) {
+                require(recovery_scope.kind != Kind::OneRequest, ErrorCode::Unsupported,
+                        "request-scoped recovery cannot initialize an empty database");
                 require(!optional("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' LIMIT 1"), ErrorCode::Unsupported,
                         "refusing to initialize an existing unknown database");
                 require(!base_sql.empty(), ErrorCode::InvalidInput, "base schema asset required");
@@ -444,6 +456,17 @@ public:
             require(version >= 401 && version <= 407, ErrorCode::Unsupported, "unknown database version; explicit migration required");
             require(str(one("SELECT schema_version FROM contract_metadata WHERE singleton=1"), "schema_version") == "0.4.1",
                     ErrorCode::Unsupported, "unsupported base contract metadata");
+            if (recovery_scope.kind != Kind::AllRequests) {
+                const auto target = !cleanup_migration_sql.empty() ? 407 : !acceptance_migration_sql.empty() ? 406 :
+                    !workflow_migration_sql.empty() ? 405 : !events_migration_sql.empty() ? 404 :
+                    !tools_migration_sql.empty() ? 403 : 402;
+                require(version >= target || !optional("SELECT request_id FROM requests LIMIT 1"),
+                        ErrorCode::Unsupported, "populated database upgrade requires explicit all-request init");
+                if (recovery_scope.kind == Kind::OneRequest) {
+                    require(version >= 402, ErrorCode::Unsupported, "request-scoped recovery requires an existing Store database");
+                    (void)request_row(recovery_scope.request_id);
+                }
+            }
             const auto migration_hash = sha256_hex(migration_sql);
             const auto tools_migration_hash = sha256_hex(tools_migration_sql);
             const auto events_migration_hash = sha256_hex(events_migration_sql);
@@ -587,7 +610,14 @@ public:
             cleanup_schema = version >= 407;
             require(str(one("PRAGMA quick_check"), "quick_check") == "ok", ErrorCode::Corrupt, "SQLite quick_check failed");
             require(!optional("PRAGMA foreign_key_check"), ErrorCode::Corrupt, "SQLite foreign key check failed");
-            if (mode == StoreOpenMode::Takeover) {
+            if (mode == StoreOpenMode::Takeover && recovery_scope.kind == Kind::OneRequest) {
+                exec("BEGIN IMMEDIATE");
+                try {
+                    recover_selected_request(request_row(recovery_scope.request_id));
+                    exec("COMMIT");
+                } catch (...) { rollback(); throw; }
+            }
+            if (mode == StoreOpenMode::Takeover && recovery_scope.kind == Kind::AllRequests) {
                 exec("BEGIN IMMEDIATE");
                 try {
                     if (acceptance_schema) {
@@ -655,8 +685,12 @@ public:
     }
     class Transaction {
     public:
-        explicit Transaction(Impl& owner) : owner_(owner) {
+        explicit Transaction(Impl& owner, bool admission = false) : owner_(owner) {
             require(owner_.mode == StoreOpenMode::Takeover, ErrorCode::Unauthorized, "read-only Store cannot mutate");
+            require(owner_.recovery_scope.kind != StoreRecoveryScope::Kind::AdmissionOnly || admission,
+                    ErrorCode::Unauthorized, "admission-only Store cannot execute other mutations");
+            require(owner_.recovery_scope.kind != StoreRecoveryScope::Kind::OneRequest || !admission,
+                    ErrorCode::Unauthorized, "request-scoped Store cannot admit requests");
             owner_.exec("BEGIN IMMEDIATE");
         }
         ~Transaction() { if (!committed_) { owner_.capacity_event_cache.clear(); owner_.capacity_limit_cache.clear(); owner_.rollback(); } }
@@ -666,13 +700,19 @@ public:
         bool committed_{false};
     };
 
+    void check_request_scope(const std::string& id) const {
+        require(recovery_scope.kind != StoreRecoveryScope::Kind::OneRequest || recovery_scope.request_id == id,
+                ErrorCode::Unauthorized, "request is outside this writer recovery scope");
+    }
+    Row scoped_row(Row row) const { check_request_scope(str(row, "request_id")); return row; }
     Row request_row(const std::string& id) const {
+        check_request_scope(id);
         return one("SELECT r.*,x.config_snapshot_sha256,x.tool_allowlist FROM requests r JOIN request_runtime x USING(request_id) WHERE r.request_id=?", {id});
     }
-    Row task_row(const std::string& id) const { return one("SELECT * FROM tasks WHERE task_id=?", {id}); }
-    Row team_row(const std::string& id) const { return one("SELECT * FROM teams WHERE team_id=?", {id}); }
+    Row task_row(const std::string& id) const { return scoped_row(one("SELECT * FROM tasks WHERE task_id=?", {id})); }
+    Row team_row(const std::string& id) const { return scoped_row(one("SELECT * FROM teams WHERE team_id=?", {id})); }
     Row op_row(const std::string& id) const {
-        return one("SELECT o.*,i.arguments,i.evidence_ref FROM ops o JOIN operation_intents i USING(op_id) WHERE o.op_id=?", {id});
+        return scoped_row(one("SELECT o.*,i.arguments,i.evidence_ref FROM ops o JOIN operation_intents i USING(op_id) WHERE o.op_id=?", {id}));
     }
     void require_tools_schema() const {
         require(tools_schema, ErrorCode::Unsupported, "worker-tool persistence requires the 403 migration");
@@ -988,6 +1028,8 @@ public:
         return row ? exposed(*row) : Json(nullptr);
     }
     Row authorize(const StoreActor& actor, std::initializer_list<Role> roles, bool current_epochs = true) const {
+        require(recovery_scope.kind != StoreRecoveryScope::Kind::AdmissionOnly, ErrorCode::Unauthorized,
+                "admission-only Store does not issue execution authority");
         require(std::find(roles.begin(), roles.end(), actor.role) != roles.end(), ErrorCode::Unauthorized, "role is not authorized");
         const auto r = request_row(actor.request_id);
         if (actor.role == Role::Root || actor.role == Role::Dispatcher) {
@@ -1096,6 +1138,7 @@ public:
 
     void event(const std::string& request_id, const std::string& command_id,
                const Row& command, const Json& result, std::string_view actor = "runtime") {
+        check_request_scope(request_id);
         text_field(command_id, "command_id");
         const auto type = str(command, "type");
         guard_capacity_event(request_id, command);
@@ -1267,6 +1310,22 @@ public:
             break;
         }
         return order;
+    }
+    void recover_selected_request(const Row& r) {
+        const auto id = str(r, "request_id");
+        const auto terminal = terminal_request(str(r, "status"));
+        if (acceptance_schema) {
+            if (terminal && str(r, "status") != "DELIVERED") retain_closeout(r);
+            execute("UPDATE experience_jobs SET status='PENDING',claimed_by=NULL,lease_epoch=lease_epoch+1,state_version=state_version+1,updated_at=? WHERE request_id=? AND status<>'DONE'", {stamp(), id});
+            execute("UPDATE cleanup_jobs SET status='PENDING',claimed_by=NULL,lease_epoch=lease_epoch+1,state_version=state_version+1,updated_at=? WHERE request_id=? AND status<>'DONE'", {stamp(), id});
+        }
+        if (!terminal) recover(r);
+        else {
+            release_claims(id);
+            if (acceptance_schema && optional("SELECT experience_id FROM experience_jobs WHERE request_id=? AND status<>'DONE' LIMIT 1", {id}))
+                event(id, new_id("recover"), Row{{"type", "recover_experience"}}, Row{{"request_id", id}});
+            unknown_attempts(id);
+        }
     }
     void recover(const Row& r) {
         const auto id = str(r, "request_id");
@@ -1472,6 +1531,7 @@ public:
     sqlite3* db{};
     int lease_fd{-1};
     StoreOpenMode mode;
+    StoreRecoveryScope recovery_scope;
     bool tools_schema{false};
     bool events_schema{false};
     bool workflow_schema{false};
@@ -1489,8 +1549,10 @@ public:
 
 Store::Store(const std::filesystem::path& path, std::string_view base, std::string_view migration, StoreOpenMode mode,
              std::string_view tools_migration, std::string_view events_migration,
-             std::string_view workflow_migration, std::string_view acceptance_migration, std::string_view cleanup_migration)
-    : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration, events_migration, workflow_migration, acceptance_migration, cleanup_migration)) {}
+             std::string_view workflow_migration, std::string_view acceptance_migration, std::string_view cleanup_migration,
+             StoreRecoveryScope recovery_scope)
+    : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration, events_migration, workflow_migration,
+                                 acceptance_migration, cleanup_migration, std::move(recovery_scope))) {}
 Store::~Store() = default;
 
 Json Store::diagnostics() const {
@@ -1749,6 +1811,7 @@ Json Store::record_tool_feedback(const std::string& attempt_id, const ExecutionB
     const auto result_text = json_text(result, 4 * 1024 * 1024);
     Impl::Transaction tx(*impl_);
     const auto attempt = impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {attempt_id});
+    impl_->check_request_scope(str(attempt, "request_id"));
     require(execution_binding_from_json(parse_json_strict(str(attempt, "frozen_binding"))) == original, ErrorCode::Conflict, "feedback changed the original attempt binding");
     require(!attempt.at("settlement_sha256").is_null() && !attempt.at("response").is_null(), ErrorCode::NotReady, "feedback requires a durably settled original response");
     require(str(attempt, "response") == response_text, ErrorCode::Conflict, "feedback response differs from the settled original response");
@@ -2578,7 +2641,7 @@ Json Store::admit(const AdmissionInput& input) {
     const Row immutable{{"original_text", input.original_text}, {"function_id", input.function_id},
         {"config_snapshot_sha256", sha256_hex(config)}, {"tool_allowlist", allowlist}, {"constraint_catalog", input.constraint_catalog}, {"budget", budget}};
     const auto fingerprint = sha256_hex(canonical_json(immutable));
-    Impl::Transaction tx(*impl_);
+    Impl::Transaction tx(*impl_, true);
     const Array identity{input.tenant_id, input.project_id, input.root_id, input.idempotency_key};
     for (const auto* table : {"requests", "receipts"}) {
         const auto old = impl_->optional(std::string("SELECT request_id,content_sha256 FROM ") + table + " WHERE tenant_id=? AND project_id=? AND root_id=? AND idempotency_key=?", identity);
@@ -3521,6 +3584,7 @@ Json Store::settle_attempt(const std::string& attempt_id, const ExecutionBinding
     require(execution_binding_from_json(parse_json_strict(str(record, "frozen_binding"))) == frozen && str(record, "config_snapshot_sha256") == config_hash,
         ErrorCode::Conflict, "response changed the original frozen model context");
     const auto request_id = str(record, "request_id");
+    impl_->check_request_scope(request_id);
     if (!record.at("settlement_sha256").is_null()) {
         require(str(record, "settlement_sha256") == fingerprint, ErrorCode::Conflict, "attempt was already settled with different original response or usage");
         const auto result = exposed(record); tx.commit(); return result;

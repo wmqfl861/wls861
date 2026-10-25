@@ -26,8 +26,17 @@ For R2.1 read `docs/adr/070-rejected-task-resolution.md` and
 rejected submission may be corrected or escalated. Preserve original task and
 instruction constraints, share the frozen TeamLead rework counter, and never
 consume an unanswered correction wakeup as handled. User answers do not grant
-more rework, accept a candidate, or clear UNKNOWN. Request-scoped recovery and
-model AMEND disposition remain separate increments.
+more rework, accept a candidate, or clear UNKNOWN. Scoped recovery applies to
+these management paths too. Model AMEND disposition remains a later increment.
+
+Read `docs/adr/071-request-scoped-recovery.md` and
+`docs/implementation/S1-request-recovery.md` for scoped writer recovery. CLI
+request writes take over only their target; admission-only cannot execute. The
+database writer lock remains exclusive. Recover a selected request before issuing
+its actors; preserve all unknown/late/AMEND/wait and post-terminal job fences.
+Populated structural upgrades require explicit all-request init maintenance.
+Read ADR-072 for the integration: corrective commands and exact replay obey the
+same scope guards; owner answers cannot perturb sibling requests or clear fences.
 
 Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
 review fixes and priority changes. Model contract/context/rework and an approved

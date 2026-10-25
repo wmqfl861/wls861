@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.1-r2.2 — integrate request-scoped recovery with bounded rejection correction
+
+- Preserve the original unpushed R2 correction commits and merge the request-recovery candidate.
+- Apply scoped writer guards to corrective decisions, owner escalation/answers and original-result replay.
+- Verify complete corrective chains and admission do not change sibling request rows, waits or terminal jobs.
+- Reuse ADR-070 for correction; assign ADR-071 to recovery and ADR-072 to integration decisions.
+- Keep one exclusive database writer and all UNKNOWN/AMEND/late-response/accounting fences.
+- Model-produced AMEND dispositions, general task redefinition and deployment acceptance remain open.
+
 ## 0.7.6-r2.1 — bounded rejection correction and owner escalation
 
 - Capture original failed acceptance/check and exact task/submission CAS for Dispatcher decisions.
@@ -8,6 +17,15 @@
 - Retain pending rejection wakeups across missing scripts, invalid responses and restart.
 - Preserve UNKNOWN, budget, policy, AMEND and cancellation guards, original SQL/vendor bytes.
 - Request-scoped recovery and model-produced AMEND dispositions remain separate work.
+
+## 0.7.6-r2.1 recovery candidate — request-scoped writer recovery (integrated above)
+
+- Add trusted-host OneRequest and AdmissionOnly scopes without changing the global exclusive writer lease.
+- Scope CLI execution/control recovery to its target; new admission and exact replay preserve all existing requests.
+- Preserve operation/late-response fences, immutable instruction projection, WAITING, AMEND, accounting and closeout jobs.
+- Reject cross-scope writes, actorless settlements, scoped empty-database initialization and implicit populated upgrades.
+- Keep the default all-request Store and explicit init maintenance compatible; no SQL or frozen-snapshot changes.
+
 
 ## 0.7.5-r1.3 — frozen Worker windows and original-evidence controls
 

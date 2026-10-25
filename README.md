@@ -1,6 +1,6 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.7.6-r2.1；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.8.1-r2.2；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
 本批接续第二份审核：同语义说明的恢复无需重写，强进程结果按完整证据结算，新增Root核对入口。
 [当前能力/证据矩阵](docs/STATUS.md)集中记录实现边界；[审核采纳记录](docs/reviews/claude-disposition.md)
@@ -27,6 +27,14 @@ python3 tests/r2_rework_cli_smoke.py ./build/wls .
 ```
 
 本批使用固定 FakeModel 判断；它验证流程、持久化和门禁，不测真实模型质量，不发起网络调用。
+
+## 请求限定恢复
+
+请求写命令只接管 `--request` 指定请求；`submit` 只准入或精确去重，不暂停同库的其他请求。
+选中请求仍提升执行代次、围栏旧操作/调用并重新确认同语义说明，不能借范围选择解除 UNKNOWN、等待或 AMEND。
+数据库仍只有一个写者，不是并发写入或新的认证边界。
+带有请求的旧数据库升级须先显式运行 `wls init --db ...`；**init 会恢复全库请求**，应作为维护操作执行。
+当前合同及兼容说明见 [请求恢复契约](docs/implementation/S1-request-recovery.md)。
 
 ## Worker 上下文窗口（显式启用）
 

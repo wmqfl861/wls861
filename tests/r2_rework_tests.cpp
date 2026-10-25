@@ -100,10 +100,10 @@ struct Fixture {
         std::filesystem::create_directory(directory.path / "beta");
         reopen(); id = text(store->admit(admission).at("request_id"));
     }
-    void reopen() {
+    void reopen(StoreRecoveryScope scope = {}) {
         alpha.reset(); beta.reset(); store.reset();
         store = std::make_unique<Store>(directory.path / "control.db", base_sql, store_sql,
-            StoreOpenMode::Takeover, tools_sql, events_sql, workflow_sql, acceptance_sql);
+            StoreOpenMode::Takeover, tools_sql, events_sql, workflow_sql, acceptance_sql, std::string_view{}, std::move(scope));
         alpha = std::make_unique<WorkerTools>(*store, directory.path / "alpha");
         beta = std::make_unique<WorkerTools>(*store, directory.path / "beta");
     }
@@ -447,6 +447,66 @@ void escrowed_source_changes_reject_a_second_captured_response() {
     CHECK(!f.store->attempt(second.request.attempt_id).at("settlement_sha256").is_null());
     CHECK(f.task().at("task_revision")==2);
 }
+
+std::unique_ptr<Store> observer(Fixture& f) {
+    return std::make_unique<Store>(f.directory.path / "control.db", base_sql, store_sql,
+        StoreOpenMode::ReadOnly, tools_sql, events_sql, workflow_sql, acceptance_sql);
+}
+void scoped_writer_rejects_foreign_correction_and_escalation() {
+    Fixture f; const auto rejected=reject(f);
+    const auto actor=f.store->host_actor(Role::Dispatcher,f.id);
+    const auto binding=f.store->request_binding(f.id);
+    const auto task=f.task(), request=f.store->request(f.id), budget=f.store->budget(f.id);
+    const auto other=text(f.store->admit(input()).at("request_id"));
+    f.reopen(StoreRecoveryScope::request(other));
+    expect(ErrorCode::Unauthorized,[&] { f.store->change_task(actor,binding,number(task.at("state_version")),
+        text(rejected.at("submission_id")),number(rejected.at("state_version")),correction(),"foreign-change"); });
+    expect(ErrorCode::Unauthorized,[&] { f.store->escalate_task(actor,binding,number(task.at("state_version")),
+        text(rejected.at("submission_id")),number(rejected.at("state_version")),owner_question(),"foreign-escalate"); });
+    auto read=observer(f);
+    CHECK(read->request(f.id)==request && read->budget(f.id)==budget);
+    CHECK(read->task(text(task.at("task_id")))==task);
+    CHECK(read->rejected_submission(text(task.at("task_id")))==rejected);
+}
+void scoped_writer_rejects_foreign_exact_correction_replay() {
+    Fixture f; const auto rejected=reject(f);
+    const auto actor=f.store->host_actor(Role::Dispatcher,f.id);
+    const auto binding=f.store->request_binding(f.id); const auto version=number(f.task().at("state_version"));
+    (void)revise(f,"replay-scope");
+    const auto task=f.task(), budget=f.store->budget(f.id);
+    const auto other=text(f.store->admit(input()).at("request_id"));
+    f.reopen(StoreRecoveryScope::request(other));
+    expect(ErrorCode::Unauthorized,[&] { f.store->change_task(actor,binding,version,
+        text(rejected.at("submission_id")),number(rejected.at("state_version")),correction(),"replay-scope"); });
+    auto read=observer(f);
+    CHECK(read->task(text(task.at("task_id")))==task && read->budget(f.id)==budget);
+}
+void admission_cannot_decide_rejected_work() {
+    Fixture f; const auto rejected=reject(f); const auto task=f.task();
+    const auto actor=f.store->host_actor(Role::Dispatcher,f.id); const auto binding=f.store->request_binding(f.id);
+    f.reopen(StoreRecoveryScope::admission());
+    expect(ErrorCode::Unauthorized,[&] { f.store->change_task(actor,binding,number(task.at("state_version")),
+        text(rejected.at("submission_id")),number(rejected.at("state_version")),correction(),"admission-change"); });
+    expect(ErrorCode::Unauthorized,[&] { f.store->escalate_task(actor,binding,number(task.at("state_version")),
+        text(rejected.at("submission_id")),number(rejected.at("state_version")),owner_question(),"admission-escalate"); });
+    auto read=observer(f);
+    CHECK(read->rejected_submission(text(task.at("task_id")))==rejected);
+    CHECK(read->task(text(task.at("task_id")))==task);
+}
+void scoped_reopen_fences_old_rejection_decision_without_touching_sibling() {
+    Fixture f; const auto rejected=reject(f);
+    const auto other=text(f.store->admit(input()).at("request_id"));
+    const auto sibling=f.store->request(other), budget=f.store->budget(other);
+    const FakeModel fake({step(Role::Dispatcher,"change_task",correction())});
+    const auto call=f.capture(Role::Dispatcher,fake);
+    f.reopen(StoreRecoveryScope::request(f.id));
+    expect(ErrorCode::Stale,[&] { OfflineRuntime(*f.store,*schemas,f.alpha.get()).accept_response(call,fake.complete(call.request)); });
+    CHECK(f.store->attempt(call.request.attempt_id).at("status")=="STALE");
+    CHECK(f.store->rejected_submission(f.binding().task_id).at("record_sha256")==rejected.at("record_sha256"));
+    (void)revise(f);
+    CHECK(f.task().at("status")=="READY");
+    auto read=observer(f); CHECK(read->request(other)==sibling && read->budget(other)==budget);
+}
 } // namespace
 
 int main() {
@@ -459,6 +519,10 @@ int main() {
     workflow_sql=read_runtime_file(source/"db/migrations/007_workflow_runtime.sql");
     acceptance_sql=read_runtime_file(source/"db/migrations/008_acceptance_runtime.sql");
     return test::run({
+        {"scoped writer rejects both foreign corrective actions",scoped_writer_rejects_foreign_correction_and_escalation},
+        {"foreign exact correction replay remains out of scope",scoped_writer_rejects_foreign_exact_correction_replay},
+        {"admission-only cannot decide rejected work",admission_cannot_decide_rejected_work},
+        {"scoped reopen fences old corrective response without sibling changes",scoped_reopen_fences_old_rejection_decision_without_touching_sibling},
         {"rejection captures original bytes and offers only correction or escalation",current_rejection_has_original_evidence_and_two_actions},
         {"correction preserves obligations and requires new TeamLead order and ack",correction_preserves_original_obligations_and_requires_new_order_ack},
         {"exact command replay cannot consume another rework",exact_command_replay_is_not_a_new_correction},

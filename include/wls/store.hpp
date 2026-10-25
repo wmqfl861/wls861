@@ -66,12 +66,25 @@ struct AttemptReservation {
 
 enum class StoreOpenMode { Takeover, ReadOnly };
 
+// Trusted-host selection, not a model grant or a concurrent writer lease.
+// The default preserves the original all-request recovery contract.
+struct StoreRecoveryScope {
+    enum class Kind { AllRequests, OneRequest, AdmissionOnly };
+    Kind kind{Kind::AllRequests};
+    std::string request_id;
+    static StoreRecoveryScope request(const std::string& id) { return {Kind::OneRequest, id}; }
+    static StoreRecoveryScope admission() { return {Kind::AdmissionOnly, {}}; }
+};
+
 class Store {
 public:
     // SQL is a trusted, program-distributed asset. Existing unknown databases
     // fail closed; original M1 Journals are never interpreted or rewritten.
     // The unique writer lease is held for this Store's lifetime. Opening fences
-    // live requests before actors can be issued and makes pending calls UNKNOWN.
+    // selected live requests before actors can be issued and makes their pending
+    // calls UNKNOWN. OneRequest rejects other-request mutations; AdmissionOnly
+    // allows admit/replay only and issues no execution actors. Structural upgrades
+    // of populated databases require the explicit all-request maintenance scope.
     Store(const std::filesystem::path& database_path,
           std::string_view base_schema_sql, std::string_view migration_sql,
           StoreOpenMode mode = StoreOpenMode::Takeover,
@@ -79,7 +92,8 @@ public:
           std::string_view events_migration_sql = {},
           std::string_view workflow_migration_sql = {},
           std::string_view acceptance_migration_sql = {},
-          std::string_view cleanup_migration_sql = {});
+          std::string_view cleanup_migration_sql = {},
+          StoreRecoveryScope recovery_scope = {});
     ~Store();
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;
