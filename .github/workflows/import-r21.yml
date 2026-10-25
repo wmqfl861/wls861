@@ -1,0 +1,115 @@
+name: Verify and publish bounded rejection follow-up candidate
+
+on:
+  push:
+    branches: [work/r21-publish-fdc39d8]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'wmqfl861/wls861' && github.ref == 'refs/heads/work/r21-publish-fdc39d8'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - name: Check out transport without stored credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify bounded source patches and construct clean commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          cat .development/r21/part-{00..02} > "$RUNNER_TEMP/r21.tar.xz"
+          echo 'c51cf352687afc5c70ce3c604971aaf30d38f746b648f436903ddb87d2dea3f3  '"$RUNNER_TEMP/r21.tar.xz" | sha256sum -c -
+          python3 - <<'PY'
+          import os, pathlib, tarfile
+          dest = pathlib.Path(os.environ['RUNNER_TEMP']) / 'r21-patches'
+          dest.mkdir()
+          with tarfile.open(dest.parent / 'r21.tar.xz', 'r:xz') as archive:
+              members = archive.getmembers()
+              assert len(members) == 3
+              assert {m.name for m in members} == {'00.patch', '01.patch', 'manifest.json'}
+              assert all(m.isfile() and m.size < 1048576 for m in members)
+              for member in members:
+                  (dest / member.name).write_bytes(archive.extractfile(member).read())
+          PY
+          git checkout --detach 19ea603dd52bbcd0f34d29fb4b07f088d4f2693c
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'r21-patches'
+          manifest = json.loads((root / 'manifest.json').read_text())
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          assert manifest['upstream_base'] == '19ea603dd52bbcd0f34d29fb4b07f088d4f2693c'
+          assert git('rev-parse', 'HEAD^{tree}') == manifest['base_tree'] == '38b9dc4440b5939b193d835bdbfe4604f4a4d3f5'
+          assert [e['file'] for e in manifest['commits']] == ['00.patch', '01.patch']
+          for entry in manifest['commits']:
+              patch = root / entry['file']
+              assert hashlib.sha256(patch.read_bytes()).hexdigest() == entry['sha256']
+              git('apply', '--check', '--index', str(patch))
+              git('apply', '--index', str(patch))
+              assert git('write-tree') == entry['tree']
+              git('diff', '--cached', '--check')
+              git('commit', '-m', entry['message'])
+              print('Created clean commit', git('rev-parse', 'HEAD'), 'tree', entry['tree'])
+          assert git('rev-parse', 'HEAD^{tree}') == 'ccd8c6e34b336a04e1fcde864d45e0c3eb910f6a'
+          assert not pathlib.Path('.development/r21').exists()
+          assert not pathlib.Path('.github/workflows/import-r21.yml').exists()
+          assert pathlib.Path('.github/workflows/ci.yml').is_file()
+          PY
+      - name: Install build and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libyaml-dev
+          python3 -m venv .local/test-venv
+          .local/test-venv/bin/python -m pip install -r requirements-test.txt
+      - name: Validate clean candidate with ordinary-user Release CTest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          umask 0002
+          cmake -S . -B build-r21-import -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
+          cmake --build build-r21-import --parallel 2
+          ctest --test-dir build-r21-import --output-on-failure
+          test "$(git write-tree)" = ccd8c6e34b336a04e1fcde864d45e0c3eb910f6a
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Fast-forward only expected implementation branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          askpass="$RUNNER_TEMP/r21-git-askpass"
+          printf '%s\n' '#!/bin/sh' 'case "$1" in *Username*) printf "%s\n" x-access-token ;; *) printf "%s\n" "$GH_TOKEN" ;; esac' > "$askpass"
+          chmod 700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          actual=$(git ls-remote origin refs/heads/work/r2-rejection-followup | cut -f1)
+          test "$actual" = 19ea603dd52bbcd0f34d29fb4b07f088d4f2693c
+          git push origin HEAD:refs/heads/work/r2-rejection-followup
+          test "$(git ls-remote origin refs/heads/work/r2-rejection-followup | cut -f1)" = "$(git rev-parse HEAD)"
+          mkdir -p "$RUNNER_TEMP/r21-tested-history"
+          git bundle create "$RUNNER_TEMP/r21-tested-history/tested.bundle" HEAD
+          git rev-parse HEAD > "$RUNNER_TEMP/r21-tested-history/COMMIT"
+          git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/r21-tested-history/TREE"
+          (cd "$RUNNER_TEMP/r21-tested-history" && sha256sum tested.bundle > SHA256SUMS)
+      - name: Retain verified history for exact synchronization
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r21-tested-history
+          path: ${{ runner.temp }}/r21-tested-history/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
