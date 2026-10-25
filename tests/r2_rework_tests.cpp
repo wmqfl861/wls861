@@ -465,7 +465,7 @@ void scoped_writer_rejects_foreign_correction_and_escalation() {
         text(rejected.at("submission_id")),number(rejected.at("state_version")),owner_question(),"foreign-escalate"); });
     auto read=observer(f);
     CHECK(read->request(f.id)==request && read->budget(f.id)==budget);
-    CHECK(read->task(text(task.at("task_id")))==task);
+    CHECK(read->tasks(f.id).front()==task);
     CHECK(read->rejected_submission(text(task.at("task_id")))==rejected);
 }
 void scoped_writer_rejects_foreign_exact_correction_replay() {
@@ -479,7 +479,7 @@ void scoped_writer_rejects_foreign_exact_correction_replay() {
     expect(ErrorCode::Unauthorized,[&] { f.store->change_task(actor,binding,version,
         text(rejected.at("submission_id")),number(rejected.at("state_version")),correction(),"replay-scope"); });
     auto read=observer(f);
-    CHECK(read->task(text(task.at("task_id")))==task && read->budget(f.id)==budget);
+    CHECK(read->tasks(f.id).front()==task && read->budget(f.id)==budget);
 }
 void admission_cannot_decide_rejected_work() {
     Fixture f; const auto rejected=reject(f); const auto task=f.task();
@@ -491,7 +491,7 @@ void admission_cannot_decide_rejected_work() {
         text(rejected.at("submission_id")),number(rejected.at("state_version")),owner_question(),"admission-escalate"); });
     auto read=observer(f);
     CHECK(read->rejected_submission(text(task.at("task_id")))==rejected);
-    CHECK(read->task(text(task.at("task_id")))==task);
+    CHECK(read->tasks(f.id).front()==task);
 }
 void scoped_reopen_fences_old_rejection_decision_without_touching_sibling() {
     Fixture f; const auto rejected=reject(f);
