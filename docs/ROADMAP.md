@@ -101,3 +101,9 @@ AMEND 后，每个活动任务需显式 update／keep／cancel，处置绑定当
 本批实现选择见[容量准入窗口契约](implementation/S1-capacity-windows.md)：保留全部事件/幂等结果，
 以Root核对后的窗口推进存储计数，不是自动提高额度或物理删除归档。此子项不能替代R1上下文压缩、
 R2否决后的有界返工/按请求恢复，或R2a分配中断恢复。下一增量仍以这些真实任务阻塞点为先。
+
+### R2.1 拒绝后的管理后继
+
+按 [ADR-070](adr/070-bounded-rejection-followup.md) 先实现捕获当前被拒提交的有限返工与
+一次用户上报；保持原 TaskBrief，复用冻结团队返工累计额度，TeamLead重发说明后Worker再确认。
+随后单独推进按请求恢复、通用change_task和模型AMEND处置，避免在一批中重写全部状态机。
