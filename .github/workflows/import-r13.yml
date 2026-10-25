@@ -1,0 +1,123 @@
+name: Verify and publish bounded Worker window candidate
+
+on:
+  push:
+    branches: [work/r13-publish-6066eb7]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'wmqfl861/wls861' && github.ref == 'refs/heads/work/r13-publish-6066eb7'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - name: Read the bounded transport without persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify patches and recover the exact candidate tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          cat .development/r13/part-{00..01} > "$RUNNER_TEMP/r13.tar.xz"
+          echo '56010604688ffa809276d947168029654413c9f21e7639293dd3bb345e6259bc  '"$RUNNER_TEMP/r13.tar.xz" | sha256sum -c -
+          python3 - <<'PY'
+          import os, pathlib, tarfile
+          dest = pathlib.Path(os.environ['RUNNER_TEMP']) / 'r13'
+          dest.mkdir()
+          with tarfile.open(dest.parent / 'r13.tar.xz', 'r:xz') as archive:
+              members = archive.getmembers()
+              assert len(members) == 3
+              assert {m.name for m in members} == {'00.patch', '01.patch', 'manifest.json'}
+              assert all(m.isfile() and m.size < 1048576 for m in members)
+              for m in members:
+                  (dest / m.name).write_bytes(archive.extractfile(m).read())
+          PY
+          git checkout --detach 0dbf478892a381aed6fee99d6e1243363b005297
+          test "$(git write-tree)" = b2cbe210da748851f87f4d9b1d4cdb1155cd859a
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'r13'
+          manifest = json.loads((root / 'manifest.json').read_text())
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          assert manifest['base'] == '0dbf478892a381aed6fee99d6e1243363b005297'
+          expected = [('00.patch', '2241880b240c1805b08d378b11f60ea1ef0477a1', 'd67d252c044c738c00ad67775822eecc99ea5057e5830c747963c7647cf3ebd9'), ('01.patch', '60bf262fcb193f06f9909b172ce3aa5357fe8c1b', 'edfd00b4fb7e20a9d7a0d06832b860d723f7a9c262faaa5e63c25308846466bf')]
+          assert len(manifest['commits']) == 2
+          for i, entry in enumerate(manifest['commits']):
+              assert (entry['patch'], entry['tree'], entry['patch_sha256']) == expected[i]
+              patch = root / entry['patch']
+              assert hashlib.sha256(patch.read_bytes()).hexdigest() == entry['patch_sha256']
+              git('apply', '--check', '--index', str(patch))
+              git('apply', '--index', str(patch))
+              assert git('write-tree') == entry['tree']
+              git('diff', '--cached', '--check')
+              if i == 0:
+                  git('commit', '-m', entry['message'])
+          assert not pathlib.Path('.development/r13').exists()
+          assert not pathlib.Path('.github/workflows/import-r13.yml').exists()
+          assert pathlib.Path('.github/workflows/ci.yml').is_file()
+          PY
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libyaml-dev
+          python3 -m venv .local/test-venv
+          .local/test-venv/bin/python -m pip install -r requirements-test.txt
+      - name: Ordinary-user Release build and full candidate tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          umask 0002
+          cmake -S . -B build-r13-import -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
+          cmake --build build-r13-import --parallel 2
+          ctest --test-dir build-r13-import --show-only=json-v1 > "$RUNNER_TEMP/r13/tests.json"
+          python3 -c 'import json,os; assert len(json.load(open(os.environ["RUNNER_TEMP"]+"/r13/tests.json"))["tests"]) == 47'
+          ctest --test-dir build-r13-import --output-on-failure
+          test "$(git write-tree)" = 60bf262fcb193f06f9909b172ce3aa5357fe8c1b
+          git diff --exit-code
+          git diff --cached --check
+      - name: Commit and fast-forward only the expected implementation branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          test "$(git write-tree)" = 60bf262fcb193f06f9909b172ce3aa5357fe8c1b
+          git commit -m 'feat(r1): integrate bounded Worker history and scoped original readback' -m 'Add explicitly frozen structured-v2/window-v1 selection, whole-turn references, pinned unresolved facts, and original history read controls with immutable feedback and persistent query rate checks. Preserve legacy snapshots, complete current task contracts, readiness gates, SQL and vendor bytes. Ten new C++ and eight actual CLI cases include 32 large reads across restart. This exact candidate passed all 47 Release CTest groups as a non-root user. Sanitizer and final publication evidence are recorded separately.'
+          askpass="$RUNNER_TEMP/r13-askpass"
+          printf '%s\n' '#!/bin/sh' 'case "$1" in *Username*) printf "%s\n" x-access-token ;; *) printf "%s\n" "$GH_TOKEN" ;; esac' > "$askpass"
+          chmod 700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          actual=$(git ls-remote origin refs/heads/work/r1-worker-window | cut -f1)
+          test "$actual" = 0dbf478892a381aed6fee99d6e1243363b005297
+          git push origin HEAD:refs/heads/work/r1-worker-window
+          test "$(git ls-remote origin refs/heads/work/r1-worker-window | cut -f1)" = "$(git rev-parse HEAD)"
+          mkdir -p "$RUNNER_TEMP/r13-tested"
+          git bundle create "$RUNNER_TEMP/r13-tested/history.bundle" HEAD
+          git rev-parse HEAD > "$RUNNER_TEMP/r13-tested/COMMIT"
+          git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/r13-tested/TREE"
+          cp build-r13-import/Testing/Temporary/LastTest.log "$RUNNER_TEMP/r13-tested/LastTest.log"
+          (cd "$RUNNER_TEMP/r13-tested" && sha256sum history.bundle LastTest.log > SHA256SUMS)
+      - name: Retain tested history and evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r13-tested-history
+          path: ${{ runner.temp }}/r13-tested/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
