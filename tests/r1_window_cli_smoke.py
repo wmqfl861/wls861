@@ -138,6 +138,24 @@ class WindowCli(unittest.TestCase):
         self.assertEqual(result['calls'],[])
         self.assertEqual(self.rows('SELECT attempt_id FROM call_attempts ORDER BY rowid'),before)
 
+    def test_failed_readback_consumes_persistent_rate_budget(self):
+        self.config.write_text(self.config.read_text().replace('max_queries_per_minute: 60','max_queries_per_minute: 2'))
+        self.work_file('original'); request = self.admit()
+        self.pump(request, self.read_script(1), 1)
+        own = self.rows("SELECT f.* FROM model_tool_feedback f JOIN call_attempts a USING(attempt_id) WHERE a.role='worker' ORDER BY a.rowid")[0]
+        before = len(self.envelopes('worker'))
+        rejected = self.pump(request, self.control_script('history_read', self.read_args(own, record_sha256='0'*64)), 1)
+        self.assertTrue(any(item['code'] == 'conflict' for item in rejected['blocked']), rejected)
+        valid = self.pump(request, self.control_script('history_read', self.read_args(own)), 1)
+        self.assertEqual(valid['calls'][-1]['result']['format'], 'wls-history-bytes-v1')
+        limited = self.pump(request, self.control_script('history_read', self.read_args(own)), 1)
+        self.assertTrue(any(item['code'] == 'quota' for item in limited['blocked']), limited)
+        self.assertEqual(len(self.envelopes('worker')), before + 3)
+        results = [json.loads(row['result']) for row in self.feedback()[-3:]]
+        self.assertEqual(results[0]['error_code'], 'conflict')
+        self.assertEqual(results[1]['format'], 'wls-history-bytes-v1')
+        self.assertEqual(results[2]['error_code'], 'quota')
+
     def test_legacy_mode_and_malformed_window_do_not_silently_migrate(self):
         for source in ['  worker_history: {mode: window-v1, recent_attempts: 9, inline_bytes: 32768}',
                        '  worker_history: {mode: window-v1, recent_attempts: 8, inline_bytes: 65536}',

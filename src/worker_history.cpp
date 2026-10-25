@@ -93,7 +93,8 @@ std::vector<StructuredContextMessage> worker_history_messages(const Json& tail, 
     require(tail.is_object() && tail.at("format") == "wls-history-tail-v1" && tail.at("items").is_array() &&
         tail.at("items").as_array().size() <= static_cast<std::size_t>(recent), "invalid scoped history tail");
     const auto total = integer(tail.at("total_count"));
-    require(total >= 0 && integer(tail.at("omitted_count")) == total -
+    const auto omitted = integer(tail.at("omitted_count"));
+    require(total >= 0 && omitted >= 0 && omitted == total -
         static_cast<std::int64_t>(tail.at("items").as_array().size()), "inconsistent history omission count");
     Object index = tail.as_object(); index.erase("items");
     index["kind"] = "history_window"; index["policy"] = policy;

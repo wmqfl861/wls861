@@ -104,9 +104,14 @@ Json Store::attempt_history_tail(const StoreActor& actor, std::int64_t limit) co
     const Array scope{actor.request_id, role_name(actor.role), actor.principal_id, actor.task_id, actor.team_id};
     const std::string filter = "request_id=? AND role=? AND principal_id=? AND COALESCE(task_id,'')=? AND COALESCE(team_id,'')=?";
     const auto counts = impl_->one("SELECT COUNT(*) AS n,COALESCE(MAX(rowid),0) AS high FROM call_attempts WHERE " + filter, scope);
-    auto parameters = scope; parameters.push_back(limit);
+    // A read-only Store can coexist with the exclusive writer. Keep the tail
+    // within the same insertion membership captured by COUNT/MAX, even when
+    // a new attempt commits between these two statements. Settlement state
+    // and separately pinned unresolved facts intentionally remain live.
+    auto parameters = scope;
+    parameters.push_back(counts.at("high")); parameters.push_back(limit);
     auto rows = impl_->all("SELECT rowid AS sequence,attempt_id,call_id,frozen_binding,status,accepted,response "
-        "FROM call_attempts WHERE " + filter + " ORDER BY rowid DESC LIMIT ?", parameters);
+        "FROM call_attempts WHERE " + filter + " AND rowid<=? ORDER BY rowid DESC LIMIT ?", parameters);
     Array items;
     for (auto entry = rows.rbegin(); entry != rows.rend(); ++entry) {
         auto record = exposed(*entry);

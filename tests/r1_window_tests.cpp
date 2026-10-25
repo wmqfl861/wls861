@@ -1,6 +1,7 @@
 #include "wls/worker_history.hpp"
 #include "wls/offline_runtime.hpp"
 #include "test_support.hpp"
+#include <exception>
 #include <fstream>
 #include <memory>
 #include <sqlite3.h>
@@ -61,6 +62,84 @@ struct Fixture {
         return FakeModel({step});
     }
 };
+// Deterministic, test-only interleaving on a separate read-only connection.
+// SQLite's documented auto-extension entry point is registered before that
+// connection opens; the existing writer is never traced or reconfigured.
+// A statement trace fires before the tail SELECT reads its first row.
+struct TailInterleave {
+    inline static TailInterleave* active{};
+    std::function<void()> append;
+    std::exception_ptr failure;
+    bool fired{};
+    static int trace(unsigned event, void* context, void* statement, void*) noexcept {
+        auto& self = *static_cast<TailInterleave*>(context);
+        const char* query = sqlite3_sql(static_cast<sqlite3_stmt*>(statement));
+        if (event == SQLITE_TRACE_STMT && !self.fired && query != nullptr &&
+            std::string_view(query).starts_with("SELECT rowid AS sequence,attempt_id,call_id,frozen_binding,status,accepted,response ")) {
+            self.fired = true;
+            try { self.append(); } catch (...) { self.failure = std::current_exception(); }
+        }
+        return 0;
+    }
+    static int install(sqlite3* db, char**, const sqlite3_api_routines*) noexcept {
+        return active == nullptr ? SQLITE_OK : sqlite3_trace_v2(db, SQLITE_TRACE_STMT, trace, active);
+    }
+    explicit TailInterleave(std::function<void()> action) : append(std::move(action)) {
+        CHECK(active == nullptr);
+        active = this;
+        if (sqlite3_auto_extension(reinterpret_cast<void(*)()>(install)) != SQLITE_OK) {
+            active = nullptr;
+            throw std::runtime_error("cannot install test SQLite trace");
+        }
+    }
+    void stop_installing() { sqlite3_cancel_auto_extension(reinterpret_cast<void(*)()>(install)); }
+    ~TailInterleave() { stop_installing(); active = nullptr; }
+    TailInterleave(const TailInterleave&) = delete;
+    TailInterleave& operator=(const TailInterleave&) = delete;
+};
+void tail_capture_excludes_a_later_insert() {
+    Fixture f;
+    const auto actor = f.actor();
+    const auto original = f.store->attempt_history_tail(actor, 4);
+    std::string appended_id;
+    TailInterleave interleave([&] {
+        auto fake = f.fake();
+        const auto call = f.runner->reserve_call(fake, f.request, Role::Worker, f.task);
+        appended_id = call.request.attempt_id;
+        f.runner->accept_response(call, fake.complete(call.request));
+    });
+    // Keep interleave alive until the traced reader has been destroyed.
+    Store reader(f.db, read_runtime_file(source / "db/schema.sql"),
+        read_runtime_file(source / "db/migrations/004_s1_store.sql"), StoreOpenMode::ReadOnly,
+        read_runtime_file(source / "db/migrations/005_worker_tools.sql"),
+        read_runtime_file(source / "db/migrations/006_event_runtime.sql"),
+        read_runtime_file(source / "db/migrations/007_workflow_runtime.sql"),
+        read_runtime_file(source / "db/migrations/008_acceptance_runtime.sql"),
+        read_runtime_file(source / "db/migrations/009_owned_cleanup.sql"));
+    interleave.stop_installing();
+    const auto captured = reader.attempt_history_tail(actor, 4);
+    if (interleave.failure) std::rethrow_exception(interleave.failure);
+    CHECK(interleave.fired && !appended_id.empty());
+    CHECK(captured.at("through_sequence") == original.at("through_sequence"));
+    CHECK(captured.at("total_count") == original.at("total_count"));
+    CHECK(captured.at("items") == original.at("items"));
+    CHECK(captured.at("omitted_count") == 0);
+    // A fresh capture sees the append; the old capture remains internally
+    // consistent, and its complete small turn still compiles without truncation.
+    CHECK(worker_history_messages(captured, policy).size() == 3);
+    const auto next = reader.attempt_history_tail(actor, 4);
+    CHECK(next.at("total_count") == 2);
+    CHECK(text(next.at("items").as_array().back(), "attempt_id") == appended_id);
+    CHECK(num(next, "through_sequence") > num(captured, "through_sequence"));
+}
+void inconsistent_window_membership_is_rejected() {
+    Fixture f;
+    auto tail = f.store->attempt_history_tail(f.actor(), 4);
+    CHECK(tail.at("items").as_array().size() == 1);
+    tail.as_object()["total_count"] = 0;
+    tail.as_object()["omitted_count"] = -1;
+    expect(ErrorCode::InvalidInput, [&] { (void)worker_history_messages(tail, policy); });
+}
 void empty_policy_defaults() {
     const auto c=load_config_catalog(source/"config/examples/system.yaml",source/"config/examples/functions",source/"prompts").freeze("general");
     CHECK(c.worker_history_policy().is_null()); CHECK(c.runtime_support().at("history_window_integrated")==false);
@@ -163,6 +242,8 @@ void original_corruption_is_not_hidden_by_windowing() {
 }
 } // namespace
 int main() {return test::run({
+    {"tail capture excludes an interleaved later insert",tail_capture_excludes_a_later_insert},
+    {"negative omission count is rejected",inconsistent_window_membership_is_rejected},
     {"missing frozen window preserves legacy",empty_policy_defaults},
     {"scoped small original turn remains paired",tail_is_original_and_small_turn_is_paired},
     {"large whole turn becomes explicit original reference",large_turn_is_explicit_reference},
