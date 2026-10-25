@@ -1,5 +1,7 @@
 # 当前说明的代次恢复（ADR-064）
 
+> 恢复范围以[请求限定恢复契约](S1-request-recovery.md)为准：CLI请求写者只恢复目标，submit仅准入；旧默认Store与显式init仍全库维护。
+
 本增量承接 0.7.1-s1.6；不改已发布SQL、原说明、原模型调用及旧操作绑定。
 
 - recover 照旧提升请求/团队epoch、释放旧领取、取消PREPARED、把RUNNING/待定调用围栏为UNKNOWN。

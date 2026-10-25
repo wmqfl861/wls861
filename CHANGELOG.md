@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.6-r2.1 — request-scoped writer recovery
+
+- Add trusted-host OneRequest and AdmissionOnly scopes without changing the global exclusive writer lease.
+- Scope CLI execution/control recovery to its target; new admission and exact replay preserve all existing requests.
+- Preserve operation/late-response fences, immutable instruction projection, WAITING, AMEND, accounting and closeout jobs.
+- Reject cross-scope writes, actorless settlements, scoped empty-database initialization and implicit populated upgrades.
+- Keep the default all-request Store and explicit init maintenance compatible; no SQL or frozen-snapshot changes.
+
+
 ## 0.7.5-r1.3 — frozen Worker windows and original-evidence controls
 
 - Add explicit structured-v2/window-v1 selection; preserve old frozen snapshots and legacy full-history behavior.

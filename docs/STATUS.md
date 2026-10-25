@@ -1,11 +1,11 @@
 # 当前实现与证据
 
-当前实现 **0.7.5-r1.3**，目标蓝图 **v0.4.1**。承接已发布 `0dbf478`，
-新增[冻结 Worker 历史窗口及模型回读](implementation/R1-worker-history-window.md)，依据
-[ADR-069](adr/069-worker-history-window.md)。新请求显式启用 structured-v2 / window-v1 后，
-run-fake 与 pump-fake 保留近期完整轮次，将旧/大结果改为明确的原证据引用。
-完整当前任务契约及未决状态不参加裁剪；旧快照保持原完整历史语义。
-验证与发布状态见[本批报告](reports/r1-worker-history-window-validation.md)。
+当前实现 **0.7.6-r2.1**，目标蓝图 **v0.4.1**。承接已发布 `19ea603`，
+新增[请求限定的写者恢复](implementation/S1-request-recovery.md)，依据
+[ADR-070](adr/070-request-scoped-recovery.md)。CLI 的请求写命令只恢复目标，submit只准入/去重；
+兄弟请求及其事件、调用和收尾租约不变。选中请求仍完成原有恢复围栏，数据库级唯一写者保留。
+已发布R1.3的冻结Worker窗口/原反馈回读保持；下一项为R2否定验收后的有界后继。
+本轮实际验证与发布边界见[报告](reports/r2-request-recovery-validation.md)。
 
 ## 能力矩阵
 
@@ -16,7 +16,7 @@ run-fake 与 pump-fake 保留近期完整轮次，将旧/大结果改为明确�
 | 问答/候选/验收 | Worker问题、原字节提交、TL有限返工、Dispatcher验收 | 固定脚本闭环；否定验收/返工耗尽的受控后继尚缺 |
 | 交付/清理 | 不可变包、精确回执、经验作业、固定清单受控 work 删除 | 实际发布/删除/恢复；私有行、owner收据保留；全局cleanup仍PENDING；PREPARED分配中断缺恢复出口 |
 | 上下文/模型 | 冻结选择v1/v2和Worker window-v1；近期完整轮次、旧/大结果原证据引用；模型回读与持久频率限制 | FakeModel大文件多轮/重开继续、模型回读原字节；旧请求不迁移。LLM语义压缩、管理角色窗口、实际wire仍未实现；完整当前契约超限仍拒绝 |
-| 事件/并发 | 持久inbox、逐任务AMEND、串行pump；冻结准入窗口/独立计数/Root检查点 | 旧快照不改写；到限可核对后续进；不清审计/不重置预算。全库恢复范围和全局并发仍待完成 |
+| 事件/并发 | 持久inbox、逐任务AMEND、串行pump；冻结准入窗口/独立计数/Root检查点 | 旧快照不改写；到限可核对后续进；不清审计/不重置预算。CLI 已按请求恢复；默认全库维护仍保留。并发租约、只在确有在途时提升选中请求代次仍未实现 |
 | 配置执行状态 | check/explain显示 runtime_support 和 validated_only 项 | 形状有效不代表墙钟/告警/压缩/并发/停滞检测已执行 |
 | 记忆、MCP、跨功能审核 | 规格/参考契约 | 完整C++闭环及真实互通未实现 |
 | 测试工具链 | 严格、UBSan、ASan、Clang、普通用户及umask矩阵 | 六路CI：Release/两种umask、UBSan、CMake ASan、Make ASan、Clang18；Make ASan默认-O0，其他优化构建保留；实际结果见报告 |
@@ -37,5 +37,5 @@ S2 独立审核/DAG，S3 记忆，S4 MCP/评测，S5 按证据扩展仍为后续
 原两个复现已转成回归，记录基线失败；运行状态和完整门禁见[本批报告](reports/audit24-recovery-validation.md)。
 
 该历史增量实现为 0.7.2-s1.6，不代表三个P1的所有生产部署条件均已实测：强bwrap/cgroup正向仍缺环境。
-R1容量问题现由显式新窗口部分覆盖，旧请求迁移/语义压缩仍开放；R2否定验收/全库恢复范围、R2a分配中断/fs_mkdir仍待实现。
+R1容量问题现由显式新窗口部分覆盖，旧请求迁移/语义压缩仍开放；R2按请求恢复见ADR-070；否定验收后继、并发租约、R2a分配中断/fs_mkdir仍待实现。
 [逐项处置](reviews/claude-2026-10-24-disposition.md)区分已覆盖、实际修复和延期方案。

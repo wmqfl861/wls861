@@ -21,6 +21,13 @@ may project whole old/large turns into references; current contracts and unresol
 facts must remain complete. Readbacks require current scope/policy, normal model
 accounting and immutable feedback. Never substitute a present file for old evidence.
 
+Read `docs/adr/070-request-scoped-recovery.md` and
+`docs/implementation/S1-request-recovery.md` for scoped writer recovery. CLI
+request writes take over only their target; admission-only cannot execute. The
+database writer lock remains exclusive. Recover a selected request before issuing
+its actors; preserve all unknown/late/AMEND/wait and post-terminal job fences.
+Populated structural upgrades require explicit all-request init maintenance.
+
 Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
 review fixes and priority changes. Model contract/context/rework and an approved
 small real loop now precede expanding private-data purge or daemon/API. Keep

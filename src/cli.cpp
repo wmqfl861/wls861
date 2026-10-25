@@ -218,10 +218,12 @@ Json request_view(Store& store, const std::string& id) {
 }
 
 void help() {
-    std::cout << R"(wls 0.7.5-r1.3 — bounded Worker history with offline models
+    std::cout << R"(wls 0.7.6-r2.1 — request-scoped recovery with offline models
 
 Resource paths default to the source checkout in the current directory.
 Use --source-root PATH from another directory. Outputs are JSON; errors go to stderr.
+Request writes recover only their target; submit only admits/replays.
+init is explicit all-request recovery and migration maintenance.
 
   wls config check [--config FILE] [--function ID]
   wls config explain [--config FILE] [--function ID] [--role worker]
@@ -323,7 +325,7 @@ int run_cli(int argc, char** argv) {
     const std::string command(argv[1]);
     if (command == "--version" || command == "version") {
         if (argc != 2) throw Error(ErrorCode::InvalidInput, "version takes no options");
-        output(Object{{"version", "0.7.5-r1.3"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
+        output(Object{{"version", "0.7.6-r2.1"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
     }
     int start = 2;
     std::string action;
@@ -396,7 +398,7 @@ int run_cli(int argc, char** argv) {
             inspect.validate_capacity_checkpoint(inspect.host_actor(Role::Root, request), expected, evidence, key);
         }
         Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
-            events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+            events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request));
         output(store.checkpoint_capacity(store.host_actor(Role::Root, request), expected, evidence, key)); return 0;
     }
     if (command == "reconcile-op") {
@@ -415,7 +417,7 @@ int run_cli(int argc, char** argv) {
             inspect.validate_reconciliation(inspect.host_actor(Role::Root, request), op, expected, outcome, evidence, key);
         }
         Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
-            events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+            events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request));
         output(store.reconcile_operation(store.host_actor(Role::Root, request), op, expected, outcome, evidence, key));
         return 0;
     }
@@ -445,7 +447,7 @@ int run_cli(int argc, char** argv) {
         const auto cost_limit = cost.is_null() ? 0 : cost_limit_micro(cost);
         admission.budget.cost_micro_usd = options.number("--cost-budget-micro-usd", cost_limit);
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::admission());
         const auto admitted = store.admit(admission);
         output(request_view(store, text(admitted.at("request_id")))); return 0;
     }
@@ -536,7 +538,7 @@ int run_cli(int argc, char** argv) {
             }
         }
         Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
-                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request));
         const auto root = store.host_actor(Role::Root, request);
         const auto binding = store.request_binding(request);
         auto delivery = delivery_id.empty()
@@ -575,7 +577,7 @@ int run_cli(int argc, char** argv) {
                 throw Error(ErrorCode::Unauthorized, "task belongs to another request");
         }
         Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
-                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request));
         output(allocate_owned_workspace(store, request, task_id, parent, key)); return 0;
     }
     if (command == "cleanup-workspaces") {
@@ -590,7 +592,7 @@ int run_cli(int argc, char** argv) {
                 throw Error(ErrorCode::NotReady, "workspace cleanup blocked; inspect closeout");
         }
         Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
-                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request));
         output(cleanup_owned_workspaces(store, request, static_cast<std::size_t>(max_unlinks))); return 0;
     }
     if (command == "questions" || command == "submissions") {
@@ -652,7 +654,7 @@ int run_cli(int argc, char** argv) {
                     throw Error(ErrorCode::InvalidInput, "selected option is absent from the original question");
             }
         }
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request));
         output(store.answer_question(store.host_actor(Role::Root, request), store.request_binding(request),
             question_id, expected_version, answer, new_id("answer")));
         return 0;
@@ -739,7 +741,7 @@ int run_cli(int argc, char** argv) {
         }
         // This is a preflight, not authorization. Store repeats all guards with
         // the current binding after acquiring the exclusive writer lease.
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request));
         const auto actor = scoped_actor(store, request, Role::Worker, task);
         const auto binding = store.binding(task);
         output(command == "wait"
@@ -767,7 +769,7 @@ int run_cli(int argc, char** argv) {
         const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
         options.finish();
         const SchemaRegistry schemas(source / "schemas");
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request));
         std::vector<std::unique_ptr<WorkerTools>> owners;
         std::map<std::string, WorkerTools*> tools_by_node;
         for (const auto& [node, path] : paths) {
@@ -810,13 +812,13 @@ int run_cli(int argc, char** argv) {
         const auto catalog = parse_json_strict(read_runtime_file(options.required("--constraints-file")));
         validate_constraint_catalog_shape(catalog);
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request));
         const auto actor = store.host_actor(Role::Root, request);
         output(store.amend(actor, integer(store.request(request).at("state_version")), amendment, catalog, new_id("amend")));
         return 0;
     }
     if (command == "cancel") {
-        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request));
         output(store.cancel_request(store.host_actor(Role::Root, request), integer(store.request(request).at("state_version")), new_id("cancel")));
         return 0;
     }
@@ -830,7 +832,7 @@ int run_cli(int argc, char** argv) {
     const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
     options.finish();
     const SchemaRegistry schemas(source / "schemas");
-    Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql);
+    Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request));
     std::unique_ptr<WorkerTools> worker_tools;
     if (!workspace.empty()) worker_tools = std::make_unique<WorkerTools>(store, workspace, manifest);
     output(OfflineRuntime(store, schemas, worker_tools.get()).run(request, script, disposition, worker_calls));
