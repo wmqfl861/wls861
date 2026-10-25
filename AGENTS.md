@@ -15,6 +15,11 @@ Read `docs/adr/068-structured-model-input.md` and
 `docs/implementation/R1-structured-context.md` for frozen v1/v2 selection, logical
 input/request fingerprints and native tool-turn provenance. Missing old policy
 means framed-v1; never rewrite old snapshots or fabricate wire receipts.
+For R1.3 read ADR-069 and docs/implementation/R1-worker-history-window.md.
+Missing worker_history retains full history. Only explicitly frozen window-v1
+may project whole old/large turns into references; current contracts and unresolved
+facts must remain complete. Readbacks require current scope/policy, normal model
+accounting and immutable feedback. Never substitute a present file for old evidence.
 
 Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
 review fixes and priority changes. Model contract/context/rework and an approved

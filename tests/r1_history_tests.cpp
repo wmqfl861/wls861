@@ -148,6 +148,13 @@ void over_256_with_fixed_snapshot() {
     }
     CHECK(seen == originals && !seen.contains(late));
     CHECK(f.page(through).at("items").as_array().size() == 1);
+    const auto tail = f.store->attempt_history_tail(f.actor(), 4);
+    CHECK(num(tail, "total_count") == 271 && num(tail, "omitted_count") == 267);
+    CHECK(tail.at("items").as_array().size() == 4);
+    CHECK(text(tail.at("items").as_array().back(), "attempt_id") == late);
+    CHECK(num(tail, "through_sequence") == num(tail.at("items").as_array().back(), "sequence"));
+    CHECK(f.store->attempt_history_tail(f.actor("beta"), 4).at("principal_id") != tail.at("principal_id"));
+
 }
 void ownership_and_cursor_guards() {
     Fixture f; const auto own = f.add(); const auto other = f.add(Object{}, "beta");

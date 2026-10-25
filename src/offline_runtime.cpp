@@ -1,6 +1,7 @@
 #include "wls/offline_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "wls/structured_context.hpp"
+#include "wls/worker_history.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -438,9 +439,20 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
                 std::find(grants.begin(), grants.end(), "fs_read") != grants.end())
             declared_tools.push_back({"submit", "wls-work-submit-v1", schemas_.project_model_input("submission")});
     }
+    const auto history_policy = role == Role::Worker ? config.worker_history_policy() : Json(nullptr);
+    if (!history_policy.is_null()) {
+        require(store_.event_runtime_enabled(), ErrorCode::Unsupported, "history window needs durable feedback storage");
+        const auto available = store_.authorized_history_tools(actor, binding);
+        require(available.size() == 2, ErrorCode::Unauthorized,
+            "history window requires both current readback controls; policy revoked");
+        for (const auto& tool : history_control_declarations()) declared_tools.push_back(tool);
+        contract.as_object()["worker_history_policy"] = history_policy;
+    }
     if (role == Role::Worker)
         require(!declared_tools.empty(), ErrorCode::Unauthorized, "Worker has no implemented authorized tools");
     auto context = make_context(config, role, template_id, declared_tools, contract);
+    if (!history_policy.is_null())
+        context.dependencies.push_back({"worker_history_policy", "window-v1", sha256_hex(canonical_json(history_policy))});
     if (role == Role::Worker && worker_tools_) {
         const auto execution = worker_tools_->environment_card(actor);
         auto environment = parse_json_strict(context.environment_card);
@@ -481,7 +493,14 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
     require(role == Role::Worker || tool_feedback.empty(), ErrorCode::InvalidInput, "tool feedback belongs to the Worker context");
     const bool structured = config.context_request_format() == "structured-v2";
     std::vector<StructuredContextMessage> native_messages;
-    if (store_.event_runtime_enabled() && role == Role::Worker) {
+    if (!history_policy.is_null()) {
+        native_messages = worker_history_messages(store_.attempt_history_tail(actor,
+            integer_at(history_policy, "recent_attempts")), history_policy);
+        context.approved_rules += " History controls read only this Worker's immutable original evidence. "
+            "A history_window explicitly reports older omissions; history_reference is not the original result or a summary. "
+            "Retrieve original facts with history_page/history_read; decode base64 and verify full section SHA before interpreting it. "
+            "Never infer success, completion or permission from an omitted record. No authoritative task constraint is pruned.";
+    } else if (store_.event_runtime_enabled() && role == Role::Worker) {
         const auto history = store_.attempt_history(actor);
         if (structured) native_messages = structured_attempt_history(history);
         else for (const auto& attempt : history) {
@@ -725,6 +744,8 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         schemas_.validate("work_order", order);
         return store_.issue_instruction(call.actor, captured.binding, call.expected_state_version, order, command);
     }
+    if (captured.role == Role::Worker && is_history_control(tool.name))
+        return execute_history_control(store_, call.actor, captured.binding, tool.name, tool.arguments);
     if (captured.role == Role::Worker && worker_tools_)
         return worker_tools_->execute(call.actor, captured.binding, call.expected_state_version,
             captured.attempt_id, tool.name, tool.arguments, command);

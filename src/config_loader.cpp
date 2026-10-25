@@ -566,11 +566,21 @@ CapabilityRegistry validate_system(const Json& system) {
     const auto& context = required(system, "context", "system");
     fields(context, "system.context", {{"compaction_at_fraction", 'n'}, {"snapshot_decision_log_entries", 'i'},
         {"schema_retry_max", 'z'}, {"cache_dependencies", 'a'}, {"policy_updates_use_runtime_gate", 'b'},
-        {"request_format", 's'}}, {"request_format"});
+        {"request_format", 's'}, {"worker_history", '-'}}, {"request_format", "worker_history"});
     if (const auto* format = optional(context, "request_format")) {
         const auto name = string_value(*format, "system.context.request_format");
         if (name != "framed-v1" && name != "structured-v2")
             invalid("system.context.request_format", "expected framed-v1 or structured-v2");
+    }
+    if (const auto* history = optional(context, "worker_history")) {
+        const auto* format = optional(context, "request_format");
+        if (!format || string_value(*format, "system.context.request_format") != "structured-v2")
+            invalid("system.context.worker_history", "window-v1 requires explicit structured-v2");
+        fields(*history, "system.context.worker_history", {{"mode", 's'}, {"recent_attempts", 'i'}, {"inline_bytes", 'i'}});
+        literal(*history, "mode", "window-v1", "system.context.worker_history");
+        const auto recent = integer_value(required(*history, "recent_attempts", "worker_history"), "worker_history.recent_attempts", 1, 8);
+        const auto bytes = integer_value(required(*history, "inline_bytes", "worker_history"), "worker_history.inline_bytes", 32768, 65536);
+        if (recent * bytes > 196608) invalid("system.context.worker_history", "combined inline history exceeds 192 KiB");
     }
     (void)number_value(required(context, "compaction_at_fraction", "system.context"), "system.context.compaction_at_fraction", 0.1, 0.95);
     flag(context, "policy_updates_use_runtime_gate", true, "system.context");
@@ -881,6 +891,12 @@ std::string FrozenRequestConfig::context_request_format() const {
     return format ? string_value(*format, "system.context.request_format") : "framed-v1";
 }
 
+Json FrozenRequestConfig::worker_history_policy() const {
+    const auto& context = required(required(document_, "system", "snapshot"), "context", "system");
+    const auto* policy = optional(context, "worker_history");
+    return policy ? *policy : Json(nullptr);
+}
+
 Json FrozenRequestConfig::runtime_support() const {
     Array deferred;
     const auto add = [&](std::string_view section, std::string_view key, std::string_view reason) {
@@ -902,7 +918,7 @@ Json FrozenRequestConfig::runtime_support() const {
     add("cleanup", "vacuum_weekly", "no periodic private-data purge or maintenance scheduler");
     return Object{{"validation_scope", "configuration_shape_references_and_policies"},
         {"execution_mode", "offline_fake"}, {"context_request_format", context_request_format()},
-        {"history_window_integrated", false}, {"real_calls_ready", false},
+        {"history_window_integrated", !worker_history_policy().is_null()}, {"worker_history_policy", worker_history_policy()}, {"real_calls_ready", false},
         {"all_configured_controls_enforced", false}, {"unenforced_settings", deferred}};
 }
 

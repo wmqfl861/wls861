@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.5-r1.3 — frozen Worker windows and original-evidence controls
+
+- Add explicit structured-v2/window-v1 selection; preserve old frozen snapshots and legacy full-history behavior.
+- Load bounded scoped recent attempts, retain whole tool pairs or explicit hash-pinned references, and disclose omitted history.
+- Pin unresolved operations and missing/uncertain attempts outside the recent tail; never prune authoritative task contracts.
+- Integrate history_page/history_read with both offline runners, normal call accounting, original feedback replay and persistent rate checks.
+- Verify repeated large reads across restart, original evidence readback, policy/AMEND/UNKNOWN/wait fences and malformed configuration.
+- Keep real transport, wire receipts, model-quality evaluation and semantic summarization separate.
+
+
 ## 0.7.4-r1.2 — frozen structured model input
 
 - Add opt-in structured-v2 system sections, native tool schemas and validated ID-paired messages to the actual offline runtime.

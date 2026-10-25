@@ -1,11 +1,9 @@
-# 当前实现与证据
-
-当前实现 **0.7.4-r1.2**，目标蓝图 **v0.4.1**。本批承接 `b493752`，新增
-[冻结选择的结构化模型请求](implementation/R1-structured-context.md)和工具往返配对，
-实际接通run-fake/pump-fake；[ADR-068](adr/068-structured-model-input.md)定义兼容与证据边界。
-新请求可显式启用structured-v2；兼容样例与缺字段的旧快照继续framed-v1。**完整历史窗口尚未接入**，
-原R1大结果多轮触顶仍开放；R1.1原反馈分页/分片接口继续保留。
-验证与发布状态见[本批报告](reports/r1-structured-context-validation.md)。
+# 当前实现 **0.7.5-r1.3**，目标蓝图 **v0.4.1**。承接已发布 `0dbf478`，
+新增[冻结 Worker 历史窗口及模型回读](implementation/R1-worker-history-window.md)，依据
+[ADR-069](adr/069-worker-history-window.md)。新请求显式启用 structured-v2 / window-v1 后，
+run-fake 与 pump-fake 保留近期完整轮次，将旧/大结果改为明确的原证据引用。
+完整当前任务契约及未决状态不参加裁剪；旧快照保持原完整历史语义。
+验证与发布状态见[本批报告](reports/r1-worker-history-window-validation.md)。
 
 ## 能力矩阵
 
@@ -15,7 +13,7 @@
 | 文件/进程 | fs_list/read/search/write/patch；完整强证明与前后清单可结算失败，Root专用核对；子进程固定0077 | 真实文件和监督夹具；强 bwrap/cgroup 部署正向、mkdir 和后台操作待完成 |
 | 问答/候选/验收 | Worker问题、原字节提交、TL有限返工、Dispatcher验收 | 固定脚本闭环；否定验收/返工耗尽的受控后继尚缺 |
 | 交付/清理 | 不可变包、精确回执、经验作业、固定清单受控 work 删除 | 实际发布/删除/恢复；私有行、owner收据保留；全局cleanup仍PENDING；PREPARED分配中断缺恢复出口 |
-| 上下文/模型 | 冻结选择v1/v2；结构化系统段/工具Schema/ID配对；逻辑输入和请求指纹；原历史分页/分片 | v2实际接通Fake运行器；旧快照不改。窗口/压缩/回读模型工具及实际wire仍未实现，大结果多轮仍会到限 |
+| 上下文/模型 | 冻结选择v1/v2和Worker window-v1；近期完整轮次、旧/大结果原证据引用；模型回读与持久频率限制 | FakeModel大文件多轮/重开继续、模型回读原字节；旧请求不迁移。LLM语义压缩、管理角色窗口、实际wire仍未实现；完整当前契约超限仍拒绝 |
 | 事件/并发 | 持久inbox、逐任务AMEND、串行pump；冻结准入窗口/独立计数/Root检查点 | 旧快照不改写；到限可核对后续进；不清审计/不重置预算。全库恢复范围和全局并发仍待完成 |
 | 配置执行状态 | check/explain显示 runtime_support 和 validated_only 项 | 形状有效不代表墙钟/告警/压缩/并发/停滞检测已执行 |
 | 记忆、MCP、跨功能审核 | 规格/参考契约 | 完整C++闭环及真实互通未实现 |
@@ -37,5 +35,5 @@ S2 独立审核/DAG，S3 记忆，S4 MCP/评测，S5 按证据扩展仍为后续
 原两个复现已转成回归，记录基线失败；运行状态和完整门禁见[本批报告](reports/audit24-recovery-validation.md)。
 
 该历史增量实现为 0.7.2-s1.6，不代表三个P1的所有生产部署条件均已实测：强bwrap/cgroup正向仍缺环境。
-R1上下文容量、R2否定验收/全库恢复范围、R2a分配中断/fs_mkdir等仍开放；新存储检查点不解决这些问题。
+R1容量问题现由显式新窗口部分覆盖，旧请求迁移/语义压缩仍开放；R2否定验收/全库恢复范围、R2a分配中断/fs_mkdir仍待实现。
 [逐项处置](reviews/claude-2026-10-24-disposition.md)区分已覆盖、实际修复和延期方案。

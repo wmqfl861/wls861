@@ -3358,7 +3358,21 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
     require(reservation.max_output_tokens <= number(profile.at("capabilities").as_object(), "max_output_tokens"), ErrorCode::Quota, "attempt output exceeds frozen model capability");
     if (actor.role == Role::Worker) {
         impl_->ready(actor, frozen);
-        for (const auto& tool : original_model_request.context.tool_names) impl_->ready(actor, frozen, tool);
+        const auto history_policy = frozen_config.worker_history_policy();
+        if (!history_policy.is_null()) {
+            impl_->require_events_schema();
+            const auto contract = parse_json_strict(compiled_task_contract(original_model_request.context));
+            const auto* declared = contract.as_object().if_contains("worker_history_policy");
+            require(declared && *declared == history_policy, ErrorCode::Unauthorized,
+                "Worker window differs from frozen history policy");
+        }
+        for (const auto& tool : original_model_request.context.tool_names) {
+            if (tool == "history_page" || tool == "history_read") {
+                const auto denied = parse_json_strict(str(impl_->one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
+                require(!history_policy.is_null() && !contains(denied, tool), ErrorCode::Unauthorized,
+                    "history control is absent from frozen/current policy");
+            } else impl_->ready(actor, frozen, tool);
+        }
     }
     if (experience) {
         const auto job = impl_->validate_experience_target(actor, frozen, reservation.experience_job_id,
