@@ -1119,7 +1119,15 @@ public:
         }
         if (type == "answer_question") {
             const auto task_id = str(result.as_object(), "task_id");
-            enqueue("worker", task_id); enqueue("team_lead", task_id);
+            if (str(result.as_object(), "asked_by") == "dispatcher") enqueue("dispatcher", task_id);
+            else { enqueue("worker", task_id); enqueue("team_lead", task_id); }
+            return;
+        }
+        if (type == "accept_candidate" && !command.at("decision").at("passed").as_bool()) {
+            enqueue("dispatcher", str(result.as_object(), "task_id")); return;
+        }
+        if (type == "resolve_blocked_submission") {
+            if (result.at("action") == "rework") enqueue("team_lead", str(result.as_object(), "task_id"));
             return;
         }
         if (type == "submit_work") { enqueue("team_lead", str(result.as_object(), "task_id")); return; }
@@ -2069,6 +2077,8 @@ Json Store::check_submission(const StoreActor& actor, const ExecutionBinding& ca
     const auto result = impl_->submission_info(id);
     impl_->event(actor.request_id, command_id, command, result, "team_lead"); tx.commit(); return result;
 }
+
+#include "store_rework.inc"
 
 bool Store::acceptance_runtime_enabled() const {
     const std::lock_guard lock(impl_->mutex); return impl_->acceptance_schema;

@@ -316,6 +316,10 @@ Json next_workflow_action(Store& store, Role role, const std::string& request_id
         }
         if (role == Role::Dispatcher && store.acceptance_runtime_enabled()) {
             for (const auto& task : store.tasks(request_id)) {
+                if (string_at(task, "status") == "BLOCKED") {
+                    const auto blocked = store.blocked_submission_action(string_at(task, "task_id"));
+                    if (!blocked.is_null()) return blocked;
+                }
                 if (string_at(task, "status") != "SUBMITTED" ||
                     integer_at(task, "based_on_requirements_revision") != integer_at(request, "requirements_revision") ||
                     integer_at(task, "plan_revision") != integer_at(request, "plan_revision")) continue;
@@ -365,9 +369,14 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
         contract.as_object()["submission"] = submission;
         action = next_workflow_action(store_, role, request_id, task_id);
         contract.as_object()["workflow_action"] = action;
+        if (role == Role::TeamLead && store_.acceptance_runtime_enabled()) {
+            const auto rework = store_.rework_request(task_id);
+            if (!rework.is_null()) contract.as_object()["rework_request"] = rework;
+        }
         if (role == Role::TeamLead && !action.is_null() && string_at(action, "kind") == "submission")
             contract.as_object()["submission_file_views"] = submission_file_views(submission);
-        if (!action.is_null() && string_at(action, "kind") == "acceptance") {
+        if (!action.is_null() && (string_at(action, "kind") == "acceptance" ||
+                                  string_at(action, "kind") == "blocked_submission")) {
             const auto& target = action.at("target");
             const auto producer_task_id = string_at(target, "task_id");
             contract.as_object()["acceptance_task"] = store_.task(producer_task_id);
@@ -422,6 +431,8 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
                 {"forward_question", "wls-question-forward-v1", schemas_.project_model_input("forward_question")}};
         else if (string_at(action, "kind") == "acceptance")
             declared_tools = {{"accept_candidate", "wls-candidate-acceptance-v1", schemas_.project_model_input("accept_candidate")}};
+        else if (string_at(action, "kind") == "blocked_submission")
+            declared_tools = {{"resolve_blocked_submission", "wls-blocked-followup-v1", schemas_.project_model_input("resolve_blocked_submission")}};
         else if (string_at(action, "kind") == "experience")
             declared_tools = {{"report_experience", "wls-experience-report-v1", schemas_.project_model_input("experience_report")}};
         else declared_tools = {{"check_submission", "wls-submission-check-v1", schemas_.project_model_input("check_submission")}};
@@ -631,6 +642,15 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
                     "captured candidate only permits its Dispatcher acceptance decision");
             schemas_.validate("accept_candidate", tool.arguments, true);
             return store_.accept_candidate(call.actor, captured.binding,
+                integer_at(call.workflow_action, "expected_task_version"), string_at(target, "submission_id"),
+                integer_at(target, "state_version"), tool.arguments, command);
+        }
+        if (string_at(call.workflow_action, "kind") == "blocked_submission") {
+            require(store_.acceptance_runtime_enabled() && captured.role == Role::Dispatcher &&
+                    tool.name == "resolve_blocked_submission", ErrorCode::Unauthorized,
+                    "captured rejection only permits its bounded Dispatcher follow-up");
+            schemas_.validate("resolve_blocked_submission", tool.arguments, true);
+            return store_.resolve_blocked_submission(call.actor, captured.binding,
                 integer_at(call.workflow_action, "expected_task_version"), string_at(target, "submission_id"),
                 integer_at(target, "state_version"), tool.arguments, command);
         }

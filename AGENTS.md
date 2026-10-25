@@ -21,6 +21,12 @@ may project whole old/large turns into references; current contracts and unresol
 facts must remain complete. Readbacks require current scope/policy, normal model
 accounting and immutable feedback. Never substitute a present file for old evidence.
 
+For R2.1 read ADR-070 and docs/implementation/R2-rejection-followup.md.
+A rejected submission is not permission to retry. Capture its exact immutable
+source and CAS; share the frozen team rework count. Only a new TL order plus
+Worker ack can resume business. One user question does not add quota or clear
+UNKNOWN; answered-but-unhandled notices remain pending. No existing SQL changes.
+
 Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
 review fixes and priority changes. Model contract/context/rework and an approved
 small real loop now precede expanding private-data purge or daemon/API. Keep

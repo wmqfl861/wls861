@@ -38,7 +38,7 @@ class SchemaContracts(unittest.TestCase):
 
     def test_all_local_schemas_examples_and_nested_briefs(self):
         with patch("socket.socket", side_effect=AssertionError("network is forbidden")):
-            self.assertEqual(contracts.validate_examples(), (17, 13))
+            self.assertEqual(contracts.validate_examples(), (18, 13))
         plan = self.example("plan.json")
         del plan["nodes"][0]["brief"]["constraint_refs"]
         with self.assertRaises(ValidationError):

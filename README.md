@@ -1,6 +1,6 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.7.5-r1.3；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.8.0-r2.1；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
 本批接续第二份审核：同语义说明的恢复无需重写，强进程结果按完整证据结算，新增Root核对入口。
 [当前能力/证据矩阵](docs/STATUS.md)集中记录实现边界；[审核采纳记录](docs/reviews/claude-disposition.md)
@@ -11,6 +11,16 @@ R1.3 在此基础上接通显式冻结的Worker窗口与模型回读；旧请求
 
 新增入口及证据要求见[进程结算/核对契约](docs/implementation/S1-process-settlement.md)，
 说明恢复见[epoch恢复契约](docs/implementation/S1-epoch-recovery.md)。本地控制CLI不是网络认证服务。
+
+## 拒绝验收后的有限返工
+
+R2.1 为当前被拒提交提供 Dispatcher `resolve_blocked_submission`：
+`rework` 保持原任务验收标准、消耗冻结团队共用返工次数，由 TeamLead 发新说明后 Worker 再确认；
+`ask_user` 创建一次精确绑定的用户问题。普通 `answer` 只提供答案，不增加返工次数或解除 UNKNOWN。
+两条路径都通过原 `pump-fake` 执行，模型不能提供目标ID、CAS或新预算。
+[实现契约](docs/implementation/R2-rejection-followup.md)说明运行步骤、兼容与耗尽出口，
+[回归程序](tests/r2_rework_cli_smoke.py)提供可复现的完整固定脚本流程。
+通用任务改写、模型AMEND处置和按请求恢复仍为后续 R2 项目。
 
 ## Worker 上下文窗口（显式启用）
 

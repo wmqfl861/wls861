@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/v0.4.1/resolve_blocked_submission.schema.json",
+  "title": "Resolve one captured blocked submission",
+  "description": "Dispatcher requests bounded rework without changing the TaskBrief, or creates one blocking user question. IDs, CAS, original evidence and budgets are host-owned. An answer does not reset rework limits.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["action", "reason"],
+  "properties": {
+    "action": {"enum": ["rework", "ask_user"]},
+    "reason": {"type": "string", "minLength": 1, "maxLength": 4000, "pattern": "\\S"}
+  }
+}

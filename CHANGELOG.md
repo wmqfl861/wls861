@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0-r2.1 — bounded rejected-submission follow-up
+
+- Capture exact blocked submissions with original rejection, task/submission CAS and frozen shared rework count.
+- Add Dispatcher rework or one blocking user escalation; preserve task criteria, original evidence and all spent quotas.
+- Require a new TeamLead order and Worker acknowledgment before business resumes; answers never reset exhausted limits.
+- Keep exact answered/rejected notices pending until their own handling completes; isolate sibling tasks.
+- Cover stale response, policy, AMEND, cancellation, replay and transactional rollback using FakeModel and real SQLite/CLI.
+- Retain request-scoped recovery, general change_task and model-generated AMEND as subsequent R2 work.
+
 ## 0.7.5-r1.3 — frozen Worker windows and original-evidence controls
 
 - Add explicit structured-v2/window-v1 selection; preserve old frozen snapshots and legacy full-history behavior.

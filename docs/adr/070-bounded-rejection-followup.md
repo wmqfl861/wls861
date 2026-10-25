@@ -13,7 +13,8 @@
 宿主在预约管理调用前捕获一个当前 BLOCKED 提交、任务 CAS、完整原提交/检查与拒绝证据、
 冻结团队返工上限及累计次数。模型只能返回 `action: rework|ask_user` 和非空 `reason`，
 不能提供目标 ID、版本、团队、额度或替代验收标准。Store 在提交事务重查身份、当前代次、
-请求/任务/说明语义版本、政策、CAS、等待及未决操作，调用结果不是执行授权。
+请求/任务/说明语义版本、政策、CAS和等待；返工另需操作/用量结算。上报用户作为控制仍可
+保留UNKNOWN，但绝不解除它，调用结果不是执行授权。
 
 `rework` 是保持原 TaskBrief 的受限 change_task：累计计数与既有 TeamLead 返工共享，
 只有次数小于冻结 team_internal_rework_max 才可执行。事务增加 task_revision，将原提交标记

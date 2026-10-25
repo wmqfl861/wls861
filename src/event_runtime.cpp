@@ -402,7 +402,11 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         const auto target_task = text(action.at("target"), "task_id");
         return std::any_of(claim.at("items").as_array().begin(), claim.at("items").as_array().end(),
             [&](const auto& item) {
+                const auto question_id = event_object_id(item, "question_id");
+                const auto* followup = action.as_object().if_contains("followup_question");
                 return event_object_id(item, field) == target_id ||
+                    (kind == "blocked_submission" && followup && !followup->is_null() &&
+                     !question_id.empty() && text(*followup, "question_id") == question_id) ||
                     (recovery_item(item) && text(item, "subject_task_id") == target_task);
             });
     };
@@ -410,6 +414,12 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         const auto question_id = event_object_id(item, "question_id");
         if (question_id.empty()) return false;
         const auto question = store_.question(question_id);
+        // An answer is an input, not proof that rejection recovery completed.
+        // Preserve this exact answered notice while its task is still blocked,
+        // including exhaustion (which needs an explicit owner disposition).
+        if (role == Role::Dispatcher && text(question, "asked_by") == "dispatcher" &&
+            text(question, "status") == "ANSWERED" &&
+            text(store_.task(text(question, "task_id")), "status") == "BLOCKED") return false;
         return text(question, "status") != "OPEN" || text(question, "holder") != role_name(role);
     };
     const auto management_target = [&](Role role, const std::string& task) -> Json {
@@ -561,7 +571,8 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                                 number(*found, "plan_revision") == number(request, "plan_revision");
                         }
                     }
-                    else if (store_.acceptance_runtime_enabled() && type == "check_submission") {
+                    else if (store_.acceptance_runtime_enabled() &&
+                             (type == "check_submission" || type == "accept_candidate")) {
                         const auto submission_id = event_object_id(item, "submission_id");
                         if (!submission_id.empty()) {
                             const auto submission = store_.submission(submission_id);
@@ -569,6 +580,11 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                             const auto status = text(submission, "status");
                             done = status == "SUPERSEDED" || status == "RETURNED_FOR_REWORK" ||
                                 text(task, "status") == "ACCEPTED";
+                            if (status == "BLOCKED") {
+                                const auto followup = store_.submission_followup(submission_id);
+                                done = !followup.is_null() && !followup.at("question_id").is_null() &&
+                                    text(store_.question(text(followup, "question_id")), "status") != "SUPERSEDED";
+                            }
                         }
                     }
                     // Delivery assembly is an explicit host action. Its
@@ -650,6 +666,8 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                             } else if (store_.acceptance_runtime_enabled() && type == "accept_candidate") {
                                 const auto experience_id = event_object_id(item, "experience_id");
                                 done = !experience_id.empty() && text(store_.experience_job(experience_id), "status") == "DONE";
+                            } else if (type == "resolve_blocked_submission") {
+                                done = current_order;
                             } else if (type == "create_task" || type == "disposition" || type == "rebind_task" ||
                                        type == "independent_plan" || type == "independent_dispositions" || recovery_item(item))
                                 done = current_order || !current_submission.is_null() || question_pending;
@@ -735,7 +753,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                     ? "the candidate still needs its explicit current Dispatcher business acceptance"
                     : "TeamLead check produced a candidate; separate independent review and business acceptance remain pending");
             else if (status == "BLOCKED") block(Role::Dispatcher, node, task_id, "rework_blocked",
-                "the bounded TeamLead rework limit requires controlled escalation");
+                "rejected submission needs an explicit bounded Dispatcher follow-up; answered questions never increase the frozen rework limit");
             else block(Role::Worker, node, task_id, "submission_pending", "Worker submission awaits its captured TeamLead check");
         }
     }

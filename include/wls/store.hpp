@@ -245,6 +245,17 @@ public:
                           const std::string& submission_id,
                           std::int64_t expected_submission_version,
                           const Json& decision, const std::string& command_id);
+    // R2.1: read one current rejected target and its original evidence. The
+    // host captures this before model reservation; a response never selects IDs.
+    Json blocked_submission_action(const std::string& task_id) const;
+    Json rework_request(const std::string& task_id) const;
+    Json submission_followup(const std::string& submission_id) const;
+    Json resolve_blocked_submission(const StoreActor& dispatcher,
+                          const ExecutionBinding& captured_request_binding,
+                          std::int64_t expected_task_version,
+                          const std::string& submission_id,
+                          std::int64_t expected_submission_version,
+                          const Json& decision, const std::string& command_id);
     Json experience_job(const std::string& experience_id) const;
     std::vector<Json> experience_jobs(const std::string& request_id,
                                      const std::string& task_id = {},

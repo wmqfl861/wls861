@@ -58,7 +58,7 @@ Json basic_schema(const std::string& name, Json properties = boost::json::object
 }
 
 void full_examples_and_registry() {
-    CHECK(registry->schema_names().size() == 17);
+    CHECK(registry->schema_names().size() == 18);
     const std::vector<std::pair<std::string, std::string>> documents{
         {"change_order.dispatcher", "change_order"}, {"change_order.team_lead", "change_order"},
         {"delivery_manifest", "delivery_manifest"}, {"experience_report", "experience_report"},

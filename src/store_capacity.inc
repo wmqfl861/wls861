@@ -7,6 +7,7 @@
             "'acknowledge_delivery','cancel_request','settle_attempt','attempts_unknown') OR "
             "(type='check_submission' AND json_extract(payload,'$.adverse_revoke')=1) OR "
             "(type='accept_candidate' AND json_extract(payload,'$.decision.passed')=0) OR "
+            "(type='resolve_blocked_submission' AND json_extract(payload,'$.decision.action')='ask_user') OR "
             "(type='reserve_attempt' AND json_type(payload,'$.experience_job_id') IS NOT NULL))";
     }
     static bool capacity_control(const Row& command) {
@@ -17,6 +18,7 @@
             "acknowledge_delivery", "cancel_request", "settle_attempt", "attempts_unknown"};
         return types.contains(type) || (type == "check_submission" && command.at("adverse_revoke").as_bool()) ||
             (type == "accept_candidate" && !command.at("decision").at("passed").as_bool()) ||
+            (type == "resolve_blocked_submission" && command.at("decision").at("action") == "ask_user") ||
             (type == "reserve_attempt" && command.contains("experience_job_id"));
     }
     static bool capacity_maintenance(std::string_view type) {
@@ -27,7 +29,7 @@
         // dispatch and bounded settlement must be able to finish after a hold.
         const auto type = str(command, "type");
         return capacity_maintenance(type) || type == "start_op" || type == "start_tool_op" ||
-            (capacity_control(command) && type != "wait_worker" && type != "ask_question");
+            (capacity_control(command) && type != "wait_worker" && type != "ask_question" && type != "resolve_blocked_submission");
     }
     struct CapacityEventState {
         Json saved{Row{}};
