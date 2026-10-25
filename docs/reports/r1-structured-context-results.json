@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-24 America/Los_Angeles / 2026-10-25 UTC",
+  "version": "0.7.4-r1.2",
+  "blueprint": "0.4.1",
+  "base_commit": "b493752a10d2ad66670d6b201b24b1f489df7931",
+  "design_commit": "b0e5b60a7e1dd88e7ca24dc29f717f5f3fc39a23",
+  "code_commit": "f89cb041b38b58755b2c944fd28b9d0ec4946e0e",
+  "code_tree": "f2efcb38eac7194508225534319c9f7ea33ac7ef",
+  "counts": {
+    "s1_cpp": 364,
+    "s1_cli": 103,
+    "m1_cpp": 52,
+    "m1_demo": 3,
+    "reference_contracts": 36,
+    "ctest_groups": 45,
+    "new_cpp": 16,
+    "new_cli": 6
+  },
+  "environment": {
+    "uid": 1000,
+    "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+    "python": "3.13.5",
+    "jsonschema": "4.26.0",
+    "sqlite_python": "3.46.1",
+    "openssl_python": "OpenSSL 3.5.5 27 Jan 2026",
+    "g++": "g++ (Debian 14.2.0-19) 14.2.0",
+    "cmake": "cmake version 3.31.6"
+  },
+  "local_gates": {
+    "release-frozen": {
+      "exit_code": 0,
+      "sha256": "ab8a28a38c35fa3e13ac8ddab3d2d251a28cb6ec321162928c58440092ef8928"
+    },
+    "ubsan-frozen": {
+      "exit_code": 0,
+      "sha256": "01cdb6571f27ebd108db3053f1efab348d610e65013a99eb6ce4abe7d609ed3b"
+    },
+    "asan-frozen": {
+      "exit_code": 0,
+      "sha256": "6fdd28ffbbfabdaf71d86140b2e2a9b720ef06b107b6eeeb598ef8173f36a7cd"
+    },
+    "make-frozen": {
+      "exit_code": 0,
+      "sha256": "03c48ed52859a26d261b6fe4d58eafb86150fcb3a57ae7981abed1b87977f034"
+    }
+  },
+  "source_count": 215,
+  "source_manifest_sha256": "bedfefcf78602d8a19354846e369c2fa4143b08f13110d4f65cb540895aeb1b8",
+  "candidate_import_run": 40154245286,
+  "paid_model_calls": 0,
+  "independent_second_model_review": false,
+  "scope": "opt-in frozen structured logical requests integrated with FakeModel runners; no context window or transport",
+  "remaining": [
+    "Worker full-history overflow",
+    "history readback model tools",
+    "provider transport and wire receipts",
+    "strong sandbox deployment acceptance"
+  ],
+  "main_ci": "Consult Actions for this report commit; candidate import and final main CI are separate evidence."
+}

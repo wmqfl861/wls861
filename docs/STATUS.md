@@ -1,4 +1,6 @@
-# 当前实现 **0.7.4-r1.2**，目标蓝图 **v0.4.1**。本批承接 `b493752`，新增
+# 当前实现与证据
+
+当前实现 **0.7.4-r1.2**，目标蓝图 **v0.4.1**。本批承接 `b493752`，新增
 [冻结选择的结构化模型请求](implementation/R1-structured-context.md)和工具往返配对，
 实际接通run-fake/pump-fake；[ADR-068](adr/068-structured-model-input.md)定义兼容与证据边界。
 新请求可显式启用structured-v2；兼容样例与缺字段的旧快照继续framed-v1。**完整历史窗口尚未接入**，
