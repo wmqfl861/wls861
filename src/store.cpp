@@ -884,6 +884,63 @@ public:
         require(semantic_binding_equal(original, binding(str(subject, "task_id")), current_policy_control), ErrorCode::Stale,
                 "workflow subject has an obsolete semantic binding");
     }
+    Json rejected_info(const std::string& task_id) const {
+        require_acceptance_schema();
+        const auto task = task_row(task_id);
+        const auto saved = optional("SELECT submission_id FROM workflow_submissions WHERE task_id=? AND status='BLOCKED'", {task_id});
+        if (str(task, "status") != "BLOCKED" || !saved) return nullptr;
+        auto result = submission_info(str(*saved, "submission_id"));
+        const auto id = str(result.as_object(), "submission_id");
+        const auto request = request_row(str(task, "request_id"));
+        const auto config = parse_json_strict(str(request, "config_snapshot"), 8 * 1024 * 1024);
+        const auto limit = number(config.at("system").at("limits").as_object(), "team_internal_rework_max");
+        const auto used = number(result.as_object(), "team_rework_count");
+        require(limit >= 0 && limit <= 10000 && used >= 0, ErrorCode::Corrupt, "invalid frozen shared rework allowance");
+        result.as_object()["rework_limit"] = limit;
+        result.as_object()["rework_remaining"] = std::max<std::int64_t>(0, limit - used);
+        Json cause = nullptr;
+        if (const auto rejected = optional("SELECT * FROM candidate_acceptances WHERE submission_id=? AND status='REJECTED' ORDER BY rowid DESC LIMIT 1", {id})) {
+            require(next(number(*rejected, "submission_version")) == number(result.as_object(), "state_version"),
+                    ErrorCode::Corrupt, "rejection source does not match blocked candidate version");
+            cause = Row{{"kind", "business_rejection"}, {"record", acceptance_info(*rejected)}};
+        } else {
+            const auto& checks = result.at("checks").as_array();
+            require(!checks.empty() && checks.back().at("status") == "BLOCKED" &&
+                !checks.back().at("check_body").at("passed").as_bool() &&
+                checks.back().at("submission_version") == result.at("state_version"),
+                ErrorCode::Corrupt, "blocked submission lacks its original failed check");
+            cause = Row{{"kind", "team_rework_exhausted"}, {"record", checks.back()}};
+        }
+        result.as_object()["rejection_cause"] = std::move(cause);
+        result.as_object()["escalation"] = nullptr;
+        if (const auto prior = optional("SELECT result FROM events WHERE request_id=? AND type='escalate_task' AND json_extract(payload,'$.submission_id')=? ORDER BY seq DESC LIMIT 1", {str(request, "request_id"), id})) {
+            const auto fact = parse_json_strict(str(*prior, "result"));
+            auto question = question_info(str(fact.as_object(), "question_id"));
+            require(fact.at("submission_id") == result.at("submission_id") &&
+                fact.at("source_record_sha256") == result.at("record_sha256"), ErrorCode::Corrupt, "escalation source fingerprint changed");
+            require(question.at("task_id") == result.at("task_id") && question.at("team_id") == result.at("team_id"),
+                    ErrorCode::Corrupt, "escalation source scope changed");
+            result.as_object()["escalation"] = std::move(question);
+        }
+        return result;
+    }
+    Json rejection_subject(const StoreActor& actor, const ExecutionBinding& captured,
+                           std::int64_t task_version, const std::string& submission_id,
+                           std::int64_t submission_version) const {
+        const auto source = submission_row(submission_id);
+        workflow_subject(actor, captured, source, true);
+        const auto task_id = str(source, "task_id");
+        const auto task = task_row(task_id); const auto request = request_row(actor.request_id);
+        require(number(task, "state_version") == task_version && number(source, "state_version") == submission_version,
+                ErrorCode::Conflict, "rejected task or submission CAS changed");
+        require(str(task, "status") == "BLOCKED" && str(source, "status") == "BLOCKED" && str(task, "kind") == "team_task",
+                ErrorCode::NotReady, "only a current blocked team submission has a rejection successor");
+        require(number(task, "based_on_requirements_revision") == number(request, "requirements_revision") &&
+                number(task, "plan_revision") == number(request, "plan_revision"), ErrorCode::Stale, "rejection successor requires current AMEND disposition");
+        const auto team = team_row(str(source, "team_id"));
+        require(str(team, "status") == "ACTIVE", ErrorCode::NotReady, "a stopped producer cannot be revived by corrective rework");
+        return rejected_info(task_id);
+    }
     void supersede_workflow(const std::string& request_id, const std::string& task_id = {}) {
         if (!workflow_schema) return;
         invalidate_acceptance(request_id, task_id);
@@ -1071,10 +1128,14 @@ public:
         if (type == "amend" || type == "plan" || type == "independent_plan" || type == "cancel_request") supersede_waits(request_id);
         if (type == "disposition" || type == "rebind_task") supersede_waits(request_id, str(command, "task_id"));
         if (type == "instruction") supersede_waits(request_id, str(command.at("binding").as_object(), "task_id"));
-        if (type == "accept_candidate" && result.as_object().contains("experience_id") && !result.at("experience_id").is_null()) {
-            enqueue("team_lead", str(result.as_object(), "task_id")); enqueue("dispatcher", str(result.as_object(), "task_id"));
+        if (type == "accept_candidate") {
+            if (result.as_object().contains("experience_id") && !result.at("experience_id").is_null())
+                enqueue("team_lead", str(result.as_object(), "task_id"));
+            enqueue("dispatcher", str(result.as_object(), "task_id"));
             return;
         }
+        if (type == "change_task") { enqueue("team_lead", str(result.as_object(), "task_id")); return; }
+        if (type == "escalate_task") return; // User-owned question remains durable; no implicit answer.
         if (type == "report_experience") { if (!terminal_request(str(request, "status"))) enqueue("dispatcher", str(result.as_object(), "task_id")); return; }
         if (type == "recover_experience") {
             for (const auto& job : all("SELECT DISTINCT task_id FROM experience_jobs WHERE request_id=? AND status<>'DONE'", {request_id})) enqueue("team_lead", str(job, "task_id"));
@@ -1119,7 +1180,8 @@ public:
         }
         if (type == "answer_question") {
             const auto task_id = str(result.as_object(), "task_id");
-            enqueue("worker", task_id); enqueue("team_lead", task_id);
+            if (result.at("asked_by") == "dispatcher") enqueue("dispatcher", task_id);
+            else { enqueue("worker", task_id); enqueue("team_lead", task_id); }
             return;
         }
         if (type == "submit_work") { enqueue("team_lead", str(result.as_object(), "task_id")); return; }
@@ -2154,6 +2216,8 @@ Json Store::accept_candidate(const StoreActor& actor, const ExecutionBinding& ca
     }
     impl_->event(actor.request_id, command_id, command, result, "dispatcher"); tx.commit(); return result;
 }
+#include "store_rework.inc"
+
 Json Store::experience_job(const std::string& id) const {
     const std::lock_guard lock(impl_->mutex); return impl_->experience_info(id);
 }
@@ -2775,6 +2839,21 @@ Json Store::issue_instruction(const StoreActor& actor, const ExecutionBinding& f
             str(t, "status") != "SUBMITTED" && str(t, "status") != "REVIEWING" && str(t, "status") != "BLOCKED",
             ErrorCode::NotReady, "pending question/submission must be handled before new instructions");
     impl_->brief_constraints(r, body);
+    // R2 corrective revision is not an AMEND. Preserve both TaskBrief and the
+    // producer's last instruction constraints before accepting a fresh order.
+    // The immutable correction event binds this rule only to its exact semantic
+    // target; ordinary AMEND/new-plan behavior is unchanged.
+    if (impl_->acceptance_schema && impl_->optional(
+            "SELECT 1 FROM events WHERE request_id=? AND type='change_task' AND json_extract(result,'$.task_id')=? AND json_extract(result,'$.target_binding.requirements_revision')=? AND json_extract(result,'$.target_binding.plan_revision')=? AND json_extract(result,'$.target_binding.task_revision')=? LIMIT 1",
+            {actor.request_id, actor.task_id, number(r, "requirements_revision"), number(t, "plan_revision"), number(t, "task_revision")})) {
+        const auto brief = parse_json_strict(str(t, "brief"));
+        const auto prior = impl_->one("SELECT body FROM instructions WHERE task_id=? AND instruction_revision=?", {actor.task_id, number(t, "instruction_revision")});
+        const auto old_order = parse_json_strict(str(prior, "body"));
+        for (const auto* original : {&brief, &old_order})
+            for (const auto& excerpt : original->at("constraints_verbatim").as_array())
+                require(contains(body.at("constraints_verbatim"), excerpt.as_string()), ErrorCode::InvalidInput,
+                        "corrective instruction drops an existing task or instruction constraint");
+    }
     const auto revision = next(number(t, "instruction_revision"));
     impl_->cas("UPDATE tasks SET instruction_revision=?,state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?", {revision, stamp(), actor.task_id, expected});
     impl_->execute("UPDATE teams SET paused_for_change=1,tool_calls_used=0,work_order=?,state_version=state_version+1,updated_at=? WHERE team_id=?", {json_text(body), stamp(), actor.team_id});

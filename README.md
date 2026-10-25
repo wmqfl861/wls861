@@ -1,6 +1,6 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.7.5-r1.3；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.7.6-r2.1；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
 本批接续第二份审核：同语义说明的恢复无需重写，强进程结果按完整证据结算，新增Root核对入口。
 [当前能力/证据矩阵](docs/STATUS.md)集中记录实现边界；[审核采纳记录](docs/reviews/claude-disposition.md)
@@ -11,6 +11,22 @@ R1.3 在此基础上接通显式冻结的Worker窗口与模型回读；旧请求
 
 新增入口及证据要求见[进程结算/核对契约](docs/implementation/S1-process-settlement.md)，
 说明恢复见[epoch恢复契约](docs/implementation/S1-epoch-recovery.md)。本地控制CLI不是网络认证服务。
+
+## 拒绝验收后的纠正（R2.1）
+
+`pump-fake` 现在可处理当前拒绝成果：Dispatcher 明确选择 `change_task`（只给纠正理由与方向），
+随后 TeamLead 发布新说明，Worker 重新确认并提交。`team_internal_rework_max` 是双方共享的冻结额度；
+耗尽时仅声明 `escalate_task`，问题通过已有 `questions` / `answer` 查询和回答。回答不会重置额度或验收成果。
+完整接口与安全条件见 [R2.1 契约](docs/implementation/R2-rejected-task-resolution.md)。
+
+可运行的真实临时 SQLite／文件／CLI 场景在 `tests/r2_rework_cli_smoke.py`：
+
+```sh
+# 普通用户，在源码根目录；Python须具备 requirements-test.txt 的测试依赖。
+python3 tests/r2_rework_cli_smoke.py ./build/wls .
+```
+
+本批使用固定 FakeModel 判断；它验证流程、持久化和门禁，不测真实模型质量，不发起网络调用。
 
 ## Worker 上下文窗口（显式启用）
 

@@ -21,6 +21,14 @@ may project whole old/large turns into references; current contracts and unresol
 facts must remain complete. Readbacks require current scope/policy, normal model
 accounting and immutable feedback. Never substitute a present file for old evidence.
 
+For R2.1 read `docs/adr/070-rejected-task-resolution.md` and
+`docs/implementation/R2-rejected-task-resolution.md`. Only a captured current
+rejected submission may be corrected or escalated. Preserve original task and
+instruction constraints, share the frozen TeamLead rework counter, and never
+consume an unanswered correction wakeup as handled. User answers do not grant
+more rework, accept a candidate, or clear UNKNOWN. Request-scoped recovery and
+model AMEND disposition remain separate increments.
+
 Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
 review fixes and priority changes. Model contract/context/rework and an approved
 small real loop now precede expanding private-data purge or daemon/API. Keep

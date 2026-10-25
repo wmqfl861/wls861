@@ -12,6 +12,7 @@
 | change_order.schema.json | 变更/返工；目标版本与父变更绑定，最多 100 条 findings |
 | submission.schema.json | 完整提交；实际 load_id/revision、冻结版本和逐项自检 |
 | review_request.schema.json / review_verdict.schema.json | 候选/提交/审核轮次及生产方、审核方独立冻结绑定 |
+| change_task.schema.json / escalate_task.schema.json | R2.1 捕获拒绝成果的纠正修订／上报用户参数；模型不提供身份、版本、额度或新的 TaskBrief |
 | question.schema.json | 逐级问题和宿主填充的定位元数据 |
 | experience_report.schema.json | 经验提案、加载评价、expected_base_revision |
 | delivery_manifest.schema.json | 交付文件清单、摘要、大小和来源版本 |
@@ -60,7 +61,7 @@ ReviewRequest/Verdict 冻结生产方请求、任务、候选摘要、submission
 /usr/bin/python3 tests/contracts_tests.py
 ```
 
-`examples/` 有 13 个完整消息文件，当前检查全部通过，Plan 内嵌的 TaskBrief 也单独验证。`request_texts.json` 对应 RequestSnapshot；它包含原始需求版本 1、修改版本 2 和五条目录约束。初始 Plan/TaskBrief/WorkOrder 属于版本 1；两层 ChangeOrder、Submission、Review 属于版本 2。所有摘要、证据路径、用量和内容都是合成夹具，没有真实模型或业务执行。
+`examples/` 有 15 个完整消息／工具参数文件，当前检查全部通过，Plan 内嵌的 TaskBrief 也单独验证。`request_texts.json` 对应 RequestSnapshot；它包含原始需求版本 1、修改版本 2 和五条目录约束。初始 Plan/TaskBrief/WorkOrder 属于版本 1；两层 ChangeOrder、Submission、Review 属于版本 2。所有摘要、证据路径、用量和内容都是合成夹具，没有真实模型或业务执行。
 
 示例描述销售数据处理中的不同交接时点。ReviewVerdict 特意返回 changes_requested；这份否定报告不授权交付。DeliveryManifest 是交付消息的格式示例，不能与前面的否定报告拼接成“已通过”的运行证据。测试用单独的宿主证据夹具验证通过/失败/豁免分支。
 

@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "$id": "https://wuliangshan.local/schemas/v0.4.1/escalate_task.schema.json",
+  "title": "EscalateRejectedTask",
+  "description": "Dispatcher asks the user about the captured rejected task. The host enforces a blocking wait, original source and at-most-once escalation.",
+  "required": [
+    "text"
+  ],
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "description": "问题原文"
+    },
+    "context": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "description": "背景：已经尝试过什么、为什么需要回答"
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16,
+            "pattern": "^[a-z0-9_-]{1,16}$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "maxItems": 8
+    }
+  }
+}

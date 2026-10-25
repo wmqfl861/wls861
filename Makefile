@@ -26,7 +26,7 @@ TEST_OBJECTS := $(addprefix $(BUILD_DIR)/tests/,$(addsuffix .o,$(TEST_NAMES)))
 TEST_BINARIES := $(addprefix $(BUILD_DIR)/,$(TEST_NAMES))
 S1_SOURCES := src/boost_json.cpp src/runtime_types.cpp src/capacity.cpp src/store.cpp src/config_loader.cpp src/model.cpp src/context.cpp src/structured_context.cpp src/structured_history.cpp src/worker_history.cpp src/schema.cpp src/offline_runtime.cpp src/event_runtime.cpp src/workspace_posix.cpp src/sandbox_posix.cpp src/process_evidence.cpp src/worker_tools.cpp src/delivery.cpp src/cleanup_posix.cpp src/cleanup_runtime.cpp
 S1_OBJECTS := $(S1_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
-S1_TEST_NAMES := runtime_types_tests store_tests event_store_tests workflow_store_tests acceptance_store_tests config_loader_tests model_tests schema_tests offline_runtime_tests event_runtime_tests workflow_runtime_tests acceptance_runtime_tests workspace_tests sandbox_tests worker_tools_tests delivery_tests cleanup_tests cleanup_runtime_tests audit24_reopen_tests process_evidence_tests audit24_reconcile_tests audit24_capacity_tests audit24_capacity_repro_tests r1_history_tests r1_structured_tests r1_window_tests
+S1_TEST_NAMES := runtime_types_tests store_tests event_store_tests workflow_store_tests acceptance_store_tests config_loader_tests model_tests schema_tests offline_runtime_tests event_runtime_tests workflow_runtime_tests acceptance_runtime_tests workspace_tests sandbox_tests worker_tools_tests delivery_tests cleanup_tests cleanup_runtime_tests audit24_reopen_tests process_evidence_tests audit24_reconcile_tests audit24_capacity_tests audit24_capacity_repro_tests r1_history_tests r1_structured_tests r1_window_tests r2_rework_tests
 S1_TEST_OBJECTS := $(addprefix $(BUILD_DIR)/tests/,$(addsuffix .o,$(S1_TEST_NAMES)))
 S1_TEST_BINARIES := $(addprefix $(BUILD_DIR)/,$(S1_TEST_NAMES))
 S1_LIBRARY := $(BUILD_DIR)/libwls_s1.a
@@ -108,6 +108,7 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES)
 	"$(BUILD_DIR)/r1_history_tests"
 	"$(BUILD_DIR)/r1_structured_tests"
 	"$(BUILD_DIR)/r1_window_tests"
+	"$(BUILD_DIR)/r2_rework_tests"
 	"$(BUILD_DIR)/process_evidence_tests"
 	"$(BUILD_DIR)/audit24_reconcile_tests"
 	$(PYTHON) tests/s1_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
@@ -122,6 +123,7 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES)
 	$(PYTHON) tests/r1_history_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/r1_structured_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/r1_window_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
+	$(PYTHON) tests/r2_rework_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/review_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 
 # The default sanitizer gate is UBSan; ASan is independently available so a

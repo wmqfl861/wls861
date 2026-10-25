@@ -316,10 +316,26 @@ Json next_workflow_action(Store& store, Role role, const std::string& request_id
         }
         if (role == Role::Dispatcher && store.acceptance_runtime_enabled()) {
             for (const auto& task : store.tasks(request_id)) {
-                if (string_at(task, "status") != "SUBMITTED" ||
+                if ((string_at(task, "status") != "SUBMITTED" && string_at(task, "status") != "BLOCKED") ||
                     integer_at(task, "based_on_requirements_revision") != integer_at(request, "requirements_revision") ||
                     integer_at(task, "plan_revision") != integer_at(request, "plan_revision")) continue;
-                const auto submission = store.current_submission(string_at(task, "task_id"));
+                const auto subject = string_at(task, "task_id");
+                if (string_at(task, "status") == "BLOCKED") {
+                    const auto rejected = store.rejected_submission(subject);
+                    if (rejected.is_null()) continue;
+                    const auto wait = store.worker_wait(subject);
+                    const auto& escalation = rejected.at("escalation");
+                    if (!wait.is_null() && wait.at("status") == "WAITING") continue;
+                    const auto questions = store.questions(request_id, subject);
+                    if (std::any_of(questions.begin(), questions.end(), [](const auto& question) {
+                            return question.at("status") == "OPEN" && question.at("blocking").as_int64() != 0;
+                        })) continue;
+                    // An answer does not create more attempts or an automatic second escalation.
+                    if (integer_at(rejected, "rework_remaining") == 0 && !escalation.is_null()) continue;
+                    return Object{{"kind", "rejection"}, {"target", rejected},
+                        {"expected_task_version", task.at("state_version")}};
+                }
+                const auto submission = store.current_submission(subject);
                 if (!submission.is_null() && string_at(submission, "status") == "CANDIDATE_READY")
                     return Object{{"kind", "acceptance"}, {"target", submission},
                         {"expected_task_version", task.at("state_version")}};
@@ -367,7 +383,7 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
         contract.as_object()["workflow_action"] = action;
         if (role == Role::TeamLead && !action.is_null() && string_at(action, "kind") == "submission")
             contract.as_object()["submission_file_views"] = submission_file_views(submission);
-        if (!action.is_null() && string_at(action, "kind") == "acceptance") {
+        if (!action.is_null() && (string_at(action, "kind") == "acceptance" || string_at(action, "kind") == "rejection")) {
             const auto& target = action.at("target");
             const auto producer_task_id = string_at(target, "task_id");
             contract.as_object()["acceptance_task"] = store_.task(producer_task_id);
@@ -422,6 +438,13 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
                 {"forward_question", "wls-question-forward-v1", schemas_.project_model_input("forward_question")}};
         else if (string_at(action, "kind") == "acceptance")
             declared_tools = {{"accept_candidate", "wls-candidate-acceptance-v1", schemas_.project_model_input("accept_candidate")}};
+        else if (string_at(action, "kind") == "rejection") {
+            declared_tools.clear();
+            if (integer_at(action.at("target"), "rework_remaining") > 0)
+                declared_tools.push_back({"change_task", "wls-corrective-task-v1", schemas_.project_model_input("change_task")});
+            if (action.at("target").at("escalation").is_null())
+                declared_tools.push_back({"escalate_task", "wls-rejection-escalation-v1", schemas_.project_model_input("escalate_task")});
+        }
         else if (string_at(action, "kind") == "experience")
             declared_tools = {{"report_experience", "wls-experience-report-v1", schemas_.project_model_input("experience_report")}};
         else declared_tools = {{"check_submission", "wls-submission-check-v1", schemas_.project_model_input("check_submission")}};
@@ -631,6 +654,18 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
                     "captured candidate only permits its Dispatcher acceptance decision");
             schemas_.validate("accept_candidate", tool.arguments, true);
             return store_.accept_candidate(call.actor, captured.binding,
+                integer_at(call.workflow_action, "expected_task_version"), string_at(target, "submission_id"),
+                integer_at(target, "state_version"), tool.arguments, command);
+        }
+        if (string_at(call.workflow_action, "kind") == "rejection") {
+            require(captured.role == Role::Dispatcher && (tool.name == "change_task" || tool.name == "escalate_task"),
+                    ErrorCode::Unauthorized, "captured rejection only permits its bounded correction or user escalation");
+            schemas_.validate(tool.name, tool.arguments, true);
+            if (tool.name == "change_task")
+                return store_.change_task(call.actor, captured.binding,
+                    integer_at(call.workflow_action, "expected_task_version"), string_at(target, "submission_id"),
+                    integer_at(target, "state_version"), tool.arguments, command);
+            return store_.escalate_task(call.actor, captured.binding,
                 integer_at(call.workflow_action, "expected_task_version"), string_at(target, "submission_id"),
                 integer_at(target, "state_version"), tool.arguments, command);
         }

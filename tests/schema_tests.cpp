@@ -58,14 +58,15 @@ Json basic_schema(const std::string& name, Json properties = boost::json::object
 }
 
 void full_examples_and_registry() {
-    CHECK(registry->schema_names().size() == 17);
+    CHECK(registry->schema_names().size() == 19);
     const std::vector<std::pair<std::string, std::string>> documents{
         {"change_order.dispatcher", "change_order"}, {"change_order.team_lead", "change_order"},
         {"delivery_manifest", "delivery_manifest"}, {"experience_report", "experience_report"},
         {"memory_frontmatter", "memory_frontmatter"}, {"plan", "plan"}, {"question", "question"},
         {"request_texts", "request_snapshot"}, {"review_request", "review_request"},
         {"review_verdict", "review_verdict"}, {"submission", "submission"},
-        {"task_brief", "task_brief"}, {"work_order", "work_order"}};
+        {"task_brief", "task_brief"}, {"work_order", "work_order"},
+        {"change_task", "change_task"}, {"escalate_task", "escalate_task"}};
     for (const auto& [file, schema] : documents) registry->validate(schema, example(file));
     reject([] { registry->validate("unknown", boost::json::object{}); });
 }

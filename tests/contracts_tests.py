@@ -38,11 +38,26 @@ class SchemaContracts(unittest.TestCase):
 
     def test_all_local_schemas_examples_and_nested_briefs(self):
         with patch("socket.socket", side_effect=AssertionError("network is forbidden")):
-            self.assertEqual(contracts.validate_examples(), (17, 13))
+            self.assertEqual(contracts.validate_examples(), (19, 15))
         plan = self.example("plan.json")
         del plan["nodes"][0]["brief"]["constraint_refs"]
         with self.assertRaises(ValidationError):
             self.registry.validate("plan", plan)
+
+    def test_rejection_actions_reject_host_fields_and_missing_required_text(self):
+        for name in ("change_task", "escalate_task"):
+            body = self.example(name + ".json")
+            self.registry.validate(name, body, model_input=True)
+            for field in ("task_id", "submission_id", "state_version", "rework_limit", "blocking"):
+                invalid = copy.deepcopy(body)
+                invalid[field] = 1
+                with self.subTest(tool=name, forged=field):
+                    with self.assertRaises(ValidationError):
+                        self.registry.validate(name, invalid, model_input=True)
+            required = "rationale" if name == "change_task" else "text"
+            body[required] = ""
+            with self.assertRaises(ValidationError):
+                self.registry.validate(name, body, model_input=True)
 
     def test_unknown_external_reference_fails_without_network(self):
         with tempfile.TemporaryDirectory() as temp:

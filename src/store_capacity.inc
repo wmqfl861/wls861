@@ -3,7 +3,7 @@
     static std::string capacity_control_sql() {
         return "(type IN ('ack','cancel_op','finish_op','reconcile_op','record_op_result',"
             "'execute_tool_control','wait_worker','wake_worker','tool_feedback','ask_question',"
-            "'forward_question','answer_question','report_experience','record_delivery_publication',"
+            "'forward_question','answer_question','escalate_task','report_experience','record_delivery_publication',"
             "'acknowledge_delivery','cancel_request','settle_attempt','attempts_unknown') OR "
             "(type='check_submission' AND json_extract(payload,'$.adverse_revoke')=1) OR "
             "(type='accept_candidate' AND json_extract(payload,'$.decision.passed')=0) OR "
@@ -13,7 +13,7 @@
         const auto type = str(command, "type");
         const std::set<std::string> types{"ack", "cancel_op", "finish_op", "reconcile_op", "record_op_result",
             "execute_tool_control", "wait_worker", "wake_worker", "tool_feedback", "ask_question",
-            "forward_question", "answer_question", "report_experience", "record_delivery_publication",
+            "forward_question", "answer_question", "escalate_task", "report_experience", "record_delivery_publication",
             "acknowledge_delivery", "cancel_request", "settle_attempt", "attempts_unknown"};
         return types.contains(type) || (type == "check_submission" && command.at("adverse_revoke").as_bool()) ||
             (type == "accept_candidate" && !command.at("decision").at("passed").as_bool()) ||
@@ -27,7 +27,7 @@
         // dispatch and bounded settlement must be able to finish after a hold.
         const auto type = str(command, "type");
         return capacity_maintenance(type) || type == "start_op" || type == "start_tool_op" ||
-            (capacity_control(command) && type != "wait_worker" && type != "ask_question");
+            (capacity_control(command) && type != "wait_worker" && type != "ask_question" && type != "escalate_task");
     }
     struct CapacityEventState {
         Json saved{Row{}};

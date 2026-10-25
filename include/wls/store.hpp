@@ -245,6 +245,21 @@ public:
                           const std::string& submission_id,
                           std::int64_t expected_submission_version,
                           const Json& decision, const std::string& command_id);
+    // R2.1 current rejected submission + immutable rejection cause, frozen
+    // shared rework allowance and its at-most-once user escalation.
+    Json rejected_submission(const std::string& task_id) const;
+    Json change_task(const StoreActor& dispatcher,
+                     const ExecutionBinding& captured_request_binding,
+                     std::int64_t expected_task_version,
+                     const std::string& submission_id,
+                     std::int64_t expected_submission_version,
+                     const Json& correction, const std::string& command_id);
+    Json escalate_task(const StoreActor& dispatcher,
+                       const ExecutionBinding& captured_request_binding,
+                       std::int64_t expected_task_version,
+                       const std::string& submission_id,
+                       std::int64_t expected_submission_version,
+                       const Json& question, const std::string& command_id);
     Json experience_job(const std::string& experience_id) const;
     std::vector<Json> experience_jobs(const std::string& request_id,
                                      const std::string& task_id = {},

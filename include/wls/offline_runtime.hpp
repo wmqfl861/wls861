@@ -19,7 +19,7 @@ struct CapturedModelCall {
     ModelRequest request;
     StoreActor actor;
     std::int64_t expected_state_version{};
-    // A single host-selected question, submission, acceptance or experience
+    // A single host-selected question, submission, acceptance, rejection or experience
     // target. The identical value is inside the durable task_contract; model arguments never
     // choose an identity, CAS value, version, or a replacement target.
     Json workflow_action = nullptr;

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.6-r2.1 — bounded rejection correction and owner escalation
+
+- Capture original failed acceptance/check and exact task/submission CAS for Dispatcher decisions.
+- Preserve TaskBrief and previous instruction constraints; require a new TeamLead order and Worker ack.
+- Share the frozen rework counter; persist at-most-once user escalation and exact wait/answer.
+- Retain pending rejection wakeups across missing scripts, invalid responses and restart.
+- Preserve UNKNOWN, budget, policy, AMEND and cancellation guards, original SQL/vendor bytes.
+- Request-scoped recovery and model-produced AMEND dispositions remain separate work.
+
 ## 0.7.5-r1.3 — frozen Worker windows and original-evidence controls
 
 - Add explicit structured-v2/window-v1 selection; preserve old frozen snapshots and legacy full-history behavior.
