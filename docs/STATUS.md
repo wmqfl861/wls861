@@ -1,4 +1,6 @@
-# 当前实现 **0.7.5-r1.3**，目标蓝图 **v0.4.1**。承接已发布 `0dbf478`，
+# 当前实现与证据
+
+当前实现 **0.7.5-r1.3**，目标蓝图 **v0.4.1**。承接已发布 `0dbf478`，
 新增[冻结 Worker 历史窗口及模型回读](implementation/R1-worker-history-window.md)，依据
 [ADR-069](adr/069-worker-history-window.md)。新请求显式启用 structured-v2 / window-v1 后，
 run-fake 与 pump-fake 保留近期完整轮次，将旧/大结果改为明确的原证据引用。

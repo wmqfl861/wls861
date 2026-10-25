@@ -1,0 +1,118 @@
+{
+  "date_utc": "2026-10-25",
+  "version": "0.7.5-r1.3",
+  "blueprint": "v0.4.1",
+  "main_baseline": "0dbf478892a381aed6fee99d6e1243363b005297",
+  "design_commit": "c8f6a7585aa5b9c1e01a821a43cbf7a3b0db235e",
+  "implementation_commit": "05c33b278a4e1cd80179ddbc77243663b2cb1b3c",
+  "code_commit": "15611e215196ddfc1cdad04468847cba846824be",
+  "code_tree": "0c1e7765f643127b6f7fea4a1fae8c3d6333955c",
+  "counts": {
+    "s1_cpp": 376,
+    "s1_cli": 112,
+    "m1_cpp": 52,
+    "m1_demo": 3,
+    "reference_contracts": 36,
+    "ctest_groups": 47,
+    "new_cpp": 12,
+    "new_cli": 9
+  },
+  "environment": {
+    "uid_for_tests": 1000,
+    "base_code": "15611e215196ddfc1cdad04468847cba846824be",
+    "tree": "0c1e7765f643127b6f7fea4a1fae8c3d6333955c",
+    "source_files": 219,
+    "source_manifest_sha256": "d8c1774095666c2aba6e653916c3f72349957d24c967e5340ed1246b112305e7",
+    "python": "3.13.5 (main, Jul 15 2026, 20:25:40) [GCC 14.2.0]",
+    "jsonschema": "4.26.0",
+    "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+    "g++": "g++ (Debian 14.2.0-19) 14.2.0",
+    "cmake": "cmake version 3.31.6",
+    "clang++": "clang version 17.0.0 (https://github.com/swiftlang/llvm-project.git 10999b6d034fe318f3d56c83bddb6572593a8bb0)"
+  },
+  "local_gates": {
+    "Release / umask 0002": {
+      "exit_code": 0,
+      "log": "release-tests.log",
+      "sha256": "4512745584a3a6f0976b066d7c59ab1cec0ce102414c1ff58777cb0abe1509ef"
+    },
+    "Release / umask 0022": {
+      "exit_code": 0,
+      "log": "release-0022.log",
+      "sha256": "6066b0ca3a8211126406271acafba1fca5f0059fef87fcfbc7bc4ed225040932"
+    },
+    "GCC UBSan / umask 0002": {
+      "exit_code": 0,
+      "log": "ubsan-tests.log",
+      "sha256": "31f8190ac5f1d1881406f4be824b2ee8664c9b140a76197c088572847de92f2e"
+    },
+    "GCC ASan / umask 0002": {
+      "exit_code": 0,
+      "log": "asan-tests.log",
+      "sha256": "c0237e40ab5b0ded3d06fc10f60fb077cc315a60d8b4b432ade7d2f079831ff1"
+    },
+    "strict Make / user CPPFLAGS": {
+      "exit_code": 0,
+      "log": "make-test.log",
+      "sha256": "9177504d8f2a6ac7b8e637b35cc35b97311a51d41b48ef319b74445ab3484d27"
+    }
+  },
+  "large_read_reproduction": {
+    "code_commit": "15611e215196ddfc1cdad04468847cba846824be",
+    "implementation": "FakeModel with real CLI processes, SQLite and private files",
+    "file_bytes": 61100,
+    "first_process_calls": 18,
+    "second_process_calls": 16,
+    "worker_attempts": 32,
+    "team_lead_attempts_before": 1,
+    "team_lead_attempts_after": 1,
+    "original_worker_file_results": 32,
+    "first_feedback_unchanged": true,
+    "logical_input_min_bytes": 24459,
+    "logical_input_max_bytes": 29923,
+    "logical_input_last_bytes": 28472,
+    "first_blocked": [
+      {
+        "code": "worker_limit",
+        "node_id": "alpha",
+        "reason": "this task reached the explicit per-pump Worker call limit",
+        "role": "worker",
+        "task_id": "tsk_01M5S8WNBCTVPVB5PTK1WV8X30"
+      }
+    ],
+    "second_blocked": [
+      {
+        "code": "worker_limit",
+        "node_id": "alpha",
+        "reason": "this task reached the explicit per-pump Worker call limit",
+        "role": "worker",
+        "task_id": "tsk_01M5S8WNBCTVPVB5PTK1WV8X30"
+      }
+    ],
+    "paid_model_calls": 0,
+    "extra_independent_test_count": 0
+  },
+  "source_manifest_sha256": "d8c1774095666c2aba6e653916c3f72349957d24c967e5340ed1246b112305e7",
+  "source_files": 219,
+  "source_archive_sha256": "99439b5261f828b29ea203912c00f4a5b013dc05b64918fa5981b58082052694",
+  "remote_code_ci": {
+    "run_id": 40178677852,
+    "head_sha": "15611e215196ddfc1cdad04468847cba846824be",
+    "conclusion": "success",
+    "jobs": 6
+  },
+  "final_main_ci": "Verify Actions for the final report commit; do not substitute the code-branch run.",
+  "paid_model_calls": 0,
+  "independent_second_model_review": false,
+  "scope": "Frozen opt-in Worker window, scoped original readback, both FakeModel runners; no network provider or semantic summarization",
+  "remaining": [
+    "legacy request migration",
+    "management-role windows",
+    "authoritative contract/unresolved-fact overflow",
+    "semantic summarization",
+    "provider transport/wire receipts",
+    "strong deployment acceptance",
+    "R2 negative-acceptance successors and per-request recovery",
+    "R2a allocation recovery and fs_mkdir"
+  ]
+}

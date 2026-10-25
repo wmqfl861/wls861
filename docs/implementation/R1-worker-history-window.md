@@ -27,7 +27,8 @@ history_window 明示总量、省略量和分页高水位。历史文本与引�
 
 当前request_snapshot原文/全部AMEND/约束、task、instruction、binding、budget、questions、submission、
 pending_events和wait保持完整。PREPARED/RUNNING/CANCEL_REQUESTED/UNKNOWN操作，以及PENDING/UNKNOWN、
-用量未知或缺失原反馈的调用，独立于近期窗口固定保留；各集合超过64项会明确quota而不是悄悄丢失。
+用量未知或缺失原反馈的调用，独立于近期尾部选择固定保留在首条history_window消息中；该消息不会被逐轮内联阈值替换为引用。
+各集合超过64项会明确quota而不是悄悄丢失。
 完整当前契约自身超出原编译上限时仍在预约前拒绝，需要宿主显式解决未决状态或调整任务；本批不自动摘要约束。
 
 ## 两项模型控制
