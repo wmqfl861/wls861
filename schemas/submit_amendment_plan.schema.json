@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/v0.4.1/submit_amendment_plan.schema.json",
+  "title": "SubmitAmendmentPlan",
+  "description": "Publish the first plan for the captured AMEND and explicitly decide a nonempty subset of its existing pending nodes. Omitted nodes remain blocked.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["plan", "dispositions"],
+  "properties": {
+    "plan": {"$ref": "plan.schema.json"},
+    "dispositions": {"$ref": "resolve_amendment.schema.json#/properties/dispositions"}
+  }
+}

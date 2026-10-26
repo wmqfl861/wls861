@@ -13,6 +13,7 @@
 | submission.schema.json | 完整提交；实际 load_id/revision、冻结版本和逐项自检 |
 | review_request.schema.json / review_verdict.schema.json | 候选/提交/审核轮次及生产方、审核方独立冻结绑定 |
 | change_task.schema.json / escalate_task.schema.json | R2.1 捕获拒绝成果的纠正修订／上报用户参数；模型不提供身份、版本、额度或新的 TaskBrief |
+| submit_amendment_plan.schema.json / resolve_amendment.schema.json | R2.3 捕获AMEND的计划及非空逐节点决定；遗漏继续暂停，后补不重新发布计划，嵌套Plan仍剥离宿主字段 |
 | question.schema.json | 逐级问题和宿主填充的定位元数据 |
 | experience_report.schema.json | 经验提案、加载评价、expected_base_revision |
 | delivery_manifest.schema.json | 交付文件清单、摘要、大小和来源版本 |

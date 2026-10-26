@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wuliangshan.local/schemas/v0.4.1/resolve_amendment.schema.json",
+  "title": "ResolveAmendment",
+  "description": "Decide a nonempty subset of host-captured pending AMEND nodes on the current plan. Runtime identities, revisions and CAS are not model parameters.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["dispositions"],
+  "properties": {
+    "dispositions": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 20,
+      "propertyNames": {"pattern": "^[a-z0-9][a-z0-9-]{0,47}$"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["disposition", "rationale"],
+        "properties": {
+          "disposition": {"enum": ["update", "keep", "cancel"]},
+          "rationale": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "[^ \\t\\r\\n]"}
+        }
+      }
+    }
+  }
+}

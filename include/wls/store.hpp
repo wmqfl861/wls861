@@ -327,17 +327,22 @@ public:
     // Bounded independent team-task plan plus initial team allocation is one
     // transaction. Later plans preserve every existing node/template identity.
     // Dispositions are keyed by node_id; omitted AMEND tasks stay paused.
+    // A model AMEND passes host-captured task guards. They are checked in this
+    // same transaction, before any plan/task write. Null preserves host API
+    // compatibility; never populate these guards from model arguments.
     Json apply_independent_plan(const StoreActor& actor,
                                 std::int64_t expected_request_version,
                                 std::int64_t based_on_requirements_revision,
                                 const Json& body, const Json& dispositions,
-                                const std::string& command_id);
+                                const std::string& command_id,
+                                const Json& captured_tasks = nullptr);
     Json apply_independent_dispositions(const StoreActor& actor,
                                         std::int64_t expected_request_version,
                                         std::int64_t based_on_requirements_revision,
                                         std::int64_t target_plan_revision,
                                         const Json& dispositions,
-                                        const std::string& command_id);
+                                        const std::string& command_id,
+                                        const Json& captured_tasks = nullptr);
     Json create_task(const StoreActor& actor, std::int64_t expected_request_version,
                      std::int64_t based_on_requirements_revision,
                      std::int64_t target_plan_revision, const std::string& node_id,

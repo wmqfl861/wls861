@@ -1478,6 +1478,39 @@ public:
             require(str(team, "template_id") == selected, ErrorCode::Corrupt, "task and allocated team template disagree");
         }
     }
+    void check_captured_amendment_tasks(const Row& request, const std::vector<Row>& existing,
+                                        const Json& captured, const Json& dispositions,
+                                        bool publishing_plan) const {
+        if (captured.is_null()) return; // Original trusted host API remains compatible.
+        require(captured.is_array() && !captured.as_array().empty() && captured.as_array().size() <= 20,
+                ErrorCode::InvalidInput, "model AMEND requires bounded captured task guards");
+        require(number(request, "requirements_revision") >= 2 && !dispositions.as_object().empty(),
+                ErrorCode::NotReady, "model AMEND requires an amendment and explicit decisions");
+        require(captured.as_array().size() == (publishing_plan ? existing.size() : dispositions.as_object().size()),
+                ErrorCode::Conflict, "model AMEND capture does not cover the affected task set");
+        std::set<std::string> seen;
+        for (const auto& value : captured.as_array()) {
+            require(value.is_object() && value.as_object().size() == 5, ErrorCode::InvalidInput,
+                    "invalid captured AMEND task guard");
+            const auto& guard = value.as_object();
+            const auto node_id = str(guard, "node_id");
+            require(seen.insert(node_id).second && (publishing_plan || dispositions.as_object().contains(node_id)),
+                    ErrorCode::Conflict, "captured AMEND task set is duplicated or unrelated");
+            const auto found = std::find_if(existing.begin(), existing.end(), [&](const auto& task) {
+                return str(task, "node_id") == node_id;
+            });
+            require(found != existing.end() && str(*found, "task_id") == str(guard, "task_id"),
+                    ErrorCode::Unauthorized, "captured AMEND task is outside this request");
+            require(number(*found, "state_version") == number(guard, "state_version"),
+                    ErrorCode::Conflict, "captured AMEND task changed while the model was running");
+            const auto team = optional("SELECT team_id,execution_epoch FROM teams WHERE task_id=? AND status IN ('STARTING','ACTIVE','DRAINING')",
+                                       {str(*found, "task_id")});
+            require(guard.contains("team_id") && guard.contains("execution_epoch") &&
+                (team ? guard.at("team_id") == team->at("team_id") && guard.at("execution_epoch") == team->at("execution_epoch")
+                      : guard.at("team_id").is_null() && guard.at("execution_epoch").is_null()),
+                ErrorCode::Stale, "captured AMEND team identity or execution epoch changed");
+        }
+    }
     Json allocate_independent(const Row& request, std::int64_t revision, const std::string& node_id, const Row& node) {
         const auto task_id = new_id("tsk"); const auto team_id = new_id("team"); const auto created = stamp();
         const auto template_id = node.contains("template") ? str(node, "template") : "default";
@@ -2729,11 +2762,13 @@ Json Store::create_task(const StoreActor& actor, std::int64_t expected, std::int
 
 Json Store::apply_independent_plan(const StoreActor& actor, std::int64_t expected,
                                   std::int64_t requirements, const Json& body,
-                                  const Json& dispositions, const std::string& command_id) {
+                                  const Json& dispositions, const std::string& command_id,
+                                  const Json& captured_tasks) {
     const std::lock_guard lock(impl_->mutex);
     impl_->require_events_schema();
-    const auto command = payload(actor, "independent_plan", Row{{"expected_request_version", expected},
+    auto command = payload(actor, "independent_plan", Row{{"expected_request_version", expected},
         {"based_on_requirements_revision", requirements}, {"body", body}, {"dispositions", dispositions}});
+    if (!captured_tasks.is_null()) command["captured_tasks"] = captured_tasks;
     Impl::Transaction tx(*impl_);
     (void)impl_->authorize(actor, {Role::Dispatcher}, false);
     if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
@@ -2747,6 +2782,7 @@ Json Store::apply_independent_plan(const StoreActor& actor, std::int64_t expecte
     impl_->check_dispositions(dispositions, nodes);
     const auto existing = impl_->all("SELECT * FROM tasks WHERE request_id=? ORDER BY node_id", {actor.request_id});
     impl_->check_independent_identities(existing, nodes);
+    impl_->check_captured_amendment_tasks(request, existing, captured_tasks, dispositions, true);
     if (existing.empty()) require(dispositions.as_object().empty(), ErrorCode::InvalidInput, "initial task allocation has no AMEND dispositions");
     // Plan, all initial identities, per-task transitions, audit and inbox routes
     // commit together. A failing later node leaves no partial allocation.
@@ -2779,11 +2815,13 @@ Json Store::apply_independent_plan(const StoreActor& actor, std::int64_t expecte
 
 Json Store::apply_independent_dispositions(const StoreActor& actor, std::int64_t expected,
                                           std::int64_t requirements, std::int64_t revision,
-                                          const Json& dispositions, const std::string& command_id) {
+                                          const Json& dispositions, const std::string& command_id,
+                                          const Json& captured_tasks) {
     const std::lock_guard lock(impl_->mutex);
     impl_->require_events_schema();
-    const auto command = payload(actor, "independent_dispositions", Row{{"expected_request_version", expected},
+    auto command = payload(actor, "independent_dispositions", Row{{"expected_request_version", expected},
         {"based_on_requirements_revision", requirements}, {"target_plan_revision", revision}, {"dispositions", dispositions}});
+    if (!captured_tasks.is_null()) command["captured_tasks"] = captured_tasks;
     Impl::Transaction tx(*impl_);
     (void)impl_->authorize(actor, {Role::Dispatcher}, false);
     if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
@@ -2798,6 +2836,7 @@ Json Store::apply_independent_dispositions(const StoreActor& actor, std::int64_t
     const auto existing = impl_->all("SELECT * FROM tasks WHERE request_id=? ORDER BY node_id", {actor.request_id});
     require(!existing.empty(), ErrorCode::NotReady, "there are no independent tasks to amend");
     impl_->check_independent_identities(existing, nodes);
+    impl_->check_captured_amendment_tasks(request, existing, captured_tasks, dispositions, false);
     impl_->cas("UPDATE requests SET state_version=state_version+1,updated_at=? WHERE request_id=? AND state_version=?", {stamp(), actor.request_id, expected});
     Array changed; Array pending;
     for (const auto& task : existing) {

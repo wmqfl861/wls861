@@ -19,7 +19,7 @@ struct CapturedModelCall {
     ModelRequest request;
     StoreActor actor;
     std::int64_t expected_state_version{};
-    // A single host-selected question, submission, acceptance, rejection or experience
+    // A host-selected question, submission, acceptance, rejection, amendment or experience
     // target. The identical value is inside the durable task_contract; model arguments never
     // choose an identity, CAS value, version, or a replacement target.
     Json workflow_action = nullptr;
@@ -40,7 +40,8 @@ public:
                                   const std::string& request_id, Role role,
                                   const std::string& task_id = {},
                                   std::int64_t role_call_index = 1,
-                                  const std::vector<Json>& tool_feedback = {});
+                                  const std::vector<Json>& tool_feedback = {},
+                                  bool model_amendment = false);
     // Record usage and the raw response first. Invalid/stale responses never
     // authorize a tool; their consumed or unknown budget is still retained.
     Json accept_response(const CapturedModelCall& call,
@@ -83,5 +84,10 @@ FrozenRequestConfig restore_request_config(const Json& request_record);
 // and source remain inside the durable model input and final Store guards.
 Json next_workflow_action(Store& store, Role role, const std::string& request_id,
                           const std::string& task_id = {});
+
+// Opt-in selection used by the workflow pump when no host dispositions were
+// provided. Complete original tasks are captured before the call; the model
+// may decide only a subset of the pending nodes, never supply runtime guards.
+Json next_amendment_action(Store& store, const std::string& request_id);
 
 } // namespace wls::s1

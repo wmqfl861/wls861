@@ -349,12 +349,40 @@ Json next_workflow_action(Store& store, Role role, const std::string& request_id
     return nullptr;
 }
 
+Json next_amendment_action(Store& store, const std::string& request_id) {
+    if (!store.workflow_runtime_enabled()) return nullptr;
+    const auto request = store.request(request_id);
+    const auto status = string_at(request, "status");
+    const auto requirements = integer_at(request, "requirements_revision");
+    if (requirements < 2 || status == "DELIVERED" || status == "FAILED" ||
+            status == "CANCELLED" || status == "SUPERSEDED") return nullptr;
+    const auto current_plan = store.plan(request_id);
+    const bool needs_plan = current_plan.is_null() ||
+        integer_at(current_plan, "based_on_requirements_revision") != requirements;
+    const auto tasks = store.tasks(request_id);
+    Array captured_tasks, pending;
+    for (const auto& task : tasks) {
+        const auto task_status = string_at(task, "status");
+        const bool unresolved = integer_at(task, "based_on_requirements_revision") < requirements &&
+            task_status != "CANCELLED" && task_status != "SKIPPED" && task_status != "SUPERSEDED";
+        if (unresolved) pending.push_back(task.at("node_id"));
+        // Publishing a plan affects every allocated node, including those
+        // without a decision. A same-plan follow-up captures only the pending
+        // set; an already-current sibling may progress independently.
+        if (needs_plan || unresolved) captured_tasks.push_back(task);
+    }
+    if (pending.empty()) return nullptr;
+    return Object{{"kind", "amendment"}, {"target", Object{
+        {"plan_required", needs_plan}, {"tasks", std::move(captured_tasks)},
+        {"pending_node_ids", std::move(pending)}}}};
+}
+
 OfflineRuntime::OfflineRuntime(Store& store, const SchemaRegistry& schemas, WorkerTools* worker_tools)
     : store_(store), schemas_(schemas), worker_tools_(worker_tools) {}
 
 CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
         const std::string& request_id, Role role, const std::string& task_id, std::int64_t index,
-        const std::vector<Json>& tool_feedback) {
+        const std::vector<Json>& tool_feedback, bool model_amendment) {
     require(!adapter.capabilities().real_calls, ErrorCode::Unsupported, "offline runner refuses real adapters");
     require((role == Role::Dispatcher && task_id.empty()) ||
         ((role == Role::TeamLead || role == Role::Worker) && !task_id.empty()), ErrorCode::InvalidInput, "role and task scope disagree");
@@ -379,7 +407,9 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
         for (const auto& question : questions) visible_questions.push_back(question);
         contract.as_object()["questions"] = std::move(visible_questions);
         contract.as_object()["submission"] = submission;
-        action = next_workflow_action(store_, role, request_id, task_id);
+        if (role == Role::Dispatcher && model_amendment)
+            action = next_amendment_action(store_, request_id);
+        if (action.is_null()) action = next_workflow_action(store_, role, request_id, task_id);
         contract.as_object()["workflow_action"] = action;
         if (role == Role::TeamLead && !action.is_null() && string_at(action, "kind") == "submission")
             contract.as_object()["submission_file_views"] = submission_file_views(submission);
@@ -433,7 +463,12 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
     request.config_snapshot_id = config.sha256(); request.model = config.resolve(role);
     auto declared_tools = tools_for(schemas_, role);
     if (!action.is_null()) {
-        if (string_at(action, "kind") == "question")
+        if (string_at(action, "kind") == "amendment") {
+            const auto tool = action.at("target").at("plan_required").as_bool()
+                ? "submit_amendment_plan" : "resolve_amendment";
+            declared_tools = {{tool, "wls-model-amendment-v1", schemas_.project_model_input(tool)}};
+        }
+        else if (string_at(action, "kind") == "question")
             declared_tools = {{"answer_question", "wls-question-answer-v1", schemas_.project_model_input("answer_question")},
                 {"forward_question", "wls-question-forward-v1", schemas_.project_model_input("forward_question")}};
         else if (string_at(action, "kind") == "acceptance")
@@ -505,6 +540,14 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
             "The host captures exactly one management target per call; answer, forward or check only that target. "
             "A submission snapshots at most 8 complete files, 64 KiB each and 256 KiB total. "
             "TeamLead passed means a candidate awaits separate acceptance, never independent review or business delivery.";
+        if (!action.is_null() && string_at(action, "kind") == "amendment")
+            context.approved_rules += " The captured amendment target contains the only pending nodes you may decide. "
+                "Use submit_amendment_plan only when plan_required; otherwise use resolve_amendment on the current plan. "
+                "Provide at least one explicit update, keep or cancel with rationale; omitted nodes stay paused. "
+                "Keep all allocated node and template identities in the plan and preserve every applicable original constraint. "
+                "A keep still needs a new TeamLead order and Worker acknowledgment. Cancel does not undo prior effects. "
+                "Do not provide runtime identities, revisions, epochs or CAS values; the host uses the original captured guards. "
+                "AMEND never resets the shared rework budget or reconciles UNKNOWN operations.";
         if (store_.acceptance_runtime_enabled())
             context.approved_rules += " Dispatcher acceptance is an explicit business judgment about the captured candidate, "
                 "current original requirements, task criteria and preserved evidence. A local TeamLead check or valid JSON is not that judgment. "
@@ -638,6 +681,45 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     const auto command = captured.attempt_id + ":" + tool.call_id;
     if (!call.workflow_action.is_null()) {
         const auto& target = call.workflow_action.at("target");
+        if (string_at(call.workflow_action, "kind") == "amendment") {
+            require(independent_plan && captured.role == Role::Dispatcher &&
+                    disposition.empty() && dispositions.is_object() && dispositions.as_object().empty(),
+                    ErrorCode::Unauthorized, "captured model AMEND requires the independent workflow path without host decisions");
+            const bool publish = target.at("plan_required").as_bool();
+            require(tool.name == (publish ? "submit_amendment_plan" : "resolve_amendment"),
+                    ErrorCode::Unauthorized, "captured AMEND only permits its declared phase");
+            schemas_.validate(tool.name, tool.arguments, true);
+            const auto& decisions = tool.arguments.at("dispositions");
+            const auto& pending = target.at("pending_node_ids").as_array();
+            for (const auto& decision : decisions.as_object())
+                require(std::any_of(pending.begin(), pending.end(), [&](const auto& node) {
+                    return node.as_string() == decision.key();
+                }), ErrorCode::Unauthorized, "AMEND decision names a node outside the captured pending set");
+            Array guards;
+            for (const auto& task : target.at("tasks").as_array()) {
+                if (!publish && !decisions.as_object().contains(string_at(task, "node_id"))) continue;
+                guards.push_back(Object{{"node_id", task.at("node_id")}, {"task_id", task.at("task_id")},
+                    {"state_version", task.at("state_version")}, {"team_id", task.at("team_id")},
+                    {"execution_epoch", task.at("execution_epoch")}});
+            }
+            if (!publish)
+                return store_.apply_independent_dispositions(call.actor, call.expected_state_version,
+                    captured.binding.requirements_revision, captured.binding.plan_revision,
+                    decisions, command + ":amendment", guards);
+            Json plan = tool.arguments.at("plan");
+            schemas_.validate("plan", plan, true);
+            const auto config = restore_request_config(store_.request(captured.binding.request_id));
+            check_independent_plan_supported(plan, config, worker_tools_ != nullptr, true);
+            plan.as_object()["plan_revision"] = increment(captured.binding.plan_revision);
+            plan.as_object()["based_on_requirements_revision"] = captured.binding.requirements_revision;
+            schemas_.validate("plan", plan);
+            for (const auto& node : plan.at("nodes").as_array()) {
+                schemas_.validate("task_brief", node.at("brief"));
+                store_.validate_brief(captured.binding.request_id, node.at("brief"));
+            }
+            return store_.apply_independent_plan(call.actor, call.expected_state_version,
+                captured.binding.requirements_revision, plan, decisions, command + ":amendment-plan", guards);
+        }
         if (string_at(call.workflow_action, "kind") == "question") {
             require(tool.name == "answer_question" || tool.name == "forward_question", ErrorCode::Unauthorized,
                     "captured question only permits its answer or forward action");

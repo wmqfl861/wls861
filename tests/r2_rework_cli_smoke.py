@@ -184,14 +184,48 @@ class ReworkCli(unittest.TestCase):
             self.assertEqual(task['task_revision'],original['task_revision'])
         self.assertEqual(self.rows('SELECT rework_count FROM team_workflow_state'),[{'rework_count':0}])
 
-    def test_amendment_requires_explicit_new_disposition(self):
+    def test_amendment_captures_new_disposition_and_rejects_old_correction_tool(self):
         request=self.rejected()
+        original=self.rows('SELECT submission_id,original_binding,body,artifact_snapshot,record_sha256 FROM workflow_submissions')
+        workspace_bytes=(self.workspace/'result.txt').read_bytes()
         self.invoke('amend','--db',self.database,'--request',request,
             '--text-file',h.FIXTURES/'s13_amendment.txt','--constraints-file',h.FIXTURES/'s13_amended_constraints.json')
+        task_query=('SELECT task_id,node_id,task_revision,plan_revision,based_on_requirements_revision,'
+                    'instruction_revision,status,brief FROM tasks WHERE request_id=? ORDER BY task_id')
+        tasks=self.rows(task_query,(request,))
+        plans=self.rows('SELECT * FROM plans WHERE request_id=? ORDER BY plan_revision',(request,))
+        notice_query=("SELECT i.inbox_id,i.subject_task_id,i.event_requirements_revision FROM event_inbox i "
+                      "JOIN events e ON e.seq=i.event_seq WHERE i.request_id=? AND i.role='dispatcher' "
+                      "AND i.status='PENDING' AND e.type='amend' ORDER BY i.inbox_id")
+        notices=self.rows(notice_query,(request,))
+        self.assertTrue(notices)
+        budget=self.rows('SELECT spent_input,spent_output FROM request_budgets WHERE request_id=?',(request,))[0]
+        attempts=len(self.rows('SELECT attempt_id FROM call_attempts WHERE request_id=?',(request,)))
         result=self.pump(request,self.correction_script())
-        self.assertEqual(len(result['calls']),0,result)
+        # The new AMEND target may call its model. An old rejection correction
+        # is still unavailable and cannot substitute for a current disposition.
+        self.assertEqual(len(result['calls']),1,result)
+        call=result['calls'][0]
+        self.assertEqual(call['role'],'dispatcher')
+        self.assertEqual(call['workflow_action']['kind'],'amendment')
+        self.assertIs(call['workflow_action']['target']['plan_required'],True)
+        self.assertEqual(call['error']['code'],'invalid_input',call)
+        attempt=self.rows('SELECT input_tokens,output_tokens,response,settlement_sha256 FROM call_attempts WHERE attempt_id=?',
+                          (call['attempt_id'],))[0]
+        self.assertEqual((attempt['input_tokens'],attempt['output_tokens']),(100,20))
+        self.assertIsNotNone(attempt['settlement_sha256'])
+        self.assertEqual(json.loads(attempt['response'])['tool_calls'][0]['name'],'change_task')
+        self.assertEqual(len(self.rows('SELECT attempt_id FROM call_attempts WHERE request_id=?',(request,))),attempts+1)
+        spent=self.rows('SELECT spent_input,spent_output FROM request_budgets WHERE request_id=?',(request,))[0]
+        self.assertEqual((spent['spent_input']-budget['spent_input'],spent['spent_output']-budget['spent_output']),(100,20))
+        self.assertEqual(self.rows(task_query,(request,)),tasks)
+        self.assertEqual(self.rows('SELECT * FROM plans WHERE request_id=? ORDER BY plan_revision',(request,)),plans)
+        self.assertEqual(self.rows('SELECT * FROM amend_dispositions WHERE request_id=?',(request,)),[])
         self.assertEqual(self.rows('SELECT rework_count FROM team_workflow_state'),[{'rework_count':0}])
         self.assertEqual(self.rows('SELECT status FROM workflow_submissions'),[{'status':'SUPERSEDED'}])
+        self.assertEqual(self.rows('SELECT submission_id,original_binding,body,artifact_snapshot,record_sha256 FROM workflow_submissions'),original)
+        self.assertEqual(self.rows(notice_query,(request,)),notices)
+        self.assertEqual((self.workspace/'result.txt').read_bytes(),workspace_bytes)
 
     def test_same_pump_rejects_corrects_and_accepts_without_reopen(self):
         request=self.admit()

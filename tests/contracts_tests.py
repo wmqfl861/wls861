@@ -38,7 +38,7 @@ class SchemaContracts(unittest.TestCase):
 
     def test_all_local_schemas_examples_and_nested_briefs(self):
         with patch("socket.socket", side_effect=AssertionError("network is forbidden")):
-            self.assertEqual(contracts.validate_examples(), (19, 15))
+            self.assertEqual(contracts.validate_examples(), (21, 15))
         plan = self.example("plan.json")
         del plan["nodes"][0]["brief"]["constraint_refs"]
         with self.assertRaises(ValidationError):
@@ -58,6 +58,25 @@ class SchemaContracts(unittest.TestCase):
             body[required] = ""
             with self.assertRaises(ValidationError):
                 self.registry.validate(name, body, model_input=True)
+
+    def test_model_amendment_nested_projection_and_nonempty_decisions(self):
+        plan = self.example("plan.json")
+        plan.pop("plan_revision")
+        plan.pop("based_on_requirements_revision")
+        decision = {"dispositions": {"alpha": {"disposition": "keep", "rationale": "Preserve the current goal under the amendment."}}}
+        self.registry.validate("resolve_amendment", decision, model_input=True)
+        body = {"plan": plan, **copy.deepcopy(decision)}
+        self.registry.validate("submit_amendment_plan", body, model_input=True)
+        for field in ("plan_revision", "based_on_requirements_revision"):
+            invalid = copy.deepcopy(body)
+            invalid["plan"][field] = 2
+            with self.subTest(forged=field), self.assertRaises(ValidationError):
+                self.registry.validate("submit_amendment_plan", invalid, model_input=True)
+        for value in ({}, {"alpha": {"disposition": "accept", "rationale": "No"}},
+                      {"alpha": {"disposition": "keep", "rationale": " \t\n"}},
+                      {"alpha": {"disposition": "keep", "rationale": "No", "state_version": 1}}):
+            with self.subTest(dispositions=value), self.assertRaises(ValidationError):
+                self.registry.validate("resolve_amendment", {"dispositions": value}, model_input=True)
 
     def test_unknown_external_reference_fails_without_network(self):
         with tempfile.TemporaryDirectory() as temp:

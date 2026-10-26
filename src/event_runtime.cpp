@@ -364,6 +364,10 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     std::set<std::string> block_keys;
     Array calls, blocked;
     std::int64_t manager_calls = 0;
+    // Explicit host decisions retain their compatibility path for this whole
+    // pump. Otherwise the Dispatcher captures its own bounded AMEND target;
+    // later omitted-node decisions must not publish another plan.
+    const bool model_amendment = options.amendment_dispositions.as_object().empty();
     bool dispositions_applied = options.amendment_dispositions.as_object().empty();
     const auto block = [&](Role role, const std::string& node, const std::string& task,
                            std::string_view code, const std::string& reason) {
@@ -397,6 +401,23 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     };
     const auto action_in_claim = [&](const Json& action, const Json& claim) {
         const auto kind = text(action, "kind");
+        if (kind == "amendment") {
+            const auto& target = action.at("target");
+            const auto& pending = target.at("pending_node_ids").as_array();
+            return std::any_of(claim.at("items").as_array().begin(), claim.at("items").as_array().end(),
+                [&](const auto& item) {
+                    if (text(item, "type") != "amend" && !recovery_item(item)) return false;
+                    const auto subject = text(item, "subject_task_id");
+                    if (subject.empty()) return true;
+                    return std::any_of(target.at("tasks").as_array().begin(), target.at("tasks").as_array().end(),
+                        [&](const auto& task) {
+                            return text(task, "task_id") == subject &&
+                                std::any_of(pending.begin(), pending.end(), [&](const auto& node) {
+                                    return node == task.at("node_id");
+                                });
+                        });
+                });
+        }
         const auto field = kind == "question" ? "question_id" : kind == "experience" ? "experience_id" : "submission_id";
         const auto target_id = text(action.at("target"), field);
         const auto target_task = text(action.at("target"), "task_id");
@@ -429,6 +450,10 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             number(rejected, "rework_remaining") == 0);
     };
     const auto management_target = [&](Role role, const std::string& task) -> Json {
+        if (role == Role::Dispatcher && model_amendment) {
+            const auto amendment = next_amendment_action(store_, id);
+            if (!amendment.is_null()) return amendment;
+        }
         return next_workflow_action(store_, role, id, task);
     };
     const auto invoke = [&](Role role, const std::string& node, const std::string& task,
@@ -467,7 +492,8 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         }
         const FakeModel fake(steps, config.resolve(role).model);
         OfflineRuntime runtime(store_, schemas_, tools);
-        const auto captured = runtime.reserve_call(fake, id, role, task, index);
+        const auto captured = runtime.reserve_call(fake, id, role, task, index, {},
+            role == Role::Dispatcher && model_amendment);
         indices[key] = index;
         if (role != Role::Worker) ++manager_calls;
         Object invocation{{"attempt_id", captured.request.attempt_id}, {"role", role_name(role)},
@@ -538,9 +564,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 const bool needs_plan = number(request, "plan_revision") == 0 ||
                     number(store_.plan(id), "based_on_requirements_revision") != number(request, "requirements_revision");
                 if (needs_plan) {
-                    if (!current_tasks.empty() && dispositions_applied)
-                        block(Role::Dispatcher, {}, {}, "amendment_pending", "AMEND needs explicit per-node host dispositions");
-                    else if (invoke(Role::Dispatcher, {}, {}, tools_by_node_.empty() ? nullptr : tools_by_node_.begin()->second,
+                    if (invoke(Role::Dispatcher, {}, {}, tools_by_node_.empty() ? nullptr : tools_by_node_.begin()->second,
                                     dispatcher_claim)) {
                         progress = true; dispositions_applied = true;
                     }
@@ -552,8 +576,10 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                         dispositions_applied = true; progress = true;
                     }
                     const auto action = management_target(Role::Dispatcher, {});
+                    WorkerTools* amendment_tools = !action.is_null() && text(action, "kind") == "amendment" &&
+                        !tools_by_node_.empty() ? tools_by_node_.begin()->second : nullptr;
                     if (!action.is_null() && action_in_claim(action, dispatcher_claim) &&
-                            invoke(Role::Dispatcher, {}, {}, nullptr, dispatcher_claim)) progress = true;
+                            invoke(Role::Dispatcher, {}, {}, amendment_tools, dispatcher_claim)) progress = true;
                 }
                 request = store_.request(id);
                 current_tasks = store_.tasks(id);
