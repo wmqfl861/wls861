@@ -1,6 +1,6 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.8.1-r2.2；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.8.2-r2.3；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
 本批接续第二份审核：同语义说明的恢复无需重写，强进程结果按完整证据结算，新增Root核对入口。
 [当前能力/证据矩阵](docs/STATUS.md)集中记录实现边界；[审核采纳记录](docs/reviews/claude-disposition.md)
@@ -27,6 +27,21 @@ python3 tests/r2_rework_cli_smoke.py ./build/wls .
 ```
 
 本批使用固定 FakeModel 判断；它验证流程、持久化和门禁，不测真实模型质量，不发起网络调用。
+
+## 模型 AMEND 处置（R2.3）
+
+`amend` 后，不提供宿主处置文件的 `pump-fake` 会让 Dispatcher 使用
+`submit_amendment_plan` 提交新计划和逐节点 update/keep/cancel。
+遗漏节点继续暂停；之后用 `resolve_amendment` 补处理，沿用同一计划，不重发已处置兄弟任务的说明。
+每次决定绑定调用前捕获的请求和任务版本。keep 仍需新说明与 Worker 确认，UNKNOWN 保持待核对。
+原 `--dispositions-file` 及旧 `run-fake --disposition` 路径保留。
+
+完整参数、版本检查和边界见 [R2.3 契约](docs/implementation/R2-model-amendments.md)。可重复场景：
+
+```sh
+# 普通用户、源码根目录；只使用固定脚本与私有临时测试数据。
+python3 tests/r2_amend_cli_smoke.py ./build/wls .
+```
 
 ## 请求限定恢复
 

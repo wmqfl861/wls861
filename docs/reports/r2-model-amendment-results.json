@@ -1,0 +1,317 @@
+{
+  "generated_at": "2026-10-26T07:15:43.838118+00:00",
+  "status": "incomplete_local_asan_90_second_ctest_timeout",
+  "all_requested_local_gates_passed": false,
+  "source": {
+    "execution_inputs": 231,
+    "manifest_sha256": "34a65a116faadbe43988af7f0762ecf143d3c18a49c6c0e0337ccdb799165e2e",
+    "snapshot_differences": [],
+    "current_repository_differences": [],
+    "current_repository_head": "699adea34a7ef4dea9ec5f7b1212cda8d222dc1f",
+    "committed_input_verification": {
+      "commit": "699adea34a7ef4dea9ec5f7b1212cda8d222dc1f",
+      "tree": "aa6e12ddd127f2ac54bc94b353563f2345dbffa5",
+      "execution_inputs": 231,
+      "manifest_sha256": "34a65a116faadbe43988af7f0762ecf143d3c18a49c6c0e0337ccdb799165e2e",
+      "committed_tree_mismatches": [],
+      "verified_at": 1792998335.2083337
+    }
+  },
+  "passed_full_gates": [
+    {
+      "record": {
+        "name": "release-0002",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-validation-r23/build-release",
+          "--output-on-failure",
+          "-V",
+          "-j2"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1792997580.5059826,
+        "exit_code": 0,
+        "elapsed_seconds": 81.906,
+        "log_sha256": "b6592b5d68b20470b54a8e4d8bcb21c81477f6026dc00dffb03cde125ab34cd7"
+      },
+      "counts": {
+        "gate": "release-0002",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "elapsed_seconds": 81.906,
+        "ctest_groups": 54,
+        "ctest_passed": 54,
+        "m1_cpp": 52,
+        "s1_cpp": 428,
+        "s1_cli": 143,
+        "m1_demo": 3,
+        "reference_contracts": 38,
+        "integrity_groups": [
+          "handoff_integrity",
+          "review_source_integrity"
+        ],
+        "log_sha256": "b6592b5d68b20470b54a8e4d8bcb21c81477f6026dc00dffb03cde125ab34cd7",
+        "input_manifest_sha256": "34a65a116faadbe43988af7f0762ecf143d3c18a49c6c0e0337ccdb799165e2e"
+      },
+      "record_path": "/tmp/wls861-validation-r23/logs/release-0002.json",
+      "counts_path": "/tmp/wls861-validation-r23/logs/release-0002-counts.json"
+    },
+    {
+      "record": {
+        "name": "release-0022",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-validation-r23/build-release",
+          "--output-on-failure",
+          "-V",
+          "-j2"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0022",
+        "started": 1792997731.521953,
+        "exit_code": 0,
+        "elapsed_seconds": 86.608,
+        "log_sha256": "2c4b9d1210cae4db34a0b38aa5ec367d99a86c267643319d50038481975e7719"
+      },
+      "counts": {
+        "gate": "release-0022",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0022",
+        "elapsed_seconds": 86.608,
+        "ctest_groups": 54,
+        "ctest_passed": 54,
+        "m1_cpp": 52,
+        "s1_cpp": 428,
+        "s1_cli": 143,
+        "m1_demo": 3,
+        "reference_contracts": 38,
+        "integrity_groups": [
+          "handoff_integrity",
+          "review_source_integrity"
+        ],
+        "log_sha256": "2c4b9d1210cae4db34a0b38aa5ec367d99a86c267643319d50038481975e7719",
+        "input_manifest_sha256": "34a65a116faadbe43988af7f0762ecf143d3c18a49c6c0e0337ccdb799165e2e"
+      },
+      "record_path": "/tmp/wls861-validation-r23/logs/release-0022.json",
+      "counts_path": "/tmp/wls861-validation-r23/logs/release-0022-counts.json"
+    },
+    {
+      "record": {
+        "name": "ubsan-0002",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-validation-r23/build-ubsan",
+          "--output-on-failure",
+          "-V",
+          "-j2"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1792997579.7016122,
+        "exit_code": 0,
+        "elapsed_seconds": 370.25,
+        "log_sha256": "2e69d01d5ba60fb646f92f516aafd729f8ab96b6b725b94162445298e0326b67"
+      },
+      "counts": {
+        "gate": "ubsan-0002",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "elapsed_seconds": 370.25,
+        "ctest_groups": 54,
+        "ctest_passed": 54,
+        "m1_cpp": 52,
+        "s1_cpp": 428,
+        "s1_cli": 143,
+        "m1_demo": 3,
+        "reference_contracts": 38,
+        "integrity_groups": [
+          "handoff_integrity",
+          "review_source_integrity"
+        ],
+        "log_sha256": "2e69d01d5ba60fb646f92f516aafd729f8ab96b6b725b94162445298e0326b67",
+        "input_manifest_sha256": "34a65a116faadbe43988af7f0762ecf143d3c18a49c6c0e0337ccdb799165e2e"
+      },
+      "record_path": "/tmp/wls861-validation-r23/logs/ubsan-0002.json",
+      "counts_path": "/tmp/wls861-validation-r23/logs/ubsan-0002-counts.json"
+    },
+    {
+      "record": {
+        "name": "make-0002",
+        "command": [
+          "make",
+          "-j2",
+          "test",
+          "BUILD_DIR=/tmp/wls861-validation-r23/build-make",
+          "CPPFLAGS=-DWLS_R23_USER_CPPFLAGS=1",
+          "PYTHON=/tmp/wls861-validation-venv/bin/python"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1792997961.0624964,
+        "exit_code": 0,
+        "elapsed_seconds": 159.502,
+        "log_sha256": "49682be3a21df2174ec665a65ee8713b883a392682c4089298e1044884fa421d"
+      },
+      "counts": {
+        "m1_cpp": 52,
+        "s1_cpp": 428,
+        "s1_cli": 143,
+        "m1_demo": 3,
+        "reference_contracts": 38,
+        "integrity_groups": [
+          "handoff_integrity",
+          "review_source_integrity"
+        ],
+        "input_manifest_sha256": "34a65a116faadbe43988af7f0762ecf143d3c18a49c6c0e0337ccdb799165e2e",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "elapsed_seconds": 159.502,
+        "log_sha256": "49682be3a21df2174ec665a65ee8713b883a392682c4089298e1044884fa421d",
+        "gate": "make-0002",
+        "make_suite_commands": 54,
+        "matching_case_counts_with": "release-0002"
+      },
+      "record_path": "/tmp/wls861-validation-r23/logs/make-0002.json",
+      "counts_path": "/tmp/wls861-validation-r23/logs/make-0002-counts.json"
+    }
+  ],
+  "asan_ctest_attempts": [
+    {
+      "record": {
+        "name": "asan-0002",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-validation-r23/build-asan",
+          "--output-on-failure",
+          "-V",
+          "-j2"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1792997852.852467,
+        "exit_code": 8,
+        "elapsed_seconds": 666.854,
+        "log_sha256": "6fb80b38a424cdf69ee194c0e70de951ca80a2801fff803d42b66b53faea9544"
+      },
+      "timeout_lines": [
+        "21/54 Test #16: acceptance_runtime ...............***Timeout  90.14 sec"
+      ],
+      "sanitizer_diagnostics": []
+    },
+    {
+      "record": {
+        "name": "asan-acceptance-isolated-0002",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-validation-r23/build-asan",
+          "--output-on-failure",
+          "-V",
+          "-j1",
+          "-R",
+          "^acceptance_runtime$"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1792998578.534366,
+        "exit_code": 8,
+        "elapsed_seconds": 90.192,
+        "log_sha256": "8dba4d314f9b706e8bb37f39eb6efcb20f9b3e8277e690fd0ec2011159ef404f"
+      },
+      "timeout_lines": [
+        "1/1 Test #16: acceptance_runtime ...............***Timeout  90.18 sec"
+      ],
+      "sanitizer_diagnostics": []
+    }
+  ],
+  "asan_diagnostic": {
+    "name": "asan-acceptance-diagnostic-pty",
+    "evidence_type": "diagnostic_only_not_the_90_second_ctest_gate",
+    "command": [
+      "/tmp/wls861-validation-r23/build-asan/acceptance_runtime_tests"
+    ],
+    "uid": 65534,
+    "gid": 65534,
+    "umask": "0002",
+    "started": 1792998777.6714158,
+    "elapsed_seconds": 91.073,
+    "diagnostic_timeout_seconds": 180,
+    "timed_out": false,
+    "exit_code": 0,
+    "asan_options": "halt_on_error=1:detect_leaks=1",
+    "binary_sha256": "698abb4a4e00d13693d50f66ef4f1475b4a9831583ea865513cedd76f9996d82",
+    "log_sha256": "3a5ecfc0fa1e0c6eb84cc1076435fc9d075fef868edd530c0321538ab8a8b149",
+    "max_rss_kib": 1744156
+  },
+  "asan_diagnostic_case_count": 19,
+  "asan_diagnostic_is_not_a_gate_pass": true,
+  "environment_record_path": "/tmp/wls861-validation-r23/logs/final-environment.json",
+  "initial_failure_history": [
+    {
+      "name": "initial-release-0002",
+      "log_path": "/tmp/wls861-validation-r23/logs/initial-release-0002.log",
+      "record_path": "/tmp/wls861-validation-r23/logs/initial-release-0002.json",
+      "log_sha256": "5b6806667b7b18f303f33b0ec03cd3e9f6fda2524f3b07fe73df316be92ea5ac",
+      "exit_code": 8
+    },
+    {
+      "name": "initial-ubsan-0002",
+      "log_path": "/tmp/wls861-validation-r23/logs/initial-ubsan-0002.log",
+      "record_path": "/tmp/wls861-validation-r23/logs/initial-ubsan-0002.json",
+      "log_sha256": "57273ad0c197ef35649413ac1e56dbe864e5573a847933753c1bb86ea441435a",
+      "exit_code": 8
+    },
+    {
+      "name": "initial-asan-0002",
+      "log_path": "/tmp/wls861-validation-r23/logs/initial-asan-0002.log",
+      "record_path": "/tmp/wls861-validation-r23/logs/initial-asan-0002.json",
+      "log_sha256": "6fb80b38a424cdf69ee194c0e70de951ca80a2801fff803d42b66b53faea9544",
+      "exit_code": 8
+    }
+  ],
+  "baseline": {
+    "source_commit": "c975be3e7d30c1208a0a2c19494e2a186c7f77ca",
+    "ctest_groups": 52,
+    "log_sha256": "31c185e1eaa962cc9ccff9a8d5498378d1c65caa7253868ee340060ddf3a8c6a",
+    "results_path": "/tmp/wls861-validation-r22/logs/results.json",
+    "red_phase_observation": {
+      "evidence_type": "parsed_existing_log_not_original_process_record",
+      "source_commit": "c975be3e7d30c1208a0a2c19494e2a186c7f77ca",
+      "log_path": "/tmp/wls861-validation-r22/logs/model-amend-baseline-red.log",
+      "log_sha256": "9929cff070f795046bc75fbf3ad72f993ac6d734ef5fc635d273d08a3658e1dc",
+      "test_script_sha256": "495ce4c154ab769bde9bf4c7d1d1f7fa6f1c2878b5b5377fb8d9f30903a0c1e0",
+      "test_count": 9,
+      "failures": 7,
+      "passes": 2,
+      "unittest_elapsed_seconds": 3.497,
+      "original_process_json_available": false,
+      "original_exit_code_record_available": false,
+      "note": "The retained unittest log reports seven failing model-AMEND cases and two passing compatibility/isolation cases; this observation does not invent unavailable process metadata."
+    }
+  },
+  "external_ci_observed_by_this_agent": false,
+  "not_run_locally": [
+    "Clang 18 full regression",
+    "Make-ASan"
+  ],
+  "repository_source_doc_or_git_writes_by_validation_agent": false,
+  "note": "Release both umasks, UBSan, and strict Make passed all 54 groups and 664 counted cases. ASan first full run passed 53/54; acceptance_runtime timed out again in isolation under the unchanged 90-second property. A separate diagnostic completed all 19 cases in 91.073 seconds with leak detection, but does not satisfy the original CTest time gate.",
+  "published_implementation_commit": "4737b6b0585d9828579ca244d96101bbdb104076",
+  "published_implementation_tree": "aa6e12ddd127f2ac54bc94b353563f2345dbffa5",
+  "publication_note": "GitHub commit metadata differs from the local commit; identical tree and 231 execution inputs were verified."
+}

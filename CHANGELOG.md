@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.2-r2.3 — captured model AMEND decisions
+
+- Let Dispatcher models publish an amended plan with explicit update/keep/cancel choices, then resolve omitted nodes on the same plan.
+- Persist original AMEND targets and check request CAS plus affected task CAS/team epochs in the committing Store transaction.
+- Keep omitted nodes pending, require fresh TeamLead instructions/Worker acknowledgments, and preserve UNKNOWN, usage and shared rework limits.
+- Preserve host disposition paths, exact response replay and scoped sibling-request isolation without changing published SQL or frozen snapshots.
+- Add C++/CLI regressions in both build systems and complete the missing R2.2 baseline validation record.
+- FakeModel verifies runtime behavior only; live protocol/quality, strong deployment and R2a allocation recovery remain separate.
+
 ## 0.8.1-r2.2 — integrate request-scoped recovery with bounded rejection correction
 
 - Preserve the original unpushed R2 correction commits and merge the request-recovery candidate.

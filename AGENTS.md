@@ -27,7 +27,7 @@ rejected submission may be corrected or escalated. Preserve original task and
 instruction constraints, share the frozen TeamLead rework counter, and never
 consume an unanswered correction wakeup as handled. User answers do not grant
 more rework, accept a candidate, or clear UNKNOWN. Scoped recovery applies to
-these management paths too. Model AMEND disposition remains a later increment.
+these management paths too. Model AMEND uses the separate ADR-073 contract.
 
 Read `docs/adr/071-request-scoped-recovery.md` and
 `docs/implementation/S1-request-recovery.md` for scoped writer recovery. CLI
@@ -37,6 +37,14 @@ its actors; preserve all unknown/late/AMEND/wait and post-terminal job fences.
 Populated structural upgrades require explicit all-request init maintenance.
 Read ADR-072 for the integration: corrective commands and exact replay obey the
 same scope guards; owner answers cannot perturb sibling requests or clear fences.
+
+Read `docs/adr/073-model-amendment-dispositions.md` and
+`docs/implementation/R2-model-amendments.md` for model-produced AMEND decisions.
+Capture target tasks before a Dispatcher call; both request CAS and affected
+task CAS/team epochs must match inside the committing transaction. Missing
+decisions remain paused and pending. A same-plan follow-up must not revise or
+fence already-current siblings. Keep the explicit host disposition path and
+original response/usage replay behavior compatible.
 
 Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
 review fixes and priority changes. Model contract/context/rework and an approved

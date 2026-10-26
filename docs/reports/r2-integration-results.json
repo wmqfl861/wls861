@@ -1,0 +1,267 @@
+{
+  "uid": 65534,
+  "gid": 65534,
+  "umask": "0002",
+  "source_commit": "c975be3e7d30c1208a0a2c19494e2a186c7f77ca",
+  "started": 1792991353.0095954,
+  "commands": [
+    {
+      "name": "configure",
+      "command": [
+        "cmake",
+        "-S",
+        "/tmp/wls861-validation-r22/source",
+        "-B",
+        "/tmp/wls861-validation-r22/build-release",
+        "-G",
+        "Ninja",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DPython3_EXECUTABLE=/tmp/wls861-validation-venv/bin/python"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.516
+    },
+    {
+      "name": "build",
+      "command": [
+        "cmake",
+        "--build",
+        "/tmp/wls861-validation-r22/build-release",
+        "--parallel",
+        "2"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 136.098
+    },
+    {
+      "name": "ctest",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-validation-r22/build-release",
+        "--output-on-failure",
+        "-j2"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 66.553
+    }
+  ],
+  "suite_counts": {
+    "m1_cpp": 52,
+    "m1_demo": {
+      "passed": 3,
+      "failed": 0
+    },
+    "reference_contracts": {
+      "passed": 37,
+      "failed": 0
+    },
+    "s1_cli": 134,
+    "s1_cpp": 414,
+    "all_suite_counts": {
+      "config": {
+        "passed": 5,
+        "failed": 0
+      },
+      "scheduler": {
+        "passed": 9,
+        "failed": 0
+      },
+      "task_engine": {
+        "passed": 28,
+        "failed": 0
+      },
+      "runtime_types": {
+        "passed": 6,
+        "failed": 0
+      },
+      "journal": {
+        "passed": 10,
+        "failed": 0
+      },
+      "event_store": {
+        "passed": 15,
+        "failed": 0
+      },
+      "store": {
+        "passed": 31,
+        "failed": 0
+      },
+      "workflow_store": {
+        "passed": 21,
+        "failed": 0
+      },
+      "config_loader": {
+        "passed": 18,
+        "failed": 0
+      },
+      "model": {
+        "passed": 15,
+        "failed": 0
+      },
+      "schema": {
+        "passed": 12,
+        "failed": 0
+      },
+      "offline_runtime": {
+        "passed": 9,
+        "failed": 0
+      },
+      "acceptance_store": {
+        "passed": 25,
+        "failed": 0
+      },
+      "workflow_runtime": {
+        "passed": 14,
+        "failed": 0
+      },
+      "event_runtime": {
+        "passed": 14,
+        "failed": 0
+      },
+      "workspace": {
+        "passed": 19,
+        "failed": 0
+      },
+      "sandbox": {
+        "passed": 18,
+        "failed": 0
+      },
+      "worker_tools": {
+        "passed": 17,
+        "failed": 0
+      },
+      "delivery": {
+        "passed": 17,
+        "failed": 0
+      },
+      "cleanup": {
+        "passed": 20,
+        "failed": 0
+      },
+      "acceptance_runtime": {
+        "passed": 19,
+        "failed": 0
+      },
+      "audit24_reopen": {
+        "passed": 7,
+        "failed": 0
+      },
+      "process_evidence": {
+        "passed": 8,
+        "failed": 0
+      },
+      "audit24_reconcile": {
+        "passed": 4,
+        "failed": 0
+      },
+      "audit24_capacity": {
+        "passed": 8,
+        "failed": 0
+      },
+      "cleanup_runtime": {
+        "passed": 20,
+        "failed": 0
+      },
+      "r1_history": {
+        "passed": 10,
+        "failed": 0
+      },
+      "r1_structured": {
+        "passed": 16,
+        "failed": 0
+      },
+      "r1_window": {
+        "passed": 12,
+        "failed": 0
+      },
+      "r2_rework": {
+        "passed": 26,
+        "failed": 0
+      },
+      "r2_recovery": {
+        "passed": 12,
+        "failed": 0
+      },
+      "specification_contracts": {
+        "passed": 37,
+        "failed": 0
+      },
+      "demo_smoke": {
+        "passed": 3,
+        "failed": 0
+      },
+      "s1_cli_smoke": {
+        "passed": 8,
+        "failed": 0
+      },
+      "s12_cli_smoke": {
+        "passed": 8,
+        "failed": 0
+      },
+      "audit24_capacity_repro": {
+        "passed": 1,
+        "failed": 0
+      },
+      "s13_cli_smoke": {
+        "passed": 10,
+        "failed": 0
+      },
+      "s14_cli_smoke": {
+        "passed": 12,
+        "failed": 0
+      },
+      "s15_cli_smoke": {
+        "passed": 17,
+        "failed": 0
+      },
+      "s16_cli_smoke": {
+        "passed": 14,
+        "failed": 0
+      },
+      "audit24_reopen_cli_smoke": {
+        "passed": 2,
+        "failed": 0
+      },
+      "audit24_reconcile_cli_smoke": {
+        "passed": 4,
+        "failed": 0
+      },
+      "review_cli_smoke": {
+        "passed": 9,
+        "failed": 0
+      },
+      "audit24_capacity_cli_smoke": {
+        "passed": 6,
+        "failed": 0
+      },
+      "r1_history_cli_smoke": {
+        "passed": 7,
+        "failed": 0
+      },
+      "r1_structured_cli_smoke": {
+        "passed": 6,
+        "failed": 0
+      },
+      "r2_rework_cli_smoke": {
+        "passed": 10,
+        "failed": 0
+      },
+      "r1_window_cli_smoke": {
+        "passed": 9,
+        "failed": 0
+      },
+      "r2_recovery_cli_smoke": {
+        "passed": 6,
+        "failed": 0
+      },
+      "r2_integration_cli_smoke": {
+        "passed": 6,
+        "failed": 0
+      }
+    }
+  },
+  "baseline_only": true,
+  "toolchain_note": "GCC13.3 package update occurred during this baseline build; final release acceptance uses fresh stable-toolchain builds.",
+  "ctest_log_sha256": "31c185e1eaa962cc9ccff9a8d5498378d1c65caa7253868ee340060ddf3a8c6a"
+}

@@ -1,5 +1,7 @@
 # R2.3 implementation checkpoint — final verification pending
 
+Continuation: execution resumed, the old CLI expectation was corrected and the implementation was published. This historical checkpoint remains intact; current results and the remaining local ASan time limit are recorded in [the validation report](r2-model-amendment-validation.md).
+
 Recorded on 2026-10-25 (America/Los_Angeles), 2026-10-26 06:13 UTC.
 
 ## Publication boundary

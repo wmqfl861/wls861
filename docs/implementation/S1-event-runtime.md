@@ -1,5 +1,7 @@
 # S1.3 事件运行器契约（0.4.0-s1.3）
 
+> R2.3 工作流pump可由模型产生AMEND决定，见[当前模型处置契约](R2-model-amendments.md)。本页的宿主处置文件路径继续兼容。
+
 > 恢复范围以[请求限定恢复契约](S1-request-recovery.md)为准：CLI请求写者只恢复目标，submit仅准入；旧默认Store与显式init仍全库维护。
 
 > 代次恢复以[当前说明恢复契约](S1-epoch-recovery.md)为准：语义不变不再重写说明；原说明行保持不可变。

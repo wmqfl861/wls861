@@ -49,5 +49,6 @@ team_internal_rework_max。重开、回答、普通新说明、AMEND及容量检
 
 只接入同步有界EventRuntime与宿主Store；旧run-fake仍不能绕过待审核成果自动发说明。
 按请求隔离恢复已在 R2.2 联合接入，见 [ADR-071](../adr/071-request-scoped-recovery.md)。
-未实现由模型产出的AMEND处置、任意任务重定义、返工额度扩充审批、DAG或独立审核。
+模型产出的AMEND处置在 [R2.3](R2-model-amendments.md) 接续实现，仍不扩充共享返工额度。
+任意任务重定义、返工额度扩充审批、DAG或独立审核未实现。
 真实模型协议/模型判断质量和bwrap+cgroup强环境部署正向验收仍按原任务卡，绝不以Fake成绩代替。
