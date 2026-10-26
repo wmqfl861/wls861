@@ -53,6 +53,15 @@ capacity before mkdir. Preserve the first-dispatch/UNKNOWN/replay boundary and
 old frozen grants/execution policies. Business mkdir does not grant runtime-owned
 allocation or cleanup authority; PREPARED allocation recovery is a separate slice.
 
+Read `docs/adr/075-owned-allocation-recovery.md` and
+`docs/implementation/R2a-allocation-recovery.md` for Store 408 allocation.
+Persist v2 staging receipt before no-overwrite publication; validate original
+filesystem generations and resource CAS on recovery. Abandonment is metadata
+only for unbound PREPARED records, including terminal/retired/held requests.
+Preserve all history, protect both retained paths, select active cleanup targets,
+and keep lifetime limits separate from windowed event settlement reserves.
+Populated upgrades need explicit all-request init; never edit published SQL.
+
 Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
 review fixes and priority changes. Model contract/context/rework and an approved
 small real loop now precede expanding private-data purge or daemon/API. Keep

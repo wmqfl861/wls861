@@ -1,8 +1,8 @@
 # v0.4.1 SQLite 契约与可执行事务参考
 
-`schema.sql` 是修订蓝图的目标数据库结构。`contract_store.py` 用真实 SQLite 事务验证审核发现的状态、版本和恢复边界。下文主要描述这个 Python 参考，不将它当作运行器。C++ `Store` 已在 S1.1 接入，S1.2 新增真实 Worker 工具与 403 迁移，S1.3 增加持久事件运行器与 404 迁移，S1.4 增加问答、提交快照与团队检查的405迁移，S1.5增加当前验收/交付/回执/经验的406迁移；原M1仍保留独立Journal。S1.6增加407受控workspace删除阶段。MemoryEngine、跨功能独立审核、Git Writer和私有数据purge仍待实现。不要把本模块注册成面向模型或网络调用方的工具服务。
+`schema.sql` 是修订蓝图的目标数据库结构。`contract_store.py` 用真实 SQLite 事务验证审核发现的状态、版本和恢复边界。下文主要描述这个 Python 参考，不将它当作运行器。C++ `Store` 已在 S1.1 接入，S1.2 新增真实 Worker 工具与 403 迁移，S1.3 增加持久事件运行器与 404 迁移，S1.4 增加问答、提交快照与团队检查的405迁移，S1.5增加当前验收/交付/回执/经验的406迁移；原M1仍保留独立Journal。S1.6增加407受控workspace删除阶段；R2a.2增加408分配恢复和明确弃置。MemoryEngine、跨功能独立审核、Git Writer和私有数据purge仍待实现。不要把本模块注册成面向模型或网络调用方的工具服务。
 
-## C++ 运行版本：402–407
+## C++ 运行版本：402–408
 
 `src/store.cpp` 及其 C++ 回归与 Python 参考分别验证。004 将已知空 401 参考库升级为 S1.1 的 402；005 将包括非空请求的 402 原地升级为 S1.2 的 403。每份迁移指纹须匹配，失败在事务内回滚；原 schema/004 字节保留。缺完整配置快照的非空 401 仍拒绝自动升级。
 
@@ -16,9 +16,11 @@
 
 009将已知非空406事务升级407，保留schema/004–008原件。新增owned_cleanup_metadata、owned_workspaces与workspace_cleanup_runs：创建意图、完整identity、固定inventory和删除proof首次写入后不可变，更新必须推进CAS。资源登记由Root受信宿主执行，不是模型工具。cleanup_jobs使用领取代次和state_version围栏旧执行；workspace阶段DONE后全局作业仍PENDING，私有数据、原交付和所有权收据保留。默认cleanup false；旧库ReadOnly不迁移，407打开要求相同009哈希。详见[S1.6契约](../docs/implementation/S1-owned-cleanup.md)。
 
+010 将已知非空 407 事务升级 408，逐值保留原所有权记录和清理 manifest。新增不可变 allocation_receipt、abandonment 与 ABANDONED 状态；有效资源按团队部分唯一，原请求/命令键永久唯一。新分配保存完整代次收据后才无覆盖发布；弃置只保留元数据和路径，不授予删除权。每请求 64 个有效资源、256 条终生历史，原窗口不能重置。CLI 提供 010；原嵌入调用省略追加的资产参数仍保留 407。带请求的结构升级只允许显式 AllRequests/init，OneRequest/AdmissionOnly 在迁移前拒绝，只读不升级。010 的 DDL/复制/版本同事务，但之后请求恢复是独立事务；后者失败不撤销已经成功的结构升级。408 打开要求相同 010 哈希。详见[R2a.2 契约](../docs/implementation/R2a-allocation-recovery.md)。
+
 ## 运行与数据库版本
 
-以下章节仅描述 Python `contract_store.py` 的事务参考；C++ 运行器当前行为以此前的402–407说明和对应实现契约为准。
+以下章节仅描述 Python `contract_store.py` 的事务参考；C++ 运行器当前行为以此前的402–408说明和对应实现契约为准。
 
 ```sh
 /usr/bin/python3 tests/contracts_tests.py

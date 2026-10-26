@@ -5,6 +5,9 @@
 不是整个 S1，也不是 S1–S5 全部完成。实际命令和结果单独记录在
 [验证报告](../reports/s1-owned-cleanup-validation.md)。
 
+后续 R2a.2 以 [独立契约](R2a-allocation-recovery.md)扩展分配协议及408迁移：新意图使用暂存收据，
+旧 v1 原意图保留；新增不可逆的元数据弃置、全部历史查询和有效清理目标选择。下文为原S1.6契约。
+
 ## 1. 默认与作用域
 
 `cleanup.enabled` 默认仍为 `false`。新请求可显式冻结 `true`，但它只是必要政策条件，

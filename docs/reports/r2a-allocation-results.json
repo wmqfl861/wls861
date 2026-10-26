@@ -1,0 +1,1804 @@
+{
+  "generated_at": "2026-10-26T11:15:32.969965+00:00",
+  "status": "all_requested_local_gates_passed",
+  "all_requested_local_gates_passed": true,
+  "source": {
+    "verified_execution_commit": "f0744e38b702c2493d107d06c0127361797cf430",
+    "verified_commit_tree": "7f1b5807213916e5e4535d3861d2279e0ec3ccdb",
+    "publication_mapping": {
+      "local_commit": "f0744e38b702c2493d107d06c0127361797cf430",
+      "remote_code_commit": "11f0eb1bb66a9cbdb7e8722435f05e5613961850",
+      "shared_tree": "7f1b5807213916e5e4535d3861d2279e0ec3ccdb",
+      "remote_mapping_verification_owner": "root publication checks"
+    },
+    "execution_inputs": 236,
+    "manifest_sha256": "ea10c5664e89a81a690833d31f875452e185a2a68b01487d831a38557480cb57",
+    "manifest_path": "/tmp/wls861-validation-r2a2/logs/final-inputs.sha256",
+    "manifest_scope": [
+      "include",
+      "src",
+      "tests",
+      "schemas",
+      "config",
+      "db",
+      "prompts",
+      "third_party",
+      "scripts",
+      "CMakeLists.txt",
+      "Makefile",
+      "requirements-test.txt"
+    ],
+    "snapshot_differences": [],
+    "current_repository_differences": [
+      "db/README.md"
+    ],
+    "current_repository_documentation_differences": [
+      {
+        "path": "db/README.md",
+        "executed_snapshot_sha256": "64fc161c7086c508bcca05184637b9b18427b8a6068be11b5f071966e945987f",
+        "current_documentation_sha256": "3eaae118c242ca35c905219f103b1d8bf3a771ff1753ffcc4a30f1ba45a5e8f9"
+      }
+    ],
+    "current_repository_runtime_test_sql_differences": [],
+    "all_current_repository_manifest_bytes_identical": false,
+    "execution_commit_differences": [],
+    "current_repository_head": "f0744e38b702c2493d107d06c0127361797cf430",
+    "frozen_test_sha256": {
+      "tests/allocation_recovery_tests.cpp": "e59076bf8adaab162f0603ab7b0e657f36453bb3d0fe9b6d3c837d69da0783a0",
+      "tests/test_s1_allocation_recovery_cli.py": "028ca1d13d96b492ccb0b7df9c0ff7a963177da154d0c0789463f26b2eaea5b9"
+    }
+  },
+  "full_release_gates": [
+    {
+      "record": {
+        "name": "release-full-0002",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-validation-r2a2/build-release",
+          "--output-on-failure"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793012912.8739526,
+        "exit_code": 0,
+        "elapsed_seconds": 161.366,
+        "log_sha256": "e5c6bb590d20c85fb617fe19033b69071bc1b549e8e63301808190f0ceef904a"
+      },
+      "record_path": "/tmp/wls861-validation-r2a2/logs/release-full-0002.json",
+      "record_sha256": "82998594794a36464a89a714e6f0f46cb4e9ecf6cc1e3b4710ea4e5bc86e0c34",
+      "log_path": "/tmp/wls861-validation-r2a2/logs/release-full-0002.log",
+      "log_sha256": "e5c6bb590d20c85fb617fe19033b69071bc1b549e8e63301808190f0ceef904a",
+      "coverage_scope": "full",
+      "build": "release",
+      "all_groups_passed": true,
+      "counts": {
+        "s1_cpp": 474,
+        "s1_cli": 158,
+        "m1_cpp": 52,
+        "demo": 3,
+        "reference_contracts": 38,
+        "counted_cases": 725,
+        "integrity_groups": [
+          "handoff_integrity",
+          "review_source_integrity"
+        ],
+        "ctest_groups": 58
+      },
+      "all_suite_counts": {
+        "journal": {
+          "passed": true,
+          "elapsed_seconds": 0.29,
+          "category": "m1_cpp",
+          "counted_cases": 10,
+          "failed_cases": 0
+        },
+        "config": {
+          "passed": true,
+          "elapsed_seconds": 0.0,
+          "category": "m1_cpp",
+          "counted_cases": 5,
+          "failed_cases": 0
+        },
+        "scheduler": {
+          "passed": true,
+          "elapsed_seconds": 0.01,
+          "category": "m1_cpp",
+          "counted_cases": 9,
+          "failed_cases": 0
+        },
+        "task_engine": {
+          "passed": true,
+          "elapsed_seconds": 0.16,
+          "category": "m1_cpp",
+          "counted_cases": 28,
+          "failed_cases": 0
+        },
+        "runtime_types": {
+          "passed": true,
+          "elapsed_seconds": 0.02,
+          "category": "s1_cpp",
+          "counted_cases": 6,
+          "failed_cases": 0
+        },
+        "store": {
+          "passed": true,
+          "elapsed_seconds": 1.69,
+          "category": "s1_cpp",
+          "counted_cases": 31,
+          "failed_cases": 0
+        },
+        "event_store": {
+          "passed": true,
+          "elapsed_seconds": 1.05,
+          "category": "s1_cpp",
+          "counted_cases": 15,
+          "failed_cases": 0
+        },
+        "workflow_store": {
+          "passed": true,
+          "elapsed_seconds": 2.06,
+          "category": "s1_cpp",
+          "counted_cases": 21,
+          "failed_cases": 0
+        },
+        "acceptance_store": {
+          "passed": true,
+          "elapsed_seconds": 2.31,
+          "category": "s1_cpp",
+          "counted_cases": 25,
+          "failed_cases": 0
+        },
+        "config_loader": {
+          "passed": true,
+          "elapsed_seconds": 0.15,
+          "category": "s1_cpp",
+          "counted_cases": 18,
+          "failed_cases": 0
+        },
+        "model": {
+          "passed": true,
+          "elapsed_seconds": 0.04,
+          "category": "s1_cpp",
+          "counted_cases": 15,
+          "failed_cases": 0
+        },
+        "schema": {
+          "passed": true,
+          "elapsed_seconds": 0.03,
+          "category": "s1_cpp",
+          "counted_cases": 12,
+          "failed_cases": 0
+        },
+        "offline_runtime": {
+          "passed": true,
+          "elapsed_seconds": 0.71,
+          "category": "s1_cpp",
+          "counted_cases": 9,
+          "failed_cases": 0
+        },
+        "event_runtime": {
+          "passed": true,
+          "elapsed_seconds": 4.42,
+          "category": "s1_cpp",
+          "counted_cases": 14,
+          "failed_cases": 0
+        },
+        "workflow_runtime": {
+          "passed": true,
+          "elapsed_seconds": 4.05,
+          "category": "s1_cpp",
+          "counted_cases": 14,
+          "failed_cases": 0
+        },
+        "acceptance_runtime": {
+          "passed": true,
+          "elapsed_seconds": 8.3,
+          "category": "s1_cpp",
+          "counted_cases": 19,
+          "failed_cases": 0
+        },
+        "workspace": {
+          "passed": true,
+          "elapsed_seconds": 0.05,
+          "category": "s1_cpp",
+          "counted_cases": 19,
+          "failed_cases": 0
+        },
+        "sandbox": {
+          "passed": true,
+          "elapsed_seconds": 1.18,
+          "category": "s1_cpp",
+          "counted_cases": 18,
+          "failed_cases": 0
+        },
+        "worker_tools": {
+          "passed": true,
+          "elapsed_seconds": 4.03,
+          "category": "s1_cpp",
+          "counted_cases": 17,
+          "failed_cases": 0
+        },
+        "delivery": {
+          "passed": true,
+          "elapsed_seconds": 0.14,
+          "category": "s1_cpp",
+          "counted_cases": 17,
+          "failed_cases": 0
+        },
+        "cleanup": {
+          "passed": true,
+          "elapsed_seconds": 0.11,
+          "category": "s1_cpp",
+          "counted_cases": 20,
+          "failed_cases": 0
+        },
+        "cleanup_runtime": {
+          "passed": true,
+          "elapsed_seconds": 6.22,
+          "category": "s1_cpp",
+          "counted_cases": 20,
+          "failed_cases": 0
+        },
+        "audit24_reopen": {
+          "passed": true,
+          "elapsed_seconds": 0.45,
+          "category": "s1_cpp",
+          "counted_cases": 7,
+          "failed_cases": 0
+        },
+        "process_evidence": {
+          "passed": true,
+          "elapsed_seconds": 0.04,
+          "category": "s1_cpp",
+          "counted_cases": 8,
+          "failed_cases": 0
+        },
+        "audit24_reconcile": {
+          "passed": true,
+          "elapsed_seconds": 0.48,
+          "category": "s1_cpp",
+          "counted_cases": 4,
+          "failed_cases": 0
+        },
+        "audit24_capacity": {
+          "passed": true,
+          "elapsed_seconds": 0.87,
+          "category": "s1_cpp",
+          "counted_cases": 8,
+          "failed_cases": 0
+        },
+        "audit24_capacity_repro": {
+          "passed": true,
+          "elapsed_seconds": 18.09,
+          "category": "s1_cpp",
+          "counted_cases": 1,
+          "failed_cases": 0
+        },
+        "r1_history": {
+          "passed": true,
+          "elapsed_seconds": 2.03,
+          "category": "s1_cpp",
+          "counted_cases": 10,
+          "failed_cases": 0
+        },
+        "r1_structured": {
+          "passed": true,
+          "elapsed_seconds": 0.04,
+          "category": "s1_cpp",
+          "counted_cases": 16,
+          "failed_cases": 0
+        },
+        "r1_window": {
+          "passed": true,
+          "elapsed_seconds": 1.64,
+          "category": "s1_cpp",
+          "counted_cases": 12,
+          "failed_cases": 0
+        },
+        "r2_rework": {
+          "passed": true,
+          "elapsed_seconds": 6.28,
+          "category": "s1_cpp",
+          "counted_cases": 26,
+          "failed_cases": 0
+        },
+        "r2_recovery": {
+          "passed": true,
+          "elapsed_seconds": 1.02,
+          "category": "s1_cpp",
+          "counted_cases": 12,
+          "failed_cases": 0
+        },
+        "r2_amend": {
+          "passed": true,
+          "elapsed_seconds": 6.35,
+          "category": "s1_cpp",
+          "counted_cases": 14,
+          "failed_cases": 0
+        },
+        "r2a_mkdir": {
+          "passed": true,
+          "elapsed_seconds": 1.01,
+          "category": "s1_cpp",
+          "counted_cases": 16,
+          "failed_cases": 0
+        },
+        "allocation_recovery": {
+          "passed": true,
+          "elapsed_seconds": 2.2,
+          "category": "s1_cpp",
+          "counted_cases": 30,
+          "failed_cases": 0
+        },
+        "handoff_integrity": {
+          "passed": true,
+          "elapsed_seconds": 0.04,
+          "category": "integrity",
+          "counted_cases": null
+        },
+        "review_source_integrity": {
+          "passed": true,
+          "elapsed_seconds": 0.03,
+          "category": "integrity",
+          "counted_cases": null
+        },
+        "specification_contracts": {
+          "passed": true,
+          "elapsed_seconds": 0.57,
+          "category": "reference_contracts",
+          "counted_cases": 38,
+          "failed_cases": 0
+        },
+        "demo_smoke": {
+          "passed": true,
+          "elapsed_seconds": 0.06,
+          "category": "demo",
+          "counted_cases": 3,
+          "failed_cases": 0
+        },
+        "s1_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 0.94,
+          "category": "s1_cli",
+          "counted_cases": 8,
+          "failed_cases": 0
+        },
+        "s12_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 1.87,
+          "category": "s1_cli",
+          "counted_cases": 8,
+          "failed_cases": 0
+        },
+        "s13_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 6.97,
+          "category": "s1_cli",
+          "counted_cases": 10,
+          "failed_cases": 0
+        },
+        "s14_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 6.94,
+          "category": "s1_cli",
+          "counted_cases": 12,
+          "failed_cases": 0
+        },
+        "s15_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 7.44,
+          "category": "s1_cli",
+          "counted_cases": 17,
+          "failed_cases": 0
+        },
+        "s16_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 5.8,
+          "category": "s1_cli",
+          "counted_cases": 14,
+          "failed_cases": 0
+        },
+        "audit24_reconcile_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 0.74,
+          "category": "s1_cli",
+          "counted_cases": 4,
+          "failed_cases": 0
+        },
+        "audit24_reopen_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 0.42,
+          "category": "s1_cli",
+          "counted_cases": 2,
+          "failed_cases": 0
+        },
+        "review_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 2.51,
+          "category": "s1_cli",
+          "counted_cases": 9,
+          "failed_cases": 0
+        },
+        "audit24_capacity_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 4.3,
+          "category": "s1_cli",
+          "counted_cases": 6,
+          "failed_cases": 0
+        },
+        "r1_history_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 5.24,
+          "category": "s1_cli",
+          "counted_cases": 7,
+          "failed_cases": 0
+        },
+        "r1_structured_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 3.78,
+          "category": "s1_cli",
+          "counted_cases": 6,
+          "failed_cases": 0
+        },
+        "r1_window_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 9.19,
+          "category": "s1_cli",
+          "counted_cases": 9,
+          "failed_cases": 0
+        },
+        "r2_rework_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 7.09,
+          "category": "s1_cli",
+          "counted_cases": 10,
+          "failed_cases": 0
+        },
+        "r2_recovery_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 3.82,
+          "category": "s1_cli",
+          "counted_cases": 6,
+          "failed_cases": 0
+        },
+        "r2_integration_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 5.41,
+          "category": "s1_cli",
+          "counted_cases": 6,
+          "failed_cases": 0
+        },
+        "r2_amend_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 5.94,
+          "category": "s1_cli",
+          "counted_cases": 9,
+          "failed_cases": 0
+        },
+        "r2a_mkdir_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 1.45,
+          "category": "s1_cli",
+          "counted_cases": 6,
+          "failed_cases": 0
+        },
+        "allocation_recovery_cli": {
+          "passed": true,
+          "elapsed_seconds": 3.27,
+          "category": "s1_cli",
+          "counted_cases": 9,
+          "failed_cases": 0
+        }
+      },
+      "last_test_log_path": "/tmp/wls861-validation-r2a2/logs/release-full-0002-LastTest.log",
+      "last_test_log_sha256": "97366df061cfd19d3550431e71e6d453f35becaee4bc0f6f2dce8ac3d54acc7f",
+      "sanitizer_diagnostics": []
+    },
+    {
+      "record": {
+        "name": "release-full-0022",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-validation-r2a2/build-release",
+          "--output-on-failure"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0022",
+        "started": 1793013074.2812345,
+        "exit_code": 0,
+        "elapsed_seconds": 162.173,
+        "log_sha256": "a7a34c8f9bcec54fc50d0f21dd0ffba7e012e8978b9a711cb719d9e1e375717e"
+      },
+      "record_path": "/tmp/wls861-validation-r2a2/logs/release-full-0022.json",
+      "record_sha256": "0839019e6a7f63c571b62260ceb18fec3e53a2eb150542cee94572cb85e15458",
+      "log_path": "/tmp/wls861-validation-r2a2/logs/release-full-0022.log",
+      "log_sha256": "a7a34c8f9bcec54fc50d0f21dd0ffba7e012e8978b9a711cb719d9e1e375717e",
+      "coverage_scope": "full",
+      "build": "release",
+      "all_groups_passed": true,
+      "counts": {
+        "s1_cpp": 474,
+        "s1_cli": 158,
+        "m1_cpp": 52,
+        "demo": 3,
+        "reference_contracts": 38,
+        "counted_cases": 725,
+        "integrity_groups": [
+          "handoff_integrity",
+          "review_source_integrity"
+        ],
+        "ctest_groups": 58
+      },
+      "all_suite_counts": {
+        "journal": {
+          "passed": true,
+          "elapsed_seconds": 0.28,
+          "category": "m1_cpp",
+          "counted_cases": 10,
+          "failed_cases": 0
+        },
+        "config": {
+          "passed": true,
+          "elapsed_seconds": 0.0,
+          "category": "m1_cpp",
+          "counted_cases": 5,
+          "failed_cases": 0
+        },
+        "scheduler": {
+          "passed": true,
+          "elapsed_seconds": 0.0,
+          "category": "m1_cpp",
+          "counted_cases": 9,
+          "failed_cases": 0
+        },
+        "task_engine": {
+          "passed": true,
+          "elapsed_seconds": 0.17,
+          "category": "m1_cpp",
+          "counted_cases": 28,
+          "failed_cases": 0
+        },
+        "runtime_types": {
+          "passed": true,
+          "elapsed_seconds": 0.01,
+          "category": "s1_cpp",
+          "counted_cases": 6,
+          "failed_cases": 0
+        },
+        "store": {
+          "passed": true,
+          "elapsed_seconds": 1.92,
+          "category": "s1_cpp",
+          "counted_cases": 31,
+          "failed_cases": 0
+        },
+        "event_store": {
+          "passed": true,
+          "elapsed_seconds": 1.1,
+          "category": "s1_cpp",
+          "counted_cases": 15,
+          "failed_cases": 0
+        },
+        "workflow_store": {
+          "passed": true,
+          "elapsed_seconds": 2.08,
+          "category": "s1_cpp",
+          "counted_cases": 21,
+          "failed_cases": 0
+        },
+        "acceptance_store": {
+          "passed": true,
+          "elapsed_seconds": 2.62,
+          "category": "s1_cpp",
+          "counted_cases": 25,
+          "failed_cases": 0
+        },
+        "config_loader": {
+          "passed": true,
+          "elapsed_seconds": 0.16,
+          "category": "s1_cpp",
+          "counted_cases": 18,
+          "failed_cases": 0
+        },
+        "model": {
+          "passed": true,
+          "elapsed_seconds": 0.04,
+          "category": "s1_cpp",
+          "counted_cases": 15,
+          "failed_cases": 0
+        },
+        "schema": {
+          "passed": true,
+          "elapsed_seconds": 0.02,
+          "category": "s1_cpp",
+          "counted_cases": 12,
+          "failed_cases": 0
+        },
+        "offline_runtime": {
+          "passed": true,
+          "elapsed_seconds": 0.75,
+          "category": "s1_cpp",
+          "counted_cases": 9,
+          "failed_cases": 0
+        },
+        "event_runtime": {
+          "passed": true,
+          "elapsed_seconds": 4.28,
+          "category": "s1_cpp",
+          "counted_cases": 14,
+          "failed_cases": 0
+        },
+        "workflow_runtime": {
+          "passed": true,
+          "elapsed_seconds": 4.35,
+          "category": "s1_cpp",
+          "counted_cases": 14,
+          "failed_cases": 0
+        },
+        "acceptance_runtime": {
+          "passed": true,
+          "elapsed_seconds": 8.51,
+          "category": "s1_cpp",
+          "counted_cases": 19,
+          "failed_cases": 0
+        },
+        "workspace": {
+          "passed": true,
+          "elapsed_seconds": 0.03,
+          "category": "s1_cpp",
+          "counted_cases": 19,
+          "failed_cases": 0
+        },
+        "sandbox": {
+          "passed": true,
+          "elapsed_seconds": 1.26,
+          "category": "s1_cpp",
+          "counted_cases": 18,
+          "failed_cases": 0
+        },
+        "worker_tools": {
+          "passed": true,
+          "elapsed_seconds": 2.97,
+          "category": "s1_cpp",
+          "counted_cases": 17,
+          "failed_cases": 0
+        },
+        "delivery": {
+          "passed": true,
+          "elapsed_seconds": 0.07,
+          "category": "s1_cpp",
+          "counted_cases": 17,
+          "failed_cases": 0
+        },
+        "cleanup": {
+          "passed": true,
+          "elapsed_seconds": 0.05,
+          "category": "s1_cpp",
+          "counted_cases": 20,
+          "failed_cases": 0
+        },
+        "cleanup_runtime": {
+          "passed": true,
+          "elapsed_seconds": 5.57,
+          "category": "s1_cpp",
+          "counted_cases": 20,
+          "failed_cases": 0
+        },
+        "audit24_reopen": {
+          "passed": true,
+          "elapsed_seconds": 0.41,
+          "category": "s1_cpp",
+          "counted_cases": 7,
+          "failed_cases": 0
+        },
+        "process_evidence": {
+          "passed": true,
+          "elapsed_seconds": 0.07,
+          "category": "s1_cpp",
+          "counted_cases": 8,
+          "failed_cases": 0
+        },
+        "audit24_reconcile": {
+          "passed": true,
+          "elapsed_seconds": 0.24,
+          "category": "s1_cpp",
+          "counted_cases": 4,
+          "failed_cases": 0
+        },
+        "audit24_capacity": {
+          "passed": true,
+          "elapsed_seconds": 0.54,
+          "category": "s1_cpp",
+          "counted_cases": 8,
+          "failed_cases": 0
+        },
+        "audit24_capacity_repro": {
+          "passed": true,
+          "elapsed_seconds": 18.93,
+          "category": "s1_cpp",
+          "counted_cases": 1,
+          "failed_cases": 0
+        },
+        "r1_history": {
+          "passed": true,
+          "elapsed_seconds": 2.19,
+          "category": "s1_cpp",
+          "counted_cases": 10,
+          "failed_cases": 0
+        },
+        "r1_structured": {
+          "passed": true,
+          "elapsed_seconds": 0.05,
+          "category": "s1_cpp",
+          "counted_cases": 16,
+          "failed_cases": 0
+        },
+        "r1_window": {
+          "passed": true,
+          "elapsed_seconds": 1.9,
+          "category": "s1_cpp",
+          "counted_cases": 12,
+          "failed_cases": 0
+        },
+        "r2_rework": {
+          "passed": true,
+          "elapsed_seconds": 7.39,
+          "category": "s1_cpp",
+          "counted_cases": 26,
+          "failed_cases": 0
+        },
+        "r2_recovery": {
+          "passed": true,
+          "elapsed_seconds": 1.39,
+          "category": "s1_cpp",
+          "counted_cases": 12,
+          "failed_cases": 0
+        },
+        "r2_amend": {
+          "passed": true,
+          "elapsed_seconds": 7.17,
+          "category": "s1_cpp",
+          "counted_cases": 14,
+          "failed_cases": 0
+        },
+        "r2a_mkdir": {
+          "passed": true,
+          "elapsed_seconds": 1.14,
+          "category": "s1_cpp",
+          "counted_cases": 16,
+          "failed_cases": 0
+        },
+        "allocation_recovery": {
+          "passed": true,
+          "elapsed_seconds": 2.48,
+          "category": "s1_cpp",
+          "counted_cases": 30,
+          "failed_cases": 0
+        },
+        "handoff_integrity": {
+          "passed": true,
+          "elapsed_seconds": 0.04,
+          "category": "integrity",
+          "counted_cases": null
+        },
+        "review_source_integrity": {
+          "passed": true,
+          "elapsed_seconds": 0.04,
+          "category": "integrity",
+          "counted_cases": null
+        },
+        "specification_contracts": {
+          "passed": true,
+          "elapsed_seconds": 0.59,
+          "category": "reference_contracts",
+          "counted_cases": 38,
+          "failed_cases": 0
+        },
+        "demo_smoke": {
+          "passed": true,
+          "elapsed_seconds": 0.06,
+          "category": "demo",
+          "counted_cases": 3,
+          "failed_cases": 0
+        },
+        "s1_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 0.96,
+          "category": "s1_cli",
+          "counted_cases": 8,
+          "failed_cases": 0
+        },
+        "s12_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 1.8,
+          "category": "s1_cli",
+          "counted_cases": 8,
+          "failed_cases": 0
+        },
+        "s13_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 6.66,
+          "category": "s1_cli",
+          "counted_cases": 10,
+          "failed_cases": 0
+        },
+        "s14_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 6.8,
+          "category": "s1_cli",
+          "counted_cases": 12,
+          "failed_cases": 0
+        },
+        "s15_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 9.07,
+          "category": "s1_cli",
+          "counted_cases": 17,
+          "failed_cases": 0
+        },
+        "s16_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 7.48,
+          "category": "s1_cli",
+          "counted_cases": 14,
+          "failed_cases": 0
+        },
+        "audit24_reconcile_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 0.94,
+          "category": "s1_cli",
+          "counted_cases": 4,
+          "failed_cases": 0
+        },
+        "audit24_reopen_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 0.51,
+          "category": "s1_cli",
+          "counted_cases": 2,
+          "failed_cases": 0
+        },
+        "review_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 2.38,
+          "category": "s1_cli",
+          "counted_cases": 9,
+          "failed_cases": 0
+        },
+        "audit24_capacity_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 4.11,
+          "category": "s1_cli",
+          "counted_cases": 6,
+          "failed_cases": 0
+        },
+        "r1_history_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 4.85,
+          "category": "s1_cli",
+          "counted_cases": 7,
+          "failed_cases": 0
+        },
+        "r1_structured_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 3.63,
+          "category": "s1_cli",
+          "counted_cases": 6,
+          "failed_cases": 0
+        },
+        "r1_window_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 9.88,
+          "category": "s1_cli",
+          "counted_cases": 9,
+          "failed_cases": 0
+        },
+        "r2_rework_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 6.19,
+          "category": "s1_cli",
+          "counted_cases": 10,
+          "failed_cases": 0
+        },
+        "r2_recovery_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 2.78,
+          "category": "s1_cli",
+          "counted_cases": 6,
+          "failed_cases": 0
+        },
+        "r2_integration_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 4.13,
+          "category": "s1_cli",
+          "counted_cases": 6,
+          "failed_cases": 0
+        },
+        "r2_amend_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 4.82,
+          "category": "s1_cli",
+          "counted_cases": 9,
+          "failed_cases": 0
+        },
+        "r2a_mkdir_cli_smoke": {
+          "passed": true,
+          "elapsed_seconds": 1.33,
+          "category": "s1_cli",
+          "counted_cases": 6,
+          "failed_cases": 0
+        },
+        "allocation_recovery_cli": {
+          "passed": true,
+          "elapsed_seconds": 2.96,
+          "category": "s1_cli",
+          "counted_cases": 9,
+          "failed_cases": 0
+        }
+      },
+      "last_test_log_path": "/tmp/wls861-validation-r2a2/logs/release-full-0022-LastTest.log",
+      "last_test_log_sha256": "48ef26d88973eb95d930944c9bacb6aea0f13e1fb5f820d2d6813c8f7a09a658",
+      "sanitizer_diagnostics": []
+    }
+  ],
+  "focused_sanitizer_gates": [
+    {
+      "record": {
+        "name": "asan-focused-0002",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-validation-r2a2/build-asan",
+          "--output-on-failure",
+          "-R",
+          "^(allocation_recovery(_cli)?|cleanup(_runtime)?|r2_recovery)$"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793013020.640278,
+        "exit_code": 0,
+        "elapsed_seconds": 105.686,
+        "log_sha256": "3e9c5d1c2073660287d7ff91ef66e8795d306536e1b7976ccb0c684ca350019d"
+      },
+      "record_path": "/tmp/wls861-validation-r2a2/logs/asan-focused-0002.json",
+      "record_sha256": "990e3f09487e2666892f41363b14091b9fb8088bc4e71ff409e3ce3a2b62bc0a",
+      "log_path": "/tmp/wls861-validation-r2a2/logs/asan-focused-0002.log",
+      "log_sha256": "3e9c5d1c2073660287d7ff91ef66e8795d306536e1b7976ccb0c684ca350019d",
+      "coverage_scope": "focused",
+      "build": "asan",
+      "all_groups_passed": true,
+      "counts": {
+        "s1_cpp": 82,
+        "s1_cli": 9,
+        "m1_cpp": 0,
+        "demo": 0,
+        "reference_contracts": 0,
+        "counted_cases": 91,
+        "integrity_groups": [],
+        "ctest_groups": 5
+      },
+      "all_suite_counts": {
+        "cleanup": {
+          "passed": true,
+          "elapsed_seconds": 0.1,
+          "category": "s1_cpp",
+          "counted_cases": 20,
+          "failed_cases": 0
+        },
+        "cleanup_runtime": {
+          "passed": true,
+          "elapsed_seconds": 68.24,
+          "category": "s1_cpp",
+          "counted_cases": 20,
+          "failed_cases": 0
+        },
+        "r2_recovery": {
+          "passed": true,
+          "elapsed_seconds": 6.71,
+          "category": "s1_cpp",
+          "counted_cases": 12,
+          "failed_cases": 0
+        },
+        "allocation_recovery": {
+          "passed": true,
+          "elapsed_seconds": 13.74,
+          "category": "s1_cpp",
+          "counted_cases": 30,
+          "failed_cases": 0
+        },
+        "allocation_recovery_cli": {
+          "passed": true,
+          "elapsed_seconds": 16.87,
+          "category": "s1_cli",
+          "counted_cases": 9,
+          "failed_cases": 0
+        }
+      },
+      "last_test_log_path": "/tmp/wls861-validation-r2a2/logs/asan-focused-LastTest.log",
+      "last_test_log_sha256": "6fdaac9897762d9fdb03d35d555f11ca2e4ee8c9d6479e0963f088adbb87727e",
+      "sanitizer_diagnostics": []
+    },
+    {
+      "record": {
+        "name": "ubsan-focused-0002",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-validation-r2a2/build-ubsan",
+          "--output-on-failure",
+          "-R",
+          "^(allocation_recovery(_cli)?|cleanup(_runtime)?|r2_recovery)$"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793013103.3739314,
+        "exit_code": 0,
+        "elapsed_seconds": 46.822,
+        "log_sha256": "b55ad091e58349db04a00f545bcc0cf73737b981b99388b357ceb3e5d3d89a3d"
+      },
+      "record_path": "/tmp/wls861-validation-r2a2/logs/ubsan-focused-0002.json",
+      "record_sha256": "09ddcef767d81ca145e965e280d236d6183bac96385eebb3ab19812f054e24ac",
+      "log_path": "/tmp/wls861-validation-r2a2/logs/ubsan-focused-0002.log",
+      "log_sha256": "b55ad091e58349db04a00f545bcc0cf73737b981b99388b357ceb3e5d3d89a3d",
+      "coverage_scope": "focused",
+      "build": "ubsan",
+      "all_groups_passed": true,
+      "counts": {
+        "s1_cpp": 82,
+        "s1_cli": 9,
+        "m1_cpp": 0,
+        "demo": 0,
+        "reference_contracts": 0,
+        "counted_cases": 91,
+        "integrity_groups": [],
+        "ctest_groups": 5
+      },
+      "all_suite_counts": {
+        "cleanup": {
+          "passed": true,
+          "elapsed_seconds": 0.11,
+          "category": "s1_cpp",
+          "counted_cases": 20,
+          "failed_cases": 0
+        },
+        "cleanup_runtime": {
+          "passed": true,
+          "elapsed_seconds": 28.9,
+          "category": "s1_cpp",
+          "counted_cases": 20,
+          "failed_cases": 0
+        },
+        "r2_recovery": {
+          "passed": true,
+          "elapsed_seconds": 2.73,
+          "category": "s1_cpp",
+          "counted_cases": 12,
+          "failed_cases": 0
+        },
+        "allocation_recovery": {
+          "passed": true,
+          "elapsed_seconds": 6.1,
+          "category": "s1_cpp",
+          "counted_cases": 30,
+          "failed_cases": 0
+        },
+        "allocation_recovery_cli": {
+          "passed": true,
+          "elapsed_seconds": 8.97,
+          "category": "s1_cli",
+          "counted_cases": 9,
+          "failed_cases": 0
+        }
+      },
+      "last_test_log_path": "/tmp/wls861-validation-r2a2/logs/ubsan-focused-LastTest.log",
+      "last_test_log_sha256": "c868d1989c3a0e6792f57095a3aecb873d7e8053796c4cee3beb5561392d0dcc",
+      "sanitizer_diagnostics": []
+    }
+  ],
+  "full_sanitizer_suite_executed_locally": false,
+  "focused_sanitizer_suite_names": [
+    "allocation_recovery",
+    "allocation_recovery_cli",
+    "cleanup",
+    "cleanup_runtime",
+    "r2_recovery"
+  ],
+  "new_targeted_regression_gate": {
+    "record": {
+      "name": "release-new-0002",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-validation-r2a2/build-release",
+        "--output-on-failure",
+        "-R",
+        "^allocation_recovery(_cli)?$"
+      ],
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "started": 1793012806.6006086,
+      "exit_code": 0,
+      "elapsed_seconds": 5.633,
+      "log_sha256": "1372b96f5d5e8c81e53e1f727e8f093c972d8b2282bfd81f8f966ceb05094e3f"
+    },
+    "record_path": "/tmp/wls861-validation-r2a2/logs/release-new-0002.json",
+    "record_sha256": "cf423e2582cf4bf102b0b8e988f97329abb502dadc1e2a966c738471ff8ad90b",
+    "log_path": "/tmp/wls861-validation-r2a2/logs/release-new-0002.log",
+    "log_sha256": "1372b96f5d5e8c81e53e1f727e8f093c972d8b2282bfd81f8f966ceb05094e3f",
+    "coverage_scope": "two new groups only",
+    "counts": {
+      "ctest_groups": 2,
+      "s1_cpp": 30,
+      "s1_cli": 9
+    },
+    "case_count_source": "final frozen suite counts also independently printed in both full Release LastTest logs"
+  },
+  "new_regression_case_counts": {
+    "cpp": 30,
+    "cli": 9,
+    "sigkill_executions_in_cpp_suite": 6
+  },
+  "initial_candidate_success": {
+    "record": {
+      "name": "initial-new-0002",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-validation-r2a2/build-release",
+        "--output-on-failure",
+        "-R",
+        "^allocation_recovery(_cli)?$"
+      ],
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "started": 1793012625.2229636,
+      "exit_code": 0,
+      "elapsed_seconds": 4.947,
+      "log_sha256": "15c08878c0700cb0848d6d84e89ed877c8e23b96c9dfc0e3ee54eceb7a53d30d"
+    },
+    "record_path": "/tmp/wls861-validation-r2a2/logs/initial-new-0002.json",
+    "record_sha256": "1a1be5806de09168b3a393e4ea6855a878e1ed24f94fe3495606eca5890e2231",
+    "log_path": "/tmp/wls861-validation-r2a2/logs/initial-new-0002.log",
+    "log_sha256": "15c08878c0700cb0848d6d84e89ed877c8e23b96c9dfc0e3ee54eceb7a53d30d",
+    "counts": {
+      "s1_cpp": 29,
+      "s1_cli": 8,
+      "m1_cpp": 0,
+      "demo": 0,
+      "reference_contracts": 0,
+      "counted_cases": 37,
+      "integrity_groups": [],
+      "ctest_groups": 2
+    },
+    "all_suite_counts": {
+      "allocation_recovery": {
+        "passed": true,
+        "elapsed_seconds": 2.15,
+        "category": "s1_cpp",
+        "counted_cases": 29,
+        "failed_cases": 0
+      },
+      "allocation_recovery_cli": {
+        "passed": true,
+        "elapsed_seconds": 2.78,
+        "category": "s1_cli",
+        "counted_cases": 8,
+        "failed_cases": 0
+      }
+    },
+    "input_manifest_sha256": "cc729f7c55ccba474524035fb036d414c5ec45967490d9f60246c219559fb458",
+    "last_test_log_sha256": "77d6db3b217aaa5ce2f9652ccbb5ddc9d46eaf832ec27183f8d9caba62447165",
+    "classification": "earlier successful candidate; follow-up added abandoned-key replay when original parent is missing or replaced"
+  },
+  "functional_red_baseline": {
+    "record": {
+      "name": "r2a1-allocation-red",
+      "command": [
+        "/tmp/wls861-validation-venv/bin/python",
+        "/tmp/wls861-validation-r2a2/logs/red-allocation-probe.py"
+      ],
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "started": 1793012644.2385423,
+      "exit_code": 1,
+      "elapsed_seconds": 0.2,
+      "log_sha256": "241c9194c585acbec23f06c0349cf7756eacc72506626a35bef71e2257332c56"
+    },
+    "record_path": "/tmp/wls861-validation-r2a2/logs/r2a1-allocation-red.json",
+    "record_sha256": "1305d5151f75d174883a623e76992d15315149469224a44abd4088bd047389ff",
+    "log_path": "/tmp/wls861-validation-r2a2/logs/r2a1-allocation-red.log",
+    "log_sha256": "241c9194c585acbec23f06c0349cf7756eacc72506626a35bef71e2257332c56",
+    "details": {
+      "classification": "functional missing explicit abandonment after real SIGKILL",
+      "functional_cases": 1,
+      "functional_passed": 0,
+      "functional_failed": 1,
+      "harness_errors": 0,
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0077",
+      "commands": [
+        {
+          "arguments": [
+            "--version"
+          ],
+          "exit_code": 0,
+          "stdout": "{\"blueprint\":\"0.4.1\",\"mode\":\"offline_fake\",\"version\":\"0.8.3-r2a.1\"}\n",
+          "stderr": ""
+        },
+        {
+          "arguments": [
+            "submit",
+            "--db",
+            "/tmp/wls-r2a2-original-red-injuzb_w/runtime.sqlite",
+            "--key",
+            "red-request",
+            "--text-file",
+            "/tmp/wls861-validation-r2a1/source/tests/fixtures/s14_request.txt",
+            "--constraints-file",
+            "/tmp/wls861-validation-r2a1/source/tests/fixtures/s14_constraints.json"
+          ],
+          "exit_code": 0,
+          "stdout": "{\"acceptance_runtime_enabled\":true,\"budget\":{\"attempts\":0,\"cost_limit\":0,\"input_limit\":1000000,\"max_attempts\":64,\"output_limit\":100000,\"request_id\":\"req_01M5VY3EETVW6FZR5NK1WH8SYZ\",\"reserved_cost\":0,\"reserved_input\":0,\"reserved_output\":0,\"spent_cost\":0,\"spent_input\":0,\"spent_output\":0,\"state_version\":1,\"unknown_cost\":0,\"unknown_input\":0,\"unknown_output\":0},\"event_runtime_enabled\":true,\"request\":{\"config_snapshot_sha256\":\"60a7c388661ad5663bdfb69094c24fc5be117d614c298aa8f5d36493829103f0\",\"created_at\":\"2026-10-26T11:04:04Z\",\"delivery_status\":\"NONE\",\"dispatcher_epoch\":1,\"function_id\":\"general\",\"plan_revision\":0,\"project_id\":\"local\",\"request_id\":\"req_01M5VY3EETVW6FZR5NK1WH8SYZ\",\"requirements_revision\":1,\"root_id\":\"local-root\",\"state_version\":1,\"status\":\"RECEIVED\",\"tenant_id\":\"local\",\"updated_at\":\"2026-10-26T11:04:04Z\"},\"snapshot\":{\"constraint_catalog\":[{\"constraint_id\":\"c1\",\"source_revision\":1,\"text\":\"只读写明确指定的工作目录\"},{\"constraint_id\":\"c2\",\"source_revision\":1,\"text\":\"不要调用外部服务\"}],\"request_id\":\"req_01M5VY3EETVW6FZR5NK1WH8SYZ\",\"requirements_revision\":1,\"texts\":[{\"kind\":\"ORIGINAL\",\"requirements_revision\":1,\"text\":\"创建明确指定的独立任务，按当前说明保存成果并逐项检查。只读写明确指定的工作目录。不要调用外部服务。问题原文、答案、文件快照和返工记录必须持久化；TeamLead 检查不代表业务已交付。\\n\"}]},\"tasks\":[],\"workflow_runtime_enabled\":true}\n",
+          "stderr": ""
+        },
+        {
+          "arguments": [
+            "pump-fake",
+            "--db",
+            "/tmp/wls-r2a2-original-red-injuzb_w/runtime.sqlite",
+            "--request",
+            "req_01M5VY3EETVW6FZR5NK1WH8SYZ",
+            "--script",
+            "/tmp/wls861-validation-r2a1/source/tests/fixtures/s15_fake_complete.json",
+            "--worker-calls",
+            "2",
+            "--max-calls",
+            "1"
+          ],
+          "exit_code": 0,
+          "stdout": "{\"acceptance_runtime\":true,\"blocked\":[{\"code\":\"call_limit\",\"node_id\":\"alpha\",\"reason\":\"this explicit pump reached its total call limit\",\"role\":\"team_lead\",\"task_id\":\"tsk_01M5VY3EG21KQTQQ681DPXX6WC\"},{\"code\":\"call_limit\",\"node_id\":\"\",\"reason\":\"this explicit pump reached its total call limit; remaining events stay durable\",\"role\":\"dispatcher\",\"task_id\":\"\"}],\"budget\":{\"attempts\":1,\"cost_limit\":0,\"input_limit\":1000000,\"max_attempts\":64,\"output_limit\":100000,\"request_id\":\"req_01M5VY3EETVW6FZR5NK1WH8SYZ\",\"reserved_cost\":0,\"reserved_input\":0,\"reserved_output\":0,\"spent_cost\":0,\"spent_input\":100,\"spent_output\":20,\"state_version\":3,\"unknown_cost\":0,\"unknown_input\":0,\"unknown_output\":0},\"business_delivered\":false,\"calls\":[{\"attempt_id\":\"attempt_01M5VY3EFP17DRNXKZS2K9K5R4\",\"config_snapshot_sha256\":\"60a7c388661ad5663bdfb69094c24fc5be117d614c298aa8f5d36493829103f0\",\"node_id\":\"\",\"prefix_sha256\":\"894b012a750ea0b29d5d1771d675b186b04196c308963896ed8d322b47eb4ed0\",\"response\":{\"attempt_id\":\"attempt_01M5VY3EFP17DRNXKZS2K9K5R4\",\"binding\":{\"dispatcher_epoch\":2,\"execution_epoch\":0,\"instruction_revision\":0,\"plan_revision\":0,\"policy_epoch\":1,\"request_id\":\"req_01M5VY3EETVW6FZR5NK1WH8SYZ\",\"requirements_revision\":1,\"task_id\":\"\",\"task_revision\":0,\"team_id\":\"\"},\"call_id\":\"call_01M5VY3EFP17DRNXKZS2K9K5R3\",\"config_snapshot_id\":\"60a7c388661ad5663bdfb69094c24fc5be117d614c298aa8f5d36493829103f0\",\"error_code\":\"\",\"error_message\":\"\",\"format\":\"wls-model-response-v1\",\"role\":\"dispatcher\",\"role_call_index\":1,\"status\":\"completed\",\"text\":\"\",\"tool_calls\":[{\"arguments\":{\"nodes\":[{\"brief\":{\"acceptance_criteria\":[{\"id\":\"ac1\",\"text\":\"文件及其原绑定事实持久化；后续上下文保留原始观察。\"}],\"constraint_refs\":[\"c1\",\"c2\"],\"constraints_verbatim\":[\"只读写明确指定的工作目录\",\"不要调用外部服务\"],\"goal\":\"在任务 alpha 的独立目录记录当前版本的文本及诊断证据。\",\"title\":\"任务 alpha\"},\"depends_on\":[],\"kind\":\"team_task\",\"node_id\":\"alpha\",\"required\":true,\"title\":\"独立任务 alpha\"}],\"summary\":\"独立任务保存文件，经过团队检查和Dispatcher验收后生成本地交付包。\"},\"call_id\":\"plan-current\",\"name\":\"submit_plan\"}],\"usage\":{\"cache_read_tokens\":0,\"cache_write_tokens\":0,\"cost_micro_usd\":0,\"input_tokens\":100,\"output_tokens\":20}},\"result\":{\"based_on_requirements_revision\":1,\"pending_tasks\":[],\"plan_revision\":1,\"state_version\":3,\"tasks\":[{\"binding\":{\"dispatcher_epoch\":2,\"execution_epoch\":1,\"instruction_revision\":0,\"plan_revision\":1,\"policy_epoch\":1,\"request_id\":\"req_01M5VY3EETVW6FZR5NK1WH8SYZ\",\"requirements_revision\":1,\"task_id\":\"tsk_01M5VY3EG21KQTQQ681DPXX6WC\",\"task_revision\":1,\"team_id\":\"team_01M5VY3EG21KQTQQ681DPXX6WD\"},\"disposition\":\"created\",\"node_id\":\"alpha\",\"state_version\":1,\"task_id\":\"tsk_01M5VY3EG21KQTQQ681DPXX6WC\",\"team_id\":\"team_01M5VY3EG21KQTQQ681DPXX6WD\"}]},\"role\":\"dispatcher\",\"role_call_index\":1,\"task_id\":\"\",\"workflow_action\":null}],\"config_snapshot_sha256\":\"60a7c388661ad5663bdfb69094c24fc5be117d614c298aa8f5d36493829103f0\",\"environment_checks_executed\":false,\"experience_jobs\":[],\"manager_calls\":1,\"max_calls\":1,\"max_worker_calls_per_task\":2,\"mode\":\"event_fake\",\"pending\":[{\"actor_task_id\":\"tsk_01M5VY3EG21KQTQQ681DPXX6WC\",\"claim_id\":null,\"completed_at\":null,\"created_at\":\"2026-10-26T11:04:04Z\",\"event_id\":\"evt_01M5VY3EG21KQTQQ681DPXX6WG\",\"event_requirements_revision\":1,\"event_seq\":5,\"inbox_id\":3,\"request_id\":\"req_01M5VY3EETVW6FZR5NK1WH8SYZ\",\"role\":\"team_lead\",\"status\":\"PENDING\",\"subject_task_id\":\"tsk_01M5VY3EG21KQTQQ681DPXX6WC\",\"type\":\"independent_plan\"}],\"questions\":[],\"real_model_calls\":0,\"request_id\":\"req_01M5VY3EETVW6FZR5NK1WH8SYZ\",\"request_status\":\"RUNNING\",\"submissions\":[],\"tasks\":[{\"accepted_with_issues\":0,\"applied_instruction_revision\":0,\"applied_plan_revision\":0,\"applied_task_revision\":0,\"based_on_requirements_revision\":1,\"brief\":{\"acceptance_criteria\":[{\"id\":\"ac1\",\"text\":\"文件及其原绑定事实持久化；后续上下文保留原始观察。\"}],\"constraint_refs\":[\"c1\",\"c2\"],\"constraints_verbatim\":[\"只读写明确指定的工作目录\",\"不要调用外部服务\"],\"goal\":\"在任务 alpha 的独立目录记录当前版本的文本及诊断证据。\",\"title\":\"任务 alpha\"},\"callee_request_id\":null,\"capability\":null,\"capability_input\":null,\"created_at\":\"2026-10-26T11:04:04Z\",\"execution_epoch\":1,\"instruction_revision\":0,\"kind\":\"team_task\",\"lead_id\":\"lead_01M5VY3EG21KQTQQ681DPXX6WE\",\"node_id\":\"alpha\",\"paused_for_change\":1,\"plan_revision\":1,\"request_id\":\"req_01M5VY3EETVW6FZR5NK1WH8SYZ\",\"required\":1,\"review_config\":null,\"review_round\":0,\"state_version\":1,\"status\":\"READY\",\"task_id\":\"tsk_01M5VY3EG21KQTQQ681DPXX6WC\",\"task_revision\":1,\"team_id\":\"team_01M5VY3EG21KQTQQ681DPXX6WD\",\"template_id\":\"default\",\"updated_at\":\"2026-10-26T11:04:04Z\",\"worker_id\":\"worker_01M5VY3EG21KQTQQ681DPXX6WF\"}],\"worker_tools_enabled\":false,\"workflow_runtime\":true}\n",
+          "stderr": ""
+        },
+        {
+          "arguments": [
+            "show",
+            "--db",
+            "/tmp/wls-r2a2-original-red-injuzb_w/runtime.sqlite",
+            "--request",
+            "req_01M5VY3EETVW6FZR5NK1WH8SYZ"
+          ],
+          "exit_code": 0,
+          "stdout": "{\"acceptance_runtime_enabled\":true,\"budget\":{\"attempts\":1,\"cost_limit\":0,\"input_limit\":1000000,\"max_attempts\":64,\"output_limit\":100000,\"request_id\":\"req_01M5VY3EETVW6FZR5NK1WH8SYZ\",\"reserved_cost\":0,\"reserved_input\":0,\"reserved_output\":0,\"spent_cost\":0,\"spent_input\":100,\"spent_output\":20,\"state_version\":3,\"unknown_cost\":0,\"unknown_input\":0,\"unknown_output\":0},\"event_runtime_enabled\":true,\"request\":{\"config_snapshot_sha256\":\"60a7c388661ad5663bdfb69094c24fc5be117d614c298aa8f5d36493829103f0\",\"created_at\":\"2026-10-26T11:04:04Z\",\"delivery_status\":\"NONE\",\"dispatcher_epoch\":2,\"function_id\":\"general\",\"plan_revision\":1,\"project_id\":\"local\",\"request_id\":\"req_01M5VY3EETVW6FZR5NK1WH8SYZ\",\"requirements_revision\":1,\"root_id\":\"local-root\",\"state_version\":3,\"status\":\"RUNNING\",\"tenant_id\":\"local\",\"updated_at\":\"2026-10-26T11:04:04Z\"},\"snapshot\":{\"constraint_catalog\":[{\"constraint_id\":\"c1\",\"source_revision\":1,\"text\":\"只读写明确指定的工作目录\"},{\"constraint_id\":\"c2\",\"source_revision\":1,\"text\":\"不要调用外部服务\"}],\"request_id\":\"req_01M5VY3EETVW6FZR5NK1WH8SYZ\",\"requirements_revision\":1,\"texts\":[{\"kind\":\"ORIGINAL\",\"requirements_revision\":1,\"text\":\"创建明确指定的独立任务，按当前说明保存成果并逐项检查。只读写明确指定的工作目录。不要调用外部服务。问题原文、答案、文件快照和返工记录必须持久化；TeamLead 检查不代表业务已交付。\\n\"}]},\"tasks\":[{\"accepted_with_issues\":0,\"applied_instruction_revision\":0,\"applied_plan_revision\":0,\"applied_task_revision\":0,\"based_on_requirements_revision\":1,\"brief\":{\"acceptance_criteria\":[{\"id\":\"ac1\",\"text\":\"文件及其原绑定事实持久化；后续上下文保留原始观察。\"}],\"constraint_refs\":[\"c1\",\"c2\"],\"constraints_verbatim\":[\"只读写明确指定的工作目录\",\"不要调用外部服务\"],\"goal\":\"在任务 alpha 的独立目录记录当前版本的文本及诊断证据。\",\"title\":\"任务 alpha\"},\"callee_request_id\":null,\"capability\":null,\"capability_input\":null,\"created_at\":\"2026-10-26T11:04:04Z\",\"execution_epoch\":1,\"instruction_revision\":0,\"kind\":\"team_task\",\"lead_id\":\"lead_01M5VY3EG21KQTQQ681DPXX6WE\",\"node_id\":\"alpha\",\"paused_for_change\":1,\"plan_revision\":1,\"request_id\":\"req_01M5VY3EETVW6FZR5NK1WH8SYZ\",\"required\":1,\"review_config\":null,\"review_round\":0,\"state_version\":1,\"status\":\"READY\",\"task_id\":\"tsk_01M5VY3EG21KQTQQ681DPXX6WC\",\"task_revision\":1,\"team_id\":\"team_01M5VY3EG21KQTQQ681DPXX6WD\",\"template_id\":\"default\",\"updated_at\":\"2026-10-26T11:04:04Z\",\"worker_id\":\"worker_01M5VY3EG21KQTQQ681DPXX6WF\",\"worker_wait\":null}],\"workflow_runtime_enabled\":true}\n",
+          "stderr": ""
+        },
+        {
+          "arguments": [
+            "allocate-workspace",
+            "--db",
+            "/tmp/wls-r2a2-original-red-injuzb_w/runtime.sqlite",
+            "--request",
+            "req_01M5VY3EETVW6FZR5NK1WH8SYZ",
+            "--task",
+            "tsk_01M5VY3EG21KQTQQ681DPXX6WC",
+            "--parent",
+            "/tmp/wls-r2a2-original-red-injuzb_w/owned",
+            "--key",
+            "interrupted"
+          ],
+          "exit_code": -9,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "arguments": [
+            "allocate-workspace",
+            "--db",
+            "/tmp/wls-r2a2-original-red-injuzb_w/runtime.sqlite",
+            "--request",
+            "req_01M5VY3EETVW6FZR5NK1WH8SYZ",
+            "--task",
+            "tsk_01M5VY3EG21KQTQQ681DPXX6WC",
+            "--parent",
+            "/tmp/wls-r2a2-original-red-injuzb_w/owned",
+            "--key",
+            "interrupted"
+          ],
+          "exit_code": 3,
+          "stdout": "",
+          "stderr": "{\"error\":\"conflict\",\"message\":\"existing directory is not owned by this creation intent\"}\n"
+        },
+        {
+          "arguments": [
+            "allocate-workspace",
+            "--db",
+            "/tmp/wls-r2a2-original-red-injuzb_w/runtime.sqlite",
+            "--request",
+            "req_01M5VY3EETVW6FZR5NK1WH8SYZ",
+            "--task",
+            "tsk_01M5VY3EG21KQTQQ681DPXX6WC",
+            "--parent",
+            "/tmp/wls-r2a2-original-red-injuzb_w/owned",
+            "--key",
+            "replacement"
+          ],
+          "exit_code": 3,
+          "stdout": "",
+          "stderr": "{\"error\":\"conflict\",\"message\":\"team already has an owned allocation\"}\n"
+        },
+        {
+          "arguments": [
+            "abandon-workspace",
+            "--db",
+            "/tmp/wls-r2a2-original-red-injuzb_w/runtime.sqlite",
+            "--request",
+            "req_01M5VY3EETVW6FZR5NK1WH8SYZ",
+            "--resource",
+            "res_01M5VY3EH4CAPHQ6EEM95051RE",
+            "--expected-state-version",
+            "1",
+            "--key",
+            "abandon",
+            "--reason",
+            "retain partial marker and allocate a new workspace"
+          ],
+          "exit_code": 2,
+          "stdout": "",
+          "stderr": "{\"error\":\"invalid_input\",\"message\":\"unknown command: abandon-workspace\"}\n"
+        }
+      ],
+      "started_utc": "2026-10-26T11:04:04.275305+00:00",
+      "real_model_calls": 0,
+      "baseline_binary": "/tmp/wls861-validation-r2a1/build-release/wls",
+      "baseline_source": "/tmp/wls861-validation-r2a1/source",
+      "baseline_published_commit": "89eb108cac1455dc309a28dab8213195824b3fc4",
+      "baseline_execution_manifest_sha256": "f6ebda73b85913cddcba9e735c927ee2d8aeb80b502c7b9ad21c69169ecf39e0",
+      "binary_sha256": "6d4b1d602df0fc16966871ed6e6d32978680128c4a093c6815607c079a953347",
+      "verified_baseline_inputs": 233,
+      "version": {
+        "blueprint": "0.4.1",
+        "mode": "offline_fake",
+        "version": "0.8.3-r2a.1"
+      },
+      "observations": {
+        "kill_signal": "SIGKILL",
+        "partial_marker_bytes": 7,
+        "schema_version": 407,
+        "resource_status": "PREPARED",
+        "same_key_error": {
+          "error": "conflict",
+          "message": "existing directory is not owned by this creation intent"
+        },
+        "new_key_error": {
+          "error": "conflict",
+          "message": "team already has an owned allocation"
+        },
+        "abandon_error": {
+          "error": "invalid_input",
+          "message": "unknown command: abandon-workspace"
+        },
+        "original_owned_row_retained": true,
+        "partial_marker_retained": true,
+        "same_key_fail_closed_is_expected": true,
+        "missing_capability": "explicitly abandon unregistered PREPARED and allocate with a new key"
+      },
+      "result": "FAIL_EXPECTED_ON_BASELINE",
+      "exit_code": 1,
+      "elapsed_seconds": 0.157,
+      "completed_utc": "2026-10-26T11:04:04.432253+00:00",
+      "probe_sha256": "e3dca8722a9d4f168bf81d09bb63c75a3ad1eb25b83c80353e6789b4efb780de",
+      "injector_source_sha256": "a3a21dff394f9538256d4d4e37cc873fe2f7c9b5757d4e623439ee4d4b3c36b0"
+    },
+    "details_path": "/tmp/wls861-validation-r2a2/logs/r2a1-allocation-red-details.json",
+    "details_sha256": "d1cc254f3e3da540cac246b6f435976d35dff2eb4f9823a171647f91a9a6907e",
+    "injector_binary_sha256": "8bb04fe7206e7e2172d172fdeac56f0e221d274d0dce049da1cc944bede3dd65",
+    "injector_binary_committed": false,
+    "effective_probe_and_cli_umask": "0077",
+    "outer_runner_umask": "0002",
+    "injector_compile_command": [
+      "runuser",
+      "-u",
+      "nobody",
+      "--",
+      "gcc",
+      "-shared",
+      "-fPIC",
+      "-Wall",
+      "-Wextra",
+      "-Wpedantic",
+      "-Werror",
+      "/tmp/wls861-validation-r2a2/logs/red-marker-kill.c",
+      "-o",
+      "/tmp/wls861-validation-r2a2/logs/red-marker-kill.so"
+    ]
+  },
+  "initial_red_probe_harness_failure": {
+    "record": {
+      "name": "r2a1-allocation-red",
+      "command": [
+        "/tmp/wls861-validation-venv/bin/python",
+        "/tmp/wls861-validation-r2a2/logs/red-allocation-probe.py"
+      ],
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "started": 1793012620.1251585,
+      "exit_code": 2,
+      "elapsed_seconds": 0.059,
+      "log_sha256": "38256645be8bc2cdf3e19c8f52df64fb7d0cea26f683759937238f8f3f79437f"
+    },
+    "record_path": "/tmp/wls861-validation-r2a2/logs/initial-harness-r2a1-allocation-red.json",
+    "record_sha256": "b1a68dfaaf2c1115803a42626da137a8794435d2e2aa5dadad48741feac21c81",
+    "log_path": "/tmp/wls861-validation-r2a2/logs/initial-harness-r2a1-allocation-red.log",
+    "log_sha256": "38256645be8bc2cdf3e19c8f52df64fb7d0cea26f683759937238f8f3f79437f",
+    "details": {
+      "classification": "functional missing explicit abandonment after real SIGKILL",
+      "functional_cases": 1,
+      "functional_passed": 0,
+      "functional_failed": 0,
+      "harness_errors": 1,
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0077",
+      "commands": [
+        {
+          "arguments": [
+            "--version"
+          ],
+          "exit_code": 2,
+          "stdout": "",
+          "stderr": "{\"error\":\"invalid_input\",\"message\":\"version takes no options\"}\n"
+        }
+      ],
+      "started_utc": "2026-10-26T11:03:40.159631+00:00",
+      "real_model_calls": 0,
+      "baseline_binary": "/tmp/wls861-validation-r2a1/build-release/wls",
+      "baseline_source": "/tmp/wls861-validation-r2a1/source",
+      "baseline_published_commit": "89eb108cac1455dc309a28dab8213195824b3fc4",
+      "baseline_execution_manifest_sha256": "f6ebda73b85913cddcba9e735c927ee2d8aeb80b502c7b9ad21c69169ecf39e0",
+      "binary_sha256": "6d4b1d602df0fc16966871ed6e6d32978680128c4a093c6815607c079a953347",
+      "verified_baseline_inputs": 233,
+      "result": "HARNESS_ERROR",
+      "exit_code": 2,
+      "error": "Traceback (most recent call last):\n  File \"/tmp/wls861-validation-r2a2/logs/red-allocation-probe.py\", line 75, in <module>\n    version = success(\"--version\")\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/wls861-validation-r2a2/logs/red-allocation-probe.py\", line 48, in success\n    assert result.returncode == 0 and not result.stderr, result.stderr\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {\"error\":\"invalid_input\",\"message\":\"version takes no options\"}\n\n",
+      "elapsed_seconds": 0.017,
+      "completed_utc": "2026-10-26T11:03:40.176440+00:00",
+      "probe_sha256": "bdc26fee70aa2970fa0e881df09b002d0d59132911632ead5843889d674d56de",
+      "injector_source_sha256": "a3a21dff394f9538256d4d4e37cc873fe2f7c9b5757d4e623439ee4d4b3c36b0"
+    },
+    "classification": "probe helper erroneously appended --source-root to --version; stopped before fixture creation; corrected once and not counted as functional red",
+    "preserved_probe_sha256": "bdc26fee70aa2970fa0e881df09b002d0d59132911632ead5843889d674d56de"
+  },
+  "configuration_and_build_commands": [
+    {
+      "record": {
+        "name": "asan-configure",
+        "command": [
+          "cmake",
+          "-S",
+          "/tmp/wls861-validation-r2a2/source",
+          "-B",
+          "/tmp/wls861-validation-r2a2/build-asan",
+          "-G",
+          "Ninja",
+          "-DCMAKE_BUILD_TYPE=Debug",
+          "-DWLS_ENABLE_ASAN=ON",
+          "-DPython3_EXECUTABLE=/tmp/wls861-validation-venv/bin/python"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793012904.6033335,
+        "exit_code": 0,
+        "elapsed_seconds": 0.464,
+        "log_sha256": "536a44d576f26c463e988409781864f3577beabc8d0d00281bc7940a24a04b51"
+      },
+      "record_path": "/tmp/wls861-validation-r2a2/logs/asan-configure.json",
+      "record_sha256": "bfd99d43bc8036d7e20acf3222a2bc408f90f6706aa029a4cab99d60b5238ae6",
+      "log_path": "/tmp/wls861-validation-r2a2/logs/asan-configure.log",
+      "log_sha256": "536a44d576f26c463e988409781864f3577beabc8d0d00281bc7940a24a04b51"
+    },
+    {
+      "record": {
+        "name": "asan-focused-build",
+        "command": [
+          "cmake",
+          "--build",
+          "/tmp/wls861-validation-r2a2/build-asan",
+          "--target",
+          "wls",
+          "allocation_recovery_tests",
+          "cleanup_tests",
+          "cleanup_runtime_tests",
+          "r2_recovery_tests",
+          "--parallel",
+          "2"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793012905.104811,
+        "exit_code": 0,
+        "elapsed_seconds": 58.339,
+        "log_sha256": "97bfd0acb77040abb737bdb751dc3a7e6ee6751861be1278ec2f875243582474"
+      },
+      "record_path": "/tmp/wls861-validation-r2a2/logs/asan-focused-build.json",
+      "record_sha256": "48eb42271f3898f065a5b47a33551cefea3d99a882314087f03c57b57937dbb9",
+      "log_path": "/tmp/wls861-validation-r2a2/logs/asan-focused-build.log",
+      "log_sha256": "97bfd0acb77040abb737bdb751dc3a7e6ee6751861be1278ec2f875243582474"
+    },
+    {
+      "record": {
+        "name": "initial-release-build",
+        "command": [
+          "cmake",
+          "--build",
+          "/tmp/wls861-validation-r2a2/build-release",
+          "--target",
+          "wls",
+          "allocation_recovery_tests",
+          "--parallel",
+          "2"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793012513.7166712,
+        "exit_code": 0,
+        "elapsed_seconds": 70.721,
+        "log_sha256": "d7e3f1a407bbd6855734f9e5ad0859323e240a145bb1d0c7c2d7be453e36f776"
+      },
+      "record_path": "/tmp/wls861-validation-r2a2/logs/initial-release-build.json",
+      "record_sha256": "e4a9d878dd3074a568902743734f179dc05c5fad3c349508d57506bd4e23bc07",
+      "log_path": "/tmp/wls861-validation-r2a2/logs/initial-release-build.log",
+      "log_sha256": "d7e3f1a407bbd6855734f9e5ad0859323e240a145bb1d0c7c2d7be453e36f776"
+    },
+    {
+      "record": {
+        "name": "initial-release-configure",
+        "command": [
+          "cmake",
+          "-S",
+          "/tmp/wls861-validation-r2a2/source",
+          "-B",
+          "/tmp/wls861-validation-r2a2/build-release",
+          "-G",
+          "Ninja",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DPython3_EXECUTABLE=/tmp/wls861-validation-venv/bin/python"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793012505.4588935,
+        "exit_code": 0,
+        "elapsed_seconds": 0.473,
+        "log_sha256": "1b135564f03efdb7dfbc5520e5049087f0da5ff189ab048f692ff409aa5dedcb"
+      },
+      "record_path": "/tmp/wls861-validation-r2a2/logs/initial-release-configure.json",
+      "record_sha256": "9ce8b18091fcc9951dbfea9e0fee85fb21294ba663f206d93a7414059474bca8",
+      "log_path": "/tmp/wls861-validation-r2a2/logs/initial-release-configure.log",
+      "log_sha256": "1b135564f03efdb7dfbc5520e5049087f0da5ff189ab048f692ff409aa5dedcb"
+    },
+    {
+      "record": {
+        "name": "release-focused-build",
+        "command": [
+          "cmake",
+          "--build",
+          "/tmp/wls861-validation-r2a2/build-release",
+          "--target",
+          "wls",
+          "allocation_recovery_tests",
+          "--parallel",
+          "2"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793012759.0390315,
+        "exit_code": 0,
+        "elapsed_seconds": 25.125,
+        "log_sha256": "c51c361ec7b944cf45b37d17fd8403d759facb070283c4dcd2abb4408525031c"
+      },
+      "record_path": "/tmp/wls861-validation-r2a2/logs/release-focused-build.json",
+      "record_sha256": "9f3d152e7b2ce4569c8608180b8a09d5778c75fe43f83e05a738568267868cb3",
+      "log_path": "/tmp/wls861-validation-r2a2/logs/release-focused-build.log",
+      "log_sha256": "c51c361ec7b944cf45b37d17fd8403d759facb070283c4dcd2abb4408525031c"
+    },
+    {
+      "record": {
+        "name": "release-full-build",
+        "command": [
+          "cmake",
+          "--build",
+          "/tmp/wls861-validation-r2a2/build-release",
+          "--parallel",
+          "2"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793012812.272729,
+        "exit_code": 0,
+        "elapsed_seconds": 89.163,
+        "log_sha256": "a9d4d77c6e3165bca799bf209bf7c41d2013ff87a95e4f1f2b42608146e7cf0e"
+      },
+      "record_path": "/tmp/wls861-validation-r2a2/logs/release-full-build.json",
+      "record_sha256": "9283b05be94cb357151d2443136f21750cd927c89b84bce70c2934c905b20573",
+      "log_path": "/tmp/wls861-validation-r2a2/logs/release-full-build.log",
+      "log_sha256": "a9d4d77c6e3165bca799bf209bf7c41d2013ff87a95e4f1f2b42608146e7cf0e"
+    },
+    {
+      "record": {
+        "name": "ubsan-configure",
+        "command": [
+          "cmake",
+          "-S",
+          "/tmp/wls861-validation-r2a2/source",
+          "-B",
+          "/tmp/wls861-validation-r2a2/build-ubsan",
+          "-G",
+          "Ninja",
+          "-DCMAKE_BUILD_TYPE=Debug",
+          "-DWLS_ENABLE_UBSAN=ON",
+          "-DPython3_EXECUTABLE=/tmp/wls861-validation-venv/bin/python"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793013024.5767038,
+        "exit_code": 0,
+        "elapsed_seconds": 0.488,
+        "log_sha256": "959d69923cef2fe68749812d5281241fa191fd00c8217f80e4c85f7fe3004e17"
+      },
+      "record_path": "/tmp/wls861-validation-r2a2/logs/ubsan-configure.json",
+      "record_sha256": "2a27d79062a08c906e5b289f4949b08932a9fb2ec767b6a60e712c4934e8ad74",
+      "log_path": "/tmp/wls861-validation-r2a2/logs/ubsan-configure.log",
+      "log_sha256": "959d69923cef2fe68749812d5281241fa191fd00c8217f80e4c85f7fe3004e17"
+    },
+    {
+      "record": {
+        "name": "ubsan-focused-build",
+        "command": [
+          "cmake",
+          "--build",
+          "/tmp/wls861-validation-r2a2/build-ubsan",
+          "--target",
+          "wls",
+          "allocation_recovery_tests",
+          "cleanup_tests",
+          "cleanup_runtime_tests",
+          "r2_recovery_tests",
+          "--parallel",
+          "2"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793013025.103917,
+        "exit_code": 0,
+        "elapsed_seconds": 66.2,
+        "log_sha256": "e5ba9f0036d0ed6e490fe316b0839b5ec7ad856b66f2782795cba70cd53216bd"
+      },
+      "record_path": "/tmp/wls861-validation-r2a2/logs/ubsan-focused-build.json",
+      "record_sha256": "527a65391779023d9f2c4080db2230dec0e264661d1bde92e039200b6e373765",
+      "log_path": "/tmp/wls861-validation-r2a2/logs/ubsan-focused-build.log",
+      "log_sha256": "e5ba9f0036d0ed6e490fe316b0839b5ec7ad856b66f2782795cba70cd53216bd"
+    }
+  ],
+  "environment": {
+    "compiler": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "injector_c_compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "linker": "GNU ld (GNU Binutils for Ubuntu) 2.42",
+    "cmake": "cmake version 3.28.3",
+    "ninja": "1.11.1",
+    "python": "Python 3.12.14",
+    "jsonschema": "4.10.3",
+    "platform": "Linux-6.18.55-x86_64-with-glibc2.39",
+    "product": {
+      "blueprint": "0.4.1",
+      "mode": "offline_fake",
+      "version": "0.8.4-r2a.2"
+    },
+    "gate_uid": 65534,
+    "gate_gid": 65534,
+    "sanitizer_options": {
+      "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+      "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"
+    },
+    "gate_runner_sha256": "af4de9e1fa8f40d96fb9bd2e39be2fd3e38cb2438e89fe39b0bc5df1d2548aa0",
+    "binary_sha256": {
+      "release": {
+        "acceptance_runtime_tests": "7e11f17fbd911f8479d40cfc412b27bf4603096cc50370a1cb2766a5f8db5ed4",
+        "acceptance_store_tests": "b900c06c6c0ae789f804bb8dd1125b61b62650e69a1c3e252a0672852fd7439b",
+        "allocation_recovery_tests": "32318a571d3250522811a1a0b1d384fb6717d4302d167504ae91fbf0807e95fa",
+        "audit24_capacity_repro_tests": "35df0f4ed06a4f2b0dcfc6da0403221e9de175a9d064fa01f94f84b152027b8a",
+        "audit24_capacity_tests": "0b556246e960312f831c752ff23985906141949439d210e7e24740383e5e6f05",
+        "audit24_reconcile_tests": "5b3dfcf4e15b50d742a815d32d4075b1503ede14034a15da31a1fffd7c0ce0e9",
+        "audit24_reopen_tests": "c00c33f0cec46332b91309070d1cbbde7d0047f57d2ded994b6ece377addb0b8",
+        "cleanup_runtime_tests": "0aadffef06d40df9b947599176ad84f21106ad99729ea168acffdd2fb33b7113",
+        "cleanup_tests": "a07e69ea689cf3b9f70f35e8d88af52be4a91fb481f37405af9a640a0fdf0a6b",
+        "config_loader_tests": "f806cc8e3d88520f221b5483e2cbe15620eecc1a7e09478a68c9a9b230fdfca3",
+        "config_tests": "619c90fd017d41c327bb4e9ccf57ca94238686520e41e5142afe96af4b781dcd",
+        "delivery_tests": "2f19a6904412ee15b4fc7856d9df16ca8dc976c8585dc36d8d428f927db34a67",
+        "event_runtime_tests": "2e3db79161f37340e92a36bbebd25f98b9f3c466015ae069a562868c4ea93a14",
+        "event_store_tests": "7d8a8364128b2127742e260c6840d69a38f5d825f24b3c6ef860fb22587fc5fe",
+        "journal_tests": "4dd2cca1623f28d7257c26b3ad33742596da046a0a9e8e8ae0899e251732994d",
+        "model_tests": "29075702df88884bf144d340ecc1d0ff3714533ad80df242e8da177650c42d00",
+        "offline_runtime_tests": "78a9c5f5a3a231d6e0eeea9d02d443ce03afb6a7743f61f4e6a291e9e823d141",
+        "process_evidence_tests": "d9ea6b51556bcc3b36f344250f3d72b0aea688bf73c1628ef01ac2bcf7b401ae",
+        "r1_history_tests": "2bbdf6ef9b3ed649b655c8d616a250a48fc6dab80f3fd2498446f42dcb571672",
+        "r1_structured_tests": "512edd4a03e774a0b4dbf8a71598ef0b7eeef510f327916b9df95256bd210aee",
+        "r1_window_tests": "a8cb153b753aa95a88f171586102cf7b3f2efacafe1ca5c7670c58bbf92e91e8",
+        "r2_amend_tests": "a54ab3dc9984dc1e7dcf0668f652ce8baefc66506f5d02ea9af090acb8fa6d2b",
+        "r2_recovery_tests": "b757fe0e5fcb0974e49c2e4250c66f0186005cb8a72dcd74e90a609988f3888b",
+        "r2_rework_tests": "e6595ee356b9b29a26ba28d06c2ba463d9ce5d53b40893f69940d0184d89259f",
+        "r2a_mkdir_tests": "5f17b610e226b81b0f98e00a3b0bc3dfeaf385498cf4cae6684151d39f82277e",
+        "runtime_types_tests": "87f12bf91aa5ab2069138e11936cd979afb9be58fcb2f7de555b757c1a8875f8",
+        "sandbox_tests": "2c9f963522fe393ec74e5f77808bd2c75adefcdbd500c2fa1c244fa4657c9b2e",
+        "scheduler_tests": "d336554d81ec252ed7c26cb4889929aa5c1baf969a546fb2175a931cb323ee89",
+        "schema_tests": "deed8caf7b06a3cc98a3fbb770655f19ff38df01ae54e6011907c86aef5e5141",
+        "store_tests": "c23b0e9505e3dc75ee39f76a8e7f2296fc3ab9d14ec2cb52cbcef9a2c7c06ca5",
+        "task_engine_tests": "09a1a9e1f77bab51721fc7ddb8c00d7e7bc279ae4ef6a8321b8f90ba7ddeca4f",
+        "wls": "5fea02c3dd1bbb0a8a0144bf594879b6022ed7803b6cf11693b86a1278f3e109",
+        "worker_tools_tests": "ff4993c083b7939610bb0e90a2e825c3daef32020cf58802ef1d45702e6d7537",
+        "workflow_runtime_tests": "90d078d398cc27da3164da6b9d829be2ef20b47b03f5faf4bed6106c710b0cd1",
+        "workflow_store_tests": "1f1fddb79e335ffa1110a9afe6323db43065c6333eab8abd811094e7aee58414",
+        "workspace_tests": "ba766d4ad98c559b82aad2a775a8766f2c84af473b3e1b2e38e1b11571ec7222"
+      },
+      "asan": {
+        "allocation_recovery_tests": "53946cfe6b4b9e8d7d32b8fceda8f54997c10774c411e8eaa1592670d0983fa6",
+        "cleanup_runtime_tests": "35db071328332c01176ae005af433c57fd7b0dd0d1cfec51fa9f36427d212218",
+        "cleanup_tests": "e549e0f4c608417f8e014ccd4c1c7e0281dbddd8e078da7b64d742904eacd1f5",
+        "r2_recovery_tests": "d58a404e62becbb25a471929cf819e9bef7a7ac91801defa370d2458b8d79497",
+        "wls": "27298e8dd0f2a564a6e8954564684c30f4592a43596566f7e74b8d1c927173f7"
+      },
+      "ubsan": {
+        "allocation_recovery_tests": "82c2f2575c1e5d8b183176bab08789fe3c9ab0237947c7b51373896a050f1d6d",
+        "cleanup_runtime_tests": "ea3d6d154511d9652b87d5ab63ecfa492494bf47c229e5b529161640694dbc02",
+        "cleanup_tests": "4ac9b8bfd50f649f7d893a71a95ce75a675a92b267ac3af87b8882654e44f94c",
+        "r2_recovery_tests": "c24b16f30fe0fd1b1ea49da7a6ce54b29ca9a7202d59d7537f5b2c9504260607",
+        "wls": "31ff0b94aa23eee8a13157f2cb9c781f8dce457ed0bc6c6e3d2c44cb1f76a524"
+      }
+    },
+    "build_modes": {
+      "release": "Release",
+      "asan": "Debug + WLS_ENABLE_ASAN=ON",
+      "ubsan": "Debug + WLS_ENABLE_UBSAN=ON"
+    },
+    "baseline_red_umask": {
+      "outer_runner": "0002",
+      "actual_probe_and_cli": "0077",
+      "reason": "probe explicitly selects private fixture modes before launching old CLI"
+    }
+  },
+  "remote_ci": {
+    "evaluated_by_this_local_summary": false,
+    "required_scope": "Separately verify the complete six-job remote matrix for the exact final published SHA"
+  },
+  "repository_source_documentation_or_git_writes_by_summary_task": false,
+  "notes": [
+    "Full Release commands are serial CTest without -j; timings are not the earlier iteration parallel CTest timings.",
+    "The 236-entry manifest includes db/README.md. Snapshot and execution-commit bytes match all entries; current documentation-only differences are listed explicitly and are not described as identical execution input bytes.",
+    "Each full Release gate prints 474 S1 C++ + 158 CLI + 52 M1 C++ + 3 demo + 38 reference cases = 725 counted cases, plus two integrity groups.",
+    "Each local sanitizer gate contains only the five selected groups: 82 C++ + nine CLI cases. It is not a complete sanitizer suite.",
+    "Initial 29 C++ + eight CLI cases passed; the final 30 + nine add abandoned-key replay with a missing or replaced parent. Earlier successful inputs and logs remain preserved.",
+    "The functional baseline test verifies the old refusal to adopt partial marker bytes and demonstrates the missing explicit abandonment exit; the initial version-invocation harness error is retained separately.",
+    "The all-old-states migration fixture begins with real PREPARED/OWNED allocations, then injects explicitly synthetic DELETING/REMOVED inventory, proof and manifest bytes to test structural preservation; it does not claim real deletion for those rows.",
+    "The active/history quota and control-watermark fixtures inject explicitly inert synthetic rows; this is not a claim to have physically allocated 256 workspaces. Real CLI cleanup independently validates abandoned residual plus active owned workspace behavior.",
+    "The red runner starts with umask 0002, but the probe explicitly sets 0077 before creating its private fixture or launching the old CLI; the actual red-probe and old-CLI effective umask is 0077.",
+    "SIGKILL and injected SQLite failures verify process interruption and recovery, not physical power-loss durability or adversarial same-UID isolation.",
+    "No production permissions, original timeout values, sanitizer options, or assertions were relaxed; no real model or production operation was performed."
+  ],
+  "environment_evidence_path": "/tmp/wls861-validation-r2a2/logs/environment.json",
+  "environment_evidence_sha256": "cbaf06d6673378d9782afdfa063fd152fb653778ada1816d5dfd26c8ad069bcf"
+}

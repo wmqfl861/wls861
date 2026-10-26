@@ -5,7 +5,8 @@
 
 ## 接口与作用域
 
-`Store` 最后一个可选参数为 `StoreRecoveryScope`，默认值保持既有行为。
+本增量为 `Store` 追加可选参数 `StoreRecoveryScope`，默认值保持既有行为。
+后续 R2a.2 在其后追加010迁移资产，见[分配恢复契约](R2a-allocation-recovery.md)；原调用参数顺序不变。
 
 | 选择 | 启动行为 | 写入权限 |
 | --- | --- | --- |

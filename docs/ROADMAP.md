@@ -30,7 +30,7 @@ P-01（端点/模型/认证引用）和P-05（真实预算）只控制真实付�
 这不是并发租约，也不取消选中请求的恢复；当前实现和证据统一见STATUS。
 恢复范围与拒绝返工在 R2.2 整合验收：纠正、升级、回答及重开均不得扰动兄弟请求。
 模型AMEND按[ADR-073](adr/073-model-amendment-dispositions.md)接入，当前证据见STATUS；
-R2a.1按[ADR-074](adr/074-bounded-directory-tool.md)接入目录工具；下一项是PREPARED恢复，
+R2a.1按[ADR-074](adr/074-bounded-directory-tool.md)接入目录工具；R2a.2按ADR-075接入PREPARED恢复，
 不重新立项已覆盖的全库扰动反例。
 
 ### R1 增量顺序
@@ -54,9 +54,11 @@ R2.2联合接入按请求恢复，R2.3接入模型AMEND：新计划与非空节�
 
 R2a.1独立实现fs_mkdir：单个0700空叶目录、父已存在、投影目录深度/条目限额、首次派发和UNKNOWN。
 不更改旧冻结grant或工作区策略；实际证据见STATUS与独立报告。
-R2a.2按[设计草案](adr/075-owned-allocation-recovery.md)接完整staging、不可变创建收据、无覆盖发布、
-精确代次恢复及Root显式放弃；必须连同数据库兼容、弃置路径保护、清理目标选择和容量结算验收。
-之后补doctor的实际部署路径与具体阻塞说明；强环境正向仍需独立部署证据。
+R2a.2按[ADR-075](adr/075-owned-allocation-recovery.md)接完整staging、不可变创建收据、无覆盖发布、
+精确代次恢复及Root显式放弃；数据库兼容、弃置路径保护、清理目标选择和容量结算一起回归，
+实现及实测边界见[契约](implementation/R2a-allocation-recovery.md)与[报告](reports/r2a-allocation-validation.md)。
+之后按[ADR-076草案](adr/076-doctor-deployment-diagnostics.md)补R2a.3 doctor的实际部署路径与具体阻塞说明；
+该草案尚未实现，首增量保持只读且不打开Store；强环境正向仍需独立部署证据。
 
 ## 2. 五阶段目标
 
@@ -128,4 +130,5 @@ AMEND 后，每个活动任务需显式 update／keep／cancel，处置绑定当
 
 本批实现选择见[容量准入窗口契约](implementation/S1-capacity-windows.md)：保留全部事件/幂等结果，
 以Root核对后的窗口推进存储计数，不是自动提高额度或物理删除归档。此子项不能替代R1上下文压缩、
-R2否决后的有界返工/按请求恢复，或R2a分配中断恢复。下一增量仍以这些真实任务阻塞点为先。
+R2否决后的有界返工/按请求恢复，或R2a分配中断恢复。这些后继已有独立契约与验证，
+当前完成程度以STATUS为准；下一步继续以doctor实际部署阻塞和R3协议回放为先。

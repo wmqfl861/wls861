@@ -1,8 +1,8 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.8.3-r2a.1；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.8.4-r2a.2；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
 
-当前增量已接入请求限定恢复、拒绝成果纠正、模型逐任务 AMEND 和有界 fs_mkdir；保留原说明、成果、用量和未知副作用证据。
+当前增量已接入请求限定恢复、拒绝成果纠正、模型逐任务 AMEND、有界 fs_mkdir 和运行时工作区分配恢复/明确弃置；保留原说明、成果、用量和未知副作用证据。
 [当前能力/证据矩阵](docs/STATUS.md)集中记录实现边界；[审核采纳记录](docs/reviews/claude-disposition.md)
 及[第二份审核处置](docs/reviews/claude-2026-10-24-disposition.md)区分已修复和开放问题。
 冻结容量窗口及Root检查点已接入；近期优先可用模型闭环，不继续优先扩大私有数据清除。
@@ -56,6 +56,26 @@ python3 tests/r2_amend_cli_smoke.py ./build/wls .
 # 普通用户、源码根目录，已安装测试依赖；固定FakeModel，不调用外部模型。
 python3 tests/r2a_mkdir_cli_smoke.py ./build/wls .
 ```
+
+## 工作区分配恢复与明确弃置（R2a.2）
+
+`allocate-workspace` 先保存分配意图，在私有暂存目录完成创建并保存不可变收据后，
+才以无覆盖 rename 发布并登记 OWNED。重试核对原父目录和 stage/work 的完整代次。
+无收据的残留仍安全拒绝采用；Root 可以保留现场并明确放弃这次 PREPARED 分配：
+
+```sh
+./build/wls owned-workspaces --db state.sqlite --request REQUEST
+./build/wls abandon-workspace --db state.sqlite --request REQUEST --resource RESOURCE \
+  --expected-state-version VERSION --key ABANDON_KEY --reason '保留中断现场，改用新分配'
+```
+
+从查询结果取资源 ID 和 state_version。弃置只改元数据，不删除路径、不清 UNKNOWN、不宣称清理完成。
+原分配键返回原 ABANDONED 记录；新的分配键才创建新资源。父目录缺失或被替换也不阻止弃置及原键重放。
+所有弃置历史及 stage/final 路径继续保留和保护；清理只选择有效资源，原冻结清单保持不变。
+
+新 CLI 使用数据库 408；已有带请求的 407 库须先执行显式全库 `init` 维护。旧 SQL、配置和证据不改写。
+每请求 64 个有效资源、256 条终生分配历史；窗口检查点不会重置这些限制。
+完整边界见[分配恢复契约](docs/implementation/R2a-allocation-recovery.md)和[验证报告](docs/reports/r2a-allocation-validation.md)。
 
 ## 请求限定恢复
 
@@ -125,7 +145,7 @@ context:
 
 ## 当前可以运行什么
 
-`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/history-page/history-read/wait/wake`、`questions/submissions/answer`、`deliveries/experience/closeout`、`publish-delivery/verify-delivery/ack-delivery`、`allocate-workspace/owned-workspaces/cleanup-workspaces`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
+`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/history-page/history-read/wait/wake`、`questions/submissions/answer`、`deliveries/experience/closeout`、`publish-delivery/verify-delivery/ack-delivery`、`allocate-workspace/abandon-workspace/owned-workspaces/cleanup-workspaces`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
 
 | S1 模块 | 当前实现 |
 | --- | --- |
@@ -423,7 +443,7 @@ ACK 会重新核验并同步完整包，随后原子保存精确回执和收尾�
 
 当前内核是受信宿主进程内 API，`Actor` 由宿主构造。本机 CLI 不提供远程认证；诊断速率限制在单进程内，写者持租约期间没有第二个 CLI 的 socket 取消通道。文件容量是代理的逻辑上限，不是任意进程磁盘配额；合作锁不防任意同 UID 宿主绕过。强进程正向测试、残留 cgroup 恢复及完整 SBX/SEC 验收仍需独立证据。
 
-下一聚焦增量是R2a.2的PREPARED分配恢复/显式放弃和doctor部署指引，随后推进R3单协议离线回放与获准的小型真实闭环。私有行purge与wlsd/API继续后置。跨功能独立审核、DAG和审核双容量按S2推进，S3记忆、S4 MCP/评测和S5证据驱动扩展保持原路线。S1-06/07强环境正向独立验收；真实协议的端点、凭据引用、能力和预算由外部配置提供。示例保持FakeModel，付费重试为零。
+R2a.2已接入PREPARED分配恢复/显式放弃；下一聚焦增量是[ADR-076草案](docs/adr/076-doctor-deployment-diagnostics.md)定义的doctor实际部署路径与阻塞诊断（尚未实现），随后推进R3单协议离线回放与获准的小型真实闭环。私有行purge与wlsd/API继续后置。跨功能独立审核、DAG和审核双容量按S2推进，S3记忆、S4 MCP/评测和S5证据驱动扩展保持原路线。S1-06/07强环境正向独立验收；真实协议的端点、凭据引用、能力和预算由外部配置提供。示例保持FakeModel，付费重试为零。
 
 ### 存储准入窗口和人工续进
 

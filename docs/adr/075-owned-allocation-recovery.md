@@ -1,12 +1,13 @@
 # ADR-075：运行时所有权分配恢复与显式放弃
 
-日期：2026-10-26。状态：**设计定稿，开发中，尚未验收**；目标增量 R2a.2；蓝图 v0.4.1。
-当前 0.8.3-r2a.1 只实现 [ADR-074 的业务目录工具](074-bounded-directory-tool.md)。
-下述迁移、创建收据、状态和命令均不是当前可执行能力；实施前须完成对应回归。
+日期：2026-10-26。状态：**采纳**；实现增量 **0.8.4-r2a.2**；蓝图 v0.4.1。
+承接 [ADR-074 的业务目录工具](074-bounded-directory-tool.md)。实现边界见
+[分配恢复契约](../implementation/R2a-allocation-recovery.md)，实际执行证据见
+[验证报告](../reports/r2a-allocation-validation.md)；普通进程中断不代替整机掉电或强环境部署验收。
 
 ## 问题与现有边界
 
-当前 `src/cleanup_posix.cpp` 的 `create_owned_workspace()` 直接创建最终 envelope，
+R2a.1 的 `src/cleanup_posix.cpp::create_owned_workspace()` 直接创建最终 envelope，
 然后写 `owner.json`、创建空 `work`、同步并登记 OWNED。若进程在 marker 完整写入前退出，
 重试无法证明已有路径属于原意图，因而保留 PREPARED 并拒绝采用。这一拒绝必须保留；
 缺少的是可恢复的发布协议和允许用户保留残留后继续的明确出口。
@@ -19,10 +20,10 @@
 清理 manifest 必须原样保留；新设计不授予模型分配/弃置/清理权限，不清除业务 UNKNOWN，
 不把弃置当作删除，也不扩展到私有行 purge 或任意宿主目录修复。
 
-## 拟议数据模型与兼容
+## 数据模型与兼容
 
 通过新的事务迁移扩展 owned-workspaces；不得改写已发布 009 或其他 SQL 的字节。
-拟增加 ABANDONED 状态和首次保存后不可变的 allocation_receipt。
+增加 ABANDONED 状态和首次保存后不可变的 allocation_receipt。
 保留 `UNIQUE(request_id, command_key)`，将团队唯一性改为只约束非 ABANDONED 记录，
 使新的命令键和资源 ID 可在明确弃置后分配新目录。原键始终返回原资源，不能复活弃置记录。
 OWNED、DELETING、REMOVED 仍占团队唯一槽位；本增量不引入已绑定工作区替换协议。
@@ -37,7 +38,7 @@ nonce、资源/请求/团队 ID。创建收据绑定完整 marker 哈希、stage
 在其他写入前拒绝升级；只读打开不执行升级。迁移测试须覆盖全部旧状态、原 CAS/不可变
 触发器、已完成/中断清理、原事件和命令键，不能只用空库证明兼容。
 
-## 拟议创建与发布顺序
+## 创建与发布顺序
 
 1. Store 保存 v2 PREPARED 意图，并为此分配的有限结算步骤预留容量。
 2. 在固定父目录 fd 下建立私有 stage，写完整 marker，创建空 work；固定对象身份，
@@ -51,7 +52,7 @@ nonce、资源/请求/团队 ID。创建收据绑定完整 marker 哈希、stage
 不退回可能覆盖目标的 rename。复制相同 marker 或相同文件内容不能代替对象代次匹配。
 失败时保留现场；不凭名称删除 stage/final，不把未知路径自动采用成运行时所有物。
 
-## 拟议恢复判定
+## 恢复判定
 
 | 持久收据 | stage/final 实际观察 | 允许的后续 |
 | --- | --- | --- |
@@ -59,14 +60,14 @@ nonce、资源/请求/团队 ID。创建收据绑定完整 marker 哈希、stage
 | 无 | 任一路径存在 | 保留 PREPARED，报告冲突；仅提供显式弃置出口 |
 | 有 | 只有 stage 存在且全部代次/marker/空 work 匹配 | 复核后无覆盖发布 |
 | 有 | 只有 final 存在且全部代次/marker/空 work 匹配 | 重新同步、核对并登记同一 OWNED |
-| 有 | 两者同时存在、任一身份不符或应在对象缺失 | 保留 PREPARED，报告原始观察和冲突 |
+| 有 | 两者同时存在、任一身份不符或应在对象缺失 | 保留 PREPARED，返回冲突并保留已保存的原始证据 |
 
 恢复必须先读取原意图和收据，再观察路径；不能事后用路径内容构造一份看似原始的收据。
 旧 v1 兼容路径单独分支，不将新协议的“无收据”规则倒灌到历史完整意图。
 
-## 拟议 Root 显式弃置
+## Root 显式弃置
 
-候选命令形状如下，**当前版本没有该子命令**：
+CLI 提供以下宿主控制命令：
 
 ```text
 abandon-workspace --request REQUEST --resource RESOURCE
@@ -78,7 +79,9 @@ abandon-workspace --request REQUEST --resource RESOURCE
 不能堵住这条保留残留的控制出口；需专用授权路径，不能套用恢复业务执行所需的 ready 门禁。
 已 OWNED/DELETING/REMOVED、已绑定或非目标请求的资源必须拒绝。
 
-ABANDONED 是不可逆的记录状态；保留原意图、已有创建收据、观察、理由和命令结果。
+ABANDONED 是不可逆的记录状态；保留原意图、已有创建收据、理由和命令结果。一般文件系统失败通过异常返回，
+本增量不新增持久失败现场日志；弃置与 closeout 显示 `filesystem_observed:false`，
+不能把即时错误或事后查询伪装为原始创建观察。
 它不删除文件、不产生 absence proof、不写 REMOVED、不宣称 cleanup complete、不清业务 UNKNOWN，
 也不放行原资源的旧注册请求。精确重放只返回原弃置结果；不同参数冲突。
 

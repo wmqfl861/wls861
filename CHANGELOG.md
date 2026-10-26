@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.4-r2a.2 — recoverable owned allocation and retained abandonment
+
+- Add Store 408 through a new 010 migration, preserving published SQL, original ownership evidence and frozen cleanup manifests.
+- Persist v2 intent and synchronized staging receipt before no-overwrite publication; recover only the original parent/stage/work generations.
+- Add Root-only `abandon-workspace` for unbound PREPARED records, with CAS, reason and exact replay even when the old parent is missing or replaced.
+- Keep abandonment metadata-only, irreversible and separate from UNKNOWN reconciliation; retain both historical paths and exclude them from active cleanup targets.
+- Bound active resources at 64 and lifetime history at 256, reserve finite receipt/registration/abandonment control capacity, and preserve old event/window semantics.
+- Add real cross-process SIGKILL, SQLite fault, migration, quota and CLI regressions; keep ordinary-user and original full toolchain gates.
+- General filesystem failures still return errors without a new durable failure-observation ledger; strong deployment, doctor path diagnostics and real model acceptance remain separate.
+
 ## 0.8.3-r2a.1 — bounded directory creation
 
 - Add Worker fs_mkdir for a single absent empty directory with an existing parent and fixed 0700 mode.
