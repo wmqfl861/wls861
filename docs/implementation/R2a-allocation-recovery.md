@@ -113,6 +113,9 @@ wls init --db DB
 固定模型脚本用于构造任务、交付与收尾，不代表真实模型决策质量；进程中断不等于整机掉电实验。
 普通用户、双 umask、严格 GCC、Clang、ASan/LSan、UBSan 与原套件结果分别记录。
 
-后续按[ADR-076 草案](../adr/076-doctor-deployment-diagnostics.md)补充 doctor 的实际部署路径
-和具体阻塞诊断，然后推进 R3 单协议离线回放；草案所列新增诊断尚未实现。
-强沙箱部署正向、私有行 purge、后台服务和真实付费模型验收仍按各自任务卡完成。
+后续的 doctor 实际部署路径与有界阻塞诊断已由
+[ADR-076](../adr/076-doctor-deployment-diagnostics.md)和[R2a.3契约](R2a-deployment-diagnostics.md)
+单独承接；其只读观察不增加本契约的分配、采用或删除权限。
+R3离线协议边界见[R3.1/R3.2契约](R3-offline-responses.md)，真实接入和长任务容量依赖见
+[后继计划](R3-controlled-live-plan.md)。强沙箱部署正向、私有行 purge、后台服务和真实模型验收
+仍按各自任务卡完成；本文件的原分配实现与验证范围不随后继计划扩展。
