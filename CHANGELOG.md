@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.6-r3.2 — independent boundary review corrections
+
+- Inspect sandbox sources and shared configuration/runtime input files with O_PATH before read-mode opens, then reopen and recheck the pinned regular inode; reject FIFOs/devices without their read-open effects.
+- Require actual EOF within the diagnostic read budget before certifying a complete runtime digest; preserve explicit incompleteness when the budget is exhausted.
+- Carry valid Workspace UTF-8 filenames through owned inventories and bounded deletion, keeping resource identifiers, original generations and deletion authority strict.
+- Validate all CLI argv as UTF-8 before input/Store effects and emit bounded, explicitly truncated error messages with lossless hex prefixes when needed.
+- Accept documented string obfuscation only on supported Responses delta events, retaining raw bytes and limits while keeping padding out of semantic output.
+- Add 16 focused regressions and strengthen the existing exhaustive SSE split and doctor special-input cases; preserve full ordinary-user, umask, sanitizer, Clang and original compatibility gates.
+- Split the next R3.3 work into local TLS transport, original Store/usage reconciliation integration and approved real tasks with a single-agent baseline; specify management-context and owned-capacity prerequisites for long tasks.
+- Keep real calls, provider acceptance, positive strong-sandbox deployment, daemon/API and private-row purge separate; no published SQL, vendor bytes or historical evidence changed.
+
 ## 0.8.5-r3.2 — deployment diagnostics and offline Responses HTTP/SSE
 
 - Complete three bounded slices: R2a.3 read-only deployment diagnostics, R3.1 external profile/HTTP codec, and R3.2 deterministic SSE replay.

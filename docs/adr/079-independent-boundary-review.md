@@ -21,6 +21,8 @@ S2 的独立第二模型业务验收。实际命令、失败和修复后成绩�
 3. 文件系统读取和清理分别核对“只读打开是否产生副作用”“文件长度是否等于
    实际 EOF”“合法工作区名称是否能进入受控清理”的契约一致性。修复必须保留
    原对象代次、所有权、无符号链接、实际读取预算、不可变清单和删除授权。
+   同类类型先检规则须贯通 `pin_file`、`read_runtime_file` 和配置文件加载器，
+   不能只修运行文件而保留 doctor 的配置/manifest 或协议输入入口的特殊文件打开副作用。
 
 修复不修改已发布 SQL、vendor 字节或历史证据，不移除旧回归、不放宽生产权限，
 不通过延长超时掩盖失败。未证实的问题只登记后续设计，不为审计数量扩大改动。
@@ -41,5 +43,6 @@ purge 和大范围 Store 重构继续后置；CLI 可以承担首个 S1 小任�
 官方 SDK 的 `StreamOptions.include_obfuscation` 说明默认 delta 填充：
 [OpenAI Python SDK](https://github.com/openai/openai-python/blob/main/src/openai/types/responses/response_create_params.py)
 （2026-10-26 检索）。这是协议依据，不是供应商现场验收。
-新增反例必须对基线实现失败并在修复后通过；原有身份、版本、UNKNOWN、权限与
+缺陷复现反例须在基线失败并在修复后通过；新增守卫与边界回归分别注明基线行为。
+原有身份、版本、UNKNOWN、权限与
 请求作用域测试继续执行。没有真实模型调用、付费尝试或生产数据操作。

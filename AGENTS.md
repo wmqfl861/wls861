@@ -1,10 +1,22 @@
 # WLS861 development contract
 
-Current implementation: **0.8.5-r3.2**, blueprint **v0.4.1**. This batch implements
-the limited R2a.3, R3.1 and R3.2 slices; it does not complete all of R3 or a real
-model loop. Actual results and limitations belong in
-`docs/reports/r2a3-r3-offline-validation.md` and the CI for the specific commit.
+Current implementation: **0.8.6-r3.2**, blueprint **v0.4.1**. This patch follows
+the independent boundary review in `docs/reviews/independent-2026-10-26.md`.
+The prior 0.8.5 limited R2a.3, R3.1 and R3.2 slices remain offline; this does not
+complete all of R3 or a real model loop. Actual current results belong in
+`docs/reports/independent-audit-validation.md`; the previous slice evidence stays
+in `docs/reports/r2a3-r3-offline-validation.md`. Check CI for the specific commit.
 Do not turn an implemented interface or a planned test into a passing result.
+
+Read ADR-079 for this follow-up: inspect runtime sources and shared configuration/input files before a read-mode open,
+prove EOF within actual read budgets before reporting complete file identity,
+preserve Workspace-accepted UTF-8 names through owned cleanup without relaxing
+resource identifiers or deletion authority, keep default SSE obfuscation outside
+semantic output, and validate CLI argv before Store effects with bounded error
+reporting. R3.3a/b/c and long-task prerequisites are specified in
+`docs/implementation/R3-controlled-live-plan.md`; transport alone cannot open a
+live path. Additional usage evidence must not rewrite original settlements or
+restore old business authority. CLI can serve S1 acceptance; daemon/API stay later.
 
 Read `docs/reviews/claude-2026-10-24-disposition.md`,
 `docs/adr/064-audit24-recovery.md`, `docs/implementation/S1-epoch-recovery.md`

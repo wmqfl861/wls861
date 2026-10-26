@@ -1,6 +1,16 @@
-# 当前实现 **0.8.5-r3.2**，目标蓝图 **v0.4.1**。
+# 当前实现 **0.8.6-r3.2**，目标蓝图 **v0.4.1**。
 
-本批完成三个限定节点的实施：
+本补丁依据[独立工程审核](reviews/independent-2026-10-26.md)修复五类边界问题：
+运行源及共享配置/输入文件先检查类型再读打开、doctor以实际EOF确认哈希、合法业务文件名贯通受控清理、
+全CLI argv的UTF-8预检与有界错误输出、SSE默认obfuscation填充兼容。
+实现规则见[ADR-079](adr/079-independent-boundary-review.md)，本轮执行结果与原失败日志见
+[验证报告](reports/independent-audit-validation.md)；不以历史成功代替当前提交门禁。
+
+蓝图已将R3.3拆为本地TLS组件、原Store/账本集成、获准真实任务与单Agent对照三个节点。
+管理角色视图与owned工作区贯通容量单列长任务前置，CLI可承担S1小任务验收，服务化后置。
+这些是[开发计划](implementation/R3-controlled-live-plan.md)，尚未成为已实现能力。
+
+前一版本0.8.5-r3.2完成三个限定节点的实施：
 
 - **R2a.3**：[有界只读部署诊断](implementation/R2a-deployment-diagnostics.md)，记录配置与实际路径来源、逐项稳定原因、共享读取预算及未检查边界。
 - **R3.1**：[Responses 离线 HTTP 编解码](implementation/R3-offline-responses.md)，使用显式外部 profile，保留原 structured-v2 请求、宿主身份、原响应和可空用量。
@@ -11,7 +21,7 @@
 这三个节点不代表完整 R3 或真实模型闭环完成。设计见
 [ADR-076](adr/076-doctor-deployment-diagnostics.md)、[ADR-077](adr/077-responses-offline-codec.md)
 和 [ADR-078](adr/078-responses-sse-replay.md)；实际验证和限制以
-[本批报告](reports/r2a3-r3-offline-validation.md)及对应提交的 CI 为准，不从实施状态推导测试通过。
+[三节点报告](reports/r2a3-r3-offline-validation.md)及对应提交的 CI 为准，不从实施状态推导测试通过。
 
 接续 R2.2 `c975be3` 的[拒绝成果纠正/用户升级](implementation/R2-rejected-task-resolution.md)和
 [请求限定恢复](implementation/S1-request-recovery.md)，新增[模型逐任务 AMEND](implementation/R2-model-amendments.md)。
@@ -48,8 +58,9 @@ S2 独立审核/DAG，S3 记忆，S4 MCP/评测，S5 按证据扩展仍为后续
 单 Agent 对照框架前移 S1，不再以整套 S2 完成为前提。
 R2a.2已按[ADR-075](adr/075-owned-allocation-recovery.md)实现迁移、创建收据、精确恢复、弃置与清理联动。
 R2a.3、R3.1、R3.2 的上述限定接口已实施；真实强沙箱部署正向验收保持独立。
-下一增量 **R3.3** 仍须完成真实 transport 与 Store 的原 attempt/预算预约/用量结算集成，
-然后在端点、能力、凭据与预算具备且获准后进行小任务闭环验收。离线 profile 继续固定
+下一增量按[R3.3a/b/c计划](implementation/R3-controlled-live-plan.md)完成本地真实传输组件、
+Store的原attempt/唯一发送权/预算/附加用量核对集成，再在端点、能力、凭据与预算具备且获准后
+进行小任务及单Agent对照验收。离线 profile 继续固定
 real_calls_enabled=false、max_paid_retries=0；本批未使真实付费调用可用。
 并发租约和选中请求按需提升代次继续开放，不因模型 AMEND 接入而视为完成。
 

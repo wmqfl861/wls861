@@ -1,0 +1,2015 @@
+{
+  "implementation": "0.8.6-r3.2",
+  "blueprint": "0.4.1",
+  "findings": [
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "A5"
+  ],
+  "source": {
+    "base_commit": "72f74d6fd9261fab2fb372370080b93006fc4fdb",
+    "local_code_commit": "6e2acef84edbf0985fa60d72770baa4d1f601bef",
+    "remote_code_commit": "64d870d0c29594743d734d9c3b9b24587c77e608",
+    "matching_code_tree": "7580c032842cd48951e834f0185e1ceddb76a991",
+    "input_count": 258,
+    "input_manifest": "independent-audit-inputs.sha256",
+    "input_manifest_sha256": "89cb77f080bd863de05b483fc76263b98d3152994e4f34886412965a9a4432d8",
+    "all_manifest_bytes_match_code_commit": true,
+    "later_publication_changes": "documentation and evidence only",
+    "input_scope": "Previous 255 source/build/runtime inputs plus three contract/integrity Python scripts; original archive/review inputs remain independently hash-checked."
+  },
+  "preserved_paths": [
+    "db",
+    "third_party",
+    "docs/handoff",
+    ".github/workflows"
+  ],
+  "existing_review_files_unchanged": [
+    "docs/reviews/claude-2026-10-23.md",
+    "docs/reviews/claude-2026-10-24-disposition.md",
+    "docs/reviews/claude-2026-10-24.md",
+    "docs/reviews/claude-2026-10-24/event_cap_repro.cpp",
+    "docs/reviews/claude-2026-10-24/reopen_repro.cpp",
+    "docs/reviews/claude-2026-10-24/wls861-small-fixes.patch",
+    "docs/reviews/claude-disposition.md"
+  ],
+  "formal_gates": {
+    "final-release-0002": {
+      "name": "final-release-0002",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-audit-build-release",
+        "--output-on-failure"
+      ],
+      "cwd": "/tmp/wls861-independent-audit",
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "started": 1793024185.4455507,
+      "exit_code": 0,
+      "elapsed_seconds": 174.92,
+      "log_sha256": "95290bd6ae35035b2b06e1d400d9489240ebb5252279d33d9e4054102de2536d",
+      "counts": {
+        "ctest_groups": 63,
+        "m1_cpp": 52,
+        "s1_cpp": 573,
+        "cli": 188,
+        "reference_contracts": 38,
+        "demo": 3,
+        "integrity_groups": 2,
+        "counted_cases": 854
+      },
+      "groups": [
+        {
+          "ctest_id": 1,
+          "name": "journal",
+          "counted_cases": 10,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 2,
+          "name": "config",
+          "counted_cases": 5,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 3,
+          "name": "scheduler",
+          "counted_cases": 9,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 4,
+          "name": "task_engine",
+          "counted_cases": 28,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 5,
+          "name": "runtime_types",
+          "counted_cases": 6,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 6,
+          "name": "store",
+          "counted_cases": 31,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 7,
+          "name": "event_store",
+          "counted_cases": 15,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 8,
+          "name": "workflow_store",
+          "counted_cases": 21,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 9,
+          "name": "acceptance_store",
+          "counted_cases": 25,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 10,
+          "name": "config_loader",
+          "counted_cases": 19,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 11,
+          "name": "model",
+          "counted_cases": 15,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 12,
+          "name": "schema",
+          "counted_cases": 12,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 13,
+          "name": "offline_runtime",
+          "counted_cases": 10,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 14,
+          "name": "event_runtime",
+          "counted_cases": 14,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 15,
+          "name": "workflow_runtime",
+          "counted_cases": 14,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 16,
+          "name": "acceptance_runtime",
+          "counted_cases": 19,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 17,
+          "name": "workspace",
+          "counted_cases": 19,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 18,
+          "name": "sandbox",
+          "counted_cases": 19,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 19,
+          "name": "worker_tools",
+          "counted_cases": 17,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 20,
+          "name": "delivery",
+          "counted_cases": 17,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 21,
+          "name": "cleanup",
+          "counted_cases": 23,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 22,
+          "name": "cleanup_runtime",
+          "counted_cases": 20,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 23,
+          "name": "audit24_reopen",
+          "counted_cases": 7,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 24,
+          "name": "process_evidence",
+          "counted_cases": 8,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 25,
+          "name": "audit24_reconcile",
+          "counted_cases": 4,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 26,
+          "name": "audit24_capacity",
+          "counted_cases": 8,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 27,
+          "name": "audit24_capacity_repro",
+          "counted_cases": 1,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 28,
+          "name": "r1_history",
+          "counted_cases": 10,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 29,
+          "name": "r1_structured",
+          "counted_cases": 16,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 30,
+          "name": "r1_window",
+          "counted_cases": 12,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 31,
+          "name": "r2_rework",
+          "counted_cases": 26,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 32,
+          "name": "r2_recovery",
+          "counted_cases": 12,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 33,
+          "name": "r2_amend",
+          "counted_cases": 14,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 34,
+          "name": "r2a_mkdir",
+          "counted_cases": 16,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 35,
+          "name": "allocation_recovery",
+          "counted_cases": 30,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 36,
+          "name": "doctor_diagnostics",
+          "counted_cases": 32,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 37,
+          "name": "protocol_codec",
+          "counted_cases": 30,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 38,
+          "name": "sse_replay",
+          "counted_cases": 31,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 39,
+          "name": "doctor_diagnostics_cli",
+          "counted_cases": 12,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 40,
+          "name": "protocol_replay_cli",
+          "counted_cases": 13,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 41,
+          "name": "handoff_integrity",
+          "counted_cases": null,
+          "integrity_only": true
+        },
+        {
+          "ctest_id": 42,
+          "name": "review_source_integrity",
+          "counted_cases": null,
+          "integrity_only": true
+        },
+        {
+          "ctest_id": 43,
+          "name": "specification_contracts",
+          "counted_cases": 38,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 44,
+          "name": "demo_smoke",
+          "counted_cases": 3,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 45,
+          "name": "s1_cli_smoke",
+          "counted_cases": 8,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 46,
+          "name": "s12_cli_smoke",
+          "counted_cases": 8,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 47,
+          "name": "s13_cli_smoke",
+          "counted_cases": 10,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 48,
+          "name": "s14_cli_smoke",
+          "counted_cases": 12,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 49,
+          "name": "s15_cli_smoke",
+          "counted_cases": 17,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 50,
+          "name": "s16_cli_smoke",
+          "counted_cases": 14,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 51,
+          "name": "audit24_reconcile_cli_smoke",
+          "counted_cases": 4,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 52,
+          "name": "audit24_reopen_cli_smoke",
+          "counted_cases": 2,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 53,
+          "name": "review_cli_smoke",
+          "counted_cases": 14,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 54,
+          "name": "audit24_capacity_cli_smoke",
+          "counted_cases": 6,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 55,
+          "name": "r1_history_cli_smoke",
+          "counted_cases": 7,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 56,
+          "name": "r1_structured_cli_smoke",
+          "counted_cases": 6,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 57,
+          "name": "r1_window_cli_smoke",
+          "counted_cases": 9,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 58,
+          "name": "r2_rework_cli_smoke",
+          "counted_cases": 10,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 59,
+          "name": "r2_recovery_cli_smoke",
+          "counted_cases": 6,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 60,
+          "name": "r2_integration_cli_smoke",
+          "counted_cases": 6,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 61,
+          "name": "r2_amend_cli_smoke",
+          "counted_cases": 9,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 62,
+          "name": "r2a_mkdir_cli_smoke",
+          "counted_cases": 6,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 63,
+          "name": "allocation_recovery_cli",
+          "counted_cases": 9,
+          "integrity_only": false
+        }
+      ],
+      "last_test_log_sha256": "766b611de0a88481b401ce32165bd4cd37928ba66cde6cf99bf92e6a287d9c2b"
+    },
+    "final-release-0022": {
+      "name": "final-release-0022",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-audit-build-release",
+        "--output-on-failure"
+      ],
+      "cwd": "/tmp/wls861-independent-audit",
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0022",
+      "started": 1793024413.7722087,
+      "exit_code": 0,
+      "elapsed_seconds": 175.912,
+      "log_sha256": "be15e7437282e41b1489f5728b07b160b807daf389fd18c92aa67043bb1a24cf",
+      "counts": {
+        "ctest_groups": 63,
+        "m1_cpp": 52,
+        "s1_cpp": 573,
+        "cli": 188,
+        "reference_contracts": 38,
+        "demo": 3,
+        "integrity_groups": 2,
+        "counted_cases": 854
+      },
+      "groups": [
+        {
+          "ctest_id": 1,
+          "name": "journal",
+          "counted_cases": 10,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 2,
+          "name": "config",
+          "counted_cases": 5,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 3,
+          "name": "scheduler",
+          "counted_cases": 9,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 4,
+          "name": "task_engine",
+          "counted_cases": 28,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 5,
+          "name": "runtime_types",
+          "counted_cases": 6,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 6,
+          "name": "store",
+          "counted_cases": 31,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 7,
+          "name": "event_store",
+          "counted_cases": 15,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 8,
+          "name": "workflow_store",
+          "counted_cases": 21,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 9,
+          "name": "acceptance_store",
+          "counted_cases": 25,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 10,
+          "name": "config_loader",
+          "counted_cases": 19,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 11,
+          "name": "model",
+          "counted_cases": 15,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 12,
+          "name": "schema",
+          "counted_cases": 12,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 13,
+          "name": "offline_runtime",
+          "counted_cases": 10,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 14,
+          "name": "event_runtime",
+          "counted_cases": 14,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 15,
+          "name": "workflow_runtime",
+          "counted_cases": 14,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 16,
+          "name": "acceptance_runtime",
+          "counted_cases": 19,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 17,
+          "name": "workspace",
+          "counted_cases": 19,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 18,
+          "name": "sandbox",
+          "counted_cases": 19,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 19,
+          "name": "worker_tools",
+          "counted_cases": 17,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 20,
+          "name": "delivery",
+          "counted_cases": 17,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 21,
+          "name": "cleanup",
+          "counted_cases": 23,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 22,
+          "name": "cleanup_runtime",
+          "counted_cases": 20,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 23,
+          "name": "audit24_reopen",
+          "counted_cases": 7,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 24,
+          "name": "process_evidence",
+          "counted_cases": 8,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 25,
+          "name": "audit24_reconcile",
+          "counted_cases": 4,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 26,
+          "name": "audit24_capacity",
+          "counted_cases": 8,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 27,
+          "name": "audit24_capacity_repro",
+          "counted_cases": 1,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 28,
+          "name": "r1_history",
+          "counted_cases": 10,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 29,
+          "name": "r1_structured",
+          "counted_cases": 16,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 30,
+          "name": "r1_window",
+          "counted_cases": 12,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 31,
+          "name": "r2_rework",
+          "counted_cases": 26,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 32,
+          "name": "r2_recovery",
+          "counted_cases": 12,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 33,
+          "name": "r2_amend",
+          "counted_cases": 14,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 34,
+          "name": "r2a_mkdir",
+          "counted_cases": 16,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 35,
+          "name": "allocation_recovery",
+          "counted_cases": 30,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 36,
+          "name": "doctor_diagnostics",
+          "counted_cases": 32,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 37,
+          "name": "protocol_codec",
+          "counted_cases": 30,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 38,
+          "name": "sse_replay",
+          "counted_cases": 31,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 39,
+          "name": "doctor_diagnostics_cli",
+          "counted_cases": 12,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 40,
+          "name": "protocol_replay_cli",
+          "counted_cases": 13,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 41,
+          "name": "handoff_integrity",
+          "counted_cases": null,
+          "integrity_only": true
+        },
+        {
+          "ctest_id": 42,
+          "name": "review_source_integrity",
+          "counted_cases": null,
+          "integrity_only": true
+        },
+        {
+          "ctest_id": 43,
+          "name": "specification_contracts",
+          "counted_cases": 38,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 44,
+          "name": "demo_smoke",
+          "counted_cases": 3,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 45,
+          "name": "s1_cli_smoke",
+          "counted_cases": 8,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 46,
+          "name": "s12_cli_smoke",
+          "counted_cases": 8,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 47,
+          "name": "s13_cli_smoke",
+          "counted_cases": 10,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 48,
+          "name": "s14_cli_smoke",
+          "counted_cases": 12,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 49,
+          "name": "s15_cli_smoke",
+          "counted_cases": 17,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 50,
+          "name": "s16_cli_smoke",
+          "counted_cases": 14,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 51,
+          "name": "audit24_reconcile_cli_smoke",
+          "counted_cases": 4,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 52,
+          "name": "audit24_reopen_cli_smoke",
+          "counted_cases": 2,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 53,
+          "name": "review_cli_smoke",
+          "counted_cases": 14,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 54,
+          "name": "audit24_capacity_cli_smoke",
+          "counted_cases": 6,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 55,
+          "name": "r1_history_cli_smoke",
+          "counted_cases": 7,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 56,
+          "name": "r1_structured_cli_smoke",
+          "counted_cases": 6,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 57,
+          "name": "r1_window_cli_smoke",
+          "counted_cases": 9,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 58,
+          "name": "r2_rework_cli_smoke",
+          "counted_cases": 10,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 59,
+          "name": "r2_recovery_cli_smoke",
+          "counted_cases": 6,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 60,
+          "name": "r2_integration_cli_smoke",
+          "counted_cases": 6,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 61,
+          "name": "r2_amend_cli_smoke",
+          "counted_cases": 9,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 62,
+          "name": "r2a_mkdir_cli_smoke",
+          "counted_cases": 6,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 63,
+          "name": "allocation_recovery_cli",
+          "counted_cases": 9,
+          "integrity_only": false
+        }
+      ],
+      "last_test_log_sha256": "fa9582d5503880a29aa6c383dc20814b4c935d22fdbea6f8798e90cfab57638a"
+    },
+    "final-focused-asan": {
+      "name": "final-focused-asan",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-audit-build-asan",
+        "--output-on-failure",
+        "-R",
+        "^(config_loader|offline_runtime|sandbox|worker_tools|cleanup|cleanup_runtime|doctor_diagnostics|sse_replay|doctor_diagnostics_cli|protocol_replay_cli|review_cli_smoke|s12_cli_smoke)$"
+      ],
+      "cwd": "/tmp/wls861-independent-audit",
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "started": 1793024190.0650122,
+      "exit_code": 0,
+      "elapsed_seconds": 213.573,
+      "log_sha256": "add33176a3993084497466c612dd0242f35ff5c8dd2f992591f1fdde09bfcc08",
+      "counts": {
+        "ctest_groups": 12,
+        "m1_cpp": 0,
+        "s1_cpp": 171,
+        "cli": 47,
+        "reference_contracts": 0,
+        "demo": 0,
+        "integrity_groups": 0,
+        "counted_cases": 218
+      },
+      "groups": [
+        {
+          "ctest_id": 10,
+          "name": "config_loader",
+          "counted_cases": 19,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 13,
+          "name": "offline_runtime",
+          "counted_cases": 10,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 18,
+          "name": "sandbox",
+          "counted_cases": 19,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 19,
+          "name": "worker_tools",
+          "counted_cases": 17,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 21,
+          "name": "cleanup",
+          "counted_cases": 23,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 22,
+          "name": "cleanup_runtime",
+          "counted_cases": 20,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 36,
+          "name": "doctor_diagnostics",
+          "counted_cases": 32,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 38,
+          "name": "sse_replay",
+          "counted_cases": 31,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 39,
+          "name": "doctor_diagnostics_cli",
+          "counted_cases": 12,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 40,
+          "name": "protocol_replay_cli",
+          "counted_cases": 13,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 46,
+          "name": "s12_cli_smoke",
+          "counted_cases": 8,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 53,
+          "name": "review_cli_smoke",
+          "counted_cases": 14,
+          "integrity_only": false
+        }
+      ],
+      "last_test_log_sha256": "125faf10ae8bdba9d5fccb9190bd552035087b99b57b1c7f2e9efa34438adcb7"
+    },
+    "final-focused-ubsan": {
+      "name": "final-focused-ubsan",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-audit-build-ubsan",
+        "--output-on-failure",
+        "-R",
+        "^(config_loader|offline_runtime|sandbox|worker_tools|cleanup|cleanup_runtime|doctor_diagnostics|sse_replay|doctor_diagnostics_cli|protocol_replay_cli|review_cli_smoke|s12_cli_smoke)$"
+      ],
+      "cwd": "/tmp/wls861-independent-audit",
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "started": 1793024413.699542,
+      "exit_code": 0,
+      "elapsed_seconds": 109.093,
+      "log_sha256": "6b24542dda6dff5ed6165c0b3c0f86246da5a8fc9a37488b3c8550dfcec3480b",
+      "counts": {
+        "ctest_groups": 12,
+        "m1_cpp": 0,
+        "s1_cpp": 171,
+        "cli": 47,
+        "reference_contracts": 0,
+        "demo": 0,
+        "integrity_groups": 0,
+        "counted_cases": 218
+      },
+      "groups": [
+        {
+          "ctest_id": 10,
+          "name": "config_loader",
+          "counted_cases": 19,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 13,
+          "name": "offline_runtime",
+          "counted_cases": 10,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 18,
+          "name": "sandbox",
+          "counted_cases": 19,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 19,
+          "name": "worker_tools",
+          "counted_cases": 17,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 21,
+          "name": "cleanup",
+          "counted_cases": 23,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 22,
+          "name": "cleanup_runtime",
+          "counted_cases": 20,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 36,
+          "name": "doctor_diagnostics",
+          "counted_cases": 32,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 38,
+          "name": "sse_replay",
+          "counted_cases": 31,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 39,
+          "name": "doctor_diagnostics_cli",
+          "counted_cases": 12,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 40,
+          "name": "protocol_replay_cli",
+          "counted_cases": 13,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 46,
+          "name": "s12_cli_smoke",
+          "counted_cases": 8,
+          "integrity_only": false
+        },
+        {
+          "ctest_id": 53,
+          "name": "review_cli_smoke",
+          "counted_cases": 14,
+          "integrity_only": false
+        }
+      ],
+      "last_test_log_sha256": "8612599ddfe2cdd2f23abf5fc7191ff54906219d2d2be8036a772a8aa77cc77b"
+    }
+  },
+  "new_registered_cases": {
+    "doctor_cpp": 2,
+    "cleanup_cpp": 3,
+    "sandbox_cpp": 1,
+    "sse_cpp": 3,
+    "config_loader_cpp": 1,
+    "offline_runtime_cpp": 1,
+    "cli": 5,
+    "total": 16
+  },
+  "strengthened_existing_cases": [
+    "all two-chunk SSE splits include obfuscation",
+    "doctor CLI special-input case observes FIFO IN_OPEN for manifest and config"
+  ],
+  "effective_umask": {
+    "release_invocations": [
+      "0002",
+      "0022"
+    ],
+    "doctor_cpp_and_doctor_protocol_cli": "preserve and print invoking mask",
+    "cpp_shared_test_support": "case body sets 0077 and restores the caller afterward",
+    "review_cli": "existing private-fixture setUp uses 0077",
+    "warning": "The invoking mask does not describe every fixture body."
+  },
+  "sanitizers": {
+    "local_scope": "12 directly affected groups, not complete repository suite",
+    "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+    "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1",
+    "observed_diagnostics": []
+  },
+  "unchanged_timeouts": {
+    "ordinary_groups_seconds": 90,
+    "cleanup_runtime_seconds": 180,
+    "audit24_capacity_repro_seconds": 300,
+    "ci_job_minutes": 30
+  },
+  "environment": {
+    "uid": 65534,
+    "gid": 65534,
+    "captured_epoch": 1793024181.9201384,
+    "platform": "Linux-6.18.55-x86_64-with-glibc2.39",
+    "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+    "jsonschema": "4.10.3",
+    "source_input_count": 258,
+    "input_manifest_sha256": "89cb77f080bd863de05b483fc76263b98d3152994e4f34886412965a9a4432d8",
+    "latest_source_input_mtime_epoch": 1793023987.2606103,
+    "tools": {
+      "g++": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+      "ld": "GNU ld (GNU Binutils for Ubuntu) 2.42",
+      "cmake": "cmake version 3.28.3",
+      "ninja": "1.11.1",
+      "openssl": "OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)"
+    },
+    "binaries_sha256": {
+      "release": {
+        "acceptance_runtime_tests": "c8d4b97f613796b4a8c0b1da3ca31ebb70eae489c72f16c48826c23332bedf89",
+        "acceptance_store_tests": "b5a78783c0f7431701af5d49cc913da3d593f533760092a131ffb2adc0c8f826",
+        "allocation_recovery_tests": "685ee727c0e25a59fc72e3254b75bc8f7d20e3c836b6753c6634cb7bc4d4fd07",
+        "audit24_capacity_repro_tests": "29b713fd81bb04fc93cb1584ad2c0fe90df729e33d54dcd34b7934811ef5bd46",
+        "audit24_capacity_tests": "4491464d85ec08afaa13fdeeee9f9eb55ebc7b17c48aa70c032fec10fdf72e07",
+        "audit24_reconcile_tests": "35005f97dd8ac06e74e93933a69132c51976e84e418c2a9ba00d1800ae5230a0",
+        "audit24_reopen_tests": "5ed2111842d5641c1b1ab9414acf5f99592ca29d9c62fd595ba553450d0567f4",
+        "cleanup_runtime_tests": "e4e7df722a56e60c369fd31df7a1225dc96e86e0dd3db4bc4aaf7d65bdd4c768",
+        "cleanup_tests": "74059102391033bd5958789ee2ec3bf9d3e87dfd3906215c6b96c050eb8f1735",
+        "config_loader_tests": "83def6c3419e2b2fbe23d913f6293625bba9e9299c3136696e54b07f8ae54e90",
+        "config_tests": "3fde6accb49cd858e27cf714766d83f7ee330fd8540717001ecd3171759dc62e",
+        "delivery_tests": "9f90b05805175fc7d6d432891b68c2335cedbc17e360fa78f0de217d7cc547aa",
+        "doctor_diagnostics_tests": "a2da7d45eb8452e0fa9dedb985a832cc7d4dedee9f89d059a797ac9e5c6eb635",
+        "event_runtime_tests": "edd34fa2612bce0e8901e5955dde1d42bfc94f2d511d41d81906a9a8baa5075d",
+        "event_store_tests": "0d5dfd0f61a5fd0ecf930fcebc9c59d0e014359593599682c64520279bef8c7a",
+        "journal_tests": "bd6ffc2fe3b92d274d1987a8d78872c9460cc52dcedc9f26b9c4e09c8184583b",
+        "model_tests": "32e00ca193ec454cc2b667e857bbef45f2f4790c64ce4232ab6972ddd3df92c4",
+        "offline_runtime_tests": "c2c1062d92a5bd1c34611be01fc341cdf33d2db66e16bfa1b0a9b2772548c072",
+        "process_evidence_tests": "0cc2aa0a16d6d127d4dd601571476c866b436166fe71ad967fa3b1c6ef592ede",
+        "protocol_codec_tests": "b581fc038b8cf25f689bf13eff7d9e8db5b8b254b14b22a4eaec712fc61bbad1",
+        "r1_history_tests": "fc24f25dd337f2744057dddf2fb2ef31eca1d941a02676140d8bad12e2d189c0",
+        "r1_structured_tests": "06e1a37eb6e992d6d3bdf7f71bb20964480efffc57842238b666a86a622d618f",
+        "r1_window_tests": "fb015fb18c03a2cdec55a6233794c9eb83bfb7406b28314df0691cc5ba3a3559",
+        "r2_amend_tests": "481d2ed55b2edc313d76e61e468a234fb7802fb4eaa87df061f62fe62d271844",
+        "r2_recovery_tests": "a96908658849d6af0b9c98de48b366154b140180a3f2343472b70cfb3661199d",
+        "r2_rework_tests": "5208e1d649b77b6d2b9ff2b305f631d9acfe472fa0e580d576e47be71f45757e",
+        "r2a_mkdir_tests": "d87c188869b2b2c7ee015fd8b5030277eead773067fdf39cbee42c10956be44e",
+        "runtime_types_tests": "2dbdf244d359076474f5aeb90c0fd29755a43ef91d11b193c7aaf192713afa25",
+        "sandbox_tests": "a452a8cf4100a1743584e7399aa171ea55fe4e310f6402d35b084706862a162e",
+        "scheduler_tests": "5e87ef8d8d28a5566ecfa389e2f90551ed6b8580b509da30ad29c3eca7b95330",
+        "schema_tests": "0795c2181fcf535438335191cab7cb91f908ffa1386bacdd997456141a654227",
+        "sse_replay_tests": "d4b0c012e088038725ecf4e3add7d856bb9a47e42c73728a4f24996eceb2c83f",
+        "store_tests": "0c559940ff9f2b07533237a340f9e464e58d5f6448b57467efcf23f81ef2cbfb",
+        "task_engine_tests": "d4030500ca7d97bf2c3311187c5a0b073c04eefbb3d45bf2109d67ad36df53da",
+        "wls": "ddb961273858329057d681046a02f8534453e8b8e76443c0fb8d7607ba55ebb7",
+        "wls861": "527c4fb8cc25a8d200ec8696dbe2053642b53e4a6c5188e44b2bf5f2640d9f9a",
+        "worker_tools_tests": "aef7be0fab914fa5014bce7b923b864389d4e34bd13126ca85bcdd8642b52eb4",
+        "workflow_runtime_tests": "8607d361582e3cfd8f926d56f4836c2b6a3fea1f995d0e93e97e813c3dc33751",
+        "workflow_store_tests": "2ed232c966a927fd4bd707145fe9c18e0b7f49dab546f305b5c746f3a399644b",
+        "workspace_tests": "4baab1ff3a663f2f5b086b2b0ef50831227f6ef408e6d52fcdd90eed6800b629"
+      },
+      "asan": {
+        "cleanup_runtime_tests": "0cc02ceed92ca68aef06f214a8b2aa24bf993ed7d7c1e63a2acc7697dceb64e2",
+        "cleanup_tests": "6dfc59c33231e602464c8018c5b4d06aa28fcdc5564594c9ad84d17ea9825aa6",
+        "config_loader_tests": "df6f20c82a32d425464caeb26679327f5f4f29d15aa8f5ba461df6ed8109a320",
+        "doctor_diagnostics_tests": "92cf804ac69232e79f3d71eea197a5c2e60798b4b1d8e061f130a3cbcf2adc31",
+        "offline_runtime_tests": "3f1979206dbbb6c679990592e510b5008098bbff5fd7ffda4c96f9b52a98a88e",
+        "sandbox_tests": "80e24f1001a2c6335cf20c19bf3f7963e6ca21b7ce823f55d13121cdd12911ea",
+        "sse_replay_tests": "303d4a110d19d71198acb131a950952155a996a4b476fcccd492b6906eaa51ea",
+        "wls": "aa708658097d8dc62baaff562ff2104868133f379fc00bb5dd11e57919a9d46a",
+        "worker_tools_tests": "e1f7478abf2af8e0b458883faa3b69d87064104729c8e04825e4eb734251e1ea"
+      },
+      "ubsan": {
+        "cleanup_runtime_tests": "e809a89057dfc17b8943efb24ceed3536e2480f0e9346f1679ca9c23d509d8b0",
+        "cleanup_tests": "5ca0baff43a3da5d160b52c25558c50f8268cfdae77111f6f4a0f5c04d468dbb",
+        "config_loader_tests": "3e46667ea96c627bf4373be8e8c7e055e7983ee0a651595d30270304391a69c2",
+        "doctor_diagnostics_tests": "40849a46bc7af34e2db96208439799c9991fc9bb62c2b287095ed7166eb329ef",
+        "offline_runtime_tests": "5ccb9bce13f4593b5d55cb9b1355e9458c69e8a6b7c95d8248273ef71f3ac3b8",
+        "sandbox_tests": "97956558233405e0bfd5d2b80079e874368be9b154a09be839fb7aa337b9a473",
+        "sse_replay_tests": "3dd1ac5800ed269ed0f6aeeebe7734aa1f6c7cbd95158e9e6e116739b7ebd669",
+        "wls": "5cbca0e5ac71a831a98e41a6dbb18cc4f77d129182c9a1a48d46af36ce81df3b",
+        "worker_tools_tests": "6eb7585bdcc585dbe9369329ede2b34ffd747dd4f78807696adc08ca342d651e"
+      }
+    },
+    "baseline_cli_sha256": "2162882877d3e86561b2432318ebe85194c0c7911c726fdfdae8299d6077c4cd",
+    "baseline_cli_matches_prior_release_evidence": true
+  },
+  "process_records": [
+    {
+      "metadata_file": "logs/build-asan.json",
+      "record": {
+        "name": "build-asan",
+        "command": [
+          "cmake",
+          "--build",
+          "/tmp/wls861-audit-build-asan",
+          "--parallel",
+          "2",
+          "--target",
+          "wls",
+          "doctor_diagnostics_tests",
+          "sandbox_tests",
+          "cleanup_tests",
+          "cleanup_runtime_tests",
+          "worker_tools_tests",
+          "sse_replay_tests"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021958.6150324,
+        "exit_code": 0,
+        "elapsed_seconds": 78.72,
+        "log_sha256": "32d1ae1f1fabfba13cbc7d9e391e5b64ac310dda33dda1a84fe62eb9a94cdf44"
+      }
+    },
+    {
+      "metadata_file": "logs/build-release-initial.json",
+      "record": {
+        "name": "build-release-initial",
+        "command": [
+          "cmake",
+          "--build",
+          "/tmp/wls861-audit-build-release",
+          "--parallel",
+          "2"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021498.0868616,
+        "exit_code": 1,
+        "elapsed_seconds": 183.284,
+        "log_sha256": "d7d4686da8fd3e3bc9dc61a980c2a2413911b2b44edb9af25ac3fae1ce21eb8e"
+      }
+    },
+    {
+      "metadata_file": "logs/build-release.json",
+      "record": {
+        "name": "build-release",
+        "command": [
+          "cmake",
+          "--build",
+          "/tmp/wls861-audit-build-release",
+          "--parallel",
+          "2"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021897.7136016,
+        "exit_code": 0,
+        "elapsed_seconds": 31.522,
+        "log_sha256": "996763fbe0de59e6b38d01e380924056fe3810fd37adfe1ca021e1a6abdb89a0"
+      }
+    },
+    {
+      "metadata_file": "logs/build-ubsan.json",
+      "record": {
+        "name": "build-ubsan",
+        "command": [
+          "cmake",
+          "--build",
+          "/tmp/wls861-audit-build-ubsan",
+          "--parallel",
+          "2",
+          "--target",
+          "wls",
+          "doctor_diagnostics_tests",
+          "sandbox_tests",
+          "cleanup_tests",
+          "cleanup_runtime_tests",
+          "worker_tools_tests",
+          "sse_replay_tests"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793022175.8041482,
+        "exit_code": 0,
+        "elapsed_seconds": 82.174,
+        "log_sha256": "f6992aca554c504f4b0d88257e4f1b646143c76f7d89fe36a4d866fa4d3e2fc2"
+      }
+    },
+    {
+      "metadata_file": "logs/cleanup-names-baseline-recorded.log.json",
+      "record": {
+        "started_at_utc": "2026-10-26T13:39:43.812441+00:00",
+        "command": [
+          "/tmp/wls861-audit-filesystem-tests/cleanup-red"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "invoking_umask": "0022",
+        "exit_code": 1,
+        "elapsed_seconds": 0.10583083900564816,
+        "log": "/tmp/wls861-audit-evidence/logs/cleanup-names-baseline-recorded.log",
+        "log_sha256": "a7980c1bed3eb6f19bed3c5c9eda9c37ba5b36430a0cd7213b5f084410e8b3c1",
+        "executable_sha256": "34639b38dc6d10a444385fce9b4d32537a92448563fdbf20a3ff21310cf39bde"
+      }
+    },
+    {
+      "metadata_file": "logs/cleanup-names-green-recorded.log.json",
+      "record": {
+        "started_at_utc": "2026-10-26T13:39:44.239381+00:00",
+        "command": [
+          "/tmp/wls861-audit-filesystem-tests/cleanup-green"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "invoking_umask": "0022",
+        "exit_code": 0,
+        "elapsed_seconds": 0.10963260100106709,
+        "log": "/tmp/wls861-audit-evidence/logs/cleanup-names-green-recorded.log",
+        "log_sha256": "e12fcbf533c7aeff850030c27fdb1c709ec17585d6e8e035bb0e93dc6818bcba",
+        "executable_sha256": "bac9cfc706863b97da4d13112cb56fcdc27d838d1e3966ca67012e57718d8096"
+      }
+    },
+    {
+      "metadata_file": "logs/cli-red-baseline.json",
+      "record": {
+        "name": "cli-red-baseline",
+        "command": [
+          "/tmp/wls861-validation-venv/bin/python",
+          "tests/review_cli_smoke.py",
+          "/tmp/wls861-three-build-dev/wls",
+          "/tmp/wls861-independent-audit"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021732.24762,
+        "exit_code": 1,
+        "elapsed_seconds": 3.304,
+        "log_sha256": "9e92020a6c628c0c3a2e4d6148e91d5c5198447e6bde9d5c53adf4952eb7c4b5"
+      }
+    },
+    {
+      "metadata_file": "logs/configure-asan.json",
+      "record": {
+        "name": "configure-asan",
+        "command": [
+          "cmake",
+          "-S",
+          ".",
+          "-B",
+          "/tmp/wls861-audit-build-asan",
+          "-G",
+          "Ninja",
+          "-DCMAKE_BUILD_TYPE=Debug",
+          "-DWLS_ENABLE_ASAN=ON",
+          "-DPython3_EXECUTABLE=/tmp/wls861-validation-venv/bin/python"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021901.913465,
+        "exit_code": 0,
+        "elapsed_seconds": 0.8,
+        "log_sha256": "3643fee594a20b108edecf97508c4825c8e50da738ad3216a735b00e6121168b"
+      }
+    },
+    {
+      "metadata_file": "logs/configure-release.json",
+      "record": {
+        "name": "configure-release",
+        "command": [
+          "cmake",
+          "-S",
+          ".",
+          "-B",
+          "/tmp/wls861-audit-build-release",
+          "-G",
+          "Ninja",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DPython3_EXECUTABLE=/tmp/wls861-validation-venv/bin/python"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021489.600971,
+        "exit_code": 0,
+        "elapsed_seconds": 0.592,
+        "log_sha256": "367d0edf39d43afc97aee67a0289de8a19021df5a92dcc41eacff8112c307b26"
+      }
+    },
+    {
+      "metadata_file": "logs/configure-ubsan.json",
+      "record": {
+        "name": "configure-ubsan",
+        "command": [
+          "cmake",
+          "-S",
+          ".",
+          "-B",
+          "/tmp/wls861-audit-build-ubsan",
+          "-G",
+          "Ninja",
+          "-DCMAKE_BUILD_TYPE=Debug",
+          "-DWLS_ENABLE_UBSAN=ON",
+          "-DPython3_EXECUTABLE=/tmp/wls861-validation-venv/bin/python"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021902.343336,
+        "exit_code": 0,
+        "elapsed_seconds": 0.779,
+        "log_sha256": "2e75aac896e7871ec586639f9ce2af2e85a680629c24a690880920703e0f0e87"
+      }
+    },
+    {
+      "metadata_file": "logs/doctor-open-eof-baseline-recorded.log.json",
+      "record": {
+        "started_at_utc": "2026-10-26T13:39:43.764031+00:00",
+        "command": [
+          "/tmp/wls861-audit-filesystem-tests/doctor-red"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "invoking_umask": "0022",
+        "exit_code": 1,
+        "elapsed_seconds": 0.1092235329997493,
+        "log": "/tmp/wls861-audit-evidence/logs/doctor-open-eof-baseline-recorded.log",
+        "log_sha256": "efae0349bb88c26975923d852b8e2b951c00e309bbe4d52d4a0bafe5d3e9d3e5",
+        "executable_sha256": "4652b9102b83cded0ccacb944a5abe1cf3421a8c50318ec6092b376213562232"
+      }
+    },
+    {
+      "metadata_file": "logs/doctor-open-eof-green-recorded.log.json",
+      "record": {
+        "started_at_utc": "2026-10-26T13:39:43.668826+00:00",
+        "command": [
+          "/tmp/wls861-audit-filesystem-tests/doctor-green"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "invoking_umask": "0022",
+        "exit_code": 0,
+        "elapsed_seconds": 0.10781987300288165,
+        "log": "/tmp/wls861-audit-evidence/logs/doctor-open-eof-green-recorded.log",
+        "log_sha256": "051245c3e71bb291a3e858f876b2bf4bbc48d9711ec9c6e20bde43d81d2c06e7",
+        "executable_sha256": "7810227bf12894bf93df1366a0bb961158d0f30eaa9b52295fd5feb31ede9650"
+      }
+    },
+    {
+      "metadata_file": "logs/final-build-asan.json",
+      "record": {
+        "name": "final-build-asan",
+        "command": [
+          "cmake",
+          "--build",
+          "/tmp/wls861-audit-build-asan",
+          "--parallel",
+          "2",
+          "--target",
+          "wls",
+          "doctor_diagnostics_tests",
+          "sandbox_tests",
+          "cleanup_tests",
+          "cleanup_runtime_tests",
+          "worker_tools_tests",
+          "sse_replay_tests",
+          "config_loader_tests",
+          "offline_runtime_tests"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793024037.1073859,
+        "exit_code": 0,
+        "elapsed_seconds": 11.998,
+        "log_sha256": "bf4bed1b1e1658675f43453f8b4c421aa18609ddfac7cd6bad6f265f11c2e735"
+      }
+    },
+    {
+      "metadata_file": "logs/final-build-release.json",
+      "record": {
+        "name": "final-build-release",
+        "command": [
+          "cmake",
+          "--build",
+          "/tmp/wls861-audit-build-release",
+          "--parallel",
+          "2"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793024037.0312822,
+        "exit_code": 0,
+        "elapsed_seconds": 14.665,
+        "log_sha256": "852ad0db2e5d372186acbc6320afc9b900a156d38d8cc4e94c1dfb7bfcb5f1cf"
+      }
+    },
+    {
+      "metadata_file": "logs/final-build-ubsan.json",
+      "record": {
+        "name": "final-build-ubsan",
+        "command": [
+          "cmake",
+          "--build",
+          "/tmp/wls861-audit-build-ubsan",
+          "--parallel",
+          "2",
+          "--target",
+          "wls",
+          "doctor_diagnostics_tests",
+          "sandbox_tests",
+          "cleanup_tests",
+          "cleanup_runtime_tests",
+          "worker_tools_tests",
+          "sse_replay_tests",
+          "config_loader_tests",
+          "offline_runtime_tests"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793024036.5846465,
+        "exit_code": 0,
+        "elapsed_seconds": 13.318,
+        "log_sha256": "bf4bed1b1e1658675f43453f8b4c421aa18609ddfac7cd6bad6f265f11c2e735"
+      }
+    },
+    {
+      "metadata_file": "logs/final-focused-asan.json",
+      "record": {
+        "name": "final-focused-asan",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-audit-build-asan",
+          "--output-on-failure",
+          "-R",
+          "^(config_loader|offline_runtime|sandbox|worker_tools|cleanup|cleanup_runtime|doctor_diagnostics|sse_replay|doctor_diagnostics_cli|protocol_replay_cli|review_cli_smoke|s12_cli_smoke)$"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793024190.0650122,
+        "exit_code": 0,
+        "elapsed_seconds": 213.573,
+        "log_sha256": "add33176a3993084497466c612dd0242f35ff5c8dd2f992591f1fdde09bfcc08"
+      }
+    },
+    {
+      "metadata_file": "logs/final-focused-ubsan.json",
+      "record": {
+        "name": "final-focused-ubsan",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-audit-build-ubsan",
+          "--output-on-failure",
+          "-R",
+          "^(config_loader|offline_runtime|sandbox|worker_tools|cleanup|cleanup_runtime|doctor_diagnostics|sse_replay|doctor_diagnostics_cli|protocol_replay_cli|review_cli_smoke|s12_cli_smoke)$"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793024413.699542,
+        "exit_code": 0,
+        "elapsed_seconds": 109.093,
+        "log_sha256": "6b24542dda6dff5ed6165c0b3c0f86246da5a8fc9a37488b3c8550dfcec3480b"
+      }
+    },
+    {
+      "metadata_file": "logs/final-release-0002.json",
+      "record": {
+        "name": "final-release-0002",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-audit-build-release",
+          "--output-on-failure"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793024185.4455507,
+        "exit_code": 0,
+        "elapsed_seconds": 174.92,
+        "log_sha256": "95290bd6ae35035b2b06e1d400d9489240ebb5252279d33d9e4054102de2536d"
+      }
+    },
+    {
+      "metadata_file": "logs/final-release-0022.json",
+      "record": {
+        "name": "final-release-0022",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-audit-build-release",
+          "--output-on-failure"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0022",
+        "started": 1793024413.7722087,
+        "exit_code": 0,
+        "elapsed_seconds": 175.912,
+        "log_sha256": "be15e7437282e41b1489f5728b07b160b807daf389fd18c92aa67043bb1a24cf"
+      }
+    },
+    {
+      "metadata_file": "logs/focused-asan.json",
+      "record": {
+        "name": "focused-asan",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-audit-build-asan",
+          "--output-on-failure",
+          "-R",
+          "^(sandbox|worker_tools|cleanup|cleanup_runtime|doctor_diagnostics|sse_replay|doctor_diagnostics_cli|protocol_replay_cli|review_cli_smoke|s12_cli_smoke)$"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793022326.8812873,
+        "exit_code": 0,
+        "elapsed_seconds": 197.008,
+        "log_sha256": "779a4cd273510595214467009f5c1b39a2fde3857ade2742df844ff0847e83e9"
+      }
+    },
+    {
+      "metadata_file": "logs/focused-ubsan.json",
+      "record": {
+        "name": "focused-ubsan",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-audit-build-ubsan",
+          "--output-on-failure",
+          "-R",
+          "^(sandbox|worker_tools|cleanup|cleanup_runtime|doctor_diagnostics|sse_replay|doctor_diagnostics_cli|protocol_replay_cli|review_cli_smoke|s12_cli_smoke)$"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793023737.1948378,
+        "exit_code": 0,
+        "elapsed_seconds": 91.35,
+        "log_sha256": "cb92d95406b38764b9a439a6841a8d53150098df4325e03c241076076c0161bc"
+      }
+    },
+    {
+      "metadata_file": "logs/input-readers-config-green.log.json",
+      "record": {
+        "command": [
+          "/tmp/wls861-audit-filesystem-tests/config-reader-green"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "invoking_umask": "0022",
+        "started_at_utc": "2026-10-26T14:14:10.348685+00:00",
+        "exit_code": 0,
+        "elapsed_seconds": 0.13592617100221105,
+        "executable_sha256": "f64602692148b3bda7a9cc669eff8e79155a5424f77114969e34aaccd44ef283",
+        "log_sha256": "5e2110e9058b252bd8bc165050efd3fc52fd91468a8c7343057e2214d12e1d4f",
+        "log": "/tmp/wls861-audit-evidence/logs/input-readers-config-green.log"
+      }
+    },
+    {
+      "metadata_file": "logs/input-readers-config-red.log.json",
+      "record": {
+        "command": [
+          "/tmp/wls861-audit-filesystem-tests/config-reader-red"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "invoking_umask": "0022",
+        "started_at_utc": "2026-10-26T14:12:26.696772+00:00",
+        "exit_code": 1,
+        "elapsed_seconds": 0.1837948510001297,
+        "executable_sha256": "7e99cb398cd07a89a15c4d9b89b18bf8a9acae58df753c3c110af3c4e73805f7",
+        "log_sha256": "b7db3092d4af664cb975b46c2c3aa73d4dda3db0462d25cf54c4e2994951ad2f",
+        "log": "/tmp/wls861-audit-evidence/logs/input-readers-config-red.log"
+      }
+    },
+    {
+      "metadata_file": "logs/input-readers-doctor-cli-red.log.json",
+      "record": {
+        "command": [
+          "/tmp/wls861-validation-venv/bin/python",
+          "tests/test_doctor_diagnostics_cli.py",
+          "/tmp/wls861-three-build-dev/wls",
+          "/tmp/wls861-independent-audit"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "invoking_umask": "0022",
+        "started_at_utc": "2026-10-26T14:12:16.181916+00:00",
+        "exit_code": 1,
+        "elapsed_seconds": 0.30389794200164033,
+        "executable_sha256": "fa67443527ed9647f760d807e2a38f26340757123e643c4639cf273ed15d5ea7",
+        "log_sha256": "40852b8a68a9303cb87c59802b733051c439984628e83d70201141049215bccc",
+        "log": "/tmp/wls861-audit-evidence/logs/input-readers-doctor-cli-red.log"
+      }
+    },
+    {
+      "metadata_file": "logs/input-readers-runtime-green.log.json",
+      "record": {
+        "command": [
+          "/tmp/wls861-audit-filesystem-tests/runtime-reader-green"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "invoking_umask": "0022",
+        "started_at_utc": "2026-10-26T14:14:09.975231+00:00",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7560263670020504,
+        "executable_sha256": "16c87e4fb1c8ae98adc4bb200b141293f880004d2f255f973e85b57576ba4fd3",
+        "log_sha256": "dcb6cac2f6d199e9f6446df2dc677df34cdbf5a1d6e41d453186db317b30356a",
+        "log": "/tmp/wls861-audit-evidence/logs/input-readers-runtime-green.log"
+      }
+    },
+    {
+      "metadata_file": "logs/input-readers-runtime-red.log.json",
+      "record": {
+        "command": [
+          "/tmp/wls861-audit-filesystem-tests/runtime-reader-red"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "invoking_umask": "0022",
+        "started_at_utc": "2026-10-26T14:12:26.589543+00:00",
+        "exit_code": 1,
+        "elapsed_seconds": 0.6930260849985643,
+        "executable_sha256": "2c306fa10a303f9dd68a3486ed1f8f8e64a6efb76f4d4145b1182b00bb5e60b0",
+        "log_sha256": "89c5fab8debaa5d9a14cec616d343f84c1edeb68ee0cceb9317c052a5cd4e6b5",
+        "log": "/tmp/wls861-audit-evidence/logs/input-readers-runtime-red.log"
+      }
+    },
+    {
+      "metadata_file": "logs/protocol-green-build.json",
+      "record": {
+        "name": "protocol-green-build",
+        "command": [
+          "g++",
+          "-std=c++20",
+          "-O2",
+          "-DNDEBUG",
+          "-Wall",
+          "-Wextra",
+          "-Wpedantic",
+          "-Wconversion",
+          "-Wshadow",
+          "-Werror",
+          "-Iinclude",
+          "-Itests",
+          "tests/sse_replay_tests.cpp",
+          "src/sse_replay.cpp",
+          "/tmp/wls861-three-build-dev/libwls_s1.a",
+          "/tmp/wls861-three-build-dev/libwls_kernel.a",
+          "-lsqlite3",
+          "-lcrypto",
+          "-l:libyaml-0.so.2",
+          "-o",
+          "/tmp/wls861-audit-evidence/sse-patched-regressions"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021708.6493056,
+        "exit_code": 0,
+        "elapsed_seconds": 12.785,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "metadata_file": "logs/protocol-green.json",
+      "record": {
+        "name": "protocol-green",
+        "command": [
+          "/tmp/wls861-audit-evidence/sse-patched-regressions"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021748.67624,
+        "exit_code": 0,
+        "elapsed_seconds": 2.673,
+        "log_sha256": "8f7fe70b5e44a4b0a48c8d93d9a0ee1c6eca9eeb340ef486ef2b4200ac266ce4"
+      }
+    },
+    {
+      "metadata_file": "logs/protocol-red-baseline.json",
+      "record": {
+        "name": "protocol-red-baseline",
+        "command": [
+          "/tmp/wls861-audit-evidence/sse-baseline-regressions"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021638.9812043,
+        "exit_code": 1,
+        "elapsed_seconds": 2.671,
+        "log_sha256": "45b42fd26f5cc72a1fbdd37839a072c93dea296177593aff6c0f8d2e458eabe8"
+      }
+    },
+    {
+      "metadata_file": "logs/protocol-red-build.json",
+      "record": {
+        "name": "protocol-red-build",
+        "command": [
+          "g++",
+          "-std=c++20",
+          "-O2",
+          "-DNDEBUG",
+          "-Wall",
+          "-Wextra",
+          "-Wpedantic",
+          "-Wconversion",
+          "-Wshadow",
+          "-Werror",
+          "-Iinclude",
+          "-Itests",
+          "tests/sse_replay_tests.cpp",
+          "/tmp/wls861-three-build-dev/libwls_s1.a",
+          "/tmp/wls861-three-build-dev/libwls_kernel.a",
+          "-lsqlite3",
+          "-lcrypto",
+          "-l:libyaml-0.so.2",
+          "-o",
+          "/tmp/wls861-audit-evidence/sse-baseline-regressions"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021597.899186,
+        "exit_code": 0,
+        "elapsed_seconds": 6.791,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "metadata_file": "logs/protocol-red-final-baseline.json",
+      "record": {
+        "name": "protocol-red-final-baseline",
+        "command": [
+          "/tmp/wls861-audit-evidence/sse-baseline-final"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021704.7460408,
+        "exit_code": 1,
+        "elapsed_seconds": 0.108,
+        "log_sha256": "239acf79501883ee69955fdcb00213a845f99fb63a14cb81104f50c9612f6783"
+      }
+    },
+    {
+      "metadata_file": "logs/protocol-red-final-build.json",
+      "record": {
+        "name": "protocol-red-final-build",
+        "command": [
+          "g++",
+          "-std=c++20",
+          "-O2",
+          "-DNDEBUG",
+          "-Wall",
+          "-Wextra",
+          "-Wpedantic",
+          "-Wconversion",
+          "-Wshadow",
+          "-Werror",
+          "-Iinclude",
+          "-Itests",
+          "tests/sse_replay_tests.cpp",
+          "/tmp/wls861-three-build-dev/libwls_s1.a",
+          "/tmp/wls861-three-build-dev/libwls_kernel.a",
+          "-lsqlite3",
+          "-lcrypto",
+          "-l:libyaml-0.so.2",
+          "-o",
+          "/tmp/wls861-audit-evidence/sse-baseline-final"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021681.12723,
+        "exit_code": 0,
+        "elapsed_seconds": 5.343,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "metadata_file": "logs/release-0002.json",
+      "record": {
+        "name": "release-0002",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-audit-build-release",
+          "--output-on-failure"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793021958.6939335,
+        "exit_code": 0,
+        "elapsed_seconds": 192.396,
+        "log_sha256": "7904ea118c0c460924c595bd5c347f2a73997f7da47019be9ceb23fb41f0442a"
+      }
+    },
+    {
+      "metadata_file": "logs/release-0022.json",
+      "record": {
+        "name": "release-0022",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-audit-build-release",
+          "--output-on-failure"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0022",
+        "started": 1793022176.4818118,
+        "exit_code": 0,
+        "elapsed_seconds": 188.751,
+        "log_sha256": "836183774235ff0ecc0f6e5ccb825c17989e696ba978a1f7335e287956feb1c9"
+      }
+    },
+    {
+      "metadata_file": "logs/sandbox-eof-green-recorded.log.json",
+      "record": {
+        "started_at_utc": "2026-10-26T13:39:43.812689+00:00",
+        "command": [
+          "/tmp/wls861-audit-filesystem-tests/sandbox-green"
+        ],
+        "cwd": "/tmp/wls861-independent-audit",
+        "uid": 65534,
+        "gid": 65534,
+        "invoking_umask": "0022",
+        "exit_code": 0,
+        "elapsed_seconds": 3.4960985880024964,
+        "log": "/tmp/wls861-audit-evidence/logs/sandbox-eof-green-recorded.log",
+        "log_sha256": "7af482e60b1714aced41aa71bd77efacab0cec12984b57146b7c510240289542",
+        "executable_sha256": "caca7f16de8946a1fc6ae470ec134ca1b30fc287a14c4501b5d2c03afe7d1fa0"
+      }
+    }
+  ],
+  "development_notes": [
+    "Initial shared build read a test being edited and failed on a duplicate diagnostic function. Original failed log retained; assertions/timeouts unchanged.",
+    "First Release/two umask and ten-group sanitizer passes bound code 84291e6 before the shared input-reader follow-up; retained as development evidence, not final gates.",
+    "Final gates repeat full Release twice and expand focused sanitizers to twelve groups after the shared-reader follow-up.",
+    "Cleanup red used 21 cases before two negative guards were added; only accepted-name failure is claimed as baseline red. Uncaptured early compile timestamps remain null.",
+    "An initial scratch input-manifest write was denied by directory ownership and repeated as the evidence-directory owner; production permissions unchanged."
+  ],
+  "evidence": {
+    "archive": "independent-audit-evidence.tar.gz",
+    "sha256": "da1961189e7493d4f2eddde51f8662ff9693aac887209e3f40634e8d3ffe15f3",
+    "bytes": 203713,
+    "manifest": "independent-audit-evidence.json",
+    "file_count": 99
+  },
+  "remote_publication_gate": {
+    "binding": "the final commit containing this report",
+    "required_jobs": [
+      "strict",
+      "strict-umask-0002",
+      "Clang-18",
+      "UBSan",
+      "ASan",
+      "Make-ASan"
+    ],
+    "source_snapshot_required": true,
+    "final_ci_results_embedded": false,
+    "verification_location": "Final delivery links to exact publication SHA and Actions run; intermediate runs do not substitute."
+  },
+  "limitations": {
+    "new_real_provider_calls": 0,
+    "paid_attempts": 0,
+    "credentials_resolved": false,
+    "positive_strong_sandbox_deployment": false,
+    "independent_second_model_business_review": false,
+    "planned_R3_3_and_R1_4_implemented": false
+  }
+}
