@@ -1,0 +1,24 @@
+event: response.created
+data: {"response":{"access_programs":null,"error":null,"id":"resp_offline_fixture","incomplete_details":null,"input":[],"model":"fixture-responses-model","object":"response","output":[],"reasoning_effort":null,"status":"in_progress","usage":null},"sequence_number":0,"type":"response.created"}
+
+event: response.output_item.added
+data: {"item":{"content":[],"id":"msg_offline_fixture","role":"assistant","status":"in_progress","type":"message"},"output_index":0,"sequence_number":1,"type":"response.output_item.added"}
+
+event: response.content_part.added
+data: {"content_index":0,"item_id":"msg_offline_fixture","output_index":0,"part":{"annotations":[],"text":"","type":"output_text"},"sequence_number":2,"type":"response.content_part.added"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"离线协议回放完成。","item_id":"msg_offline_fixture","output_index":0,"sequence_number":3,"type":"response.output_text.delta"}
+
+event: response.output_text.done
+data: {"content_index":0,"item_id":"msg_offline_fixture","output_index":0,"sequence_number":4,"text":"离线协议回放完成。","type":"response.output_text.done"}
+
+event: response.content_part.done
+data: {"content_index":0,"item_id":"msg_offline_fixture","output_index":0,"part":{"annotations":[],"text":"离线协议回放完成。","type":"output_text"},"sequence_number":5,"type":"response.content_part.done"}
+
+event: response.output_item.done
+data: {"item":{"content":[{"annotations":[],"text":"离线协议回放完成。","type":"output_text"}],"id":"msg_offline_fixture","role":"assistant","status":"completed","type":"message"},"output_index":0,"sequence_number":6,"type":"response.output_item.done"}
+
+event: response.completed
+data: {"response":{"access_programs":null,"error":null,"id":"resp_offline_fixture","incomplete_details":null,"input":[],"model":"fixture-responses-model","object":"response","output":[{"content":[{"annotations":[],"text":"离线协议回放完成。","type":"output_text"}],"id":"msg_offline_fixture","role":"assistant","status":"completed","type":"message"}],"reasoning_effort":null,"status":"completed","usage":{"input_tokens":9,"input_tokens_details":{"cache_write_tokens":1,"cached_tokens":2},"output_tokens":3,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":12}},"sequence_number":7,"type":"response.completed"}
+

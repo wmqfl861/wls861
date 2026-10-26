@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(wls861 VERSION 0.8.4 LANGUAGES CXX)
+project(wls861 VERSION 0.8.5 LANGUAGES CXX)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "M1 currently requires Linux journal and process semantics")
@@ -56,6 +56,9 @@ add_library(wls_s1 STATIC
     src/store.cpp
     src/config_loader.cpp
     src/model.cpp
+    src/provider_profile.cpp
+    src/protocol_codec.cpp
+    src/sse_replay.cpp
     src/context.cpp
     src/structured_context.cpp
     src/structured_history.cpp
@@ -95,13 +98,19 @@ if(BUILD_TESTING)
         add_test(NAME ${suite} COMMAND ${suite}_tests)
         set_tests_properties(${suite} PROPERTIES TIMEOUT 90)
     endforeach()
-    foreach(suite IN ITEMS runtime_types store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery cleanup cleanup_runtime audit24_reopen process_evidence audit24_reconcile audit24_capacity audit24_capacity_repro r1_history r1_structured r1_window r2_rework r2_recovery r2_amend r2a_mkdir allocation_recovery)
+    foreach(suite IN ITEMS runtime_types store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery cleanup cleanup_runtime audit24_reopen process_evidence audit24_reconcile audit24_capacity audit24_capacity_repro r1_history r1_structured r1_window r2_rework r2_recovery r2_amend r2a_mkdir allocation_recovery doctor_diagnostics protocol_codec sse_replay)
         add_executable(${suite}_tests tests/${suite}_tests.cpp)
         target_link_libraries(${suite}_tests PRIVATE wls_s1)
         target_include_directories(${suite}_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
         target_compile_definitions(${suite}_tests PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
         add_test(NAME ${suite} COMMAND ${suite}_tests)
         set_tests_properties(${suite} PROPERTIES TIMEOUT 90)
+    endforeach()
+    foreach(suite IN ITEMS doctor_diagnostics protocol_replay)
+        add_test(NAME ${suite}_cli
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_${suite}_cli.py"
+                    "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
+        set_tests_properties(${suite}_cli PROPERTIES TIMEOUT 90)
     endforeach()
     add_test(NAME handoff_integrity
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_handoff.py")

@@ -1,0 +1,45 @@
+{
+  "adapter": "openai-responses",
+  "adapter_version": "1",
+  "api_key_env": "WLS_OFFLINE_FIXTURE_API_KEY",
+  "base_url": "https://gateway.example.invalid",
+  "capabilities": {
+    "context_window": 100000,
+    "max_output_tokens": 4096,
+    "parallel_tool_calls": true,
+    "reasoning_efforts": [
+      "high",
+      "low"
+    ],
+    "reasoning_modes": [
+      "provider_default",
+      "off",
+      "effort"
+    ],
+    "streaming": true,
+    "tool_calling": true
+  },
+  "format": "wls-provider-profile-v1",
+  "limits": {
+    "max_json_depth": 64,
+    "max_output_items": 128,
+    "max_request_bytes": 1048576,
+    "max_response_bytes": 1048576,
+    "max_sse_chunks": 16384,
+    "max_sse_event_bytes": 1048576,
+    "max_sse_events": 4096,
+    "max_sse_line_bytes": 262144,
+    "max_stream_bytes": 4194304,
+    "max_text_bytes": 262144,
+    "max_timeout_ms": 60000,
+    "max_tool_argument_bytes": 262144,
+    "max_tool_calls": 32
+  },
+  "max_paid_retries": 0,
+  "model": "fixture-responses-model",
+  "model_ref": "offline-responses",
+  "profile_id": "offline-responses-fixture",
+  "protocol": "openai-responses-v1",
+  "real_calls_enabled": false,
+  "responses_path": "/v1/responses"
+}

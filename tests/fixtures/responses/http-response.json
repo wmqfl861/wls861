@@ -1,0 +1,38 @@
+{
+  "access_programs": null,
+  "error": null,
+  "id": "resp_offline_fixture",
+  "incomplete_details": null,
+  "input": [],
+  "model": "fixture-responses-model",
+  "object": "response",
+  "output": [
+    {
+      "content": [
+        {
+          "annotations": [],
+          "text": "离线协议回放完成。",
+          "type": "output_text"
+        }
+      ],
+      "id": "msg_offline_fixture",
+      "role": "assistant",
+      "status": "completed",
+      "type": "message"
+    }
+  ],
+  "reasoning_effort": null,
+  "status": "completed",
+  "usage": {
+    "input_tokens": 9,
+    "input_tokens_details": {
+      "cache_write_tokens": 1,
+      "cached_tokens": 2
+    },
+    "output_tokens": 3,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 12
+  }
+}

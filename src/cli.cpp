@@ -3,6 +3,8 @@
 #include "wls/worker_tools.hpp"
 #include "wls/delivery.hpp"
 #include "wls/cleanup_runtime.hpp"
+#include "wls/protocol_codec.hpp"
+#include "wls/sse_replay.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -37,6 +39,7 @@ public:
         if (found == values_.end()) return fallback;
         auto result = found->second; values_.erase(found); return result;
     }
+    bool has(const std::string& key) const { return values_.contains(key); }
     std::string required(const std::string& key) {
         const auto value = take(key);
         if (value.empty()) throw Error(ErrorCode::InvalidInput, "required option: " + key);
@@ -74,14 +77,55 @@ std::string text(const Json& value) {
 
 void output(const Json& value) { std::cout << canonical_json(value) << '\n'; }
 
-FrozenRequestConfig live_config(Options& options, const std::filesystem::path& source) {
+Json input_path_details(const std::filesystem::path& path, std::string_view origin) {
+    const auto input = path.string();
+    if (input.empty() || input.size() > 4096 || input.find('\0') != std::string::npos)
+        throw Error(ErrorCode::InvalidInput, "diagnostic input path must be bounded nonempty text");
+    std::filesystem::path absolute;
+    try { absolute = std::filesystem::absolute(path).lexically_normal(); }
+    catch (const std::filesystem::filesystem_error&) {
+        throw Error(ErrorCode::InvalidInput, "cannot interpret diagnostic input path");
+    }
+    if (absolute.string().size() > 4096)
+        throw Error(ErrorCode::InvalidInput, "absolute diagnostic input path exceeds capacity");
+    Json result = Object{{"origin", origin}, {"input_path", input},
+        {"absolute_lexical_path", absolute.string()}, {"path_kind", "lexical_interpretation"}};
+    // Paths are POSIX byte strings, but this interface promises UTF-8 JSON.
+    // Validate before a read can embed an unrepresentable path in an error.
+    static_cast<void>(canonical_json(result));
+    return result;
+}
+
+FrozenRequestConfig live_config(Options& options, const std::filesystem::path& source,
+                               Json* provenance = nullptr) {
+    const bool system_supplied = options.has("--config");
+    const bool functions_supplied = options.has("--functions-dir");
+    const bool prompts_supplied = options.has("--prompts-dir");
+    const bool function_supplied = options.has("--function");
+    const bool capability_supplied = options.has("--capability");
     const std::filesystem::path system = options.take("--config", (source / "config/examples/system.yaml").string());
     const std::filesystem::path functions = options.take("--functions-dir", (system.parent_path() / "functions").string());
     const std::filesystem::path prompts = options.take("--prompts-dir", (source / "prompts").string());
     const auto function = options.take("--function", "general");
     const auto capability = options.take("--capability");
-    return load_config_catalog(system, functions, prompts).freeze(function, capability);
+    if (provenance) {
+        *provenance = Object{
+            {"system", input_path_details(system, system_supplied ? "supplied" : "default")},
+            {"functions", input_path_details(functions, functions_supplied ? "supplied" : "default")},
+            {"prompts", input_path_details(prompts, prompts_supplied ? "supplied" : "default")}};
+    }
+    auto frozen = load_config_catalog(system, functions, prompts).freeze(function, capability);
+    if (provenance) {
+        auto& inputs = provenance->as_object();
+        inputs["function"] = Object{{"origin", function_supplied ? "supplied" : "default"}, {"value", frozen.function_id()}};
+        inputs["capability"] = Object{{"origin", capability_supplied ? "supplied" : "default"}, {"value", frozen.capability_id()}};
+        inputs["snapshot_sha256"] = frozen.sha256();
+        inputs["snapshot_scope"] = "current_explicit_configuration";
+    }
+    return frozen;
 }
+
+#include "protocol_cli.inc"
 
 Json array_of(const std::vector<Json>& items) {
     Array result;
@@ -218,7 +262,7 @@ Json request_view(Store& store, const std::string& id) {
 }
 
 void help() {
-    std::cout << R"(wls 0.8.4-r2a.2 — recoverable owned-workspace allocation
+    std::cout << R"(wls 0.8.5-r3.2 — deployment diagnostics and offline Responses replay
 
 Resource paths default to the source checkout in the current directory.
 Use --source-root PATH from another directory. Outputs are JSON; errors go to stderr.
@@ -229,6 +273,10 @@ init is explicit all-request recovery and migration maintenance.
   wls config explain [--config FILE] [--function ID] [--role worker]
   wls schema check --schema NAME --input FILE [--model-input]
   wls doctor [--config FILE] [--template default] [--sandbox-manifest FILE]
+  wls encode-model --profile FILE --request FILE [--stream true|false]
+  wls replay-model --profile FILE --request FILE --http-response FILE [--http-status 200]
+  wls replay-model --profile FILE --request FILE --sse-stream FILE [--chunk-bytes 4096]
+  wls replay-model --profile FILE --request FILE --replay FILE
   wls init --db FILE
   wls submit --db FILE --key KEY --text-file FILE [--constraints-file FILE]
              [--tenant local] [--project local] [--root local-root]
@@ -323,6 +371,8 @@ missing prerequisites refuse execution. Worker tools do not establish delivery.
 tool-query accepts only registered diagnostics. Read commands do not fence a writer.
 Opening a writer fences interrupted executions and keeps their unknown budgets.
 doctor observes prerequisites without changing host policy or running template checks.
+encode-model and replay-model only read local fixtures, never resolve credentials,
+open Store or send requests. Replay returns 4 with JSON for Error/Interrupted results.
 No command starts a daemon or calls a real model provider.
 )";
 }
@@ -332,7 +382,7 @@ int run_cli(int argc, char** argv) {
     const std::string command(argv[1]);
     if (command == "--version" || command == "version") {
         if (argc != 2) throw Error(ErrorCode::InvalidInput, "version takes no options");
-        output(Object{{"version", "0.8.4-r2a.2"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
+        output(Object{{"version", "0.8.5-r3.2"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
     }
     int start = 2;
     std::string action;
@@ -340,7 +390,18 @@ int run_cli(int argc, char** argv) {
         if (argc < 3) throw Error(ErrorCode::InvalidInput, command + " needs a subcommand");
         action = argv[2]; start = 3;
     }
+    if (command == "doctor" || command == "encode-model" || command == "replay-model") {
+        for (int index = start; index < argc; ++index) {
+            const std::string argument = argv[index];
+            if (argument.size() > 4096)
+                throw Error(ErrorCode::InvalidInput, "diagnostic and replay arguments exceed 4096 bytes");
+            static_cast<void>(canonical_json(Json(argument)));
+        }
+    }
     Options options(argc, argv, start);
+    if (command == "encode-model" || command == "replay-model")
+        return run_protocol_command(command, options);
+    const bool source_supplied = options.has("--source-root");
     const std::filesystem::path source = options.take("--source-root", ".");
     if (command == "config") {
         if (action != "check" && action != "explain") throw Error(ErrorCode::InvalidInput, "config needs check or explain");
@@ -366,16 +427,46 @@ int run_cli(int argc, char** argv) {
         return 0;
     }
     if (command == "doctor") {
-        const auto frozen = live_config(options, source);
+        const auto source_input = input_path_details(source, source_supplied ? "supplied" : "default");
+        Json config_inputs;
+        const auto frozen = live_config(options, source, &config_inputs);
+        const bool template_supplied = options.has("--template");
         const auto template_id = options.take("--template", "default");
         const auto manifest_path = options.take("--sandbox-manifest");
-        const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
         options.finish();
-        auto result = to_json(sandbox_doctor(worker_sandbox_policy(frozen, template_id, manifest)));
+        const auto manifest_input = manifest_path.empty() ? Json(nullptr) : input_path_details(manifest_path, "supplied");
+        const auto manifest_bytes = manifest_path.empty() ? std::string{} : read_runtime_file(manifest_path, 262144);
+        const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(manifest_bytes, 262144);
+        const auto policy = worker_sandbox_policy(frozen, template_id, manifest);
+        auto result = to_json(sandbox_doctor(policy));
         result.as_object()["config_snapshot_sha256"] = frozen.sha256();
         result.as_object()["template_id"] = template_id;
         result.as_object()["environment_checks_executed"] = false;
         result.as_object()["process_isolation_verified"] = false;
+        result.as_object()["execution_policy_sha256"] = sha256_hex(canonical_json(worker_execution_policy(frozen, template_id, policy)));
+        config_inputs.as_object()["source_root"] = source_input;
+        config_inputs.as_object()["template"] = Object{{"origin", template_supplied ? "supplied" : "default"}, {"value", template_id}};
+        auto& inputs = result.at("inputs").as_object();
+        inputs["config"] = std::move(config_inputs);
+        if (manifest_path.empty()) {
+            inputs["manifest"] = Object{{"origin", "not_configured"}, {"input_path", nullptr},
+                {"absolute_lexical_path", nullptr}, {"raw_sha256", nullptr}, {"bytes", 0}, {"schema_version", nullptr}};
+        } else {
+            auto info = manifest_input;
+            info.as_object()["raw_sha256"] = sha256_hex(manifest_bytes);
+            info.as_object()["bytes"] = manifest_bytes.size();
+            info.as_object()["schema_version"] = manifest.as_object().contains("schema_version") ? manifest.at("schema_version") : Json(nullptr);
+            inputs["manifest"] = std::move(info);
+        }
+        for (const auto* name : {"launcher", "cgroup", "runtime_files"}) {
+            if (auto* item = inputs.if_contains(name); item && item->is_object()) {
+                const std::string field = std::string(name) == "launcher" ? "bwrap_path" :
+                    (std::string(name) == "cgroup" ? "cgroup_root" : "runtime_files");
+                item->as_object()["origin"] = manifest.as_object().contains(field) ? "supplied" :
+                    (std::string(name) == "launcher" ? "default" : "not_configured");
+            }
+        }
+        bound_sandbox_doctor_report(result);
         output(result); return 0;
     }
     const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "inbox", "history", "history-page", "history-read", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "abandon-workspace", "owned-workspaces", "cleanup-workspaces", "reconcile-op", "capacity", "capacity-checkpoint"};

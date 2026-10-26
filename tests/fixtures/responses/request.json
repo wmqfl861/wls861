@@ -1,0 +1,92 @@
+{
+  "attempt_id": "attempt_offline_fixture",
+  "binding": {
+    "dispatcher_epoch": 1,
+    "execution_epoch": 1,
+    "instruction_revision": 1,
+    "plan_revision": 1,
+    "policy_epoch": 1,
+    "request_id": "req_00000000000000000000000001",
+    "requirements_revision": 1,
+    "task_id": "tsk_00000000000000000000000002",
+    "task_revision": 1,
+    "team_id": "team_00000000000000000000000003"
+  },
+  "call_id": "call_offline_fixture",
+  "config_snapshot_id": "732463c0a4ed12543ec003a04bdc9a6fb325e0d5dc4efe1e5b246d4116188219",
+  "context": {
+    "adapter_version": "1",
+    "cache_identity": "564585c2d02ee8a98fddf014568f56caff921c41021d7519a04a7c727d2a182c",
+    "format": "wls-compiled-context-v2",
+    "input": {
+      "format": "wls-logical-input-v1",
+      "messages": [],
+      "prefix": {
+        "dependencies": [
+          {
+            "content_sha256": "41719fabaa959951b18ef45a8e90f7d2ac94e7286745704c9e1564d72da8f2a5",
+            "name": "fixture",
+            "version": "1"
+          }
+        ],
+        "format": "wls-logical-prefix-v1",
+        "system": {
+          "approved_rules": "UNKNOWN blocks business; original constraints remain.",
+          "environment_card": "No network and no credentials are used.",
+          "function_prompt": "Return a note; do not execute effects.",
+          "project_snapshot": "Synthetic fixture revision 1.",
+          "role_prompt": "Worker: preserve current host authorization.",
+          "system_prompt": "Synthetic offline protocol fixture."
+        },
+        "tools": [
+          {
+            "name": "note",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "message"
+              ],
+              "type": "object"
+            },
+            "version": "1"
+          }
+        ]
+      },
+      "selection": {
+        "adapter_version": "1",
+        "model_ref": "offline-responses",
+        "protocol_version": "openai-responses-v1",
+        "reasoning_effort": "",
+        "reasoning_mode": "provider_default",
+        "role": "worker"
+      },
+      "task_contract": "原始任务😀\nPreserve exact current requirements."
+    },
+    "logical_input_sha256": "128e9a2535f757b12479a2501a17aad699958dcf3c0641ce15fb6e4818c1e7d2",
+    "model_ref": "offline-responses",
+    "prefix_sha256": "7ec1a07fa60837358643b390a768bce18bfd373d83baa624c979028fcf2aaa3e",
+    "protocol_version": "openai-responses-v1",
+    "reasoning_effort": "",
+    "reasoning_mode": "provider_default",
+    "role": "worker",
+    "tool_names": [
+      "note"
+    ],
+    "wire_sha256": null
+  },
+  "format": "wls-model-request-v2",
+  "logical_request_sha256": "33bbc68d70389621f98051ccae9899cb846ea49f405371c712c1e7c5210037ac",
+  "max_output_tokens": 128,
+  "reserved_cost_micro_usd": 0,
+  "reserved_input_tokens": 8192,
+  "reserved_output_tokens": 128,
+  "role": "worker",
+  "role_call_index": 1,
+  "timeout_ms": 30000,
+  "wire_request_sha256": null
+}

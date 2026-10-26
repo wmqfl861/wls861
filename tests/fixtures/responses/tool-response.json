@@ -1,0 +1,33 @@
+{
+  "access_programs": null,
+  "error": null,
+  "id": "resp_offline_fixture",
+  "incomplete_details": null,
+  "input": [],
+  "model": "fixture-responses-model",
+  "object": "response",
+  "output": [
+    {
+      "arguments": "{\"message\":\"fixture\"}",
+      "call_id": "call_provider_fixture",
+      "id": "fc_offline_fixture",
+      "name": "note",
+      "status": "completed",
+      "type": "function_call"
+    }
+  ],
+  "reasoning_effort": null,
+  "status": "completed",
+  "usage": {
+    "input_tokens": 9,
+    "input_tokens_details": {
+      "cache_write_tokens": 1,
+      "cached_tokens": 2
+    },
+    "output_tokens": 3,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 12
+  }
+}

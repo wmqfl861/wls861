@@ -1,0 +1,15 @@
+{
+  "format": "wls-sse-replay-v1",
+  "chunks": [
+    {
+      "data": "event: response.created\ndata: {\"response\":{\"access_programs\":null,\"error\":null,\"id\":\"resp_offline_fixture\",\"incomplete_details\":null,\"input\":[],\"model\":\"fixture-responses-model\",\"object\":\"response\",\"output\":[],\"reasoning_effort\":null,\"status\":\"in_progress\",\"usage\":null},\"sequence_number\":0,\"type\":\"response.created\"}\n\nevent: response.output_item.added\ndata: {\"item\":{\"content\":[],\"id\":\"msg_offline_fixture\",\"role\":\"assistant\",\"status\":\"in_progress\",\"type\":\"message\"},\"output_index\":0,\"sequence_number\":1,\"type\":\"response.output_item.added\"}\n\nevent: response.content_part.added\ndata: {\"content_index\":0,\"item_id\":\"msg_offline_fixture\",\"output_index\":0,\"part\":{\"annotations\":[],\"text\":\"\",\"type\":\"output_text\"},\"sequence_number\":2,\"type\":\"response.content_part.added\"}\n\nevent: response.output_text.delta\ndata: {\"content_index\":0,\"delta\":\"离线协议回放完成。\",\"item_id\":\"msg_offline_fixture\",\"output_index\":0,\"sequence_number\":3,\"type\":\"response.output_text.delta\"}\n\nevent: response.output_text.done\ndata: {\"content_index\":0,\"item_id\":\"msg_offline_fixture\",\"output_index\":0,\"sequence_number\":4,\"text\":\"离线协议回放完成。\",\"type\":\"response.output_text.done\"}\n\nevent: response.content_part.done\ndata: {\"content_index\":0,\"item_id\":\"msg_offline_fixture\",\"output_index\":0,\"part\":{\"annotations\":[],\"text\":\"离线协议回放完成。\",\"type\":\"output_text\"},\"sequence_number\":5,\"type\":\"response.content_part.done\"}\n\nevent: response.output_item.done\ndata: {\"item\":{\"content\":[{\"annotations\":[],\"text\":\"离线协议回放完成。\",\"type\":\"output_text\"}],\"id\":\"msg_offline_fixture\",\"role\":\"assistant\",\"status\":\"completed\",\"type\":\"message\"},\"output_index\":0,\"sequence_number\":6,\"type\":\"response.output_item.done\"}\n\n",
+      "elapsed_ms": 0,
+      "cancel_before": false
+    },
+    {
+      "data": "",
+      "elapsed_ms": 1,
+      "cancel_before": true
+    }
+  ]
+}
