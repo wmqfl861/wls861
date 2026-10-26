@@ -91,10 +91,24 @@ struct SandboxDoctor {
     bool strong_prerequisites{false};
     std::vector<std::string> issues;
     Json evidence = boost::json::object{};
+    // Additive, bounded read-only diagnostics. These observations never grant
+    // execution permission or replace a real isolation/exit proof.
+    std::string report_format{"wls-doctor-report-v1"};
+    Json inputs = boost::json::object{};
+    Json checks = boost::json::array{};
+    bool complete{true};
+    std::size_t not_checked_count{0};
+    Json limitations = boost::json::array{};
+    bool report_truncated{false};
+    std::size_t omitted_check_count{0};
+    Json report_budget_reason = nullptr;
 };
 
 Json to_json(const ProcessResult& result);
 Json to_json(const SandboxDoctor& result);
+// Reapply the same 512-check / 2-MiB output bound after a CLI adds its input
+// provenance. Any omitted observation is explicit and blocks prerequisites.
+void bound_sandbox_doctor_report(Json& report);
 
 SandboxDoctor sandbox_doctor(const SandboxPolicy& policy);
 

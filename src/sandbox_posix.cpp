@@ -32,11 +32,16 @@
 #include <unistd.h>
 #include <utility>
 
+#include "sandbox_doctor.inc"
+
 namespace wls::s1 {
 namespace {
 
 using Clock = std::chrono::steady_clock;
 using Milliseconds = std::chrono::milliseconds;
+using sandbox_detail::DiagnosticError;
+using sandbox_detail::diagnostic_error;
+using sandbox_detail::RuntimeReadBudget;
 
 class Fd {
 public:
@@ -61,6 +66,12 @@ private:
 
 [[noreturn]] void system_error(std::string_view action, int number = errno) {
     throw Error(ErrorCode::Storage, std::string(action) + ": " + std::strerror(number));
+}
+
+[[noreturn]] void diagnostic_system_error(std::string_view action, std::string_view stage,
+                                        int number = errno) {
+    diagnostic_error(ErrorCode::Storage, sandbox_detail::errno_reason(number), stage,
+                     std::string(action) + ": " + std::strerror(number), number);
 }
 
 void add_error(std::string& existing, std::string_view error) {
@@ -111,19 +122,19 @@ bool bounded_text(std::string_view value, std::size_t limit) {
 std::vector<std::string> path_parts(std::string_view path, bool absolute) {
     if (!bounded_text(path, 4096) || path.empty() ||
         (path.front() == '/') != absolute)
-        throw Error(ErrorCode::InvalidInput, "invalid sandbox path");
+        diagnostic_error(ErrorCode::InvalidInput, "path_refused", "path", "invalid sandbox path");
     std::vector<std::string> parts;
     std::size_t at = absolute ? 1 : 0;
     while (at < path.size()) {
         const auto end = path.find('/', at);
         const auto part = path.substr(at, end == std::string_view::npos ? path.size() - at : end - at);
         if (part.empty() || part == "." || part == ".." || part.size() > 255)
-            throw Error(ErrorCode::InvalidInput, "sandbox paths reject dot, parent and empty components");
+            diagnostic_error(ErrorCode::InvalidInput, "path_refused", "path", "sandbox paths reject dot, parent and empty components");
         parts.emplace_back(part);
-        if (parts.size() > 64) throw Error(ErrorCode::InvalidInput, "sandbox path nesting exceeds bound");
+        if (parts.size() > 64) diagnostic_error(ErrorCode::InvalidInput, "path_refused", "path", "sandbox path nesting exceeds bound");
         if (end == std::string_view::npos) break;
         at = end + 1;
-        if (at == path.size()) throw Error(ErrorCode::InvalidInput, "sandbox path has trailing separator");
+        if (at == path.size()) diagnostic_error(ErrorCode::InvalidInput, "path_refused", "path", "sandbox path has trailing separator");
     }
     return parts;
 }
@@ -131,14 +142,25 @@ std::vector<std::string> path_parts(std::string_view path, bool absolute) {
 Fd open_absolute(const std::filesystem::path& path, bool directory) {
     const auto parts = path_parts(path.string(), true);
     Fd current(::open("/", O_PATH | O_DIRECTORY | O_CLOEXEC));
-    if (!current) system_error("open filesystem root");
+    if (!current) diagnostic_system_error("open filesystem root", "open");
     if (parts.empty() && !directory)
-        throw Error(ErrorCode::InvalidInput, "runtime source cannot be the filesystem root");
+        diagnostic_error(ErrorCode::InvalidInput, "file_type_refused", "path", "runtime source cannot be the filesystem root");
     for (std::size_t i = 0; i < parts.size(); ++i) {
         const bool leaf = i + 1 == parts.size();
         const int flags = O_CLOEXEC | O_NOFOLLOW | (leaf && !directory ? O_RDONLY | O_NONBLOCK : O_PATH | O_DIRECTORY);
         Fd next(::openat(current.get(), parts[i].c_str(), flags));
-        if (!next) system_error("open sandbox path without symlinks");
+        if (!next) {
+            const int number = errno;
+            // O_DIRECTORY | O_NOFOLLOW may report ENOTDIR for a symlink.
+            // Classify the actual rejected entry, never infer it from text.
+            struct stat entry{};
+            if ((number == ELOOP || number == ENOTDIR) &&
+                ::fstatat(current.get(), parts[i].c_str(), &entry, AT_SYMLINK_NOFOLLOW) == 0 &&
+                S_ISLNK(entry.st_mode))
+                diagnostic_error(ErrorCode::Storage, "symlink_refused", "open",
+                                 "open sandbox path without symlinks: symbolic link refused", number);
+            diagnostic_system_error("open sandbox path without symlinks", "open", number);
+        }
         current = std::move(next);
     }
     return current;
@@ -190,11 +212,6 @@ void write_at(int root, const char* name, std::string_view value) {
     write_all(file.get(), value);
 }
 
-bool has_word(std::string_view input, std::string_view expected) {
-    std::istringstream stream{std::string(input)};
-    for (std::string word; stream >> word; ) if (word == expected) return true;
-    return false;
-}
 #endif
 
 bool hash_string(std::string_view value) {
@@ -214,24 +231,44 @@ struct PinnedFile {
 // source passed to bwrap, so neither pathname replacement nor later writes to
 // the original inode can change this operation's runtime content.
 PinnedFile pin_file(const std::filesystem::path& path, std::string_view expected,
-                    bool launcher, bool copy) {
+                    bool launcher, bool copy, RuntimeReadBudget* budget = nullptr,
+                    boost::json::object* observation = nullptr) {
     if (!expected.empty() && !hash_string(expected))
-        throw Error(ErrorCode::InvalidInput, "runtime file hash must be lowercase SHA-256");
+        diagnostic_error(ErrorCode::InvalidInput, "hash_invalid", "expected_hash", "runtime file hash must be lowercase SHA-256");
     auto source = open_absolute(path, false);
     struct stat before{};
-    if (::fstat(source.get(), &before) != 0) system_error("stat runtime file");
-    constexpr std::uint64_t max_file = 67108864;
-    if (!S_ISREG(before.st_mode) || before.st_size < 0 ||
-        static_cast<std::uint64_t>(before.st_size) > max_file ||
-        (before.st_mode & (S_ISUID | S_ISGID | 0022)) != 0 ||
+    if (::fstat(source.get(), &before) != 0) diagnostic_system_error("stat runtime file", "stat");
+    constexpr std::uint64_t max_file = sandbox_detail::runtime_max_file_bytes;
+    if (observation != nullptr) {
+        (*observation)["device"] = static_cast<std::uint64_t>(before.st_dev);
+        (*observation)["inode"] = static_cast<std::uint64_t>(before.st_ino);
+        (*observation)["uid"] = static_cast<std::uint64_t>(before.st_uid);
+        (*observation)["mode"] = static_cast<std::uint64_t>(before.st_mode);
+        (*observation)["declared_bytes"] = static_cast<std::int64_t>(before.st_size);
+        (*observation)["bytes_read"] = 0;
+        (*observation)["sha256"] = nullptr;
+        (*observation)["identity_verified"] = false;
+    }
+    if (!S_ISREG(before.st_mode))
+        diagnostic_error(ErrorCode::Unauthorized, "file_type_refused", "stat", "runtime source must be an ordinary file");
+    if (before.st_size < 0 || static_cast<std::uint64_t>(before.st_size) > max_file)
+        diagnostic_error(ErrorCode::Unauthorized, "read_budget_exceeded", "size", "runtime source exceeds the 64 MiB file bound");
+    if ((before.st_mode & (S_ISUID | S_ISGID | 0022)) != 0 ||
         (before.st_uid != 0 && before.st_uid != ::geteuid()))
-        throw Error(ErrorCode::Unauthorized, "runtime source must be a bounded, trusted ordinary file without writable/shared privilege bits");
-    if (launcher && (before.st_uid != 0 || (before.st_mode & 0111) == 0))
-        throw Error(ErrorCode::Unauthorized, "bubblewrap must be a root-owned executable without setuid/setgid");
+        diagnostic_error(ErrorCode::Unauthorized, "owner_mode_refused", "owner_mode", "runtime source must be a bounded, trusted ordinary file without writable/shared privilege bits");
+    if (launcher && before.st_uid != 0)
+        diagnostic_error(ErrorCode::Unauthorized, "owner_mode_refused", "launcher_owner", "bubblewrap must be a root-owned executable without setuid/setgid");
+    if (launcher && (before.st_mode & 0111) == 0)
+        diagnostic_error(ErrorCode::Unauthorized, "launcher_not_executable", "launcher_mode", "bubblewrap must be a root-owned executable without setuid/setgid");
+    if (budget != nullptr) budget->preflight(static_cast<std::uint64_t>(before.st_size));
     std::array<unsigned char, 4> elf{};
-    if (launcher && (::pread(source.get(), elf.data(), elf.size(), 0) != 4 ||
-                     elf != std::array<unsigned char, 4>{0x7f, 'E', 'L', 'F'}))
-        throw Error(ErrorCode::Unauthorized, "bubblewrap launcher must be an ELF executable");
+    bool launcher_magic_verified = !launcher;
+    if (launcher && budget == nullptr) {
+        if (::pread(source.get(), elf.data(), elf.size(), 0) != 4 ||
+            elf != std::array<unsigned char, 4>{0x7f, 'E', 'L', 'F'})
+            diagnostic_error(ErrorCode::Unauthorized, "launcher_not_elf", "launcher_elf", "bubblewrap launcher must be an ELF executable");
+        launcher_magic_verified = true;
+    }
     Fd frozen;
     if (copy) {
         const auto value = ::syscall(SYS_memfd_create, "wls-runtime", MFD_CLOEXEC | MFD_ALLOW_SEALING);
@@ -244,16 +281,30 @@ PinnedFile pin_file(const std::filesystem::path& path, std::string_view expected
     std::array<char, 65536> buffer{};
     std::uint64_t total = 0;
     for (;;) {
-        const auto count = ::read(source.get(), buffer.data(), buffer.size());
+        // A diagnostic reader never consumes bytes outside its shared budget.
+        // Its final fstat still detects growth/truncation and metadata changes.
+        if (budget != nullptr && total == static_cast<std::uint64_t>(before.st_size)) break;
+        const auto maximum = budget == nullptr ? buffer.size() : static_cast<std::size_t>(
+            std::min<std::uint64_t>(buffer.size(), static_cast<std::uint64_t>(before.st_size) - total));
+        const auto count = ::read(source.get(), buffer.data(), maximum);
         if (count < 0 && errno == EINTR) continue;
-        if (count < 0) system_error("read runtime file");
+        if (count < 0) diagnostic_system_error("read runtime file", "read");
         if (count == 0) break;
+        if (budget != nullptr) budget->charge(static_cast<std::uint64_t>(count));
         total += static_cast<std::uint64_t>(count);
-        if (total > max_file) throw Error(ErrorCode::InvalidInput, "runtime file grew beyond bound");
+        if (observation != nullptr) (*observation)["bytes_read"] = total;
+        if (!launcher_magic_verified) {
+            if (count < 4 || buffer[0] != '\x7f' || buffer[1] != 'E' || buffer[2] != 'L' || buffer[3] != 'F')
+                diagnostic_error(ErrorCode::Unauthorized, "launcher_not_elf", "launcher_elf", "bubblewrap launcher must be an ELF executable");
+            launcher_magic_verified = true;
+        }
+        if (total > max_file) diagnostic_error(ErrorCode::InvalidInput, "read_budget_exceeded", "read", "runtime file grew beyond bound");
         if (EVP_DigestUpdate(digest.get(), buffer.data(), static_cast<std::size_t>(count)) != 1)
             throw Error(ErrorCode::Storage, "hash runtime file");
         if (copy) write_all(frozen.get(), std::string_view(buffer.data(), static_cast<std::size_t>(count)));
     }
+    if (!launcher_magic_verified)
+        diagnostic_error(ErrorCode::Unauthorized, "launcher_not_elf", "launcher_elf", "bubblewrap launcher must be an ELF executable");
     std::array<unsigned char, EVP_MAX_MD_SIZE> digest_bytes{};
     unsigned int digest_size = 0;
     if (EVP_DigestFinal_ex(digest.get(), digest_bytes.data(), &digest_size) != 1 || digest_size != 32)
@@ -264,14 +315,16 @@ PinnedFile pin_file(const std::filesystem::path& path, std::string_view expected
         actual += hex[digest_bytes[i] >> 4];
         actual += hex[digest_bytes[i] & 15];
     }
+    if (observation != nullptr) (*observation)["sha256"] = actual;
     struct stat after{};
-    if (::fstat(source.get(), &after) != 0) system_error("restat runtime file");
+    if (::fstat(source.get(), &after) != 0) diagnostic_system_error("restat runtime file", "restat");
     if (before.st_size != after.st_size || before.st_mtim.tv_sec != after.st_mtim.tv_sec ||
         before.st_mtim.tv_nsec != after.st_mtim.tv_nsec || before.st_ctim.tv_sec != after.st_ctim.tv_sec ||
         before.st_ctim.tv_nsec != after.st_ctim.tv_nsec || total != static_cast<std::uint64_t>(before.st_size))
-        throw Error(ErrorCode::Conflict, "runtime file changed while being pinned");
+        diagnostic_error(ErrorCode::Conflict, "source_changed", "restat", "runtime file changed while being pinned");
+    if (observation != nullptr) (*observation)["identity_verified"] = true;
     if (!expected.empty() && actual != expected)
-        throw Error(ErrorCode::Conflict, "runtime file does not match the frozen SHA-256");
+        diagnostic_error(ErrorCode::Conflict, "hash_mismatch", "hash", "runtime file does not match the frozen SHA-256");
     if (copy) {
         if (::lseek(frozen.get(), 0, SEEK_SET) < 0 ||
             ::fcntl(frozen.get(), F_ADD_SEALS, F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL) < 0)
@@ -287,7 +340,7 @@ void validate_destination(std::string_view path) {
         !prefix("/lib/") && !prefix("/lib64/") && !prefix("/usr/lib64/") &&
         path != "/etc/ld.so.cache" && path != "/etc/nsswitch.conf" &&
         path != "/etc/passwd" && path != "/etc/group")
-        throw Error(ErrorCode::Unauthorized, "runtime mount destination is outside the fixed runtime whitelist");
+        diagnostic_error(ErrorCode::Unauthorized, "destination_refused", "destination", "runtime mount destination is outside the fixed runtime whitelist");
 }
 
 std::string mountinfo_path(std::string_view encoded) {
@@ -418,7 +471,7 @@ std::size_t verify_workspace_tree(int root) {
 }
 
 #ifndef WLS_SANDBOX_SUPERVISOR_TEST_ONLY
-void validate_policy(const SandboxPolicy& policy) {
+void validate_policy_limits(const SandboxPolicy& policy) {
     if (policy.runtime_files.size() > 128 || policy.memory_max_bytes < 16777216 ||
         policy.memory_max_bytes > 1099511627776ULL || policy.pids_max < 4 || policy.pids_max > 65536 ||
         policy.cpu_period_us < 1000 || policy.cpu_period_us > 1000000 ||
@@ -426,19 +479,23 @@ void validate_policy(const SandboxPolicy& policy) {
         policy.max_timeout < Milliseconds(1) || policy.max_timeout > Milliseconds(3600000) ||
         policy.cleanup_timeout < Milliseconds(50) || policy.cleanup_timeout > Milliseconds(10000) ||
         policy.max_output_bytes == 0 || policy.max_output_bytes > 16777216)
-        throw Error(ErrorCode::InvalidInput, "sandbox policy limit is outside supported bounds");
+        diagnostic_error(ErrorCode::InvalidInput, "policy_unsupported", "policy", "sandbox policy limit is outside supported bounds");
+}
+
+void validate_policy(const SandboxPolicy& policy) {
+    validate_policy_limits(policy);
     (void)path_parts(policy.bwrap_path.string(), true);
     if (!policy.cgroup_root.empty()) {
         (void)path_parts(policy.cgroup_root.string(), true);
         if (policy.cgroup_root == "/" || policy.cgroup_root == "/sys/fs/cgroup")
-            throw Error(ErrorCode::Unauthorized, "supply a dedicated delegated cgroup directory, not the hierarchy root");
+            diagnostic_error(ErrorCode::Unauthorized, "path_refused", "cgroup_root", "supply a dedicated delegated cgroup directory, not the hierarchy root");
     }
     std::set<std::string> destinations;
     for (const auto& file : policy.runtime_files) {
         (void)path_parts(file.source.string(), true);
         validate_destination(file.destination);
         if (!destinations.insert(file.destination).second)
-            throw Error(ErrorCode::InvalidInput, "duplicate runtime mount destination");
+            diagnostic_error(ErrorCode::InvalidInput, "destination_duplicate", "destination", "duplicate runtime mount destination");
     }
 }
 
@@ -790,9 +847,9 @@ public:
         if (filesystem.f_type != CGROUP2_SUPER_MAGIC)
             throw Error(ErrorCode::Unsupported, "delegated root is not cgroup v2");
         const auto enabled = read_at(root_.get(), "cgroup.subtree_control");
-        for (const auto* controller : {"cpu", "memory", "pids"})
-            if (!has_word(enabled, controller)) throw Error(ErrorCode::Unsupported, "delegated cgroup lacks enabled cpu/memory/pids controllers");
-        if (read_at(root_.get(), "cgroup.type") != "domain\n")
+        if (!sandbox_detail::missing_controllers(enabled).empty())
+            throw Error(ErrorCode::Unsupported, "delegated cgroup lacks enabled cpu/memory/pids controllers");
+        if (!sandbox_detail::cgroup_is_domain(read_at(root_.get(), "cgroup.type")))
             throw Error(ErrorCode::Unsupported, "delegated cgroup must be a domain");
         if (::mkdirat(root_.get(), name_.c_str(), 0700) != 0) {
             if (errno == EEXIST) throw Error(ErrorCode::UnknownOutcome, "operation cgroup already exists; reconcile it before any retry");
@@ -925,19 +982,224 @@ Json to_json(const ProcessResult& result) {
     return value;
 }
 
+// R2a.3 read-only structured diagnostics are defined below.
+namespace {
+
+struct DoctorText {
+    std::string value;
+    bool truncated{false};
+    bool transformed{false};
+};
+
+DoctorText doctor_display(std::string_view text, std::size_t maximum = 4096) {
+    // Bound the work before UTF-8 display conversion, including trusted C++
+    // callers which can construct policy strings larger than CLI inputs.
+    auto prefix_bytes = std::min(text.size(), maximum);
+    if (prefix_bytes < text.size())
+        while (prefix_bytes > 0 && (static_cast<unsigned char>(text[prefix_bytes]) & 0xc0U) == 0x80U) --prefix_bytes;
+    const auto prefix = text.substr(0, prefix_bytes);
+    auto shown = display_text(prefix);
+    bool truncated = prefix_bytes != text.size();
+    const bool transformed = shown != prefix;
+    if (shown.size() > maximum) {
+        auto length = maximum;
+        while (length > 0 && (static_cast<unsigned char>(shown[length]) & 0xc0U) == 0x80U) --length;
+        shown.resize(length);
+        truncated = true;
+    }
+    return {std::move(shown), truncated, transformed};
+}
+
+std::string doctor_text(std::string_view text, std::size_t maximum = 4096) {
+    return doctor_display(text, maximum).value;
+}
+
+boost::json::object doctor_check(std::string_view id, std::string_view kind,
+        std::string_view path, bool required, Json expected = boost::json::object{},
+        std::string_view destination = {}, std::string_view path_kind = "explicit_path") {
+    const auto shown_path = doctor_display(path);
+    const auto shown_destination = doctor_display(destination);
+    return {{"id", id}, {"kind", kind}, {"path", shown_path.value},
+            {"path_kind", path_kind}, {"path_truncated", shown_path.truncated},
+            {"path_display_transformed", shown_path.transformed},
+            {"destination", shown_destination.value}, {"destination_truncated", shown_destination.truncated},
+            {"destination_display_transformed", shown_destination.transformed},
+            {"stage", "prerequisite"}, {"status", "observed_ok"},
+            {"required_for_prerequisites", required}, {"expected", std::move(expected)},
+            {"observed", boost::json::object{}}, {"reasons", boost::json::array{}}};
+}
+
+void doctor_reason(boost::json::object& check, std::string_view code,
+        std::string_view message, std::string_view stage,
+        std::optional<int> number = std::nullopt) {
+    check["stage"] = stage;
+    if (code == "read_budget_exceeded" || code == "dependency_not_checked" || code == "operation_not_created")
+        check["status"] = "not_checked";
+    else if (code == "path_unreadable" || code == "probe_io_failed") check["status"] = "unavailable";
+    else check["status"] = "blocked";
+    check.at("reasons").as_array().push_back(sandbox_detail::reason(code, message, number));
+}
+
+void doctor_failure(boost::json::object& check, const std::exception& error) {
+    if (const auto* diagnostic = dynamic_cast<const DiagnosticError*>(&error))
+        doctor_reason(check, diagnostic->reason, diagnostic->what(), diagnostic->stage, diagnostic->number);
+    else doctor_reason(check, "probe_io_failed", error.what(), "probe");
+}
+
+void doctor_append(SandboxDoctor& result, boost::json::object check) {
+    const auto status = check.at("status").as_string();
+    const bool required = check.at("required_for_prerequisites").as_bool();
+    if (status == "not_checked") {
+        ++result.not_checked_count;
+        if (required) result.complete = false;
+    }
+    if (required && status != "observed_ok") {
+        for (const auto& item : check.at("reasons").as_array())
+            result.issues.emplace_back(item.at("message").as_string());
+    }
+    result.checks.as_array().push_back(std::move(check));
+}
+
+std::string doctor_read(int fd, std::size_t maximum) {
+    std::string text;
+    std::array<char, 4096> buffer{};
+    while (text.size() < maximum) {
+        const auto count = ::read(fd, buffer.data(), std::min(buffer.size(), maximum - text.size()));
+        if (count < 0 && errno == EINTR) continue;
+        if (count < 0) diagnostic_system_error("read diagnostic control", "read");
+        if (count == 0) return text;
+        text.append(buffer.data(), static_cast<std::size_t>(count));
+    }
+    diagnostic_error(ErrorCode::Quota, "read_budget_exceeded", "read",
+                     "diagnostic control did not reach EOF within its bounded read");
+}
+
+std::string doctor_read_at(int root, const char* name) {
+    Fd file(::openat(root, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK));
+    if (!file) diagnostic_system_error(std::string("open ") + name, "open");
+    return doctor_read(file.get(), 16384);
+}
+
+std::uint64_t doctor_count(const boost::json::object& value, std::string_view key) {
+    const auto* found = value.if_contains(key);
+    if (found == nullptr) return 0;
+    if (found->is_uint64()) return found->as_uint64();
+    if (found->is_int64() && found->as_int64() >= 0) return static_cast<std::uint64_t>(found->as_int64());
+    return 0;
+}
+
+} // namespace
+
+void bound_sandbox_doctor_report(Json& report) {
+    using namespace sandbox_detail;
+    auto& object = report.as_object();
+    // The budget fields may be absent in a caller-supplied report. Reserve
+    // before retaining references to its nested checks/issues values.
+    object.reserve(object.size() + 8);
+    auto& checks = object.at("checks").as_array();
+    auto& issues = object.at("issues").as_array();
+    const bool previously_truncated = object.if_contains("report_truncated") != nullptr && object.at("report_truncated").as_bool();
+    bool truncated = previously_truncated;
+    bool budget_counted = previously_truncated;
+    std::uint64_t omitted = doctor_count(object, "omitted_check_count");
+    auto not_checked = doctor_count(object, "not_checked_count");
+    const auto remove_check = [&] {
+        const auto& item = checks.back().as_object();
+        if (item.at("status") != "not_checked") ++not_checked;
+        checks.pop_back();
+        ++omitted;
+        truncated = true;
+    };
+    while (checks.size() > doctor_max_checks) remove_check();
+    for (auto& item : checks) {
+        auto& reasons = item.at("reasons").as_array();
+        if (reasons.size() > doctor_max_reasons) {
+            const auto removed = reasons.size() - doctor_max_reasons;
+            reasons.resize(doctor_max_reasons);
+            item.as_object()["omitted_reason_count"] = removed;
+            truncated = true;
+        }
+        // Adding omitted_reason_count may relocate this check's members.
+        for (auto& explanation : item.at("reasons").as_array()) {
+            if (const auto* marked = explanation.as_object().if_contains("message_truncated"); marked != nullptr && marked->as_bool())
+                truncated = true;
+            auto& message = explanation.at("message");
+            if (message.as_string().size() > doctor_max_error_bytes) {
+                message = bounded_message(message.as_string());
+                explanation.as_object()["message_truncated"] = true;
+                truncated = true;
+            }
+        }
+    }
+    if (issues.size() > doctor_max_checks) { issues.resize(doctor_max_checks); truncated = true; }
+    for (auto& issue : issues) {
+        if (issue.as_string().size() > doctor_max_error_bytes) {
+            issue = bounded_message(issue.as_string());
+            truncated = true;
+        }
+    }
+    const auto mark_truncated = [&] {
+        if (!budget_counted) { ++not_checked; budget_counted = true; }
+        object["complete"] = false;
+        object["strong_prerequisites"] = false;
+        object["report_truncated"] = true;
+        object["omitted_check_count"] = omitted;
+        object["not_checked_count"] = not_checked;
+        object["report_budget_reason"] = reason("report_budget_exceeded",
+            "doctor report exceeded its bounded diagnostic representation; omitted observations were not accepted");
+    };
+    if (truncated) mark_truncated();
+    // Reserve room for the explicit truncation record before removing bounded
+    // tail entries. Keep existing successful/failed observations in order.
+    while (canonical_json(report).size() > doctor_max_report_bytes) {
+        truncated = true;
+        if (!checks.empty()) remove_check();
+        auto& inputs = object.at("inputs").as_object();
+        if (auto* files = inputs.if_contains("runtime_files"); files != nullptr && files->is_object()) {
+            auto* items = files->as_object().if_contains("items");
+            if (items != nullptr && items->is_array() && !items->as_array().empty()) {
+                items->as_array().pop_back();
+                files->as_object()["report_items_omitted"] = true;
+            }
+        }
+        auto& evidence = object.at("evidence").as_object();
+        if (auto* files = evidence.if_contains("runtime_files"); files != nullptr && files->is_array() && !files->as_array().empty()) {
+            files->as_array().pop_back();
+            evidence["runtime_file_observations_omitted"] = true;
+        }
+        mark_truncated();
+        if (checks.empty() && canonical_json(report).size() > doctor_max_report_bytes) {
+            // A caller may add oversized provenance after to_json. Retain the
+            // stable old booleans and explicit absence of execution evidence.
+            object["inputs"] = boost::json::object{{"omitted_due_to_report_budget", true}};
+            object["evidence"] = boost::json::object{{"probe", "read-only-prerequisites"},
+                {"programs_executed", 0}, {"namespace_execution_tested", false},
+                {"weak_fallback_available", false}, {"network", "none"}, {"observations_omitted", true}};
+            if (canonical_json(report).size() > doctor_max_report_bytes)
+                throw Error(ErrorCode::InvalidInput, "doctor report contains unsupported oversized extension fields");
+        }
+    }
+}
+
 Json to_json(const SandboxDoctor& result) {
     boost::json::array issues;
     for (const auto& issue : result.issues) issues.emplace_back(issue);
-    return boost::json::object{
+    Json report = boost::json::object{
         {"linux_supported", result.linux_supported}, {"bwrap_available", result.bwrap_available},
         {"cgroup_v2", result.cgroup_v2}, {"delegated_root_ready", result.delegated_root_ready},
-        {"runtime_files_ready", result.runtime_files_ready},
-        {"strong_prerequisites", result.strong_prerequisites},
-        {"issues", std::move(issues)}, {"evidence", result.evidence}
+        {"runtime_files_ready", result.runtime_files_ready}, {"strong_prerequisites", result.strong_prerequisites},
+        {"issues", std::move(issues)}, {"evidence", result.evidence},
+        {"report_format", result.report_format}, {"inputs", result.inputs}, {"checks", result.checks},
+        {"complete", result.complete}, {"not_checked_count", result.not_checked_count}, {"limitations", result.limitations},
+        {"report_truncated", result.report_truncated}, {"omitted_check_count", result.omitted_check_count},
+        {"report_budget_reason", result.report_budget_reason}
     };
+    bound_sandbox_doctor_report(report);
+    return report;
 }
 
 SandboxDoctor sandbox_doctor(const SandboxPolicy& policy) {
+    using namespace sandbox_detail;
     SandboxDoctor result;
     result.linux_supported = true;
     auto& evidence = result.evidence.as_object();
@@ -946,76 +1208,215 @@ SandboxDoctor sandbox_doctor(const SandboxPolicy& policy) {
     evidence["namespace_execution_tested"] = false;
     evidence["weak_fallback_available"] = false;
     evidence["network"] = "none";
-    try { validate_policy(policy); }
-    catch (const std::exception& error) { result.issues.emplace_back(error.what()); return result; }
+    result.limitations = boost::json::array{
+        "No program, launcher version, template environment check or network request was executed.",
+        "Namespace, mount, network isolation, resource enforcement and descendant exit require a separate real execution proof.",
+        "Runtime dependency completeness and future cgroup creation cannot be established by these read-only observations.",
+        "No Store, writer lock, request takeover, allocation or cleanup was opened or performed. Ordinary reads may update filesystem atime."
+    };
+    auto& inputs = result.inputs.as_object();
+    const auto launcher_path = doctor_display(policy.bwrap_path.native());
+    inputs["launcher"] = boost::json::object{{"origin", "policy"}, {"path", launcher_path.value},
+        {"path_truncated", launcher_path.truncated}, {"path_display_transformed", launcher_path.transformed},
+        {"default_path", "/usr/bin/bwrap"}, {"expected_sha256", doctor_text(policy.expected_bwrap_sha256, 64)}};
+    const auto cgroup_path = doctor_display(policy.cgroup_root.native());
+    inputs["cgroup"] = boost::json::object{{"origin", policy.cgroup_root.empty() ? "not_configured" : "policy"},
+        {"path", policy.cgroup_root.empty() ? Json(nullptr) : Json(cgroup_path.value)},
+        {"path_truncated", cgroup_path.truncated}, {"path_display_transformed", cgroup_path.transformed},
+        {"hierarchy_observation_path", policy.cgroup_root.empty() ? Json("/sys/fs/cgroup") : Json(nullptr)}};
+
+    auto policy_check = doctor_check("policy.limits", "policy", "", true);
+    bool policy_valid = true;
+    try { validate_policy_limits(policy); }
+    catch (const std::exception& error) { policy_valid = false; doctor_failure(policy_check, error); }
+    doctor_append(result, std::move(policy_check));
+
+    auto launcher_check = doctor_check("launcher.file", "launcher", policy.bwrap_path.native(), true,
+        boost::json::object{{"sha256", doctor_text(policy.expected_bwrap_sha256, 64)}, {"root_owned", true},
+                            {"executable", true}, {"elf", true}, {"max_bytes", runtime_max_file_bytes}});
+    RuntimeReadBudget launcher_budget(runtime_max_file_bytes);
     try {
-        const auto launcher = pin_file(policy.bwrap_path, policy.expected_bwrap_sha256, true, false);
+        auto& observed = launcher_check.at("observed").as_object();
+        const auto launcher = pin_file(policy.bwrap_path, policy.expected_bwrap_sha256, true, false, &launcher_budget, &observed);
         result.bwrap_available = true;
         evidence["bwrap_sha256"] = launcher.sha256;
         evidence["bwrap_version"] = "not-executed";
-    } catch (const std::exception& error) { result.issues.emplace_back(error.what()); }
-    if (!hash_string(policy.expected_bwrap_sha256))
-        result.issues.emplace_back("a frozen bubblewrap SHA-256 is required for strong execution");
-    if (policy.runtime_files.empty()) result.issues.emplace_back("no trusted runtime file manifest configured");
-    else {
+        if (!hash_string(policy.expected_bwrap_sha256))
+            doctor_reason(launcher_check, "expected_hash_missing", "a frozen bubblewrap SHA-256 is required for strong execution", "expected_hash");
+    } catch (const std::exception& error) { doctor_failure(launcher_check, error); }
+    doctor_append(result, std::move(launcher_check));
+
+    auto manifest_check = doctor_check("runtime.manifest", "runtime_manifest", "", true,
+        boost::json::object{{"max_files", 128}, {"max_file_bytes", runtime_max_file_bytes}, {"max_total_bytes", runtime_max_total_bytes}});
+    manifest_check["observed"] = boost::json::object{{"file_count", policy.runtime_files.size()}};
+    if (policy.runtime_files.empty())
+        doctor_reason(manifest_check, "runtime_manifest_empty", "no trusted runtime file manifest configured", "manifest");
+    else if (policy.runtime_files.size() > 128)
+        doctor_reason(manifest_check, "policy_unsupported", "runtime file count exceeds 128", "manifest");
+    doctor_append(result, std::move(manifest_check));
+
+    boost::json::array runtime_inputs;
+    boost::json::array runtime_evidence;
+    RuntimeReadBudget runtime_budget(runtime_max_total_bytes);
+    bool all_files_read = !policy.runtime_files.empty() && policy.runtime_files.size() <= 128;
+    std::set<std::string> destinations;
+    const auto count = std::min<std::size_t>(policy.runtime_files.size(), 128);
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto& file = policy.runtime_files[index];
+        const auto source_path = doctor_display(file.source.native());
+        const auto destination_path = doctor_display(file.destination);
+        runtime_inputs.push_back(boost::json::object{{"index", index}, {"source", source_path.value},
+            {"destination", destination_path.value}, {"expected_sha256", doctor_text(file.expected_sha256, 64)},
+            {"source_truncated", source_path.truncated}, {"source_display_transformed", source_path.transformed},
+            {"destination_truncated", destination_path.truncated}, {"destination_display_transformed", destination_path.transformed}});
+        auto check = doctor_check("runtime." + std::to_string(index), "runtime_file", file.source.native(), true,
+            boost::json::object{{"sha256", doctor_text(file.expected_sha256, 64)}, {"max_bytes", runtime_max_file_bytes}}, file.destination);
         try {
-            boost::json::array files;
-            std::uint64_t total = 0;
-            for (const auto& file : policy.runtime_files) {
-                const auto pinned = pin_file(file.source, file.expected_sha256, false, false);
-                if (!hash_string(file.expected_sha256))
-                    result.issues.emplace_back("a frozen SHA-256 is missing for runtime destination " + file.destination);
-                total += pinned.size;
-                if (total > 268435456) throw Error(ErrorCode::InvalidInput, "combined runtime files exceed 256 MiB bound");
-                files.emplace_back(boost::json::object{{"destination", file.destination}, {"sha256", pinned.sha256}, {"bytes", pinned.size}});
-            }
-            evidence["runtime_files"] = std::move(files);
-            result.runtime_files_ready = true;
-        } catch (const std::exception& error) { result.issues.emplace_back(error.what()); }
+            (void)path_parts(file.source.native(), true);
+            validate_destination(file.destination);
+            if (!destinations.insert(file.destination).second)
+                diagnostic_error(ErrorCode::InvalidInput, "destination_duplicate", "destination", "duplicate runtime mount destination");
+            auto& observed = check.at("observed").as_object();
+            const auto pinned = pin_file(file.source, file.expected_sha256, false, false, &runtime_budget, &observed);
+            runtime_evidence.push_back(boost::json::object{{"destination", file.destination}, {"sha256", pinned.sha256}, {"bytes", pinned.size}});
+            if (!hash_string(file.expected_sha256))
+                doctor_reason(check, "expected_hash_missing", "a frozen SHA-256 is missing for runtime destination " + doctor_text(file.destination), "expected_hash");
+        } catch (const std::exception& error) { all_files_read = false; doctor_failure(check, error); }
+        doctor_append(result, std::move(check));
     }
+    if (policy.runtime_files.size() > count) {
+        result.not_checked_count += policy.runtime_files.size() - count;
+        result.complete = false;
+    }
+    inputs["runtime_files"] = boost::json::object{{"origin", "policy"}, {"provided_count", policy.runtime_files.size()},
+        {"omitted_count", policy.runtime_files.size() - count}, {"items", std::move(runtime_inputs)}};
+    evidence["runtime_files"] = std::move(runtime_evidence);
+    evidence["runtime_bytes_read"] = runtime_budget.consumed();
+    evidence["runtime_read_budget_remaining"] = runtime_budget.remaining();
+    result.runtime_files_ready = all_files_read;
+
+    auto root_check = doctor_check("cgroup.root", "cgroup_root", policy.cgroup_root.native(), true,
+        boost::json::object{{"filesystem", "cgroup2"}, {"dedicated_subtree", true}});
+    Fd cgroup_root;
     if (policy.cgroup_root.empty()) {
-        result.issues.emplace_back("no dedicated delegated cgroup v2 root configured");
-        // Report the kernel hierarchy separately from whether the host has
-        // delegated a particular writable subtree to this runtime.
+        doctor_reason(root_check, "cgroup_not_configured", "no dedicated delegated cgroup v2 root configured", "configuration");
+        auto hierarchy = doctor_check("cgroup.hierarchy", "cgroup_hierarchy", "/sys/fs/cgroup", false,
+            boost::json::object{{"filesystem", "cgroup2"}}, {}, "fixed_auxiliary_path");
         try {
             const auto root = open_absolute("/sys/fs/cgroup", true);
             struct statfs filesystem{};
-            if (::fstatfs(root.get(), &filesystem) == 0)
-                result.cgroup_v2 = filesystem.f_type == CGROUP2_SUPER_MAGIC;
-        } catch (const std::exception&) {}
-    }
-    else {
-        try {
-            const auto root = open_absolute(policy.cgroup_root, true);
-            struct statfs filesystem{};
-            if (::fstatfs(root.get(), &filesystem) != 0) system_error("stat cgroup filesystem");
+            if (::fstatfs(root.get(), &filesystem) != 0) diagnostic_system_error("stat cgroup filesystem", "filesystem");
             result.cgroup_v2 = filesystem.f_type == CGROUP2_SUPER_MAGIC;
-            if (!result.cgroup_v2) throw Error(ErrorCode::Unsupported, "configured root is not cgroup v2");
-            struct statvfs mount{};
-            if (::fstatvfs(root.get(), &mount) != 0) system_error("stat cgroup mount");
-            if ((mount.f_flag & ST_RDONLY) != 0 || ::faccessat(root.get(), ".", W_OK | X_OK, AT_EACCESS) != 0 ||
-                ::faccessat(root.get(), "cgroup.procs", W_OK, AT_EACCESS) != 0)
-                throw Error(ErrorCode::Unsupported, "cgroup root is not delegated writable to this runtime");
-            const auto enabled = read_at(root.get(), "cgroup.subtree_control");
-            evidence["enabled_controllers"] = enabled;
-            for (const auto* name : {"cpu", "memory", "pids"})
-                if (!has_word(enabled, name)) throw Error(ErrorCode::Unsupported, "cgroup cpu/memory/pids controllers must already be enabled by the host");
-            if (read_at(root.get(), "cgroup.type") != "domain\n")
-                throw Error(ErrorCode::Unsupported, "cgroup root is not a domain");
-            result.delegated_root_ready = true;
-        } catch (const std::exception& error) { result.issues.emplace_back(error.what()); }
+            hierarchy["observed"] = boost::json::object{{"filesystem_type", static_cast<std::int64_t>(filesystem.f_type)},
+                {"cgroup_v2", result.cgroup_v2}, {"delegation_observed", false}};
+            if (!result.cgroup_v2) doctor_reason(hierarchy, "not_cgroup_v2", "observed hierarchy is not cgroup v2", "filesystem");
+        } catch (const std::exception& error) { doctor_failure(hierarchy, error); }
+        doctor_append(result, std::move(hierarchy));
+    } else {
+        try {
+            (void)path_parts(policy.cgroup_root.native(), true);
+            if (policy.cgroup_root == "/" || policy.cgroup_root == "/sys/fs/cgroup")
+                diagnostic_error(ErrorCode::Unauthorized, "path_refused", "path", "supply a dedicated delegated cgroup directory, not the hierarchy root");
+            cgroup_root = open_absolute(policy.cgroup_root, true);
+            struct statfs filesystem{};
+            if (::fstatfs(cgroup_root.get(), &filesystem) != 0) diagnostic_system_error("stat cgroup filesystem", "filesystem");
+            result.cgroup_v2 = filesystem.f_type == CGROUP2_SUPER_MAGIC;
+            root_check["observed"] = boost::json::object{{"filesystem_type", static_cast<std::int64_t>(filesystem.f_type)}, {"cgroup_v2", result.cgroup_v2}};
+            require_cgroup_v2(result.cgroup_v2);
+        } catch (const std::exception& error) { doctor_failure(root_check, error); cgroup_root = Fd{}; }
+    }
+    doctor_append(result, std::move(root_check));
+
+    bool delegated = static_cast<bool>(cgroup_root);
+    for (const auto* part : {"mount", "access", "cgroup.procs", "cgroup.subtree_control", "cgroup.type"}) {
+        const std::string leaf(part);
+        const auto path = policy.cgroup_root.empty() ? std::string{} :
+            (leaf == "mount" || leaf == "access" ? cgroup_path.value : cgroup_path.value + "/" + leaf);
+        auto check = doctor_check("cgroup." + leaf, "cgroup_control", path, true);
+        if (!cgroup_root) {
+            doctor_reason(check, "dependency_not_checked", "cgroup.root did not establish a configured cgroup v2 directory", "dependency");
+            check["depends_on"] = "cgroup.root";
+        } else {
+            try {
+                if (leaf == "mount") {
+                    struct statvfs mount{};
+                    if (::fstatvfs(cgroup_root.get(), &mount) != 0) diagnostic_system_error("stat cgroup mount", "mount");
+                    const bool read_only = (mount.f_flag & ST_RDONLY) != 0;
+                    check["observed"] = boost::json::object{{"read_only", read_only}};
+                    require_cgroup_writable_mount(read_only);
+                } else if (leaf == "access" || leaf == "cgroup.procs") {
+                    const int access = leaf == "access" ? W_OK | X_OK : W_OK;
+                    const char* target = leaf == "access" ? "." : "cgroup.procs";
+                    const int access_result = ::faccessat(cgroup_root.get(), target, access, AT_EACCESS);
+                    const int access_errno = access_result == 0 ? 0 : errno;
+                    require_cgroup_access(access_result, access_errno);
+                    check["observed"] = boost::json::object{{"access_permitted_now", true}, {"write_attempted", false}};
+                } else if (leaf == "cgroup.subtree_control") {
+                    const auto enabled = doctor_read_at(cgroup_root.get(), part);
+                    evidence["enabled_controllers"] = enabled;
+                    boost::json::array missing;
+                    for (const auto& controller : missing_controllers(enabled)) missing.emplace_back(controller);
+                    check["observed"] = boost::json::object{{"enabled_controllers", enabled}, {"missing_controllers", missing}};
+                    if (!missing.empty()) doctor_reason(check, "controller_missing", "cgroup root lacks one or more required cpu/memory/pids controllers", "controllers");
+                } else {
+                    const auto type = doctor_read_at(cgroup_root.get(), part);
+                    check["observed"] = boost::json::object{{"type", type}};
+                    if (!cgroup_is_domain(type)) doctor_reason(check, "not_domain", "cgroup root is not a domain", "type");
+                }
+            } catch (const std::exception& error) { doctor_failure(check, error); }
+        }
+        if (check.at("status") != "observed_ok") delegated = false;
+        doctor_append(result, std::move(check));
+    }
+    result.delegated_root_ready = delegated;
+    const auto operation_root = policy.cgroup_root.empty() ? std::string("<configured-cgroup-root>") : cgroup_path.value;
+    for (const auto* name : {"memory.max", "memory.swap.max", "memory.oom.group", "pids.max", "cpu.max", "cgroup.kill", "cgroup.procs", "cgroup.events"}) {
+        auto check = doctor_check(std::string("operation.") + name, "operation_control",
+            operation_root + "/wls-op-<sha256(operation_id)[0:32]>/" + name, false,
+            boost::json::object{}, {}, "operation_child_pattern");
+        doctor_reason(check, "operation_not_created", "no operation cgroup was created or inspected by this command", "not_executed");
+        doctor_append(result, std::move(check));
     }
     for (const auto* path : {"/proc/sys/user/max_user_namespaces", "/proc/sys/kernel/unprivileged_userns_clone",
                               "/proc/sys/kernel/apparmor_restrict_unprivileged_userns"}) {
+        auto check = doctor_check(std::string("auxiliary.") + path, "kernel_auxiliary", path, false,
+            boost::json::object{{"max_bytes", 128}}, {}, "fixed_auxiliary_path");
         try {
             const auto file = open_absolute(path, false);
-            std::array<char, 128> data{};
-            const auto count = ::read(file.get(), data.data(), data.size());
-            if (count >= 0) evidence[path] = std::string(data.data(), static_cast<std::size_t>(count));
-        } catch (const std::exception&) { evidence[path] = "unavailable"; }
+            const auto value = doctor_read(file.get(), 128);
+            evidence[path] = value;
+            check["observed"] = boost::json::object{{"text", doctor_text(value, 128)}, {"execution_verified", false}};
+            const auto first = value.find_first_not_of(" \n\r\t");
+            const auto last = value.find_last_not_of(" \n\r\t");
+            const auto token = first == std::string::npos ? std::string_view(value).substr(0, 0) : std::string_view(value).substr(first, last - first + 1);
+            std::uint64_t number = 0;
+            const auto parsed = std::from_chars(token.data(), token.data() + token.size(), number);
+            const bool boolean_setting = std::string_view(path) != "/proc/sys/user/max_user_namespaces";
+            if (token.empty() || parsed.ec != std::errc{} || parsed.ptr != token.data() + token.size() || (boolean_setting && number > 1))
+                doctor_reason(check, "auxiliary_value_unknown", "kernel auxiliary value is outside the known bounded integer form", "interpretation");
+            else check.at("observed").as_object()["integer_value"] = number;
+        } catch (const std::exception& error) { evidence[path] = "unavailable"; doctor_failure(check, error); }
+        doctor_append(result, std::move(check));
     }
-    result.strong_prerequisites = result.bwrap_available && result.runtime_files_ready &&
-        result.cgroup_v2 && result.delegated_root_ready && result.issues.empty();
+    bool required_ready = true;
+    for (const auto& check : result.checks.as_array())
+        if (check.at("required_for_prerequisites").as_bool() && check.at("status") != "observed_ok") required_ready = false;
+    result.strong_prerequisites = policy_valid && result.complete && required_ready && result.bwrap_available &&
+        result.runtime_files_ready && result.cgroup_v2 && result.delegated_root_ready && result.issues.empty();
+    // Apply the serialization bound to the library result as well as JSON
+    // callers; no public boolean may claim readiness after omitted evidence.
+    const auto bounded = to_json(result);
+    result.complete = bounded.at("complete").as_bool();
+    result.strong_prerequisites = bounded.at("strong_prerequisites").as_bool();
+    result.not_checked_count = static_cast<std::size_t>(doctor_count(bounded.as_object(), "not_checked_count"));
+    result.report_truncated = bounded.at("report_truncated").as_bool();
+    result.omitted_check_count = static_cast<std::size_t>(doctor_count(bounded.as_object(), "omitted_check_count"));
+    result.report_budget_reason = bounded.at("report_budget_reason");
+    result.inputs = bounded.at("inputs");
+    result.checks = bounded.at("checks");
+    result.evidence = bounded.at("evidence");
+    result.issues.clear();
+    for (const auto& issue : bounded.at("issues").as_array()) result.issues.emplace_back(issue.as_string());
     return result;
 }
 
