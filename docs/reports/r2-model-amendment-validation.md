@@ -95,7 +95,49 @@ UBSan/ASan 分别用 `-DWLS_ENABLE_UBSAN=ON` / `-DWLS_ENABLE_ASAN=ON` 配置独�
 
 ## 远端与完成边界
 
-实现已推送到 `work/r2-model-amend`。远端 CI 尚需核对上述实际实现提交；
+实现已推送到 `work/r2-model-amend`。实际实现提交 4737b6b 的原运行
+[40286077662](https://github.com/wmqfl861/wls861/actions/runs/40286077662) 已结束：
+五项成功，Make-ASan 取消，整体结论仍为 cancelled。源码快照
+[40286077660](https://github.com/wmqfl861/wls861/actions/runs/40286077660) 成功。
+
+| 原实现 CI | 实际结果 | 原日志中的完整 CTest 用时 |
+| --- | --- | --- |
+| strict / umask 0022 | 54/54，success | 227.89 秒 |
+| strict / umask 0002 | 54/54，success | 144.14 秒 |
+| Clang-18 | 54/54，success | 145.22 秒 |
+| UBSan | 54/54，success | 663.04 秒 |
+| ASan/LSan | 54/54，success；acceptance_runtime 79.96 秒 | 1060.11 秒 |
+| Make-ASan | cancelled；未完成全套 | 不计为完整通过 |
+
+原 Make-ASan 最后完成 r2_recovery_cli_smoke 六项，随后开始 r2_integration_cli_smoke，
+约三秒后取消；后续 AMEND 和 review CLI 未运行完。日志未见 sanitizer 诊断，但这不能替代
+完整 Make 门禁。远端 ASan 的真实成功与本地原 90 秒超时分别成立，保留各自记录。
+
+文档及 job 总预算修正提交
+[b5968ad524b6b29332db8f9a6c189abf0e20dfd6](https://github.com/wmqfl861/wls861/commit/b5968ad524b6b29332db8f9a6c189abf0e20dfd6)
+保留完全相同的 231 个执行输入，其完整后续运行是
+[40288012552](https://github.com/wmqfl861/wls861/actions/runs/40288012552)：**六路全部成功**。
+同 SHA 的[源码快照](https://github.com/wmqfl861/wls861/actions/runs/40288012691)也成功。
+
+| 后续 b5968ad CI | 实际结果 | 完整测试 / 作业用时 |
+| --- | --- | --- |
+| strict / umask 0022 | 54/54，success | CTest 143.97 秒 |
+| strict / umask 0002 | 54/54，success | CTest 153.73 秒 |
+| Clang-18 | 54/54，success | CTest 149.17 秒 |
+| UBSan | 54/54，success | CTest 645.12 秒 |
+| ASan/LSan | 54/54，success；acceptance_runtime 85.29 秒 | CTest 1229.76 秒；作业 22 分 42 秒 |
+| Make-ASan | 54 个套件命令完整通过，保留用户 CPPFLAGS | 作业 21 分 51 秒 |
+
+各原日志都核对了实际 checkout SHA、普通用户门禁和 sanitizer 选项。没有内存/泄漏/UBSan
+诊断。Make 日志计数仍为 428 项 S1 C++、143 项 S1 CLI、52 项 M1 C++、3 项 demo、
+38 项参考契约，另有两个完整性检查组。后续成功没有改写原 run 的 cancelled 或本地超时。
+
+远端[机器记录](r2-model-amendment-remote-ci.json)分别保留原实现取消、设计基线比较和后续六路成功；
+顶层原运行的 matrix_success_verified 仍为 false，后续成功在 followup_commit_ci 中。
+[远端证据清单](r2-model-amendment-remote-evidence.json)与[原始日志包](r2-model-amendment-remote-evidence.tar.gz)
+共 16 个文件，含 15 份原始 job 日志和冻结机器记录；包 SHA-256：
+`c5762fe7d0f273edca3dcb1ea15ea885799f02e0df199f48810326c22a897e46`。
+
 设计提交 b4977fa 的 CI 不属于新实现证据。最终文档提交或主分支同步不得改变未复验的执行输入。
 
 ### CI 工作流总预算
@@ -103,11 +145,14 @@ UBSan/ASan 分别用 `-DWLS_ENABLE_UBSAN=ON` / `-DWLS_ENABLE_ASAN=ON` 配置独�
 只读复核原设计/基线 run 40277764908：其 CMake ASan 的 acceptance_runtime 在原 90 秒内
 通过（85.24 秒），完整 CTest 打印 52/52、1088.25 秒，随后任务在约 20 分 13 秒处取消；
 同轮 Make-ASan 成功，但总用时约 19 分 46 秒。基线的整体 CI 结论仍是 cancelled，不能写成全绿。
-这些原始运行表明原 20 分钟工作流预算不足以稳定容纳配置、构建、完整 sanitizer 测试和收尾。
+结合这些耗时和原实现 Make-ASan 在约 20 分 15 秒取消的记录，推断原 20 分钟 job 预算
+缺少稳定容纳配置、构建、完整 sanitizer 测试及收尾的余量。原日志只显示
+“The operation was canceled.”，未直接提供取消原因，不能把该推断写成已确认平台诊断。
 本次把 GitHub job 总预算调整到 30 分钟，继续执行全部六路检查。
 各 CTest 组的原时限、sanitizer 选项、测试断言和产品执行预算保持原值；本地 90 秒超时事实保留。
 
 本次审查由相同模型的独立代理进行，不冒称独立第二模型审核。
 没有付费/真实 provider、生产数据操作或强 bwrap/cgroup 部署正向验收。
-R2a 的 fs_mkdir、PREPARED 分配恢复/显式放弃以及 R3 协议回放继续按独立增量推进；
-并发写者租约、按需执行代次、独立业务审核、完整记忆/MCP 和 S2–S5 未由本项宣称完成。
+后续 R2a.1 的 fs_mkdir 见[独立版本报告](r2a-directory-validation.md)；PREPARED 分配恢复/显式放弃
+以及 R3 协议回放继续按独立增量推进。并发写者租约、按需执行代次、独立业务审核、
+完整记忆/MCP 和 S2–S5 未由本项宣称完成。

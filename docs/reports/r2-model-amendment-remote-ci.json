@@ -1,0 +1,2498 @@
+{
+  "repository": "wmqfl861/wls861",
+  "expected_commit": "4737b6b0585d9828579ca244d96101bbdb104076",
+  "commit_tree": "aa6e12ddd127f2ac54bc94b353563f2345dbffa5",
+  "local_commit_with_same_tree": "699adea34a7ef4dea9ec5f7b1212cda8d222dc1f",
+  "local_execution_input_manifest_sha256": "34a65a116faadbe43988af7f0762ecf143d3c18a49c6c0e0337ccdb799165e2e",
+  "observed_at": "2026-10-26T08:13:29.196Z",
+  "workflow": {
+    "id": 40286077662,
+    "name": "C++20 runtime and specification contracts",
+    "head_sha": "4737b6b0585d9828579ca244d96101bbdb104076",
+    "head_branch": "work/r2-model-amend",
+    "run_attempt": 1,
+    "event": "push",
+    "status": "completed",
+    "conclusion": "cancelled",
+    "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40286077662",
+    "created_at": "2026-10-26T07:29:15Z",
+    "updated_at": "2026-10-26T07:49:34Z",
+    "run_started_at": "2026-10-26T07:29:15Z"
+  },
+  "source_snapshot": {
+    "id": 40286077660,
+    "name": "Verifiable committed source snapshot",
+    "head_sha": "4737b6b0585d9828579ca244d96101bbdb104076",
+    "head_branch": "work/r2-model-amend",
+    "run_attempt": 1,
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success",
+    "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40286077660",
+    "created_at": "2026-10-26T07:29:15Z",
+    "updated_at": "2026-10-26T07:29:23Z",
+    "run_started_at": "2026-10-26T07:29:15Z"
+  },
+  "jobs": [
+    {
+      "id": 121449945800,
+      "name": "Linux C++20 (UBSan)",
+      "head_sha": "4737b6b0585d9828579ca244d96101bbdb104076",
+      "run_id": 40286077662,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-26T07:29:18Z",
+      "completed_at": "2026-10-26T07:42:42Z",
+      "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40286077662/job/121449945800",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-26T07:29:19Z",
+          "completed_at": "2026-10-26T07:29:19Z"
+        },
+        {
+          "name": "Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-26T07:29:19Z",
+          "completed_at": "2026-10-26T07:29:20Z"
+        },
+        {
+          "name": "Install C++ development dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-26T07:29:20Z",
+          "completed_at": "2026-10-26T07:29:32Z"
+        },
+        {
+          "name": "Prepare contract-test environment",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-26T07:29:32Z",
+          "completed_at": "2026-10-26T07:29:35Z"
+        },
+        {
+          "name": "Configure CMake",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-26T07:29:35Z",
+          "completed_at": "2026-10-26T07:29:38Z"
+        },
+        {
+          "name": "Build with warnings as errors",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-26T07:29:38Z",
+          "completed_at": "2026-10-26T07:31:36Z"
+        },
+        {
+          "name": "Run complete CTest as an ordinary user",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-26T07:31:36Z",
+          "completed_at": "2026-10-26T07:42:40Z"
+        },
+        {
+          "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8,
+          "started_at": "2026-10-26T07:42:40Z",
+          "completed_at": "2026-10-26T07:42:40Z"
+        },
+        {
+          "name": "Post Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-26T07:42:40Z",
+          "completed_at": "2026-10-26T07:42:40Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-10-26T07:42:40Z",
+          "completed_at": "2026-10-26T07:42:40Z"
+        }
+      ]
+    },
+    {
+      "id": 121449945927,
+      "name": "Linux C++20 (ASan)",
+      "head_sha": "4737b6b0585d9828579ca244d96101bbdb104076",
+      "run_id": 40286077662,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-26T07:29:18Z",
+      "completed_at": "2026-10-26T07:49:00Z",
+      "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40286077662/job/121449945927",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-26T07:29:19Z",
+          "completed_at": "2026-10-26T07:29:19Z"
+        },
+        {
+          "name": "Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-26T07:29:20Z",
+          "completed_at": "2026-10-26T07:29:21Z"
+        },
+        {
+          "name": "Install C++ development dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-26T07:29:21Z",
+          "completed_at": "2026-10-26T07:29:37Z"
+        },
+        {
+          "name": "Prepare contract-test environment",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-26T07:29:37Z",
+          "completed_at": "2026-10-26T07:29:42Z"
+        },
+        {
+          "name": "Configure CMake",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-26T07:29:42Z",
+          "completed_at": "2026-10-26T07:29:45Z"
+        },
+        {
+          "name": "Build with warnings as errors",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-26T07:29:45Z",
+          "completed_at": "2026-10-26T07:31:17Z"
+        },
+        {
+          "name": "Run complete CTest as an ordinary user",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-26T07:31:17Z",
+          "completed_at": "2026-10-26T07:48:57Z"
+        },
+        {
+          "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8,
+          "started_at": "2026-10-26T07:48:57Z",
+          "completed_at": "2026-10-26T07:48:57Z"
+        },
+        {
+          "name": "Post Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-26T07:48:57Z",
+          "completed_at": "2026-10-26T07:48:58Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-10-26T07:48:58Z",
+          "completed_at": "2026-10-26T07:48:58Z"
+        }
+      ]
+    },
+    {
+      "id": 121449945965,
+      "name": "Linux C++20 (Clang-18)",
+      "head_sha": "4737b6b0585d9828579ca244d96101bbdb104076",
+      "run_id": 40286077662,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-26T07:29:18Z",
+      "completed_at": "2026-10-26T07:34:27Z",
+      "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40286077662/job/121449945965",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-26T07:29:19Z",
+          "completed_at": "2026-10-26T07:29:20Z"
+        },
+        {
+          "name": "Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-26T07:29:20Z",
+          "completed_at": "2026-10-26T07:29:21Z"
+        },
+        {
+          "name": "Install C++ development dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-26T07:29:21Z",
+          "completed_at": "2026-10-26T07:29:33Z"
+        },
+        {
+          "name": "Prepare contract-test environment",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-26T07:29:33Z",
+          "completed_at": "2026-10-26T07:29:37Z"
+        },
+        {
+          "name": "Configure CMake",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-26T07:29:37Z",
+          "completed_at": "2026-10-26T07:29:42Z"
+        },
+        {
+          "name": "Build with warnings as errors",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-26T07:29:42Z",
+          "completed_at": "2026-10-26T07:31:58Z"
+        },
+        {
+          "name": "Run complete CTest as an ordinary user",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-26T07:31:58Z",
+          "completed_at": "2026-10-26T07:34:24Z"
+        },
+        {
+          "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8,
+          "started_at": "2026-10-26T07:34:24Z",
+          "completed_at": "2026-10-26T07:34:24Z"
+        },
+        {
+          "name": "Post Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-26T07:34:24Z",
+          "completed_at": "2026-10-26T07:34:24Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-10-26T07:34:24Z",
+          "completed_at": "2026-10-26T07:34:24Z"
+        }
+      ]
+    },
+    {
+      "id": 121449946026,
+      "name": "Linux C++20 (strict)",
+      "head_sha": "4737b6b0585d9828579ca244d96101bbdb104076",
+      "run_id": 40286077662,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-26T07:29:18Z",
+      "completed_at": "2026-10-26T07:35:20Z",
+      "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40286077662/job/121449946026",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-26T07:29:18Z",
+          "completed_at": "2026-10-26T07:29:19Z"
+        },
+        {
+          "name": "Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-26T07:29:19Z",
+          "completed_at": "2026-10-26T07:29:20Z"
+        },
+        {
+          "name": "Install C++ development dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-26T07:29:20Z",
+          "completed_at": "2026-10-26T07:29:37Z"
+        },
+        {
+          "name": "Prepare contract-test environment",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-26T07:29:37Z",
+          "completed_at": "2026-10-26T07:29:41Z"
+        },
+        {
+          "name": "Configure CMake",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-26T07:29:41Z",
+          "completed_at": "2026-10-26T07:29:45Z"
+        },
+        {
+          "name": "Build with warnings as errors",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-26T07:29:45Z",
+          "completed_at": "2026-10-26T07:31:28Z"
+        },
+        {
+          "name": "Run complete CTest as an ordinary user",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-26T07:31:28Z",
+          "completed_at": "2026-10-26T07:35:17Z"
+        },
+        {
+          "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8,
+          "started_at": "2026-10-26T07:35:17Z",
+          "completed_at": "2026-10-26T07:35:17Z"
+        },
+        {
+          "name": "Post Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-26T07:35:17Z",
+          "completed_at": "2026-10-26T07:35:17Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-10-26T07:35:17Z",
+          "completed_at": "2026-10-26T07:35:17Z"
+        }
+      ]
+    },
+    {
+      "id": 121449946073,
+      "name": "Linux C++20 (strict-umask-0002)",
+      "head_sha": "4737b6b0585d9828579ca244d96101bbdb104076",
+      "run_id": 40286077662,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-26T07:29:18Z",
+      "completed_at": "2026-10-26T07:34:19Z",
+      "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40286077662/job/121449946073",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-26T07:29:19Z",
+          "completed_at": "2026-10-26T07:29:19Z"
+        },
+        {
+          "name": "Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-26T07:29:19Z",
+          "completed_at": "2026-10-26T07:29:20Z"
+        },
+        {
+          "name": "Install C++ development dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-26T07:29:20Z",
+          "completed_at": "2026-10-26T07:29:32Z"
+        },
+        {
+          "name": "Prepare contract-test environment",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-26T07:29:32Z",
+          "completed_at": "2026-10-26T07:29:36Z"
+        },
+        {
+          "name": "Configure CMake",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-26T07:29:36Z",
+          "completed_at": "2026-10-26T07:29:41Z"
+        },
+        {
+          "name": "Build with warnings as errors",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-26T07:29:41Z",
+          "completed_at": "2026-10-26T07:31:51Z"
+        },
+        {
+          "name": "Run complete CTest as an ordinary user",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-26T07:31:51Z",
+          "completed_at": "2026-10-26T07:34:17Z"
+        },
+        {
+          "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8,
+          "started_at": "2026-10-26T07:34:17Z",
+          "completed_at": "2026-10-26T07:34:17Z"
+        },
+        {
+          "name": "Post Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-26T07:34:17Z",
+          "completed_at": "2026-10-26T07:34:17Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-10-26T07:34:17Z",
+          "completed_at": "2026-10-26T07:34:17Z"
+        }
+      ]
+    },
+    {
+      "id": 121449946079,
+      "name": "Linux C++20 (Make-ASan)",
+      "head_sha": "4737b6b0585d9828579ca244d96101bbdb104076",
+      "run_id": 40286077662,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "cancelled",
+      "started_at": "2026-10-26T07:29:18Z",
+      "completed_at": "2026-10-26T07:49:33Z",
+      "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40286077662/job/121449946079",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-26T07:29:18Z",
+          "completed_at": "2026-10-26T07:29:19Z"
+        },
+        {
+          "name": "Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-26T07:29:19Z",
+          "completed_at": "2026-10-26T07:29:20Z"
+        },
+        {
+          "name": "Install C++ development dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-26T07:29:20Z",
+          "completed_at": "2026-10-26T07:29:31Z"
+        },
+        {
+          "name": "Prepare contract-test environment",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-26T07:29:31Z",
+          "completed_at": "2026-10-26T07:29:35Z"
+        },
+        {
+          "name": "Configure CMake",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 5,
+          "started_at": "2026-10-26T07:29:35Z",
+          "completed_at": "2026-10-26T07:29:35Z"
+        },
+        {
+          "name": "Build with warnings as errors",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-10-26T07:29:35Z",
+          "completed_at": "2026-10-26T07:29:35Z"
+        },
+        {
+          "name": "Run complete CTest as an ordinary user",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 7,
+          "started_at": "2026-10-26T07:29:35Z",
+          "completed_at": "2026-10-26T07:29:35Z"
+        },
+        {
+          "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "number": 8,
+          "started_at": "2026-10-26T07:29:35Z",
+          "completed_at": "2026-10-26T07:49:31Z"
+        },
+        {
+          "name": "Post Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-26T07:49:31Z",
+          "completed_at": "2026-10-26T07:49:31Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-10-26T07:49:31Z",
+          "completed_at": "2026-10-26T07:49:31Z"
+        }
+      ]
+    }
+  ],
+  "job_timeout_minutes": 20,
+  "historical_design_ci_comparison": {
+    "used_as_r23_implementation_evidence": false,
+    "expected_commit": "b4977fa7fbbd1ba1f5b913447000f8810c2744bb",
+    "workflow": {
+      "id": 40277764908,
+      "name": "C++20 runtime and specification contracts",
+      "head_sha": "b4977fa7fbbd1ba1f5b913447000f8810c2744bb",
+      "head_branch": "work/r2-model-amend",
+      "run_attempt": 1,
+      "event": "push",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40277764908",
+      "created_at": "2026-10-26T06:05:01Z",
+      "updated_at": "2026-10-26T06:25:17Z",
+      "run_started_at": "2026-10-26T06:05:01Z"
+    },
+    "job_timeout_minutes": 20,
+    "jobs": [
+      {
+        "id": 121424073507,
+        "name": "Linux C++20 (UBSan)",
+        "head_sha": "b4977fa7fbbd1ba1f5b913447000f8810c2744bb",
+        "run_id": 40277764908,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-26T06:05:03Z",
+        "completed_at": "2026-10-26T06:15:41Z",
+        "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40277764908/job/121424073507",
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1,
+            "started_at": "2026-10-26T06:05:04Z",
+            "completed_at": "2026-10-26T06:05:04Z"
+          },
+          {
+            "name": "Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2,
+            "started_at": "2026-10-26T06:05:04Z",
+            "completed_at": "2026-10-26T06:05:06Z"
+          },
+          {
+            "name": "Install C++ development dependencies",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3,
+            "started_at": "2026-10-26T06:05:06Z",
+            "completed_at": "2026-10-26T06:05:24Z"
+          },
+          {
+            "name": "Prepare contract-test environment",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4,
+            "started_at": "2026-10-26T06:05:24Z",
+            "completed_at": "2026-10-26T06:05:28Z"
+          },
+          {
+            "name": "Configure CMake",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5,
+            "started_at": "2026-10-26T06:05:28Z",
+            "completed_at": "2026-10-26T06:05:29Z"
+          },
+          {
+            "name": "Build with warnings as errors",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6,
+            "started_at": "2026-10-26T06:05:29Z",
+            "completed_at": "2026-10-26T06:07:03Z"
+          },
+          {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7,
+            "started_at": "2026-10-26T06:07:03Z",
+            "completed_at": "2026-10-26T06:15:39Z"
+          },
+          {
+            "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 8,
+            "started_at": "2026-10-26T06:15:39Z",
+            "completed_at": "2026-10-26T06:15:39Z"
+          },
+          {
+            "name": "Post Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 16,
+            "started_at": "2026-10-26T06:15:39Z",
+            "completed_at": "2026-10-26T06:15:39Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17,
+            "started_at": "2026-10-26T06:15:39Z",
+            "completed_at": "2026-10-26T06:15:39Z"
+          }
+        ],
+        "job_elapsed_seconds": 638
+      },
+      {
+        "id": 121424073524,
+        "name": "Linux C++20 (ASan)",
+        "head_sha": "b4977fa7fbbd1ba1f5b913447000f8810c2744bb",
+        "run_id": 40277764908,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "cancelled",
+        "started_at": "2026-10-26T06:05:04Z",
+        "completed_at": "2026-10-26T06:25:17Z",
+        "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40277764908/job/121424073524",
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1,
+            "started_at": "2026-10-26T06:05:05Z",
+            "completed_at": "2026-10-26T06:05:05Z"
+          },
+          {
+            "name": "Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2,
+            "started_at": "2026-10-26T06:05:05Z",
+            "completed_at": "2026-10-26T06:05:06Z"
+          },
+          {
+            "name": "Install C++ development dependencies",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3,
+            "started_at": "2026-10-26T06:05:06Z",
+            "completed_at": "2026-10-26T06:05:19Z"
+          },
+          {
+            "name": "Prepare contract-test environment",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4,
+            "started_at": "2026-10-26T06:05:19Z",
+            "completed_at": "2026-10-26T06:05:22Z"
+          },
+          {
+            "name": "Configure CMake",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5,
+            "started_at": "2026-10-26T06:05:22Z",
+            "completed_at": "2026-10-26T06:05:25Z"
+          },
+          {
+            "name": "Build with warnings as errors",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6,
+            "started_at": "2026-10-26T06:05:25Z",
+            "completed_at": "2026-10-26T06:07:04Z"
+          },
+          {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "cancelled",
+            "number": 7,
+            "started_at": "2026-10-26T06:07:04Z",
+            "completed_at": "2026-10-26T06:25:13Z"
+          },
+          {
+            "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 8,
+            "started_at": "2026-10-26T06:25:13Z",
+            "completed_at": "2026-10-26T06:25:13Z"
+          },
+          {
+            "name": "Post Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 16,
+            "started_at": "2026-10-26T06:25:13Z",
+            "completed_at": "2026-10-26T06:25:14Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17,
+            "started_at": "2026-10-26T06:25:14Z",
+            "completed_at": "2026-10-26T06:25:14Z"
+          }
+        ],
+        "job_elapsed_seconds": 1213
+      },
+      {
+        "id": 121424073588,
+        "name": "Linux C++20 (Make-ASan)",
+        "head_sha": "b4977fa7fbbd1ba1f5b913447000f8810c2744bb",
+        "run_id": 40277764908,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-26T06:05:03Z",
+        "completed_at": "2026-10-26T06:24:49Z",
+        "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40277764908/job/121424073588",
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1,
+            "started_at": "2026-10-26T06:05:04Z",
+            "completed_at": "2026-10-26T06:05:04Z"
+          },
+          {
+            "name": "Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2,
+            "started_at": "2026-10-26T06:05:04Z",
+            "completed_at": "2026-10-26T06:05:05Z"
+          },
+          {
+            "name": "Install C++ development dependencies",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3,
+            "started_at": "2026-10-26T06:05:05Z",
+            "completed_at": "2026-10-26T06:05:18Z"
+          },
+          {
+            "name": "Prepare contract-test environment",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4,
+            "started_at": "2026-10-26T06:05:18Z",
+            "completed_at": "2026-10-26T06:05:22Z"
+          },
+          {
+            "name": "Configure CMake",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 5,
+            "started_at": "2026-10-26T06:05:22Z",
+            "completed_at": "2026-10-26T06:05:22Z"
+          },
+          {
+            "name": "Build with warnings as errors",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 6,
+            "started_at": "2026-10-26T06:05:22Z",
+            "completed_at": "2026-10-26T06:05:22Z"
+          },
+          {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 7,
+            "started_at": "2026-10-26T06:05:22Z",
+            "completed_at": "2026-10-26T06:05:22Z"
+          },
+          {
+            "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 8,
+            "started_at": "2026-10-26T06:05:22Z",
+            "completed_at": "2026-10-26T06:24:47Z"
+          },
+          {
+            "name": "Post Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 16,
+            "started_at": "2026-10-26T06:24:47Z",
+            "completed_at": "2026-10-26T06:24:48Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17,
+            "started_at": "2026-10-26T06:24:48Z",
+            "completed_at": "2026-10-26T06:24:48Z"
+          }
+        ],
+        "job_elapsed_seconds": 1186
+      }
+    ],
+    "logs": {
+      "121424073507": {
+        "id": 121424073507,
+        "path": "/tmp/wls861-validation-r23/logs/remote-job-121424073507.log",
+        "bytes": 45516,
+        "sha256": "cd9e9333f75571da0f7427820db239712013add1618ccdc69b91cfdc18118b2c",
+        "ctest_summary_lines": [
+          "100% tests passed, 0 tests failed out of 52"
+        ],
+        "ctest_total_time_lines": [
+          "Total Test time (real) = 516.22 sec"
+        ],
+        "acceptance_runtime_lines": [
+          "16/52 Test #16: acceptance_runtime ...............   Passed   43.61 sec"
+        ],
+        "failure_lines": [],
+        "sanitizer_diagnostics": []
+      },
+      "121424073524": {
+        "id": 121424073524,
+        "path": "/tmp/wls861-validation-r23/logs/remote-job-121424073524.log",
+        "bytes": 45575,
+        "sha256": "61f96cd1dd55bd1683691852feaa85ead91ff4871539da92090d3137a1379abd",
+        "ctest_summary_lines": [
+          "100% tests passed, 0 tests failed out of 52"
+        ],
+        "ctest_total_time_lines": [
+          "Total Test time (real) = 1088.25 sec"
+        ],
+        "acceptance_runtime_lines": [
+          "16/52 Test #16: acceptance_runtime ...............   Passed   85.24 sec"
+        ],
+        "failure_lines": [
+          "##[error]The operation was canceled."
+        ],
+        "sanitizer_diagnostics": []
+      },
+      "121424073588": {
+        "id": 121424073588,
+        "path": "/tmp/wls861-validation-r23/logs/remote-job-121424073588.log",
+        "bytes": 143374,
+        "sha256": "7960d678e57d5c9aabc5792288184c13ad8c2f9cd76e5862fe0b954791ccedae",
+        "ctest_summary_lines": [],
+        "ctest_total_time_lines": [],
+        "acceptance_runtime_lines": [],
+        "failure_lines": [],
+        "sanitizer_diagnostics": []
+      }
+    },
+    "cancellation_evidence": {
+      "visible_raw_error": "The operation was canceled.",
+      "automatic_job_timeout_directly_confirmed": false,
+      "check_run_annotations_available": false,
+      "annotation_access_limitation": "GitHub connector rejects check-runs and annotation URLs as unsupported.",
+      "interpretation": "The configured 20-minute budget and observed 20m13s cancelled job are consistent with insufficient job time; the raw error does not directly identify the cancellation cause.",
+      "exact_commit_workflow_url": "https://raw.githubusercontent.com/wmqfl861/wls861/b4977fa7fbbd1ba1f5b913447000f8810c2744bb/.github/workflows/ci.yml",
+      "workflow_concurrency_key_found": false
+    }
+  },
+  "followup_commit_ci": {
+    "repository": "wmqfl861/wls861",
+    "expected_commit": "b5968ad524b6b29332db8f9a6c189abf0e20dfd6",
+    "commit_tree": "434760a25f8e824ac9a7a19b81e049d5212c06e2",
+    "local_commit_prefix_with_same_tree": "32515da",
+    "local_execution_input_manifest_sha256": "34a65a116faadbe43988af7f0762ecf143d3c18a49c6c0e0337ccdb799165e2e",
+    "execution_input_equivalence_reported_by": "/root",
+    "job_timeout_minutes": 30,
+    "observed_at": "2026-10-26T08:13:29.196Z",
+    "workflow": {
+      "id": 40288012552,
+      "name": "C++20 runtime and specification contracts",
+      "head_sha": "b5968ad524b6b29332db8f9a6c189abf0e20dfd6",
+      "head_branch": "work/r2-model-amend",
+      "run_attempt": 1,
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40288012552",
+      "created_at": "2026-10-26T07:48:00Z",
+      "updated_at": "2026-10-26T08:10:44Z",
+      "run_started_at": "2026-10-26T07:48:00Z"
+    },
+    "source_snapshot": {
+      "id": 40288012691,
+      "name": "Verifiable committed source snapshot",
+      "head_sha": "b5968ad524b6b29332db8f9a6c189abf0e20dfd6",
+      "head_branch": "work/r2-model-amend",
+      "run_attempt": 1,
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40288012691",
+      "created_at": "2026-10-26T07:48:00Z",
+      "updated_at": "2026-10-26T07:48:10Z",
+      "run_started_at": "2026-10-26T07:48:00Z"
+    },
+    "jobs": [
+      {
+        "id": 121456171204,
+        "name": "Linux C++20 (ASan)",
+        "head_sha": "b5968ad524b6b29332db8f9a6c189abf0e20dfd6",
+        "run_id": 40288012552,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-26T07:48:02Z",
+        "completed_at": "2026-10-26T08:10:44Z",
+        "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40288012552/job/121456171204",
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1,
+            "started_at": "2026-10-26T07:48:02Z",
+            "completed_at": "2026-10-26T07:48:03Z"
+          },
+          {
+            "name": "Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2,
+            "started_at": "2026-10-26T07:48:03Z",
+            "completed_at": "2026-10-26T07:48:04Z"
+          },
+          {
+            "name": "Install C++ development dependencies",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3,
+            "started_at": "2026-10-26T07:48:04Z",
+            "completed_at": "2026-10-26T07:48:17Z"
+          },
+          {
+            "name": "Prepare contract-test environment",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4,
+            "started_at": "2026-10-26T07:48:17Z",
+            "completed_at": "2026-10-26T07:48:21Z"
+          },
+          {
+            "name": "Configure CMake",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5,
+            "started_at": "2026-10-26T07:48:21Z",
+            "completed_at": "2026-10-26T07:48:23Z"
+          },
+          {
+            "name": "Build with warnings as errors",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6,
+            "started_at": "2026-10-26T07:48:24Z",
+            "completed_at": "2026-10-26T07:50:12Z"
+          },
+          {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7,
+            "started_at": "2026-10-26T07:50:12Z",
+            "completed_at": "2026-10-26T08:10:42Z"
+          },
+          {
+            "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 8,
+            "started_at": "2026-10-26T08:10:42Z",
+            "completed_at": "2026-10-26T08:10:42Z"
+          },
+          {
+            "name": "Post Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 16,
+            "started_at": "2026-10-26T08:10:42Z",
+            "completed_at": "2026-10-26T08:10:42Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17,
+            "started_at": "2026-10-26T08:10:42Z",
+            "completed_at": "2026-10-26T08:10:42Z"
+          }
+        ],
+        "job_elapsed_seconds": 1362
+      },
+      {
+        "id": 121456171347,
+        "name": "Linux C++20 (strict-umask-0002)",
+        "head_sha": "b5968ad524b6b29332db8f9a6c189abf0e20dfd6",
+        "run_id": 40288012552,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-26T07:48:02Z",
+        "completed_at": "2026-10-26T07:52:51Z",
+        "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40288012552/job/121456171347",
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1,
+            "started_at": "2026-10-26T07:48:02Z",
+            "completed_at": "2026-10-26T07:48:03Z"
+          },
+          {
+            "name": "Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2,
+            "started_at": "2026-10-26T07:48:03Z",
+            "completed_at": "2026-10-26T07:48:04Z"
+          },
+          {
+            "name": "Install C++ development dependencies",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3,
+            "started_at": "2026-10-26T07:48:04Z",
+            "completed_at": "2026-10-26T07:48:19Z"
+          },
+          {
+            "name": "Prepare contract-test environment",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4,
+            "started_at": "2026-10-26T07:48:19Z",
+            "completed_at": "2026-10-26T07:48:22Z"
+          },
+          {
+            "name": "Configure CMake",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5,
+            "started_at": "2026-10-26T07:48:22Z",
+            "completed_at": "2026-10-26T07:48:26Z"
+          },
+          {
+            "name": "Build with warnings as errors",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6,
+            "started_at": "2026-10-26T07:48:26Z",
+            "completed_at": "2026-10-26T07:50:15Z"
+          },
+          {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7,
+            "started_at": "2026-10-26T07:50:15Z",
+            "completed_at": "2026-10-26T07:52:49Z"
+          },
+          {
+            "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 8,
+            "started_at": "2026-10-26T07:52:49Z",
+            "completed_at": "2026-10-26T07:52:49Z"
+          },
+          {
+            "name": "Post Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 16,
+            "started_at": "2026-10-26T07:52:49Z",
+            "completed_at": "2026-10-26T07:52:49Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17,
+            "started_at": "2026-10-26T07:52:49Z",
+            "completed_at": "2026-10-26T07:52:49Z"
+          }
+        ],
+        "job_elapsed_seconds": 289
+      },
+      {
+        "id": 121456171400,
+        "name": "Linux C++20 (strict)",
+        "head_sha": "b5968ad524b6b29332db8f9a6c189abf0e20dfd6",
+        "run_id": 40288012552,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-26T07:48:02Z",
+        "completed_at": "2026-10-26T07:52:58Z",
+        "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40288012552/job/121456171400",
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1,
+            "started_at": "2026-10-26T07:48:02Z",
+            "completed_at": "2026-10-26T07:48:03Z"
+          },
+          {
+            "name": "Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2,
+            "started_at": "2026-10-26T07:48:03Z",
+            "completed_at": "2026-10-26T07:48:04Z"
+          },
+          {
+            "name": "Install C++ development dependencies",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3,
+            "started_at": "2026-10-26T07:48:04Z",
+            "completed_at": "2026-10-26T07:48:15Z"
+          },
+          {
+            "name": "Prepare contract-test environment",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4,
+            "started_at": "2026-10-26T07:48:15Z",
+            "completed_at": "2026-10-26T07:48:20Z"
+          },
+          {
+            "name": "Configure CMake",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5,
+            "started_at": "2026-10-26T07:48:20Z",
+            "completed_at": "2026-10-26T07:48:22Z"
+          },
+          {
+            "name": "Build with warnings as errors",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6,
+            "started_at": "2026-10-26T07:48:22Z",
+            "completed_at": "2026-10-26T07:50:32Z"
+          },
+          {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7,
+            "started_at": "2026-10-26T07:50:32Z",
+            "completed_at": "2026-10-26T07:52:57Z"
+          },
+          {
+            "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 8,
+            "started_at": "2026-10-26T07:52:57Z",
+            "completed_at": "2026-10-26T07:52:57Z"
+          },
+          {
+            "name": "Post Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 16,
+            "started_at": "2026-10-26T07:52:57Z",
+            "completed_at": "2026-10-26T07:52:57Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17,
+            "started_at": "2026-10-26T07:52:57Z",
+            "completed_at": "2026-10-26T07:52:57Z"
+          }
+        ],
+        "job_elapsed_seconds": 296
+      },
+      {
+        "id": 121456171429,
+        "name": "Linux C++20 (Clang-18)",
+        "head_sha": "b5968ad524b6b29332db8f9a6c189abf0e20dfd6",
+        "run_id": 40288012552,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-26T07:48:03Z",
+        "completed_at": "2026-10-26T07:56:03Z",
+        "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40288012552/job/121456171429",
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1,
+            "started_at": "2026-10-26T07:48:03Z",
+            "completed_at": "2026-10-26T07:48:04Z"
+          },
+          {
+            "name": "Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2,
+            "started_at": "2026-10-26T07:48:04Z",
+            "completed_at": "2026-10-26T07:48:06Z"
+          },
+          {
+            "name": "Install C++ development dependencies",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3,
+            "started_at": "2026-10-26T07:48:06Z",
+            "completed_at": "2026-10-26T07:51:52Z"
+          },
+          {
+            "name": "Prepare contract-test environment",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4,
+            "started_at": "2026-10-26T07:51:52Z",
+            "completed_at": "2026-10-26T07:51:55Z"
+          },
+          {
+            "name": "Configure CMake",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5,
+            "started_at": "2026-10-26T07:51:55Z",
+            "completed_at": "2026-10-26T07:51:59Z"
+          },
+          {
+            "name": "Build with warnings as errors",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6,
+            "started_at": "2026-10-26T07:51:59Z",
+            "completed_at": "2026-10-26T07:53:31Z"
+          },
+          {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7,
+            "started_at": "2026-10-26T07:53:31Z",
+            "completed_at": "2026-10-26T07:56:00Z"
+          },
+          {
+            "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 8,
+            "started_at": "2026-10-26T07:56:00Z",
+            "completed_at": "2026-10-26T07:56:00Z"
+          },
+          {
+            "name": "Post Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 16,
+            "started_at": "2026-10-26T07:56:00Z",
+            "completed_at": "2026-10-26T07:56:00Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17,
+            "started_at": "2026-10-26T07:56:00Z",
+            "completed_at": "2026-10-26T07:56:01Z"
+          }
+        ],
+        "job_elapsed_seconds": 480
+      },
+      {
+        "id": 121456171528,
+        "name": "Linux C++20 (UBSan)",
+        "head_sha": "b5968ad524b6b29332db8f9a6c189abf0e20dfd6",
+        "run_id": 40288012552,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-26T07:48:02Z",
+        "completed_at": "2026-10-26T08:01:26Z",
+        "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40288012552/job/121456171528",
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1,
+            "started_at": "2026-10-26T07:48:03Z",
+            "completed_at": "2026-10-26T07:48:04Z"
+          },
+          {
+            "name": "Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2,
+            "started_at": "2026-10-26T07:48:04Z",
+            "completed_at": "2026-10-26T07:48:05Z"
+          },
+          {
+            "name": "Install C++ development dependencies",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3,
+            "started_at": "2026-10-26T07:48:05Z",
+            "completed_at": "2026-10-26T07:48:25Z"
+          },
+          {
+            "name": "Prepare contract-test environment",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4,
+            "started_at": "2026-10-26T07:48:25Z",
+            "completed_at": "2026-10-26T07:48:30Z"
+          },
+          {
+            "name": "Configure CMake",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5,
+            "started_at": "2026-10-26T07:48:30Z",
+            "completed_at": "2026-10-26T07:48:34Z"
+          },
+          {
+            "name": "Build with warnings as errors",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6,
+            "started_at": "2026-10-26T07:48:34Z",
+            "completed_at": "2026-10-26T07:50:37Z"
+          },
+          {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7,
+            "started_at": "2026-10-26T07:50:37Z",
+            "completed_at": "2026-10-26T08:01:23Z"
+          },
+          {
+            "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 8,
+            "started_at": "2026-10-26T08:01:23Z",
+            "completed_at": "2026-10-26T08:01:23Z"
+          },
+          {
+            "name": "Post Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 16,
+            "started_at": "2026-10-26T08:01:23Z",
+            "completed_at": "2026-10-26T08:01:24Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17,
+            "started_at": "2026-10-26T08:01:24Z",
+            "completed_at": "2026-10-26T08:01:24Z"
+          }
+        ],
+        "job_elapsed_seconds": 804
+      },
+      {
+        "id": 121456171623,
+        "name": "Linux C++20 (Make-ASan)",
+        "head_sha": "b5968ad524b6b29332db8f9a6c189abf0e20dfd6",
+        "run_id": 40288012552,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-26T07:48:02Z",
+        "completed_at": "2026-10-26T08:09:53Z",
+        "html_url": "https://github.com/wmqfl861/wls861/actions/runs/40288012552/job/121456171623",
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1,
+            "started_at": "2026-10-26T07:48:03Z",
+            "completed_at": "2026-10-26T07:48:04Z"
+          },
+          {
+            "name": "Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2,
+            "started_at": "2026-10-26T07:48:04Z",
+            "completed_at": "2026-10-26T07:48:05Z"
+          },
+          {
+            "name": "Install C++ development dependencies",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3,
+            "started_at": "2026-10-26T07:48:05Z",
+            "completed_at": "2026-10-26T07:48:17Z"
+          },
+          {
+            "name": "Prepare contract-test environment",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4,
+            "started_at": "2026-10-26T07:48:17Z",
+            "completed_at": "2026-10-26T07:48:21Z"
+          },
+          {
+            "name": "Configure CMake",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 5,
+            "started_at": "2026-10-26T07:48:21Z",
+            "completed_at": "2026-10-26T07:48:21Z"
+          },
+          {
+            "name": "Build with warnings as errors",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 6,
+            "started_at": "2026-10-26T07:48:21Z",
+            "completed_at": "2026-10-26T07:48:21Z"
+          },
+          {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 7,
+            "started_at": "2026-10-26T07:48:21Z",
+            "completed_at": "2026-10-26T07:48:21Z"
+          },
+          {
+            "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 8,
+            "started_at": "2026-10-26T07:48:21Z",
+            "completed_at": "2026-10-26T08:09:50Z"
+          },
+          {
+            "name": "Post Check out the requested revision",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 16,
+            "started_at": "2026-10-26T08:09:50Z",
+            "completed_at": "2026-10-26T08:09:50Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17,
+            "started_at": "2026-10-26T08:09:50Z",
+            "completed_at": "2026-10-26T08:09:50Z"
+          }
+        ],
+        "job_elapsed_seconds": 1311
+      }
+    ],
+    "all_jobs_completed": true,
+    "matrix_success_verified": true,
+    "logs": {
+      "121456171347": {
+        "path": "/tmp/wls861-validation-r23/logs/remote-job-121456171347.log",
+        "bytes": 46096,
+        "sha256": "f06566fd443d00a3f25b471605e2de661f8e5543b6b2ca32dfbf12eb32ad813f",
+        "checked_out_expected_commit_seen": true,
+        "ordinary_user_guard_seen": true,
+        "ctest_summary_lines": [
+          "100% tests passed, 0 tests failed out of 54"
+        ],
+        "ctest_total_time_lines": [
+          "Total Test time (real) = 153.73 sec"
+        ],
+        "acceptance_runtime_lines": [
+          "16/54 Test #16: acceptance_runtime ...............   Passed    8.19 sec"
+        ],
+        "sanitizer_option_lines": [
+          "  ASAN_OPTIONS: halt_on_error=1:detect_leaks=1",
+          "  UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1"
+        ],
+        "sanitizer_diagnostics": [],
+        "failure_lines": []
+      },
+      "121456171400": {
+        "path": "/tmp/wls861-validation-r23/logs/remote-job-121456171400.log",
+        "bytes": 46085,
+        "sha256": "ad65c510703219531bf240bbc8fe9ea1c8976eba79fcc190a6dff1189251b31a",
+        "checked_out_expected_commit_seen": true,
+        "ordinary_user_guard_seen": true,
+        "ctest_summary_lines": [
+          "100% tests passed, 0 tests failed out of 54"
+        ],
+        "ctest_total_time_lines": [
+          "Total Test time (real) = 143.97 sec"
+        ],
+        "acceptance_runtime_lines": [
+          "16/54 Test #16: acceptance_runtime ...............   Passed    8.07 sec"
+        ],
+        "sanitizer_option_lines": [
+          "  ASAN_OPTIONS: halt_on_error=1:detect_leaks=1",
+          "  UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1"
+        ],
+        "sanitizer_diagnostics": [],
+        "failure_lines": []
+      },
+      "121456171429": {
+        "path": "/tmp/wls861-validation-r23/logs/remote-job-121456171429.log",
+        "bytes": 46476,
+        "sha256": "4369bc7b35d44893f3c5750df9b5091437edf9e6966435e6505ff4cc77211869",
+        "checked_out_expected_commit_seen": true,
+        "ordinary_user_guard_seen": true,
+        "ctest_summary_lines": [
+          "100% tests passed, 0 tests failed out of 54"
+        ],
+        "ctest_total_time_lines": [
+          "Total Test time (real) = 149.17 sec"
+        ],
+        "acceptance_runtime_lines": [
+          "16/54 Test #16: acceptance_runtime ...............   Passed    7.58 sec"
+        ],
+        "compiler_identification_lines": [
+          "-- The CXX compiler identification is Clang 18.1.3"
+        ],
+        "sanitizer_option_lines": [
+          "  ASAN_OPTIONS: halt_on_error=1:detect_leaks=1",
+          "  UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1"
+        ],
+        "sanitizer_diagnostics": [],
+        "failure_lines": []
+      },
+      "121456171528": {
+        "path": "/tmp/wls861-validation-r23/logs/remote-job-121456171528.log",
+        "bytes": 46085,
+        "sha256": "ccfe5f80dc637a508a2b82d1d3c6b9169ec662476bcd8c36231cf6c4ae228c0e",
+        "checked_out_expected_commit_seen": true,
+        "ordinary_user_guard_seen": true,
+        "ctest_summary_lines": [
+          "100% tests passed, 0 tests failed out of 54"
+        ],
+        "ctest_total_time_lines": [
+          "Total Test time (real) = 645.12 sec"
+        ],
+        "acceptance_runtime_lines": [
+          "16/54 Test #16: acceptance_runtime ...............   Passed   44.27 sec"
+        ],
+        "sanitizer_option_lines": [
+          "  ASAN_OPTIONS: halt_on_error=1:detect_leaks=1",
+          "  UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1"
+        ],
+        "sanitizer_diagnostics": [],
+        "failure_lines": []
+      },
+      "121456171623": {
+        "path": "/tmp/wls861-validation-r23/logs/remote-job-121456171623.log",
+        "bytes": 148051,
+        "sha256": "14bd4e71de60cc4cb973573b408f1d2394fa44db125285d4de659012996638de",
+        "checked_out_expected_commit_seen": true,
+        "ordinary_user_guard_seen": true,
+        "ctest_summary_lines": [],
+        "ctest_total_time_lines": [],
+        "acceptance_runtime_lines": [],
+        "sanitizer_option_lines": [
+          "  ASAN_OPTIONS: halt_on_error=1:detect_leaks=1",
+          "  UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1",
+          "ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 make BUILD_DIR=\"build-make-asan\" CXXFLAGS=\"-O2 -g -O0 -g -fsanitize=address -fno-omit-frame-pointer\" LDFLAGS=\" -fsanitize=address\" test"
+        ],
+        "sanitizer_diagnostics": [],
+        "failure_lines": [],
+        "user_cppflags_seen": true,
+        "warnings_as_errors_seen": true,
+        "make_suite_counts": {
+          "suite_commands": 54,
+          "unique_suite_commands": 54,
+          "m1_cpp": 52,
+          "m1_demo": 3,
+          "reference_contracts": 38,
+          "s1_cpp": 428,
+          "s1_cli": 143,
+          "all_suite_counts": {
+            "specification_contracts": {
+              "passed": 38,
+              "failed": 0
+            },
+            "journal": {
+              "passed": 10,
+              "failed": 0
+            },
+            "config": {
+              "passed": 5,
+              "failed": 0
+            },
+            "scheduler": {
+              "passed": 9,
+              "failed": 0
+            },
+            "task_engine": {
+              "passed": 28,
+              "failed": 0
+            },
+            "demo_smoke": {
+              "passed": 3,
+              "failed": 0
+            },
+            "runtime_types": {
+              "passed": 6,
+              "failed": 0
+            },
+            "store": {
+              "passed": 31,
+              "failed": 0
+            },
+            "event_store": {
+              "passed": 15,
+              "failed": 0
+            },
+            "workflow_store": {
+              "passed": 21,
+              "failed": 0
+            },
+            "acceptance_store": {
+              "passed": 25,
+              "failed": 0
+            },
+            "config_loader": {
+              "passed": 18,
+              "failed": 0
+            },
+            "model": {
+              "passed": 15,
+              "failed": 0
+            },
+            "schema": {
+              "passed": 12,
+              "failed": 0
+            },
+            "offline_runtime": {
+              "passed": 9,
+              "failed": 0
+            },
+            "event_runtime": {
+              "passed": 14,
+              "failed": 0
+            },
+            "workflow_runtime": {
+              "passed": 14,
+              "failed": 0
+            },
+            "acceptance_runtime": {
+              "passed": 19,
+              "failed": 0
+            },
+            "workspace": {
+              "passed": 19,
+              "failed": 0
+            },
+            "sandbox": {
+              "passed": 18,
+              "failed": 0
+            },
+            "worker_tools": {
+              "passed": 17,
+              "failed": 0
+            },
+            "delivery": {
+              "passed": 17,
+              "failed": 0
+            },
+            "cleanup": {
+              "passed": 20,
+              "failed": 0
+            },
+            "cleanup_runtime": {
+              "passed": 20,
+              "failed": 0
+            },
+            "audit24_reopen": {
+              "passed": 7,
+              "failed": 0
+            },
+            "audit24_capacity": {
+              "passed": 8,
+              "failed": 0
+            },
+            "audit24_capacity_repro": {
+              "passed": 1,
+              "failed": 0
+            },
+            "r1_history": {
+              "passed": 10,
+              "failed": 0
+            },
+            "r1_structured": {
+              "passed": 16,
+              "failed": 0
+            },
+            "r1_window": {
+              "passed": 12,
+              "failed": 0
+            },
+            "r2_rework": {
+              "passed": 26,
+              "failed": 0
+            },
+            "r2_recovery": {
+              "passed": 12,
+              "failed": 0
+            },
+            "r2_amend": {
+              "passed": 14,
+              "failed": 0
+            },
+            "process_evidence": {
+              "passed": 8,
+              "failed": 0
+            },
+            "audit24_reconcile": {
+              "passed": 4,
+              "failed": 0
+            },
+            "s1_cli_smoke": {
+              "passed": 8,
+              "failed": 0
+            },
+            "s12_cli_smoke": {
+              "passed": 8,
+              "failed": 0
+            },
+            "s13_cli_smoke": {
+              "passed": 10,
+              "failed": 0
+            },
+            "s14_cli_smoke": {
+              "passed": 12,
+              "failed": 0
+            },
+            "s15_cli_smoke": {
+              "passed": 17,
+              "failed": 0
+            },
+            "s16_cli_smoke": {
+              "passed": 14,
+              "failed": 0
+            },
+            "audit24_capacity_cli_smoke": {
+              "passed": 6,
+              "failed": 0
+            },
+            "audit24_reconcile_cli_smoke": {
+              "passed": 4,
+              "failed": 0
+            },
+            "audit24_reopen_cli_smoke": {
+              "passed": 2,
+              "failed": 0
+            },
+            "r1_history_cli_smoke": {
+              "passed": 7,
+              "failed": 0
+            },
+            "r1_structured_cli_smoke": {
+              "passed": 6,
+              "failed": 0
+            },
+            "r1_window_cli_smoke": {
+              "passed": 9,
+              "failed": 0
+            },
+            "r2_rework_cli_smoke": {
+              "passed": 10,
+              "failed": 0
+            },
+            "r2_recovery_cli_smoke": {
+              "passed": 6,
+              "failed": 0
+            },
+            "r2_integration_cli_smoke": {
+              "passed": 6,
+              "failed": 0
+            },
+            "r2_amend_cli_smoke": {
+              "passed": 9,
+              "failed": 0
+            },
+            "review_cli_smoke": {
+              "passed": 9,
+              "failed": 0
+            }
+          },
+          "failed_counted_cases": 0
+        }
+      },
+      "121456171204": {
+        "path": "/tmp/wls861-validation-r23/logs/remote-job-121456171204.log",
+        "bytes": 46079,
+        "sha256": "1ccf94830bfad9e863582437832b97fb45591806cfffa28ab86c02b582e748d7",
+        "checked_out_expected_commit_seen": true,
+        "ordinary_user_guard_seen": true,
+        "ctest_summary_lines": [
+          "100% tests passed, 0 tests failed out of 54"
+        ],
+        "ctest_total_time_lines": [
+          "Total Test time (real) = 1229.76 sec"
+        ],
+        "acceptance_runtime_lines": [
+          "16/54 Test #16: acceptance_runtime ...............   Passed   85.29 sec"
+        ],
+        "new_amendment_group_lines": [
+          "33/54 Test #33: r2_amend .........................   Passed   72.03 sec",
+          "54/54 Test #54: r2_amend_cli_smoke ...............   Passed   48.13 sec"
+        ],
+        "sanitizer_option_lines": [
+          "  ASAN_OPTIONS: halt_on_error=1:detect_leaks=1",
+          "  UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1"
+        ],
+        "sanitizer_diagnostics": [],
+        "failure_lines": []
+      }
+    },
+    "observations": [
+      {
+        "observed_at": "2026-10-26T07:50:42.037Z",
+        "workflow_status": "in_progress",
+        "workflow_conclusion": null,
+        "jobs": [
+          {
+            "id": 121456171204,
+            "status": "in_progress",
+            "conclusion": null
+          },
+          {
+            "id": 121456171347,
+            "status": "in_progress",
+            "conclusion": null
+          },
+          {
+            "id": 121456171400,
+            "status": "in_progress",
+            "conclusion": null
+          },
+          {
+            "id": 121456171429,
+            "status": "in_progress",
+            "conclusion": null
+          },
+          {
+            "id": 121456171528,
+            "status": "in_progress",
+            "conclusion": null
+          },
+          {
+            "id": 121456171623,
+            "status": "in_progress",
+            "conclusion": null
+          }
+        ]
+      },
+      {
+        "observed_at": "2026-10-26T07:54:46.339Z",
+        "workflow_status": "in_progress",
+        "workflow_conclusion": null,
+        "jobs": [
+          {
+            "id": 121456171204,
+            "status": "in_progress",
+            "conclusion": null
+          },
+          {
+            "id": 121456171347,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171400,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171429,
+            "status": "in_progress",
+            "conclusion": null
+          },
+          {
+            "id": 121456171528,
+            "status": "in_progress",
+            "conclusion": null
+          },
+          {
+            "id": 121456171623,
+            "status": "in_progress",
+            "conclusion": null
+          }
+        ]
+      },
+      {
+        "observed_at": "2026-10-26T07:57:38.920Z",
+        "workflow_status": "in_progress",
+        "workflow_conclusion": null,
+        "jobs": [
+          {
+            "id": 121456171204,
+            "status": "in_progress",
+            "conclusion": null
+          },
+          {
+            "id": 121456171347,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171400,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171429,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171528,
+            "status": "in_progress",
+            "conclusion": null
+          },
+          {
+            "id": 121456171623,
+            "status": "in_progress",
+            "conclusion": null
+          }
+        ]
+      },
+      {
+        "observed_at": "2026-10-26T08:02:50.287Z",
+        "workflow_status": "in_progress",
+        "workflow_conclusion": null,
+        "jobs": [
+          {
+            "id": 121456171204,
+            "status": "in_progress",
+            "conclusion": null
+          },
+          {
+            "id": 121456171347,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171400,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171429,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171528,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171623,
+            "status": "in_progress",
+            "conclusion": null
+          }
+        ]
+      },
+      {
+        "observed_at": "2026-10-26T08:11:51.562Z",
+        "workflow_status": "in_progress",
+        "workflow_conclusion": null,
+        "jobs": [
+          {
+            "id": 121456171204,
+            "status": "in_progress",
+            "conclusion": null
+          },
+          {
+            "id": 121456171347,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171400,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171429,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171528,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171623,
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ]
+      },
+      {
+        "observed_at": "2026-10-26T08:13:29.196Z",
+        "workflow_status": "completed",
+        "workflow_conclusion": "success",
+        "jobs": [
+          {
+            "id": 121456171204,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171347,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171400,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171429,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171528,
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 121456171623,
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ]
+      }
+    ],
+    "remote_head_commit_tree_verified": true
+  },
+  "cancelled_make_observation": {
+    "job_id": 121449946079,
+    "visible_raw_error": "The operation was canceled.",
+    "last_completed_cli_suite": "r2_recovery_cli_smoke",
+    "last_completed_cli_cases": 6,
+    "started_but_unfinished_cli_suite": "r2_integration_cli_smoke",
+    "subsequent_cli_suites_not_reached": [
+      "r2_amend_cli_smoke",
+      "review_cli_smoke"
+    ],
+    "no_sanitizer_diagnostic_in_retained_log": true,
+    "automatic_job_timeout_directly_confirmed": false
+  },
+  "remote_head_commit_tree_verified": true,
+  "final_verified_ci": {
+    "expected_commit": "b5968ad524b6b29332db8f9a6c189abf0e20dfd6",
+    "workflow_run_id": 40288012552,
+    "record_path": "followup_commit_ci",
+    "matrix_success_verified": true,
+    "all_six_job_logs_saved": true,
+    "original_attempt_conclusion_preserved": "cancelled"
+  },
+  "all_jobs_completed": true,
+  "matrix_success_verified": false,
+  "logs": {
+    "121449945800": {
+      "path": "/tmp/wls861-validation-r23/logs/remote-job-121449945800.log",
+      "sha256": "4732cf5227cc9591791a44957d01208b8aefc846c9afec30e561c319aab55349",
+      "checked_out_expected_commit_seen": true,
+      "ordinary_user_guard_seen": true,
+      "ctest_summary_lines": [
+        "100% tests passed, 0 tests failed out of 54"
+      ],
+      "ctest_total_time_lines": [
+        "Total Test time (real) = 663.04 sec"
+      ],
+      "acceptance_runtime_lines": [
+        "16/54 Test #16: acceptance_runtime ...............   Passed   45.56 sec"
+      ],
+      "sanitizer_option_lines": [
+        "  ASAN_OPTIONS: halt_on_error=1:detect_leaks=1",
+        "  UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1"
+      ],
+      "sanitizer_diagnostics": [],
+      "failure_lines": []
+    },
+    "121449945927": {
+      "path": "/tmp/wls861-validation-r23/logs/remote-job-121449945927.log",
+      "sha256": "19b6629b158bdf8043e67b33958853af3fc234c435ac53b2c43e1186cc631c15",
+      "checked_out_expected_commit_seen": true,
+      "ordinary_user_guard_seen": true,
+      "ctest_summary_lines": [
+        "100% tests passed, 0 tests failed out of 54"
+      ],
+      "ctest_total_time_lines": [
+        "Total Test time (real) = 1060.11 sec"
+      ],
+      "acceptance_runtime_lines": [
+        "16/54 Test #16: acceptance_runtime ...............   Passed   79.96 sec"
+      ],
+      "sanitizer_option_lines": [
+        "  ASAN_OPTIONS: halt_on_error=1:detect_leaks=1",
+        "  UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1"
+      ],
+      "sanitizer_diagnostics": [],
+      "failure_lines": []
+    },
+    "121449945965": {
+      "path": "/tmp/wls861-validation-r23/logs/remote-job-121449945965.log",
+      "sha256": "a14e0a637c3847ba34343fa475c5da745fe717a43d2250fa125e214e6ea44c9c",
+      "checked_out_expected_commit_seen": true,
+      "ordinary_user_guard_seen": true,
+      "ctest_summary_lines": [
+        "100% tests passed, 0 tests failed out of 54"
+      ],
+      "ctest_total_time_lines": [
+        "Total Test time (real) = 145.22 sec"
+      ],
+      "acceptance_runtime_lines": [
+        "16/54 Test #16: acceptance_runtime ...............   Passed    8.06 sec"
+      ],
+      "sanitizer_option_lines": [
+        "  ASAN_OPTIONS: halt_on_error=1:detect_leaks=1",
+        "  UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1"
+      ],
+      "sanitizer_diagnostics": [],
+      "failure_lines": []
+    },
+    "121449946026": {
+      "path": "/tmp/wls861-validation-r23/logs/remote-job-121449946026.log",
+      "sha256": "2cdbf75890496626e8f742a6f14e3d4df0faaedbb8ffbb93135b18ff49c70bf6",
+      "checked_out_expected_commit_seen": true,
+      "ordinary_user_guard_seen": true,
+      "ctest_summary_lines": [
+        "100% tests passed, 0 tests failed out of 54"
+      ],
+      "ctest_total_time_lines": [
+        "Total Test time (real) = 227.89 sec"
+      ],
+      "acceptance_runtime_lines": [
+        "16/54 Test #16: acceptance_runtime ...............   Passed    9.48 sec"
+      ],
+      "sanitizer_option_lines": [
+        "  ASAN_OPTIONS: halt_on_error=1:detect_leaks=1",
+        "  UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1"
+      ],
+      "sanitizer_diagnostics": [],
+      "failure_lines": []
+    },
+    "121449946073": {
+      "path": "/tmp/wls861-validation-r23/logs/remote-job-121449946073.log",
+      "sha256": "86732445970f34b43ac0d4201df9f2e20b488e42821ccff220ddef3c50630d67",
+      "checked_out_expected_commit_seen": true,
+      "ordinary_user_guard_seen": true,
+      "ctest_summary_lines": [
+        "100% tests passed, 0 tests failed out of 54"
+      ],
+      "ctest_total_time_lines": [
+        "Total Test time (real) = 144.14 sec"
+      ],
+      "acceptance_runtime_lines": [
+        "16/54 Test #16: acceptance_runtime ...............   Passed    8.04 sec"
+      ],
+      "sanitizer_option_lines": [
+        "  ASAN_OPTIONS: halt_on_error=1:detect_leaks=1",
+        "  UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1"
+      ],
+      "sanitizer_diagnostics": [],
+      "failure_lines": []
+    },
+    "121449946079": {
+      "path": "/tmp/wls861-validation-r23/logs/remote-job-121449946079.log",
+      "sha256": "ccd31e681f78d3ac19d2df49975df3d0b3b6afca2a228eef725afe78c0eaece3",
+      "checked_out_expected_commit_seen": true,
+      "ordinary_user_guard_seen": true,
+      "ctest_summary_lines": [],
+      "ctest_total_time_lines": [],
+      "acceptance_runtime_lines": [],
+      "sanitizer_option_lines": [
+        "  ASAN_OPTIONS: halt_on_error=1:detect_leaks=1",
+        "  UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1",
+        "ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 make BUILD_DIR=\"build-make-asan\" CXXFLAGS=\"-O2 -g -O0 -g -fsanitize=address -fno-omit-frame-pointer\" LDFLAGS=\" -fsanitize=address\" test"
+      ],
+      "sanitizer_diagnostics": [],
+      "failure_lines": [
+        "##[error]The operation was canceled."
+      ]
+    }
+  },
+  "observations": [
+    {
+      "observed_at": "2026-10-26T07:36:49.443Z",
+      "workflow_status": "in_progress",
+      "workflow_conclusion": null,
+      "jobs": [
+        {
+          "id": 121449945800,
+          "status": "in_progress",
+          "conclusion": null
+        },
+        {
+          "id": 121449945927,
+          "status": "in_progress",
+          "conclusion": null
+        },
+        {
+          "id": 121449945965,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946026,
+          "status": "in_progress",
+          "conclusion": null
+        },
+        {
+          "id": 121449946073,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946079,
+          "status": "in_progress",
+          "conclusion": null
+        }
+      ]
+    },
+    {
+      "observed_at": "2026-10-26T07:38:28.313Z",
+      "workflow_status": "in_progress",
+      "workflow_conclusion": null,
+      "jobs": [
+        {
+          "id": 121449945800,
+          "status": "in_progress",
+          "conclusion": null
+        },
+        {
+          "id": 121449945927,
+          "status": "in_progress",
+          "conclusion": null
+        },
+        {
+          "id": 121449945965,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946026,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946073,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946079,
+          "status": "in_progress",
+          "conclusion": null
+        }
+      ]
+    },
+    {
+      "observed_at": "2026-10-26T07:44:22.219Z",
+      "workflow_status": "in_progress",
+      "workflow_conclusion": null,
+      "jobs": [
+        {
+          "id": 121449945800,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449945927,
+          "status": "in_progress",
+          "conclusion": null
+        },
+        {
+          "id": 121449945965,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946026,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946073,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946079,
+          "status": "in_progress",
+          "conclusion": null
+        }
+      ]
+    },
+    {
+      "observed_at": "2026-10-26T07:50:42.037Z",
+      "workflow_status": "in_progress",
+      "workflow_conclusion": null,
+      "jobs": [
+        {
+          "id": 121449945800,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449945927,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449945965,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946026,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946073,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946079,
+          "status": "in_progress",
+          "conclusion": null
+        }
+      ]
+    },
+    {
+      "observed_at": "2026-10-26T07:52:30.700Z",
+      "workflow_status": "completed",
+      "workflow_conclusion": "cancelled",
+      "jobs": [
+        {
+          "id": 121449945800,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449945927,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449945965,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946026,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946073,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 121449946079,
+          "status": "completed",
+          "conclusion": "cancelled"
+        }
+      ]
+    }
+  ]
+}

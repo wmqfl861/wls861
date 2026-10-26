@@ -29,7 +29,7 @@
 | 9 输入错误分类 | 键名/类型路径原本会落到 Boost at/内部 Corrupt | CLI 与 Store 共用 catalog 形状校验，统一 invalid_input；CLI submit/amend 在 writer 前拒绝；Store 仍做原文、版本和重复 ID 等语义校验 |
 | 10 金额换算 | CLI floor(double*1e6) 与 Store 十进制解析不一致 | 提取原 Store 精确解析为共用函数，含所有 0..20000 分、指数、小数和越界回归；2.01 的实际 CLI 账本为 2010000 微美元 |
 | 11 无效写命令 | wait/wake 原先先打开 Takeover；只读查询已有前例 | 新增只读归属/终态/等待代次/语义目标/问题门禁预检；取得 writer 后 Store 再检。并发下预检不等于授权；合法CLI写者的全库扰动已由ADR-071接续修复，默认全库维护仍保留（见 #2） |
-| 12 子目录工具 | fs_write 父目录必须存在，工具表没有 mkdir | 接受，R2 增加带幂等/路径/配额的 fs_mkdir；不让 fs_write 默默创建未登记副作用。本批未实现 |
+| 12 子目录工具 | fs_write 父目录必须存在，工具表没有 mkdir | R2a.1已接入单个0700空目录的fs_mkdir，沿用首次派发/重放/UNKNOWN并增加目录深度和条目投影检查；旧grant不补写，fs_write仍不隐式建父目录。证据见目录工具契约、STATUS及版本报告 |
 | 13 交付文件名 | 安全平铺 bin 与 manifest 映射确认 | 接受保留逻辑相对路径的目标；需碰撞、大小写、穿越和旧 manifest 兼容方案，单独改交付格式，本批不迁移已发布包 |
 | 14 配置未执行 | 对列举设置及相邻预留/维护字段作调用点核对 | config check/explain 新增 runtime_support，列出仅校验的设置、值和原因；valid 只表示配置形状/引用有效。墙钟、告警、并发和压缩并未因此生效 |
 

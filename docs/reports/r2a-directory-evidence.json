@@ -1,0 +1,264 @@
+{
+  "archive": "r2a-directory-evidence.tar.gz",
+  "archive_bytes": 83184,
+  "archive_sha256": "50690a3a6691f1e9b418fad17f486570f16250602e3bcd9789269601025530e7",
+  "file_count": 51,
+  "files": [
+    {
+      "path": "r2a-directory-evidence/asan-configure.json",
+      "bytes": 534,
+      "sha256": "171527032347414e9da15f91b5af3734e55e18a8f83770f137252f21942f5649"
+    },
+    {
+      "path": "r2a-directory-evidence/asan-configure.log",
+      "bytes": 1002,
+      "sha256": "da85f2ea853841d7f8f158a59ad962b27daf8a88dcdfe7ac45bed0e71b7a51cf"
+    },
+    {
+      "path": "r2a-directory-evidence/asan-focused-0002-counts.json",
+      "bytes": 869,
+      "sha256": "6518c3e54c3d0f86106d5cc4de5f65f8e38af1ae8ede31b8dc4a51980bad442c"
+    },
+    {
+      "path": "r2a-directory-evidence/asan-focused-0002.json",
+      "bytes": 480,
+      "sha256": "57176ff4b53c84e6de7d4250c35578c95f78935faf501ab63a5f8c8666f60b50"
+    },
+    {
+      "path": "r2a-directory-evidence/asan-focused-0002.log",
+      "bytes": 8918,
+      "sha256": "521e11f7903a7321e71fe20f7e36d1abe9453c2d8469280a20a8efc6d7ac2783"
+    },
+    {
+      "path": "r2a-directory-evidence/asan-focused-build.json",
+      "bytes": 496,
+      "sha256": "edf414497d5c7214a2bf588401d6960241d1d5d5cbf830c70bcc66c914901181"
+    },
+    {
+      "path": "r2a-directory-evidence/asan-focused-build.log",
+      "bytes": 541,
+      "sha256": "6c72edc0717be5b8a44b87dbc331e0b74b6106e4cdb8ef62b0e54667ed2e1920"
+    },
+    {
+      "path": "r2a-directory-evidence/asan-runtime-build.json",
+      "bytes": 396,
+      "sha256": "fbe96158634e195478cddb12aaf18b667b3390424b47b5b4c2dd464ce30a348a"
+    },
+    {
+      "path": "r2a-directory-evidence/asan-runtime-build.log",
+      "bytes": 1941,
+      "sha256": "c1d3236ebfa188466436fc7b91d9962854e9fe6dc5060b1a86eca73e430f0a92"
+    },
+    {
+      "path": "r2a-directory-evidence/executed-inputs.sha256",
+      "bytes": 23092,
+      "sha256": "f6ebda73b85913cddcba9e735c927ee2d8aeb80b502c7b9ad21c69169ecf39e0"
+    },
+    {
+      "path": "r2a-directory-evidence/final-environment.json",
+      "bytes": 1292,
+      "sha256": "aa5397137e6d88619fe3cd47f8f7430fc074ccd075e1ef119c01ad0b8ceffff2"
+    },
+    {
+      "path": "r2a-directory-evidence/frozen-inputs.json",
+      "bytes": 958,
+      "sha256": "fec15fb804f429f844718135c553f06f8a5a1be6ae4404c4f8fab93bbac7ae85"
+    },
+    {
+      "path": "r2a-directory-evidence/initial-executed-inputs.sha256",
+      "bytes": 23092,
+      "sha256": "c9616d912356cc521163a91e034cdc7d6ddc944ae8c7254307ddf116c1c85d4b"
+    },
+    {
+      "path": "r2a-directory-evidence/initial-frozen-inputs.json",
+      "bytes": 705,
+      "sha256": "667130fc8eb0533d26148eb107b65d0c4b7f0109bab631db4b54f50f39961fd9"
+    },
+    {
+      "path": "r2a-directory-evidence/initial-r23-mkdir-cli-red.json",
+      "bytes": 468,
+      "sha256": "f18cbd056fc2b47abf56e9fe66005de1250ebd0983bcec280bc33d9de434c860"
+    },
+    {
+      "path": "r2a-directory-evidence/initial-r23-mkdir-cli-red.log",
+      "bytes": 7111,
+      "sha256": "be4f5b5800753142e10694274d5c29f1a12d60ccf998d5ac90804b1d4426e868"
+    },
+    {
+      "path": "r2a-directory-evidence/initial-r2a_mkdir_cli_smoke.py",
+      "bytes": 13790,
+      "sha256": "2b99102b7922ef688800a049c90e7e1520c5dbc0af8b0b580613f85ea512f31c"
+    },
+    {
+      "path": "r2a-directory-evidence/initial-r2a_mkdir_tests.cpp",
+      "bytes": 39134,
+      "sha256": "8eae668a7188fe0d212fca900df972e24dcb0e080417054a28add76e2002c9d7"
+    },
+    {
+      "path": "r2a-directory-evidence/initial-release-new-0002.json",
+      "bytes": 445,
+      "sha256": "4115866ec7e4588b1c04e4e7554633b360954a4c606849251556bbc8a5180597"
+    },
+    {
+      "path": "r2a-directory-evidence/initial-release-new-0002.log",
+      "bytes": 8210,
+      "sha256": "ab677782c61eb9b7611abaf6422fa6d71e70f911450920d9004caf72020c7757"
+    },
+    {
+      "path": "r2a-directory-evidence/initial-release-new-LastTest.log",
+      "bytes": 4571,
+      "sha256": "6c7ce06708fa850d6448182d31dae60916f69c286b54624969b9cd24ce5d6e7d"
+    },
+    {
+      "path": "r2a-directory-evidence/local-final-summary.json",
+      "bytes": 24455,
+      "sha256": "e55290268db01d32533c70766ea395be206d6bd73447e3f54a49e299da1f5f7d"
+    },
+    {
+      "path": "r2a-directory-evidence/r23-mkdir-cli-red-counts.json",
+      "bytes": 1088,
+      "sha256": "4d81b2e22ff4a89b6cfde3cbc27b4e5555e889e52f67190f1bc3ee22874c9546"
+    },
+    {
+      "path": "r2a-directory-evidence/r23-mkdir-cli-red.json",
+      "bytes": 467,
+      "sha256": "97b449b70269c52aaa63cbe9c3f9b588418ba6ef71bfa985efdff65dc24eb540"
+    },
+    {
+      "path": "r2a-directory-evidence/r23-mkdir-cli-red.log",
+      "bytes": 7111,
+      "sha256": "5ac8bae01982ee40ca49c6f973700ac6688ef31a07ac430eee31ea2201d7accd"
+    },
+    {
+      "path": "r2a-directory-evidence/release-0002-counts.json",
+      "bytes": 4294,
+      "sha256": "a657bd5aab3d14066e95dabfbd63774b4b3013d9dbe3bed5437a316212d1fb57"
+    },
+    {
+      "path": "r2a-directory-evidence/release-0002.json",
+      "bytes": 391,
+      "sha256": "f08eb4604a93dd20d694e01de754941841cb8fc7b46d9fb50e9b55342035c0a7"
+    },
+    {
+      "path": "r2a-directory-evidence/release-0002.log",
+      "bytes": 83495,
+      "sha256": "3d0c9730e906295776248e8f1f72032d3587a14393dbe67295ae91e4c4b77196"
+    },
+    {
+      "path": "r2a-directory-evidence/release-0022-counts.json",
+      "bytes": 4294,
+      "sha256": "143e41fe3a8a4fa7eaa6150241b45905a59d99cb286000600448f2573895cdc6"
+    },
+    {
+      "path": "r2a-directory-evidence/release-0022.json",
+      "bytes": 391,
+      "sha256": "e9046a7ab4e39d01a5804584de8a1028c441b05f0577540285d9cdb48484b7d4"
+    },
+    {
+      "path": "r2a-directory-evidence/release-0022.log",
+      "bytes": 83495,
+      "sha256": "0ea14b771109703d65984474831c91a24661021ceba47ba8337459c018683038"
+    },
+    {
+      "path": "r2a-directory-evidence/release-configure.json",
+      "bytes": 515,
+      "sha256": "5441599cc431f655d8be20ea47c1c0864d552f05aa625d0db3a4d4c3bdc0114c"
+    },
+    {
+      "path": "r2a-directory-evidence/release-configure.log",
+      "bytes": 1005,
+      "sha256": "7120b9a925a259504cc15ba99f70aa0fc7a5f700f7185e766d3abc7727e6a405"
+    },
+    {
+      "path": "r2a-directory-evidence/release-full-build.json",
+      "bytes": 372,
+      "sha256": "8bc855027ca95f17858eda939ed10c0edca513f1c3aa7288a6d614a26ca8b657"
+    },
+    {
+      "path": "r2a-directory-evidence/release-full-build.log",
+      "bytes": 4768,
+      "sha256": "caa6ac1f391bc25ce363f29448be844fad1be21b44e715f8dc4b8b47e01cf51a"
+    },
+    {
+      "path": "r2a-directory-evidence/release-new-0002-counts.json",
+      "bytes": 664,
+      "sha256": "a842b48a3e454028790bf50d0b0b4c2737675a33749041001404dba40b2c26b6"
+    },
+    {
+      "path": "r2a-directory-evidence/release-new-0002.json",
+      "bytes": 444,
+      "sha256": "2b3c307af3592a6a8924a906f0a7e7fe55c2b2da784c6e12b35fb977e232a9f8"
+    },
+    {
+      "path": "r2a-directory-evidence/release-new-0002.log",
+      "bytes": 3938,
+      "sha256": "6ebf795e1607d2eb70ef5421d048f9d7a9f8fb19b24b36a747667d86e884e425"
+    },
+    {
+      "path": "r2a-directory-evidence/release-new-build.json",
+      "bytes": 422,
+      "sha256": "2aaac3110eecad6efeb046b4937e40e7c0011f9fbefb5097a486cd08f4b71d70"
+    },
+    {
+      "path": "r2a-directory-evidence/release-new-build.log",
+      "bytes": 2075,
+      "sha256": "171dae03342793d1728f1d697211decfb628c2745e1f5d7326b299f135e90462"
+    },
+    {
+      "path": "r2a-directory-evidence/release-new-rebuild.json",
+      "bytes": 412,
+      "sha256": "ef364c7d0894e3845c8c2380bcd6a8f7d2c92147e0ff9ad169d3543beee357e4"
+    },
+    {
+      "path": "r2a-directory-evidence/release-new-rebuild.log",
+      "bytes": 130,
+      "sha256": "f2a06307f43de7404ef0837098c6783e93481d70255fbf943205065541a4fbac"
+    },
+    {
+      "path": "r2a-directory-evidence/ubsan-configure.json",
+      "bytes": 538,
+      "sha256": "0f7b55afca36de5c8ca082c06f3b2208cd604b267faa5ade259beba5453ac30c"
+    },
+    {
+      "path": "r2a-directory-evidence/ubsan-configure.log",
+      "bytes": 1003,
+      "sha256": "ede69e79f9e724f2a676c0aa69c64977c186187f29fd9d457b57825289db6f3f"
+    },
+    {
+      "path": "r2a-directory-evidence/ubsan-focused-0002-counts.json",
+      "bytes": 870,
+      "sha256": "bc2031a52cc50c9f5acdde46e5c350dee18676953a94a4194785574ecea50c26"
+    },
+    {
+      "path": "r2a-directory-evidence/ubsan-focused-0002.json",
+      "bytes": 483,
+      "sha256": "f90ce1a011c121381502b6cb6821c1db4ba4e1632fac4da89c72e73c204a3a62"
+    },
+    {
+      "path": "r2a-directory-evidence/ubsan-focused-0002.log",
+      "bytes": 8933,
+      "sha256": "75837b8ae8b03497156f790894954c09febe990e0aa8159325702b8327c83612"
+    },
+    {
+      "path": "r2a-directory-evidence/ubsan-focused-build.json",
+      "bytes": 498,
+      "sha256": "e772c5dd2d80eb0f9e39575ec896c3c4fde4beba2b4db2102e9e692043dc5f1e"
+    },
+    {
+      "path": "r2a-directory-evidence/ubsan-focused-build.log",
+      "bytes": 541,
+      "sha256": "5181848b228efcc405bda651eb15a0d1df2f0fb4c092ca178362a17c5455df0e"
+    },
+    {
+      "path": "r2a-directory-evidence/ubsan-runtime-build.json",
+      "bytes": 399,
+      "sha256": "78cb2eb7703251d89096fe3bdb6da55d132f9478e20fa540e925d24560807209"
+    },
+    {
+      "path": "r2a-directory-evidence/ubsan-runtime-build.log",
+      "bytes": 1941,
+      "sha256": "98871d8a57a7e3573ff373225e026a237cfca2442c5ff4a96245ffa3cde0680a"
+    }
+  ],
+  "scope": "local commands, raw logs, initial failures and frozen execution inputs"
+}

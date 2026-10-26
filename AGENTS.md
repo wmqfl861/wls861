@@ -46,6 +46,13 @@ decisions remain paused and pending. A same-plan follow-up must not revise or
 fence already-current siblings. Keep the explicit host disposition path and
 original response/usage replay behavior compatible.
 
+Read `docs/adr/074-bounded-directory-tool.md` and
+`docs/implementation/R2a-directory-tool.md` for fs_mkdir. Create only one absent
+0700 leaf under an existing parent; validate projected traversal depth/entry
+capacity before mkdir. Preserve the first-dispatch/UNKNOWN/replay boundary and
+old frozen grants/execution policies. Business mkdir does not grant runtime-owned
+allocation or cleanup authority; PREPARED allocation recovery is a separate slice.
+
 Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
 review fixes and priority changes. Model contract/context/rework and an approved
 small real loop now precede expanding private-data purge or daemon/API. Keep

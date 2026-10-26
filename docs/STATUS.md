@@ -1,19 +1,20 @@
-# 当前实现 **0.8.2-r2.3**，目标蓝图 **v0.4.1**。
+# 当前实现 **0.8.3-r2a.1**，目标蓝图 **v0.4.1**。
 
 接续 R2.2 `c975be3` 的[拒绝成果纠正/用户升级](implementation/R2-rejected-task-resolution.md)和
 [请求限定恢复](implementation/S1-request-recovery.md)，新增[模型逐任务 AMEND](implementation/R2-model-amendments.md)。
-设计取舍见 [ADR-072](adr/072-r2-integration.md)与[ADR-073](adr/073-model-amendment-dispositions.md)。
+R2a.1进一步接入[有界目录创建](implementation/R2a-directory-tool.md)。
+设计取舍见 [ADR-072](adr/072-r2-integration.md)、[ADR-073](adr/073-model-amendment-dispositions.md)和[ADR-074](adr/074-bounded-directory-tool.md)。
 Dispatcher纠正与TeamLead共享冻结返工计数，新说明必须保留旧约束并经Worker重新确认；
 这些动作和用户回答只恢复目标请求，不能扰动同库兄弟请求或其终态收尾租约。
 原R1.3窗口/原反馈、AMEND/UNKNOWN门禁保持。当前测试及发布状态只以
-[R2.2联合复验](reports/r2-integration-validation.md)、[R2.3验证报告](reports/r2-model-amendment-validation.md)和对应提交的CI为准。
+[R2.2联合复验](reports/r2-integration-validation.md)、[R2.3验证报告](reports/r2-model-amendment-validation.md)、[R2a.1验证报告](reports/r2a-directory-validation.md)和对应提交的CI为准。
 
 ## 能力矩阵
 
 | 能力 | 当前实现 | 已有证据 / 缺口 |
 | --- | --- | --- |
 | 四角色、版本、幂等、UNKNOWN | C++ Store + FakeModel 有界流程 | 真实 SQLite/文件/跨进程回归；不证明模型决策质量 |
-| 文件/进程 | fs_list/read/search/write/patch；完整强证明与前后清单可结算失败，Root专用核对；子进程固定0077 | 真实文件和监督夹具；强 bwrap/cgroup 部署正向、mkdir 和后台操作待完成 |
+| 文件/进程 | fs_list/read/search/mkdir/write/patch；完整强证明与前后清单可结算失败，Root专用核对；子进程固定0077 | 真实目录/文件和监督夹具；mkdir有投影配额、首次派发及UNKNOWN故障回归；强 bwrap/cgroup 部署正向和后台操作待完成 |
 | 问答/候选/验收 | Worker问题、原字节提交、TL/Dispatcher共享有限返工、验收及用户升级 | 固定脚本实现拒绝→新说明/确认→重提/验收及耗尽上报；回答不追加额度。通用任务重定义仍未实现 |
 | AMEND | Dispatcher模型提交新计划及逐节点update/keep/cancel；遗漏节点按同计划续办 | 捕获请求/任务CAS和团队代次，遗漏保留待办、keep须新说明/ack；双格式/重开/预算/兄弟隔离回归。真实模型判断质量尚未验收 |
 | 交付/清理 | 不可变包、精确回执、经验作业、固定清单受控 work 删除 | 实际发布/删除/恢复；私有行、owner收据保留；全局cleanup仍PENDING；PREPARED分配中断缺恢复出口 |
@@ -28,7 +29,8 @@ Dispatcher纠正与TeamLead共享冻结返工计数，新说明必须保留旧�
 S1 在实施中；近期优先级已调整为真实模型闭环的接口和运行时前置条件。
 S2 独立审核/DAG，S3 记忆，S4 MCP/评测，S5 按证据扩展仍为后续阶段。
 单 Agent 对照框架前移 S1，不再以整套 S2 完成为前提。
-下一聚焦增量为 R2a：目录工具 fs_mkdir、PREPARED 分配恢复/显式放弃；随后 R3 单协议离线回放。
+下一聚焦增量为 R2a.2：PREPARED 分配恢复/显式放弃，随后补doctor部署指引和R3单协议离线回放。
+[分配恢复设计草案](adr/075-owned-allocation-recovery.md)明确尚未实现的迁移、创建收据、弃置与清理联动。
 并发租约和选中请求按需提升代次继续开放，不因模型 AMEND 接入而视为完成。
 
 历史进度保留在 CHANGELOG 与 `docs/reports/`；原 handoff 的51项产品验收记录保持原状。
@@ -41,5 +43,5 @@ S2 独立审核/DAG，S3 记忆，S4 MCP/评测，S5 按证据扩展仍为后续
 原两个复现已转成回归，记录基线失败；运行状态和完整门禁见[本批报告](reports/audit24-recovery-validation.md)。
 
 该历史增量实现为 0.7.2-s1.6，不代表三个P1的所有生产部署条件均已实测：强bwrap/cgroup正向仍缺环境。
-R1容量问题现由显式新窗口部分覆盖，旧请求迁移/语义压缩仍开放；R2.2已联合接入同目标拒绝纠正/用户升级和按请求恢复；R2.3接入模型AMEND，R2a分配中断/fs_mkdir仍待实现。
+R1容量问题现由显式新窗口部分覆盖，旧请求迁移/语义压缩仍开放；R2.2已联合接入同目标拒绝纠正/用户升级和按请求恢复；R2.3接入模型AMEND，R2a.1接入fs_mkdir；PREPARED分配中断恢复仍待实现。
 [逐项处置](reviews/claude-2026-10-24-disposition.md)区分已覆盖、实际修复和延期方案。

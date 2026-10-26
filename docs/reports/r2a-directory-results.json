@@ -1,0 +1,871 @@
+{
+  "generated_at": "2026-10-26T08:04:21.414282+00:00",
+  "status": "all_requested_local_gates_passed",
+  "all_requested_local_gates_passed": true,
+  "source": {
+    "verified_execution_commit": "930665abeed3d437ea5188d5be74fce5c03e43ad",
+    "verified_commit_tree": "e1a61afeba3d0096b56f8db4e71cc2eee38c668e",
+    "execution_inputs": 233,
+    "manifest_sha256": "f6ebda73b85913cddcba9e735c927ee2d8aeb80b502c7b9ad21c69169ecf39e0",
+    "manifest_path": "/tmp/wls861-validation-r2a1/logs/executed-inputs.sha256",
+    "manifest_scope": [
+      "include",
+      "src",
+      "tests",
+      "schemas",
+      "config",
+      "db",
+      "prompts",
+      "third_party",
+      "scripts",
+      "CMakeLists.txt",
+      "Makefile",
+      "requirements-test.txt"
+    ],
+    "snapshot_differences": [],
+    "current_repository_differences": [],
+    "current_repository_head": "930665abeed3d437ea5188d5be74fce5c03e43ad",
+    "frozen_test_sha256": {
+      "tests/r2a_mkdir_tests.cpp": "a4db5ffb4283315fa564b3fd17423d91ae35e2f41225e6e5948d9b723e7595f9",
+      "tests/r2a_mkdir_cli_smoke.py": "b60197c50d723b2f7adf6ad94adb14924378fbaed7a3381179e63414601cd8ac"
+    }
+  },
+  "full_release_gates": [
+    {
+      "record": {
+        "name": "release-0002",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-validation-r2a1/build-release",
+          "--output-on-failure",
+          "-V",
+          "-j2"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793001568.1308525,
+        "exit_code": 0,
+        "elapsed_seconds": 79.127,
+        "log_sha256": "3d0c9730e906295776248e8f1f72032d3587a14393dbe67295ae91e4c4b77196"
+      },
+      "counts": {
+        "gate": "release-0002",
+        "coverage_scope": "full",
+        "ctest_groups": 56,
+        "ctest_passed": 56,
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "elapsed_seconds": 79.127,
+        "m1_cpp": 52,
+        "s1_cpp": 444,
+        "s1_cli": 149,
+        "m1_demo": 3,
+        "reference_contracts": 38,
+        "counted_cases": 686,
+        "integrity_groups": [
+          "handoff_integrity",
+          "review_source_integrity"
+        ],
+        "log_sha256": "3d0c9730e906295776248e8f1f72032d3587a14393dbe67295ae91e4c4b77196",
+        "input_manifest_sha256": "f6ebda73b85913cddcba9e735c927ee2d8aeb80b502c7b9ad21c69169ecf39e0",
+        "all_suite_counts": {
+          "acceptance_runtime": {
+            "passed": 19,
+            "failed": 0
+          },
+          "acceptance_store": {
+            "passed": 25,
+            "failed": 0
+          },
+          "audit24_capacity": {
+            "passed": 8,
+            "failed": 0
+          },
+          "audit24_capacity_cli_smoke": {
+            "passed": 6,
+            "failed": 0
+          },
+          "audit24_capacity_repro": {
+            "passed": 1,
+            "failed": 0
+          },
+          "audit24_reconcile": {
+            "passed": 4,
+            "failed": 0
+          },
+          "audit24_reconcile_cli_smoke": {
+            "passed": 4,
+            "failed": 0
+          },
+          "audit24_reopen": {
+            "passed": 7,
+            "failed": 0
+          },
+          "audit24_reopen_cli_smoke": {
+            "passed": 2,
+            "failed": 0
+          },
+          "cleanup": {
+            "passed": 20,
+            "failed": 0
+          },
+          "cleanup_runtime": {
+            "passed": 20,
+            "failed": 0
+          },
+          "config": {
+            "passed": 5,
+            "failed": 0
+          },
+          "config_loader": {
+            "passed": 18,
+            "failed": 0
+          },
+          "delivery": {
+            "passed": 17,
+            "failed": 0
+          },
+          "demo_smoke": {
+            "passed": 3,
+            "failed": 0
+          },
+          "event_runtime": {
+            "passed": 14,
+            "failed": 0
+          },
+          "event_store": {
+            "passed": 15,
+            "failed": 0
+          },
+          "journal": {
+            "passed": 10,
+            "failed": 0
+          },
+          "model": {
+            "passed": 15,
+            "failed": 0
+          },
+          "offline_runtime": {
+            "passed": 9,
+            "failed": 0
+          },
+          "process_evidence": {
+            "passed": 8,
+            "failed": 0
+          },
+          "r1_history": {
+            "passed": 10,
+            "failed": 0
+          },
+          "r1_history_cli_smoke": {
+            "passed": 7,
+            "failed": 0
+          },
+          "r1_structured": {
+            "passed": 16,
+            "failed": 0
+          },
+          "r1_structured_cli_smoke": {
+            "passed": 6,
+            "failed": 0
+          },
+          "r1_window": {
+            "passed": 12,
+            "failed": 0
+          },
+          "r1_window_cli_smoke": {
+            "passed": 9,
+            "failed": 0
+          },
+          "r2_amend": {
+            "passed": 14,
+            "failed": 0
+          },
+          "r2_amend_cli_smoke": {
+            "passed": 9,
+            "failed": 0
+          },
+          "r2_integration_cli_smoke": {
+            "passed": 6,
+            "failed": 0
+          },
+          "r2_recovery": {
+            "passed": 12,
+            "failed": 0
+          },
+          "r2_recovery_cli_smoke": {
+            "passed": 6,
+            "failed": 0
+          },
+          "r2_rework": {
+            "passed": 26,
+            "failed": 0
+          },
+          "r2_rework_cli_smoke": {
+            "passed": 10,
+            "failed": 0
+          },
+          "r2a_mkdir": {
+            "passed": 16,
+            "failed": 0
+          },
+          "r2a_mkdir_cli_smoke": {
+            "passed": 6,
+            "failed": 0
+          },
+          "review_cli_smoke": {
+            "passed": 9,
+            "failed": 0
+          },
+          "runtime_types": {
+            "passed": 6,
+            "failed": 0
+          },
+          "s12_cli_smoke": {
+            "passed": 8,
+            "failed": 0
+          },
+          "s13_cli_smoke": {
+            "passed": 10,
+            "failed": 0
+          },
+          "s14_cli_smoke": {
+            "passed": 12,
+            "failed": 0
+          },
+          "s15_cli_smoke": {
+            "passed": 17,
+            "failed": 0
+          },
+          "s16_cli_smoke": {
+            "passed": 14,
+            "failed": 0
+          },
+          "s1_cli_smoke": {
+            "passed": 8,
+            "failed": 0
+          },
+          "sandbox": {
+            "passed": 18,
+            "failed": 0
+          },
+          "scheduler": {
+            "passed": 9,
+            "failed": 0
+          },
+          "schema": {
+            "passed": 12,
+            "failed": 0
+          },
+          "specification_contracts": {
+            "passed": 38,
+            "failed": 0
+          },
+          "store": {
+            "passed": 31,
+            "failed": 0
+          },
+          "task_engine": {
+            "passed": 28,
+            "failed": 0
+          },
+          "worker_tools": {
+            "passed": 17,
+            "failed": 0
+          },
+          "workflow_runtime": {
+            "passed": 14,
+            "failed": 0
+          },
+          "workflow_store": {
+            "passed": 21,
+            "failed": 0
+          },
+          "workspace": {
+            "passed": 19,
+            "failed": 0
+          }
+        }
+      },
+      "record_path": "/tmp/wls861-validation-r2a1/logs/release-0002.json",
+      "log_path": "/tmp/wls861-validation-r2a1/logs/release-0002.log",
+      "sanitizer_diagnostics": []
+    },
+    {
+      "record": {
+        "name": "release-0022",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-validation-r2a1/build-release",
+          "--output-on-failure",
+          "-V",
+          "-j2"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0022",
+        "started": 1793001657.0182362,
+        "exit_code": 0,
+        "elapsed_seconds": 78.355,
+        "log_sha256": "0ea14b771109703d65984474831c91a24661021ceba47ba8337459c018683038"
+      },
+      "counts": {
+        "gate": "release-0022",
+        "coverage_scope": "full",
+        "ctest_groups": 56,
+        "ctest_passed": 56,
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0022",
+        "elapsed_seconds": 78.355,
+        "m1_cpp": 52,
+        "s1_cpp": 444,
+        "s1_cli": 149,
+        "m1_demo": 3,
+        "reference_contracts": 38,
+        "counted_cases": 686,
+        "integrity_groups": [
+          "handoff_integrity",
+          "review_source_integrity"
+        ],
+        "log_sha256": "0ea14b771109703d65984474831c91a24661021ceba47ba8337459c018683038",
+        "input_manifest_sha256": "f6ebda73b85913cddcba9e735c927ee2d8aeb80b502c7b9ad21c69169ecf39e0",
+        "all_suite_counts": {
+          "acceptance_runtime": {
+            "passed": 19,
+            "failed": 0
+          },
+          "acceptance_store": {
+            "passed": 25,
+            "failed": 0
+          },
+          "audit24_capacity": {
+            "passed": 8,
+            "failed": 0
+          },
+          "audit24_capacity_cli_smoke": {
+            "passed": 6,
+            "failed": 0
+          },
+          "audit24_capacity_repro": {
+            "passed": 1,
+            "failed": 0
+          },
+          "audit24_reconcile": {
+            "passed": 4,
+            "failed": 0
+          },
+          "audit24_reconcile_cli_smoke": {
+            "passed": 4,
+            "failed": 0
+          },
+          "audit24_reopen": {
+            "passed": 7,
+            "failed": 0
+          },
+          "audit24_reopen_cli_smoke": {
+            "passed": 2,
+            "failed": 0
+          },
+          "cleanup": {
+            "passed": 20,
+            "failed": 0
+          },
+          "cleanup_runtime": {
+            "passed": 20,
+            "failed": 0
+          },
+          "config": {
+            "passed": 5,
+            "failed": 0
+          },
+          "config_loader": {
+            "passed": 18,
+            "failed": 0
+          },
+          "delivery": {
+            "passed": 17,
+            "failed": 0
+          },
+          "demo_smoke": {
+            "passed": 3,
+            "failed": 0
+          },
+          "event_runtime": {
+            "passed": 14,
+            "failed": 0
+          },
+          "event_store": {
+            "passed": 15,
+            "failed": 0
+          },
+          "journal": {
+            "passed": 10,
+            "failed": 0
+          },
+          "model": {
+            "passed": 15,
+            "failed": 0
+          },
+          "offline_runtime": {
+            "passed": 9,
+            "failed": 0
+          },
+          "process_evidence": {
+            "passed": 8,
+            "failed": 0
+          },
+          "r1_history": {
+            "passed": 10,
+            "failed": 0
+          },
+          "r1_history_cli_smoke": {
+            "passed": 7,
+            "failed": 0
+          },
+          "r1_structured": {
+            "passed": 16,
+            "failed": 0
+          },
+          "r1_structured_cli_smoke": {
+            "passed": 6,
+            "failed": 0
+          },
+          "r1_window": {
+            "passed": 12,
+            "failed": 0
+          },
+          "r1_window_cli_smoke": {
+            "passed": 9,
+            "failed": 0
+          },
+          "r2_amend": {
+            "passed": 14,
+            "failed": 0
+          },
+          "r2_amend_cli_smoke": {
+            "passed": 9,
+            "failed": 0
+          },
+          "r2_integration_cli_smoke": {
+            "passed": 6,
+            "failed": 0
+          },
+          "r2_recovery": {
+            "passed": 12,
+            "failed": 0
+          },
+          "r2_recovery_cli_smoke": {
+            "passed": 6,
+            "failed": 0
+          },
+          "r2_rework": {
+            "passed": 26,
+            "failed": 0
+          },
+          "r2_rework_cli_smoke": {
+            "passed": 10,
+            "failed": 0
+          },
+          "r2a_mkdir": {
+            "passed": 16,
+            "failed": 0
+          },
+          "r2a_mkdir_cli_smoke": {
+            "passed": 6,
+            "failed": 0
+          },
+          "review_cli_smoke": {
+            "passed": 9,
+            "failed": 0
+          },
+          "runtime_types": {
+            "passed": 6,
+            "failed": 0
+          },
+          "s12_cli_smoke": {
+            "passed": 8,
+            "failed": 0
+          },
+          "s13_cli_smoke": {
+            "passed": 10,
+            "failed": 0
+          },
+          "s14_cli_smoke": {
+            "passed": 12,
+            "failed": 0
+          },
+          "s15_cli_smoke": {
+            "passed": 17,
+            "failed": 0
+          },
+          "s16_cli_smoke": {
+            "passed": 14,
+            "failed": 0
+          },
+          "s1_cli_smoke": {
+            "passed": 8,
+            "failed": 0
+          },
+          "sandbox": {
+            "passed": 18,
+            "failed": 0
+          },
+          "scheduler": {
+            "passed": 9,
+            "failed": 0
+          },
+          "schema": {
+            "passed": 12,
+            "failed": 0
+          },
+          "specification_contracts": {
+            "passed": 38,
+            "failed": 0
+          },
+          "store": {
+            "passed": 31,
+            "failed": 0
+          },
+          "task_engine": {
+            "passed": 28,
+            "failed": 0
+          },
+          "worker_tools": {
+            "passed": 17,
+            "failed": 0
+          },
+          "workflow_runtime": {
+            "passed": 14,
+            "failed": 0
+          },
+          "workflow_store": {
+            "passed": 21,
+            "failed": 0
+          },
+          "workspace": {
+            "passed": 19,
+            "failed": 0
+          }
+        }
+      },
+      "record_path": "/tmp/wls861-validation-r2a1/logs/release-0022.json",
+      "log_path": "/tmp/wls861-validation-r2a1/logs/release-0022.log",
+      "sanitizer_diagnostics": []
+    }
+  ],
+  "focused_sanitizer_gates": [
+    {
+      "record": {
+        "name": "asan-focused-0002",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-validation-r2a1/build-asan",
+          "--output-on-failure",
+          "-V",
+          "-j2",
+          "-R",
+          "^(r2a_mkdir|workspace|worker_tools|config_loader|r2a_mkdir_cli_smoke)$"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793001521.670891,
+        "exit_code": 0,
+        "elapsed_seconds": 36.218,
+        "log_sha256": "521e11f7903a7321e71fe20f7e36d1abe9453c2d8469280a20a8efc6d7ac2783"
+      },
+      "counts": {
+        "gate": "asan-focused-0002",
+        "coverage_scope": "focused",
+        "ctest_groups": 5,
+        "ctest_passed": 5,
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "elapsed_seconds": 36.218,
+        "m1_cpp": 0,
+        "s1_cpp": 70,
+        "s1_cli": 6,
+        "m1_demo": 0,
+        "reference_contracts": 0,
+        "counted_cases": 76,
+        "integrity_groups": [],
+        "log_sha256": "521e11f7903a7321e71fe20f7e36d1abe9453c2d8469280a20a8efc6d7ac2783",
+        "input_manifest_sha256": "f6ebda73b85913cddcba9e735c927ee2d8aeb80b502c7b9ad21c69169ecf39e0",
+        "all_suite_counts": {
+          "config_loader": {
+            "passed": 18,
+            "failed": 0
+          },
+          "r2a_mkdir": {
+            "passed": 16,
+            "failed": 0
+          },
+          "r2a_mkdir_cli_smoke": {
+            "passed": 6,
+            "failed": 0
+          },
+          "worker_tools": {
+            "passed": 17,
+            "failed": 0
+          },
+          "workspace": {
+            "passed": 19,
+            "failed": 0
+          }
+        }
+      },
+      "record_path": "/tmp/wls861-validation-r2a1/logs/asan-focused-0002.json",
+      "log_path": "/tmp/wls861-validation-r2a1/logs/asan-focused-0002.log",
+      "sanitizer_diagnostics": []
+    },
+    {
+      "record": {
+        "name": "ubsan-focused-0002",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-validation-r2a1/build-ubsan",
+          "--output-on-failure",
+          "-V",
+          "-j2",
+          "-R",
+          "^(r2a_mkdir|workspace|worker_tools|config_loader|r2a_mkdir_cli_smoke)$"
+        ],
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "started": 1793001657.5586967,
+        "exit_code": 0,
+        "elapsed_seconds": 19.409,
+        "log_sha256": "75837b8ae8b03497156f790894954c09febe990e0aa8159325702b8327c83612"
+      },
+      "counts": {
+        "gate": "ubsan-focused-0002",
+        "coverage_scope": "focused",
+        "ctest_groups": 5,
+        "ctest_passed": 5,
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "elapsed_seconds": 19.409,
+        "m1_cpp": 0,
+        "s1_cpp": 70,
+        "s1_cli": 6,
+        "m1_demo": 0,
+        "reference_contracts": 0,
+        "counted_cases": 76,
+        "integrity_groups": [],
+        "log_sha256": "75837b8ae8b03497156f790894954c09febe990e0aa8159325702b8327c83612",
+        "input_manifest_sha256": "f6ebda73b85913cddcba9e735c927ee2d8aeb80b502c7b9ad21c69169ecf39e0",
+        "all_suite_counts": {
+          "config_loader": {
+            "passed": 18,
+            "failed": 0
+          },
+          "r2a_mkdir": {
+            "passed": 16,
+            "failed": 0
+          },
+          "r2a_mkdir_cli_smoke": {
+            "passed": 6,
+            "failed": 0
+          },
+          "worker_tools": {
+            "passed": 17,
+            "failed": 0
+          },
+          "workspace": {
+            "passed": 19,
+            "failed": 0
+          }
+        }
+      },
+      "record_path": "/tmp/wls861-validation-r2a1/logs/ubsan-focused-0002.json",
+      "log_path": "/tmp/wls861-validation-r2a1/logs/ubsan-focused-0002.log",
+      "sanitizer_diagnostics": []
+    }
+  ],
+  "full_sanitizer_suite_executed_locally": false,
+  "focused_sanitizer_suite_names": [
+    "r2a_mkdir",
+    "workspace",
+    "worker_tools",
+    "config_loader",
+    "r2a_mkdir_cli_smoke"
+  ],
+  "new_targeted_regression_gate": {
+    "record": {
+      "name": "release-new-0002",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-validation-r2a1/build-release",
+        "--output-on-failure",
+        "-V",
+        "-j2",
+        "-R",
+        "^(r2a_mkdir|r2a_mkdir_cli_smoke)$"
+      ],
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "started": 1793001371.553889,
+      "exit_code": 0,
+      "elapsed_seconds": 1.271,
+      "log_sha256": "6ebf795e1607d2eb70ef5421d048f9d7a9f8fb19b24b36a747667d86e884e425"
+    },
+    "counts": {
+      "gate": "release-new-0002",
+      "coverage_scope": "new",
+      "ctest_groups": 2,
+      "ctest_passed": 2,
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "elapsed_seconds": 1.271,
+      "m1_cpp": 0,
+      "s1_cpp": 16,
+      "s1_cli": 6,
+      "m1_demo": 0,
+      "reference_contracts": 0,
+      "counted_cases": 22,
+      "integrity_groups": [],
+      "log_sha256": "6ebf795e1607d2eb70ef5421d048f9d7a9f8fb19b24b36a747667d86e884e425",
+      "input_manifest_sha256": "f6ebda73b85913cddcba9e735c927ee2d8aeb80b502c7b9ad21c69169ecf39e0",
+      "all_suite_counts": {
+        "r2a_mkdir": {
+          "passed": 16,
+          "failed": 0
+        },
+        "r2a_mkdir_cli_smoke": {
+          "passed": 6,
+          "failed": 0
+        }
+      }
+    },
+    "record_path": "/tmp/wls861-validation-r2a1/logs/release-new-0002.json",
+    "log_path": "/tmp/wls861-validation-r2a1/logs/release-new-0002.log",
+    "sanitizer_diagnostics": []
+  },
+  "new_regression_case_counts": {
+    "cpp": 16,
+    "cli": 6
+  },
+  "exact_final_functional_red_baseline": {
+    "record": {
+      "name": "r23-mkdir-cli-red",
+      "command": [
+        "/tmp/wls861-validation-venv/bin/python",
+        "/tmp/wls861-validation-r2a1/red/r2a_mkdir_cli_smoke.py",
+        "/tmp/wls861-validation-r23/build-release/wls",
+        "/tmp/wls861-validation-r23/source"
+      ],
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "started": 1793001353.933193,
+      "exit_code": 1,
+      "elapsed_seconds": 1.043,
+      "log_sha256": "5ac8bae01982ee40ca49c6f973700ac6688ef31a07ac430eee31ea2201d7accd"
+    },
+    "baseline_code_commit": "4737b6b0585d9828579ca244d96101bbdb104076",
+    "baseline_tree": "aa6e12ddd127f2ac54bc94b353563f2345dbffa5",
+    "baseline_binary": "/tmp/wls861-validation-r23/build-release/wls",
+    "baseline_source": "/tmp/wls861-validation-r23/source",
+    "final_test_sha256": "b60197c50d723b2f7adf6ad94adb14924378fbaed7a3381179e63414601cd8ac",
+    "test_cases": 6,
+    "failed_cases": 6,
+    "passed_cases": 0,
+    "harness_errors": 0,
+    "classification": "functional assertions: unavailable fs_mkdir or missing declaration/new frozen grant; not a compile or import failure"
+  },
+  "initial_fixture_failure_history": {
+    "record": {
+      "name": "release-new-0002",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-validation-r2a1/build-release",
+        "--output-on-failure",
+        "-V",
+        "-j2",
+        "-R",
+        "^(r2a_mkdir|r2a_mkdir_cli_smoke)$"
+      ],
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "started": 1793000769.6452162,
+      "exit_code": 8,
+      "elapsed_seconds": 1.229,
+      "log_sha256": "ab677782c61eb9b7611abaf6422fa6d71e70f911450920d9004caf72020c7757"
+    },
+    "log_path": "/tmp/wls861-validation-r2a1/logs/initial-release-new-0002.log",
+    "cpp_cases_passed": 15,
+    "cpp_cases_failed": 1,
+    "cli_cases_passed": 5,
+    "cli_cases_errors": 1,
+    "causes": [
+      "Quota fixture modified parsed configuration without matching frozen system.yaml dependency bytes",
+      "CLI snapshot assumed rowid exists on WITHOUT ROWID tables"
+    ],
+    "fix_scope": "Only the two test fixtures changed; runtime source unchanged",
+    "preserved_original_test_paths": [
+      "/tmp/wls861-validation-r2a1/logs/initial-r2a_mkdir_tests.cpp",
+      "/tmp/wls861-validation-r2a1/logs/initial-r2a_mkdir_cli_smoke.py"
+    ],
+    "preserved_initial_manifest_path": "/tmp/wls861-validation-r2a1/logs/initial-executed-inputs.sha256"
+  },
+  "environment": {
+    "uid": 65534,
+    "gid": 65534,
+    "compiler": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "cmake": "cmake version 3.28.3",
+    "ninja": "1.11.1",
+    "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+    "jsonschema": "4.10.3",
+    "platform": "Linux-6.18.55-x86_64-with-glibc2.39",
+    "sanitizer_options": {
+      "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+      "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"
+    },
+    "binary_sha256": {
+      "release": {
+        "wls": "6d4b1d602df0fc16966871ed6e6d32978680128c4a093c6815607c079a953347",
+        "r2a_mkdir_tests": "1420d51234ac62bac2857b019af0524c210fdfaef64b6f447b7098a347e6edf1"
+      },
+      "asan": {
+        "wls": "80e344985f24f2a08de8bae64a6c7fbf4bfc31f8fa49ddd1f618b9eccb67fd51",
+        "r2a_mkdir_tests": "911a449863ede7cfd21915bb642c359f7dc7f6d4038904bcec66b4483ab058bd"
+      },
+      "ubsan": {
+        "wls": "b4e2bfb1ccf9e0845958f19976dcc6d9a25f6f2ea725064d7db1ae0be1cb594f",
+        "r2a_mkdir_tests": "34ead1006bd0fb2ecf09ba5ba628a9b5a5d83c9233e13ba7267e5c87c074f43a"
+      }
+    },
+    "coverage_policy": {
+      "release": "full CTest both umasks",
+      "asan": "five focused groups only",
+      "ubsan": "five focused groups only",
+      "full_remote_matrix": "must be verified for exact final published commit separately"
+    }
+  },
+  "remote_ci": {
+    "r2a_final_commit_matrix_verified_by_this_record": false,
+    "required_scope": "Separate six-job full matrix at the exact final published R2a commit; R2.3 CI is not R2a evidence"
+  },
+  "repository_source_documentation_or_git_writes_by_validation_agent": false,
+  "notes": [
+    "Release full gates contain 444 S1 C++ +149 S1 CLI +52 M1 C++ +3 demo +38 contract cases, plus two integrity groups.",
+    "Each local sanitizer gate is only the requested five focused groups, containing 70 C++ and six CLI cases.",
+    "All original failure logs, original frozen tests and the earlier red baseline remain preserved.",
+    "No production permissions, original test timeouts, sanitizer options or assertions were relaxed."
+  ]
+}

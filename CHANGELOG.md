@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.3-r2a.1 — bounded directory creation
+
+- Add Worker fs_mkdir for a single absent empty directory with an existing parent and fixed 0700 mode.
+- Check projected entry/depth limits before creation; pin directory identities and retain child/parent synchronization evidence.
+- Route directory effects through existing durable first-dispatch, accounting, exact replay, UNKNOWN and settlement-failure fences.
+- Grant the new tool only through new frozen templates; keep the shared policy version unchanged and preserve existing requests’ bound policy hashes and grants.
+- Add private syscall-fault and real CLI/SQLite regressions; keep PREPARED owned-allocation recovery and cleanup authority separate.
+
 ## 0.8.2-r2.3 — captured model AMEND decisions
 
 - Let Dispatcher models publish an amended plan with explicit update/keep/cancel choices, then resolve omitted nodes on the same plan.

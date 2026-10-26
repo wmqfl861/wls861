@@ -1,0 +1,89 @@
+{
+  "archive": "r2-model-amendment-remote-evidence.tar.gz",
+  "archive_bytes": 214068,
+  "archive_sha256": "c5762fe7d0f273edca3dcb1ea15ea885799f02e0df199f48810326c22a897e46",
+  "file_count": 16,
+  "files": [
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-ci.json",
+      "bytes": 81695,
+      "sha256": "98be5506c39a7707e41b0b5d6c3122b3a0729592dd0ae81a505e6d626df94709"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121424073507.log",
+      "bytes": 45516,
+      "sha256": "cd9e9333f75571da0f7427820db239712013add1618ccdc69b91cfdc18118b2c"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121424073524.log",
+      "bytes": 45575,
+      "sha256": "61f96cd1dd55bd1683691852feaa85ead91ff4871539da92090d3137a1379abd"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121424073588.log",
+      "bytes": 143374,
+      "sha256": "7960d678e57d5c9aabc5792288184c13ad8c2f9cd76e5862fe0b954791ccedae"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121449945800.log",
+      "bytes": 46087,
+      "sha256": "4732cf5227cc9591791a44957d01208b8aefc846c9afec30e561c319aab55349"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121449945927.log",
+      "bytes": 46086,
+      "sha256": "19b6629b158bdf8043e67b33958853af3fc234c435ac53b2c43e1186cc631c15"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121449945965.log",
+      "bytes": 46470,
+      "sha256": "a14e0a637c3847ba34343fa475c5da745fe717a43d2250fa125e214e6ea44c9c"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121449946026.log",
+      "bytes": 46088,
+      "sha256": "2cdbf75890496626e8f742a6f14e3d4df0faaedbb8ffbb93135b18ff49c70bf6"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121449946073.log",
+      "bytes": 46098,
+      "sha256": "86732445970f34b43ac0d4201df9f2e20b488e42821ccff220ddef3c50630d67"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121449946079.log",
+      "bytes": 142867,
+      "sha256": "ccd31e681f78d3ac19d2df49975df3d0b3b6afca2a228eef725afe78c0eaece3"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121456171204.log",
+      "bytes": 46079,
+      "sha256": "1ccf94830bfad9e863582437832b97fb45591806cfffa28ab86c02b582e748d7"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121456171347.log",
+      "bytes": 46096,
+      "sha256": "f06566fd443d00a3f25b471605e2de661f8e5543b6b2ca32dfbf12eb32ad813f"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121456171400.log",
+      "bytes": 46085,
+      "sha256": "ad65c510703219531bf240bbc8fe9ea1c8976eba79fcc190a6dff1189251b31a"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121456171429.log",
+      "bytes": 46476,
+      "sha256": "4369bc7b35d44893f3c5750df9b5091437edf9e6966435e6505ff4cc77211869"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121456171528.log",
+      "bytes": 46085,
+      "sha256": "ccfe5f80dc637a508a2b82d1d3c6b9169ec662476bcd8c36231cf6c4ae228c0e"
+    },
+    {
+      "path": "r2-model-amendment-remote-evidence/remote-job-121456171623.log",
+      "bytes": 148051,
+      "sha256": "14bd4e71de60cc4cb973573b408f1d2394fa44db125285d4de659012996638de"
+    }
+  ],
+  "scope": "remote CI logs and immutable observations"
+}
