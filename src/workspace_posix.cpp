@@ -360,6 +360,129 @@ struct Workspace::Impl {
         }
     }
 
+    WorkspaceMutationResult make_directory(std::string_view supplied_path) {
+        WorkspaceMutationResult output;
+        std::unique_lock<std::mutex> thread_lock;
+        std::unique_ptr<DirectoryLock> process_lock;
+        Fd parent;
+        Fd child;
+        bool mkdir_attempted = false;
+        bool created = false;
+        bool child_synced = false;
+        bool parent_synced = false;
+        std::string phase = "validate";
+        std::string logical;
+        std::string parent_name;
+        boost::json::object evidence;
+        try {
+            if (access != WorkspaceAccess::ReadWrite) throw Error(ErrorCode::Unauthorized, "workspace is read-only");
+            logical = path(supplied_path, false);
+            // collect starts at depth one for the workspace root. A directory,
+            // unlike a leaf file, adds another recursive traversal level.
+            const auto directory_depth = static_cast<std::size_t>(std::count(logical.begin(), logical.end(), '/')) + 2U;
+            if (directory_depth > limits.max_depth)
+                throw Error(ErrorCode::Quota, "projected workspace directory depth exceeds capacity");
+            const auto separator = logical.rfind('/');
+            parent_name = separator == std::string::npos ? "." : logical.substr(0, separator);
+            const auto leaf = separator == std::string::npos ? logical : logical.substr(separator + 1);
+            thread_lock = std::unique_lock<std::mutex>(mutex);
+            process_lock = std::make_unique<DirectoryLock>(root.get(), true);
+            check_root();
+            evidence = {{"path", logical}, {"parent_path", parent_name},
+                        {"root_device", static_cast<std::uint64_t>(identity.st_dev)},
+                        {"root_inode", static_cast<std::uint64_t>(identity.st_ino)}};
+            const auto checked_parent = inspected(parent_name);
+            const auto parent_identity = stat_fd(checked_parent.get());
+            check_directory(parent_identity);
+            parent = open_resolved(root.get(), parent_name, O_RDONLY | O_DIRECTORY);
+            const auto opened_parent = stat_fd(parent.get());
+            evidence["parent_device"] = static_cast<std::uint64_t>(parent_identity.st_dev);
+            evidence["parent_inode"] = static_cast<std::uint64_t>(parent_identity.st_ino);
+            check_directory(opened_parent);
+            if (!same_inode(parent_identity, opened_parent)) throw Error(ErrorCode::Conflict, "workspace parent changed");
+            if (inspected(logical, true).get() >= 0)
+                throw Error(ErrorCode::Conflict, "workspace directory destination already exists");
+            Inventory inventory;
+            collect(".", 1, inventory);
+            if (inventory.entries >= limits.max_entries)
+                throw Error(ErrorCode::Quota, "projected workspace entry capacity exceeded");
+            phase = "recheck";
+            check_root();
+            const auto live_parent = inspected(parent_name);
+            if (!same_inode(parent_identity, stat_fd(live_parent.get())))
+                throw Error(ErrorCode::Conflict, "workspace parent path changed before directory creation");
+            if (inspected(logical, true).get() >= 0)
+                throw Error(ErrorCode::Conflict, "workspace directory destination appeared before creation");
+
+            // Even a failed mkdir syscall is beyond the definite no-effect
+            // boundary. Never retry it here or remove the destination in a
+            // catch handler: durable operation settlement happens separately.
+            phase = "mkdir";
+            mkdir_attempted = true;
+            if (::mkdirat(parent.get(), leaf.c_str(), 0700) != 0) fail_errno("create workspace directory");
+            created = true;
+            phase = "open_directory";
+            child = open_resolved(parent.get(), leaf, O_RDONLY | O_DIRECTORY);
+            const auto child_identity = stat_fd(child.get());
+            evidence["directory_device"] = static_cast<std::uint64_t>(child_identity.st_dev);
+            evidence["directory_inode"] = static_cast<std::uint64_t>(child_identity.st_ino);
+            check_directory(child_identity);
+            phase = "permissions";
+            if (::fchmod(child.get(), 0700) != 0) fail_errno("set workspace directory permissions");
+            const auto private_child = stat_fd(child.get());
+            check_directory(private_child);
+            if (!same_inode(child_identity, private_child) || (private_child.st_mode & 07777U) != 0700U)
+                throw Error(ErrorCode::Conflict, "workspace directory permissions changed");
+            evidence["mode"] = static_cast<std::uint64_t>(private_child.st_mode & 07777U);
+            phase = "child_sync";
+            sync_fd(child.get(), "sync new workspace directory");
+            child_synced = true;
+            phase = "parent_sync";
+            sync_fd(parent.get(), "sync workspace parent directory");
+            parent_synced = true;
+            phase = "verify";
+            check_root();
+            const auto final_parent = inspected(parent_name);
+            if (!same_inode(parent_identity, stat_fd(final_parent.get())))
+                throw Error(ErrorCode::Conflict, "workspace parent path changed after directory creation");
+            if (!directory(logical).empty())
+                throw Error(ErrorCode::Conflict, "new workspace directory is no longer empty");
+            const auto published = inspected(logical);
+            const auto published_identity = stat_fd(published.get());
+            check_directory(published_identity);
+            if (!same_observation(private_child, published_identity))
+                throw Error(ErrorCode::Conflict, "workspace directory changed before result");
+            evidence["phase"] = "complete";
+            evidence["mkdir_attempted"] = true;
+            evidence["created"] = true;
+            evidence["child_synced"] = true;
+            evidence["parent_synced"] = true;
+            evidence["durable"] = true;
+            output.status = WorkspaceMutationStatus::Succeeded;
+            output.evidence = std::move(evidence);
+            output.result = boost::json::object{{"path", logical}, {"created", true},
+                {"type", "directory"}, {"mode", static_cast<std::uint64_t>(0700)}};
+            return output;
+        } catch (const std::exception& error) {
+            const auto* known = dynamic_cast<const Error*>(&error);
+            const auto cause = known ? known->code() : ErrorCode::Storage;
+            output.status = mkdir_attempted ? WorkspaceMutationStatus::OutcomeUnknown : WorkspaceMutationStatus::EffectNotStarted;
+            output.error_code = mkdir_attempted ? ErrorCode::UnknownOutcome : cause;
+            evidence["path"] = logical;
+            evidence["phase"] = phase;
+            evidence["error"] = error.what();
+            evidence["cause_code"] = error_name(cause);
+            evidence["mkdir_attempted"] = mkdir_attempted;
+            evidence["created"] = created;
+            evidence["child_synced"] = child_synced;
+            evidence["parent_synced"] = parent_synced;
+            evidence["durable"] = child_synced && parent_synced;
+            output.evidence = std::move(evidence);
+            output.result = nullptr;
+            return output;
+        }
+    }
+
     WorkspaceMutationResult mutate(std::string_view supplied_path, std::string_view supplied_bytes,
                                    const std::optional<std::string>& expected, std::optional<PatchSpec> patch_spec) {
         WorkspaceMutationResult output;
@@ -645,6 +768,10 @@ Json Workspace::search(std::string_view path, std::string_view literal, std::siz
     return boost::json::object{{"path", logical}, {"matches", std::move(matches)}, {"complete", !truncated},
         {"truncated", truncated}, {"limit_reason", truncated ? Json("max_matches") : Json(nullptr)},
         {"files_examined", static_cast<std::uint64_t>(examined_files)}, {"bytes_examined", examined_bytes}};
+}
+
+WorkspaceMutationResult Workspace::mkdir(std::string_view path) {
+    return impl_->make_directory(path);
 }
 
 WorkspaceMutationResult Workspace::write_atomic(std::string_view path, std::string_view bytes,

@@ -695,7 +695,7 @@ void validate_function(const Json& function, const Json& system, const Capabilit
     if (!strings(required(function, "pinned_skills", "function"), "function.pinned_skills").empty()) unsupported("function.pinned_skills", "pinned memory/Skill loading requires the later memory integration");
     const auto& templates = required(function, "team_templates", "function");
     if (!templates.is_object() || templates.as_object().empty() || templates.as_object().size() > 64) invalid("function.team_templates", "expected 1 to 64 templates");
-    const std::set<std::string> tools{"fs_list", "fs_read", "fs_search", "fs_write", "fs_patch", "run", "op_status", "op_output",
+    const std::set<std::string> tools{"fs_list", "fs_read", "fs_search", "fs_mkdir", "fs_write", "fs_patch", "run", "op_status", "op_output",
         "op_cancel", "ask", "progress", "ack_change", "submit", "note", "recall", "load_memory"};
     for (const auto& entry : templates.as_object()) {
         const std::string name(entry.key().data(), entry.key().size());

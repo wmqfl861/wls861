@@ -73,6 +73,11 @@ public:
     Json search(std::string_view path, std::string_view literal,
                 std::size_t max_matches = 100) const;
 
+    // Create one empty directory with mode 0700. The parent must exist and the
+    // destination must be absent. Any failure after the mkdir attempt is UNKNOWN;
+    // this invocation never removes a possibly published directory on failure.
+    WorkspaceMutationResult mkdir(std::string_view path);
+
     // Missing expected_sha256 authorizes creation only. Existing destinations
     // require the full old SHA-256. Parent directories must already exist.
     WorkspaceMutationResult write_atomic(

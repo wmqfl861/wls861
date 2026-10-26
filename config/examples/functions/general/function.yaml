@@ -25,7 +25,7 @@ roles:
 
 team_templates:
   default:
-    worker_tools: [fs_list, fs_read, fs_search, fs_write, fs_patch, run, op_status, op_output, op_cancel, ask, progress, ack_change, submit, note, recall, load_memory]
+    worker_tools: [fs_list, fs_read, fs_search, fs_mkdir, fs_write, fs_patch, run, op_status, op_output, op_cancel, ask, progress, ack_change, submit, note, recall, load_memory]
     network: none
     workspace: plain
     env: env.yaml

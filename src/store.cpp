@@ -119,7 +119,7 @@ bool contains(const Json& list, std::string_view value) {
     });
 }
 std::string tool_side_effect(std::string_view tool_id) {
-    if (tool_id == "fs_write" || tool_id == "fs_patch" || tool_id == "run") return "workspace";
+    if (tool_id == "fs_mkdir" || tool_id == "fs_write" || tool_id == "fs_patch" || tool_id == "run") return "workspace";
     if (tool_id == "note") return "none";
     fail(ErrorCode::Unsupported, "tool is not a registered S1.2 business implementation");
 }

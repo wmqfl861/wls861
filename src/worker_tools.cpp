@@ -124,6 +124,7 @@ const std::vector<ToolDefinition>& worker_tool_registry() {
         {"fs_list", "wls-fs-list-v1", ToolClass::Diagnostic, "none", object_schema({{"path", path}, {"after_name", text_schema(0, 255)}, {"limit", number_schema(1, 256)}}, {})},
         {"fs_read", "wls-fs-read-v1", ToolClass::Diagnostic, "none", object_schema({{"path", path}, {"offset", number_schema(0, maximum)}, {"max_bytes", number_schema(1, 65536)}}, {"path"})},
         {"fs_search", "wls-fs-search-v1", ToolClass::Diagnostic, "none", object_schema({{"path", path}, {"literal", text_schema(1, 4096)}, {"max_matches", number_schema(1, 100)}}, {"path", "literal"})},
+        {"fs_mkdir", "wls-fs-mkdir-v1", ToolClass::Business, "workspace", object_schema({{"path", path}}, {"path"})},
         {"fs_write", "wls-fs-write-v1", ToolClass::Business, "workspace", object_schema({{"path", path}, {"content", text_schema(0, 65536)}, {"expected_sha256", hash}}, {"path", "content"})},
         {"fs_patch", "wls-fs-patch-v1", ToolClass::Business, "workspace", object_schema({{"path", path}, {"expected_sha256", hash}, {"offset", number_schema(0, maximum)}, {"expected", text_schema(1, 65536)}, {"replacement", text_schema(0, 65536)}}, {"path", "expected_sha256", "offset", "expected", "replacement"})},
         {"run", "wls-run-v1", ToolClass::Business, "workspace", object_schema({{"argv", Object{{"type", "array"}, {"minItems", 1}, {"maxItems", 64}, {"items", text_schema(1, 4096)}}}, {"cwd", path}, {"timeout_s", number_schema(1, 600)}, {"max_output_bytes", number_schema(1, 65536)}}, {"argv"})},
@@ -158,6 +159,8 @@ void validate_worker_tool_arguments(std::string_view name, const Json& args) {
     } else if (name == "fs_search") {
         allowed(args, {"path", "literal", "max_matches"}); text_argument(args, "path", 1, 4096);
         text_argument(args, "literal", 1, 4096, false, true); number_argument(args, "max_matches", 1, 100);
+    } else if (name == "fs_mkdir") {
+        allowed(args, {"path"}); text_argument(args, "path", 1, 4096);
     } else if (name == "fs_write") {
         allowed(args, {"path", "content", "expected_sha256"}); text_argument(args, "path", 1, 4096);
         text_argument(args, "content", 0, 65536, false, true); hash_argument(args, "expected_sha256", true);
@@ -438,9 +441,10 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
             result = Object{{"error", "cancelled_before_effect"}}; evidence = Object{{"effect_started", false}};
         } else if (name == "note") {
             result = args; evidence = Object{{"kind", "sqlite_note"}, {"sha256", sha256_hex(canonical_json(args))}}; outcome = "SUCCEEDED";
-        } else if (name == "fs_write" || name == "fs_patch") {
+        } else if (name == "fs_mkdir" || name == "fs_write" || name == "fs_patch") {
             WorkspaceMutationResult mutation;
-            if (name == "fs_write") {
+            if (name == "fs_mkdir") mutation = workspace_.mkdir(field(args, "path"));
+            else if (name == "fs_write") {
                 std::optional<std::string> hash;
                 if (args.as_object().contains("expected_sha256")) hash = field(args, "expected_sha256");
                 mutation = workspace_.write_atomic(field(args, "path"), field(args, "content"), hash);
