@@ -363,12 +363,28 @@ Descriptor open_directory(const std::filesystem::path& path, std::string_view la
 std::string read_file(const std::filesystem::path& path, std::string_view label,
                       const ConfigLoadOptions& options, std::size_t& total) {
     auto directory = open_directory(path.parent_path(), label);
-    Descriptor file(::openat(directory.get(), path.filename().c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK));
+    // Inspect before any ordinary open: a FIFO/device can have open effects
+    // even when O_RDONLY is combined with O_NONBLOCK.
+    Descriptor inspected(::openat(directory.get(), path.filename().c_str(), O_PATH | O_CLOEXEC | O_NOFOLLOW));
     struct stat metadata{};
-    if (file.get() < 0 || ::fstat(file.get(), &metadata) != 0 || !S_ISREG(metadata.st_mode) || metadata.st_size < 0) {
+    if (inspected.get() < 0 || ::fstat(inspected.get(), &metadata) != 0 || !S_ISREG(metadata.st_mode) || metadata.st_size < 0) {
         invalid(label, "expected an accessible regular file without symbolic links");
     }
     if (static_cast<std::uintmax_t>(metadata.st_size) > options.max_file_bytes) invalid(label, "file byte limit exceeded");
+    const auto same_metadata = [&](const struct stat& observed) {
+        return metadata.st_dev == observed.st_dev && metadata.st_ino == observed.st_ino &&
+            metadata.st_mode == observed.st_mode && metadata.st_uid == observed.st_uid && metadata.st_gid == observed.st_gid &&
+            metadata.st_nlink == observed.st_nlink && metadata.st_size == observed.st_size &&
+            metadata.st_mtim.tv_sec == observed.st_mtim.tv_sec && metadata.st_mtim.tv_nsec == observed.st_mtim.tv_nsec &&
+            metadata.st_ctim.tv_sec == observed.st_ctim.tv_sec && metadata.st_ctim.tv_nsec == observed.st_ctim.tv_nsec;
+    };
+    // Reopen the held regular inode, not the input pathname. This still checks
+    // read permission; an unavailable procfs fails without a path fallback.
+    const auto descriptor_path = "/proc/self/fd/" + std::to_string(inspected.get());
+    Descriptor file(::open(descriptor_path.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK | O_NOCTTY));
+    struct stat opened{};
+    if (file.get() < 0 || ::fstat(file.get(), &opened) != 0 || !same_metadata(opened))
+        invalid(label, "regular input is inaccessible or changed before reading");
     std::string bytes;
     std::array<char, 8192> buffer{};
     for (;;) {
@@ -382,6 +398,8 @@ std::string read_file(const std::filesystem::path& path, std::string_view label,
         bytes.append(buffer.data(), count);
         total += count;
     }
+    struct stat after{};
+    if (::fstat(file.get(), &after) != 0 || !same_metadata(after)) invalid(label, "configuration file changed while reading");
     if (bytes.find('\0') != std::string::npos) invalid(label, "configuration text contains NUL");
     return bytes;
 }

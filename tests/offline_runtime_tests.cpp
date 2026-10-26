@@ -1,10 +1,13 @@
 #include "wls/offline_runtime.hpp"
 #include "test_support.hpp"
 
+#include <array>
+#include <cerrno>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <optional>
+#include <sys/inotify.h>
 
 #ifndef WLS_SOURCE_DIR
 #define WLS_SOURCE_DIR "."
@@ -265,6 +268,21 @@ void runtime_file_reads_reject_symlink_and_special_input() {
     std::filesystem::create_symlink(directory.path / "real/data.txt", directory.path / "leaf");
     expect(ErrorCode::InvalidInput, [&] { (void)read_runtime_file(directory.path / "leaf"); });
 }
+
+void runtime_file_rejects_fifo_before_opening_it() {
+    test::TempDir directory;
+    const auto fifo = directory.path / "input-fifo";
+    CHECK(::mkfifo(fifo.c_str(), 0600) == 0);
+    const int watcher = ::inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    CHECK(watcher >= 0);
+    CHECK(::inotify_add_watch(watcher, fifo.c_str(), IN_OPEN) >= 0);
+    expect(ErrorCode::InvalidInput, [&] { (void)read_runtime_file(fifo); });
+    std::array<char, 4096> events{};
+    const auto received = ::read(watcher, events.data(), events.size());
+    const auto saved_errno = errno;
+    CHECK(::close(watcher) == 0);
+    CHECK(received < 0 && saved_errno == EAGAIN);
+}
 } // namespace
 
 int main() {
@@ -280,6 +298,7 @@ int main() {
         {"read-only access is inert and restart fences pending call before resume", restart_fences_pending_call_and_preserves_frozen_config},
         {"published plan resumes task binding after process restart", published_plan_resumes_before_any_new_model_call},
         {"explicit cancel disposition does not create a Worker model attempt", explicit_cancel_disposition_has_no_worker_attempt},
-        {"bounded input reads reject parent/leaf symlinks and special files", runtime_file_reads_reject_symlink_and_special_input}
+        {"bounded input reads reject parent/leaf symlinks and special files", runtime_file_reads_reject_symlink_and_special_input},
+        {"runtime input rejects FIFO before any observable open", runtime_file_rejects_fifo_before_opening_it}
     });
 }

@@ -49,6 +49,10 @@ doctor 的 source-root、
 4096 字节及 UTF-8 可表示性；无效参数不会先进入文件读取后再使错误报告无法编码。
 这是 CLI 的文本接口限制，不把 POSIX 本身的路径字节规则改为 Unicode 规则。
 
+配置和 manifest 的共享读取器同样先以 `O_PATH` 固定叶节点并确认普通文件，再只通过内部
+`/proc/self/fd` 打开所持 inode，读取前后复核元数据。原逐级无链接路径、内核读权限和字节
+上限保留；FIFO/设备不能先发生读打开，procfs 不可用时直接拒绝，不退回重开用户路径。
+
 命令不接受 `--db` 或 `--request`。doctor 分支在数据库命令、SQL 资产读取和 Store 构造前结束；
 它不会打开数据库、取得写者锁、创建 SQLite 边文件、接管请求或执行迁移。加载的是本次
 `live_config().freeze(...)` 的配置，报告中的配置 SHA 不能代表某个既有请求的原冻结快照。
@@ -324,6 +328,8 @@ doctor 不采用目录、补写 allocation_receipt、清除 UNKNOWN 或生成清
 新增 FIFO 的真实 `IN_OPEN` 观察证明类型拒绝发生在普通 open 前；固定
 `/proc/sys/kernel/ostype` 的实际读取证明零声明大小不能伪造空 SHA。共享 `pin_file` 的小额
 实际文件用例验证预算恰满仍未证明 EOF、留出探测空间时正常文件与空文件可完成。
+配置/运行输入 C++ 用例及既有 doctor CLI 特殊输入用例还观察 FIFO 的 `IN_OPEN`，
+分别覆盖共享读取器与 manifest/config 入口，防止仅修运行源而遗漏诊断输入。
 
 cgroup 类型、只读挂载、访问及 controller/domain 分类中无法由普通用户安全构造的条件，
 使用明确标注的固定观察输入测试共享判定分支。普通目录伪装 cgroup 的用例必须被拒绝；

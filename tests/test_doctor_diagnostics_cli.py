@@ -5,6 +5,7 @@ No fixture changes the invoking umask. Fake launchers are never executed.
 The cgroup directory below is deliberately ordinary, not deployment evidence.
 """
 from contextlib import closing
+import ctypes
 import fcntl
 import hashlib
 import json
@@ -194,7 +195,20 @@ class DoctorCli(unittest.TestCase):
         self.invoke("doctor", "--sandbox-manifest", link, error="invalid_input")
         fifo = self.directory / "fifo"
         os.mkfifo(fifo, 0o600)
-        self.invoke("doctor", "--sandbox-manifest", fifo, error="invalid_input")
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.inotify_init1.argtypes = [ctypes.c_int]
+        libc.inotify_init1.restype = ctypes.c_int
+        libc.inotify_add_watch.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]
+        libc.inotify_add_watch.restype = ctypes.c_int
+        watcher = libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        self.assertGreaterEqual(watcher, 0, ctypes.get_errno())
+        self.addCleanup(os.close, watcher)
+        self.assertGreaterEqual(libc.inotify_add_watch(watcher, os.fsencode(fifo), 0x20), 0)  # IN_OPEN
+        for option in ("--sandbox-manifest", "--config"):
+            with self.subTest(option=option):
+                self.invoke("doctor", option, fifo, error="invalid_input")
+                with self.assertRaises(BlockingIOError):
+                    os.read(watcher, 4096)
 
     def test_unknown_database_options_are_not_a_store_entry(self):
         database = self.directory / "must-not-exist.sqlite"

@@ -1,9 +1,12 @@
 #include "wls/config_loader.hpp"
 #include "test_support.hpp"
 
+#include <array>
+#include <cerrno>
 #include <fstream>
 #include <iterator>
 #include <string_view>
+#include <sys/inotify.h>
 
 #ifndef WLS_SOURCE_DIR
 #define WLS_SOURCE_DIR "."
@@ -503,6 +506,21 @@ void unknown_functions_capabilities_and_tools_are_rejected() {
     expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
 }
 
+void configuration_fifo_is_rejected_without_open_side_effects() {
+    Fixture fixture;
+    std::filesystem::remove(fixture.system_path());
+    CHECK(::mkfifo(fixture.system_path().c_str(), 0600) == 0);
+    const int watcher = ::inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    CHECK(watcher >= 0);
+    CHECK(::inotify_add_watch(watcher, fixture.system_path().c_str(), IN_OPEN) >= 0);
+    expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
+    std::array<char, 4096> events{};
+    const auto received = ::read(watcher, events.data(), events.size());
+    const auto saved_errno = errno;
+    CHECK(::close(watcher) == 0);
+    CHECK(received < 0 && saved_errno == EAGAIN);
+}
+
 } // namespace
 
 int main() {
@@ -524,6 +542,7 @@ int main() {
         {"environment check commands are data and never execute on load or restore", environment_checks_are_frozen_as_data_and_never_executed},
         {"size and time validators preserve the exact ASCII grammar without regex", simple_format_validators_preserve_the_original_grammar},
         {"validated but unenforced settings are explicit and do not change frozen config", unsupported_enforcement_is_visible_without_changing_frozen_bytes},
-        {"unknown functions capabilities roles and tools reject", unknown_functions_capabilities_and_tools_are_rejected}
+        {"unknown functions capabilities roles and tools reject", unknown_functions_capabilities_and_tools_are_rejected},
+        {"configuration FIFO is rejected before any observable open", configuration_fifo_is_rejected_without_open_side_effects}
     });
 }

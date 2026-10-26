@@ -264,13 +264,29 @@ std::string read_runtime_file(const std::filesystem::path& path, std::size_t max
         ::close(directory.fd);
         directory.fd = next;
     }
-    const int fd = ::openat(directory.fd, absolute.filename().c_str(),
-                            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    // O_NONBLOCK does not remove FIFO/device open effects. Inspect the leaf
+    // without opening its data interface, then reopen only this pinned inode.
+    Close inspected{::openat(directory.fd, absolute.filename().c_str(), O_PATH | O_CLOEXEC | O_NOFOLLOW)};
+    require(inspected.fd >= 0, ErrorCode::InvalidInput, "cannot open regular input file: " + path.string());
+    struct stat info {};
+    require(::fstat(inspected.fd, &info) == 0 && S_ISREG(info.st_mode) && info.st_size >= 0 &&
+        static_cast<std::uint64_t>(info.st_size) <= max_bytes, ErrorCode::InvalidInput, "input is not a bounded regular file: " + path.string());
+    const auto same_metadata = [&](const struct stat& observed) {
+        return info.st_dev == observed.st_dev && info.st_ino == observed.st_ino &&
+            info.st_mode == observed.st_mode && info.st_uid == observed.st_uid && info.st_gid == observed.st_gid &&
+            info.st_nlink == observed.st_nlink && info.st_size == observed.st_size &&
+            info.st_mtim.tv_sec == observed.st_mtim.tv_sec && info.st_mtim.tv_nsec == observed.st_mtim.tv_nsec &&
+            info.st_ctim.tv_sec == observed.st_ctim.tv_sec && info.st_ctim.tv_nsec == observed.st_ctim.tv_nsec;
+    };
+    const auto descriptor_path = "/proc/self/fd/" + std::to_string(inspected.fd);
+    // This internal descriptor link keeps the checked inode fixed; supplied
+    // paths retain their original no-symlink traversal and kernel permissions.
+    const int fd = ::open(descriptor_path.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK | O_NOCTTY);
     require(fd >= 0, ErrorCode::InvalidInput, "cannot open regular input file: " + path.string());
     Close close{fd};
-    struct stat info {};
-    require(::fstat(fd, &info) == 0 && S_ISREG(info.st_mode) && info.st_size >= 0 &&
-        static_cast<std::uint64_t>(info.st_size) <= max_bytes, ErrorCode::InvalidInput, "input is not a bounded regular file: " + path.string());
+    struct stat opened{};
+    require(::fstat(fd, &opened) == 0 && same_metadata(opened), ErrorCode::InvalidInput,
+            "input file changed before reading");
     std::string result;
     char buffer[8192];
     while (true) {
@@ -281,6 +297,9 @@ std::string read_runtime_file(const std::filesystem::path& path, std::size_t max
         require(static_cast<std::size_t>(count) <= max_bytes - result.size(), ErrorCode::InvalidInput, "input grew past byte limit");
         result.append(buffer, static_cast<std::size_t>(count));
     }
+    struct stat after{};
+    require(::fstat(fd, &after) == 0 && same_metadata(after), ErrorCode::InvalidInput,
+            "input file changed while reading");
     return result;
 }
 
