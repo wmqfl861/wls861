@@ -611,8 +611,17 @@ void amend_rejects_late_model_mkdir_and_preserves_old_result() {
 }
 
 void mkdir_consumes_existing_business_quota() {
+    test::TempDir config;
+    auto system = frozen->json().at("system");
+    system.at("limits").at("worker_max_tool_calls_per_order") = 2;
+    const auto system_path = config.path / "system.yaml";
+    host_write(system_path, canonical_json(system));
+    // Freeze the real fixture bytes so parsed limits, retained dependencies and
+    // their hashes agree; production snapshot verification remains intact.
+    const auto limited = load_config_catalog(system_path,
+        source / "config/examples/functions", source / "prompts").freeze("general");
     auto input = admission();
-    input.config_snapshot.at("system").at("limits").at("worker_max_tool_calls_per_order") = 2;
+    input.config_snapshot = limited.json();
     Session session(input); // The initialization note consumes one business call.
     const auto first = session.execute("fs_mkdir", Object{{"path", "last-slot"}}, "last-slot-key");
     succeeded(first);

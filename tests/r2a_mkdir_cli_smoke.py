@@ -65,7 +65,9 @@ class MkdirCliSmoke(unittest.TestCase):
         with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True)) as db:
             tables = [row[0] for row in db.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
-            return {table: db.execute(f'SELECT * FROM "{table}" ORDER BY rowid').fetchall()
+            # Some tables use WITHOUT ROWID. Sort complete returned tuples,
+            # retaining every value and duplicate, without assuming a rowid.
+            return {table: sorted(db.execute(f'SELECT * FROM "{table}"').fetchall(), key=repr)
                     for table in tables}
 
     def json_file(self, name, value):
