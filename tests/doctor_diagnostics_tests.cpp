@@ -2,12 +2,14 @@
 #include "test_support.hpp"
 #include "../src/sandbox_doctor.inc"
 
+#include <array>
 #include <atomic>
 #include <cerrno>
 #include <fcntl.h>
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <sys/inotify.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -209,6 +211,47 @@ void directories_and_fifos_cannot_be_runtime_files() {
     CHECK(first_reason(report, "runtime.0").at("code") == "file_type_refused");
     CHECK(first_reason(report, "runtime.1").at("code") == "file_type_refused");
     CHECK(report.evidence.at("runtime_bytes_read") == 0);
+}
+
+void special_sources_are_rejected_without_open_side_effects() {
+    test::TempDir temp;
+    const auto fifo = temp.path / "watched-fifo";
+    CHECK(::mkfifo(fifo.c_str(), 0600) == 0);
+    const int events = ::inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    CHECK(events >= 0);
+    CHECK(::inotify_add_watch(events, fifo.c_str(), IN_OPEN) >= 0);
+    auto policy = policy_for(temp);
+    policy.bwrap_path = fifo;
+    add_runtime(policy, fifo, "/usr/bin/fifo", "");
+    const auto report = sandbox_doctor(policy);
+    std::array<char, 4096> observed{};
+    const auto count = ::read(events, observed.data(), observed.size());
+    const auto saved_errno = errno;
+    CHECK(::close(events) == 0);
+    CHECK(first_reason(report, "launcher.file").at("code") == "file_type_refused");
+    CHECK(first_reason(report, "runtime.0").at("code") == "file_type_refused");
+    CHECK(report.evidence.at("runtime_bytes_read") == 0);
+    // O_RDONLY | O_NONBLOCK still opens a FIFO, allowing a pending writer to
+    // proceed. O_PATH inspection must reject it without an IN_OPEN event.
+    CHECK(count < 0 && saved_errno == EAGAIN);
+}
+
+void declared_zero_size_is_not_proof_of_empty_content() {
+    // This fixed kernel observation is regular and size zero according to
+    // fstat, but reading it returns the OS type. No user files are sampled.
+    const std::filesystem::path source = "/proc/sys/kernel/ostype";
+    struct stat observed{};
+    CHECK(::stat(source.c_str(), &observed) == 0 && S_ISREG(observed.st_mode));
+    CHECK(observed.st_size == 0 && !contents(source).empty());
+    test::TempDir temp;
+    auto policy = policy_for(temp);
+    add_runtime(policy, source, "/usr/lib/ostype", "");
+    const auto report = sandbox_doctor(policy);
+    CHECK(!report.runtime_files_ready);
+    CHECK(first_reason(report, "runtime.0").at("code") == "source_changed");
+    CHECK(check(report, "runtime.0").at("observed").at("identity_verified") == false);
+    CHECK(check(report, "runtime.0").at("observed").at("bytes_read") == 1);
+    CHECK(report.evidence.at("runtime_bytes_read") == 1);
 }
 
 void forbidden_destination_does_not_open_source() {
@@ -609,6 +652,8 @@ int main() {
         {"leaf and ancestor symlinks are rejected with explicit causes", symlinks_are_identified_without_following},
         {"unsafe owner modes remain unchanged and unread", unsafe_permissions_are_observed_and_preserved},
         {"directories and nonblocking FIFOs are not runtime files", directories_and_fifos_cannot_be_runtime_files},
+        {"special runtime sources rejected without opening them", special_sources_are_rejected_without_open_side_effects},
+        {"zero stat size cannot fabricate an empty runtime digest", declared_zero_size_is_not_proof_of_empty_content},
         {"forbidden destination refuses before source reads", forbidden_destination_does_not_open_source},
         {"duplicate destination does not hide a later independent entry", duplicate_destination_does_not_hide_later_independent_file},
         {"missing or invalid frozen hashes never become approval", missing_and_invalid_hashes_do_not_become_approved},

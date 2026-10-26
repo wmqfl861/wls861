@@ -514,6 +514,33 @@ void runtime_files_are_frozen_and_scoped() {
     validate_destination("/lib/x86_64-linux-gnu/libc.so.6");
 }
 
+void diagnostic_digest_requires_observed_eof_within_budget() {
+    Temp temp;
+    const auto source = temp.root / "runtime";
+    put(source, "abcd");
+    RuntimeReadBudget exact(4);
+    boost::json::object exhausted;
+    try {
+        (void)pin_file(source, sha256_hex("abcd"), false, false, &exact, &exhausted);
+        CHECK(false);
+    } catch (const DiagnosticError& error) {
+        CHECK(error.reason == "read_budget_exceeded");
+    }
+    CHECK(exact.consumed() == 4 && exact.remaining() == 0);
+    CHECK(exhausted.at("bytes_read") == 4 && exhausted.at("identity_verified") == false);
+    CHECK(exhausted.at("sha256").is_null());
+    RuntimeReadBudget with_probe(5);
+    boost::json::object complete;
+    const auto result = pin_file(source, sha256_hex("abcd"), false, false, &with_probe, &complete);
+    CHECK(result.sha256 == sha256_hex("abcd"));
+    CHECK(with_probe.consumed() == 4 && with_probe.remaining() == 1);
+    CHECK(complete.at("identity_verified") == true && complete.at("bytes_read") == 4);
+    put(source, "");
+    RuntimeReadBudget empty_probe(1);
+    CHECK(pin_file(source, sha256_hex(""), false, false, &empty_probe).size == 0);
+    CHECK(empty_probe.consumed() == 0);
+}
+
 void cooperative_workspace_lock() {
     Temp temp;
     Fd directory(::open(temp.root.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC));
@@ -561,6 +588,7 @@ int main(int argc, char** argv) {
         {"production policy, arguments and cwd reject unsafe boundaries", policy_and_paths_are_bounded},
         {"doctor is read-only and production refuses absent or forged isolation", doctor_and_production_refuse_without_capabilities},
         {"runtime hash pins sealed bytes and restricts mount destinations", runtime_files_are_frozen_and_scoped},
+        {"diagnostic hashes require EOF within the actual read budget", diagnostic_digest_requires_observed_eof_within_budget},
         {"workspace flock serializes file and process ownership", cooperative_workspace_lock},
         {"actual environment doctor does not execute programs or claim strong test", doctor_real_environment_is_observation_only}
     });

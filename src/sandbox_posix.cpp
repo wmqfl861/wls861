@@ -139,7 +139,7 @@ std::vector<std::string> path_parts(std::string_view path, bool absolute) {
     return parts;
 }
 
-Fd open_absolute(const std::filesystem::path& path, bool directory) {
+Fd open_absolute(const std::filesystem::path& path, bool directory, bool metadata_only = false) {
     const auto parts = path_parts(path.string(), true);
     Fd current(::open("/", O_PATH | O_DIRECTORY | O_CLOEXEC));
     if (!current) diagnostic_system_error("open filesystem root", "open");
@@ -147,7 +147,8 @@ Fd open_absolute(const std::filesystem::path& path, bool directory) {
         diagnostic_error(ErrorCode::InvalidInput, "file_type_refused", "path", "runtime source cannot be the filesystem root");
     for (std::size_t i = 0; i < parts.size(); ++i) {
         const bool leaf = i + 1 == parts.size();
-        const int flags = O_CLOEXEC | O_NOFOLLOW | (leaf && !directory ? O_RDONLY | O_NONBLOCK : O_PATH | O_DIRECTORY);
+        const int flags = O_CLOEXEC | O_NOFOLLOW | (leaf && !directory ?
+            (metadata_only ? O_PATH : O_RDONLY | O_NONBLOCK | O_NOCTTY) : O_PATH | O_DIRECTORY);
         Fd next(::openat(current.get(), parts[i].c_str(), flags));
         if (!next) {
             const int number = errno;
@@ -162,6 +163,16 @@ Fd open_absolute(const std::filesystem::path& path, bool directory) {
             diagnostic_system_error("open sandbox path without symlinks", "open", number);
         }
         current = std::move(next);
+    }
+    if (metadata_only) {
+        // O_PATH | O_NOFOLLOW pins a symlink itself rather than returning
+        // ELOOP. Keep the same explicit no-symlink source contract.
+        struct stat observed{};
+        if (::fstat(current.get(), &observed) != 0)
+            diagnostic_system_error("stat inspected sandbox source", "stat");
+        if (S_ISLNK(observed.st_mode))
+            diagnostic_error(ErrorCode::Storage, "symlink_refused", "open",
+                             "open sandbox path without symlinks: symbolic link refused", ELOOP);
     }
     return current;
 }
@@ -227,6 +238,15 @@ struct PinnedFile {
     std::uint64_t size{};
 };
 
+bool same_runtime_observation(const struct stat& before, const struct stat& after) {
+    return before.st_dev == after.st_dev && before.st_ino == after.st_ino &&
+        before.st_mode == after.st_mode && before.st_uid == after.st_uid &&
+        before.st_gid == after.st_gid && before.st_nlink == after.st_nlink &&
+        before.st_size == after.st_size && before.st_mtim.tv_sec == after.st_mtim.tv_sec &&
+        before.st_mtim.tv_nsec == after.st_mtim.tv_nsec && before.st_ctim.tv_sec == after.st_ctim.tv_sec &&
+        before.st_ctim.tv_nsec == after.st_ctim.tv_nsec;
+}
+
 // Runtime bytes are copied into a sealed memfd. The verified copy is the only
 // source passed to bwrap, so neither pathname replacement nor later writes to
 // the original inode can change this operation's runtime content.
@@ -235,9 +255,11 @@ PinnedFile pin_file(const std::filesystem::path& path, std::string_view expected
                     boost::json::object* observation = nullptr) {
     if (!expected.empty() && !hash_string(expected))
         diagnostic_error(ErrorCode::InvalidInput, "hash_invalid", "expected_hash", "runtime file hash must be lowercase SHA-256");
-    auto source = open_absolute(path, false);
+    // Inspect without opening a device or FIFO. In particular, nonblocking
+    // O_RDONLY still has FIFO/device open effects before a later fstat.
+    const auto inspected_source = open_absolute(path, false, true);
     struct stat before{};
-    if (::fstat(source.get(), &before) != 0) diagnostic_system_error("stat runtime file", "stat");
+    if (::fstat(inspected_source.get(), &before) != 0) diagnostic_system_error("stat runtime file", "stat");
     constexpr std::uint64_t max_file = sandbox_detail::runtime_max_file_bytes;
     if (observation != nullptr) {
         (*observation)["device"] = static_cast<std::uint64_t>(before.st_dev);
@@ -261,6 +283,17 @@ PinnedFile pin_file(const std::filesystem::path& path, std::string_view expected
     if (launcher && (before.st_mode & 0111) == 0)
         diagnostic_error(ErrorCode::Unauthorized, "launcher_not_executable", "launcher_mode", "bubblewrap must be a root-owned executable without setuid/setgid");
     if (budget != nullptr) budget->preflight(static_cast<std::uint64_t>(before.st_size));
+    // Reopen only our pinned regular inode, never the supplied pathname. The
+    // kernel still checks read permissions; there is no weaker resolver if
+    // procfs is unavailable. O_NOFOLLOW is intentionally inapplicable to this
+    // internally constructed descriptor link, not to any user-supplied path.
+    const auto descriptor_path = "/proc/self/fd/" + std::to_string(inspected_source.get());
+    Fd source(::open(descriptor_path.c_str(), O_RDONLY | O_NONBLOCK | O_NOCTTY | O_CLOEXEC));
+    if (!source) diagnostic_system_error("open inspected runtime file", "open");
+    struct stat opened{};
+    if (::fstat(source.get(), &opened) != 0) diagnostic_system_error("stat opened runtime file", "stat");
+    if (!same_runtime_observation(before, opened))
+        diagnostic_error(ErrorCode::Conflict, "source_changed", "open", "runtime file changed before reading");
     std::array<unsigned char, 4> elf{};
     bool launcher_magic_verified = !launcher;
     if (launcher && budget == nullptr) {
@@ -282,7 +315,8 @@ PinnedFile pin_file(const std::filesystem::path& path, std::string_view expected
     std::uint64_t total = 0;
     for (;;) {
         // A diagnostic reader never consumes bytes outside its shared budget.
-        // Its final fstat still detects growth/truncation and metadata changes.
+        // The bounded EOF check below also covers regular pseudo-files whose
+        // fstat size does not describe the bytes returned by read.
         if (budget != nullptr && total == static_cast<std::uint64_t>(before.st_size)) break;
         const auto maximum = budget == nullptr ? buffer.size() : static_cast<std::size_t>(
             std::min<std::uint64_t>(buffer.size(), static_cast<std::uint64_t>(before.st_size) - total));
@@ -305,6 +339,27 @@ PinnedFile pin_file(const std::filesystem::path& path, std::string_view expected
     }
     if (!launcher_magic_verified)
         diagnostic_error(ErrorCode::Unauthorized, "launcher_not_elf", "launcher_elf", "bubblewrap launcher must be an ELF executable");
+    if (budget != nullptr) {
+        struct stat observed{};
+        if (::fstat(source.get(), &observed) != 0) diagnostic_system_error("restat runtime file", "restat");
+        if (!same_runtime_observation(before, observed) || total != static_cast<std::uint64_t>(before.st_size))
+            diagnostic_error(ErrorCode::Conflict, "source_changed", "restat", "runtime file changed while being pinned");
+        // Do not infer EOF from st_size (for example, procfs reports zero for
+        // nonempty regular files). Reserve one possible actual byte. If the
+        // shared budget is exhausted, completeness remains unproved.
+        budget->preflight(1);
+        char extra{};
+        ssize_t count;
+        do { count = ::read(source.get(), &extra, 1); } while (count < 0 && errno == EINTR);
+        if (count < 0) diagnostic_system_error("verify runtime file end", "read");
+        if (count > 0) {
+            budget->charge(static_cast<std::uint64_t>(count));
+            total += static_cast<std::uint64_t>(count);
+            if (observation != nullptr) (*observation)["bytes_read"] = total;
+            diagnostic_error(ErrorCode::Conflict, "source_changed", "read",
+                             "runtime source contains bytes beyond its declared size");
+        }
+    }
     std::array<unsigned char, EVP_MAX_MD_SIZE> digest_bytes{};
     unsigned int digest_size = 0;
     if (EVP_DigestFinal_ex(digest.get(), digest_bytes.data(), &digest_size) != 1 || digest_size != 32)
@@ -318,9 +373,7 @@ PinnedFile pin_file(const std::filesystem::path& path, std::string_view expected
     if (observation != nullptr) (*observation)["sha256"] = actual;
     struct stat after{};
     if (::fstat(source.get(), &after) != 0) diagnostic_system_error("restat runtime file", "restat");
-    if (before.st_size != after.st_size || before.st_mtim.tv_sec != after.st_mtim.tv_sec ||
-        before.st_mtim.tv_nsec != after.st_mtim.tv_nsec || before.st_ctim.tv_sec != after.st_ctim.tv_sec ||
-        before.st_ctim.tv_nsec != after.st_ctim.tv_nsec || total != static_cast<std::uint64_t>(before.st_size))
+    if (!same_runtime_observation(before, after) || total != static_cast<std::uint64_t>(before.st_size))
         diagnostic_error(ErrorCode::Conflict, "source_changed", "restat", "runtime file changed while being pinned");
     if (observation != nullptr) (*observation)["identity_verified"] = true;
     if (!expected.empty() && actual != expected)

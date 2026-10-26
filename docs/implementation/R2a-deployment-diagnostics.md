@@ -5,6 +5,10 @@
 执行边界与测试设计，不预先声明测试通过或真实部署验收通过。各环境的实际执行成绩另记于
 [验证报告目录](../reports/)。
 
+**0.8.6-r3.2 审核修订**补齐普通文件的无副作用类型检查和实际 EOF 证明，并将 UTF-8
+参数校验前移到所有 CLI 子命令的共同入口。下文相应边界描述这一修订；0.8.5 的历史验证
+记录保持原样，不把新增回归写成当时已经执行的结果。
+
 `wls doctor` 检查当前显式配置及宿主 manifest 指定的部署前提，输出
 `wls-doctor-report-v1`。它不打开 Store，不执行 launcher、模板检查或业务程序，不写 cgroup，
 也不为后续执行发放许可。实现入口见 [CLI](../../src/cli.cpp)、
@@ -37,8 +41,10 @@ wls doctor --source-root /path/to/wls861 \
 `functions`，prompts 为 `source-root/prompts`，function 为 `general`，template 为 `default`。
 修改 `--config` 会影响默认 functions 目录，不能把所有默认路径都解释为相对 source-root。
 
-doctor、encode-model、replay-model 在解释选项和读取输入文件前，先校验命令名之后的每个
-argv 参数：最多 4096 字节，且必须能作为合法 UTF-8 JSON 字符串表示。doctor 的 source-root、
+所有 CLI 子命令在识别命令、解释选项和读取输入文件前，先校验命令名及之后的每个 argv
+参数可作为合法 UTF-8 JSON 字符串表示；未知命令和错误路径也不能使错误报告再次编码失败。
+doctor、encode-model、replay-model 另将命令名之后的每个参数限制为最多 4096 字节。
+doctor 的 source-root、
 配置目录/文件及 manifest 路径，还在各自读取前校验非空、原路径/绝对词法路径各不超过
 4096 字节及 UTF-8 可表示性；无效参数不会先进入文件读取后再使错误报告无法编码。
 这是 CLI 的文本接口限制，不把 POSIX 本身的路径字节规则改为 Unicode 规则。
@@ -169,14 +175,21 @@ policy。`next_step` 只说明需人工核对的对象与条件，不包含安�
 ## 5. 文件检查与共享读取预算
 
 doctor 与真实执行共享 `pin_file` 的路径、类型、UID/mode、大小、SHA 和读取前后稳定性规则。
-执行源逐级使用无符号链接打开；拒绝空、点、父级、过深、过长等不合格路径。源须为普通文件，
+执行源逐级使用无符号链接解析，先通过 `O_PATH` 固定源对象并检查类型；拒绝空、点、父级、
+过深、过长等不合格路径。FIFO、设备、目录和符号链接在普通只读 open 之前拒绝，不能用
+`O_NONBLOCK` 代替类型先检：只读打开 FIFO 本身也会产生可观察效果。源须为普通文件，
 拥有者为 root 或当前有效 UID，不得具有 setuid/setgid 或组/其他用户可写位。
 launcher 额外要求 root 所有、存在执行位且具有 ELF 魔数。
 运行 destination 的原白名单保持不变，重复目标在文件内容读取前拒绝。
 
+上述检查通过后，只通过内部构造的 `/proc/self/fd/<已固定描述符>` 重新取得同一个普通文件的
+只读描述符，继续接受内核读权限检查，并重新核对 device/inode、类型和权限、UID/GID、
+链接数、大小、mtime/ctime。这里跟随的是持有中的内部描述符链接，不重新解析用户提供的
+源路径；procfs 不可用时直接拒绝，没有较弱路径回退。用户源路径的无符号链接规则不变。
+
 成功取得 fstat 后，`observed` 可包含 device、inode、uid、mode、declared_bytes、bytes_read、
 sha256 与 identity_verified。字段随实际到达阶段累积：未取得的观察保持缺失或 null，
-不会补造一个完整文件事实。SHA 不匹配时仍保留实际 SHA；读前读后大小、mtime、ctime 或读取长度
+不会补造一个完整文件事实。SHA 不匹配时仍保留实际 SHA；读前读后身份、权限、大小、mtime、ctime 或读取长度
 发生变化时标为 source_changed，identity_verified 保持 false。
 identity_verified 表示这次固定文件描述符上的稳定性检查完成，不是未来路径、权限或执行的保证。
 
@@ -188,7 +201,15 @@ launcher 独立使用 64 MiB 预算，运行文件共同使用 256 MiB 预算。
 取得声明大小后，先检查它能否放入剩余预算，再读取内容；不能先读完整文件再报告总量超限。
 已经读过的字节即使随后遇到哈希错误、变化或其他失败，也消耗共享预算。
 `evidence.runtime_bytes_read` 与 `runtime_read_budget_remaining` 显示实际计费。
-诊断读到初始声明大小即停止，最终 fstat 及总长度检查负责发现变化。
+诊断先读到初始声明大小并复核元数据，再在剩余预算允许时至多读取 1 字节来确认实际 EOF。
+不能把 `st_size=0` 当作空内容证明：部分 procfs 普通文件仍能返回数据。探测返回 0 不耗用
+字节预算；若返回 1 字节，该字节计入共享实际读取量，条目标为 `source_changed`，不生成
+完整 SHA 或 `identity_verified=true`。最终元数据检查仍须通过。
+
+单文件 64 MiB 是声明大小与有效内容上限；不匹配时最多另读 1 个失败探测字节，该字节也必须
+在原 256 MiB 共享实际读取预算内。launcher 保持原独立 64 MiB 实际读取预算。若任一预算
+恰好耗尽而尚未观察 EOF，明确返回 `read_budget_exceeded/not_checked`，保留已读字节数、
+使报告不完整；不能根据声明大小补造完成状态，也不额外透支预算去探测。
 
 一个运行文件失败会留下自己的状态，随后仍检查其他独立文件。若剩余预算不足，后续文件产生
 read_budget_exceeded/not_checked；不清零预算，也不把失败文件的读取量退回。
@@ -237,9 +258,9 @@ doctor 没有 operation_id，不创建该目录、不读写这些未来文件，
 
 | 项目 | 边界 |
 | --- | --- |
-| doctor/离线协议 CLI 的每个 argv 参数 | 读取输入前限制为 4096 字节并校验 UTF-8；路径的绝对词法解释也受 4096 字节及 UTF-8 限制 |
+| CLI 的 argv 文本 | 所有子命令在共同入口校验命令名与参数的 UTF-8；doctor/离线协议参数另限 4096 字节，路径的绝对词法解释也受 4096 字节及 UTF-8 限制 |
 | manifest 原字节读取/严格 JSON 解析 | 256 KiB |
-| 运行文件 | 最多 128 项，单个 64 MiB，共享实际读取量 256 MiB |
+| 运行文件 | 最多 128 项，声明/有效内容单个 64 MiB；失败 EOF 探测最多额外 1 字节，全部实际读取共同受 256 MiB 约束 |
 | launcher | 独立 64 MiB |
 | 执行资源路径 | 原 4096 字节、64 个组件、单组件 255 字节限制 |
 | cgroup 文本 | 每项最多读取 16 KiB |
@@ -300,6 +321,9 @@ doctor 不采用目录、补写 allocation_receipt、清除 UNKNOWN 或生成清
 类型和权限、符号链接、缺少或错误冻结哈希、读中变化、EIO、数量/字节/报告边界、路径显示、
 可选 operation 模式和截断不可恢复准备状态。故障注入只匹配测试记录的临时 inode/device；
 不在生产库添加注入入口。稀疏超限文件验证预读拒绝，小额纯预算用例验证共享预算的耗用规则。
+新增 FIFO 的真实 `IN_OPEN` 观察证明类型拒绝发生在普通 open 前；固定
+`/proc/sys/kernel/ostype` 的实际读取证明零声明大小不能伪造空 SHA。共享 `pin_file` 的小额
+实际文件用例验证预算恰满仍未证明 EOF、留出探测空间时正常文件与空文件可完成。
 
 cgroup 类型、只读挂载、访问及 controller/domain 分类中无法由普通用户安全构造的条件，
 使用明确标注的固定观察输入测试共享判定分支。普通目录伪装 cgroup 的用例必须被拒绝；
