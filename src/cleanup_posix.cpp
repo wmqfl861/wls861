@@ -64,12 +64,22 @@ void name_ok(std::string_view name) {
          ErrorCode::InvalidInput, "unsafe cleanup basename");
     (void)parse_json_strict(canonical_json(Json(name)));
 }
+void entry_name_ok(std::string_view name) {
+    // Worker file tools accept bounded relative UTF-8 POSIX names. Backslash
+    // and control bytes are literal filename bytes, escaped losslessly in the
+    // inventory JSON; they are never passed to a shell. Keep the stricter
+    // runtime-owned resource/staging identifier rule in name_ok separately.
+    need(!name.empty() && name.size() <= 255 && name != "." && name != ".." &&
+         name.find('/') == std::string_view::npos && name.find('\0') == std::string_view::npos,
+         ErrorCode::InvalidInput, "unsafe cleanup entry basename");
+    (void)parse_json_strict(canonical_json(Json(name)));
+}
 void path_ok(std::string_view path) {
     need(!path.empty() && path.size() <= 4096, ErrorCode::InvalidInput, "invalid cleanup path");
     std::size_t start = 0;
     while (true) {
         const auto end = path.find('/', start);
-        name_ok(path.substr(start, end == std::string_view::npos ? path.size() - start : end - start));
+        entry_name_ok(path.substr(start, end == std::string_view::npos ? path.size() - start : end - start));
         if (end == std::string_view::npos) break;
         start = end + 1;
     }
@@ -141,7 +151,7 @@ std::vector<std::string> names(int fd) {
         while (const auto* entry = ::readdir(directory)) {
             const std::string name(entry->d_name);
             if (name == "." || name == "..") continue;
-            name_ok(name); result.push_back(name);
+            entry_name_ok(name); result.push_back(name);
             need(result.size() <= 4098, ErrorCode::Quota, "cleanup directory exceeds entry bound");
             errno = 0;
         }

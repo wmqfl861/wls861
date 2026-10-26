@@ -77,6 +77,58 @@ void recovered_new_file(){Fixture f;f.write("a");f.write("z");const auto inv=inv
     test::throws<Error>([&]{(void)erase_owned_workspace(f.resource,inv);});CHECK(std::filesystem::exists(f.work/"a"));}
 void verify_not_delete(){Fixture f;const auto inv=inventory_owned_workspace(f.resource);test::throws<Error>([&]{(void)verify_owned_workspace_removed(f.resource,inv);});
     CHECK(std::filesystem::exists(f.work));}
+void workspace_names_survive_inventory_and_cleanup() {
+    Fixture f;
+    const std::vector<std::string> paths{"back\\slash", "line\nbreak", "tab\tname", "del\x7f", "报告.txt"};
+    const std::string directory = "nested\\\t";
+    const std::string nested = directory + "/child\nname";
+    {
+        Workspace workspace(f.work, WorkspaceAccess::ReadWrite);
+        for (const auto& path : paths)
+            CHECK(workspace.write_atomic(path, "retained bytes").status == WorkspaceMutationStatus::Succeeded);
+        CHECK(workspace.mkdir(directory).status == WorkspaceMutationStatus::Succeeded);
+        CHECK(workspace.write_atomic(nested, "nested bytes").status == WorkspaceMutationStatus::Succeeded);
+    }
+    const auto inventory = inventory_owned_workspace(f.resource);
+    CHECK(inventory.at("entries").as_array().size() == paths.size() + 2);
+    CHECK(parse_json_strict(canonical_json(inventory)) == inventory);
+    for (const auto& path : paths) {
+        bool found = false;
+        for (const auto& record : inventory.at("entries").as_array())
+            if (record.at("identity").at("path") == Json(path)) found = true;
+        CHECK(found);
+    }
+    bool complete = false;
+    for (std::size_t pass = 0; pass < paths.size() + 3 && !complete; ++pass)
+        complete = erase_owned_workspace(f.resource, inventory, 2).at("complete").as_bool();
+    CHECK(complete && !std::filesystem::exists(f.work));
+    CHECK(std::filesystem::exists(f.envelope / "owner.json"));
+    CHECK(verify_owned_workspace_removed(f.resource, inventory).at("durable").as_bool());
+}
+void unsafe_inventory_paths_remain_refused() {
+    Fixture f;
+    f.write("safe");
+    const auto original = inventory_owned_workspace(f.resource);
+    const std::vector<std::string> paths{"../escape", "/absolute", "sub//leaf", "sub/./leaf",
+        "sub/../leaf", std::string("nul\0tail", 8), std::string(1, '\xff')};
+    for (const auto& path : paths) {
+        auto inventory = original;
+        inventory.at("entries").as_array().front().at("identity").as_object()["path"] = path;
+        test::throws<Error>([&] { (void)erase_owned_workspace(f.resource, inventory); });
+        CHECK(std::filesystem::exists(f.work / "safe"));
+    }
+}
+void owned_resource_identifiers_remain_strict() {
+    Fixture f;
+    for (const auto* name : {"res_back\\slash", "res_control\tname"}) {
+        auto intent = f.intent;
+        intent.as_object()["resource_id"] = name;
+        intent.as_object()["leaf"] = name;
+        intent.at("marker").as_object()["resource_id"] = name;
+        test::throws<Error>([&] { (void)create_owned_workspace(intent); });
+        CHECK(!std::filesystem::exists(f.temp.path / name));
+    }
+}
 }
 int main(){return test::run({{"original bytes deleted and exact repeat",complete_and_repeat},{"bounded restart",resume_bounded},
     {"empty owned directory",empty},{"no populated adoption",no_adoption},{"new entry preflight",new_entry},{"changed byte preflight",changed_entry},
@@ -84,4 +136,7 @@ int main(){return test::run({{"original bytes deleted and exact repeat",complete
     {"receipt tamper refused",marker_tamper},{"workspace replacement",root_replaced},{"envelope replacement",envelope_replaced},
     {"parent replacement",parent_replaced},{"byte and pass limits",limits},{"depth and count bounds",nested_limit},
     {"workspace lock conflict",lock_conflict},{"wrong inventory",wrong_inventory},{"new file after partial cleanup",recovered_new_file},
-    {"verification never deletes",verify_not_delete}});}
+    {"verification never deletes",verify_not_delete},
+    {"Workspace accepted UTF-8 names retain exact bytes through cleanup",workspace_names_survive_inventory_and_cleanup},
+    {"unsafe inventory paths are still rejected without deletion",unsafe_inventory_paths_remain_refused},
+    {"runtime resource identifiers keep their stricter contract",owned_resource_identifiers_remain_strict}});}
