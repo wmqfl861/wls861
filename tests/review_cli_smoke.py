@@ -6,8 +6,11 @@ still set insecure modes and verify that the production boundary rejects them.
 """
 from __future__ import annotations
 import importlib.util
+import json
 import os
 from pathlib import Path
+import resource
+import subprocess
 import unittest
 
 if os.geteuid() == 0:
@@ -19,6 +22,57 @@ SOURCE, FIXTURES = helpers.SOURCE, helpers.FIXTURES
 
 
 class ReviewCLI(helpers.AcceptanceCliSmoke):
+    def raw_error(self, *arguments):
+        # A crash is the regression under test; never leave core dumps behind.
+        def disable_core():
+            _, hard = resource.getrlimit(resource.RLIMIT_CORE)
+            resource.setrlimit(resource.RLIMIT_CORE, (0, hard))
+
+        completed = subprocess.run(
+            [os.fsencode(helpers.BINARY), *(os.fsencode(argument) for argument in arguments)],
+            cwd=self.directory, capture_output=True, timeout=35, check=False,
+            preexec_fn=disable_core)
+        self.assertEqual(completed.returncode, 2, repr(completed.stderr))
+        self.assertEqual(completed.stdout, b"")
+        self.assertEqual(len(completed.stderr.splitlines()), 1, repr(completed.stderr))
+        report = json.loads(completed.stderr.decode("utf-8"))
+        self.assertEqual(report["error"], "invalid_input")
+        return report
+
+    def test_non_utf8_commands_options_and_subcommands_are_json_errors(self):
+        for arguments in ((b"unknown-\xff",), ("config", b"check-\xff"),
+                          ("show", b"--invalid-\xff", "value")):
+            with self.subTest(arguments=arguments):
+                self.raw_error(*arguments)
+
+    def test_invalid_utf8_admission_argument_does_not_create_store(self):
+        before = sorted(self.directory.iterdir())
+        self.raw_error("submit", "--source-root", SOURCE, "--db", self.database,
+                       "--key", b"invalid-\xff", "--text-file", FIXTURES / "s14_request.txt")
+        self.assertEqual(sorted(self.directory.iterdir()), before)
+        self.assertFalse(self.database.exists())
+
+    def test_oversized_error_text_is_explicitly_bounded(self):
+        command = "x" * 12000
+        report = self.raw_error(command)
+        original = ("unknown command: " + command).encode("utf-8")
+        self.assertTrue(report["message_truncated"])
+        self.assertEqual(report["message_bytes"], len(original))
+        self.assertEqual(report["message"].encode("utf-8"), original[:4096])
+
+    def test_utf8_cut_in_error_prefix_preserves_original_bytes_as_hex(self):
+        command = "审" * 2000
+        report = self.raw_error(command)
+        original = ("unknown command: " + command).encode("utf-8")
+        self.assertTrue(report["message_truncated"])
+        self.assertEqual(report["message_bytes"], len(original))
+        self.assertEqual(report["message_encoding"], "hex")
+        self.assertEqual(bytes.fromhex(report["message_hex"]), original[:4096])
+
+    def test_valid_unicode_error_message_remains_readable(self):
+        report = self.raw_error("未知命令")
+        self.assertEqual(report, {"error": "invalid_input", "message": "unknown command: 未知命令"})
+
     def planned(self, key="planned"):
         request = self.admit(key)
         self.pump(request, workspace=False, max_calls=1)

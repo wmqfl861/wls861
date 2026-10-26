@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <cstdio>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -76,6 +77,41 @@ std::string text(const Json& value) {
 }
 
 void output(const Json& value) { std::cout << canonical_json(value) << '\n'; }
+
+void output_error(std::string_view code, std::string_view message) noexcept {
+    // Error text can come from POSIX byte paths or third-party exceptions.
+    // Never let reporting a rejected input throw another uncaught exception.
+    try {
+        constexpr std::size_t maximum = 4096;
+        const auto prefix = message.substr(0, maximum);
+        Object report{{"error", code}, {"message", prefix}};
+        if (message.size() > maximum) {
+            report["message_truncated"] = true;
+            report["message_bytes"] = message.size();
+        }
+        std::string encoded;
+        try { encoded = canonical_json(report); }
+        catch (const Error&) {
+            constexpr char digits[] = "0123456789abcdef";
+            std::string hex;
+            hex.reserve(prefix.size() * 2);
+            for (const char character : prefix) {
+                const auto byte = static_cast<unsigned char>(character);
+                hex.push_back(digits[byte >> 4]);
+                hex.push_back(digits[byte & 15]);
+            }
+            report["message"] = "diagnostic text is encoded in message_hex";
+            report["message_encoding"] = "hex";
+            report["message_hex"] = std::move(hex);
+            report["message_bytes"] = message.size();
+            report["message_truncated"] = message.size() > maximum;
+            encoded = canonical_json(report);
+        }
+        std::cerr << encoded << '\n';
+    } catch (...) {
+        std::fputs("{\"error\":\"runtime_error\",\"message\":\"cannot serialize CLI error\"}\n", stderr);
+    }
+}
 
 Json input_path_details(const std::filesystem::path& path, std::string_view origin) {
     const auto input = path.string();
@@ -262,7 +298,7 @@ Json request_view(Store& store, const std::string& id) {
 }
 
 void help() {
-    std::cout << R"(wls 0.8.5-r3.2 — deployment diagnostics and offline Responses replay
+    std::cout << R"(wls 0.8.6-r3.2 — deployment diagnostics and offline Responses replay
 
 Resource paths default to the source checkout in the current directory.
 Use --source-root PATH from another directory. Outputs are JSON; errors go to stderr.
@@ -378,11 +414,15 @@ No command starts a daemon or calls a real model provider.
 }
 
 int run_cli(int argc, char** argv) {
+    // Every CLI branch speaks UTF-8 JSON, including its error path. Validate
+    // before option parsing, filesystem reads or a writer can persist input.
+    for (int index = 1; index < argc; ++index)
+        static_cast<void>(canonical_json(Json(argv[index])));
     if (argc < 2 || std::string_view(argv[1]) == "--help" || std::string_view(argv[1]) == "help") { help(); return 0; }
     const std::string command(argv[1]);
     if (command == "--version" || command == "version") {
         if (argc != 2) throw Error(ErrorCode::InvalidInput, "version takes no options");
-        output(Object{{"version", "0.8.5-r3.2"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
+        output(Object{{"version", "0.8.6-r3.2"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
     }
     int start = 2;
     std::string action;
@@ -395,7 +435,6 @@ int run_cli(int argc, char** argv) {
             const std::string argument = argv[index];
             if (argument.size() > 4096)
                 throw Error(ErrorCode::InvalidInput, "diagnostic and replay arguments exceed 4096 bytes");
-            static_cast<void>(canonical_json(Json(argument)));
         }
     }
     Options options(argc, argv, start);
@@ -961,10 +1000,10 @@ int run_cli(int argc, char** argv) {
 int main(int argc, char** argv) {
     try { return run_cli(argc, argv); }
     catch (const Error& error) {
-        std::cerr << canonical_json(Object{{"error", error_name(error.code())}, {"message", error.what()}}) << '\n';
+        output_error(error_name(error.code()), error.what());
         return error.code() == ErrorCode::Stale || error.code() == ErrorCode::Conflict ? 3 : 2;
     } catch (const std::exception& error) {
-        std::cerr << canonical_json(Object{{"error", "runtime_error"}, {"message", error.what()}}) << '\n';
+        output_error("runtime_error", error.what());
         return 1;
     }
 }
