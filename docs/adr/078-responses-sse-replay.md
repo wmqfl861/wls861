@@ -1,7 +1,10 @@
 # ADR-078：有界 Responses SSE 离线回放
 
-日期：2026-10-26。状态：**决定已固定，实施中；实测结果另记**。节点 **R3.2**，
+日期：2026-10-26。状态：**限定切片已实现；实测结果另记**。节点 **R3.2**，
 依赖[ADR-077](077-responses-offline-codec.md)的外部 profile、结构化请求和终态解码。
+
+实际 API、CLI 与限制见 [Responses 实施契约](../implementation/R3-offline-responses.md)，
+实际结果见[本批验证](../reports/r2a3-r3-offline-validation.md)。实网与 Store 集成另验收。
 
 ## 范围与协议
 

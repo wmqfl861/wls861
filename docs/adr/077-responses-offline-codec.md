@@ -1,8 +1,11 @@
 # ADR-077：外部网关 profile 与 Responses 离线编解码
 
-日期：2026-10-26。状态：**决定已固定，实施中；实测结果另记**。节点 **R3.1**，承接
+日期：2026-10-26。状态：**限定切片已实现；实测结果另记**。节点 **R3.1**，承接
 [路线图](../ROADMAP.md)的 S1-05/13；与[ADR-076](076-doctor-deployment-diagnostics.md)
 及[ADR-078](078-responses-sse-replay.md)组成本次三个开发节点。
+
+实际 API、CLI 与限制见 [Responses 实施契约](../implementation/R3-offline-responses.md)，
+实际结果见[本批验证](../reports/r2a3-r3-offline-validation.md)。实网与 Store 集成另验收。
 
 ## 决定与范围
 

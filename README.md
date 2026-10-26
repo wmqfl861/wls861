@@ -1,6 +1,6 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.8.4-r2a.2；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程和受控 Worker 工具。
+C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.8.5-r3.2；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程、受控 Worker 工具和独立离线协议回放。
 
 当前增量已接入请求限定恢复、拒绝成果纠正、模型逐任务 AMEND、有界 fs_mkdir 和运行时工作区分配恢复/明确弃置；保留原说明、成果、用量和未知副作用证据。
 [当前能力/证据矩阵](docs/STATUS.md)集中记录实现边界；[审核采纳记录](docs/reviews/claude-disposition.md)
@@ -11,6 +11,40 @@ R1.3 在此基础上接通显式冻结的Worker窗口与模型回读；旧请求
 
 新增入口及证据要求见[进程结算/核对契约](docs/implementation/S1-process-settlement.md)，
 说明恢复见[epoch恢复契约](docs/implementation/S1-epoch-recovery.md)。本地控制CLI不是网络认证服务。
+
+## 本批三个节点：部署诊断、HTTP 编解码、SSE 回放
+
+| 节点 | 可以使用的能力 | 契约 |
+| --- | --- | --- |
+| R2a.3 | doctor 显示实际输入路径、默认/显式来源、逐文件观察、具体阻塞原因和未检查项；只读且不打开 Store | [部署诊断](docs/implementation/R2a-deployment-diagnostics.md) |
+| R3.1 | 外部 profile 与 structured-v2 请求编码；本地 Responses HTTP JSON 文本/function_call 解码，保留原始字节及未知用量 | [Responses 离线协议](docs/implementation/R3-offline-responses.md) |
+| R3.2 | 有界 SSE 增量解析，校验序号/ID/完整终态，确定性回放取消、deadline 和断流 | [SSE 契约](docs/implementation/R3-offline-responses.md#r32-sse-离线回放) |
+
+以下命令从仓库根目录运行；路径中的 `build-cmake` 按实际构建目录替换：
+
+```sh
+./build-cmake/wls doctor --source-root .
+./build-cmake/wls encode-model \
+  --profile config/examples/providers/responses-offline.json \
+  --request tests/fixtures/responses/request.json
+./build-cmake/wls replay-model \
+  --profile config/examples/providers/responses-offline.json \
+  --request tests/fixtures/responses/request.json \
+  --http-response tests/fixtures/responses/http-response.json
+./build-cmake/wls replay-model \
+  --profile config/examples/providers/responses-offline.json \
+  --request tests/fixtures/responses/request.json \
+  --sse-stream tests/fixtures/responses/text.sse --chunk-bytes 1
+```
+
+示例 profile 使用 `.invalid` 域名和合成模型，认证环境变量名称只作引用。两个协议命令
+不需要 `--source-root`，也不接受 `--db`；不联网、不解析凭据、不派发工具。HTTP 和 SSE
+报告保留原宿主 tuple，已生成的错误/中断回放报告返回退出码 `4`，输入错误返回非零错误 JSON。
+编码 body 的哈希不冒充已发送的 wire 证据，局部记录哈希只检验本地一致性。
+
+本次[实际验证报告](docs/reports/r2a3-r3-offline-validation.md)区分本地协议夹具与真实系统观察。
+后续 R3.3 接实际 HTTPS/TLS、Store attempt/wire 和预算结算；供应商能力与获准真实小任务
+仍须独立验收。doctor 的只读前提观察也不能替代强沙箱运行、网络隔离和后代退出证明。
 
 ## 拒绝验收后的纠正（R2.1）
 
@@ -124,7 +158,8 @@ context:
 | [S1.4 问答与提交契约](docs/implementation/S1-workflow-runtime.md) | 405迁移、原问题/答案、文件快照、团队检查与返工、CLI边界 |
 | [S1.5 验收与交付契约](docs/implementation/S1-acceptance-delivery.md) | 406迁移、当前验收、交付恢复、回执、经验和收尾边界 |
 | [S1.6 受控清理契约](docs/implementation/S1-owned-cleanup.md) | 407迁移、所有权清单、退出证据、交付重核、有限删除与恢复边界 |
-| [本批发布复验](docs/reports/s1-owned-cleanup-followup-validation.md) | 非root复现、夹具修复、只读保护与完整门禁；本次发布依据 |
+| [本批三节点验证](docs/reports/r2a3-r3-offline-validation.md) | R2a.3 诊断、R3.1 HTTP 与 R3.2 SSE 的实际回归、源码绑定及边界 |
+| [S1.6 历史发布复验](docs/reports/s1-owned-cleanup-followup-validation.md) | 当时的非root复现、夹具修复、只读保护与完整门禁 |
 | [S1.6首次本地验证](docs/reports/s1-owned-cleanup-validation.md) | 原始本地记录与边界；不能替代后续CI权限失败修复后的复验 |
 | [S1.5 历史验证](docs/reports/s1-acceptance-delivery-validation.md) | 验收/交付/经验增量交付时的实际证据 |
 | [S1.4 历史验证](docs/reports/s1-workflow-runtime-validation.md) | 原问答/提交/团队检查交付时的实际证据 |
@@ -145,7 +180,7 @@ context:
 
 ## 当前可以运行什么
 
-`wls` 已有 `config check/explain`、`schema check`、`doctor`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/history-page/history-read/wait/wake`、`questions/submissions/answer`、`deliveries/experience/closeout`、`publish-delivery/verify-delivery/ack-delivery`、`allocate-workspace/abandon-workspace/owned-workspaces/cleanup-workspaces`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
+`wls` 已有 `config check/explain`、`schema check`、`doctor`、`encode-model/replay-model`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/history-page/history-read/wait/wake`、`questions/submissions/answer`、`deliveries/experience/closeout`、`publish-delivery/verify-delivery/ack-delivery`、`allocate-workspace/abandon-workspace/owned-workspaces/cleanup-workspaces`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
 
 | S1 模块 | 当前实现 |
 | --- | --- |
@@ -196,7 +231,7 @@ make -j2 test PYTHON=.local/test-venv/bin/python
 make -j2 ubsan PYTHON=.local/test-venv/bin/python
 ```
 
-如果所用 Python 已有测试依赖，可直接指定它。本批本地使用预装 `jsonschema` 的 `/opt/pyvenv/bin/python3`；GitHub CI 使用 `requirements-test.txt` 固定版本。构建不会联网获取 C++ 源码；固定导入的上游文件有逐文件哈希清单。
+如果所用 Python 已有测试依赖，可直接指定它；每批实际解释器和依赖版本见对应验证报告。GitHub CI 使用 `requirements-test.txt` 固定版本。构建不会联网获取 C++ 源码；固定导入的上游文件有逐文件哈希清单。
 
 ```sh
 cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release \
@@ -443,7 +478,7 @@ ACK 会重新核验并同步完整包，随后原子保存精确回执和收尾�
 
 当前内核是受信宿主进程内 API，`Actor` 由宿主构造。本机 CLI 不提供远程认证；诊断速率限制在单进程内，写者持租约期间没有第二个 CLI 的 socket 取消通道。文件容量是代理的逻辑上限，不是任意进程磁盘配额；合作锁不防任意同 UID 宿主绕过。强进程正向测试、残留 cgroup 恢复及完整 SBX/SEC 验收仍需独立证据。
 
-R2a.2已接入PREPARED分配恢复/显式放弃；下一聚焦增量是[ADR-076草案](docs/adr/076-doctor-deployment-diagnostics.md)定义的doctor实际部署路径与阻塞诊断（尚未实现），随后推进R3单协议离线回放与获准的小型真实闭环。私有行purge与wlsd/API继续后置。跨功能独立审核、DAG和审核双容量按S2推进，S3记忆、S4 MCP/评测和S5证据驱动扩展保持原路线。S1-06/07强环境正向独立验收；真实协议的端点、凭据引用、能力和预算由外部配置提供。示例保持FakeModel，付费重试为零。
+R2a.2已接入PREPARED分配恢复/显式放弃，R2a.3已接入doctor实际路径与有界阻塞诊断，R3.1/R3.2提供独立Responses HTTP/SSE离线回放。下一聚焦增量为R3.3实际HTTPS/TLS、Store原attempt/wire与预算结算，再对获准小型真实任务独立验收。私有行purge与wlsd/API继续后置。跨功能独立审核、DAG和审核双容量按S2推进，S3记忆、S4 MCP/评测和S5证据驱动扩展保持原路线。S1-06/07强环境正向独立验收；真实协议的端点、凭据引用、能力和预算由外部配置提供。现有运行器仍用FakeModel，协议夹具不联网，付费重试为零。
 
 ### 存储准入窗口和人工续进
 

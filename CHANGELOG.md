@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.5-r3.2 — deployment diagnostics and offline Responses HTTP/SSE
+
+- Complete three bounded slices: R2a.3 read-only deployment diagnostics, R3.1 external profile/HTTP codec, and R3.2 deterministic SSE replay.
+- Preserve production launcher/runtime-file checks while exposing input provenance, actual paths, typed blockers, independent observations, shared read budgets and persistent report-truncation facts.
+- Encode native structured-v2 text/function turns without rewriting old requests or fabricating network wire receipts; retain exact local HTTP response bytes and nullable usage.
+- Validate SSE framing, sequence/identity/lifecycle and terminal snapshots across arbitrary chunk boundaries; cancellation, deadline and incomplete output never dispatch partial tools.
+- Preserve already validated terminal usage after a later stream failure, and verify complete local records against their original consistency digests.
+- Add standalone `encode-model` and `replay-model` CLI commands, synthetic `.invalid` fixtures and read-before-error UTF-8/path bounds; no Store, credentials, network, paid retries or tool execution.
+- Register all new C++/CLI regressions in both build systems, preserving the existing full ordinary-user, umask, sanitizer and Clang gates.
+- Keep live HTTPS/TLS, Store attempt/wire integration, paid model quality and positive strong-sandbox deployment as separate acceptance work.
+
 ## 0.8.4-r2a.2 — recoverable owned allocation and retained abandonment
 
 - Add Store 408 through a new 010 migration, preserving published SQL, original ownership evidence and frozen cleanup manifests.

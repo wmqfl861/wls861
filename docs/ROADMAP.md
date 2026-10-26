@@ -57,8 +57,29 @@ R2a.1独立实现fs_mkdir：单个0700空叶目录、父已存在、投影目录
 R2a.2按[ADR-075](adr/075-owned-allocation-recovery.md)接完整staging、不可变创建收据、无覆盖发布、
 精确代次恢复及Root显式放弃；数据库兼容、弃置路径保护、清理目标选择和容量结算一起回归，
 实现及实测边界见[契约](implementation/R2a-allocation-recovery.md)与[报告](reports/r2a-allocation-validation.md)。
-之后按[ADR-076草案](adr/076-doctor-deployment-diagnostics.md)补R2a.3 doctor的实际部署路径与具体阻塞说明；
-该草案尚未实现，首增量保持只读且不打开Store；强环境正向仍需独立部署证据。
+R2a.3 在 0.8.5-r3.2 中按[ADR-076](adr/076-doctor-deployment-diagnostics.md)落地实际部署路径、
+输入来源和有界逐项阻塞诊断，见[实施契约](implementation/R2a-deployment-diagnostics.md)。
+该切片保持只读、不打开Store、不执行程序或修改cgroup；诊断完整与前提观察通过均不替代
+强环境正向/逃逸验收。具体执行结果归入[本批报告](reports/r2a3-r3-offline-validation.md)。
+
+### R3 增量顺序与本批边界
+
+0.8.5-r3.2 已落地以下两个离线切片，协议契约及API见
+[R3离线Responses](implementation/R3-offline-responses.md)：
+
+| 节点 | 已落地范围 | 保留的后继边界 |
+| --- | --- | --- |
+| R3.1 / [ADR-077](adr/077-responses-offline-codec.md) | 显式外部profile、structured-v2请求的Responses文本/function_call HTTP编解码、原tuple/原始字节/独立指纹与nullable usage | 无网络、无凭据解析、无Store准入；不支持reasoning/多模态/hosted-tool输出 |
+| R3.2 / [ADR-078](adr/078-responses-sse-replay.md) | 有界SSE分块与事件状态校验、确定性取消/deadline回放、终态与增量一致性、无损raw及本地完整记录指纹 | 时间和字节由调用方提供；不证明实际传输、供应商计费或工具派发 |
+
+本批还提供独立只读的编码/回放CLI与明确合成的 `.invalid` fixture。现有运行器和Store的
+fake-only门禁保持；原wire字段继续为null，编码body指纹不是已发送收据，profile也不是
+业务准入授权。实际结果由[本批报告](reports/r2a3-r3-offline-validation.md)记录，不能据此
+将完整R3、真实模型闭环或S1标为完成。
+
+下一节点 **R3.3** 接实际HTTPS/TLS传输、凭据引用解析、实时取消/deadline，以及原Store
+attempt/wire持久化、预算预留/告警/已知与未知用量结算。获准真实小任务仍须独立验收，
+包括原版本工具往返、AMEND、拒绝返工和交付；P-01/P-05及明确付费授权不因离线切片完成而解除。
 
 ## 2. 五阶段目标
 
@@ -131,4 +152,5 @@ AMEND 后，每个活动任务需显式 update／keep／cancel，处置绑定当
 本批实现选择见[容量准入窗口契约](implementation/S1-capacity-windows.md)：保留全部事件/幂等结果，
 以Root核对后的窗口推进存储计数，不是自动提高额度或物理删除归档。此子项不能替代R1上下文压缩、
 R2否决后的有界返工/按请求恢复，或R2a分配中断恢复。这些后继已有独立契约与验证，
-当前完成程度以STATUS为准；下一步继续以doctor实际部署阻塞和R3协议回放为先。
+当前完成程度以STATUS为准；后继优先R3.3实际传输及Store attempt/wire/预算接入，
+并将获准小任务与强环境正向分别独立验收。

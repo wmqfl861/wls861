@@ -1,5 +1,11 @@
 # WLS861 development contract
 
+Current implementation: **0.8.5-r3.2**, blueprint **v0.4.1**. This batch implements
+the limited R2a.3, R3.1 and R3.2 slices; it does not complete all of R3 or a real
+model loop. Actual results and limitations belong in
+`docs/reports/r2a3-r3-offline-validation.md` and the CI for the specific commit.
+Do not turn an implemented interface or a planned test into a passing result.
+
 Read `docs/reviews/claude-2026-10-24-disposition.md`,
 `docs/adr/064-audit24-recovery.md`, `docs/implementation/S1-epoch-recovery.md`
 and `docs/implementation/S1-process-settlement.md` for the current recovery/settlement
@@ -61,6 +67,28 @@ only for unbound PREPARED records, including terminal/retired/held requests.
 Preserve all history, protect both retained paths, select active cleanup targets,
 and keep lifetime limits separate from windowed event settlement reserves.
 Populated upgrades need explicit all-request init; never edit published SQL.
+
+Read `docs/adr/076-doctor-deployment-diagnostics.md` and
+`docs/implementation/R2a-deployment-diagnostics.md` for R2a.3. Doctor uses current
+explicit configuration, not an existing request snapshot. Preserve input origins,
+typed reasons, per-object observations, shared read budgets and explicit truncation.
+It never opens Store, executes launcher/environment checks, writes cgroup controls
+or adopts allocations. A future operation control path is only a not_checked
+pattern. Complete/readiness flags do not replace real isolation or exit evidence;
+keep all original production path, permission, frozen-byte and strong-only guards.
+
+Read `docs/adr/077-responses-offline-codec.md`,
+`docs/adr/078-responses-sse-replay.md` and
+`docs/implementation/R3-offline-responses.md` for R3.1/R3.2. Provider profiles,
+HTTP coding and bounded SSE replay are offline. The independent encode-model and
+replay-model CLI commands only read local fixtures: no Store, network, credential
+resolution, paid attempts or tool dispatch. Keep real_calls_enabled=false and
+max_paid_retries=0. Preserve the original structured-v2 host tuple, raw bytes,
+separate local/wire fingerprints and nullable usage; never retag a FakeModel
+reservation as real protocol evidence. Schemas and decoded Completed do not grant
+business authority. Partial streams, cancellation, deadline and protocol errors
+must not release partial tools. R3.3 transport plus original Store admission,
+attempt and settlement integration, and an approved small real loop remain open.
 
 Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
 review fixes and priority changes. Model contract/context/rework and an approved

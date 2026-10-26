@@ -1,4 +1,17 @@
-# 当前实现 **0.8.4-r2a.2**，目标蓝图 **v0.4.1**。
+# 当前实现 **0.8.5-r3.2**，目标蓝图 **v0.4.1**。
+
+本批完成三个限定节点的实施：
+
+- **R2a.3**：[有界只读部署诊断](implementation/R2a-deployment-diagnostics.md)，记录配置与实际路径来源、逐项稳定原因、共享读取预算及未检查边界。
+- **R3.1**：[Responses 离线 HTTP 编解码](implementation/R3-offline-responses.md)，使用显式外部 profile，保留原 structured-v2 请求、宿主身份、原响应和可空用量。
+- **R3.2**：[有界 Responses SSE 离线回放](implementation/R3-offline-responses.md)，校验分块、事件身份/次序及完整终态，支持确定性取消/deadline 输入，失败不释放部分工具。
+
+新增独立 CLI `encode-model` / `replay-model` 只读取本地输入；不打开 Store、不发起网络请求、
+不解析凭据、不生成真实 attempt 或执行工具。doctor 同样不打开 Store、不执行 launcher 或环境检查。
+这三个节点不代表完整 R3 或真实模型闭环完成。设计见
+[ADR-076](adr/076-doctor-deployment-diagnostics.md)、[ADR-077](adr/077-responses-offline-codec.md)
+和 [ADR-078](adr/078-responses-sse-replay.md)；实际验证和限制以
+[本批报告](reports/r2a3-r3-offline-validation.md)及对应提交的 CI 为准，不从实施状态推导测试通过。
 
 接续 R2.2 `c975be3` 的[拒绝成果纠正/用户升级](implementation/R2-rejected-task-resolution.md)和
 [请求限定恢复](implementation/S1-request-recovery.md)，新增[模型逐任务 AMEND](implementation/R2-model-amendments.md)。
@@ -8,8 +21,8 @@ R2a.1接入[有界目录创建](implementation/R2a-directory-tool.md)，R2a.2接
 设计取舍见 [ADR-072](adr/072-r2-integration.md)、[ADR-073](adr/073-model-amendment-dispositions.md)、[ADR-074](adr/074-bounded-directory-tool.md)和[ADR-075](adr/075-owned-allocation-recovery.md)。
 Dispatcher纠正与TeamLead共享冻结返工计数，新说明必须保留旧约束并经Worker重新确认；
 这些动作和用户回答只恢复目标请求，不能扰动同库兄弟请求或其终态收尾租约。
-原R1.3窗口/原反馈、AMEND/UNKNOWN门禁保持。当前测试及发布状态只以
-[R2.2联合复验](reports/r2-integration-validation.md)、[R2.3验证报告](reports/r2-model-amendment-validation.md)、[R2a.1验证报告](reports/r2a-directory-validation.md)、[R2a.2验证报告](reports/r2a-allocation-validation.md)和对应提交的CI为准。
+原R1.3窗口/原反馈、AMEND/UNKNOWN门禁保持。先前增量的证据保留于
+[R2.2联合复验](reports/r2-integration-validation.md)、[R2.3验证报告](reports/r2-model-amendment-validation.md)、[R2a.1验证报告](reports/r2a-directory-validation.md)和[R2a.2验证报告](reports/r2a-allocation-validation.md)，不替代本批提交的验证。
 
 ## 能力矩阵
 
@@ -17,14 +30,16 @@ Dispatcher纠正与TeamLead共享冻结返工计数，新说明必须保留旧�
 | --- | --- | --- |
 | 四角色、版本、幂等、UNKNOWN | C++ Store + FakeModel 有界流程 | 真实 SQLite/文件/跨进程回归；不证明模型决策质量 |
 | 文件/进程 | fs_list/read/search/mkdir/write/patch；完整强证明与前后清单可结算失败，Root专用核对；子进程固定0077 | 真实目录/文件和监督夹具；mkdir有投影配额、首次派发及UNKNOWN故障回归；强 bwrap/cgroup 部署正向和后台操作待完成 |
+| 部署诊断 | doctor 的输入来源、实际路径、typed reasons、逐项文件/cgroup/proc 观察与预算/截断 | 只读，不开 Store；未来 operation 控制为 not_checked。只读前提、固定 cgroup 分支和拒绝用例不等于强隔离部署正向 |
 | 问答/候选/验收 | Worker问题、原字节提交、TL/Dispatcher共享有限返工、验收及用户升级 | 固定脚本实现拒绝→新说明/确认→重提/验收及耗尽上报；回答不追加额度。通用任务重定义仍未实现 |
 | AMEND | Dispatcher模型提交新计划及逐节点update/keep/cancel；遗漏节点按同计划续办 | 捕获请求/任务CAS和团队代次，遗漏保留待办、keep须新说明/ack；双格式/重开/预算/兄弟隔离回归。真实模型判断质量尚未验收 |
-| 交付/清理 | 不可变包、精确回执、经验作业、固定清单受控 work 删除 | 实际发布/删除/恢复；私有行、owner收据保留；全局cleanup仍PENDING；PREPARED有原收据恢复/显式弃置；弃置残留保留、不可重用，doctor现场诊断待接入 |
-| 上下文/模型 | 冻结选择v1/v2和Worker window-v1；近期完整轮次、旧/大结果原证据引用；模型回读与持久频率限制 | FakeModel大文件多轮/重开继续、模型回读原字节；旧请求不迁移。LLM语义压缩、管理角色窗口、实际wire仍未实现；完整当前契约超限仍拒绝 |
+| 交付/清理 | 不可变包、精确回执、经验作业、固定清单受控 work 删除 | 实际发布/删除/恢复；私有行、owner收据保留；全局cleanup仍PENDING；PREPARED有原收据恢复/显式弃置；弃置残留保留、不可重用。部署 doctor 不扫描或采用分配残留 |
+| 上下文/模型 | 冻结选择v1/v2和Worker window-v1；近期完整轮次、旧/大结果原证据引用；模型回读与持久频率限制 | FakeModel大文件多轮/重开继续、模型回读原字节；旧请求不迁移。LLM语义压缩、管理角色窗口、真实网络 wire/attempt 与 Store 集成仍未实现；完整当前契约超限仍拒绝 |
+| Responses 离线协议 | 显式 provider profile、HTTP 文本/function_call 编解码、有界 SSE 回放；独立 encode-model/replay-model | 本地编码字节/原响应/流事件、身份与用量校验；零网络、零凭据解析、零工具派发。Schema/Completed 不授予权限；真实 transport、Store 预约结算及供应商现场能力仍开放 |
 | 事件/并发 | 持久inbox、逐任务AMEND、串行pump；冻结准入窗口/独立计数/Root检查点 | 旧快照不改写；到限可核对后续进；不清审计/不重置预算。CLI 已按请求恢复；默认全库维护仍保留。并发租约、只在确有在途时提升选中请求代次仍未实现 |
 | 配置执行状态 | check/explain显示 runtime_support 和 validated_only 项 | 形状有效不代表墙钟/告警/压缩/并发/停滞检测已执行 |
 | 记忆、MCP、跨功能审核 | 规格/参考契约 | 完整C++闭环及真实互通未实现 |
-| 测试工具链 | 严格、UBSan、ASan、Clang、普通用户及umask矩阵 | 六路CI：Release/两种umask、UBSan、CMake ASan、Make ASan、Clang18；Make ASan默认-O0，其他优化构建保留；实际结果见报告 |
+| 测试工具链 | 严格、UBSan、ASan、Clang、普通用户及umask矩阵 | 已配置六路CI：Release/两种umask、UBSan、CMake ASan、Make ASan、Clang18；Make ASan默认-O0，其他优化构建保留；本批结果须按报告和具体 CI 提交核对 |
 
 ## 阶段
 
@@ -32,8 +47,10 @@ S1 在实施中；近期优先级已调整为真实模型闭环的接口和运�
 S2 独立审核/DAG，S3 记忆，S4 MCP/评测，S5 按证据扩展仍为后续阶段。
 单 Agent 对照框架前移 S1，不再以整套 S2 完成为前提。
 R2a.2已按[ADR-075](adr/075-owned-allocation-recovery.md)实现迁移、创建收据、精确恢复、弃置与清理联动。
-下一聚焦增量为R2a.3 doctor实际部署路径/具体阻塞说明，然后接R3单协议离线回放。
-[ADR-076](adr/076-doctor-deployment-diagnostics.md)已写成设计草案；新增诊断字段、路径检查和验收尚未实现。
+R2a.3、R3.1、R3.2 的上述限定接口已实施；真实强沙箱部署正向验收保持独立。
+下一增量 **R3.3** 仍须完成真实 transport 与 Store 的原 attempt/预算预约/用量结算集成，
+然后在端点、能力、凭据与预算具备且获准后进行小任务闭环验收。离线 profile 继续固定
+real_calls_enabled=false、max_paid_retries=0；本批未使真实付费调用可用。
 并发租约和选中请求按需提升代次继续开放，不因模型 AMEND 接入而视为完成。
 
 历史进度保留在 CHANGELOG 与 `docs/reports/`；原 handoff 的51项产品验收记录保持原状。

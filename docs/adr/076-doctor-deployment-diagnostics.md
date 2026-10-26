@@ -1,10 +1,11 @@
 # ADR-076：doctor 的实际部署路径与有界阻塞诊断
 
-日期：2026-10-26。状态：**决定已固定，实施中；实测结果另记**；目标增量 **R2a.3**；蓝图 v0.4.1。
-承接 [R2a.2 分配恢复契约](../implementation/R2a-allocation-recovery.md)。本文件提出下一增量，
-不把新增报告字段、原因代码、测试或部署能力列为当前成果。
+日期：2026-10-26。状态：**限定切片已实现；实测结果另记**；目标增量 **R2a.3**；蓝图 v0.4.1。
+承接 [R2a.2 分配恢复契约](../implementation/R2a-allocation-recovery.md)。本文件保留实施前问题及设计约束；实际字段与边界见
+[部署诊断契约](../implementation/R2a-deployment-diagnostics.md)，实测见
+[本批验证](../reports/r2a3-r3-offline-validation.md)。只读诊断仍不代表强部署已验收。
 
-## 1. 问题、现状与本增量目标
+## 1. 实施前问题与本增量目标
 
 当前 [CLI doctor](../../src/cli.cpp) 从显式配置与可选宿主 manifest 得到
 `worker_sandbox_policy`，调用 [sandbox_doctor](../../src/sandbox_posix.cpp)。它不打开 Store、
@@ -40,7 +41,7 @@ manifest 仍由原 execution policy 指纹与绑定规则判断，doctor 不为�
 
 报告须分别保留：
 
-| 来源 | 拟报告内容 | 不得推断 |
+| 来源 | 设计要求的报告内容 | 不得推断 |
 | --- | --- | --- |
 | 配置 | 实际 config/functions/prompts 输入路径、默认来源、function/capability/template、本次配置快照 SHA | 配置形状合格不代表所有配置控制已执行 |
 | 宿主 manifest | 是否提供、原输入路径、实际读取路径、原始文件字节 SHA、schema_version | 没有 manifest 时不能虚构一份已批准清单 |
@@ -56,7 +57,7 @@ manifest 原字节 SHA 与 execution policy SHA 含义不同，必须使用不�
 
 ## 3. 报告结构、原因与兼容
 
-拟增加独立报告格式标识 `report_format: "wls-doctor-report-v1"`。它是诊断格式，
+增加独立报告格式标识 `report_format: "wls-doctor-report-v1"`。它是诊断格式，
 不提升 manifest、数据库、工具或执行策略的版本。原布尔字段、`issues` 与原 evidence 继续存在；
 原含义不能偷偷改为一次运行验收。新结构至少包含：
 
@@ -73,7 +74,7 @@ manifest 原字节 SHA 与 execution policy SHA 含义不同，必须使用不�
 未来 operation 子目录与真实隔离运行属于明确未执行的验收项，不标为本次只读前提的必需检查；
 辅助 proc 观察也不擅自提升为隔离正向证明。哪些项属于必需前提须与原执行器逐项对应并固定。
 
-拟议原因代码示例：
+设计原因代码示例：
 
 | 类别 | 稳定代码示例 | 指向的具体事实 |
 | --- | --- | --- |
