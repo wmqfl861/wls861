@@ -50,6 +50,28 @@ std::int64_t number(const Row& row, std::string_view key) {
         return static_cast<std::int64_t>(v.as_uint64());
     fail(ErrorCode::Corrupt, "expected integer field " + std::string(key));
 }
+bool allocation_v2(const Json& intent) {
+    const auto* version = intent.as_object().if_contains("version");
+    return version && *version == "owned-allocation-v2";
+}
+std::vector<std::string> owned_paths(const Json& intent) {
+    const auto parent = str(intent.at("parent_identity").as_object(), "path");
+    std::vector<std::string> paths{parent + "/" + str(intent.as_object(), "leaf")};
+    if (const auto* stage = intent.as_object().if_contains("stage_leaf")) {
+        require(stage->is_string(), ErrorCode::Corrupt, "invalid owned staging path");
+        paths.push_back(parent + "/" + std::string(stage->as_string()));
+    }
+    return paths;
+}
+void owned_generation(const Json& value) {
+    require(value.is_object(), ErrorCode::InvalidInput, "complete filesystem generation required");
+    const auto& row = value.as_object();
+    for (const auto* key : {"device", "inode", "mount_id", "birth_seconds", "birth_nanoseconds"})
+        require(row.contains(key), ErrorCode::InvalidInput, "complete filesystem generation required");
+    require(number(row, "device") > 0 && number(row, "inode") > 0 && number(row, "mount_id") > 0 &&
+            number(row, "birth_seconds") >= 0 && number(row, "birth_nanoseconds") >= 0 &&
+            number(row, "birth_nanoseconds") < 1000000000, ErrorCode::InvalidInput, "invalid filesystem generation");
+}
 std::int64_t next(std::int64_t n) {
     require(n >= 0 && n < INT64_MAX, ErrorCode::Quota, "revision exhausted");
     return n + 1;
@@ -393,7 +415,8 @@ public:
          std::string_view migration_sql, StoreOpenMode selected_mode,
          std::string_view tools_migration_sql, std::string_view events_migration_sql,
          std::string_view workflow_migration_sql, std::string_view acceptance_migration_sql,
-         std::string_view cleanup_migration_sql, StoreRecoveryScope selected_scope)
+         std::string_view cleanup_migration_sql, StoreRecoveryScope selected_scope,
+         std::string_view allocation_migration_sql)
         : mode(selected_mode), recovery_scope(std::move(selected_scope)) {
         using Kind = StoreRecoveryScope::Kind;
         require(recovery_scope.kind == Kind::AllRequests || recovery_scope.kind == Kind::OneRequest ||
@@ -410,6 +433,8 @@ public:
                 "acceptance migration requires the workflow asset");
         require(cleanup_migration_sql.empty() || !acceptance_migration_sql.empty(), ErrorCode::InvalidInput,
                 "owned cleanup migration requires the acceptance asset");
+        require(allocation_migration_sql.empty() || !cleanup_migration_sql.empty(), ErrorCode::InvalidInput,
+                "owned allocation migration requires the cleanup asset");
         require(database_path != ":memory:", ErrorCode::InvalidInput, "Store requires a durable file path");
         const auto absolute = std::filesystem::absolute(database_path).lexically_normal();
         const auto path = (std::filesystem::canonical(absolute.parent_path()) / absolute.filename()).string();
@@ -453,11 +478,11 @@ public:
                 exec(base_sql);
                 version = number(one("PRAGMA user_version"), "user_version");
             }
-            require(version >= 401 && version <= 407, ErrorCode::Unsupported, "unknown database version; explicit migration required");
+            require(version >= 401 && version <= 408, ErrorCode::Unsupported, "unknown database version; explicit migration required");
             require(str(one("SELECT schema_version FROM contract_metadata WHERE singleton=1"), "schema_version") == "0.4.1",
                     ErrorCode::Unsupported, "unsupported base contract metadata");
             if (recovery_scope.kind != Kind::AllRequests) {
-                const auto target = !cleanup_migration_sql.empty() ? 407 : !acceptance_migration_sql.empty() ? 406 :
+                const auto target = !allocation_migration_sql.empty() ? 408 : !cleanup_migration_sql.empty() ? 407 : !acceptance_migration_sql.empty() ? 406 :
                     !workflow_migration_sql.empty() ? 405 : !events_migration_sql.empty() ? 404 :
                     !tools_migration_sql.empty() ? 403 : 402;
                 require(version >= target || !optional("SELECT request_id FROM requests LIMIT 1"),
@@ -515,6 +540,12 @@ public:
                 const auto info = one("SELECT * FROM owned_cleanup_metadata WHERE singleton=1");
                 require(number(info, "store_version") == 9 && str(info, "migration_sha256") == sha256_hex(cleanup_migration_sql),
                         ErrorCode::Corrupt, "owned cleanup migration fingerprint mismatch");
+            }
+            if (version >= 408) {
+                require(!allocation_migration_sql.empty(), ErrorCode::Unsupported, "408 database requires owned allocation asset");
+                const auto info = one("SELECT * FROM owned_allocation_metadata WHERE singleton=1");
+                require(number(info, "store_version") == 10 && str(info, "migration_sha256") == sha256_hex(allocation_migration_sql),
+                        ErrorCode::Corrupt, "owned allocation migration fingerprint mismatch");
             }
             // Validate ownership/version before any persistent journal-mode
             // change; rejecting an unrelated database preserves its bytes.
@@ -608,6 +639,17 @@ public:
                 } catch (...) { rollback(); throw; }
             }
             cleanup_schema = version >= 407;
+            if (version == 407 && !allocation_migration_sql.empty() && mode == StoreOpenMode::Takeover) {
+                exec("BEGIN IMMEDIATE");
+                try {
+                    exec(allocation_migration_sql);
+                    execute("INSERT INTO owned_allocation_metadata VALUES (1,10,?)", {sha256_hex(allocation_migration_sql)});
+                    require(number(one("PRAGMA user_version"), "user_version") == 408,
+                            ErrorCode::Corrupt, "owned allocation migration did not produce 408");
+                    exec("COMMIT"); version = 408;
+                } catch (...) { rollback(); throw; }
+            }
+            allocation_schema = version >= 408;
             require(str(one("PRAGMA quick_check"), "quick_check") == "ok", ErrorCode::Corrupt, "SQLite quick_check failed");
             require(!optional("PRAGMA foreign_key_check"), ErrorCode::Corrupt, "SQLite foreign key check failed");
             if (mode == StoreOpenMode::Takeover && recovery_scope.kind == Kind::OneRequest) {
@@ -1570,7 +1612,12 @@ public:
     bool workflow_schema{false};
     bool acceptance_schema{false};
     bool cleanup_schema{false};
+    bool allocation_schema{false};
     Json owned_info(const Row& row) const;
+    Row allocation_authorize(const StoreActor& actor, const std::string& id, std::int64_t expected) const;
+    Row abandonment_intent(const StoreActor& actor, const std::string& id, std::int64_t expected,
+                           const std::string& reason) const;
+    Row abandonment_target(const StoreActor& actor, const std::string& id, std::int64_t expected) const;
     Array cleanup_blockers(const std::string& id) const;
     Json cleanup_status(const std::string& id) const;
     void cleanup_authorize(const StoreActor& actor, const Json& claim) const;
@@ -1583,9 +1630,9 @@ public:
 Store::Store(const std::filesystem::path& path, std::string_view base, std::string_view migration, StoreOpenMode mode,
              std::string_view tools_migration, std::string_view events_migration,
              std::string_view workflow_migration, std::string_view acceptance_migration, std::string_view cleanup_migration,
-             StoreRecoveryScope recovery_scope)
+             StoreRecoveryScope recovery_scope, std::string_view allocation_migration)
     : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration, events_migration, workflow_migration,
-                                 acceptance_migration, cleanup_migration, std::move(recovery_scope))) {}
+                                 acceptance_migration, cleanup_migration, std::move(recovery_scope), allocation_migration)) {}
 Store::~Store() = default;
 
 Json Store::diagnostics() const {
@@ -2388,8 +2435,8 @@ Json Store::prepare_delivery(const StoreActor& actor, const ExecutionBinding& ca
             ErrorCode::Unauthorized, "delivery root overlaps or aliases a business workspace");
     if (impl_->cleanup_schema) for (const auto& owned : impl_->all("SELECT intent FROM owned_workspaces")) {
         const auto intent = parse_json_strict(str(owned, "intent"));
-        const auto envelope = str(intent.at("parent_identity").as_object(), "path") + "/" + str(intent.as_object(), "leaf");
-        require(!overlap(root_path, envelope), ErrorCode::Unauthorized, "delivery root overlaps retained ownership envelope");
+        for (const auto& protected_path : owned_paths(intent))
+            require(!overlap(root_path, protected_path), ErrorCode::Unauthorized, "delivery root overlaps retained ownership path");
     }
     for (const auto& stored : impl_->all("SELECT frozen_plan FROM delivery_runtime")) {
         const auto previous = parse_json_strict(str(stored, "frozen_plan"), 8 * 1024 * 1024).at("root_identity");
@@ -3216,7 +3263,7 @@ Json Store::bind_workspace(const std::string& team_id, const std::string& path,
     Impl::Transaction tx(*impl_);
     const auto team = impl_->team_row(team_id);
     if (impl_->cleanup_schema) {
-        if (const auto owned = impl_->optional("SELECT * FROM owned_workspaces WHERE team_id=?", {team_id})) {
+        if (const auto owned = impl_->optional("SELECT * FROM owned_workspaces WHERE team_id=? AND status<>'ABANDONED'", {team_id})) {
             require(str(*owned, "status") == "OWNED", ErrorCode::NotReady, "owned workspace is not ready for binding");
             const auto identity = impl_->owned_info(*owned).at("identity").at("workspace_identity").as_object();
             require(str(identity, "path") == path && number(identity, "device") == signed_device && number(identity, "inode") == signed_inode,
@@ -3236,11 +3283,16 @@ Json Store::bind_workspace(const std::string& team_id, const std::string& path,
                 !(number(other, "device") == signed_device && number(other, "inode") == signed_inode),
                 ErrorCode::Conflict, "workspace overlaps or aliases another team's workspace");
     }
-    if (impl_->cleanup_schema) for (const auto& resource : impl_->all("SELECT team_id,intent FROM owned_workspaces")) {
-        if (str(resource, "team_id") == team_id) continue;
+    if (impl_->cleanup_schema) for (const auto& resource : impl_->all("SELECT team_id,intent,status FROM owned_workspaces")) {
         const auto intent = parse_json_strict(str(resource, "intent"));
-        const auto envelope = str(intent.at("parent_identity").as_object(), "path") + "/" + str(intent.as_object(), "leaf");
-        require(!overlap(path, envelope), ErrorCode::Unauthorized, "business workspace overlaps another ownership envelope");
+        const auto protected_paths = owned_paths(intent);
+        for (std::size_t index = 0; index < protected_paths.size(); ++index) {
+            // Only this team's current OWNED final envelope may contain its
+            // exact, already-validated work binding. Staging and abandoned
+            // historical paths remain protected even from the same team.
+            if (index == 0 && str(resource, "team_id") == team_id && str(resource, "status") == "OWNED") continue;
+            require(!overlap(path, protected_paths[index]), ErrorCode::Unauthorized, "business workspace overlaps retained ownership path");
+        }
     }
     if (impl_->acceptance_schema) for (const auto& stored : impl_->all("SELECT frozen_plan FROM delivery_runtime")) {
         const auto root = parse_json_strict(str(stored, "frozen_plan"), 8 * 1024 * 1024).at("root_identity");

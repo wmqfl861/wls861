@@ -3,6 +3,7 @@
 #include "wls/runtime_types.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 
 namespace wls::s1 {
 
@@ -20,6 +21,15 @@ struct CleanupLimits {
 // Minimal envelopes/receipts remain retained; arbitrary same-UID host mutation
 // and secure media erasure are not isolation guarantees of this implementation.
 Json create_owned_workspace(const Json& intent);
+// R2a.2 host allocation protocol. Capture the full parent generation before
+// persisting a v2 intent. stage requires both retained names to be absent and
+// returns original synced creation evidence; the Store MUST durably record it
+// before publish. publish consumes resource.allocation_receipt and either
+// renames the exact stage without overwrite or verifies its exact final name.
+// Neither routine adopts an unreceipted path or removes conflict residuals.
+Json allocation_parent_identity(const std::filesystem::path& parent);
+Json stage_owned_workspace(const Json& intent);
+Json publish_owned_workspace(const Json& resource);
 Json inspect_owned_workspace(const Json& resource);
 Json inventory_owned_workspace(const Json& resource, CleanupLimits limits = {});
 

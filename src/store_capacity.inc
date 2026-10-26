@@ -4,7 +4,8 @@
         return "(type IN ('ack','cancel_op','finish_op','reconcile_op','record_op_result',"
             "'execute_tool_control','wait_worker','wake_worker','tool_feedback','ask_question',"
             "'forward_question','answer_question','escalate_task','report_experience','record_delivery_publication',"
-            "'acknowledge_delivery','cancel_request','settle_attempt','attempts_unknown') OR "
+            "'acknowledge_delivery','cancel_request','settle_attempt','attempts_unknown',"
+            "'allocation_receipt','allocation_registered','allocation_abandoned') OR "
             "(type='check_submission' AND json_extract(payload,'$.adverse_revoke')=1) OR "
             "(type='accept_candidate' AND json_extract(payload,'$.decision.passed')=0) OR "
             "(type='reserve_attempt' AND json_type(payload,'$.experience_job_id') IS NOT NULL))";
@@ -14,7 +15,8 @@
         const std::set<std::string> types{"ack", "cancel_op", "finish_op", "reconcile_op", "record_op_result",
             "execute_tool_control", "wait_worker", "wake_worker", "tool_feedback", "ask_question",
             "forward_question", "answer_question", "escalate_task", "report_experience", "record_delivery_publication",
-            "acknowledge_delivery", "cancel_request", "settle_attempt", "attempts_unknown"};
+            "acknowledge_delivery", "cancel_request", "settle_attempt", "attempts_unknown",
+            "allocation_receipt", "allocation_registered", "allocation_abandoned"};
         return types.contains(type) || (type == "check_submission" && command.at("adverse_revoke").as_bool()) ||
             (type == "accept_candidate" && !command.at("decision").at("passed").as_bool()) ||
             (type == "reserve_attempt" && command.contains("experience_job_id"));
@@ -137,7 +139,16 @@
         const auto open_questions = workflow_schema ? number(one("SELECT COUNT(*) AS n FROM questions q JOIN question_runtime x USING(question_id) WHERE q.request_id=? AND x.status='OPEN'", {id}), "n") : 0;
         const auto pending_ops = number(one("SELECT COUNT(*) AS n FROM ops WHERE request_id=? AND status IN ('PREPARED','RUNNING','CANCEL_REQUESTED','UNKNOWN')", {id}), "n");
         const auto pending_calls = number(one("SELECT COUNT(*) AS n FROM call_attempts WHERE request_id=? AND (status IN ('PENDING','UNKNOWN') OR unknown_input=1 OR unknown_output=1 OR unknown_cost=1)", {id}), "n");
-        const auto reserved_control = 4 * (pending_ops + pending_calls) + 16;
+        // New allocation stages reserve their remaining finite settlement
+        // tail. Old event types retain their original classification. A v1
+        // PREPARED resource needs one register-or-abandon event; v2 needs a
+        // receipt and then register-or-abandon, or just the latter once its
+        // immutable receipt is present. This is not a checkpoint total: old
+        // saved windows have no fabricated allocation counters.
+        const auto reserved_owned = allocation_schema ? number(one(
+            "SELECT COALESCE(SUM(CASE WHEN json_extract(intent,'$.version')='owned-allocation-v2' AND allocation_receipt IS NULL THEN 2 ELSE 1 END),0) AS n "
+            "FROM owned_workspaces WHERE request_id=? AND status='PREPARED'", {id}), "n") : 0;
+        const auto reserved_control = 4 * (pending_ops + pending_calls) + 16 + reserved_owned;
         const auto prepared = number(one("SELECT COUNT(*) AS n FROM ops WHERE request_id=? AND status='PREPARED'", {id}), "n");
         const auto limits = capacity_limits(id);
         Array exhausted, approaching;
@@ -152,11 +163,19 @@
         if (number(counts, "control_events") + reserved_control + 8 >= number(limits.as_object(), "control_events")) exhausted.emplace_back("control_reserve");
         if (number(counts, "business_events") + prepared + 4 >= number(limits.as_object(), "business_events")) exhausted.emplace_back("dispatch_reserve");
         const bool recorded_hold = history.held;
-        return Row{{"request_id", id}, {"window", window}, {"start_seq", seq}, {"limits", limits}, {"counts", counts},
+        Row result{{"request_id", id}, {"window", window}, {"start_seq", seq}, {"limits", limits}, {"counts", counts},
             {"totals", totals}, {"task_submissions", task_counts}, {"open_questions", open_questions},
             {"reserved_control", reserved_control}, {"reserved_dispatch", prepared}, {"exhausted", exhausted}, {"approaching", approaching},
             {"recorded_hold", recorded_hold}, {"recorded_warning", history.warned}, {"status", recorded_hold || !exhausted.empty() ? "WAITING_INPUT" : "OPEN"},
             {"resume_command", "capacity-checkpoint"}, {"audit_rows_retained", true}, {"budgets_reset", false}};
+        if (allocation_schema) {
+            result["reserved_owned_allocation"] = reserved_owned;
+            result["owned_allocation"] = Row{{"active_limit", 64}, {"history_limit", 256},
+                {"active", number(one("SELECT COUNT(*) AS n FROM owned_workspaces WHERE request_id=? AND status<>'ABANDONED'", {id}), "n")},
+                {"history", number(one("SELECT COUNT(*) AS n FROM owned_workspaces WHERE request_id=?", {id}), "n")},
+                {"lifetime_limits", true}};
+        }
+        return result;
     }
     void capacity_raw_event(const std::string& id, const std::string& key, const Row& command, const Json& result) {
         text_field(key, "command_id");

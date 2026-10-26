@@ -2,8 +2,9 @@
 // lease, mutex, transaction helpers and current identity/authorization gates.
 Json Store::Impl::owned_info(const Row& row) const {
     Json result = row;
-    for (const auto* key : {"intent", "identity", "inventory", "proof"}) {
-        if (!row.at(key).is_null()) result.as_object()[key] = parse_json_strict(str(row, key), 8 * 1024 * 1024);
+    for (const auto* key : {"intent", "identity", "inventory", "proof", "allocation_receipt", "abandonment"}) {
+        const auto* value = row.if_contains(key);
+        if (value && !value->is_null()) result.as_object()[key] = parse_json_strict(str(row, key), 8 * 1024 * 1024);
     }
     return result;
 }
@@ -54,7 +55,7 @@ Array Store::Impl::cleanup_blockers(const std::string& id) const {
     if (optional("SELECT attempt_id FROM call_attempts WHERE request_id=? AND (status IN ('PENDING','UNKNOWN') OR unknown_input=1 OR unknown_output=1 OR unknown_cost=1) LIMIT 1", {id})) blockers.emplace_back("unsettled_model_accounting");
     if (optional("SELECT resource_id FROM owned_workspaces WHERE request_id=? AND status='PREPARED' LIMIT 1", {id})) blockers.emplace_back("workspace_creation_incomplete");
     for (const auto& bound : all("SELECT w.* FROM workspace_bindings w JOIN teams t USING(team_id) WHERE t.request_id=?", {id})) {
-        const auto resource = optional("SELECT * FROM owned_workspaces WHERE request_id=? AND team_id=?", {id, bound.at("team_id")});
+        const auto resource = optional("SELECT * FROM owned_workspaces WHERE request_id=? AND team_id=? AND status<>'ABANDONED'", {id, bound.at("team_id")});
         if (!resource || resource->at("identity").is_null()) { blockers.emplace_back("unowned_workspace:" + str(bound, "team_id")); continue; }
         const auto identity = owned_info(*resource).at("identity").at("workspace_identity").as_object();
         if (str(identity, "path") != str(bound, "canonical_path") || number(identity, "device") != number(bound, "device") || number(identity, "inode") != number(bound, "inode"))
@@ -78,13 +79,24 @@ Json Store::Impl::cleanup_status(const std::string& id) const {
     // A workspace phase is not a secure erase or a private-data purge. Keep
     // global cleanup pending and distinguish previously recorded completion
     // from a fresh filesystem observation.
-    return Row{{"request_id", id}, {"receipt", receipt ? exposed(*receipt) : Json(nullptr)},
+    Row result{{"request_id", id}, {"receipt", receipt ? exposed(*receipt) : Json(nullptr)},
         {"cleanup_job", job ? exposed(*job) : Json(nullptr)}, {"workspace_cleanup_recorded", done},
         {"workspace_eligible", eligibility.empty()}, {"workspace_blockers", eligibility}, {"blockers", blockers},
         {"workspace_run", run ? Json(*run) : Json(nullptr)}, {"cleanup_complete", false},
         {"private_data_retained", true}, {"deletion_performed", done ? Json(true) : run ? Json(nullptr) : Json(false)},
         {"deletion_may_have_started", run.has_value()},
         {"checkpoint", done ? "WORKSPACES_REMOVED_PRIVATE_RETAINED" : run ? "WORKSPACE_DELETION_IN_PROGRESS" : "RETAINED"}};
+    if (allocation_schema) {
+        Array retained;
+        for (const auto& row : all("SELECT * FROM owned_workspaces WHERE request_id=? AND status='ABANDONED' ORDER BY resource_id", {id})) {
+            const auto resource = owned_info(row);
+            retained.emplace_back(Row{{"resource_id", row.at("resource_id")}, {"team_id", row.at("team_id")},
+                {"status", "ABANDONED"}, {"paths", strings(owned_paths(resource.at("intent")))},
+                {"abandonment", resource.at("abandonment")}, {"filesystem_observed", false}, {"deletion_performed", false}});
+        }
+        result["retained_allocations"] = std::move(retained);
+    }
+    return result;
 }
 void Store::Impl::cleanup_publication(const std::string& id, const Json& publication) const {
     const auto delivery = one("SELECT * FROM delivery_runtime WHERE request_id=? AND status='CONFIRMED'", {id});
@@ -114,6 +126,22 @@ std::vector<Json> Store::owned_workspaces(const std::string& id) const {
     for (const auto& row : impl_->all("SELECT * FROM owned_workspaces WHERE request_id=? ORDER BY resource_id", {id})) result.push_back(impl_->owned_info(row));
     return result;
 }
+std::vector<Json> Store::active_owned_workspaces(const std::string& id) const {
+    const std::lock_guard lock(impl_->mutex);
+    require(impl_->cleanup_schema, ErrorCode::Unsupported, "owned cleanup requires Store 407");
+    (void)impl_->request_row(id); std::vector<Json> result;
+    for (const auto& row : impl_->all("SELECT * FROM owned_workspaces WHERE request_id=? AND status<>'ABANDONED' ORDER BY resource_id", {id}))
+        result.push_back(impl_->owned_info(row));
+    return result;
+}
+bool Store::allocation_recovery_enabled() const { const std::lock_guard lock(impl_->mutex); return impl_->allocation_schema; }
+Json Store::abandoned_owned_workspace(const std::string& id, const std::string& key) const {
+    const std::lock_guard lock(impl_->mutex);
+    require(impl_->allocation_schema, ErrorCode::Unsupported, "abandoned allocation lookup requires Store 408");
+    text_field(key, "owned allocation key", 128); (void)impl_->request_row(id);
+    const auto row = impl_->optional("SELECT * FROM owned_workspaces WHERE request_id=? AND command_key=? AND status='ABANDONED'", {id, key});
+    return row ? impl_->owned_info(*row) : Json(nullptr);
+}
 Json Store::workspace_cleanup_status(const std::string& id) const {
     const std::lock_guard lock(impl_->mutex); return impl_->cleanup_status(id);
 }
@@ -126,61 +154,201 @@ Json Store::prepare_owned_workspace(const StoreActor& actor, const std::string& 
         number(parent.as_object(), "device") > 0 && number(parent.as_object(), "inode") > 0,
         ErrorCode::InvalidInput, "owned parent requires canonical identity");
     Impl::Transaction tx(*impl_); const auto request = impl_->authorize(actor, {Role::Root});
-    require(!terminal_request(str(request, "status")), ErrorCode::NotReady, "terminal request cannot allocate workspaces");
     const auto task = impl_->task_row(task_id); require(str(task, "request_id") == actor.request_id, ErrorCode::Unauthorized, "task belongs to another request");
-    const auto team = impl_->one("SELECT * FROM teams WHERE task_id=? AND status IN ('STARTING','ACTIVE')", {task_id});
-    const auto team_id = str(team, "team_id");
     if (const auto old = impl_->optional("SELECT * FROM owned_workspaces WHERE request_id=? AND command_key=?", {actor.request_id, key})) {
         const auto result = impl_->owned_info(*old);
-        require(str(*old, "team_id") == team_id && result.at("intent").at("parent_identity") == parent,
-                ErrorCode::Conflict, "owned allocation key was reused for another target");
+        const auto original_team = impl_->team_row(str(*old, "team_id"));
+        const auto& original_parent = result.at("intent").at("parent_identity");
+        require(str(original_team, "task_id") == task_id, ErrorCode::Conflict, "owned allocation key was reused for another task");
+        if (allocation_v2(result.at("intent")))
+            require(original_parent == parent, ErrorCode::Conflict, "owned allocation parent generation changed");
+        else for (const auto* field : {"path", "device", "inode"})
+            require(original_parent.at(field) == parent.at(field), ErrorCode::Conflict, "owned allocation key was reused for another target");
         tx.commit(); return result;
     }
+    require(!terminal_request(str(request, "status")), ErrorCode::NotReady, "terminal request cannot allocate workspaces");
+    const auto team = impl_->one("SELECT * FROM teams WHERE task_id=? AND status IN ('STARTING','ACTIVE')", {task_id});
+    const auto team_id = str(team, "team_id");
     require(!impl_->optional("SELECT team_id FROM workspace_bindings WHERE team_id=?", {team_id}), ErrorCode::Unauthorized, "legacy workspace cannot be adopted");
-    require(!impl_->optional("SELECT resource_id FROM owned_workspaces WHERE team_id=?", {team_id}), ErrorCode::Conflict, "team already has an owned allocation");
-    require(impl_->all("SELECT resource_id FROM owned_workspaces WHERE request_id=?", {actor.request_id}).size() < 64, ErrorCode::Quota, "owned workspace capacity is 64");
+    require(!impl_->optional("SELECT resource_id FROM owned_workspaces WHERE team_id=? AND status<>'ABANDONED'", {team_id}), ErrorCode::Conflict, "team already has an active owned allocation");
+    require(number(impl_->one("SELECT COUNT(*) AS n FROM owned_workspaces WHERE request_id=? AND status<>'ABANDONED'", {actor.request_id}), "n") < 64,
+            ErrorCode::Quota, "active owned workspace capacity is 64");
+    require(number(impl_->one("SELECT COUNT(*) AS n FROM owned_workspaces WHERE request_id=?", {actor.request_id}), "n") < (impl_->allocation_schema ? 256 : 64),
+            ErrorCode::Quota, "owned allocation history capacity exhausted");
     for (const auto& other : impl_->all("SELECT canonical_path FROM workspace_bindings"))
         require(path != str(other, "canonical_path") && !path.starts_with(str(other, "canonical_path") + "/"), ErrorCode::Unauthorized, "ownership envelope cannot be inside a business workspace");
     for (const auto& other : impl_->all("SELECT intent FROM owned_workspaces")) {
         const auto saved = parse_json_strict(str(other, "intent"));
-        const auto envelope = str(saved.at("parent_identity").as_object(), "path") + "/" + str(saved.as_object(), "leaf");
-        require(path != envelope && !path.starts_with(envelope + "/"), ErrorCode::Unauthorized, "owned resources cannot be nested inside another allocation");
+        for (const auto& protected_path : owned_paths(saved))
+            require(path != protected_path && !path.starts_with(protected_path + "/"), ErrorCode::Unauthorized, "owned resources cannot be nested inside a retained allocation path");
     }
-    const auto id = new_id("res"); const auto envelope_path = path + "/" + id;
-    require(!overlap(envelope_path, impl_->database_file_path), ErrorCode::Unauthorized, "owned allocation overlaps control database");
-    for (const auto& old : impl_->all("SELECT frozen_plan FROM delivery_runtime"))
-        require(!overlap(envelope_path, str(parse_json_strict(str(old, "frozen_plan"), 8 * 1024 * 1024).at("root_identity").as_object(), "path")),
-                ErrorCode::Unauthorized, "owned allocation overlaps delivery root");
+    const auto id = new_id("res");
     const Row marker{{"format", "wls-owned-workspace-v1"}, {"resource_id", id}, {"request_id", actor.request_id}, {"team_id", team_id}, {"nonce", new_id("nonce")}};
-    const Row intent{{"resource_id", id}, {"request_id", actor.request_id}, {"team_id", team_id}, {"leaf", id}, {"parent_identity", parent}, {"marker", marker}};
+    Row intent{{"resource_id", id}, {"request_id", actor.request_id}, {"team_id", team_id}, {"leaf", id},
+        {"parent_identity", Row{{"path", parent.at("path")}, {"device", parent.at("device")}, {"inode", parent.at("inode")}}}, {"marker", marker}};
+    if (impl_->allocation_schema) {
+        owned_generation(parent);
+        intent["version"] = "owned-allocation-v2"; intent["stage_leaf"] = new_id("stage"); intent["parent_identity"] = parent;
+    }
+    for (const auto& protected_path : owned_paths(intent)) {
+        // Reserve space for the absolute work path and its terminating NUL
+        // before any mkdir. A predictable path-size failure must not strand
+        // an otherwise complete stage without a persistable receipt.
+        require(protected_path.size() + std::string_view("/work").size() < 4096,
+                ErrorCode::InvalidInput, "owned allocation work path exceeds the absolute path limit");
+        require(!overlap(protected_path, impl_->database_file_path), ErrorCode::Unauthorized, "owned allocation overlaps control database");
+        for (const auto& bound : impl_->all("SELECT canonical_path FROM workspace_bindings"))
+            require(!overlap(protected_path, str(bound, "canonical_path")), ErrorCode::Unauthorized, "owned allocation overlaps business workspace");
+        for (const auto& previous : impl_->all("SELECT intent FROM owned_workspaces"))
+            for (const auto& old_path : owned_paths(parse_json_strict(str(previous, "intent"))))
+                require(!overlap(protected_path, old_path), ErrorCode::Unauthorized, "owned allocation overlaps retained ownership path");
+        for (const auto& old : impl_->all("SELECT frozen_plan FROM delivery_runtime"))
+            require(!overlap(protected_path, str(parse_json_strict(str(old, "frozen_plan"), 8 * 1024 * 1024).at("root_identity").as_object(), "path")),
+                    ErrorCode::Unauthorized, "owned allocation overlaps delivery root");
+    }
     impl_->execute("INSERT INTO owned_workspaces(resource_id,request_id,team_id,command_key,intent,status,created_at,updated_at) VALUES (?,?,?,?,?,'PREPARED',?,?)",
         {id, actor.request_id, team_id, key, json_text(intent), stamp(), stamp()});
     const auto result = impl_->owned_info(impl_->one("SELECT * FROM owned_workspaces WHERE resource_id=?", {id}));
     impl_->event(actor.request_id, new_id("own"), payload(actor, "prepare_owned_workspace", intent), Row{{"resource_id", id}, {"status", "PREPARED"}}, "root");
     tx.commit(); return result;
 }
-Json Store::register_owned_workspace(const StoreActor& actor, const std::string& id, const Json& identity) {
-    const std::lock_guard lock(impl_->mutex); require(impl_->cleanup_schema, ErrorCode::Unsupported, "owned cleanup requires Store 407");
-    Impl::Transaction tx(*impl_); const auto request = impl_->authorize(actor, {Role::Root});
-    require(!terminal_request(str(request, "status")), ErrorCode::NotReady, "terminal request cannot register workspaces");
+Row Store::Impl::allocation_authorize(const StoreActor& actor, const std::string& id, std::int64_t expected) const {
+    require(cleanup_schema, ErrorCode::Unsupported, "owned allocation requires Store 407");
+    require(mode == StoreOpenMode::Takeover, ErrorCode::Unauthorized, "allocation requires the Store writer lease");
+    const auto request = authorize(actor, {Role::Root});
+    require(!terminal_request(str(request, "status")), ErrorCode::NotReady, "terminal request cannot continue allocation");
+    const auto row = one("SELECT * FROM owned_workspaces WHERE resource_id=?", {id});
+    require(str(row, "request_id") == actor.request_id, ErrorCode::Unauthorized, "resource belongs to another request");
+    require(expected > 0 && number(row, "state_version") == expected, ErrorCode::Conflict, "owned allocation CAS changed");
+    require(str(row, "status") == "PREPARED" && row.at("identity").is_null(), ErrorCode::NotReady, "allocation is not PREPARED");
+    const auto team = team_row(str(row, "team_id"));
+    require(str(team, "status") == "STARTING" || str(team, "status") == "ACTIVE", ErrorCode::NotReady, "retired team cannot continue allocation");
+    require(!optional("SELECT team_id FROM workspace_bindings WHERE team_id=?", {row.at("team_id")}), ErrorCode::Unauthorized, "bound workspace cannot be adopted");
+    return row;
+}
+Json Store::authorize_owned_allocation(const StoreActor& actor, const std::string& id, std::int64_t expected) const {
+    const std::lock_guard lock(impl_->mutex);
+    return impl_->owned_info(impl_->allocation_authorize(actor, id, expected));
+}
+Json Store::record_owned_allocation_receipt(const StoreActor& actor, const std::string& id,
+        std::int64_t expected, const Json& receipt) {
+    const std::lock_guard lock(impl_->mutex);
+    require(impl_->allocation_schema, ErrorCode::Unsupported, "allocation receipt requires Store 408");
+    require(expected > 0, ErrorCode::InvalidInput, "receipt requires a positive resource CAS");
+    Impl::Transaction tx(*impl_); (void)impl_->authorize(actor, {Role::Root});
     const auto row = impl_->one("SELECT * FROM owned_workspaces WHERE resource_id=?", {id});
     require(str(row, "request_id") == actor.request_id, ErrorCode::Unauthorized, "resource belongs to another request");
-    if (!row.at("identity").is_null()) {
-        require(impl_->owned_info(row).at("identity") == identity, ErrorCode::Conflict, "resource original identity changed");
-        tx.commit(); return impl_->owned_info(row);
+    require(str(row, "status") != "ABANDONED", ErrorCode::NotReady, "abandoned allocation cannot receive a receipt");
+    const auto resource = impl_->owned_info(row); const auto& intent = resource.at("intent");
+    require(allocation_v2(intent), ErrorCode::InvalidInput, "original v1 intent cannot acquire a v2 receipt");
+    if (!row.at("allocation_receipt").is_null()) {
+        const auto original = impl_->one("SELECT payload FROM events WHERE request_id=? AND type='allocation_receipt' AND json_extract(payload,'$.resource_id')=?", {actor.request_id, id});
+        require(resource.at("allocation_receipt") == receipt &&
+            parse_json_strict(str(original, "payload")).at("expected_state_version") == expected,
+            ErrorCode::Conflict, "original allocation receipt or CAS changed");
+        tx.commit(); return resource;
     }
-    const auto intent = parse_json_strict(str(row, "intent")); const auto path = str(intent.at("parent_identity").as_object(), "path") + "/" + id;
+    (void)impl_->allocation_authorize(actor, id, expected);
+    object_fields(receipt, {"version", "resource_id", "intent_sha256", "parent_identity", "stage_identity", "workspace_identity", "marker_sha256", "durable"},
+        {"version", "resource_id", "intent_sha256", "parent_identity", "stage_identity", "workspace_identity", "marker_sha256", "durable"});
+    const auto stage_path = str(intent.at("parent_identity").as_object(), "path") + "/" + str(intent.as_object(), "stage_leaf");
+    require(receipt.at("version") == "owned-allocation-receipt-v1" && receipt.at("resource_id") == Json(id) &&
+        receipt.at("intent_sha256") == Json(sha256_hex(canonical_json(intent))) && receipt.at("parent_identity") == intent.at("parent_identity") &&
+        receipt.at("marker_sha256") == Json(sha256_hex(canonical_json(intent.at("marker")))) && receipt.at("durable") == true &&
+        workflow_text(receipt.at("stage_identity"), "path", 4096) == stage_path &&
+        workflow_text(receipt.at("workspace_identity"), "path", 4096) == stage_path + "/work",
+        ErrorCode::Conflict, "allocation receipt differs from original intent");
+    owned_generation(receipt.at("stage_identity")); owned_generation(receipt.at("workspace_identity"));
+    impl_->cas("UPDATE owned_workspaces SET allocation_receipt=?,state_version=state_version+1,updated_at=? WHERE resource_id=? AND state_version=? AND status='PREPARED' AND allocation_receipt IS NULL",
+        {json_text(receipt), stamp(), id, expected});
+    impl_->event(actor.request_id, new_id("own"), payload(actor, "allocation_receipt", Row{{"resource_id", id}, {"expected_state_version", expected}}), receipt, "root");
+    const auto result = impl_->owned_info(impl_->one("SELECT * FROM owned_workspaces WHERE resource_id=?", {id})); tx.commit(); return result;
+}
+Row Store::Impl::abandonment_intent(const StoreActor& actor, const std::string& id, std::int64_t expected,
+        const std::string& reason) const {
+    text_field(id, "owned resource id"); text_field(reason, "allocation abandonment reason", 4096);
+    require(expected > 0 && reason.find_first_not_of(" \t\r\n") != std::string::npos, ErrorCode::InvalidInput,
+        "allocation abandonment requires a positive resource CAS and nonblank reason");
+    // Stable owner identity makes exact replay independent of takeover epochs;
+    // authorize() still checks the calling actor's current epoch before replay.
+    return Row{{"type", "allocation_abandoned"}, {"root_id", actor.principal_id}, {"request_id", actor.request_id},
+        {"resource_id", id}, {"expected_state_version", expected}, {"reason", reason}};
+}
+Row Store::Impl::abandonment_target(const StoreActor& actor, const std::string& id, std::int64_t expected) const {
+    const auto row = one("SELECT * FROM owned_workspaces WHERE resource_id=?", {id});
+    require(str(row, "request_id") == actor.request_id, ErrorCode::Unauthorized, "resource belongs to another request");
+    require(number(row, "state_version") == expected, ErrorCode::Conflict, "allocation abandonment CAS changed");
+    require(str(row, "status") == "PREPARED" && row.at("identity").is_null(), ErrorCode::NotReady, "only unregistered PREPARED allocation may be abandoned");
+    require(!optional("SELECT team_id FROM workspace_bindings WHERE team_id=?", {row.at("team_id")}), ErrorCode::Unauthorized, "bound workspace cannot be abandoned");
+    return row;
+}
+void Store::validate_abandon_owned_workspace(const StoreActor& actor, const std::string& id, std::int64_t expected,
+        const std::string& key, const std::string& reason) const {
+    const std::lock_guard lock(impl_->mutex);
+    require(impl_->allocation_schema, ErrorCode::Unsupported, "allocation abandonment requires Store 408");
+    text_field(key, "allocation abandonment key", 128);
+    const auto command = impl_->abandonment_intent(actor, id, expected, reason);
+    (void)impl_->authorize(actor, {Role::Root});
+    if (impl_->replay(actor.request_id, key, command)) return;
+    (void)impl_->abandonment_target(actor, id, expected);
+}
+Json Store::abandon_owned_workspace(const StoreActor& actor, const std::string& id, std::int64_t expected,
+        const std::string& key, const std::string& reason) {
+    const std::lock_guard lock(impl_->mutex);
+    require(impl_->allocation_schema, ErrorCode::Unsupported, "allocation abandonment requires Store 408");
+    text_field(key, "allocation abandonment key", 128);
+    const auto command = impl_->abandonment_intent(actor, id, expected, reason);
+    Impl::Transaction tx(*impl_); (void)impl_->authorize(actor, {Role::Root});
+    if (auto old = impl_->replay(actor.request_id, key, command)) { tx.commit(); return *old; }
+    const auto row = impl_->abandonment_target(actor, id, expected);
+    const Row abandonment{{"version", "owned-allocation-abandonment-v1"}, {"root_id", actor.principal_id}, {"actor", actor_json(actor)},
+        {"command_key", key}, {"reason", reason}, {"expected_state_version", expected},
+        {"retained_paths", strings(owned_paths(impl_->owned_info(row).at("intent")))},
+        {"filesystem_observed", false}, {"deletion_performed", false}};
+    impl_->cas("UPDATE owned_workspaces SET status='ABANDONED',abandonment=?,state_version=state_version+1,updated_at=? WHERE resource_id=? AND state_version=? AND status='PREPARED' AND identity IS NULL",
+        {json_text(abandonment), stamp(), id, expected});
+    const auto result = impl_->owned_info(impl_->one("SELECT * FROM owned_workspaces WHERE resource_id=?", {id}));
+    impl_->event(actor.request_id, key, command, result, "root"); tx.commit(); return result;
+}
+Json Store::register_owned_workspace(const StoreActor& actor, const std::string& id, const Json& identity, std::int64_t expected) {
+    const std::lock_guard lock(impl_->mutex); require(impl_->cleanup_schema, ErrorCode::Unsupported, "owned cleanup requires Store 407");
+    require(expected >= 0, ErrorCode::InvalidInput, "registration resource CAS cannot be negative");
+    Impl::Transaction tx(*impl_); (void)impl_->authorize(actor, {Role::Root});
+    const auto row = impl_->one("SELECT * FROM owned_workspaces WHERE resource_id=?", {id});
+    require(str(row, "request_id") == actor.request_id, ErrorCode::Unauthorized, "resource belongs to another request");
+    const auto resource = impl_->owned_info(row); const auto& intent = resource.at("intent");
+    require(str(row, "status") != "ABANDONED", ErrorCode::NotReady, "abandoned allocation cannot be registered");
+    const bool staged = allocation_v2(intent);
+    if (staged) require(impl_->allocation_schema && expected > 0, ErrorCode::InvalidInput, "v2 registration requires a captured resource CAS");
+    if (!row.at("identity").is_null()) {
+        require(resource.at("identity") == identity, ErrorCode::Conflict, "resource original identity changed");
+        if (staged) {
+            const auto original = impl_->one("SELECT payload FROM events WHERE request_id=? AND type='allocation_registered' AND json_extract(payload,'$.resource_id')=?", {actor.request_id, id});
+            require(parse_json_strict(str(original, "payload")).at("expected_state_version") == expected,
+                ErrorCode::Conflict, "original allocation registration CAS changed");
+        }
+        tx.commit(); return resource;
+    }
+    const auto current_version = expected > 0 ? expected : number(row, "state_version");
+    (void)impl_->allocation_authorize(actor, id, current_version);
+    const auto path = str(intent.at("parent_identity").as_object(), "path") + "/" + str(intent.as_object(), "leaf");
     require(identity.is_object() && identity.at("parent_identity") == intent.at("parent_identity") &&
         workflow_text(identity.at("envelope_identity"), "path", 4096) == path && workflow_text(identity.at("workspace_identity"), "path", 4096) == path + "/work" &&
         workflow_text(identity, "marker_sha256", 64) == sha256_hex(canonical_json(intent.at("marker"))), ErrorCode::Conflict, "creation observation differs from original intent");
-    for (const auto* name : {"envelope_identity", "workspace_identity"}) {
-        const auto& object = identity.at(name).as_object();
-        require(number(object, "device") > 0 && number(object, "inode") > 0 && number(object, "mount_id") > 0 &&
-            number(object, "birth_seconds") >= 0 && number(object, "birth_nanoseconds") >= 0, ErrorCode::InvalidInput, "complete filesystem generation required");
+    for (const auto* name : {"envelope_identity", "workspace_identity"}) owned_generation(identity.at(name));
+    if (staged) {
+        require(!resource.at("allocation_receipt").is_null(), ErrorCode::NotReady, "v2 publication lacks durable allocation receipt");
+        const auto& receipt = resource.at("allocation_receipt");
+        auto envelope = receipt.at("stage_identity"); envelope.as_object()["path"] = path;
+        auto work = receipt.at("workspace_identity"); work.as_object()["path"] = path + "/work";
+        require(identity == Json(Row{{"parent_identity", receipt.at("parent_identity")}, {"envelope_identity", envelope},
+            {"workspace_identity", work}, {"marker_sha256", receipt.at("marker_sha256")}}), ErrorCode::Conflict,
+            "published directory generation differs from original allocation receipt");
     }
     impl_->cas("UPDATE owned_workspaces SET identity=?,status='OWNED',state_version=state_version+1,updated_at=? WHERE resource_id=? AND state_version=? AND status='PREPARED'",
-        {json_text(identity), stamp(), id, number(row, "state_version")});
-    impl_->event(actor.request_id, new_id("own"), payload(actor, "register_owned_workspace", Row{{"resource_id", id}}), identity, "root");
+        {json_text(identity), stamp(), id, current_version});
+    impl_->event(actor.request_id, new_id("own"), payload(actor, impl_->allocation_schema ? "allocation_registered" : "register_owned_workspace",
+        Row{{"resource_id", id}, {"expected_state_version", current_version}}), identity, "root");
     const auto result = impl_->owned_info(impl_->one("SELECT * FROM owned_workspaces WHERE resource_id=?", {id})); tx.commit(); return result;
 }
 Json Store::begin_workspace_cleanup(const StoreActor& actor, const Json& publication, const Json& inventories) {
@@ -189,7 +357,7 @@ Json Store::begin_workspace_cleanup(const StoreActor& actor, const Json& publica
     require(impl_->cleanup_blockers(actor.request_id).empty(), ErrorCode::NotReady, "workspace cleanup is blocked; inspect closeout");
     impl_->cleanup_publication(actor.request_id, publication);
     require(inventories.is_array(), ErrorCode::InvalidInput, "complete inventory array required");
-    const auto resources = impl_->all("SELECT * FROM owned_workspaces WHERE request_id=? ORDER BY resource_id", {actor.request_id});
+    const auto resources = impl_->all("SELECT * FROM owned_workspaces WHERE request_id=? AND status<>'ABANDONED' ORDER BY resource_id", {actor.request_id});
     require(resources.size() == inventories.as_array().size(), ErrorCode::InvalidInput, "inventory must cover every owned resource");
     Array targets;
     for (const auto& row : resources) {
@@ -239,7 +407,7 @@ Json Store::record_workspace_removal(const StoreActor& actor, const Json& claim,
 Json Store::finish_workspace_cleanup(const StoreActor& actor, const Json& claim, const Json& publication, const Json& proofs) {
     const std::lock_guard lock(impl_->mutex); Impl::Transaction tx(*impl_); impl_->cleanup_authorize(actor, claim); impl_->cleanup_publication(actor.request_id, publication);
     require(proofs.is_array(), ErrorCode::InvalidInput, "fresh absence proofs required");
-    const auto resources = impl_->all("SELECT * FROM owned_workspaces WHERE request_id=? ORDER BY resource_id", {actor.request_id});
+    const auto resources = impl_->all("SELECT * FROM owned_workspaces WHERE request_id=? AND status<>'ABANDONED' ORDER BY resource_id", {actor.request_id});
     require(resources.size() == proofs.as_array().size(), ErrorCode::InvalidInput, "every owned directory needs a fresh absence proof");
     for (const auto& row : resources) {
         require(str(row, "status") == "REMOVED", ErrorCode::NotReady, "workspace deletion is incomplete");

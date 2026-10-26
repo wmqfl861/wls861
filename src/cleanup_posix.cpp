@@ -7,6 +7,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <linux/openat2.h>
+#include <linux/fs.h>
 #include <map>
 #include <set>
 #include <sys/file.h>
@@ -183,6 +184,10 @@ const Json& intent_of(const Json& resource) {
          "resource lacks durable ownership intent");
     return resource.at("intent");
 }
+bool staged_intent(const Json& intent) {
+    const auto* version = intent.as_object().if_contains("version");
+    return version && version->is_string() && version->as_string() == "owned-allocation-v2";
+}
 void validate_intent(const Json& intent) {
     const auto leaf = text(intent, "resource_id"); name_ok(leaf);
     need(leaf.starts_with("res_") && leaf.size() <= 64, ErrorCode::InvalidInput, "invalid owned resource id");
@@ -192,16 +197,35 @@ void validate_intent(const Json& intent) {
          marker.at("request_id") == intent.at("request_id") && marker.at("team_id") == intent.at("team_id") &&
          text(marker, "nonce").size() >= 16 && canonical_json(marker).size() <= 16384,
          ErrorCode::InvalidInput, "ownership receipt does not bind this resource");
+    if (intent.as_object().contains("version")) {
+        need(staged_intent(intent), ErrorCode::InvalidInput, "unsupported owned allocation intent version");
+        const auto stage = text(intent, "stage_leaf"); name_ok(stage);
+        need(stage.starts_with("stage_") && stage.size() <= 64 && stage != leaf,
+             ErrorCode::InvalidInput, "invalid owned allocation staging name");
+        for (const auto* field : {"mount_id", "birth_seconds", "birth_nanoseconds"})
+            need(intent.at("parent_identity").as_object().contains(field), ErrorCode::InvalidInput,
+                 "staged allocation requires the original parent generation");
+    }
 }
 class Handle {
 public:
     explicit Handle(const Json& intent) : parent(text(intent.at("parent_identity"), "path"), WorkspaceAccess::ReadOnly),
-            parent_fd(parent.dup_root_fd()), leaf(text(intent, "leaf")), marker_bytes(canonical_json(intent.at("marker"))) {
+            parent_fd(parent.dup_root_fd()), leaf(text(intent, "leaf")), marker_bytes(canonical_json(intent.at("marker"))),
+            expected_parent(intent.at("parent_identity")) {
         validate_intent(intent);
-        need(parent.root_identity() == intent.at("parent_identity"), ErrorCode::Conflict, "resource parent identity changed");
+        recheck_parent();
         lock_fd(parent_fd.get());
     }
+    void recheck_parent() const {
+        const auto current = parent.root_identity();
+        for (const auto* field : {"path", "device", "inode"})
+            need(current.at(field) == expected_parent.at(field), ErrorCode::Conflict, "resource parent identity changed");
+        if (expected_parent.as_object().contains("mount_id"))
+            need(expected_parent == identity(parent_fd.get(), text(expected_parent, "path")),
+                 ErrorCode::Conflict, "resource parent generation changed");
+    }
     void open_existing(const Json& saved, bool missing_work = false) {
+        need(saved.at("parent_identity") == expected_parent, ErrorCode::Conflict, "ownership parent binding changed");
         envelope = open_at(parent_fd.get(), leaf, O_RDONLY | O_DIRECTORY);
         need(same_generation(saved.at("envelope_identity"), envelope.get()), ErrorCode::Conflict, "ownership envelope replaced");
         auto marker = open_data_at(envelope.get(), "owner.json", true);
@@ -218,7 +242,7 @@ public:
         saved_identity = saved;
     }
     void recheck() const {
-        need(parent.root_identity() == saved_identity.at("parent_identity"), ErrorCode::Conflict, "owned parent changed");
+        recheck_parent();
         auto named = open_at(parent_fd.get(), leaf, O_RDONLY | O_DIRECTORY);
         need(same_generation(saved_identity.at("envelope_identity"), named.get()), ErrorCode::Conflict, "owned envelope moved");
         if (work.get() >= 0) {
@@ -229,8 +253,49 @@ public:
     Workspace parent;
     Fd parent_fd, envelope, work;
     std::string leaf, marker_bytes;
-    Json saved_identity;
+    Json expected_parent, saved_identity;
 };
+bool exists_at(int parent, const std::string& name) {
+    return open_at(parent, name, O_PATH, 0, true).get() >= 0;
+}
+Json observed_allocation(Handle& handle) {
+    const auto path = text(handle.expected_parent, "path") + "/" + handle.leaf;
+    return O{{"parent_identity", handle.expected_parent},
+             {"envelope_identity", identity(handle.envelope.get(), path)},
+             {"workspace_identity", identity(handle.work.get(), path + "/work")},
+             {"marker_sha256", sha256_hex(handle.marker_bytes)}};
+}
+Json allocation_identity(const Json& receipt, const Json& intent, const std::string& leaf) {
+    const auto path = text(intent.at("parent_identity"), "path") + "/" + leaf;
+    auto envelope = receipt.at("stage_identity"); envelope.as_object()["path"] = path;
+    auto work = receipt.at("workspace_identity"); work.as_object()["path"] = path + "/work";
+    return O{{"parent_identity", receipt.at("parent_identity")}, {"envelope_identity", envelope},
+             {"workspace_identity", work}, {"marker_sha256", receipt.at("marker_sha256")}};
+}
+void validate_allocation_receipt(const Json& receipt, const Json& intent) {
+    need(receipt.is_object() && text(receipt, "version") == "owned-allocation-receipt-v1" &&
+         receipt.at("resource_id") == intent.at("resource_id") &&
+         text(receipt, "intent_sha256") == sha256_hex(canonical_json(intent)) &&
+         receipt.at("parent_identity") == intent.at("parent_identity") &&
+         text(receipt, "marker_sha256") == sha256_hex(canonical_json(intent.at("marker"))) &&
+         receipt.at("durable") == Json(true), ErrorCode::Conflict, "allocation receipt differs from original intent");
+    const auto path = text(intent.at("parent_identity"), "path") + "/" + text(intent, "stage_leaf");
+    need(text(receipt.at("stage_identity"), "path") == path &&
+         text(receipt.at("workspace_identity"), "path") == path + "/work",
+         ErrorCode::Conflict, "allocation receipt staging paths changed");
+}
+void check_empty_allocation(Handle& handle) {
+    auto marker = open_data_at(handle.envelope.get(), "owner.json", true);
+    need(read_bytes(marker.get(), 16384) == handle.marker_bytes, ErrorCode::Conflict, "ownership receipt changed");
+    need(names(handle.envelope.get()) == std::vector<std::string>{"owner.json", "work"} &&
+         names(handle.work.get()).empty(), ErrorCode::Conflict, "allocation must contain only its receipt and empty work directory");
+    handle.recheck();
+}
+void sync_allocation(Handle& handle) {
+    auto marker = open_data_at(handle.envelope.get(), "owner.json", true);
+    need(read_bytes(marker.get(), 16384) == handle.marker_bytes, ErrorCode::Conflict, "ownership receipt changed before sync");
+    sync_fd(marker.get()); sync_fd(handle.work.get()); sync_fd(handle.envelope.get()); sync_fd(handle.parent_fd.get());
+}
 Json entry(int root, const std::string& path, CleanupLimits limits, std::uint64_t& bytes) {
     path_ok(path);
     auto fd = open_data_at(root, path);
@@ -288,6 +353,7 @@ Json removed_proof(const Json& resource, const Json& inventory) {
 }
 
 Json create_owned_workspace(const Json& intent) {
+    need(!staged_intent(intent), ErrorCode::InvalidInput, "v2 allocation requires a persisted creation receipt before publication");
     Handle h(intent);
     bool created = false;
     if (::mkdirat(h.parent_fd.get(), h.leaf.c_str(), 0700) == 0) created = true;
@@ -315,6 +381,82 @@ Json create_owned_workspace(const Json& intent) {
     return O{{"parent_identity", parent_identity}, {"envelope_identity", identity(h.envelope.get(), path)},
              {"workspace_identity", identity(h.work.get(), path + "/work")},
              {"marker_sha256", sha256_hex(h.marker_bytes)}};
+}
+Json allocation_parent_identity(const std::filesystem::path& path) {
+    Workspace parent(path, WorkspaceAccess::ReadOnly);
+    Fd fd(parent.dup_root_fd());
+    const auto basic = parent.root_identity();
+    const auto result = identity(fd.get(), text(basic, "path"));
+    need(parent.root_identity() == basic, ErrorCode::Conflict, "allocation parent moved during observation");
+    return result;
+}
+Json stage_owned_workspace(const Json& intent) {
+    Handle h(intent);
+    need(staged_intent(intent), ErrorCode::InvalidInput, "staging requires a v2 owned allocation intent");
+    const auto final_leaf = h.leaf; h.leaf = text(intent, "stage_leaf");
+    need(!exists_at(h.parent_fd.get(), final_leaf) && !exists_at(h.parent_fd.get(), h.leaf),
+         ErrorCode::Conflict, "unreceipted allocation path exists; preserve residuals and explicitly abandon the intent");
+    h.recheck_parent();
+    // A failed or interrupted attempt deliberately leaves the original intent
+    // PREPARED. No path observed after this call starts can supply a substitute
+    // receipt on retry; only this uninterrupted creation may return evidence.
+    if (::mkdirat(h.parent_fd.get(), h.leaf.c_str(), 0700) != 0) os_error("create owned allocation stage");
+    h.envelope = open_at(h.parent_fd.get(), h.leaf, O_RDONLY | O_DIRECTORY);
+    (void)info(h.envelope.get());
+    if (::fchmod(h.envelope.get(), 0700) != 0) os_error("set owned allocation stage mode");
+    auto marker = open_at(h.envelope.get(), "owner.json", O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (::fchmod(marker.get(), 0600) != 0) os_error("set ownership receipt mode");
+    write_all(marker.get(), h.marker_bytes);
+    if (::mkdirat(h.envelope.get(), "work", 0700) != 0) os_error("create staged work directory");
+    h.work = open_at(h.envelope.get(), "work", O_RDONLY | O_DIRECTORY);
+    (void)info(h.work.get()); lock_fd(h.work.get());
+    if (::fchmod(h.work.get(), 0700) != 0) os_error("set staged workspace mode");
+    h.saved_identity = observed_allocation(h);
+    check_empty_allocation(h);
+    sync_allocation(h);
+    check_empty_allocation(h);
+    need(!exists_at(h.parent_fd.get(), final_leaf), ErrorCode::Conflict, "allocation final path appeared during staging");
+    return O{{"version", "owned-allocation-receipt-v1"}, {"resource_id", intent.at("resource_id")},
+             {"intent_sha256", sha256_hex(canonical_json(intent))}, {"parent_identity", intent.at("parent_identity")},
+             {"stage_identity", h.saved_identity.at("envelope_identity")},
+             {"workspace_identity", h.saved_identity.at("workspace_identity")},
+             {"marker_sha256", h.saved_identity.at("marker_sha256")}, {"durable", true}};
+}
+Json publish_owned_workspace(const Json& resource) {
+    const auto& intent = intent_of(resource);
+    Handle h(intent);
+    need(staged_intent(intent) && text(resource, "status") == "PREPARED", ErrorCode::NotReady,
+         "only the original PREPARED v2 allocation can be published");
+    need(resource.at("resource_id") == intent.at("resource_id"), ErrorCode::Conflict,
+         "allocation resource differs from its durable intent");
+    const auto& receipt = resource.at("allocation_receipt");
+    validate_allocation_receipt(receipt, intent);
+    const auto final_leaf = h.leaf;
+    const auto stage_leaf = text(intent, "stage_leaf");
+    const bool stage_exists = exists_at(h.parent_fd.get(), stage_leaf);
+    const bool final_exists = exists_at(h.parent_fd.get(), final_leaf);
+    need(stage_exists != final_exists, ErrorCode::Conflict,
+         "allocation receipt requires exactly one original stage or final path");
+    h.leaf = stage_exists ? stage_leaf : final_leaf;
+    h.open_existing(allocation_identity(receipt, intent, h.leaf));
+    check_empty_allocation(h);
+    // Re-sync the exact saved objects before and after publication. This also
+    // completes a retry after rename/parent-sync succeeded but Store registration
+    // failed; no new generation or new receipt is inferred from the final name.
+    sync_allocation(h);
+    check_empty_allocation(h);
+    if (stage_exists) {
+        need(!exists_at(h.parent_fd.get(), final_leaf), ErrorCode::Conflict, "allocation final path appeared before publication");
+        if (::syscall(SYS_renameat2, h.parent_fd.get(), stage_leaf.c_str(), h.parent_fd.get(),
+                      final_leaf.c_str(), RENAME_NOREPLACE) != 0)
+            os_error("publish owned allocation without overwrite");
+        h.leaf = final_leaf;
+        h.saved_identity = allocation_identity(receipt, intent, final_leaf);
+    }
+    sync_allocation(h);
+    check_empty_allocation(h);
+    need(!exists_at(h.parent_fd.get(), stage_leaf), ErrorCode::Conflict, "allocation staging path exists after publication");
+    return h.saved_identity;
 }
 Json inspect_owned_workspace(const Json& resource) {
     Handle h(intent_of(resource)); h.open_existing(resource.at("identity")); h.recheck();

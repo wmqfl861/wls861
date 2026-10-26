@@ -93,7 +93,8 @@ public:
           std::string_view workflow_migration_sql = {},
           std::string_view acceptance_migration_sql = {},
           std::string_view cleanup_migration_sql = {},
-          StoreRecoveryScope recovery_scope = {});
+          StoreRecoveryScope recovery_scope = {},
+          std::string_view allocation_migration_sql = {});
     ~Store();
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;
@@ -127,8 +128,29 @@ public:
     Json prepare_owned_workspace(const StoreActor& root, const std::string& task_id,
                                  const Json& parent_identity, const std::string& key);
     Json register_owned_workspace(const StoreActor& root, const std::string& resource_id,
-                                  const Json& observed_identity);
+                                  const Json& observed_identity, std::int64_t expected_state_version = 0);
+    // R2a.2 is opt-in through the known 010 asset. Original v1 resources retain
+    // their intent bytes; new v2 resources require a durable pre-publication
+    // receipt and a captured resource CAS before physical publication.
+    bool allocation_recovery_enabled() const;
+    // Metadata-only lookup for an abandoned command key. This grants no
+    // execution authority; a runtime replay must still authorize its Root
+    // and original task/parent through prepare_owned_workspace.
+    Json abandoned_owned_workspace(const std::string& request_id, const std::string& key) const;
+    Json authorize_owned_allocation(const StoreActor& root, const std::string& resource_id,
+                                   std::int64_t expected_state_version) const;
+    Json record_owned_allocation_receipt(const StoreActor& root, const std::string& resource_id,
+                                        std::int64_t expected_state_version, const Json& receipt);
+    void validate_abandon_owned_workspace(const StoreActor& root, const std::string& resource_id,
+                                         std::int64_t expected_state_version,
+                                         const std::string& key, const std::string& reason) const;
+    Json abandon_owned_workspace(const StoreActor& root, const std::string& resource_id,
+                                 std::int64_t expected_state_version,
+                                 const std::string& key, const std::string& reason);
+    // Complete history stays queryable. Only active resources are eligible for
+    // binding and cleanup; ABANDONED paths remain protected and retained.
     std::vector<Json> owned_workspaces(const std::string& request_id) const;
+    std::vector<Json> active_owned_workspaces(const std::string& request_id) const;
     Json workspace_cleanup_status(const std::string& request_id) const;
     Json begin_workspace_cleanup(const StoreActor& root, const Json& fresh_publication,
                                  const Json& inventories);

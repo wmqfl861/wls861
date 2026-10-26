@@ -8,17 +8,67 @@ namespace wls::s1 {
 namespace {
 std::string text(const Json& value, std::string_view key) { return std::string(value.at(key).as_string()); }
 void need(bool value, ErrorCode code, const char* reason) { if (!value) throw Error(code, reason); }
+std::string replay_parent_path(const std::filesystem::path& supplied) {
+    const auto native = supplied.string();
+    need(!native.empty() && native.find('\0') == std::string::npos, ErrorCode::InvalidInput,
+         "allocation replay requires the original parent path");
+    // Match Workspace's path policy without opening a retained parent which
+    // may have disappeared or been replaced after explicit abandonment.
+    for (const auto& component : supplied)
+        need(component != "..", ErrorCode::Unauthorized, "allocation parent must not contain '..'");
+    std::error_code error;
+    const auto absolute = std::filesystem::absolute(supplied, error);
+    need(!error, ErrorCode::InvalidInput, "cannot resolve allocation replay parent path");
+    auto normalized = absolute.lexically_normal().string();
+    while (normalized.size() > 1 && normalized.back() == '/') normalized.pop_back();
+    return normalized;
+}
 }
 Json allocate_owned_workspace(Store& store, const std::string& request_id, const std::string& task_id,
         const std::filesystem::path& parent_path, const std::string& key) {
-    Workspace parent(parent_path, WorkspaceAccess::ReadOnly);
+    if (store.allocation_recovery_enabled()) {
+        const auto abandoned = store.abandoned_owned_workspace(request_id, key);
+        if (!abandoned.is_null()) {
+            const auto& original_parent = abandoned.at("intent").at("parent_identity");
+            need(replay_parent_path(parent_path) == text(original_parent, "path"), ErrorCode::Conflict,
+                 "abandoned allocation key was reused for another parent path");
+            const auto actor = store.host_actor(Role::Root, request_id);
+            // Revalidate the current Root, request, original task and key in
+            // Store's normal exact-replay path. Reusing the saved generation is
+            // valid only for this irreversible metadata result, never creation.
+            return store.prepare_owned_workspace(actor, task_id, original_parent, key);
+        }
+    }
+    Json parent_identity;
+    if (store.allocation_recovery_enabled()) parent_identity = allocation_parent_identity(parent_path);
+    else {
+        Workspace parent(parent_path, WorkspaceAccess::ReadOnly);
+        parent_identity = parent.root_identity();
+    }
     const auto actor = store.host_actor(Role::Root, request_id);
-    auto resource = store.prepare_owned_workspace(actor, task_id, parent.root_identity(), key);
+    auto resource = store.prepare_owned_workspace(actor, task_id, parent_identity, key);
+    // A historical key cannot revive its explicitly abandoned allocation.
+    if (text(resource, "status") == "ABANDONED") return resource;
     if (text(resource, "status") == "PREPARED") {
-        const auto observed = create_owned_workspace(resource.at("intent"));
+        if (store.allocation_recovery_enabled())
+            resource = store.authorize_owned_allocation(actor, text(resource, "resource_id"),
+                resource.at("state_version").to_number<std::int64_t>());
+        Json observed;
+        const auto* version = resource.at("intent").as_object().if_contains("version");
+        if (version && *version == "owned-allocation-v2") {
+            if (resource.at("allocation_receipt").is_null()) {
+                const auto receipt = stage_owned_workspace(resource.at("intent"));
+                resource = store.record_owned_allocation_receipt(actor, text(resource, "resource_id"),
+                    resource.at("state_version").to_number<std::int64_t>(), receipt);
+            }
+            resource = store.authorize_owned_allocation(actor, text(resource, "resource_id"),
+                resource.at("state_version").to_number<std::int64_t>());
+            observed = publish_owned_workspace(resource);
+        } else observed = create_owned_workspace(resource.at("intent"));
         auto verified = resource; verified.as_object()["identity"] = observed;
         (void)inspect_owned_workspace(verified);
-        resource = store.register_owned_workspace(actor, text(resource, "resource_id"), observed);
+        resource = store.register_owned_workspace(actor, text(resource, "resource_id"), observed,
+            resource.at("state_version").to_number<std::int64_t>());
     } else {
         need(text(resource, "status") == "OWNED", ErrorCode::NotReady, "allocation is already being removed");
         (void)inspect_owned_workspace(resource);
@@ -37,14 +87,14 @@ Json cleanup_owned_workspaces(Store& store, const std::string& id, std::size_t l
     const auto& plan = confirmed->at("frozen_plan");
     DeliveryDirectory directory(text(plan.at("root_identity"), "path"));
     const auto verified = directory.verify_and_sync_existing(plan);
-    auto resources = store.owned_workspaces(id); boost::json::array inventories;
+    auto resources = store.active_owned_workspaces(id); boost::json::array inventories;
     for (const auto& resource : resources) {
         inventories.push_back(resource.at("inventory").is_null() ? inventory_owned_workspace(resource) : resource.at("inventory"));
     }
     const auto actor = store.host_actor(Role::Root, id);
     const auto claim = store.begin_workspace_cleanup(actor, verified, inventories);
     std::size_t removed = 0; bool complete = true;
-    resources = store.owned_workspaces(id);
+    resources = store.active_owned_workspaces(id);
     for (const auto& resource : resources) {
         store.authorize_workspace_cleanup(actor, claim);
         // Recheck the *existing* durable delivery at every resource boundary.
@@ -63,7 +113,7 @@ Json cleanup_owned_workspaces(Store& store, const std::string& id, std::size_t l
     Json result;
     if (complete) {
         boost::json::array proofs;
-        for (const auto& resource : store.owned_workspaces(id)) proofs.push_back(verify_owned_workspace_removed(resource, resource.at("inventory")));
+        for (const auto& resource : store.active_owned_workspaces(id)) proofs.push_back(verify_owned_workspace_removed(resource, resource.at("inventory")));
         result = store.finish_workspace_cleanup(actor, claim, directory.verify_and_sync_existing(plan), proofs);
     } else result = store.workspace_cleanup_status(id);
     result.as_object()["pass_removed_entries"] = removed;

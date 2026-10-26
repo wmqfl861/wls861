@@ -5,6 +5,14 @@
 namespace wls::s1 {
 // Host-only allocation. Never imports an existing user directory. The worker
 // later binds only identity.workspace_identity.path, not the ownership envelope.
+// Store 408 persists a v2 intent and a synced creation receipt before publication.
+// Interrupted allocations resume only the original receipt's generations;
+// unreceipted residuals require explicit metadata-only abandonment. Old v1
+// intents keep their existing complete-marker retry protocol.
+// An abandoned key replays its immutable metadata even if the parent is gone;
+// the supplied path, made absolute and lexically normalized, must match its
+// original canonical parent.
+// This replay does not observe, create or adopt the current filesystem path.
 Json allocate_owned_workspace(Store& store, const std::string& request_id,
                               const std::string& task_id,
                               const std::filesystem::path& parent,
