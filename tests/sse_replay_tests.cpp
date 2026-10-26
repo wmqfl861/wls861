@@ -114,13 +114,16 @@ void expect_rejected(const EventList& events, std::string_view code = {}) {
 void text_completion_is_independent_of_every_two_chunk_split() {
     const auto profile = fixture::profile();
     const auto request = fixture::request();
-    const std::string bytes = "\xef\xbb\xbf" + stream(text_events(), "\r\n");
+    auto events = text_events();
+    events[4].as_object()["obfuscation"] = "padding😀";
+    const std::string bytes = "\xef\xbb\xbf" + stream(events, "\r\n");
     const auto reference = replay_responses_sse(profile, request, {{bytes, 0ms}});
     CHECK(reference.response.status == ModelResultStatus::Completed);
     CHECK(reference.response.text == "中😀 preserved");
     CHECK(reference.response.usage.input_tokens == 9);
     CHECK(reference.response.usage.cache_read_tokens == 2);
     CHECK(!reference.response.usage.cost_micro_usd);
+    CHECK(reference.evidence.at("observed_obfuscation_fields") == 1);
     const auto expected_events = text_events().size();
     for (std::size_t offset = 0; offset <= bytes.size(); ++offset) {
         const auto actual = replay_responses_sse(profile, request,
@@ -129,6 +132,7 @@ void text_completion_is_independent_of_every_two_chunk_split() {
         CHECK(actual.raw_stream == bytes);
         CHECK(actual.evidence.at("stream_complete").as_bool());
         CHECK(actual.evidence.at("events") == expected_events);
+        CHECK(actual.evidence.at("observed_obfuscation_fields") == 1);
     }
 }
 
@@ -531,6 +535,65 @@ void optional_provider_response_ids_bind_to_created_response() {
     expect_rejected(message, "unsupported_event"); // Not a declared extension for text.delta.
 }
 
+void documented_delta_obfuscation_preserves_only_semantic_output() {
+    for (auto events : {text_events("x"), tool_events()}) {
+        const auto original = replay(events);
+        std::size_t padding_fields = 0;
+        for (auto& event : events) {
+            const auto& type = event.at("type").as_string();
+            if (type == "response.output_text.delta" || type == "response.function_call_arguments.delta") {
+                event.as_object()["obfuscation"] = "padding is not model output 😀";
+                ++padding_fields;
+            }
+        }
+        const auto bytes = stream(events);
+        std::vector<SseReplayChunk> chunks;
+        for (std::size_t offset = 0; offset < bytes.size(); offset += 7)
+            chunks.push_back({bytes.substr(offset, 7), 0ms});
+        const auto result = replay_responses_sse(fixture::profile(), fixture::request(), chunks);
+        CHECK(result.response.status == ModelResultStatus::Completed);
+        CHECK(to_json(result.response) == to_json(original.response));
+        CHECK(result.raw_stream == bytes);
+        CHECK(result.evidence.at("observed_obfuscation_fields") == padding_fields);
+        CHECK(result.evidence.at("observed_obfuscation_bytes") ==
+              padding_fields * std::string("padding is not model output 😀").size());
+        CHECK(result.evidence.at("tools_dispatched") == 0);
+        CHECK(parse_json_strict(canonical_json(to_json(result))).is_object());
+    }
+}
+
+void delta_obfuscation_is_typed_and_does_not_open_unknown_fields() {
+    for (const auto& invalid : {Json(nullptr), Json(true), Json(1), Json(Array{}), Json(Object{})}) {
+        auto events = text_events(); events[4].as_object()["obfuscation"] = invalid;
+        expect_rejected(events, "invalid_sse");
+        events = tool_events(); events[2].as_object()["obfuscation"] = invalid;
+        expect_rejected(events, "invalid_sse");
+    }
+    auto events = text_events(); events[5].as_object()["obfuscation"] = "not a delta";
+    expect_rejected(events, "unsupported_event");
+    events = tool_events(); events[4].as_object()["obfuscation"] = "not a delta";
+    expect_rejected(events, "unsupported_event");
+    events = text_events(); events[4].as_object()["obfuscation"] = "";
+    CHECK(replay(events).response.status == ModelResultStatus::Completed);
+    events[4].as_object()["unknown_padding"] = "still unsupported";
+    expect_rejected(events, "unsupported_event");
+}
+
+void delta_obfuscation_uses_wire_budgets_without_spending_text_budget() {
+    auto events = text_events("x");
+    events[4].as_object()["obfuscation"] = std::string(2048, 'p');
+    SseReplayLimits limits; limits.max_text_bytes = 1;
+    CHECK(replay(events, limits).response.status == ModelResultStatus::Completed);
+    limits.max_line_bytes = 1024;
+    CHECK(replay(events, limits).response.error_code == "stream_limit");
+    limits = {}; limits.max_event_bytes = 2048;
+    CHECK(replay(events, limits).response.error_code == "stream_limit");
+    limits = {}; limits.max_total_bytes = stream(events).size() - 1;
+    const auto rejected = replay(events, limits);
+    CHECK(rejected.response.error_code == "stream_limit");
+    CHECK(rejected.raw_stream.empty());
+}
+
 void validated_terminal_usage_survives_later_stream_rejection() {
     auto request = fixture::request(); request.timeout = 30ms;
     const auto events = tool_events();
@@ -627,6 +690,9 @@ int main() {
         {"SSE empty input interrupts while retaining the original host tuple", empty_input_is_an_interruption_with_original_tuple},
         {"SSE optional empty metadata and function status remain compatible", optional_empty_metadata_and_function_status_normalize_consistently},
         {"SSE optional provider response_id links bind known item/function events", optional_provider_response_ids_bind_to_created_response},
+        {"SSE documented delta obfuscation retains raw padding without changing output", documented_delta_obfuscation_preserves_only_semantic_output},
+        {"SSE obfuscation is string-only on supported deltas and keeps unknown-field refusal", delta_obfuscation_is_typed_and_does_not_open_unknown_fields},
+        {"SSE obfuscation consumes wire limits rather than semantic text capacity", delta_obfuscation_uses_wire_budgets_without_spending_text_budget},
         {"SSE validated terminal usage survives later data, cancel and deadline errors", validated_terminal_usage_survives_later_stream_rejection},
         {"SSE local record detects later changes to response, tuple, evidence and bytes", replay_record_detects_mutated_response_evidence_and_raw_bytes}
     });

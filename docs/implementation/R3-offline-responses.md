@@ -433,6 +433,13 @@ SSE 结果的 `evidence.format` 为 `wls-responses-sse-replay-v1`。这与输入
 非空值不在本阶段支持范围内。完成的 message 必须声明 `status:"completed"`；
 function_call 的 status 可缺省，出现时必须与生命周期一致，完成时只能为 `completed`。
 
+`response.output_text.delta` 和 `response.function_call_arguments.delta` 另允许可选
+`obfuscation` 字符串。这是 Responses 默认流配置可能携带的传输填充，不是模型文本或
+函数参数：它保留在原始流中，仍计入单行、事件封装和总输入字节限制，但不追加到输出、
+不占用语义文本或参数容量。null、boolean、number、array、object 均拒绝；其他事件上
+出现该字段仍拒绝，其他未知字段的拒绝规则也保持。编码器不关闭供应商默认填充来回避
+解析兼容性检查；此项支持不改变离线、零凭据解析及零工具派发边界。
+
 `response.completed` 要求所有已建立的输出项完成；文本还需完成 text 和 content
 生命周期，函数调用还需完成参数生命周期。`failed` 和 `incomplete` 可以带有部分输出，
 但终态快照仍必须与此前实际观察到的部分内容一致，不能用终态补入未观察的内容。
@@ -507,6 +514,11 @@ deadline，响应仍为不可用的 `error`/`interrupted`，text 和 tools 仍�
 - 因取消、deadline 或总字节上限在读取前被拒绝的块，不计入 retained raw；
 - `input_chunks` 是提供的块数，`consumed_chunks` 是实际消费的前缀块数。
 
+`observed_obfuscation_fields` 记录已通过字段类型检查的 delta 填充字段数，
+`observed_obfuscation_bytes` 记录其解码后 UTF-8 字符串的累计字节数；缺省时二者为零。
+后者不计 JSON 字段名、引号或转义字节，不替代原始流的字节预算，也不表示所在事件已
+通过后续生命周期检查。填充的原始拼写和位置仍由 retained raw 及其摘要保留。
+
 CLI 为文件读取记录的 `inputs.*.raw_sha256` 覆盖整个输入文件。对于 timed replay，它
 覆盖原始 JSON 夹具；SSE 结果中的 `raw_stream_sha256` 则覆盖实际消费的流字节。取消或
 拒绝之后，这两个范围可以不同。共享 HTTP 解码器接收的是终态 response 对象的规范 JSON，
@@ -566,7 +578,8 @@ replay JSON。网络与计费事实仍明确标记为未经离线回放验证。
 回归定义见 [`tests/sse_replay_tests.cpp`](../../tests/sse_replay_tests.cpp) 和
 [`tests/test_protocol_replay_cli.py`](../../tests/test_protocol_replay_cli.py)。其中包括遍历
 每个两块拆分位置、逐字节读取、生命周期和身份不一致、确定性取消/deadline、终态后
-异常的计量保留，以及本地记录修改拒绝；实际执行结果以版本验收报告为准。
+异常的计量保留、默认 delta 填充的类型与容量边界，以及本地记录修改拒绝；实际执行
+结果以版本验收报告为准。
 
 ## 协议依据
 
@@ -577,5 +590,9 @@ replay JSON。网络与计费事实仍明确标记为未经离线回放验证。
 终态 envelope 和 usage 示例依据
 [Responses streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events)。
 完整 create API 参考页受到抓取大小限制，未据此声称支持其全部字段或所有模型能力。
+2026-10-26 独立审核另核对官方
+[Python SDK 的 Responses 创建参数定义](https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/responses/response_create_params.py)：
+`stream_options.include_obfuscation` 的说明明确 delta 填充默认开启，因此在已有两类
+delta 中显式识别该字符串。该字段兼容依据不等于供应商现场能力或所有事件类型已验收。
 SSE 行封装参考 [WHATWG Server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html#parsing-an-event-stream)；
 本实现对无效 UTF-8 明确拒绝，且不实现浏览器的重连行为。

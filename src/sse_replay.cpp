@@ -288,6 +288,8 @@ public:
     Json terminal_response = nullptr;
     std::optional<std::uint64_t> last_sequence;
     std::set<std::string> observed_types;
+    std::size_t obfuscation_fields{};
+    std::size_t obfuscation_bytes{};
 
 private:
     ItemState& item(const Object& event);
@@ -340,13 +342,23 @@ void Events::accept(std::string_view event_name, std::string_view data) {
     else if (type == "response.output_text.delta" || type == "response.output_text.done") {
         fields.insert({"output_index", "item_id", "content_index", "logprobs"});
         fields.insert(type == "response.output_text.delta" ? "delta" : "text");
+        if (type == "response.output_text.delta") fields.insert("obfuscation");
     } else if (type == "response.function_call_arguments.delta" || type == "response.function_call_arguments.done") {
         fields.insert({"output_index", "item_id", "response_id"});
         fields.insert(type == "response.function_call_arguments.delta" ? "delta" : "arguments");
+        if (type == "response.function_call_arguments.delta") fields.insert("obfuscation");
     } else throw ReplayFailure("unsupported_event", "SSE event type is outside the implemented Responses subset");
     for (const auto& entry : event) {
         if (!fields.contains(std::string(entry.key())))
             throw ReplayFailure("unsupported_event", "SSE event field is outside the implemented Responses subset");
+    }
+    // Responses includes optional random padding on delta events by default.
+    // Preserve it in raw_stream and its wire budgets, never in model text or
+    // function arguments. Other event kinds and unknown fields still refuse.
+    if (const auto* padding = event.if_contains("obfuscation")) {
+        require(padding->is_string(), "SSE delta obfuscation must be a string");
+        ++obfuscation_fields;
+        obfuscation_bytes += padding->as_string().size();
     }
     if (event.contains("response_id")) {
         const auto linked_response = identifier(event, "response_id");
@@ -745,6 +757,8 @@ ResponsesSseReplay replay_responses_sse(const ProviderProfile& profile,
         {"input_chunks", chunks.size()}, {"consumed_chunks", consumed_chunks},
         {"events", frames.events}, {"comment_lines", frames.comments},
         {"ignored_sse_fields", frames.ignored_fields}, {"ignored_retry_fields", frames.retry_fields},
+        {"observed_obfuscation_fields", events.obfuscation_fields},
+        {"observed_obfuscation_bytes", events.obfuscation_bytes},
         {"last_event_id", frames.last_event_id}, {"provider_response_id", events.response_id},
         {"last_sequence_number", events.last_sequence ? Json(*events.last_sequence) : Json(nullptr)},
         {"observed_event_types", std::move(types)}, {"terminal_event", events.terminal_type},
