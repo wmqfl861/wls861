@@ -1,0 +1,1212 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="Linux-c++"
+	tests="78"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname="6357ad3f489e"
+	time="138"
+	timestamp="2026-10-27T12:45:53"
+	>
+	<testcase name="journal" classname="journal" time="0.288785" status="run">
+		<properties/>
+		<system-out>PASS version 1 format, empty and binary round trip
+PASS recovery at every incomplete tail byte
+PASS complete corruption fails without truncation
+PASS checksummed abnormal lengths fail closed
+PASS exclusive writer and inherited fork ownership
+PASS SIGKILL recovery preserves acknowledged append
+PASS real partial write poisons writer and recovers
+PASS maximum payload boundary and oversize poisoning
+PASS file mode, symlink, directory and FIFO guards
+PASS concurrent append and replay preserve order
+RESULT 10 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="config" classname="config" time="0.00238039" status="run">
+		<properties/>
+		<system-out>PASS model and reasoning resolve independently from frozen Root
+PASS inherit disabled provider-default and explicit remain distinct
+PASS unknown models and unsupported reasoning reject
+PASS invalid configurations report explicit errors
+PASS tool grants require Worker and all three allowlists
+RESULT 5 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="scheduler" classname="scheduler" time="0.00641527" status="run">
+		<properties/>
+		<system-out>PASS same resource is FIFO serial while unrelated work progresses
+PASS independent keys execute concurrently
+PASS normal work preserves admission and execution reserve
+PASS saturated normals permit host-chained review and handoff
+PASS runnable classes rotate without starvation
+PASS close cancels queued jobs and waits for running callbacks
+PASS drain completes accepted jobs and future preserves exceptions
+PASS callbacks run outside scheduler mutex
+PASS invalid configuration and duplicate jobs reject
+RESULT 9 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="task_engine" classname="task_engine" time="0.134388" status="run">
+		<properties/>
+		<system-out>PASS admission/durable-scoped-idempotency
+PASS commands/idempotency-CAS-atomic-events
+PASS roles/Worker-only-cross-team-grants
+PASS amend/requirements-plan-instructions-application
+PASS amend/unhandled-second-team-stays-blocked
+PASS plan/both-teams-old-results-stay-fenced
+PASS instructions/fence-prepared-and-running-operations
+PASS replace/distinct-from-independent-NEW
+PASS cancel/late-result-and-unknown-outcome
+PASS operations/Worker-cancel-control-ownership-quota-replay
+PASS operations/idempotency-without-blind-retry
+PASS restart/automatic-fencing-and-reapplication
+PASS review/new-candidate-invalidates-approval
+PASS artifacts/immutable-version-history
+PASS review/all-assigned-reviewers-must-pass
+PASS review/adverse-evidence-revokes-even-at-quota
+PASS review/changed-instructions-require-fresh-evidence
+PASS candidate/producer-instructions-invalidate-old-review
+PASS delivery/receipt-and-cleanup-separation
+PASS quota/ack-control-progress-with-bounded-retries
+PASS quota/control-settlement-cancel-recovery
+PASS qu...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="runtime_types" classname="runtime_types" time="0.0154833" status="run">
+		<properties/>
+		<system-out>PASS strict JSON rejects duplicates, bad UTF-8 and non-finite input
+PASS canonical bytes and SHA-256 preserve content identity
+PASS decimal money limits preserve every cent and round down sub-micro amounts
+PASS catalog input shape rejects missing keys and wrong types as invalid input
+PASS typed ULIDs are monotonic and unique across threads
+PASS execution binding round trips keep request and task scopes distinct
+RESULT 6 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="runtime_resources" classname="runtime_resources" time="0.429587" status="run">
+		<properties/>
+		<system-out>PASS source and installed bundle capture identical compiled program bytes
+PASS manifest rejects omissions extras duplicates and unknown versions
+PASS altered SQL and self-reported hashes fail before Store effects
+PASS missing leaf parent and root symbolic resources are refused
+PASS FIFO and oversized resources stop before data reading
+PASS captured resource bytes remain valid after source removal
+PASS captured Schema registry preserves shape and filename guards
+PASS executable-relative discovery relocates and ignores cwd/environment
+PASS invalid preferred bundle never falls back to another location
+PASS all registered prefixes retain original version and durable SQL hashes
+PASS populated legacy Store requires explicit all-request upgrade
+PASS legacy failing migration rolls back before registered retry
+PASS registry entry retains writer exclusivity and unknown-version refusal
+PASS distributed prompt identity stays separate from external frozen config
+RESULT 14 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="store" classname="store" time="1.46719" status="run">
+		<properties/>
+		<system-out>PASS malformed catalog is invalid input and creates no rows
+PASS SQLite FULL/WAL/FK, writer lease, read-only and repeated migration
+PASS unknown and incomplete reference databases remain intact
+PASS scoped immutable admission and original retry after AMEND
+PASS state, plan and event commit atomically
+PASS initial instruction, bounded acknowledgment and durable command retry
+PASS full assigned constraint text and frozen team capacity
+PASS AMEND omission stays paused and old dispositions cannot be retagged
+PASS plan-only rebind fences running effects and old results
+PASS operation idempotency, owner, cancellation and reconciliation
+PASS ordinary tool quota preserves instruction/cancel controls
+PASS durable model reservations, exact retry and nullable accounting
+PASS complete model envelope and frozen permissions precede reservation
+PASS late model response is accounted without current-version retagging
+PASS restart keeps UNKNOWN operation and model reservations
+PASS concurrent request CAS has exactly one succes...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="event_store" classname="event_store" time="0.883111" status="run">
+		<properties/>
+		<system-out>PASS 403 upgrade rollback, immutable snapshots and read-only 404 fingerprint guards
+PASS captured IDs complete partially and later arrivals remain pending
+PASS competing role claims acquire one durable owner
+PASS takeover releases captured items and fences old tokens
+PASS independent initial allocation rolls back every plan/team/event on failure
+PASS independent plan guards reject duplicate, dependent and identity-changing nodes
+PASS AMEND omission remains pending and later keep uses the same plan
+PASS Worker wait gates new effects and reservations while controls remain available
+PASS wait survives epoch-only recovery and rejects changed semantic targets
+PASS wake never reconciles an UNKNOWN effect
+PASS immutable scoped history retains complete observations and explicit missing results
+PASS late feedback retains its binding and failed feedback/event transaction rolls back
+PASS populated 403 upgrade preserves original operation and model accounting facts
+PASS ordinary event exhaustion preserves feedback, settl...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="workflow_store" classname="workflow_store" time="2.01938" status="run">
+		<properties/>
+		<system-out>PASS 405 upgrade, rollback, read-only and fingerprints
+PASS question wait is atomic, scoped and cannot be bypassed
+PASS question forwarding preserves original chain and owners
+PASS question controls do not resolve UNKNOWN
+PASS current question policy control rejects stale captures without deadlock
+PASS AMEND supersedes original question and submission
+PASS question retries and exact answer selection
+PASS question failure rolls back wait and row
+PASS nonblocking questions and bounded history
+PASS submission retains original binary snapshot across restart
+PASS invalid snapshot hashes, bytes, paths and coverage
+PASS snapshot capacities and submission atomic rollback
+PASS submission needs grants, workspace, applied and settled ops
+PASS submission hold and TeamLead ownership
+PASS passing check requires complete consistent evidence
+PASS changed policy permits current negative checks before resubmission
+PASS rework revisions, acknowledgement and frozen bound
+PASS invalid rework and failed storage roll back
+PASS one ...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="acceptance_store" classname="acceptance_store" time="2.32112" status="run">
+		<properties/>
+		<system-out>PASS acceptance migration readonly rollback and fingerprints
+PASS positive business acceptance atomic experience and original bytes
+PASS acceptance identity original binding and object CAS
+PASS acceptance complete evidence and required review refusal
+PASS acceptance exact replay and original recovery binding
+PASS negative control revokes accepted candidate and package
+PASS amend invalidates delivery but retains historical experience
+PASS delivery required tasks frozen original bytes and intent reuse
+PASS optional unaccepted task explicit delivery limitation
+PASS publication proof guards recovery and read only queries
+PASS exact receipt and retained closeout atomic replay
+PASS terminal experience survives and takeover fences old job
+PASS experience identity source and explicit no experience
+PASS cancellation retains cleanup unknown and recovery
+PASS delivery and workspace isolation both directions
+PASS acceptance job insert failure rolls back decision
+PASS one concurrent captured business acceptance winner
+PAS...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="config_loader" classname="config_loader" time="0.13684" status="run">
+		<properties/>
+		<system-out>PASS configuration sample loads with field provenance and literal environment paths
+PASS role fields resolve independently from frozen Root
+PASS loaded configuration and restored requests ignore later disk changes
+PASS snapshot fingerprints are independent of checkout location
+PASS snapshot integrity checks dependencies and recomputed role bindings
+PASS strict YAML rejects ambiguous strings duplicate keys anchors and extra documents
+PASS scalar types unknown models and unsupported reasoning reject
+PASS control amendment and review capacity policies remain mandatory
+PASS cleanup opt-in is frozen and requires separate execution guards
+PASS unimplemented real calls memory and paid retries reject
+PASS budget durability and explicit weak isolation policies validate
+PASS template references reject traversal and file or directory symlinks
+PASS configuration parsing and frozen payload have explicit capacity bounds
+PASS template dispatch requires a host registered deterministic validator
+PASS environment check command...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="model" classname="model" time="0.0348472" status="run">
+		<properties/>
+		<system-out>PASS context hashes actual stable bytes and preserves dynamic originals
+PASS all relevant text and model dependencies affect cache identity
+PASS context canonicalizes declarations and frames ambiguous text
+PASS oversized context and unresolved reasoning fail without truncation
+PASS restoring compiled context checks bytes and cache parameters
+PASS rehashed role/tool metadata and malformed context frames reject
+PASS fake roles and call sequences select independent script steps
+PASS delayed response retains its original frozen execution tuple
+PASS raw tool responses preserve usage before host validation
+PASS partial and error responses cannot authorize tools
+PASS cancel and timeout preserve unknown usage; late transport stays fenced
+PASS missing usage remains null rather than zero
+PASS request and response round trips preserve separate attempt identity
+PASS invalid reservations and frozen-context mismatches reject
+PASS fake script shape, sequences and delay limits are bounded
+RESULT 15 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="schema" classname="schema" time="0.0153458" status="run">
+		<properties/>
+		<system-out>PASS all 13 complete examples validate with the 17-schema closed registry
+PASS complete records enforce binding, usage and strong types
+PASS model input cannot forge host metadata or self-approval
+PASS projection removes host conditions and preserves business conditions
+PASS projection scopes host names without weakening nested business fields
+PASS plan team briefs and draft-07 conditional requirements validate
+PASS 100 findings remain legal and unique constraints are enforced
+PASS registered relative references preserve model projection and deny host fields
+PASS local JSON Pointers, boolean schemas and patterns are enforced
+PASS unvisited remote, file and traversal refs fail before validation
+PASS duplicate IDs, duplicate JSON keys and missing pointers reject
+PASS schema symlinks and unsupported declared drafts reject
+RESULT 12 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="offline_runtime" classname="offline_runtime" time="0.623183" status="run">
+		<properties/>
+		<system-out>PASS offline chain persists exact model input, instructions and note evidence
+PASS invalid plan constraints keep accounting but do not change the plan
+PASS forged host fields and undeclared Worker tools never apply
+PASS AMEND fences late output and keep requires fresh instruction and ack
+PASS interrupted usage holds reservation while cancellation retains capacity
+PASS read-only access is inert and restart fences pending call before resume
+PASS published plan resumes task binding after process restart
+PASS explicit cancel disposition does not create a Worker model attempt
+PASS bounded input reads reject parent/leaf symlinks and special files
+PASS runtime input rejects FIFO before any observable open
+RESULT 10 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="event_runtime" classname="event_runtime" time="3.59718" status="run">
+		<properties/>
+		<system-out>PASS strict grouped scripts reject ambiguity and workspace host aliasing
+PASS independent tasks persist real files and scoped original feedback
+PASS partial AMEND and later keep retain a single current plan
+PASS waiting task leaves all model and tool opportunities to its sibling
+PASS empty groups and bounded calls retain exact pending work
+PASS partial workspace mapping gives no implicit note or sibling access
+PASS claim failure reserves nothing and tool error ends only its actor batch
+PASS duplicate accepted diagnostic returns its exact old observation
+PASS settled attempt without feedback stays explicitly missing
+PASS restart rebinds semantic orders without management calls and preserves original history bindings
+PASS full history overflow blocks before creating a new reservation
+PASS frozen manager and attempt budgets preserve unprocessed work
+PASS terminal actors retain visible unprocessed event history
+PASS legacy single-task runner cannot supersede a durable Worker wait
+RESULT 14 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="workflow_runtime" classname="workflow_runtime" time="2.99895" status="run">
+		<properties/>
+		<system-out>PASS bounded submit-check-rework-resubmit keeps original candidates
+PASS TeamLead checks original snapshot despite later workspace mutation
+PASS binary submission bytes remain lossless and explicitly non-text
+PASS question forwarding and user answer release only the matching wait
+PASS captured question identity and CAS reject retargeting and stale decisions
+PASS question model inputs reject identity CAS and order bypass
+PASS submission and check schemas reject self-approval and forged rework
+PASS submission snapshots require complete authorized bounded files
+PASS ask-only Worker policy does not require or declare note
+PASS legacy runner cannot erase a pending question or submission
+PASS restart answers original question before applying new epoch order
+PASS restart checks submitted original bytes without replacing its order
+PASS AMEND rejects stale checks and preserves original candidate bindings
+PASS missing script and exhausted budget retain unprocessed submissions
+RESULT 14 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="acceptance_runtime" classname="acceptance_runtime" time="7.52328" status="run">
+		<properties/>
+		<system-out>PASS Dispatcher acceptance and explicit experience do not imply delivery
+PASS Dispatcher sees immutable candidate bytes and exact response replay
+PASS raw Worker submission cannot bypass TeamLead checking
+PASS captured acceptance identity and task CAS cannot be relabelled
+PASS model acceptance cannot forge identity hashes waivers or evidence
+PASS AMEND records stale acceptance responses without applying them
+PASS recovery accepts original candidate without reissuing business work
+PASS negative business judgment blocks without inventing experience
+PASS experience uses frozen source and host-owned report identity
+PASS experience rejects forged identities and unbound memory claims
+PASS experience proposals remain reports with memory disabled
+PASS captured experience source cannot be relabelled or become business work
+PASS old experience can finish while amended task still awaits disposition
+PASS accepted experience is not starved by an unanswered optional question
+PASS terminal cancellation resumes only the boun...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="workspace" classname="workspace" time="0.0340051" status="run">
+		<properties/>
+		<system-out>PASS workspace identity, CLOEXEC root descriptor and durable creation
+PASS CAS creation and inode-atomic replacement preserve previous open readers
+PASS paged reads keep full hashes and encode arbitrary bytes losslessly
+PASS read-only policy and relative path/parent boundaries
+PASS symlinks, magic links, hard links and special files fail closed
+PASS root ancestors and directory/file ownership permissions are checked
+PASS directory cursor pages are sorted and bounded
+PASS literal search preserves byte offsets and reports truncation explicitly
+PASS file, workspace, response and entry capacities reject before effects
+PASS patch binds complete digest and exact byte range including binary data
+PASS patch rejects repeated and overlapping expected bytes before any staging
+PASS injected file fsync failure cleans staging without target effects
+PASS injected directory fsync failure after rename remains UNKNOWN
+PASS injected unprovable staging cleanup remains UNKNOWN
+PASS destination and parent changes are rechecked bef...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="sandbox" classname="sandbox" time="1.74717" status="run">
+		<properties/>
+		<system-out>PASS trusted fixture preserves literal argv, explicit env and both output streams
+PASS child umask is private even when host mask is 0002
+PASS exec closes inherited host descriptors
+PASS nonzero exit and signals retain distinct outcome evidence
+PASS timeout and stop_token cancellation are bounded
+PASS combined output cap stops a continuously writing child
+PASS blocked fixture action starts only after the host releases its gate
+PASS exec and pre-exec containment failures cannot run fixture code
+PASS setsid descendant escape stays UNKNOWN in supervisor-only fixture
+PASS failed descendant query cannot reuse an earlier empty observation
+PASS mountinfo rejects nested and propagating workspace mounts
+PASS workspace audit rejects unsafe inodes, modes and traversal overflow
+PASS binary output retains exact bytes and valid JSON
+PASS production policy, arguments and cwd reject unsafe boundaries
+PASS doctor is read-only and production refuses absent or forged isolation
+PASS runtime hash pins sealed bytes and restricts m...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="worker_tools" classname="worker_tools" time="2.23199" status="run">
+		<properties/>
+		<system-out>PASS static registration and frozen request tool grants
+PASS durable real file write/read/patch and side-effect-free business replay
+PASS AMEND rejects old model file effects while retaining usage
+PASS old business key only reads its fact during a pending new instruction
+PASS workspace directory and execution manifest binding are immutable
+PASS non-Worker, cross-workspace and model authority forgery are rejected
+PASS missing strong sandbox gives a durable FAILED result without spawning
+PASS read-only diagnostics do not mutate epochs, task state, budgets or events
+PASS UNKNOWN preserves diagnostics and instruction control while blocking business
+PASS bounded model loop preserves original text and complete tool feedback
+PASS Worker call bounds and failed tools stop subsequent model effects
+PASS payload, path and schema restrictions precede filesystem effects
+PASS concurrent exact commands have at most one actual execution owner
+PASS current policy revocation removes tools from new model contexts
+PASS SQLite res...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="delivery" classname="delivery" time="0.074326" status="run">
+		<properties/>
+		<system-out>PASS complete original bytes and pure inspection
+PASS frozen bytes do not reread live sources
+PASS strict paths and canonical base64
+PASS manifest coverage and aggregate bounds
+PASS pinned root identity and unsafe roots
+PASS same ID different content never overwrites
+PASS unsafe published entries and tampering
+PASS planted final paths are not adopted
+PASS cooperating publishers share one package
+PASS prepublication sync failures clean owned stages
+PASS postrename sync failure and recovery
+PASS failed recovery sync does not claim durability
+PASS postpublication tampering is not accepted
+PASS foreign staging entries are retained
+PASS replacement staged files are retained
+PASS root movement retains uncertain files
+PASS rename failure preserves orphan stage
+RESULT 17 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="cleanup" classname="cleanup" time="0.0642641" status="run">
+		<properties/>
+		<system-out>PASS original bytes deleted and exact repeat
+PASS bounded restart
+PASS empty owned directory
+PASS no populated adoption
+PASS new entry preflight
+PASS changed byte preflight
+PASS same byte replacement refused
+PASS symlink refused
+PASS hardlink refused
+PASS special file refused
+PASS receipt tamper refused
+PASS workspace replacement
+PASS envelope replacement
+PASS parent replacement
+PASS byte and pass limits
+PASS depth and count bounds
+PASS workspace lock conflict
+PASS wrong inventory
+PASS new file after partial cleanup
+PASS verification never deletes
+PASS Workspace accepted UTF-8 names retain exact bytes through cleanup
+PASS unsafe inventory paths are still rejected without deletion
+PASS runtime resource identifiers keep their stricter contract
+RESULT 23 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="cleanup_runtime" classname="cleanup_runtime" time="4.82049" status="run">
+		<properties/>
+		<system-out>PASS real owned cleanup retains evidence
+PASS default disabled
+PASS legacy workspace not adopted
+PASS lost delivery never reconstructed
+PASS changed delivery blocks deletion
+PASS delivery stays read-only after cleanup
+PASS bounded pass survives restart
+PASS old claim fenced on takeover
+PASS frozen inventory cannot widen
+PASS inventory mismatch refused
+PASS database write failure after deletion recovers
+PASS only Root authorizes cleanup
+PASS allocation idempotency and binding
+PASS 407 migration fingerprints
+PASS SIGKILL after physical deletion recovers
+PASS missing ownership marker is not adopted
+PASS outcome reconciliation does not prove process exit
+PASS original exit fact fingerprint is bound
+PASS populated 406 migration retains immutable inputs
+PASS owned allocations cannot nest across requests
+RESULT 20 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="audit24_reopen" classname="audit24_reopen" time="0.366849" status="run">
+		<properties/>
+		<system-out>PASS same semantic instruction reacks after writer takeover
+PASS running effects and old actor remain fenced
+PASS control ack never clears WAITING
+PASS order tool quota survives repeated takeover
+PASS registered control ack uses host projection, originals remain immutable
+PASS unhandled AMEND never gets epoch-only rebind
+PASS failed recover event rolls back all projections
+RESULT 7 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="process_evidence" classname="process_evidence" time="0.0196313" status="run">
+		<properties/>
+		<system-out>PASS bounded full workspace snapshots retain byte hashes and exact changes
+PASS known exit/failure/timeout/output/cancel semantics require complete proof
+PASS every missing or contradictory proof remains UNKNOWN
+PASS pre-fork refusal and pre-effect cancellation are definite
+PASS links writable modes special files and byte overflow never become partial snapshots
+PASS entry bounds and root generations are enforced
+PASS root directory mode changes are retained independently of file changes
+PASS same-content inode replacement is recorded as a change
+RESULT 8 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="audit24_reconcile" classname="audit24_reconcile" time="0.258746" status="run">
+		<properties/>
+		<system-out>PASS classified failed/timeout/output/cancel results retain effects and admit new work
+PASS Root reconciliation has exact replay and preserves original executor evidence
+PASS reconciliation rejects other roles wrong owner stale CAS and missing evidence
+PASS reconciliation event failure rolls back and keeps UNKNOWN business fence
+RESULT 4 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="audit24_capacity" classname="audit24_capacity" time="0.519152" status="run">
+		<properties/>
+		<system-out>PASS durable window and exact replay preserve all business budgets
+PASS checkpoint cannot hide UNKNOWN even after fresh ack
+PASS control traffic warns and never consumes business slots
+PASS Root CAS, replay and injected failure are atomic
+PASS event rollback invalidates cached counts
+PASS checkpoint never applies unhandled AMEND
+PASS old snapshots retain exact legacy limits
+PASS admission validates full tool lifecycle and frozen rounds
+RESULT 8 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="audit24_capacity_repro" classname="audit24_capacity_repro" time="19.2776" status="run">
+		<properties/>
+		<system-out>PASS old event-cap reproduction: 1100 operations plus 3600 independent controls
+RESULT 1 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="r1_history" classname="r1_history" time="2.36503" status="run">
+		<properties/>
+		<system-out>PASS empty index and hard bounds reject invalid requests
+PASS 270 attempts paginate completely without legacy cap or append drift
+PASS actor and cursor scopes never cross requests teams or roles
+PASS Unicode binary and 61KB results reassemble exact immutable JSON bytes
+PASS invalid hashes sections offsets and absent feedback fail explicitly
+PASS read-only and takeover preserve original facts and fence old actors
+PASS corrupted immutable feedback is rejected
+PASS self-consistent receipt tampering cannot replace original attempt binding
+PASS snapshot freezes membership not a fabricated settled observation
+PASS history reads do not clear waits UNKNOWN or consume budget
+RESULT 10 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="r1_structured" classname="r1_structured" time="0.0502095" status="run">
+		<properties/>
+		<system-out>PASS separate structure and exact restoration
+PASS canonical tools and dependencies
+PASS logical request and prefix cache fingerprints
+PASS pairing and dynamic authority refusals
+PASS parallel turns need every result
+PASS self-consistent forged hash does not authorize malformed structure
+PASS metadata and projection tampering reject
+PASS capacity and unconverted legacy input reject
+PASS legacy serialized bytes unchanged
+PASS FakeModel consumes restored structured envelope
+PASS full envelope hash covers reservation and format
+PASS provider tool IDs isolated by original attempt
+PASS missing and unapplied attempts remain observations
+PASS source corruption refuses
+PASS frozen format and legacy defaults
+PASS Store refuses frozen format mismatch before reservation
+RESULT 16 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="r1_window" classname="r1_window" time="1.66427" status="run">
+		<properties/>
+		<system-out>PASS tail capture excludes an interleaved later insert
+PASS negative omission count is rejected
+PASS missing frozen window preserves legacy
+PASS scoped small original turn remains paired
+PASS large whole turn becomes explicit original reference
+PASS readback exact replay preserves receipt and budget
+PASS AMEND fences in-flight historical reads
+PASS revoked readback refuses window before reservation
+PASS UNKNOWN is pinned and still blocks reservation
+PASS missing old attempt remains pinned outside tail
+PASS policy revocation fences captured read
+PASS recent corruption remains fail closed
+RESULT 12 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="r2_rework" classname="r2_rework" time="5.58" status="run">
+		<properties/>
+		<system-out>PASS scoped writer rejects both foreign corrective actions
+PASS foreign exact correction replay remains out of scope
+PASS admission-only cannot decide rejected work
+PASS scoped reopen fences old corrective response without sibling changes
+PASS rejection captures original bytes and offers only correction or escalation
+PASS correction preserves obligations and requires new TeamLead order and ack
+PASS exact command replay cannot consume another rework
+PASS Dispatcher identity scope and both CAS values are required
+PASS captured model targets cannot be relabelled
+PASS AMEND fences old correction while retaining usage
+PASS recovery fences old response and preserves original rejected bytes
+PASS TeamLead exhausted check offers only user escalation
+PASS escalation and answer never reset exhausted shared allowance
+PASS answer ends exactly its wait and requires a new correction decision
+PASS UNKNOWN blocks corrective work but permits reporting the problem
+PASS correction event failure rolls back all mutation and counte...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="r2_recovery" classname="r2_recovery" time="1.14252" status="run">
+		<properties/>
+		<system-out>PASS selected recovery preserves all sibling facts
+PASS later sibling takeover still fences operations and late responses
+PASS scope also guards actorless settlement and feedback APIs
+PASS admission-only does not issue execution authority
+PASS invalid request and read-only scope cannot trigger recovery
+PASS selected scope cannot initialize missing or empty databases
+PASS selected recovery preserves WAITING and unhandled AMEND
+PASS scoped recovery is atomic when its event fails
+PASS different scopes cannot bypass the database writer lease
+PASS default all-request recovery remains compatible
+PASS terminal closeout recovery only reclaims selected jobs
+PASS populated upgrades require explicit maintenance
+RESULT 12 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="r2_amend" classname="r2_amend" time="5.80219" status="run">
+		<properties/>
+		<system-out>PASS model AMEND captures original host snapshots and rejects retargeting
+PASS partial model AMEND and later keep share one plan in both context formats
+PASS keep requires a new TeamLead instruction and Worker acknowledgement
+PASS amended plan rejects stale task CAS even with unchanged request CAS
+PASS pending-node resolution tolerates progress of already current sibling
+PASS pending-node resolution rejects a stale captured task
+PASS later AMEND and scoped recovery fence old decisions without losing usage
+PASS exact model response replay neither transitions nor charges twice
+PASS forged model fields nodes and templates never change business state
+PASS empty model decisions do not publish or retry a plan
+PASS followup cannot redecide current nodes or replace the plan
+PASS Worker cannot execute Dispatcher model AMEND tools
+PASS model keep and cancel do not clear UNKNOWN or fabricate rollback
+PASS existing host-selected AMEND paths remain compatible
+RESULT 14 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="r2a_mkdir" classname="r2a_mkdir" time="0.973233" status="run">
+		<properties/>
+		<system-out>PASS mkdir is private under ordinary umasks and supports following file tools
+PASS existing directory or file and missing parent have no creation effect
+PASS relative path and read-only boundaries reject before mkdir
+PASS links, special files and writable parents cannot be adopted
+PASS projected entry and directory depth limits leave the tree traversable
+PASS child and parent directory fsync failures retain UNKNOWN directories
+PASS racing EEXIST after mkdir dispatch stays UNKNOWN without adoption
+PASS open failure after successful mkdir retains UNKNOWN effect
+PASS post-creation root parent and target replacements cannot prove success
+PASS frozen grants strict arguments Worker role and diagnostic boundary
+PASS successful mkdir replay returns its original fact without another effect
+PASS concurrent exact commands have one actual mkdir dispatch
+PASS real uncertain mkdir preserves original evidence and blocks new business
+PASS AMEND fences a late mkdir response and preserves old result replay
+PASS mkdir consumes ...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="allocation_recovery" classname="allocation_recovery" time="2.32911" status="run">
+		<properties/>
+		<system-out>PASS v2 allocation and exact replay retain private generations
+PASS SIGKILL during partial marker requires explicit abandonment
+PASS SIGKILL after full stage without receipt never adopts it
+PASS SIGKILL after persisted receipt recovers exact stage
+PASS SIGKILL before and after publication parent sync recovers
+PASS SIGKILL after final sync before registration recovers
+PASS failed receipt transaction never publishes the stage
+PASS failed OWNED transaction recovers existing final generation
+PASS external stage or final paths without receipt are retained
+PASS copied identical marker does not substitute filesystem generation
+PASS replaced work marker parent and populated work refuse publication
+PASS both or neither saved allocation path refuses publication
+PASS receipt registration CAS and immutable evidence are enforced
+PASS abandonment exact replay and old key never resurrect allocation
+PASS abandonment preflight CAS and write rollback are atomic
+PASS terminal request missing parent and retired team can abandon
+...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="doctor_diagnostics" classname="doctor_diagnostics" time="0.0586056" status="run">
+		<properties/>
+		<system-out>[ENV] uid=65534 umask=22
+PASS default report identifies inputs without execution proof
+PASS failed runtime preserves later independent observations
+PASS hash conflict retains expected and observed bytes separately
+PASS leaf and ancestor symlinks are rejected with explicit causes
+PASS unsafe owner modes remain unchanged and unread
+PASS directories and nonblocking FIFOs are not runtime files
+PASS special runtime sources rejected without opening them
+PASS zero stat size cannot fabricate an empty runtime digest
+PASS forbidden destination refuses before source reads
+PASS duplicate destination does not hide a later independent entry
+PASS missing or invalid frozen hashes never become approval
+PASS relative parent and malformed destination paths have stable causes
+PASS sparse oversized source is rejected before content read
+PASS fixed small shared-budget boundary never consumes rejected bytes
+PASS actual source growth during read fails original identity check
+PASS actual injected read failure preserves errno and late...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="protocol_codec" classname="protocol_codec" time="0.0389822" status="run">
+		<properties/>
+		<system-out>PASS profile round trip binds effective capabilities and limits
+PASS profile rejects unknown fields versions credentials and paid execution
+PASS endpoint and authentication references are explicit and bounded
+PASS profile capability declarations and hard limits are strict
+PASS native request preserves system dependencies schema and task contract
+PASS encoding preserves original request and null transport evidence
+PASS encoding never resolves credential references
+PASS native history preserves call pairing raw outputs and provenance
+PASS fake wrong-profile and legacy requests cannot be relabelled
+PASS reasoning off default and effort map only declared capabilities
+PASS request capabilities byte token and deadline limits reject before encoding
+PASS complete text retains host tuple and only reported usage
+PASS documented empty response metadata preserves compatibility without new capabilities
+PASS complete functions preserve provider IDs without execution authority
+PASS missing usage remains unknown and explicit...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="sse_replay" classname="sse_replay" time="2.28134" status="run">
+		<properties/>
+		<system-out>PASS SSE every two-chunk split preserves exact UTF-8 text, usage and identity
+PASS SSE bytewise reads preserve split BOM, Unicode and CRLF
+PASS SSE CR, LF, CRLF, multiline data, comments and metadata are bounded framing
+PASS SSE completed function retains original IDs without dispatching tools
+PASS SSE truncation never exposes partial tools or invented usage
+PASS SSE deterministic cancellation before and within argument deltas
+PASS SSE exact deadline rejects late terminal without real time waits
+PASS SSE invalid caller timing, profile and bounds fail before replay
+PASS SSE unsupported events and chat DONE sentinel cannot silently complete
+PASS SSE duplicate, missing, reordered and malformed sequences refuse
+PASS SSE response, item and content identities remain bound
+PASS SSE every text done and terminal snapshot matches its deltas
+PASS SSE function JSON and snapshots are complete and exact
+PASS SSE missing and duplicate lifecycle transitions cannot complete
+PASS SSE interleaved function deltas preserve indepe...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="r1_management" classname="r1_management" time="12.502" status="run">
+		<properties/>
+		<system-out>PASS management policy is explicit frozen and legacy-compatible
+PASS 130 management turns cross restart with exact original readback
+PASS legacy full management history still stops explicitly
+PASS exact management query replay keeps receipt and budget
+PASS management reader scope hash version and epoch guards
+PASS all open UNKNOWN and missing original facts stay pinned
+PASS full current contract overflow has zero new reservations
+PASS current policy fences new and captured management reads
+PASS failed read queries consume persistent cross-restart allowance
+PASS policy change during read refuses original bytes
+PASS AMEND and independent old task CAS refuse stale decisions
+PASS event pump readback keeps pending target across restart
+PASS captured candidate files stay complete through AMEND
+PASS live cache unknown and reconciliation preserve original management facts
+RESULT 14 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="owned_capacity" classname="owned_capacity" time="3.87471" status="run">
+		<properties/>
+		<system-out>PASS legacy 4097-entry legal tree reproduces cleanup gap
+PASS 4095-entry boundary rejects extra effects and completes cleanup
+PASS exact total-byte boundary rejects writes and patches before effects
+PASS exact encoded inventory budget counts escaped names
+PASS SIGKILL after replacement stage sync remains cleanup-bounded
+PASS long parent cannot create an unrepresentable stage path
+PASS partial pass resumes only the original immutable inventory
+PASS replacement identity is refused even within capacity
+PASS frozen policy and bound Workspace limits cannot widen
+PASS legacy inventory keeps exact bytes across replay
+PASS new policy never expands cleanup hard limits
+RESULT 11 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="owned_capacity_runtime" classname="owned_capacity_runtime" time="3.3652" status="run">
+		<properties/>
+		<system-out>PASS allocation and real Worker file tools share frozen capacity
+PASS run is refused before operation preparation or filesystem effects
+PASS configuration changes only new request capacity
+PASS invalid new policy has no Store or directory effects
+PASS prepared v2 allocation recovery retains original capacity
+PASS partial cleanup and reopen keep original inventory and frozen limits
+PASS legacy SQLite inventory and snapshot never acquire new policy
+PASS legacy over-capacity tree returns explicit retention without cleanup commit
+PASS host overflow cannot expand new cleanup authority
+PASS Store rejects capacity-retagged inventory before deletion claim
+PASS replaced inode after inventory is retained across reopen
+PASS SIGKILL after unlink reuses original SQLite inventory
+PASS failed inventory transaction leaves the complete tree
+RESULT 13 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="live_model_store" classname="live_model_store" time="1.06999" status="run">
+		<properties/>
+		<system-out>PASS disabled, credential authorization and full frozen envelope reject before reservation
+PASS live profile capacity rejects impossible durable evidence before admission
+PASS original encoding/options CAS and concurrent one-time durable send claim
+PASS reservation and send-claim faults roll back original budget and authority
+PASS private observation and immutable original settlement faults are atomic
+PASS partial usage, exact replay, version conflict and dimension completion
+PASS known zero balances retain explicit unknown cache dimensions
+PASS contradiction preserves known facts and actual excess cost stops paid admission
+PASS reconciliation faults roll back all projections and source bytes stay private
+PASS recovery-only missing response settlement keeps original identity and never resends
+PASS reservation-only recovery requires explicit no-dispatch proof and original null settlement
+PASS terminal scoped reconciliation cannot alter sibling or restore business
+PASS explicit migration preserves original fake...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="billing" classname="billing" time="0.999694" status="run">
+		<properties/>
+		<system-out>PASS legacy profile bytes and explicit unique wire challenges
+PASS bounded exact policy and original full profile binding
+PASS signed late receipt keeps original missing response and null settlement immutable
+PASS forged signatures, wrong keys and modified payloads reject
+PASS issuer, trust domain, units and payload shape are exact
+PASS unique attempt challenge and original wire request binding
+PASS receipt ownership survives key rotation and recovery
+PASS receipt ownership is global across sibling requests
+PASS same receipt partial revision and contradictions preserve known facts
+PASS receipt ownership and accounting commit atomically
+PASS read-only exact replay survives writer epoch without effects
+PASS no claim or proven no network cannot consume signed charge
+RESULT 12 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="single_agent" classname="single_agent" time="2.77856" status="run">
+		<properties/>
+		<system-out>PASS shared native history crosses roles and tasks
+PASS omitted original pair refuses reservation
+PASS reordered original pairs refuse reservation
+PASS changed or missing logical identity refuses reservation
+PASS settled turn without immutable feedback blocks continuation
+PASS explicit frozen policy and common model are required
+RESULT 6 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="single_agent_runtime" classname="single_agent_runtime" time="2.70271" status="run">
+		<properties/>
+		<system-out>PASS concurrent captures cannot fork original history
+PASS historical Worker tools do not authorize manager actions
+PASS ordinary restart continues one chain without rewriting bindings
+PASS sibling request history never enters the shared transcript
+PASS frozen attempt and byte capacities stop before reservation
+RESULT 5 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="doctor_diagnostics_cli" classname="doctor_diagnostics_cli" time="0.365931" status="run">
+		<properties/>
+		<system-out>doctor CLI fixture UID=65534 effective_umask=0022
+test_active_writer_lock_and_all_database_rows_remain_unchanged (__main__.DoctorCli.test_active_writer_lock_and_all_database_rows_remain_unchanged) ... ok
+test_bad_runtime_does_not_hide_next_file_or_expose_content (__main__.DoctorCli.test_bad_runtime_does_not_hide_next_file_or_expose_content) ... ok
+test_default_provenance_legacy_fields_and_no_files (__main__.DoctorCli.test_default_provenance_legacy_fields_and_no_files) ... ok
+test_executable_relative_source_is_reported_without_cwd_dependency (__main__.DoctorCli.test_executable_relative_source_is_reported_without_cwd_dependency) ... ok
+test_fake_launcher_is_not_executed (__main__.DoctorCli.test_fake_launcher_is_not_executed) ... ok
+test_invalid_manifest_never_falls_back (__main__.DoctorCli.test_invalid_manifest_never_falls_back) ... ok
+test_invalid_path_bytes_and_oversized_paths_return_json_without_effects (__main__.DoctorCli.test_invalid_path_bytes_and_oversized_paths_return_json_without_effects) ... ok
+test_m...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="protocol_replay_cli" classname="protocol_replay_cli" time="0.36437" status="run">
+		<properties/>
+		<system-out>protocol CLI fixture UID=65534 effective_umask=0022
+test_bounded_reads_and_invalid_replay_shape (__main__.ProtocolCli.test_bounded_reads_and_invalid_replay_shape) ... ok
+test_complete_http_response_keeps_host_tuple_and_raw_bytes (__main__.ProtocolCli.test_complete_http_response_keeps_host_tuple_and_raw_bytes) ... ok
+test_encode_preserves_body_fingerprints_and_does_not_resolve_credentials (__main__.ProtocolCli.test_encode_preserves_body_fingerprints_and_does_not_resolve_credentials) ... ok
+test_explicit_cancel_and_exact_deadline_preserve_tuple (__main__.ProtocolCli.test_explicit_cancel_and_exact_deadline_preserve_tuple) ... ok
+test_function_response_is_decoded_without_dispatch (__main__.ProtocolCli.test_function_response_is_decoded_without_dispatch) ... ok
+test_http_errors_are_reports_with_no_retry_or_usable_tools (__main__.ProtocolCli.test_http_errors_are_reports_with_no_retry_or_usable_tools) ... ok
+test_input_symlinks_refuse_and_invalid_utf8_is_lossless_response_evidence (__main__.ProtocolCli.test_input_sym...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="https_transport" classname="https_transport" time="9.56082" status="run">
+		<properties/>
+		<system-out>HTTPS loopback fixture UID=65534 effective_umask=0022
+test_cancel_after_partial_body_keeps_failure_and_original_bytes (__main__.HttpsTransport.test_cancel_after_partial_body_keeps_failure_and_original_bytes) ... ok
+test_closed_connection_with_truncated_content_length_is_not_success (__main__.HttpsTransport.test_closed_connection_with_truncated_content_length_is_not_success) ... ok
+test_conflicting_http_framing_fails_closed (__main__.HttpsTransport.test_conflicting_http_framing_fails_closed) ... ok
+test_connection_refusal_has_no_upload_and_no_retry (__main__.HttpsTransport.test_connection_refusal_has_no_upload_and_no_retry) ... ok
+test_credential_injection_empty_and_oversize_refuse_before_connection (__main__.HttpsTransport.test_credential_injection_empty_and_oversize_refuse_before_connection) ... ok
+test_deadline_is_not_restarted_after_tls_or_headers (__main__.HttpsTransport.test_deadline_is_not_restarted_after_tls_or_headers) ... ok
+test_header_line_limit_is_observed_and_retained_with_bound (__main__.HttpsTr...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="live_model_store_tls" classname="live_model_store_tls" time="2.63987" status="run">
+		<properties/>
+		<system-out>Live Store loopback UID=65534 effective_umask=0022
+test_actual_sigkill_at_five_boundaries_never_resends (__main__.LiveStore.test_actual_sigkill_at_five_boundaries_never_resends) ... ok
+test_complete_original_store_path_and_exact_replay (__main__.LiveStore.test_complete_original_store_path_and_exact_replay) ... ok
+test_disabled_or_failed_admission_has_zero_network_and_budget_effect (__main__.LiveStore.test_disabled_or_failed_admission_has_zero_network_and_budget_effect) ... ok
+test_effective_live_capacity_can_persist_actual_limit_observation (__main__.LiveStore.test_effective_live_capacity_can_persist_actual_limit_observation) ... ok
+test_http_429_and_500_never_automatically_retry (__main__.LiveStore.test_http_429_and_500_never_automatically_retry) ... ok
+test_large_escaped_valid_output_fits_original_settlement_event (__main__.LiveStore.test_large_escaped_valid_output_fits_original_settlement_event) ... ok
+test_late_complete_response_keeps_original_identity_after_all_fences (__main__.LiveStore.test_late_comple...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="live_workflow" classname="live_workflow" time="22.113" status="run">
+		<properties/>
+		<system-out>test_cache_only_unknown_is_not_zero_balance_readiness (__main__.LiveWorkflow.test_cache_only_unknown_is_not_zero_balance_readiness) ... ok
+test_cross_task_host_submission_cannot_complete_model_roundtrip_witness (__main__.LiveWorkflow.test_cross_task_host_submission_cannot_complete_model_roundtrip_witness) ... ok
+test_deadline_preserves_original_partial_response_without_business_apply (__main__.LiveWorkflow.test_deadline_preserves_original_partial_response_without_business_apply) ... ok
+test_explicit_cancellation_before_and_during_transport_remains_cancelled (__main__.LiveWorkflow.test_explicit_cancellation_before_and_during_transport_remains_cancelled) ... ok
+test_independent_receipt_must_match_observed_request_bytes (__main__.LiveWorkflow.test_independent_receipt_must_match_observed_request_bytes) ... ok
+test_live_accounting_status_preserves_all_unknown_and_disputed_boundaries (__main__.LiveWorkflow.test_live_accounting_status_preserves_all_unknown_and_disputed_boundaries) ... ok
+test_missing_usage_stops_bat...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="live_workflow_cli" classname="live_workflow_cli" time="2.27974" status="run">
+		<properties/>
+		<system-out>test_authorization_hash_uses_bytes_captured_before_execution (__main__.LiveWorkflowCli.test_authorization_hash_uses_bytes_captured_before_execution) ... ok
+test_authorization_inside_business_workspace_is_rejected_before_takeover (__main__.LiveWorkflowCli.test_authorization_inside_business_workspace_is_rejected_before_takeover) ... ok
+test_current_configuration_cannot_change_frozen_endpoint (__main__.LiveWorkflowCli.test_current_configuration_cannot_change_frozen_endpoint) ... ok
+test_http_failure_has_no_automatic_retry_or_private_echo (__main__.LiveWorkflowCli.test_http_failure_has_no_automatic_retry_or_private_echo) ... ok
+test_invalid_authorization_is_rejected_before_any_store_effect (__main__.LiveWorkflowCli.test_invalid_authorization_is_rejected_before_any_store_effect) ... ok
+test_missing_and_invalid_credentials_never_reserve_or_send (__main__.LiveWorkflowCli.test_missing_and_invalid_credentials_never_reserve_or_send) ... ok
+test_nonregular_and_missing_authorization_are_bounded_preflight_failures (__main...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="billing_baseline_e2e" classname="billing_baseline_e2e" time="43.29" status="run">
+		<properties/>
+		<system-out>test_01_original_native_roundtrip_pair (__main__.BillingBaselineIntegration.test_01_original_native_roundtrip_pair) ... ok
+test_02_two_task_partial_amend_pair (__main__.BillingBaselineIntegration.test_02_two_task_partial_amend_pair) ... ok
+test_03_original_rejected_rework_pair (__main__.BillingBaselineIntegration.test_03_original_rejected_rework_pair) ... ok
+test_04_exhausted_rework_owner_question_pair (__main__.BillingBaselineIntegration.test_04_exhausted_rework_owner_question_pair) ... ok
+test_05_original_delivery_exact_receipt_pair (__main__.BillingBaselineIntegration.test_05_original_delivery_exact_receipt_pair) ... ok
+test_90_invalid_signed_sources_never_advance_business_or_repeat_send (__main__.BillingBaselineIntegration.test_90_invalid_signed_sources_never_advance_business_or_repeat_send) ... ok
+test_91_partial_unknown_and_over_reserved_remain_stopped (__main__.BillingBaselineIntegration.test_91_partial_unknown_and_over_reserved_remain_stopped) ... ok
+test_92_explicit_reconciliation_is_accounting_only_...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="runtime_resources_cli" classname="runtime_resources_cli" time="0.850353" status="run">
+		<properties/>
+		<system-out>test_bundle_failures_reject_before_database_or_writer_effects (__main__.RuntimeResourceInstallation.test_bundle_failures_reject_before_database_or_writer_effects) ... ok
+test_explicit_roots_and_schema_inputs_keep_legacy_compatibility (__main__.RuntimeResourceInstallation.test_explicit_roots_and_schema_inputs_keep_legacy_compatibility) ... ok
+test_external_prompts_and_frozen_requests_have_separate_identity (__main__.RuntimeResourceInstallation.test_external_prompts_and_frozen_requests_have_separate_identity) ... ok
+test_fifo_resource_is_refused_without_waiting_for_a_writer (__main__.RuntimeResourceInstallation.test_fifo_resource_is_refused_without_waiting_for_a_writer) ... ok
+test_installed_configuration_is_explicit_and_not_bundled (__main__.RuntimeResourceInstallation.test_installed_configuration_is_explicit_and_not_bundled) ... ok
+test_installed_runtime_survives_removal_of_its_installation_source (__main__.RuntimeResourceInstallation.test_installed_runtime_survives_removal_of_its_installation_source) ... ok
+...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="r3_evaluation" classname="r3_evaluation" time="10.8443" status="run">
+		<properties/>
+		<system-out>test_budget_disagreement_is_visible_as_invalid_evidence (__main__.Evaluation.test_budget_disagreement_is_visible_as_invalid_evidence) ... ok
+test_cancelled_amendments_do_not_satisfy_update_and_keep (__main__.Evaluation.test_cancelled_amendments_do_not_satisfy_update_and_keep) ... ok
+test_changed_budget_condition_is_not_comparable (__main__.Evaluation.test_changed_budget_condition_is_not_comparable) ... ok
+test_changed_materials_invalid_and_all_other_cells_retained (__main__.Evaluation.test_changed_materials_invalid_and_all_other_cells_retained) ... ok
+test_confirmed_original_delivery_passes_fixed_evidence_rubric (__main__.Evaluation.test_confirmed_original_delivery_passes_fixed_evidence_rubric) ... ok
+test_deadline_exhaustion_is_reported_as_failure (__main__.Evaluation.test_deadline_exhaustion_is_reported_as_failure) ... ok
+test_duplicate_cells_and_request_reuse_refuse (__main__.Evaluation.test_duplicate_cells_and_request_reuse_refuse) ... ok
+test_failed_model_attempt_remains_in_report (__main__.Evaluation.te...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="handoff_integrity" classname="handoff_integrity" time="0.0383933" status="run">
+		<properties/>
+		<system-out>PASS handoff: 33 original files; 32 SHA-256 entries plus pinned manifest; 31 payload entries; 51 acceptance cases remain 未执行
+</system-out>
+	</testcase>
+	<testcase name="review_source_integrity" classname="review_source_integrity" time="0.0338334" status="run">
+		<properties/>
+		<system-out>PASS v0.4 review source: 49 original files match the pinned SHA-256 manifest
+</system-out>
+	</testcase>
+	<testcase name="specification_contracts" classname="specification_contracts" time="0.612826" status="run">
+		<properties/>
+		<system-out>test_ack_control_can_progress_with_unknown_but_business_remains_blocked (__main__.SQLiteContracts.test_ack_control_can_progress_with_unknown_but_business_remains_blocked) ... ok
+test_amend_omission_blocks_and_keep_needs_new_instruction_and_ack (__main__.SQLiteContracts.test_amend_omission_blocks_and_keep_needs_new_instruction_and_ack) ... ok
+test_amended_accepted_task_requires_new_version_experience_report (__main__.SQLiteContracts.test_amended_accepted_task_requires_new_version_experience_report) ... ok
+test_card_exposure_missing_evidence_and_duplicate_sources_cannot_inflate (__main__.SQLiteContracts.test_card_exposure_missing_evidence_and_duplicate_sources_cannot_inflate) ... ok
+test_cas_competition_and_failed_transaction_leave_no_partial_state (__main__.SQLiteContracts.test_cas_competition_and_failed_transaction_leave_no_partial_state) ... ok
+test_cleanup_rejects_unknown_and_missing_receipt (__main__.SQLiteContracts.test_cleanup_rejects_unknown_and_missing_receipt) ... ok
+test_dispatch_rechecks_live_revoca...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="demo_smoke" classname="demo_smoke" time="0.070353" status="run">
+		<properties/>
+		<system-out>PASS compiled demo completes two parallel synthetic request lifecycles
+PASS CLI help and version
+PASS CLI invalid input and runtime setup failure return nonzero
+RESULT 3 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="s1_cli_smoke" classname="s1_cli_smoke" time="1.21318" status="run">
+		<properties/>
+		<system-out>test_amend_requires_disposition_without_spending_then_updates (__main__.OfflineCliSmoke.test_amend_requires_disposition_without_spending_then_updates) ... ok
+test_budget_exhaustion_preserves_cancel_control (__main__.OfflineCliSmoke.test_budget_exhaustion_preserves_cancel_control) ... ok
+test_config_and_schema_commands_run_from_another_directory (__main__.OfflineCliSmoke.test_config_and_schema_commands_run_from_another_directory) ... ok
+test_duplicate_unknown_and_bad_options_are_structured_errors (__main__.OfflineCliSmoke.test_duplicate_unknown_and_bad_options_are_structured_errors) ... ok
+test_read_only_views_do_not_fence_or_append_events (__main__.OfflineCliSmoke.test_read_only_views_do_not_fence_or_append_events) ... ok
+test_reopen_uses_frozen_config_after_source_files_are_removed (__main__.OfflineCliSmoke.test_reopen_uses_frozen_config_after_source_files_are_removed) ... ok
+test_submit_exact_key_replays_and_changed_input_conflicts (__main__.OfflineCliSmoke.test_submit_exact_key_replays_and_changed_input_co...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="s12_cli_smoke" classname="s12_cli_smoke" time="1.91516" status="run">
+		<properties/>
+		<system-out>test_doctor_is_read_only_and_new_database_uses_current_schema (__main__.WorkerCliSmoke.test_doctor_is_read_only_and_new_database_uses_current_schema) ... ok
+test_invalid_new_options_do_not_open_a_writer (__main__.WorkerCliSmoke.test_invalid_new_options_do_not_open_a_writer) ... ok
+test_multi_step_file_chain_persists_facts_and_complete_feedback (__main__.WorkerCliSmoke.test_multi_step_file_chain_persists_facts_and_complete_feedback) ... ok
+test_overwrite_conflict_stops_the_explicit_worker_batch (__main__.WorkerCliSmoke.test_overwrite_conflict_stops_the_explicit_worker_batch) ... ok
+test_process_without_manifest_refuses_and_persists_no_spawn (__main__.WorkerCliSmoke.test_process_without_manifest_refuses_and_persists_no_spawn) ... ok
+test_read_only_tool_pages_preserve_epochs_events_and_budget (__main__.WorkerCliSmoke.test_read_only_tool_pages_preserve_epochs_events_and_budget) ... ok
+test_read_paths_and_diagnostic_class_cannot_be_forged (__main__.WorkerCliSmoke.test_read_paths_and_diagnostic_class_cannot_be_forg...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="s13_cli_smoke" classname="s13_cli_smoke" time="7.44958" status="run">
+		<properties/>
+		<system-out>test_amendment_supersedes_old_wait_without_authorizing_the_new_task (__main__.EventCliSmoke.test_amendment_supersedes_old_wait_without_authorizing_the_new_task) ... ok
+test_call_cap_and_missing_group_retain_specific_pending_work (__main__.EventCliSmoke.test_call_cap_and_missing_group_retain_specific_pending_work) ... ok
+test_independent_files_and_original_diagnostic_feedback (__main__.EventCliSmoke.test_independent_files_and_original_diagnostic_feedback) ... ok
+test_invalid_options_and_foreign_scopes_do_not_reserve_attempts (__main__.EventCliSmoke.test_invalid_options_and_foreign_scopes_do_not_reserve_attempts) ... ok
+test_legacy_single_task_runner_preserves_wait_until_exact_wake (__main__.EventCliSmoke.test_legacy_single_task_runner_preserves_wait_until_exact_wake) ... ok
+test_partial_amendment_keeps_omitted_task_pending_then_explicit_keep_applies (__main__.EventCliSmoke.test_partial_amendment_keeps_omitted_task_pending_then_explicit_keep_applies) ... ok
+test_read_only_inbox_history_and_capacity_error_preser...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="s14_cli_smoke" classname="s14_cli_smoke" time="8.57651" status="run">
+		<properties/>
+		<system-out>test_amendment_supersedes_old_questions_and_submissions_without_adopting_them (__main__.WorkflowCliSmoke.test_amendment_supersedes_old_questions_and_submissions_without_adopting_them) ... ok
+test_answer_preflight_rejects_wrong_owner_version_option_and_repeated_answer (__main__.WorkflowCliSmoke.test_answer_preflight_rejects_wrong_owner_version_option_and_repeated_answer) ... ok
+test_blocking_question_survives_reopen_and_releases_sibling_progress (__main__.WorkflowCliSmoke.test_blocking_question_survives_reopen_and_releases_sibling_progress) ... ok
+test_hierarchical_forwarding_preserves_original_question_and_root_answer (__main__.WorkflowCliSmoke.test_hierarchical_forwarding_preserves_original_question_and_root_answer) ... ok
+test_invalid_model_fields_and_missing_scripts_preserve_specific_pending_objects (__main__.WorkflowCliSmoke.test_invalid_model_fields_and_missing_scripts_preserve_specific_pending_objects) ... ok
+test_manual_wake_and_legacy_runner_cannot_bypass_an_open_question (__main__.WorkflowCliSmoke.te...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="s15_cli_smoke" classname="s15_cli_smoke" time="8.33416" status="run">
+		<properties/>
+		<system-out>test_amend_invalidates_stored_package_without_overwriting_history (__main__.AcceptanceCliSmoke.test_amend_invalidates_stored_package_without_overwriting_history) ... ok
+test_binary_and_empty_deliverables_survive_real_publication (__main__.AcceptanceCliSmoke.test_binary_and_empty_deliverables_survive_real_publication) ... ok
+test_cancellation_atomically_keeps_receipt_and_unfinished_cleanup (__main__.AcceptanceCliSmoke.test_cancellation_atomically_keeps_receipt_and_unfinished_cleanup) ... ok
+test_complete_acceptance_package_receipt_and_retained_closeout (__main__.AcceptanceCliSmoke.test_complete_acceptance_package_receipt_and_retained_closeout) ... ok
+test_delivery_directory_must_not_overlap_control_or_workspace (__main__.AcceptanceCliSmoke.test_delivery_directory_must_not_overlap_control_or_workspace) ... ok
+test_exact_receipt_replay_and_key_conflicts (__main__.AcceptanceCliSmoke.test_exact_receipt_replay_and_key_conflicts) ... ok
+test_exhausted_experience_budget_stays_pending_after_receipt (__main__.Acceptanc...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="s16_cli_smoke" classname="s16_cli_smoke" time="6.73352" status="run">
+		<properties/>
+		<system-out>test_allocation_key_is_exact_and_does_not_adopt_legacy_work (__main__.OwnedCleanupCLI.test_allocation_key_is_exact_and_does_not_adopt_legacy_work) ... ok
+test_bounded_pass_and_cross_process_resume (__main__.OwnedCleanupCLI.test_bounded_pass_and_cross_process_resume) ... ok
+test_cancelled_work_is_retained_without_failure_package (__main__.OwnedCleanupCLI.test_cancelled_work_is_retained_without_failure_package) ... ok
+test_corrupt_delivery_blocks_deletion (__main__.OwnedCleanupCLI.test_corrupt_delivery_blocks_deletion) ... ok
+test_default_disabled_rejects_without_writer_takeover (__main__.OwnedCleanupCLI.test_default_disabled_rejects_without_writer_takeover) ... ok
+test_delivery_stays_read_only_after_cleanup (__main__.OwnedCleanupCLI.test_delivery_stays_read_only_after_cleanup) ... ok
+test_exact_cleanup_keeps_original_delivery_and_private_evidence (__main__.OwnedCleanupCLI.test_exact_cleanup_keeps_original_delivery_and_private_evidence) ... ok
+test_failed_checkpoint_after_unlink_recovers (__main__.OwnedCleanupC...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="audit24_reconcile_cli_smoke" classname="audit24_reconcile_cli_smoke" time="0.837777" status="run">
+		<properties/>
+		<system-out>test_changed_retry_evidence_conflicts_without_new_recovery (__main__.ReconcileCLI.test_changed_retry_evidence_conflicts_without_new_recovery) ... ok
+test_definite_failure_replays_and_worker_can_continue (__main__.ReconcileCLI.test_definite_failure_replays_and_worker_can_continue) ... ok
+test_invalid_cas_outcome_and_evidence_do_not_take_over_writer (__main__.ReconcileCLI.test_invalid_cas_outcome_and_evidence_do_not_take_over_writer) ... ok
+test_wrong_request_cannot_reconcile_another_operation (__main__.ReconcileCLI.test_wrong_request_cannot_reconcile_another_operation) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.786s
+
+OK
+</system-out>
+	</testcase>
+	<testcase name="audit24_reopen_cli_smoke" classname="audit24_reopen_cli_smoke" time="0.461443" status="run">
+		<properties/>
+		<system-out>test_legacy_reopen_keeps_order_and_does_not_call_teamlead (__main__.EpochResume.test_legacy_reopen_keeps_order_and_does_not_call_teamlead) ... ok
+test_pending_amend_cannot_reuse_old_semantics (__main__.EpochResume.test_pending_amend_cannot_reuse_old_semantics) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.409s
+
+OK
+</system-out>
+	</testcase>
+	<testcase name="review_cli_smoke" classname="review_cli_smoke" time="2.86607" status="run">
+		<properties/>
+		<system-out>test_config_shape_valid_does_not_claim_unenforced_limits (__main__.ReviewCLI.test_config_shape_valid_does_not_claim_unenforced_limits) ... ok
+test_decimal_budget_uses_identical_store_and_cli_conversion (__main__.ReviewCLI.test_decimal_budget_uses_identical_store_and_cli_conversion) ... ok
+test_duplicate_wait_and_stale_wake_are_read_only (__main__.ReviewCLI.test_duplicate_wait_and_stale_wake_are_read_only) ... ok
+test_insecure_workspace_still_refused (__main__.ReviewCLI.test_insecure_workspace_still_refused) ... ok
+test_invalid_and_foreign_task_controls_do_not_fence_other_work (__main__.ReviewCLI.test_invalid_and_foreign_task_controls_do_not_fence_other_work) ... ok
+test_invalid_utf8_admission_argument_does_not_create_store (__main__.ReviewCLI.test_invalid_utf8_admission_argument_does_not_create_store) ... ok
+test_malformed_admission_does_not_recover_unrelated_request (__main__.ReviewCLI.test_malformed_admission_does_not_recover_unrelated_request) ... ok
+test_malformed_amendment_does_not_recover_any_request (_...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="audit24_capacity_cli_smoke" classname="audit24_capacity_cli_smoke" time="5.58059" status="run">
+		<properties/>
+		<system-out>test_inconsistent_new_configuration_is_rejected_before_writer (__main__.CapacityCLI.test_inconsistent_new_configuration_is_rejected_before_writer) ... ok
+test_invalid_checkpoint_is_preflighted_without_takeover (__main__.CapacityCLI.test_invalid_checkpoint_is_preflighted_without_takeover) ... ok
+test_readonly_and_frozen_source_removal (__main__.CapacityCLI.test_readonly_and_frozen_source_removal) ... ok
+test_unknown_effect_cannot_be_checkpointed_away (__main__.CapacityCLI.test_unknown_effect_cannot_be_checkpointed_away) ... ok
+test_unknown_model_accounting_cannot_be_checkpointed_away (__main__.CapacityCLI.test_unknown_model_accounting_cannot_be_checkpointed_away) ... ok
+test_window_recovery_replay_preserves_audit_and_budget (__main__.CapacityCLI.test_window_recovery_replay_preserves_audit_and_budget) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 5.527s
+
+OK
+</system-out>
+	</testcase>
+	<testcase name="r1_history_cli_smoke" classname="r1_history_cli_smoke" time="5.09311" status="run">
+		<properties/>
+		<system-out>.......
+----------------------------------------------------------------------
+Ran 7 tests in 5.034s
+
+OK
+</system-out>
+	</testcase>
+	<testcase name="r1_structured_cli_smoke" classname="r1_structured_cli_smoke" time="2.99274" status="run">
+		<properties/>
+		<system-out>test_acceptance_and_experience_use_structured_captured_contract (__main__.StructuredCli.test_acceptance_and_experience_use_structured_captured_contract) ... ok
+test_all_roles_receive_fields_and_exact_native_turn (__main__.StructuredCli.test_all_roles_receive_fields_and_exact_native_turn) ... ok
+test_capacity_still_blocks_without_silent_truncation (__main__.StructuredCli.test_capacity_still_blocks_without_silent_truncation) ... ok
+test_config_discloses_selection_and_rejects_unknown (__main__.StructuredCli.test_config_discloses_selection_and_rejects_unknown) ... ok
+test_old_snapshot_without_selection_stays_legacy (__main__.StructuredCli.test_old_snapshot_without_selection_stays_legacy) ... ok
+test_reopen_keeps_original_bytes_binding_and_frozen_choice (__main__.StructuredCli.test_reopen_keeps_original_bytes_binding_and_frozen_choice) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 2.935s
+
+OK
+</system-out>
+	</testcase>
+	<testcase name="r1_window_cli_smoke" classname="r1_window_cli_smoke" time="7.45878" status="run">
+		<properties/>
+		<system-out>test_32_large_reads_survive_reopen_without_new_lead (__main__.WindowCli.test_32_large_reads_survive_reopen_without_new_lead) ... ok
+test_compatibility_runner_also_uses_window (__main__.WindowCli.test_compatibility_runner_also_uses_window) ... ok
+test_failed_readback_consumes_persistent_rate_budget (__main__.WindowCli.test_failed_readback_consumes_persistent_rate_budget) ... ok
+test_invalid_or_foreign_reads_are_recorded_not_authorized (__main__.WindowCli.test_invalid_or_foreign_reads_are_recorded_not_authorized) ... ok
+test_legacy_mode_and_malformed_window_do_not_silently_migrate (__main__.WindowCli.test_legacy_mode_and_malformed_window_do_not_silently_migrate) ... ok
+test_model_index_has_fixed_scope_and_bounded_page (__main__.WindowCli.test_model_index_has_fixed_scope_and_bounded_page) ... ok
+test_rate_budget_is_persistent_across_reopen (__main__.WindowCli.test_rate_budget_is_persistent_across_reopen) ... ok
+test_wait_does_not_disappear_when_history_is_windowed (__main__.WindowCli.test_wait_does_not_disappear...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="r2_rework_cli_smoke" classname="r2_rework_cli_smoke" time="5.44263" status="run">
+		<properties/>
+		<system-out>test_amendment_captures_new_disposition_and_rejects_old_correction_tool (__main__.ReworkCli.test_amendment_captures_new_disposition_and_rejects_old_correction_tool) ... ok
+test_answer_with_allowance_allows_new_captured_correction (__main__.ReworkCli.test_answer_with_allowance_allows_new_captured_correction) ... ok
+test_budget_exhaustion_retains_rejected_candidate_and_pending_event (__main__.ReworkCli.test_budget_exhaustion_retains_rejected_candidate_and_pending_event) ... ok
+test_escalated_alpha_does_not_block_independent_beta (__main__.ReworkCli.test_escalated_alpha_does_not_block_independent_beta) ... ok
+test_full_rejection_correction_resubmission_acceptance (__main__.ReworkCli.test_full_rejection_correction_resubmission_acceptance) ... ok
+test_model_cannot_choose_target_or_replace_obligations (__main__.ReworkCli.test_model_cannot_choose_target_or_replace_obligations) ... ok
+test_rejected_candidate_has_captured_dispatcher_successor (__main__.ReworkCli.test_rejected_candidate_has_captured_dispatcher_successo...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="r2_recovery_cli_smoke" classname="r2_recovery_cli_smoke" time="2.67171" status="run">
+		<properties/>
+		<system-out>......
+----------------------------------------------------------------------
+Ran 6 tests in 2.621s
+
+OK
+</system-out>
+	</testcase>
+	<testcase name="r2_integration_cli_smoke" classname="r2_integration_cli_smoke" time="4.44134" status="run">
+		<properties/>
+		<system-out>test_admit_and_exact_replay_preserve_blocked_question_and_all_sibling_rows (__main__.IntegratedRecovery.test_admit_and_exact_replay_preserve_blocked_question_and_all_sibling_rows) ... ok
+test_escalation_answer_and_correction_leave_sibling_wait_untouched (__main__.IntegratedRecovery.test_escalation_answer_and_correction_leave_sibling_wait_untouched) ... ok
+test_exhausted_answer_and_empty_pump_preserve_terminal_cleanup (__main__.IntegratedRecovery.test_exhausted_answer_and_empty_pump_preserve_terminal_cleanup) ... ok
+test_full_corrective_chain_keeps_active_sibling_rows_and_bytes (__main__.IntegratedRecovery.test_full_corrective_chain_keeps_active_sibling_rows_and_bytes) ... ok
+test_invalid_corrective_response_accounts_only_target_attempt (__main__.IntegratedRecovery.test_invalid_corrective_response_accounts_only_target_attempt) ... ok
+test_later_sibling_resume_preserves_rejected_request_and_reuses_order (__main__.IntegratedRecovery.test_later_sibling_resume_preserves_rejected_request_and_reuses_order) ... ok
+
+-...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="r2_amend_cli_smoke" classname="r2_amend_cli_smoke" time="4.87697" status="run">
+		<properties/>
+		<system-out>test_empty_model_decisions_publish_nothing_and_stop_after_one_attempt (__main__.ModelAmendCli.test_empty_model_decisions_publish_nothing_and_stop_after_one_attempt) ... ok
+test_exhausted_attempt_budget_retains_omitted_amend_subject (__main__.ModelAmendCli.test_exhausted_attempt_budget_retains_omitted_amend_subject) ... ok
+test_forged_runtime_revision_is_accounted_and_preserves_all_task_semantics (__main__.ModelAmendCli.test_forged_runtime_revision_is_accounted_and_preserves_all_task_semantics) ... ok
+test_host_disposition_file_remains_compatible (__main__.ModelAmendCli.test_host_disposition_file_remains_compatible) ... ok
+test_missing_dispatcher_step_retains_exact_amend_notices_for_later_pump (__main__.ModelAmendCli.test_missing_dispatcher_step_retains_exact_amend_notices_for_later_pump) ... ok
+test_model_amend_leaves_other_request_rows_files_and_wait_unchanged (__main__.ModelAmendCli.test_model_amend_leaves_other_request_rows_files_and_wait_unchanged) ... ok
+test_model_cancel_keeps_original_bytes_and_has_no_...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="r2a_mkdir_cli_smoke" classname="r2a_mkdir_cli_smoke" time="1.20936" status="run">
+		<properties/>
+		<system-out>test_diagnostic_entry_refuses_mkdir_without_any_database_mutation (__main__.MkdirCliSmoke.test_diagnostic_entry_refuses_mkdir_without_any_database_mutation) ... ok
+test_existing_directory_is_failed_and_stops_following_worker_effects (__main__.MkdirCliSmoke.test_existing_directory_is_failed_and_stops_following_worker_effects) ... ok
+test_missing_parent_does_not_create_intermediate_directories (__main__.MkdirCliSmoke.test_missing_parent_does_not_create_intermediate_directories) ... ok
+test_model_cannot_request_recursive_creation_or_supply_authority (__main__.MkdirCliSmoke.test_model_cannot_request_recursive_creation_or_supply_authority) ... ok
+test_new_frozen_grant_creates_private_directory_then_writes_and_reads (__main__.MkdirCliSmoke.test_new_frozen_grant_creates_private_directory_then_writes_and_reads) ... ok
+test_upgrading_template_does_not_grant_mkdir_to_existing_frozen_request (__main__.MkdirCliSmoke.test_upgrading_template_does_not_grant_mkdir_to_existing_frozen_request) ... ok
+
+-------------------------...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="allocation_recovery_cli" classname="allocation_recovery_cli" time="3.3986" status="run">
+		<properties/>
+		<system-out>test_abandoned_key_replays_when_original_parent_is_missing_or_replaced (__main__.AllocationRecoveryCLI.test_abandoned_key_replays_when_original_parent_is_missing_or_replaced) ... ok
+test_abandoned_residual_survives_active_owned_cleanup_and_frozen_manifest (__main__.AllocationRecoveryCLI.test_abandoned_residual_survives_active_owned_cleanup_and_frozen_manifest) ... ok
+test_abandonment_after_cancel_and_missing_parent_preserves_original_bytes (__main__.AllocationRecoveryCLI.test_abandonment_after_cancel_and_missing_parent_preserves_original_bytes) ... ok
+test_current_allocation_receipt_private_modes_and_readonly_queries (__main__.AllocationRecoveryCLI.test_current_allocation_receipt_private_modes_and_readonly_queries) ... ok
+test_failed_receipt_requires_explicit_abandonment_and_new_key (__main__.AllocationRecoveryCLI.test_failed_receipt_requires_explicit_abandonment_and_new_key) ... ok
+test_failed_registration_recovers_same_final_directory_across_cli_processes (__main__.AllocationRecoveryCLI.test_failed_registra...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+</testsuite>

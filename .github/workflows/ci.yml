@@ -12,11 +12,12 @@ jobs:
   build-and-test:
     name: Linux C++20 (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    # The preceding 70-suite ASan CTest took 1333 seconds before dependency
-    # setup/build/cleanup. The new full live workflow adds instrumented native
-    # calls and real TLS phase tests. Keep every per-test deadline and sanitizer
-    # assertion; allow the complete 74-suite job enough time to finish.
-    timeout-minutes: 40
+    # The 78-suite ASan jobs exhausted the former 40-minute total budget.
+    # Make reached the final integration suite after almost 39 minutes; the
+    # same-source CMake suite took 497.88s, with two Make suites still after it.
+    # Reserve 55 minutes only for ASan. Keep all per-test deadlines, assertions,
+    # leak checks, ordinary-user checks and the original Make CPPFLAGS path.
+    timeout-minutes: ${{ matrix.asan == 'ON' && 55 || 40 }}
     strategy:
       fail-fast: false
       matrix:

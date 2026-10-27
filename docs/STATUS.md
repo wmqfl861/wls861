@@ -11,6 +11,9 @@ Store 仍为410，无新增或改写已发布 SQL。原结算保持不可变，�
 预算和一次发送规则继续生效；旧 v1/v2 评测、原角色执行及资源安装保持兼容。
 全库工作区路径检查在授权、信任政策、收据内容读取之前完成；运行只使用一次捕获的字节。
 实际专项、完整回归、输入身份和最终提交门禁见[本批验证](reports/billing-baseline-validation.md)。
+首次发布后的ASan总任务容量与原验收运行时超时另见[CI复核](reports/billing-baseline-ci-followup.md)；
+预约事务、工作区策略和管理查询只复用当前事务或调用栈中已完整验证的冻结配置；每次仍匹配
+实际读取的完整配置字节/hash，保留各工具、工作区和管理视图的当前动态权限检查。
 接口与限制见[签名计费](implementation/R3-signed-billing.md)、
 [单 Agent 基线](implementation/R3-single-agent-baseline.md)及[评测契约](implementation/R3-evaluation-framework.md)。
 本批真实外部供应商调用、付费调用和生产数据操作均为0。

@@ -1,0 +1,643 @@
+{
+  "diagnostic_only": true,
+  "not_original_ninety_second_acceptance": true,
+  "base_commit": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+  "store_candidate_sha256": "55c06327e9a1b347a5ae8a48dd9deb3c94af463aae5a2b7c71a542acd06d31a4",
+  "summary": {
+    "diagnostic_only": true,
+    "not_original_ninety_second_acceptance": true,
+    "elapsed_seconds": 96.522,
+    "returncode": 0,
+    "passed_methods": 19,
+    "failed_methods": 0,
+    "restore_calls": 2123,
+    "restore_elapsed_ms": 39642.181,
+    "samples": [
+      {
+        "caller_address": "0x894a3b",
+        "parent_address": "0x73ccab",
+        "count": 355,
+        "elapsed_ms": 6579.242,
+        "caller": {
+          "function": "wls::s1::visible_management_questions(wls::s1::Store&, wls::Role, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/management_context.cpp:108"
+        },
+        "parent": {
+          "function": "wls::s1::next_workflow_action(wls::s1::Store&, wls::Role, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:328 (discriminator 1)"
+        }
+      },
+      {
+        "caller_address": "0x73be49",
+        "parent_address": "0x82a5b9",
+        "count": 293,
+        "elapsed_ms": 5401.797,
+        "caller": {
+          "function": "wls::s1::restore_request_config(boost::json::value const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:310"
+        },
+        "parent": {
+          "function": "wls::s1::WorkerTools::policy_for(wls::s1::StoreActor const&) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/worker_tools.cpp:275 (discriminator 4)"
+        }
+      },
+      {
+        "caller_address": "0x73be49",
+        "parent_address": "0x82c550",
+        "count": 234,
+        "elapsed_ms": 4281.12,
+        "caller": {
+          "function": "wls::s1::restore_request_config(boost::json::value const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:310"
+        },
+        "parent": {
+          "function": "wls::s1::WorkerTools::verify_workspace(wls::s1::StoreActor const&) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/worker_tools.cpp:300 (discriminator 4)"
+        }
+      },
+      {
+        "caller_address": "0x73be49",
+        "parent_address": "0x742c8f",
+        "count": 195,
+        "elapsed_ms": 3688.675,
+        "caller": {
+          "function": "wls::s1::restore_request_config(boost::json::value const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:310"
+        },
+        "parent": {
+          "function": "wls::s1::OfflineRuntime::capture_call(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, wls::Role, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long, std::vector<boost::json::value, std::allocator<boost::json::value> > const&, bool, wls::s1::CapturedCallLimits const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:416"
+        }
+      },
+      {
+        "caller_address": "0x398967",
+        "parent_address": "0x75496a",
+        "count": 194,
+        "elapsed_ms": 3529.228,
+        "caller": {
+          "function": "wls::s1::Store::reserve_attempt(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&, wls::s1::AttemptReservation const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:3671 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::OfflineRuntime::reserve_call(wls::s1::ModelAdapter const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, wls::Role, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long, std::vector<boost::json::value, std::allocator<boost::json::value> > const&, bool)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:692 (discriminator 2)"
+        }
+      },
+      {
+        "caller_address": "0x47c40f",
+        "parent_address": "0x480d8d",
+        "count": 85,
+        "elapsed_ms": 1560.463,
+        "caller": {
+          "function": "wls::s1::Store::Impl::tool_grant(boost::json::object const&, boost::json::object const&, std::basic_string_view<char, std::char_traits<char> >, wls::s1::FrozenRequestConfig const*) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:1196 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::Store::Impl::ready(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&, std::basic_string_view<char, std::char_traits<char> >, wls::s1::FrozenRequestConfig const*) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:1241"
+        }
+      },
+      {
+        "caller_address": "0x894a3b",
+        "parent_address": "0x7ba562",
+        "count": 80,
+        "elapsed_ms": 1456.013,
+        "caller": {
+          "function": "wls::s1::visible_management_questions(wls::s1::Store&, wls::Role, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/management_context.cpp:108"
+        },
+        "parent": {
+          "function": "wls::s1::EventRuntime::pump_workflow(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, wls::s1::EventFakeScript const&, wls::s1::EventPumpOptions const&, wls::s1::LiveWorkflowOptions const*, std::stop_token)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/event_runtime.cpp:940"
+        }
+      },
+      {
+        "caller_address": "0x47c40f",
+        "parent_address": "0x47dce5",
+        "count": 58,
+        "elapsed_ms": 1126.629,
+        "caller": {
+          "function": "wls::s1::Store::Impl::tool_grant(boost::json::object const&, boost::json::object const&, std::basic_string_view<char, std::char_traits<char> >, wls::s1::FrozenRequestConfig const*) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:1196 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::Store::Impl::control_authorization(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, bool) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:1211 (discriminator 4)"
+        }
+      },
+      {
+        "caller_address": "0x73be49",
+        "parent_address": "0x82add9",
+        "count": 59,
+        "elapsed_ms": 1126.268,
+        "caller": {
+          "function": "wls::s1::restore_request_config(boost::json::value const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:310"
+        },
+        "parent": {
+          "function": "wls::s1::WorkerTools::bind(wls::s1::StoreActor const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/worker_tools.cpp:282 (discriminator 4)"
+        }
+      },
+      {
+        "caller_address": "0x38233c",
+        "parent_address": "0x74a4cd",
+        "count": 59,
+        "elapsed_ms": 1114.465,
+        "caller": {
+          "function": "wls::s1::Store::authorized_worker_tools[abi:cxx11](wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:3442 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::OfflineRuntime::capture_call(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, wls::Role, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long, std::vector<boost::json::value, std::allocator<boost::json::value> > const&, bool, wls::s1::CapturedCallLimits const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:528"
+        }
+      },
+      {
+        "caller_address": "0x38233c",
+        "parent_address": "0x82e9bd",
+        "count": 59,
+        "elapsed_ms": 1092.733,
+        "caller": {
+          "function": "wls::s1::Store::authorized_worker_tools[abi:cxx11](wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:3442 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::WorkerTools::declarations(wls::s1::StoreActor const&) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/worker_tools.cpp:329 (discriminator 4)"
+        }
+      },
+      {
+        "caller_address": "0x73be49",
+        "parent_address": "0x82ebac",
+        "count": 59,
+        "elapsed_ms": 1055.526,
+        "caller": {
+          "function": "wls::s1::restore_request_config(boost::json::value const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:310"
+        },
+        "parent": {
+          "function": "wls::s1::WorkerTools::declarations(wls::s1::StoreActor const&) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/worker_tools.cpp:330 (discriminator 4)"
+        }
+      },
+      {
+        "caller_address": "0x73be49",
+        "parent_address": "0x7b3959",
+        "count": 39,
+        "elapsed_ms": 807.497,
+        "caller": {
+          "function": "wls::s1::restore_request_config(boost::json::value const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:310"
+        },
+        "parent": {
+          "function": "wls::s1::EventRuntime::pump_workflow(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, wls::s1::EventFakeScript const&, wls::s1::EventPumpOptions const&, wls::s1::LiveWorkflowOptions const*, std::stop_token)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/event_runtime.cpp:442 (discriminator 4)"
+        }
+      },
+      {
+        "caller_address": "0x894a3b",
+        "parent_address": "0x7bf2ef",
+        "count": 39,
+        "elapsed_ms": 795.516,
+        "caller": {
+          "function": "wls::s1::visible_management_questions(wls::s1::Store&, wls::Role, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/management_context.cpp:108"
+        },
+        "parent": {
+          "function": "wls::s1::EventRuntime::pump_workflow(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, wls::s1::EventFakeScript const&, wls::s1::EventPumpOptions const&, wls::s1::LiveWorkflowOptions const*, std::stop_token)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/event_runtime.cpp:1056 (discriminator 2)"
+        }
+      },
+      {
+        "caller_address": "0x47e23c",
+        "parent_address": "0x3816df",
+        "count": 29,
+        "elapsed_ms": 592.142,
+        "caller": {
+          "function": "wls::s1::Store::Impl::control_authorization(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, bool) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:1212 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::Store::authorize_diagnostic(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:3426"
+        }
+      },
+      {
+        "caller_address": "0x47c40f",
+        "parent_address": "0x365d54",
+        "count": 28,
+        "elapsed_ms": 557.369,
+        "caller": {
+          "function": "wls::s1::Store::Impl::tool_grant(boost::json::object const&, boost::json::object const&, std::basic_string_view<char, std::char_traits<char> >, wls::s1::FrozenRequestConfig const*) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:1196 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::Store::Impl::prepare_operation(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&, long, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, boost::json::value const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, bool)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:3146 (discriminator 6)"
+        }
+      },
+      {
+        "caller_address": "0x38233c",
+        "parent_address": "0x72f6cb",
+        "count": 29,
+        "elapsed_ms": 555.889,
+        "caller": {
+          "function": "wls::s1::Store::authorized_worker_tools[abi:cxx11](wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:3442 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::(anonymous namespace)::submission_snapshot(wls::s1::WorkerTools&, wls::s1::Store&, wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&, boost::json::value const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:95 (discriminator 1)"
+        }
+      },
+      {
+        "caller_address": "0x47c40f",
+        "parent_address": "0x2ee4ca",
+        "count": 29,
+        "elapsed_ms": 551.187,
+        "caller": {
+          "function": "wls::s1::Store::Impl::tool_grant(boost::json::object const&, boost::json::object const&, std::basic_string_view<char, std::char_traits<char> >, wls::s1::FrozenRequestConfig const*) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:1196 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::Store::submit_work(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&, long, boost::json::value const&, boost::json::value const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:2255 (discriminator 4)"
+        }
+      },
+      {
+        "caller_address": "0x47e23c",
+        "parent_address": "0x2ee8e6",
+        "count": 29,
+        "elapsed_ms": 541.141,
+        "caller": {
+          "function": "wls::s1::Store::Impl::control_authorization(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, bool) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:1212 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::Store::submit_work(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&, long, boost::json::value const&, boost::json::value const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:2258 (discriminator 4)"
+        }
+      },
+      {
+        "caller_address": "0x73be49",
+        "parent_address": "0x75e3cb",
+        "count": 28,
+        "elapsed_ms": 540.681,
+        "caller": {
+          "function": "wls::s1::restore_request_config(boost::json::value const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:310"
+        },
+        "parent": {
+          "function": "wls::s1::OfflineRuntime::accept_captured_response(wls::s1::CapturedModelCall const&, wls::s1::ModelResponse const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, bool, boost::json::value const&, std::function<void (boost::json::value const&)> const&)::{lambda()#1}::operator()() const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:904 (discriminator 4)"
+        }
+      },
+      {
+        "caller_address": "0x47c40f",
+        "parent_address": "0x3801ab",
+        "count": 28,
+        "elapsed_ms": 534.937,
+        "caller": {
+          "function": "wls::s1::Store::Impl::tool_grant(boost::json::object const&, boost::json::object const&, std::basic_string_view<char, std::char_traits<char> >, wls::s1::FrozenRequestConfig const*) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:1196 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::Store::operation_for_key(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, boost::json::value const&) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:3415 (discriminator 4)"
+        }
+      },
+      {
+        "caller_address": "0x47c40f",
+        "parent_address": "0x2ee414",
+        "count": 29,
+        "elapsed_ms": 534.426,
+        "caller": {
+          "function": "wls::s1::Store::Impl::tool_grant(boost::json::object const&, boost::json::object const&, std::basic_string_view<char, std::char_traits<char> >, wls::s1::FrozenRequestConfig const*) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:1196 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::Store::submit_work(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&, long, boost::json::value const&, boost::json::value const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:2255 (discriminator 2)"
+        }
+      },
+      {
+        "caller_address": "0x33ba91",
+        "parent_address": "0xed2eb",
+        "count": 28,
+        "elapsed_ms": 533.138,
+        "caller": {
+          "function": "wls::s1::Store::admit(wls::s1::AdmissionInput const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:2787 (discriminator 4)"
+        },
+        "parent": {
+          "function": "(anonymous namespace)::Fixture::Fixture(wls::s1::AdmissionInput const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/tests/acceptance_runtime_tests.cpp:99 (discriminator 3)"
+        }
+      },
+      {
+        "caller_address": "0x47c40f",
+        "parent_address": "0x36e228",
+        "count": 28,
+        "elapsed_ms": 525.695,
+        "caller": {
+          "function": "wls::s1::Store::Impl::tool_grant(boost::json::object const&, boost::json::object const&, std::basic_string_view<char, std::char_traits<char> >, wls::s1::FrozenRequestConfig const*) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:1196 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::Store::start_tool_operation(wls::s1::StoreActor const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:3231 (discriminator 6)"
+        }
+      },
+      {
+        "caller_address": "0x4addce",
+        "parent_address": "0x34adb0",
+        "count": 28,
+        "elapsed_ms": 516.439,
+        "caller": {
+          "function": "wls::s1::Store::Impl::independent_nodes[abi:cxx11](boost::json::object const&, boost::json::value const&) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:1547 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::Store::apply_independent_plan(wls::s1::StoreActor const&, long, long, boost::json::value const&, boost::json::value const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, boost::json::value const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:2917"
+        }
+      },
+      {
+        "caller_address": "0x47c40f",
+        "parent_address": "0x2dccb6",
+        "count": 1,
+        "elapsed_ms": 24.587,
+        "caller": {
+          "function": "wls::s1::Store::Impl::tool_grant(boost::json::object const&, boost::json::object const&, std::basic_string_view<char, std::char_traits<char> >, wls::s1::FrozenRequestConfig const*) const",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:1196 (discriminator 6)"
+        },
+        "parent": {
+          "function": "wls::s1::Store::ask_question(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&, long, boost::json::value const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/store.cpp:2108 (discriminator 4)"
+        }
+      },
+      {
+        "caller_address": "0x894a3b",
+        "parent_address": "0x73e7d8",
+        "count": 1,
+        "elapsed_ms": 19.378,
+        "caller": {
+          "function": "wls::s1::visible_management_questions(wls::s1::Store&, wls::Role, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/management_context.cpp:108"
+        },
+        "parent": {
+          "function": "wls::s1::next_workflow_action(wls::s1::Store&, wls::Role, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)",
+          "location": "/tmp/wls861-acceptance-asan-patched-01/source/src/offline_runtime.cpp:350 (discriminator 2)"
+        }
+      }
+    ]
+  },
+  "inputs": {
+    "diagnostic_only": true,
+    "not_a_ninety_second_acceptance_run": true,
+    "instrumented_file": "/tmp/wls861-acceptance-asan-patched-01/source/src/config_loader.cpp",
+    "original_sha256": "fc0327a17eaeff6604db0a3b74b7a5ed80a9dcf161482639d6c6127dadac8ca0",
+    "instrumented_sha256": "6fce953861ee26180f51729eb921d4229e675befb0b863299670edd5808e4e1f",
+    "expected_test_methods": 19,
+    "unchanged_ctest_timeout_seconds": 90,
+    "profile_run_bound_seconds": 180,
+    "binary_sha256": "0c1f8dd125140035524cddeeecc355b27d156f44f84643b5904b2c3c2e6b91fe",
+    "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+    "uid": 65534,
+    "gid": 65534,
+    "groups": []
+  },
+  "result": {
+    "diagnostic_only": true,
+    "collection_bound_seconds": 180,
+    "original_ctest_bound_seconds": 90,
+    "returncode": 0,
+    "timed_out": false,
+    "termination_at_seconds": null,
+    "elapsed_seconds": 96.522,
+    "passed_methods": 19,
+    "failed_methods": 0,
+    "progress": [
+      {
+        "elapsed_seconds": 3.379,
+        "line": "PASS Dispatcher acceptance and explicit experience do not imply delivery"
+      },
+      {
+        "elapsed_seconds": 5.783,
+        "line": "PASS Dispatcher sees immutable candidate bytes and exact response replay"
+      },
+      {
+        "elapsed_seconds": 8.015,
+        "line": "PASS raw Worker submission cannot bypass TeamLead checking"
+      },
+      {
+        "elapsed_seconds": 10.575,
+        "line": "PASS captured acceptance identity and task CAS cannot be relabelled"
+      },
+      {
+        "elapsed_seconds": 23.051,
+        "line": "PASS model acceptance cannot forge identity hashes waivers or evidence"
+      },
+      {
+        "elapsed_seconds": 25.667,
+        "line": "PASS AMEND records stale acceptance responses without applying them"
+      },
+      {
+        "elapsed_seconds": 29.491,
+        "line": "PASS recovery accepts original candidate without reissuing business work"
+      },
+      {
+        "elapsed_seconds": 32.671,
+        "line": "PASS negative business judgment blocks without inventing experience"
+      },
+      {
+        "elapsed_seconds": 36.613,
+        "line": "PASS experience uses frozen source and host-owned report identity"
+      },
+      {
+        "elapsed_seconds": 55.945,
+        "line": "PASS experience rejects forged identities and unbound memory claims"
+      },
+      {
+        "elapsed_seconds": 59.751,
+        "line": "PASS experience proposals remain reports with memory disabled"
+      },
+      {
+        "elapsed_seconds": 63.135,
+        "line": "PASS captured experience source cannot be relabelled or become business work"
+      },
+      {
+        "elapsed_seconds": 66.929,
+        "line": "PASS old experience can finish while amended task still awaits disposition"
+      },
+      {
+        "elapsed_seconds": 70.959,
+        "line": "PASS accepted experience is not starved by an unanswered optional question"
+      },
+      {
+        "elapsed_seconds": 75.469,
+        "line": "PASS terminal cancellation resumes only the bounded experience job"
+      },
+      {
+        "elapsed_seconds": 79.772,
+        "line": "PASS terminal recovery fences previously captured experience response"
+      },
+      {
+        "elapsed_seconds": 84.072,
+        "line": "PASS missing scripts and budget caps preserve unfinished experience"
+      },
+      {
+        "elapsed_seconds": 91.029,
+        "line": "PASS independent acceptance and experience targets remain isolated"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "PASS ordinary event exhaustion preserves bounded experience-only reservation"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESULT 19 passed, 0 failed"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91daaa91 caller_base=0x55ec91a6f000 parent=0x55ec91b5c2eb parent_base=0x55ec91a6f000 count=28 elapsed_ms=533.138"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91df133c caller_base=0x55ec91a6f000 parent=0x55ec9219e6cb parent_base=0x55ec91a6f000 count=29 elapsed_ms=555.889"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91df133c caller_base=0x55ec91a6f000 parent=0x55ec921b94cd parent_base=0x55ec91a6f000 count=59 elapsed_ms=1114.465"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91df133c caller_base=0x55ec91a6f000 parent=0x55ec9229d9bd parent_base=0x55ec91a6f000 count=59 elapsed_ms=1092.733"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91e07967 caller_base=0x55ec91a6f000 parent=0x55ec921c396a parent_base=0x55ec91a6f000 count=194 elapsed_ms=3529.228"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91d4bcb6 parent_base=0x55ec91a6f000 count=1 elapsed_ms=24.587"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91d5d414 parent_base=0x55ec91a6f000 count=29 elapsed_ms=534.426"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91d5d4ca parent_base=0x55ec91a6f000 count=29 elapsed_ms=551.187"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91dd4d54 parent_base=0x55ec91a6f000 count=28 elapsed_ms=557.369"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91ddd228 parent_base=0x55ec91a6f000 count=28 elapsed_ms=525.695"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91def1ab parent_base=0x55ec91a6f000 count=28 elapsed_ms=534.937"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91eecce5 parent_base=0x55ec91a6f000 count=58 elapsed_ms=1126.629"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91eefd8d parent_base=0x55ec91a6f000 count=85 elapsed_ms=1560.463"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91eed23c caller_base=0x55ec91a6f000 parent=0x55ec91d5d8e6 parent_base=0x55ec91a6f000 count=29 elapsed_ms=541.141"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91eed23c caller_base=0x55ec91a6f000 parent=0x55ec91df06df parent_base=0x55ec91a6f000 count=29 elapsed_ms=592.142"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec91f1cdce caller_base=0x55ec91a6f000 parent=0x55ec91db9db0 parent_base=0x55ec91a6f000 count=28 elapsed_ms=516.439"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec921b1c8f parent_base=0x55ec91a6f000 count=195 elapsed_ms=3688.675"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec921cd3cb parent_base=0x55ec91a6f000 count=28 elapsed_ms=540.681"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec92222959 parent_base=0x55ec91a6f000 count=39 elapsed_ms=807.497"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec922995b9 parent_base=0x55ec91a6f000 count=293 elapsed_ms=5401.797"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec92299dd9 parent_base=0x55ec91a6f000 count=59 elapsed_ms=1126.268"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec9229b550 parent_base=0x55ec91a6f000 count=234 elapsed_ms=4281.120"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec9229dbac parent_base=0x55ec91a6f000 count=59 elapsed_ms=1055.526"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec92303a3b caller_base=0x55ec91a6f000 parent=0x55ec921abcab parent_base=0x55ec91a6f000 count=355 elapsed_ms=6579.242"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec92303a3b caller_base=0x55ec91a6f000 parent=0x55ec921ad7d8 parent_base=0x55ec91a6f000 count=1 elapsed_ms=19.378"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec92303a3b caller_base=0x55ec91a6f000 parent=0x55ec92229562 parent_base=0x55ec91a6f000 count=80 elapsed_ms=1456.013"
+      },
+      {
+        "elapsed_seconds": 96.315,
+        "line": "RESTORE_PROFILE caller=0x55ec92303a3b caller_base=0x55ec91a6f000 parent=0x55ec9222e2ef parent_base=0x55ec91a6f000 count=39 elapsed_ms=795.516"
+      }
+    ]
+  },
+  "preservation": {
+    "temporary_source_restored": true,
+    "instrumented_source_sha256": "6fce953861ee26180f51729eb921d4229e675befb0b863299670edd5808e4e1f",
+    "restored_source_sha256": "fc0327a17eaeff6604db0a3b74b7a5ed80a9dcf161482639d6c6127dadac8ca0",
+    "profile_binary_sha256": "0c1f8dd125140035524cddeeecc355b27d156f44f84643b5904b2c3c2e6b91fe",
+    "profile_original_nineteen_methods": true,
+    "diagnostic_only": true
+  },
+  "archives": [
+    {
+      "path": "docs/reports/billing-baseline-restore-profile.txt",
+      "raw_sha256": "270760eb3fa6ca6d64d0c02aab15663c7b4a91d055ebc44cb320e829e686f27f",
+      "saved_sha256": "9434a686f7143ede78e237fb7c23990d47bafaeea40d0872ad1067643b19a56a",
+      "raw_bytes": 5246,
+      "saved_bytes": 5199,
+      "normalization": "remove only trailing ASCII space/tab/CR; preserve lines and terminal newline"
+    },
+    {
+      "path": "docs/reports/billing-baseline-restore-profile-build.txt",
+      "raw_sha256": "10d70209ac4c8d32d82206eeca811b5fa7ee1c84b5b99c6dc05119715894f5f8",
+      "saved_sha256": "10d70209ac4c8d32d82206eeca811b5fa7ee1c84b5b99c6dc05119715894f5f8",
+      "raw_bytes": 171,
+      "saved_bytes": 171,
+      "normalization": "remove only trailing ASCII space/tab/CR; preserve lines and terminal newline"
+    }
+  ],
+  "diagnostic_patch": {
+    "path": "docs/reports/billing-baseline-restore-profile.patch.txt",
+    "sha256": "1365d2671d8de73ff7da3341ac03d08738e9d7fc3d5deb6e212322c699ef2157",
+    "not_applied_to_repository_sources": true
+  }
+}

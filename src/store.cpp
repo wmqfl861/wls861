@@ -1182,9 +1182,21 @@ public:
                 actor.dispatcher_epoch == b.dispatcher_epoch && actor.execution_epoch == b.execution_epoch,
                 ErrorCode::Unauthorized, "actor and frozen binding disagree");
     }
-    void tool_grant(const Row& r, const Row& team, std::string_view tool_id) const {
-        const auto frozen_config = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256"));
-        const auto template_tools = frozen_config.worker_tools(str(team, "template_id"));
+    void tool_grant(const Row& r, const Row& team, std::string_view tool_id,
+                    const FrozenRequestConfig* reservation_config = nullptr) const {
+        std::optional<FrozenRequestConfig> restored;
+        if (reservation_config) {
+            // Only reserve_attempt supplies its already validated local
+            // snapshot from this transaction. Match the authorized row
+            // exactly; nothing is cached across Store calls.
+            require(reservation_config->sha256() == str(r, "config_snapshot_sha256") &&
+                    reservation_config->serialize() == str(r, "config_snapshot"),
+                    ErrorCode::Corrupt, "validated reservation configuration differs from the authorized request");
+        } else {
+            restored.emplace(FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256")));
+            reservation_config = &*restored;
+        }
+        const auto template_tools = reservation_config->worker_tools(str(team, "template_id"));
         const auto denied = parse_json_strict(str(one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
         require(template_tools.contains(std::string(tool_id)) && contains(parse_json_strict(str(r, "tool_allowlist")), tool_id) && !contains(denied, tool_id),
                 ErrorCode::Unauthorized, "tool grant absent or revoked");
@@ -1207,7 +1219,8 @@ public:
         return Row{{"tool_id", tool_id}, {"max_queries_per_minute", limit}, {"max_output_bytes", 1048576},
             {"max_page_bytes", 65536}, {"workspace", identity}};
     }
-    void ready(const StoreActor& actor, const ExecutionBinding& b, std::string_view tool_id = {}) const {
+    void ready(const StoreActor& actor, const ExecutionBinding& b, std::string_view tool_id = {},
+               const FrozenRequestConfig* reservation_config = nullptr) const {
         const auto r = authorize(actor, {Role::Worker});
         actor_binding(actor, b);
         matches(b);
@@ -1224,7 +1237,7 @@ public:
                 ErrorCode::UnknownOutcome, "unknown operation requires host reconciliation");
         if (events_schema) require(!optional("SELECT task_id FROM worker_waits WHERE task_id=? AND status='WAITING'", {actor.task_id}),
                 ErrorCode::NotReady, "Worker is durably waiting for an explicit wake");
-        if (!tool_id.empty()) tool_grant(r, team, tool_id);
+        if (!tool_id.empty()) tool_grant(r, team, tool_id, reservation_config);
     }
     std::optional<Json> replay(const std::string& request_id, const std::string& command_id, const Json& command) const {
         text_field(command_id, "command_id");
@@ -3709,7 +3722,7 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
                 const auto denied = parse_json_strict(str(impl_->one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
                 require(!history_policy.is_null() && !contains(denied, tool), ErrorCode::Unauthorized,
                     "history control is absent from frozen/current policy");
-            } else impl_->ready(actor, frozen, tool);
+            } else impl_->ready(actor, frozen, tool, &frozen_config);
         }
     }
     if ((actor.role == Role::Dispatcher || actor.role == Role::TeamLead) && !experience) {

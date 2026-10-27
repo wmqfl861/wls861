@@ -1,0 +1,256 @@
+{
+  "base_commit": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+  "scope": "final uninstrumented ordinary-user ASan/LSan original nineteen-case acceptance and five registered CTest suites",
+  "real_provider_calls": 0,
+  "paid_calls": 0,
+  "inputs": {
+    "base_commit": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+    "source": "/tmp/wls861-acceptance-asan-patched-01/source",
+    "build": "/tmp/wls861-acceptance-asan-patched-01/build-asan",
+    "changed_production_files": [
+      "src/store.cpp",
+      "src/worker_tools.cpp",
+      "src/management_context.cpp",
+      "src/offline_runtime.cpp",
+      "src/event_runtime.cpp",
+      "src/runtime_config_internal.hpp"
+    ],
+    "source_hashes": {
+      "src/store.cpp": "55c06327e9a1b347a5ae8a48dd9deb3c94af463aae5a2b7c71a542acd06d31a4",
+      "src/worker_tools.cpp": "2afa0827158b1a6920f6ec18ce7309899fd76f770a0950556678de90117c902a",
+      "src/management_context.cpp": "3decf8a143e49c929f605c90f04c247f7cbd6630aa3415175bb09cd3d21a117b",
+      "src/offline_runtime.cpp": "a67ef7df5beec92e03ef6bbcc0c978ea03b526c0eb7aade30d7936ea5943b0ca",
+      "src/event_runtime.cpp": "96ac6bde03c4d13f6b0b24cfa281751cdf200abbc28ae249e5c3cdf4a7788236",
+      "src/runtime_config_internal.hpp": "0f653fb9e8339ae486baed51487993a593c03a456d39e3d5829fb9b06ee620f5",
+      "src/config_loader.cpp": "fc0327a17eaeff6604db0a3b74b7a5ed80a9dcf161482639d6c6127dadac8ca0",
+      "tests/acceptance_runtime_tests.cpp": "88faa11f3b5902dda75cdf51f29e820614dcb7b8681b72fe86f959e39f6f29c4",
+      "tests/store_tests.cpp": "71cf885e3b3e50356a6558e1f88a1dde9c1cb9c4570320e8319cfd3cf393086f",
+      "tests/offline_runtime_tests.cpp": "3fb7c2a7224ab8edf563812b40be7af94be087be7c6c33c59c384d09e8c9deea",
+      "tests/worker_tools_tests.cpp": "5856c44a1c0401cca9f17029ea6ca71ed9db46b69f71ef3f4d8e97a62118ceb2",
+      "tests/live_model_store_tests.cpp": "15c0af4b31955d300ca00fff7c98ed7bcb03f7267808097fc14b54a1fc2e1459"
+    },
+    "uid": 65534,
+    "gid": 65534,
+    "groups": [],
+    "outer_umask": "0002",
+    "fixture_umask": "0077",
+    "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+    "unchanged_ctest_timeout_seconds": 90,
+    "profiling_source_absent": true,
+    "binary": "/tmp/wls861-acceptance-asan-patched-01/build-asan/acceptance_runtime_tests",
+    "binary_sha256": "a22099e92db6e3b33117d4b9964422f7b98b263ef9bc93e3b77c7dfd3e4fd625",
+    "deadline_seconds": 90,
+    "progress_capture": "PTY for line buffering; original nineteen methods and assertions unchanged",
+    "diagnostic_instrumentation": false
+  },
+  "source-inputs": {
+    "base_commit": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+    "source": "/tmp/wls861-acceptance-asan-patched-01/source",
+    "build": "/tmp/wls861-acceptance-asan-patched-01/build-asan",
+    "changed_production_files": [
+      "src/store.cpp",
+      "src/worker_tools.cpp",
+      "src/management_context.cpp",
+      "src/offline_runtime.cpp",
+      "src/event_runtime.cpp",
+      "src/runtime_config_internal.hpp"
+    ],
+    "source_hashes": {
+      "src/store.cpp": "55c06327e9a1b347a5ae8a48dd9deb3c94af463aae5a2b7c71a542acd06d31a4",
+      "src/worker_tools.cpp": "2afa0827158b1a6920f6ec18ce7309899fd76f770a0950556678de90117c902a",
+      "src/management_context.cpp": "3decf8a143e49c929f605c90f04c247f7cbd6630aa3415175bb09cd3d21a117b",
+      "src/offline_runtime.cpp": "a67ef7df5beec92e03ef6bbcc0c978ea03b526c0eb7aade30d7936ea5943b0ca",
+      "src/event_runtime.cpp": "96ac6bde03c4d13f6b0b24cfa281751cdf200abbc28ae249e5c3cdf4a7788236",
+      "src/runtime_config_internal.hpp": "0f653fb9e8339ae486baed51487993a593c03a456d39e3d5829fb9b06ee620f5",
+      "src/config_loader.cpp": "fc0327a17eaeff6604db0a3b74b7a5ed80a9dcf161482639d6c6127dadac8ca0",
+      "tests/acceptance_runtime_tests.cpp": "88faa11f3b5902dda75cdf51f29e820614dcb7b8681b72fe86f959e39f6f29c4",
+      "tests/store_tests.cpp": "71cf885e3b3e50356a6558e1f88a1dde9c1cb9c4570320e8319cfd3cf393086f",
+      "tests/offline_runtime_tests.cpp": "3fb7c2a7224ab8edf563812b40be7af94be087be7c6c33c59c384d09e8c9deea",
+      "tests/worker_tools_tests.cpp": "5856c44a1c0401cca9f17029ea6ca71ed9db46b69f71ef3f4d8e97a62118ceb2",
+      "tests/live_model_store_tests.cpp": "15c0af4b31955d300ca00fff7c98ed7bcb03f7267808097fc14b54a1fc2e1459"
+    },
+    "uid": 65534,
+    "gid": 65534,
+    "groups": [],
+    "outer_umask": "0002",
+    "fixture_umask": "0077",
+    "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+    "unchanged_ctest_timeout_seconds": 90,
+    "profiling_source_absent": true
+  },
+  "build-result": {
+    "returncode": 0,
+    "elapsed_seconds": 24.574,
+    "config_loader_rebuilt": true,
+    "binaries_sha256": {
+      "acceptance_runtime_tests": "a22099e92db6e3b33117d4b9964422f7b98b263ef9bc93e3b77c7dfd3e4fd625",
+      "store_tests": "2ee559afd1d858e19b28255e74df10c2c577e79b38c85c1aaa91f1468a0efa09",
+      "offline_runtime_tests": "02211d73fe608c61d71808693088b61ee473354fe924a0f55b5444a3236cef22",
+      "worker_tools_tests": "60c6e6e38ffa37f3d10cde5b9ab2f7d0b64e1bf03941eb4b46352407c0ba4ccf",
+      "live_model_store_tests": "73ce5faa6c84fb1c69b6cf6dda410fce6f965df60eba3403cd180bf1fe98e8d4"
+    },
+    "profiling_marker_absent": true
+  },
+  "result": {
+    "returncode": 0,
+    "timed_out": false,
+    "termination_at_seconds": null,
+    "elapsed_seconds": 78.964,
+    "passed_methods": 19,
+    "failed_methods": 0,
+    "progress": [
+      {
+        "elapsed_seconds": 2.814,
+        "line": "PASS Dispatcher acceptance and explicit experience do not imply delivery"
+      },
+      {
+        "elapsed_seconds": 4.878,
+        "line": "PASS Dispatcher sees immutable candidate bytes and exact response replay"
+      },
+      {
+        "elapsed_seconds": 6.666,
+        "line": "PASS raw Worker submission cannot bypass TeamLead checking"
+      },
+      {
+        "elapsed_seconds": 8.974,
+        "line": "PASS captured acceptance identity and task CAS cannot be relabelled"
+      },
+      {
+        "elapsed_seconds": 19.829,
+        "line": "PASS model acceptance cannot forge identity hashes waivers or evidence"
+      },
+      {
+        "elapsed_seconds": 22.606,
+        "line": "PASS AMEND records stale acceptance responses without applying them"
+      },
+      {
+        "elapsed_seconds": 25.334,
+        "line": "PASS recovery accepts original candidate without reissuing business work"
+      },
+      {
+        "elapsed_seconds": 27.537,
+        "line": "PASS negative business judgment blocks without inventing experience"
+      },
+      {
+        "elapsed_seconds": 30.728,
+        "line": "PASS experience uses frozen source and host-owned report identity"
+      },
+      {
+        "elapsed_seconds": 48.129,
+        "line": "PASS experience rejects forged identities and unbound memory claims"
+      },
+      {
+        "elapsed_seconds": 50.973,
+        "line": "PASS experience proposals remain reports with memory disabled"
+      },
+      {
+        "elapsed_seconds": 53.532,
+        "line": "PASS captured experience source cannot be relabelled or become business work"
+      },
+      {
+        "elapsed_seconds": 56.542,
+        "line": "PASS old experience can finish while amended task still awaits disposition"
+      },
+      {
+        "elapsed_seconds": 59.479,
+        "line": "PASS accepted experience is not starved by an unanswered optional question"
+      },
+      {
+        "elapsed_seconds": 63.114,
+        "line": "PASS terminal cancellation resumes only the bounded experience job"
+      },
+      {
+        "elapsed_seconds": 66.3,
+        "line": "PASS terminal recovery fences previously captured experience response"
+      },
+      {
+        "elapsed_seconds": 69.579,
+        "line": "PASS missing scripts and budget caps preserve unfinished experience"
+      },
+      {
+        "elapsed_seconds": 74.854,
+        "line": "PASS independent acceptance and experience targets remain isolated"
+      },
+      {
+        "elapsed_seconds": 78.796,
+        "line": "PASS ordinary event exhaustion preserves bounded experience-only reservation"
+      },
+      {
+        "elapsed_seconds": 78.796,
+        "line": "RESULT 19 passed, 0 failed"
+      }
+    ]
+  },
+  "verified-gates": {
+    "source_matches_current_repository": true,
+    "suites": [
+      {
+        "suite": "store",
+        "elapsed_seconds": 10.948,
+        "methods": 31,
+        "status": "run",
+        "has_failure": false
+      },
+      {
+        "suite": "offline_runtime",
+        "elapsed_seconds": 6.1227,
+        "methods": 10,
+        "status": "run",
+        "has_failure": false
+      },
+      {
+        "suite": "acceptance_runtime",
+        "elapsed_seconds": 77.71,
+        "methods": 19,
+        "status": "run",
+        "has_failure": false
+      },
+      {
+        "suite": "worker_tools",
+        "elapsed_seconds": 26.9834,
+        "methods": 17,
+        "status": "run",
+        "has_failure": false
+      },
+      {
+        "suite": "live_model_store",
+        "elapsed_seconds": 8.49438,
+        "methods": 15,
+        "status": "run",
+        "has_failure": false
+      }
+    ],
+    "total_unique_methods": 92,
+    "raw_log_sha256": "f01cfa00b03ada3250c7132c856d45386fbe8943067e984f45a6b81c59733a8f",
+    "junit_sha256": "38ed968a62662d2be4a758a8fa40404e0117bccfd4a645feea7e688709164082",
+    "unchanged_timeout_seconds": 90,
+    "ordinary_uid_gid": 65534,
+    "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1"
+  },
+  "archives": [
+    {
+      "path": "docs/reports/billing-baseline-post-ci-asan.txt",
+      "raw_sha256": "f01cfa00b03ada3250c7132c856d45386fbe8943067e984f45a6b81c59733a8f",
+      "saved_sha256": "f01cfa00b03ada3250c7132c856d45386fbe8943067e984f45a6b81c59733a8f",
+      "raw_bytes": 9637,
+      "saved_bytes": 9637,
+      "normalization": "remove trailing ASCII space/tab/CR only; preserve line count and terminal newline"
+    },
+    {
+      "path": "docs/reports/billing-baseline-post-ci-acceptance.txt",
+      "raw_sha256": "3a5ecfc0fa1e0c6eb84cc1076435fc9d075fef868edd530c0321538ab8a8b149",
+      "saved_sha256": "c62144b33c46c001579c934b9744157e809f61a3eefb9087d57b3e643bb174b7",
+      "raw_bytes": 1372,
+      "saved_bytes": 1352,
+      "normalization": "remove trailing ASCII space/tab/CR only; preserve line count and terminal newline"
+    },
+    {
+      "path": "docs/reports/billing-baseline-post-ci-asan-build.txt",
+      "raw_sha256": "e7f4b16da4ca48c5d9b6581a37cb380b0b032cd70a76b75932b7954a72262e44",
+      "saved_sha256": "e7f4b16da4ca48c5d9b6581a37cb380b0b032cd70a76b75932b7954a72262e44",
+      "raw_bytes": 829,
+      "saved_bytes": 829,
+      "normalization": "remove trailing ASCII space/tab/CR only; preserve line count and terminal newline"
+    }
+  ]
+}

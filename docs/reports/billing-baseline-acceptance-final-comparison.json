@@ -1,0 +1,515 @@
+{
+  "comparison_scope": "same-machine serial ordinary-user ASan diagnostic runs; unfinished methods remain unfinished; original nineteen methods and ninety-second bound retained",
+  "runs": {
+    "baseline_1b7020e": {
+      "inputs": {
+        "commit": "1b7020e3676a57da233aa097d32956a80942734e",
+        "binary": "/tmp/wls861-acceptance-asan-baseline-1b7020e/build-asan/acceptance_runtime_tests",
+        "binary_sha256": "3b96482f5849a1fbae104ae91d07383cb5dd9a00641ece96013d6138bc7e38f2",
+        "source_sha256": "88faa11f3b5902dda75cdf51f29e820614dcb7b8681b72fe86f959e39f6f29c4",
+        "uid": 65534,
+        "gid": 65534,
+        "groups": [],
+        "outer_umask": "0002",
+        "fixture_umask": "0077",
+        "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+        "deadline_seconds": 90,
+        "progress_capture": "PTY for line buffering, original executable and assertions unchanged"
+      },
+      "elapsed_seconds": 90.152,
+      "timed_out": true,
+      "returncode": -15,
+      "passed_methods": 16,
+      "failed_methods": 0,
+      "not_completed_methods": 3,
+      "last_completed_method_seconds": 89.378,
+      "methods": [
+        {
+          "name": "Dispatcher acceptance and explicit experience do not imply delivery",
+          "completed_at_seconds": 3.652,
+          "method_elapsed_seconds": 3.652
+        },
+        {
+          "name": "Dispatcher sees immutable candidate bytes and exact response replay",
+          "completed_at_seconds": 6.487,
+          "method_elapsed_seconds": 2.835
+        },
+        {
+          "name": "raw Worker submission cannot bypass TeamLead checking",
+          "completed_at_seconds": 8.987,
+          "method_elapsed_seconds": 2.5
+        },
+        {
+          "name": "captured acceptance identity and task CAS cannot be relabelled",
+          "completed_at_seconds": 11.763,
+          "method_elapsed_seconds": 2.776
+        },
+        {
+          "name": "model acceptance cannot forge identity hashes waivers or evidence",
+          "completed_at_seconds": 25.136,
+          "method_elapsed_seconds": 13.373
+        },
+        {
+          "name": "AMEND records stale acceptance responses without applying them",
+          "completed_at_seconds": 28.136,
+          "method_elapsed_seconds": 3.0
+        },
+        {
+          "name": "recovery accepts original candidate without reissuing business work",
+          "completed_at_seconds": 32.339,
+          "method_elapsed_seconds": 4.203
+        },
+        {
+          "name": "negative business judgment blocks without inventing experience",
+          "completed_at_seconds": 35.631,
+          "method_elapsed_seconds": 3.292
+        },
+        {
+          "name": "experience uses frozen source and host-owned report identity",
+          "completed_at_seconds": 39.975,
+          "method_elapsed_seconds": 4.344
+        },
+        {
+          "name": "experience rejects forged identities and unbound memory claims",
+          "completed_at_seconds": 60.938,
+          "method_elapsed_seconds": 20.963
+        },
+        {
+          "name": "experience proposals remain reports with memory disabled",
+          "completed_at_seconds": 65.22,
+          "method_elapsed_seconds": 4.282
+        },
+        {
+          "name": "captured experience source cannot be relabelled or become business work",
+          "completed_at_seconds": 69.15,
+          "method_elapsed_seconds": 3.93
+        },
+        {
+          "name": "old experience can finish while amended task still awaits disposition",
+          "completed_at_seconds": 73.943,
+          "method_elapsed_seconds": 4.793
+        },
+        {
+          "name": "accepted experience is not starved by an unanswered optional question",
+          "completed_at_seconds": 78.993,
+          "method_elapsed_seconds": 5.05
+        },
+        {
+          "name": "terminal cancellation resumes only the bounded experience job",
+          "completed_at_seconds": 84.124,
+          "method_elapsed_seconds": 5.131
+        },
+        {
+          "name": "terminal recovery fences previously captured experience response",
+          "completed_at_seconds": 89.378,
+          "method_elapsed_seconds": 5.254
+        }
+      ],
+      "raw_log_sha256": "c783b30af03fe6003bd6e1f1f70776fbf6031084b2eb4a140aec15fefab7caee"
+    },
+    "published_1df86ce": {
+      "inputs": {
+        "commit": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+        "binary": "/tmp/wls861-billing-baseline-validation/source/build-asan/acceptance_runtime_tests",
+        "binary_sha256": "1c8fc31a37256ba3362ad012747b13f54dfa384f7995c5e21dd9f28355afa6c6",
+        "source_sha256": "88faa11f3b5902dda75cdf51f29e820614dcb7b8681b72fe86f959e39f6f29c4",
+        "uid": 65534,
+        "gid": 65534,
+        "groups": [],
+        "outer_umask": "0002",
+        "fixture_umask": "0077",
+        "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+        "deadline_seconds": 90,
+        "progress_capture": "PTY for line buffering, original executable and assertions unchanged"
+      },
+      "elapsed_seconds": 90.112,
+      "timed_out": true,
+      "returncode": -15,
+      "passed_methods": 16,
+      "failed_methods": 0,
+      "not_completed_methods": 3,
+      "last_completed_method_seconds": 89.036,
+      "methods": [
+        {
+          "name": "Dispatcher acceptance and explicit experience do not imply delivery",
+          "completed_at_seconds": 4.012,
+          "method_elapsed_seconds": 4.012
+        },
+        {
+          "name": "Dispatcher sees immutable candidate bytes and exact response replay",
+          "completed_at_seconds": 6.948,
+          "method_elapsed_seconds": 2.936
+        },
+        {
+          "name": "raw Worker submission cannot bypass TeamLead checking",
+          "completed_at_seconds": 9.588,
+          "method_elapsed_seconds": 2.64
+        },
+        {
+          "name": "captured acceptance identity and task CAS cannot be relabelled",
+          "completed_at_seconds": 12.528,
+          "method_elapsed_seconds": 2.94
+        },
+        {
+          "name": "model acceptance cannot forge identity hashes waivers or evidence",
+          "completed_at_seconds": 26.644,
+          "method_elapsed_seconds": 14.116
+        },
+        {
+          "name": "AMEND records stale acceptance responses without applying them",
+          "completed_at_seconds": 29.624,
+          "method_elapsed_seconds": 2.98
+        },
+        {
+          "name": "recovery accepts original candidate without reissuing business work",
+          "completed_at_seconds": 33.744,
+          "method_elapsed_seconds": 4.12
+        },
+        {
+          "name": "negative business judgment blocks without inventing experience",
+          "completed_at_seconds": 37.26,
+          "method_elapsed_seconds": 3.516
+        },
+        {
+          "name": "experience uses frozen source and host-owned report identity",
+          "completed_at_seconds": 41.576,
+          "method_elapsed_seconds": 4.316
+        },
+        {
+          "name": "experience rejects forged identities and unbound memory claims",
+          "completed_at_seconds": 62.892,
+          "method_elapsed_seconds": 21.316
+        },
+        {
+          "name": "experience proposals remain reports with memory disabled",
+          "completed_at_seconds": 67.016,
+          "method_elapsed_seconds": 4.124
+        },
+        {
+          "name": "captured experience source cannot be relabelled or become business work",
+          "completed_at_seconds": 70.898,
+          "method_elapsed_seconds": 3.882
+        },
+        {
+          "name": "old experience can finish while amended task still awaits disposition",
+          "completed_at_seconds": 75.127,
+          "method_elapsed_seconds": 4.229
+        },
+        {
+          "name": "accepted experience is not starved by an unanswered optional question",
+          "completed_at_seconds": 79.18,
+          "method_elapsed_seconds": 4.053
+        },
+        {
+          "name": "terminal cancellation resumes only the bounded experience job",
+          "completed_at_seconds": 84.14,
+          "method_elapsed_seconds": 4.96
+        },
+        {
+          "name": "terminal recovery fences previously captured experience response",
+          "completed_at_seconds": 89.036,
+          "method_elapsed_seconds": 4.896
+        }
+      ],
+      "raw_log_sha256": "c783b30af03fe6003bd6e1f1f70776fbf6031084b2eb4a140aec15fefab7caee"
+    },
+    "candidate_01": {
+      "inputs": {
+        "base_commit": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+        "patched_source_sha256": "55c06327e9a1b347a5ae8a48dd9deb3c94af463aae5a2b7c71a542acd06d31a4",
+        "binary": "/tmp/wls861-acceptance-asan-patched-01/build-asan/acceptance_runtime_tests",
+        "binary_sha256": "9bec4de33403c9a73fcb07640bcd2cb7632447b905e2547c8f1cc0c40c2d1bf5",
+        "source_sha256": "88faa11f3b5902dda75cdf51f29e820614dcb7b8681b72fe86f959e39f6f29c4",
+        "uid": 65534,
+        "gid": 65534,
+        "groups": [],
+        "outer_umask": "0002",
+        "fixture_umask": "0077",
+        "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+        "deadline_seconds": 90,
+        "progress_capture": "PTY for line buffering, original executable and assertions unchanged"
+      },
+      "elapsed_seconds": 90.089,
+      "timed_out": true,
+      "returncode": -15,
+      "passed_methods": 17,
+      "failed_methods": 0,
+      "not_completed_methods": 2,
+      "last_completed_method_seconds": 84.7,
+      "methods": [
+        {
+          "name": "Dispatcher acceptance and explicit experience do not imply delivery",
+          "completed_at_seconds": 3.855,
+          "method_elapsed_seconds": 3.855
+        },
+        {
+          "name": "Dispatcher sees immutable candidate bytes and exact response replay",
+          "completed_at_seconds": 6.383,
+          "method_elapsed_seconds": 2.528
+        },
+        {
+          "name": "raw Worker submission cannot bypass TeamLead checking",
+          "completed_at_seconds": 8.518,
+          "method_elapsed_seconds": 2.135
+        },
+        {
+          "name": "captured acceptance identity and task CAS cannot be relabelled",
+          "completed_at_seconds": 11.302,
+          "method_elapsed_seconds": 2.784
+        },
+        {
+          "name": "model acceptance cannot forge identity hashes waivers or evidence",
+          "completed_at_seconds": 24.226,
+          "method_elapsed_seconds": 12.924
+        },
+        {
+          "name": "AMEND records stale acceptance responses without applying them",
+          "completed_at_seconds": 26.758,
+          "method_elapsed_seconds": 2.532
+        },
+        {
+          "name": "recovery accepts original candidate without reissuing business work",
+          "completed_at_seconds": 30.187,
+          "method_elapsed_seconds": 3.429
+        },
+        {
+          "name": "negative business judgment blocks without inventing experience",
+          "completed_at_seconds": 33.182,
+          "method_elapsed_seconds": 2.995
+        },
+        {
+          "name": "experience uses frozen source and host-owned report identity",
+          "completed_at_seconds": 37.068,
+          "method_elapsed_seconds": 3.886
+        },
+        {
+          "name": "experience rejects forged identities and unbound memory claims",
+          "completed_at_seconds": 56.214,
+          "method_elapsed_seconds": 19.146
+        },
+        {
+          "name": "experience proposals remain reports with memory disabled",
+          "completed_at_seconds": 59.874,
+          "method_elapsed_seconds": 3.66
+        },
+        {
+          "name": "captured experience source cannot be relabelled or become business work",
+          "completed_at_seconds": 63.823,
+          "method_elapsed_seconds": 3.949
+        },
+        {
+          "name": "old experience can finish while amended task still awaits disposition",
+          "completed_at_seconds": 67.841,
+          "method_elapsed_seconds": 4.018
+        },
+        {
+          "name": "accepted experience is not starved by an unanswered optional question",
+          "completed_at_seconds": 71.494,
+          "method_elapsed_seconds": 3.653
+        },
+        {
+          "name": "terminal cancellation resumes only the bounded experience job",
+          "completed_at_seconds": 75.958,
+          "method_elapsed_seconds": 4.464
+        },
+        {
+          "name": "terminal recovery fences previously captured experience response",
+          "completed_at_seconds": 80.326,
+          "method_elapsed_seconds": 4.368
+        },
+        {
+          "name": "missing scripts and budget caps preserve unfinished experience",
+          "completed_at_seconds": 84.7,
+          "method_elapsed_seconds": 4.374
+        }
+      ],
+      "raw_log_sha256": "6bde71a66c001a3dfd7c209e4271fff6e7b1cda9707ddd9ce26aab0793a1a475"
+    },
+    "candidate_02": {
+      "inputs": {
+        "base_commit": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+        "source": "/tmp/wls861-acceptance-asan-patched-01/source",
+        "build": "/tmp/wls861-acceptance-asan-patched-01/build-asan",
+        "changed_production_files": [
+          "src/store.cpp",
+          "src/worker_tools.cpp",
+          "src/management_context.cpp",
+          "src/offline_runtime.cpp",
+          "src/event_runtime.cpp",
+          "src/runtime_config_internal.hpp"
+        ],
+        "source_hashes": {
+          "src/store.cpp": "55c06327e9a1b347a5ae8a48dd9deb3c94af463aae5a2b7c71a542acd06d31a4",
+          "src/worker_tools.cpp": "2afa0827158b1a6920f6ec18ce7309899fd76f770a0950556678de90117c902a",
+          "src/management_context.cpp": "3decf8a143e49c929f605c90f04c247f7cbd6630aa3415175bb09cd3d21a117b",
+          "src/offline_runtime.cpp": "a67ef7df5beec92e03ef6bbcc0c978ea03b526c0eb7aade30d7936ea5943b0ca",
+          "src/event_runtime.cpp": "96ac6bde03c4d13f6b0b24cfa281751cdf200abbc28ae249e5c3cdf4a7788236",
+          "src/runtime_config_internal.hpp": "0f653fb9e8339ae486baed51487993a593c03a456d39e3d5829fb9b06ee620f5",
+          "src/config_loader.cpp": "fc0327a17eaeff6604db0a3b74b7a5ed80a9dcf161482639d6c6127dadac8ca0",
+          "tests/acceptance_runtime_tests.cpp": "88faa11f3b5902dda75cdf51f29e820614dcb7b8681b72fe86f959e39f6f29c4",
+          "tests/store_tests.cpp": "71cf885e3b3e50356a6558e1f88a1dde9c1cb9c4570320e8319cfd3cf393086f",
+          "tests/offline_runtime_tests.cpp": "3fb7c2a7224ab8edf563812b40be7af94be087be7c6c33c59c384d09e8c9deea",
+          "tests/worker_tools_tests.cpp": "5856c44a1c0401cca9f17029ea6ca71ed9db46b69f71ef3f4d8e97a62118ceb2",
+          "tests/live_model_store_tests.cpp": "15c0af4b31955d300ca00fff7c98ed7bcb03f7267808097fc14b54a1fc2e1459"
+        },
+        "uid": 65534,
+        "gid": 65534,
+        "groups": [],
+        "outer_umask": "0002",
+        "fixture_umask": "0077",
+        "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+        "unchanged_ctest_timeout_seconds": 90,
+        "profiling_source_absent": true,
+        "binary": "/tmp/wls861-acceptance-asan-patched-01/build-asan/acceptance_runtime_tests",
+        "binary_sha256": "a22099e92db6e3b33117d4b9964422f7b98b263ef9bc93e3b77c7dfd3e4fd625",
+        "deadline_seconds": 90,
+        "progress_capture": "PTY for line buffering; original nineteen methods and assertions unchanged",
+        "diagnostic_instrumentation": false
+      },
+      "elapsed_seconds": 78.964,
+      "timed_out": false,
+      "returncode": 0,
+      "passed_methods": 19,
+      "failed_methods": 0,
+      "not_completed_methods": 0,
+      "progress": [
+        {
+          "elapsed_seconds": 2.814,
+          "line": "PASS Dispatcher acceptance and explicit experience do not imply delivery"
+        },
+        {
+          "elapsed_seconds": 4.878,
+          "line": "PASS Dispatcher sees immutable candidate bytes and exact response replay"
+        },
+        {
+          "elapsed_seconds": 6.666,
+          "line": "PASS raw Worker submission cannot bypass TeamLead checking"
+        },
+        {
+          "elapsed_seconds": 8.974,
+          "line": "PASS captured acceptance identity and task CAS cannot be relabelled"
+        },
+        {
+          "elapsed_seconds": 19.829,
+          "line": "PASS model acceptance cannot forge identity hashes waivers or evidence"
+        },
+        {
+          "elapsed_seconds": 22.606,
+          "line": "PASS AMEND records stale acceptance responses without applying them"
+        },
+        {
+          "elapsed_seconds": 25.334,
+          "line": "PASS recovery accepts original candidate without reissuing business work"
+        },
+        {
+          "elapsed_seconds": 27.537,
+          "line": "PASS negative business judgment blocks without inventing experience"
+        },
+        {
+          "elapsed_seconds": 30.728,
+          "line": "PASS experience uses frozen source and host-owned report identity"
+        },
+        {
+          "elapsed_seconds": 48.129,
+          "line": "PASS experience rejects forged identities and unbound memory claims"
+        },
+        {
+          "elapsed_seconds": 50.973,
+          "line": "PASS experience proposals remain reports with memory disabled"
+        },
+        {
+          "elapsed_seconds": 53.532,
+          "line": "PASS captured experience source cannot be relabelled or become business work"
+        },
+        {
+          "elapsed_seconds": 56.542,
+          "line": "PASS old experience can finish while amended task still awaits disposition"
+        },
+        {
+          "elapsed_seconds": 59.479,
+          "line": "PASS accepted experience is not starved by an unanswered optional question"
+        },
+        {
+          "elapsed_seconds": 63.114,
+          "line": "PASS terminal cancellation resumes only the bounded experience job"
+        },
+        {
+          "elapsed_seconds": 66.3,
+          "line": "PASS terminal recovery fences previously captured experience response"
+        },
+        {
+          "elapsed_seconds": 69.579,
+          "line": "PASS missing scripts and budget caps preserve unfinished experience"
+        },
+        {
+          "elapsed_seconds": 74.854,
+          "line": "PASS independent acceptance and experience targets remain isolated"
+        },
+        {
+          "elapsed_seconds": 78.796,
+          "line": "PASS ordinary event exhaustion preserves bounded experience-only reservation"
+        },
+        {
+          "elapsed_seconds": 78.796,
+          "line": "RESULT 19 passed, 0 failed"
+        }
+      ],
+      "raw_log_sha256": "3a5ecfc0fa1e0c6eb84cc1076435fc9d075fef868edd530c0321538ab8a8b149"
+    }
+  },
+  "final_registered_ctest_gates": {
+    "source_matches_current_repository": true,
+    "suites": [
+      {
+        "suite": "store",
+        "elapsed_seconds": 10.948,
+        "methods": 31,
+        "status": "run",
+        "has_failure": false
+      },
+      {
+        "suite": "offline_runtime",
+        "elapsed_seconds": 6.1227,
+        "methods": 10,
+        "status": "run",
+        "has_failure": false
+      },
+      {
+        "suite": "acceptance_runtime",
+        "elapsed_seconds": 77.71,
+        "methods": 19,
+        "status": "run",
+        "has_failure": false
+      },
+      {
+        "suite": "worker_tools",
+        "elapsed_seconds": 26.9834,
+        "methods": 17,
+        "status": "run",
+        "has_failure": false
+      },
+      {
+        "suite": "live_model_store",
+        "elapsed_seconds": 8.49438,
+        "methods": 15,
+        "status": "run",
+        "has_failure": false
+      }
+    ],
+    "total_unique_methods": 92,
+    "raw_log_sha256": "f01cfa00b03ada3250c7132c856d45386fbe8943067e984f45a6b81c59733a8f",
+    "junit_sha256": "38ed968a62662d2be4a758a8fa40404e0117bccfd4a645feea7e688709164082",
+    "unchanged_timeout_seconds": 90,
+    "ordinary_uid_gid": 65534,
+    "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1"
+  },
+  "profile_collection": {
+    "diagnostic_only": true,
+    "collection_bound_seconds": 180,
+    "not_a_ninety_second_gate": true,
+    "summary_file": "/tmp/wls861-acceptance-asan-patched-01/profile-summary.json",
+    "elapsed_seconds": 96.522,
+    "restore_calls": 2123,
+    "restore_elapsed_ms": 39642.181
+  }
+}

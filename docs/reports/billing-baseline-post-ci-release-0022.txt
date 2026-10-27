@@ -1,0 +1,162 @@
+Internal ctest changing into directory: /tmp/wls861-billing-baseline-validation/source/build-release
+Test project /tmp/wls861-billing-baseline-validation/source/build-release
+      Start 53: billing_baseline_e2e
+      Start 51: live_workflow
+ 1/78 Test #51: live_workflow ....................   Passed   22.11 sec
+      Start 28: audit24_capacity_repro
+ 2/78 Test #28: audit24_capacity_repro ...........   Passed   19.28 sec
+      Start 40: r1_management
+ 3/78 Test #53: billing_baseline_e2e .............   Passed   43.29 sec
+      Start 55: r3_evaluation
+ 4/78 Test #40: r1_management ....................   Passed   12.50 sec
+      Start 72: r1_window_cli_smoke
+ 5/78 Test #55: r3_evaluation ....................   Passed   10.84 sec
+      Start 64: s15_cli_smoke
+ 6/78 Test #72: r1_window_cli_smoke ..............   Passed    7.46 sec
+      Start 63: s14_cli_smoke
+ 7/78 Test #64: s15_cli_smoke ....................   Passed    8.33 sec
+      Start 17: acceptance_runtime
+ 8/78 Test #63: s14_cli_smoke ....................   Passed    8.58 sec
+      Start 49: https_transport
+ 9/78 Test #17: acceptance_runtime ...............   Passed    7.52 sec
+      Start 62: s13_cli_smoke
+10/78 Test #62: s13_cli_smoke ....................   Passed    7.45 sec
+      Start 32: r2_rework
+11/78 Test #49: https_transport ..................   Passed    9.56 sec
+      Start 34: r2_amend
+12/78 Test #32: r2_rework ........................   Passed    5.58 sec
+      Start 65: s16_cli_smoke
+13/78 Test #34: r2_amend .........................   Passed    5.80 sec
+      Start 73: r2_rework_cli_smoke
+14/78 Test #65: s16_cli_smoke ....................   Passed    6.73 sec
+      Start 76: r2_amend_cli_smoke
+15/78 Test #73: r2_rework_cli_smoke ..............   Passed    5.44 sec
+      Start 23: cleanup_runtime
+16/78 Test #76: r2_amend_cli_smoke ...............   Passed    4.88 sec
+      Start 70: r1_history_cli_smoke
+17/78 Test #23: cleanup_runtime ..................   Passed    4.82 sec
+      Start 69: audit24_capacity_cli_smoke
+18/78 Test #70: r1_history_cli_smoke .............   Passed    5.09 sec
+      Start 41: owned_capacity
+19/78 Test #69: audit24_capacity_cli_smoke .......   Passed    5.58 sec
+      Start 75: r2_integration_cli_smoke
+20/78 Test #41: owned_capacity ...................   Passed    3.87 sec
+      Start 45: single_agent
+21/78 Test #75: r2_integration_cli_smoke .........   Passed    4.44 sec
+      Start 42: owned_capacity_runtime
+22/78 Test #45: single_agent .....................   Passed    2.78 sec
+      Start 15: event_runtime
+23/78 Test #42: owned_capacity_runtime ...........   Passed    3.37 sec
+      Start 71: r1_structured_cli_smoke
+24/78 Test #15: event_runtime ....................   Passed    3.60 sec
+      Start 16: workflow_runtime
+25/78 Test #71: r1_structured_cli_smoke ..........   Passed    2.99 sec
+      Start 78: allocation_recovery_cli
+26/78 Test #16: workflow_runtime .................   Passed    3.00 sec
+      Start 46: single_agent_runtime
+27/78 Test #78: allocation_recovery_cli ..........   Passed    3.40 sec
+      Start 74: r2_recovery_cli_smoke
+28/78 Test #46: single_agent_runtime .............   Passed    2.70 sec
+      Start 68: review_cli_smoke
+29/78 Test #74: r2_recovery_cli_smoke ............   Passed    2.67 sec
+      Start 20: worker_tools
+30/78 Test #68: review_cli_smoke .................   Passed    2.87 sec
+      Start 50: live_model_store_tls
+31/78 Test #20: worker_tools .....................   Passed    2.23 sec
+      Start 36: allocation_recovery
+32/78 Test #50: live_model_store_tls .............   Passed    2.64 sec
+      Start 10: acceptance_store
+33/78 Test #36: allocation_recovery ..............   Passed    2.33 sec
+      Start 52: live_workflow_cli
+34/78 Test #10: acceptance_store .................   Passed    2.32 sec
+      Start 39: sse_replay
+35/78 Test #52: live_workflow_cli ................   Passed    2.28 sec
+      Start 29: r1_history
+36/78 Test #39: sse_replay .......................   Passed    2.28 sec
+      Start 61: s12_cli_smoke
+37/78 Test #29: r1_history .......................   Passed    2.37 sec
+      Start  9: workflow_store
+38/78 Test #61: s12_cli_smoke ....................   Passed    1.92 sec
+      Start 31: r1_window
+39/78 Test  #9: workflow_store ...................   Passed    2.02 sec
+      Start  7: store
+40/78 Test #31: r1_window ........................   Passed    1.66 sec
+      Start 19: sandbox
+41/78 Test  #7: store ............................   Passed    1.47 sec
+      Start 77: r2a_mkdir_cli_smoke
+42/78 Test #19: sandbox ..........................   Passed    1.75 sec
+      Start 60: s1_cli_smoke
+43/78 Test #77: r2a_mkdir_cli_smoke ..............   Passed    1.21 sec
+      Start 43: live_model_store
+44/78 Test #60: s1_cli_smoke .....................   Passed    1.21 sec
+      Start 35: r2a_mkdir
+45/78 Test #43: live_model_store .................   Passed    1.07 sec
+      Start 33: r2_recovery
+46/78 Test #35: r2a_mkdir ........................   Passed    0.97 sec
+      Start 44: billing
+47/78 Test #33: r2_recovery ......................   Passed    1.14 sec
+      Start 54: runtime_resources_cli
+48/78 Test #44: billing ..........................   Passed    1.00 sec
+      Start  8: event_store
+49/78 Test #54: runtime_resources_cli ............   Passed    0.85 sec
+      Start 66: audit24_reconcile_cli_smoke
+50/78 Test  #8: event_store ......................   Passed    0.88 sec
+      Start 58: specification_contracts
+51/78 Test #58: specification_contracts ..........   Passed    0.61 sec
+      Start 14: offline_runtime
+52/78 Test #66: audit24_reconcile_cli_smoke ......   Passed    0.84 sec
+      Start 67: audit24_reopen_cli_smoke
+53/78 Test #67: audit24_reopen_cli_smoke .........   Passed    0.46 sec
+      Start 27: audit24_capacity
+54/78 Test #14: offline_runtime ..................   Passed    0.62 sec
+      Start  6: runtime_resources
+55/78 Test #27: audit24_capacity .................   Passed    0.52 sec
+      Start 48: protocol_replay_cli
+56/78 Test  #6: runtime_resources ................   Passed    0.43 sec
+      Start 47: doctor_diagnostics_cli
+57/78 Test #48: protocol_replay_cli ..............   Passed    0.36 sec
+      Start 24: audit24_reopen
+58/78 Test #47: doctor_diagnostics_cli ...........   Passed    0.37 sec
+      Start  1: journal
+59/78 Test  #1: journal ..........................   Passed    0.29 sec
+      Start 26: audit24_reconcile
+60/78 Test #24: audit24_reopen ...................   Passed    0.37 sec
+      Start 11: config_loader
+61/78 Test #11: config_loader ....................   Passed    0.14 sec
+      Start  4: task_engine
+62/78 Test #26: audit24_reconcile ................   Passed    0.26 sec
+      Start 37: doctor_diagnostics
+63/78 Test  #4: task_engine ......................   Passed    0.13 sec
+      Start 59: demo_smoke
+64/78 Test #37: doctor_diagnostics ...............   Passed    0.06 sec
+      Start 21: delivery
+65/78 Test #59: demo_smoke .......................   Passed    0.07 sec
+      Start 22: cleanup
+66/78 Test #21: delivery .........................   Passed    0.07 sec
+      Start 30: r1_structured
+67/78 Test #22: cleanup ..........................   Passed    0.06 sec
+      Start 56: handoff_integrity
+68/78 Test #30: r1_structured ....................   Passed    0.05 sec
+      Start 38: protocol_codec
+69/78 Test #56: handoff_integrity ................   Passed    0.04 sec
+      Start 25: process_evidence
+70/78 Test #38: protocol_codec ...................   Passed    0.04 sec
+      Start 57: review_source_integrity
+71/78 Test #25: process_evidence .................   Passed    0.02 sec
+      Start 18: workspace
+72/78 Test #57: review_source_integrity ..........   Passed    0.03 sec
+      Start 12: model
+73/78 Test #18: workspace ........................   Passed    0.03 sec
+      Start 13: schema
+74/78 Test #13: schema ...........................   Passed    0.02 sec
+      Start  5: runtime_types
+75/78 Test  #5: runtime_types ....................   Passed    0.02 sec
+      Start  3: scheduler
+76/78 Test #12: model ............................   Passed    0.03 sec
+      Start  2: config
+77/78 Test  #2: config ...........................   Passed    0.00 sec
+78/78 Test  #3: scheduler ........................   Passed    0.01 sec
+
+100% tests passed, 0 tests failed out of 78
+
+Total Test time (real) = 138.07 sec

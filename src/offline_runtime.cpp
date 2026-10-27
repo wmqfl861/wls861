@@ -4,6 +4,7 @@
 #include "wls/structured_context.hpp"
 #include "wls/worker_history.hpp"
 #include "wls/management_context.hpp"
+#include "runtime_config_internal.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -312,6 +313,11 @@ FrozenRequestConfig restore_request_config(const Json& record) {
 
 Json next_workflow_action(Store& store, Role role, const std::string& request_id,
                           const std::string& task_id) {
+    return runtime_detail::next_workflow_action(store, role, request_id, task_id, nullptr);
+}
+
+Json runtime_detail::next_workflow_action(Store& store, Role role, const std::string& request_id,
+                          const std::string& task_id, const FrozenRequestConfig* config) {
     if (!store.workflow_runtime_enabled() || (role != Role::Dispatcher && role != Role::TeamLead))
         return nullptr;
     const auto request = store.request(request_id);
@@ -325,7 +331,7 @@ Json next_workflow_action(Store& store, Role role, const std::string& request_id
             current_status == "SKIPPED" || current_status == "SUPERSEDED";
     };
     if (!terminal_request) {
-        for (const auto& question : visible_management_questions(store, role, request_id, task_id))
+        for (const auto& question : runtime_detail::visible_management_questions(store, role, request_id, task_id, config))
             if (string_at(question, "status") == "OPEN" &&
                     string_at(question, "holder") == role_name(role) &&
                     !task_terminal(string_at(question, "task_id")))
@@ -347,7 +353,7 @@ Json next_workflow_action(Store& store, Role role, const std::string& request_id
                     const auto wait = store.worker_wait(subject);
                     const auto& escalation = rejected.at("escalation");
                     if (!wait.is_null() && wait.at("status") == "WAITING") continue;
-                    const auto questions = visible_management_questions(store, Role::Dispatcher, request_id);
+                    const auto questions = runtime_detail::visible_management_questions(store, Role::Dispatcher, request_id, {}, config);
                     if (std::any_of(questions.begin(), questions.end(), [&](const auto& question) {
                             return string_at(question, "task_id") == subject && question.at("status") == "OPEN" &&
                                 question.at("blocking").as_int64() != 0;
@@ -444,7 +450,7 @@ CapturedModelCall OfflineRuntime::capture_call(
         contract.as_object()["submission"] = submission;
         if (role == Role::Dispatcher && model_amendment)
             action = next_amendment_action(store_, request_id);
-        if (action.is_null()) action = next_workflow_action(store_, role, request_id, task_id);
+        if (action.is_null()) action = runtime_detail::next_workflow_action(store_, role, request_id, task_id, &config);
         contract.as_object()["workflow_action"] = action;
         if (role == Role::TeamLead && !action.is_null() && string_at(action, "kind") == "submission")
             contract.as_object()["submission_file_views"] = submission_file_views(submission);

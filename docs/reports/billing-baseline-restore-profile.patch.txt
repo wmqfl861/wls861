@@ -1,0 +1,78 @@
+--- src/config_loader.cpp
++++ src/config_loader.cpp
+@@ -4,6 +4,14 @@
+ #include "wls/owned_capacity.hpp"
+
+ #include <yaml.h>
++
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <dlfcn.h>
++#include <execinfo.h>
++#include <map>
++#include <mutex>
+
+ #include <algorithm>
+ #include <array>
+@@ -21,6 +29,42 @@
+
+ namespace wls::s1 {
+ namespace {
++
++// INDEPENDENT TEMPORARY DIAGNOSTIC: not production or acceptance input.
++struct RestoreProfileTotals {
++    struct Sample { std::uint64_t count{}; std::int64_t nanoseconds{}; };
++    std::mutex mutex;
++    std::map<std::array<std::uintptr_t, 4>, Sample> samples;
++    ~RestoreProfileTotals() {
++        for (const auto& [frames, sample] : samples) {
++            std::fprintf(stderr, "RESTORE_PROFILE caller=0x%llx caller_base=0x%llx parent=0x%llx parent_base=0x%llx count=%llu elapsed_ms=%.3f\n",
++                static_cast<unsigned long long>(frames[0]), static_cast<unsigned long long>(frames[1]),
++                static_cast<unsigned long long>(frames[2]), static_cast<unsigned long long>(frames[3]),
++                static_cast<unsigned long long>(sample.count), static_cast<double>(sample.nanoseconds) / 1000000.0);
++        }
++    }
++};
++RestoreProfileTotals& restore_profile_totals() { static RestoreProfileTotals totals; return totals; }
++std::uintptr_t restore_profile_base(void* address) {
++    Dl_info info{};
++    return address && ::dladdr(address, &info) != 0 ? reinterpret_cast<std::uintptr_t>(info.dli_fbase) : 0;
++}
++struct RestoreProfileProbe {
++    std::array<std::uintptr_t, 4> frames;
++    std::chrono::steady_clock::time_point started;
++    RestoreProfileProbe(void* caller, void* parent)
++        : frames{reinterpret_cast<std::uintptr_t>(caller), restore_profile_base(caller),
++                 reinterpret_cast<std::uintptr_t>(parent), restore_profile_base(parent)},
++          started(std::chrono::steady_clock::now()) {}
++    ~RestoreProfileProbe() {
++        const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - started).count();
++        auto& totals = restore_profile_totals();
++        const std::lock_guard lock(totals.mutex);
++        auto& sample = totals.samples[frames];
++        ++sample.count;
++        sample.nanoseconds += elapsed;
++    }
++};
+
+ using Object = boost::json::object;
+ using Array = boost::json::array;
+@@ -925,6 +969,17 @@
+ FrozenRequestConfig FrozenRequestConfig::restore(std::string_view serialized,
+                                                 std::string_view expected_sha256,
+                                                 const ConfigLoadOptions& options) {
++    void* diagnostic_caller = __builtin_return_address(0);
++    void* diagnostic_frames[12]{};
++    const int diagnostic_depth = ::backtrace(diagnostic_frames, 12);
++    void* diagnostic_parent = nullptr;
++    for (int index = 0; index + 1 < diagnostic_depth; ++index) {
++        if (diagnostic_frames[index] == diagnostic_caller) {
++            diagnostic_parent = diagnostic_frames[index + 1];
++            break;
++        }
++    }
++    const RestoreProfileProbe diagnostic_probe(diagnostic_caller, diagnostic_parent);
+     validate_options(options);
+     if (serialized.size() > options.max_total_bytes) invalid("snapshot", "serialized snapshot byte limit exceeded");
+     if (expected_sha256.size() != 64 || sha256_hex(serialized) != expected_sha256) throw Error(ErrorCode::Corrupt, "request configuration snapshot hash mismatch");

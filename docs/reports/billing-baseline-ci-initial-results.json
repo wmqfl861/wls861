@@ -1,0 +1,543 @@
+{
+  "commit": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+  "tree": "7faa4b32dc74cc14267eaf8ea49a07aef69b07b8",
+  "workflow_run": 40531153587,
+  "source_snapshot_run": 40531153528,
+  "jobs": [
+    {
+      "id": 122283991898,
+      "name": "Linux C++20 (UBSan)",
+      "head_sha": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-27T15:27:29Z",
+      "completed_at": "2026-10-27T15:54:33Z",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:30Z",
+          "completed_at": "2026-10-27T15:27:31Z"
+        },
+        {
+          "name": "Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:31Z",
+          "completed_at": "2026-10-27T15:27:35Z"
+        },
+        {
+          "name": "Install C++ development dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:35Z",
+          "completed_at": "2026-10-27T15:27:54Z"
+        },
+        {
+          "name": "Prepare contract-test environment",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:54Z",
+          "completed_at": "2026-10-27T15:27:58Z"
+        },
+        {
+          "name": "Configure CMake",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:58Z",
+          "completed_at": "2026-10-27T15:28:01Z"
+        },
+        {
+          "name": "Build with warnings as errors",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:28:01Z",
+          "completed_at": "2026-10-27T15:30:27Z"
+        },
+        {
+          "name": "Run complete CTest as an ordinary user",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:30:27Z",
+          "completed_at": "2026-10-27T15:54:32Z"
+        },
+        {
+          "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+          "status": "completed",
+          "conclusion": "skipped",
+          "started_at": "2026-10-27T15:54:32Z",
+          "completed_at": "2026-10-27T15:54:32Z"
+        },
+        {
+          "name": "Post Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:54:32Z",
+          "completed_at": "2026-10-27T15:54:32Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:54:32Z",
+          "completed_at": "2026-10-27T15:54:32Z"
+        }
+      ]
+    },
+    {
+      "id": 122283992520,
+      "name": "Linux C++20 (Make-ASan)",
+      "head_sha": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "started_at": "2026-10-27T15:27:29Z",
+      "completed_at": "2026-10-27T16:07:47Z",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:30Z",
+          "completed_at": "2026-10-27T15:27:30Z"
+        },
+        {
+          "name": "Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:30Z",
+          "completed_at": "2026-10-27T15:27:32Z"
+        },
+        {
+          "name": "Install C++ development dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:32Z",
+          "completed_at": "2026-10-27T15:27:42Z"
+        },
+        {
+          "name": "Prepare contract-test environment",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:42Z",
+          "completed_at": "2026-10-27T15:27:46Z"
+        },
+        {
+          "name": "Configure CMake",
+          "status": "completed",
+          "conclusion": "skipped",
+          "started_at": "2026-10-27T15:27:46Z",
+          "completed_at": "2026-10-27T15:27:46Z"
+        },
+        {
+          "name": "Build with warnings as errors",
+          "status": "completed",
+          "conclusion": "skipped",
+          "started_at": "2026-10-27T15:27:46Z",
+          "completed_at": "2026-10-27T15:27:46Z"
+        },
+        {
+          "name": "Run complete CTest as an ordinary user",
+          "status": "completed",
+          "conclusion": "skipped",
+          "started_at": "2026-10-27T15:27:46Z",
+          "completed_at": "2026-10-27T15:27:46Z"
+        },
+        {
+          "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-10-27T15:27:46Z",
+          "completed_at": "2026-10-27T16:07:45Z"
+        },
+        {
+          "name": "Post Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T16:07:45Z",
+          "completed_at": "2026-10-27T16:07:46Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T16:07:46Z",
+          "completed_at": "2026-10-27T16:07:46Z"
+        }
+      ]
+    },
+    {
+      "id": 122283992556,
+      "name": "Linux C++20 (strict-umask-0002)",
+      "head_sha": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-27T15:27:29Z",
+      "completed_at": "2026-10-27T15:35:47Z",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:30Z",
+          "completed_at": "2026-10-27T15:27:30Z"
+        },
+        {
+          "name": "Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:30Z",
+          "completed_at": "2026-10-27T15:27:32Z"
+        },
+        {
+          "name": "Install C++ development dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:32Z",
+          "completed_at": "2026-10-27T15:27:43Z"
+        },
+        {
+          "name": "Prepare contract-test environment",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:43Z",
+          "completed_at": "2026-10-27T15:27:47Z"
+        },
+        {
+          "name": "Configure CMake",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:47Z",
+          "completed_at": "2026-10-27T15:27:50Z"
+        },
+        {
+          "name": "Build with warnings as errors",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:50Z",
+          "completed_at": "2026-10-27T15:30:47Z"
+        },
+        {
+          "name": "Run complete CTest as an ordinary user",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:30:47Z",
+          "completed_at": "2026-10-27T15:35:44Z"
+        },
+        {
+          "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+          "status": "completed",
+          "conclusion": "skipped",
+          "started_at": "2026-10-27T15:35:44Z",
+          "completed_at": "2026-10-27T15:35:44Z"
+        },
+        {
+          "name": "Post Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:35:44Z",
+          "completed_at": "2026-10-27T15:35:45Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:35:45Z",
+          "completed_at": "2026-10-27T15:35:45Z"
+        }
+      ]
+    },
+    {
+      "id": 122283992593,
+      "name": "Linux C++20 (Clang-18)",
+      "head_sha": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-27T15:27:29Z",
+      "completed_at": "2026-10-27T15:39:03Z",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:30Z",
+          "completed_at": "2026-10-27T15:27:31Z"
+        },
+        {
+          "name": "Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:31Z",
+          "completed_at": "2026-10-27T15:27:33Z"
+        },
+        {
+          "name": "Install C++ development dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:33Z",
+          "completed_at": "2026-10-27T15:31:21Z"
+        },
+        {
+          "name": "Prepare contract-test environment",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:31:21Z",
+          "completed_at": "2026-10-27T15:31:24Z"
+        },
+        {
+          "name": "Configure CMake",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:31:24Z",
+          "completed_at": "2026-10-27T15:31:28Z"
+        },
+        {
+          "name": "Build with warnings as errors",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:31:28Z",
+          "completed_at": "2026-10-27T15:33:54Z"
+        },
+        {
+          "name": "Run complete CTest as an ordinary user",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:33:54Z",
+          "completed_at": "2026-10-27T15:39:00Z"
+        },
+        {
+          "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+          "status": "completed",
+          "conclusion": "skipped",
+          "started_at": "2026-10-27T15:39:00Z",
+          "completed_at": "2026-10-27T15:39:00Z"
+        },
+        {
+          "name": "Post Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:39:00Z",
+          "completed_at": "2026-10-27T15:39:00Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:39:00Z",
+          "completed_at": "2026-10-27T15:39:00Z"
+        }
+      ]
+    },
+    {
+      "id": 122283992690,
+      "name": "Linux C++20 (ASan)",
+      "head_sha": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "started_at": "2026-10-27T15:27:29Z",
+      "completed_at": "2026-10-27T16:07:47Z",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:31Z",
+          "completed_at": "2026-10-27T15:27:31Z"
+        },
+        {
+          "name": "Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:31Z",
+          "completed_at": "2026-10-27T15:27:33Z"
+        },
+        {
+          "name": "Install C++ development dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:33Z",
+          "completed_at": "2026-10-27T15:27:45Z"
+        },
+        {
+          "name": "Prepare contract-test environment",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:45Z",
+          "completed_at": "2026-10-27T15:27:48Z"
+        },
+        {
+          "name": "Configure CMake",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:48Z",
+          "completed_at": "2026-10-27T15:27:52Z"
+        },
+        {
+          "name": "Build with warnings as errors",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:52Z",
+          "completed_at": "2026-10-27T15:30:21Z"
+        },
+        {
+          "name": "Run complete CTest as an ordinary user",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-10-27T15:30:21Z",
+          "completed_at": "2026-10-27T16:07:44Z"
+        },
+        {
+          "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+          "status": "completed",
+          "conclusion": "skipped",
+          "started_at": "2026-10-27T16:07:44Z",
+          "completed_at": "2026-10-27T16:07:44Z"
+        },
+        {
+          "name": "Post Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T16:07:44Z",
+          "completed_at": "2026-10-27T16:07:45Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T16:07:45Z",
+          "completed_at": "2026-10-27T16:07:45Z"
+        }
+      ]
+    },
+    {
+      "id": 122283992859,
+      "name": "Linux C++20 (strict)",
+      "head_sha": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-27T15:27:29Z",
+      "completed_at": "2026-10-27T15:36:24Z",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:30Z",
+          "completed_at": "2026-10-27T15:27:30Z"
+        },
+        {
+          "name": "Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:30Z",
+          "completed_at": "2026-10-27T15:27:33Z"
+        },
+        {
+          "name": "Install C++ development dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:33Z",
+          "completed_at": "2026-10-27T15:27:51Z"
+        },
+        {
+          "name": "Prepare contract-test environment",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:51Z",
+          "completed_at": "2026-10-27T15:27:55Z"
+        },
+        {
+          "name": "Configure CMake",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:55Z",
+          "completed_at": "2026-10-27T15:27:58Z"
+        },
+        {
+          "name": "Build with warnings as errors",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:27:58Z",
+          "completed_at": "2026-10-27T15:31:19Z"
+        },
+        {
+          "name": "Run complete CTest as an ordinary user",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:31:19Z",
+          "completed_at": "2026-10-27T15:36:22Z"
+        },
+        {
+          "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+          "status": "completed",
+          "conclusion": "skipped",
+          "started_at": "2026-10-27T15:36:22Z",
+          "completed_at": "2026-10-27T15:36:22Z"
+        },
+        {
+          "name": "Post Check out the requested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:36:22Z",
+          "completed_at": "2026-10-27T15:36:22Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-27T15:36:22Z",
+          "completed_at": "2026-10-27T15:36:22Z"
+        }
+      ]
+    }
+  ],
+  "archives": [
+    {
+      "job_id": 122283992690,
+      "path": "docs/reports/billing-baseline-ci-asan-initial.txt",
+      "raw_sha256": "a01e61ec03129c8191b9f9d814909b97363f6f9500c866287aaf3af297824624",
+      "saved_sha256": "c396bfba828859fa49d0b7a407fae2e251ca6836b58038e179677982c82ead3d",
+      "raw_bytes": 54659,
+      "saved_bytes": 54650,
+      "normalization": "remove only trailing ASCII space/tab/CR per line; preserve newline count and terminal LF"
+    },
+    {
+      "job_id": 122283992520,
+      "path": "docs/reports/billing-baseline-ci-make-asan-initial.txt",
+      "raw_sha256": "144dae6b9f23e0518461590aa795052156a5756383cd65049170a0ec9802d8f2",
+      "saved_sha256": "2b619de77a9e7dac90c51b659bec40353474d69e8cbc5b97e2b7c4f9bd430345",
+      "raw_bytes": 236911,
+      "saved_bytes": 236855,
+      "normalization": "remove only trailing ASCII space/tab/CR per line; preserve newline count and terminal LF"
+    }
+  ],
+  "initial_cmake_asan": {
+    "reported_passed": 70,
+    "reported_timed_out": [
+      {
+        "name": "acceptance_runtime",
+        "seconds": 90.13
+      }
+    ],
+    "last_started": "r1_window_cli_smoke",
+    "fully_executed": false
+  },
+  "initial_make_asan": {
+    "acceptance_runtime_methods_passed": 19,
+    "acceptance_runtime_methods_failed": 0,
+    "acceptance_runtime_elapsed_seconds": 93.37,
+    "e2e_started": true,
+    "e2e_methods_finished": 1,
+    "fully_executed": false
+  },
+  "baseline_asan_reference": {
+    "commit": "1b7020e3676a57da233aa097d32956a80942734e",
+    "workflow_run": 40466540525,
+    "job_id": 122063197714,
+    "acceptance_runtime_seconds": 56.25,
+    "event_runtime_seconds": 25.64,
+    "workflow_runtime_seconds": 25.11,
+    "suites_passed": 74,
+    "ctest_seconds": 1147.06
+  }
+}

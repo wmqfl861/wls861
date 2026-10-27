@@ -1,0 +1,155 @@
+Internal ctest changing into directory: /tmp/wls861-acceptance-asan-patched-01/build-asan
+UpdateCTestConfiguration  from :/tmp/wls861-acceptance-asan-patched-01/build-asan/DartConfiguration.tcl
+Parse Config file:/tmp/wls861-acceptance-asan-patched-01/build-asan/DartConfiguration.tcl
+UpdateCTestConfiguration  from :/tmp/wls861-acceptance-asan-patched-01/build-asan/DartConfiguration.tcl
+Parse Config file:/tmp/wls861-acceptance-asan-patched-01/build-asan/DartConfiguration.tcl
+Test project /tmp/wls861-acceptance-asan-patched-01/build-asan
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 7
+    Start  7: store
+
+7: Test command: /tmp/wls861-acceptance-asan-patched-01/build-asan/store_tests
+7: Working Directory: /tmp/wls861-acceptance-asan-patched-01/build-asan
+7: Test timeout computed to be: 90
+7: PASS malformed catalog is invalid input and creates no rows
+7: PASS SQLite FULL/WAL/FK, writer lease, read-only and repeated migration
+7: PASS unknown and incomplete reference databases remain intact
+7: PASS scoped immutable admission and original retry after AMEND
+7: PASS state, plan and event commit atomically
+7: PASS initial instruction, bounded acknowledgment and durable command retry
+7: PASS full assigned constraint text and frozen team capacity
+7: PASS AMEND omission stays paused and old dispositions cannot be retagged
+7: PASS plan-only rebind fences running effects and old results
+7: PASS operation idempotency, owner, cancellation and reconciliation
+7: PASS ordinary tool quota preserves instruction/cancel controls
+7: PASS durable model reservations, exact retry and nullable accounting
+7: PASS complete model envelope and frozen permissions precede reservation
+7: PASS late model response is accounted without current-version retagging
+7: PASS restart keeps UNKNOWN operation and model reservations
+7: PASS concurrent request CAS has exactly one successful commit
+7: PASS cancelled request retains accounting and exact control retry
+7: PASS process crash retains committed request and rolls back partial SQL
+7: PASS populated 402 migration preserves snapshots, attempts and intents
+7: PASS failed 403 migration leaves data, schema version and events intact
+7: PASS workspace identities and execution policies are immutable across teams and recovery
+7: PASS workspace cannot enclose this Store database, writer lease or SQLite side files
+7: PASS static business registry preserves quota and exact durable intents
+7: PASS concurrent same-key intent and command have one durable dispatch claim
+7: PASS original execution facts and bounded binary output commit atomically
+7: PASS AMEND, cancellation and restart retain stale facts without resolving UNKNOWN
+7: PASS old business keys return original results across instruction changes and restart
+7: PASS diagnostics and controls keep current identity, grants and read-only guards
+7: PASS revoking one tool preserves other model declarations and business grants
+7: PASS exact tool ack replay preserves new pending instructions across epochs
+7: PASS tool cancellation retries retain the original command despite changed op state
+7: RESULT 31 passed, 0 failed
+1/5 Test  #7: store ............................   Passed   10.95 sec
+test 14
+    Start 14: offline_runtime
+
+14: Test command: /tmp/wls861-acceptance-asan-patched-01/build-asan/offline_runtime_tests
+14: Working Directory: /tmp/wls861-acceptance-asan-patched-01/build-asan
+14: Test timeout computed to be: 90
+14: PASS offline chain persists exact model input, instructions and note evidence
+14: PASS invalid plan constraints keep accounting but do not change the plan
+14: PASS forged host fields and undeclared Worker tools never apply
+14: PASS AMEND fences late output and keep requires fresh instruction and ack
+14: PASS interrupted usage holds reservation while cancellation retains capacity
+14: PASS read-only access is inert and restart fences pending call before resume
+14: PASS published plan resumes task binding after process restart
+14: PASS explicit cancel disposition does not create a Worker model attempt
+14: PASS bounded input reads reject parent/leaf symlinks and special files
+14: PASS runtime input rejects FIFO before any observable open
+14: RESULT 10 passed, 0 failed
+2/5 Test #14: offline_runtime ..................   Passed    6.12 sec
+test 17
+    Start 17: acceptance_runtime
+
+17: Test command: /tmp/wls861-acceptance-asan-patched-01/build-asan/acceptance_runtime_tests
+17: Working Directory: /tmp/wls861-acceptance-asan-patched-01/build-asan
+17: Test timeout computed to be: 90
+17: PASS Dispatcher acceptance and explicit experience do not imply delivery
+17: PASS Dispatcher sees immutable candidate bytes and exact response replay
+17: PASS raw Worker submission cannot bypass TeamLead checking
+17: PASS captured acceptance identity and task CAS cannot be relabelled
+17: PASS model acceptance cannot forge identity hashes waivers or evidence
+17: PASS AMEND records stale acceptance responses without applying them
+17: PASS recovery accepts original candidate without reissuing business work
+17: PASS negative business judgment blocks without inventing experience
+17: PASS experience uses frozen source and host-owned report identity
+17: PASS experience rejects forged identities and unbound memory claims
+17: PASS experience proposals remain reports with memory disabled
+17: PASS captured experience source cannot be relabelled or become business work
+17: PASS old experience can finish while amended task still awaits disposition
+17: PASS accepted experience is not starved by an unanswered optional question
+17: PASS terminal cancellation resumes only the bounded experience job
+17: PASS terminal recovery fences previously captured experience response
+17: PASS missing scripts and budget caps preserve unfinished experience
+17: PASS independent acceptance and experience targets remain isolated
+17: PASS ordinary event exhaustion preserves bounded experience-only reservation
+17: RESULT 19 passed, 0 failed
+3/5 Test #17: acceptance_runtime ...............   Passed   77.71 sec
+test 20
+    Start 20: worker_tools
+
+20: Test command: /tmp/wls861-acceptance-asan-patched-01/build-asan/worker_tools_tests
+20: Working Directory: /tmp/wls861-acceptance-asan-patched-01/build-asan
+20: Test timeout computed to be: 90
+20: PASS static registration and frozen request tool grants
+20: PASS durable real file write/read/patch and side-effect-free business replay
+20: PASS AMEND rejects old model file effects while retaining usage
+20: PASS old business key only reads its fact during a pending new instruction
+20: PASS workspace directory and execution manifest binding are immutable
+20: PASS non-Worker, cross-workspace and model authority forgery are rejected
+20: PASS missing strong sandbox gives a durable FAILED result without spawning
+20: PASS read-only diagnostics do not mutate epochs, task state, budgets or events
+20: PASS UNKNOWN preserves diagnostics and instruction control while blocking business
+20: PASS bounded model loop preserves original text and complete tool feedback
+20: PASS Worker call bounds and failed tools stop subsequent model effects
+20: PASS payload, path and schema restrictions precede filesystem effects
+20: PASS concurrent exact commands have at most one actual execution owner
+20: PASS current policy revocation removes tools from new model contexts
+20: PASS SQLite result-event failure after file effect blocks further business
+20: PASS prepared concurrent call cannot claim after another result and all fallbacks fail
+20: PASS exact old ack replay cannot acknowledge a newer instruction
+20: RESULT 17 passed, 0 failed
+4/5 Test #20: worker_tools .....................   Passed   26.98 sec
+test 43
+    Start 43: live_model_store
+
+43: Test command: /tmp/wls861-acceptance-asan-patched-01/build-asan/live_model_store_tests
+43: Working Directory: /tmp/wls861-acceptance-asan-patched-01/build-asan
+43: Test timeout computed to be: 90
+43: PASS disabled, credential authorization and full frozen envelope reject before reservation
+43: PASS live profile capacity rejects impossible durable evidence before admission
+43: PASS original encoding/options CAS and concurrent one-time durable send claim
+43: PASS reservation and send-claim faults roll back original budget and authority
+43: PASS private observation and immutable original settlement faults are atomic
+43: PASS partial usage, exact replay, version conflict and dimension completion
+43: PASS known zero balances retain explicit unknown cache dimensions
+43: PASS contradiction preserves known facts and actual excess cost stops paid admission
+43: PASS reconciliation faults roll back all projections and source bytes stay private
+43: PASS recovery-only missing response settlement keeps original identity and never resends
+43: PASS reservation-only recovery requires explicit no-dispatch proof and original null settlement
+43: PASS terminal scoped reconciliation cannot alter sibling or restore business
+43: PASS explicit migration preserves original fake snapshots, attempts, settlement and budget
+43: PASS policy and cross-request identity are rechecked before first send
+43: PASS host verifier, original settlement, Root role and evidence kind remain mandatory
+43: RESULT 15 passed, 0 failed
+5/5 Test #43: live_model_store .................   Passed    8.49 sec
+
+The following tests passed:
+	store
+	offline_runtime
+	acceptance_runtime
+	worker_tools
+	live_model_store
+
+100% tests passed, 0 tests failed out of 5
+
+Total Test time (real) = 130.26 sec

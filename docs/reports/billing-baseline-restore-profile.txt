@@ -1,0 +1,47 @@
+PASS Dispatcher acceptance and explicit experience do not imply delivery
+PASS Dispatcher sees immutable candidate bytes and exact response replay
+PASS raw Worker submission cannot bypass TeamLead checking
+PASS captured acceptance identity and task CAS cannot be relabelled
+PASS model acceptance cannot forge identity hashes waivers or evidence
+PASS AMEND records stale acceptance responses without applying them
+PASS recovery accepts original candidate without reissuing business work
+PASS negative business judgment blocks without inventing experience
+PASS experience uses frozen source and host-owned report identity
+PASS experience rejects forged identities and unbound memory claims
+PASS experience proposals remain reports with memory disabled
+PASS captured experience source cannot be relabelled or become business work
+PASS old experience can finish while amended task still awaits disposition
+PASS accepted experience is not starved by an unanswered optional question
+PASS terminal cancellation resumes only the bounded experience job
+PASS terminal recovery fences previously captured experience response
+PASS missing scripts and budget caps preserve unfinished experience
+PASS independent acceptance and experience targets remain isolated
+PASS ordinary event exhaustion preserves bounded experience-only reservation
+RESULT 19 passed, 0 failed
+RESTORE_PROFILE caller=0x55ec91daaa91 caller_base=0x55ec91a6f000 parent=0x55ec91b5c2eb parent_base=0x55ec91a6f000 count=28 elapsed_ms=533.138
+RESTORE_PROFILE caller=0x55ec91df133c caller_base=0x55ec91a6f000 parent=0x55ec9219e6cb parent_base=0x55ec91a6f000 count=29 elapsed_ms=555.889
+RESTORE_PROFILE caller=0x55ec91df133c caller_base=0x55ec91a6f000 parent=0x55ec921b94cd parent_base=0x55ec91a6f000 count=59 elapsed_ms=1114.465
+RESTORE_PROFILE caller=0x55ec91df133c caller_base=0x55ec91a6f000 parent=0x55ec9229d9bd parent_base=0x55ec91a6f000 count=59 elapsed_ms=1092.733
+RESTORE_PROFILE caller=0x55ec91e07967 caller_base=0x55ec91a6f000 parent=0x55ec921c396a parent_base=0x55ec91a6f000 count=194 elapsed_ms=3529.228
+RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91d4bcb6 parent_base=0x55ec91a6f000 count=1 elapsed_ms=24.587
+RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91d5d414 parent_base=0x55ec91a6f000 count=29 elapsed_ms=534.426
+RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91d5d4ca parent_base=0x55ec91a6f000 count=29 elapsed_ms=551.187
+RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91dd4d54 parent_base=0x55ec91a6f000 count=28 elapsed_ms=557.369
+RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91ddd228 parent_base=0x55ec91a6f000 count=28 elapsed_ms=525.695
+RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91def1ab parent_base=0x55ec91a6f000 count=28 elapsed_ms=534.937
+RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91eecce5 parent_base=0x55ec91a6f000 count=58 elapsed_ms=1126.629
+RESTORE_PROFILE caller=0x55ec91eeb40f caller_base=0x55ec91a6f000 parent=0x55ec91eefd8d parent_base=0x55ec91a6f000 count=85 elapsed_ms=1560.463
+RESTORE_PROFILE caller=0x55ec91eed23c caller_base=0x55ec91a6f000 parent=0x55ec91d5d8e6 parent_base=0x55ec91a6f000 count=29 elapsed_ms=541.141
+RESTORE_PROFILE caller=0x55ec91eed23c caller_base=0x55ec91a6f000 parent=0x55ec91df06df parent_base=0x55ec91a6f000 count=29 elapsed_ms=592.142
+RESTORE_PROFILE caller=0x55ec91f1cdce caller_base=0x55ec91a6f000 parent=0x55ec91db9db0 parent_base=0x55ec91a6f000 count=28 elapsed_ms=516.439
+RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec921b1c8f parent_base=0x55ec91a6f000 count=195 elapsed_ms=3688.675
+RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec921cd3cb parent_base=0x55ec91a6f000 count=28 elapsed_ms=540.681
+RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec92222959 parent_base=0x55ec91a6f000 count=39 elapsed_ms=807.497
+RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec922995b9 parent_base=0x55ec91a6f000 count=293 elapsed_ms=5401.797
+RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec92299dd9 parent_base=0x55ec91a6f000 count=59 elapsed_ms=1126.268
+RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec9229b550 parent_base=0x55ec91a6f000 count=234 elapsed_ms=4281.120
+RESTORE_PROFILE caller=0x55ec921aae49 caller_base=0x55ec91a6f000 parent=0x55ec9229dbac parent_base=0x55ec91a6f000 count=59 elapsed_ms=1055.526
+RESTORE_PROFILE caller=0x55ec92303a3b caller_base=0x55ec91a6f000 parent=0x55ec921abcab parent_base=0x55ec91a6f000 count=355 elapsed_ms=6579.242
+RESTORE_PROFILE caller=0x55ec92303a3b caller_base=0x55ec91a6f000 parent=0x55ec921ad7d8 parent_base=0x55ec91a6f000 count=1 elapsed_ms=19.378
+RESTORE_PROFILE caller=0x55ec92303a3b caller_base=0x55ec91a6f000 parent=0x55ec92229562 parent_base=0x55ec91a6f000 count=80 elapsed_ms=1456.013
+RESTORE_PROFILE caller=0x55ec92303a3b caller_base=0x55ec91a6f000 parent=0x55ec9222e2ef parent_base=0x55ec91a6f000 count=39 elapsed_ms=795.516

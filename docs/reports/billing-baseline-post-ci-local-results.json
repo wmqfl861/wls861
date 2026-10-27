@@ -1,0 +1,773 @@
+{
+  "base_commit": "1df86cefbf7a18e618251c1dbdf72fe88c5d479b",
+  "manifest_sha256": "93d930c437487c7eb9914f81667b58b8db0d12b56a2ba4a432369a21e5f809a4",
+  "input_count": 306,
+  "copied_inputs": [
+    ".github/workflows/ci.yml",
+    "src/event_runtime.cpp",
+    "src/management_context.cpp",
+    "src/offline_runtime.cpp",
+    "src/runtime_config_internal.hpp",
+    "src/store.cpp",
+    "src/worker_tools.cpp"
+  ],
+  "identity": {
+    "uid": 65534,
+    "gid": 65534,
+    "groups": []
+  },
+  "gates": [
+    {
+      "gate": "release-build",
+      "command": [
+        "setpriv",
+        "--reuid=65534",
+        "--regid=65534",
+        "--clear-groups",
+        "cmake",
+        "--build",
+        "/tmp/wls861-billing-baseline-validation/source/build-release",
+        "--parallel",
+        "2"
+      ],
+      "umask": "0022",
+      "started_at": "2026-10-27T16:45:13.379230+00:00",
+      "elapsed_seconds": 40.176,
+      "returncode": 0,
+      "log": "/tmp/wls861-billing-baseline-post-ci/release-build.txt"
+    },
+    {
+      "gate": "release-0022",
+      "command": [
+        "setpriv",
+        "--reuid=65534",
+        "--regid=65534",
+        "--clear-groups",
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-billing-baseline-validation/source/build-release",
+        "--parallel",
+        "2",
+        "--output-on-failure",
+        "--output-junit",
+        "/tmp/wls861-billing-baseline-post-ci/release-0022.xml"
+      ],
+      "umask": "0022",
+      "started_at": "2026-10-27T16:45:53.556453+00:00",
+      "elapsed_seconds": 138.087,
+      "returncode": 0,
+      "log": "/tmp/wls861-billing-baseline-post-ci/release-0022.txt",
+      "suites_passed": 78,
+      "suites_total": 78,
+      "tests": [
+        {
+          "name": "journal",
+          "seconds": 0.288785
+        },
+        {
+          "name": "config",
+          "seconds": 0.00238039
+        },
+        {
+          "name": "scheduler",
+          "seconds": 0.00641527
+        },
+        {
+          "name": "task_engine",
+          "seconds": 0.134388
+        },
+        {
+          "name": "runtime_types",
+          "seconds": 0.0154833
+        },
+        {
+          "name": "runtime_resources",
+          "seconds": 0.429587
+        },
+        {
+          "name": "store",
+          "seconds": 1.46719
+        },
+        {
+          "name": "event_store",
+          "seconds": 0.883111
+        },
+        {
+          "name": "workflow_store",
+          "seconds": 2.01938
+        },
+        {
+          "name": "acceptance_store",
+          "seconds": 2.32112
+        },
+        {
+          "name": "config_loader",
+          "seconds": 0.13684
+        },
+        {
+          "name": "model",
+          "seconds": 0.0348472
+        },
+        {
+          "name": "schema",
+          "seconds": 0.0153458
+        },
+        {
+          "name": "offline_runtime",
+          "seconds": 0.623183
+        },
+        {
+          "name": "event_runtime",
+          "seconds": 3.59718
+        },
+        {
+          "name": "workflow_runtime",
+          "seconds": 2.99895
+        },
+        {
+          "name": "acceptance_runtime",
+          "seconds": 7.52328
+        },
+        {
+          "name": "workspace",
+          "seconds": 0.0340051
+        },
+        {
+          "name": "sandbox",
+          "seconds": 1.74717
+        },
+        {
+          "name": "worker_tools",
+          "seconds": 2.23199
+        },
+        {
+          "name": "delivery",
+          "seconds": 0.074326
+        },
+        {
+          "name": "cleanup",
+          "seconds": 0.0642641
+        },
+        {
+          "name": "cleanup_runtime",
+          "seconds": 4.82049
+        },
+        {
+          "name": "audit24_reopen",
+          "seconds": 0.366849
+        },
+        {
+          "name": "process_evidence",
+          "seconds": 0.0196313
+        },
+        {
+          "name": "audit24_reconcile",
+          "seconds": 0.258746
+        },
+        {
+          "name": "audit24_capacity",
+          "seconds": 0.519152
+        },
+        {
+          "name": "audit24_capacity_repro",
+          "seconds": 19.2776
+        },
+        {
+          "name": "r1_history",
+          "seconds": 2.36503
+        },
+        {
+          "name": "r1_structured",
+          "seconds": 0.0502095
+        },
+        {
+          "name": "r1_window",
+          "seconds": 1.66427
+        },
+        {
+          "name": "r2_rework",
+          "seconds": 5.58
+        },
+        {
+          "name": "r2_recovery",
+          "seconds": 1.14252
+        },
+        {
+          "name": "r2_amend",
+          "seconds": 5.80219
+        },
+        {
+          "name": "r2a_mkdir",
+          "seconds": 0.973233
+        },
+        {
+          "name": "allocation_recovery",
+          "seconds": 2.32911
+        },
+        {
+          "name": "doctor_diagnostics",
+          "seconds": 0.0586056
+        },
+        {
+          "name": "protocol_codec",
+          "seconds": 0.0389822
+        },
+        {
+          "name": "sse_replay",
+          "seconds": 2.28134
+        },
+        {
+          "name": "r1_management",
+          "seconds": 12.502
+        },
+        {
+          "name": "owned_capacity",
+          "seconds": 3.87471
+        },
+        {
+          "name": "owned_capacity_runtime",
+          "seconds": 3.3652
+        },
+        {
+          "name": "live_model_store",
+          "seconds": 1.06999
+        },
+        {
+          "name": "billing",
+          "seconds": 0.999694
+        },
+        {
+          "name": "single_agent",
+          "seconds": 2.77856
+        },
+        {
+          "name": "single_agent_runtime",
+          "seconds": 2.70271
+        },
+        {
+          "name": "doctor_diagnostics_cli",
+          "seconds": 0.365931
+        },
+        {
+          "name": "protocol_replay_cli",
+          "seconds": 0.36437
+        },
+        {
+          "name": "https_transport",
+          "seconds": 9.56082
+        },
+        {
+          "name": "live_model_store_tls",
+          "seconds": 2.63987
+        },
+        {
+          "name": "live_workflow",
+          "seconds": 22.113
+        },
+        {
+          "name": "live_workflow_cli",
+          "seconds": 2.27974
+        },
+        {
+          "name": "billing_baseline_e2e",
+          "seconds": 43.29
+        },
+        {
+          "name": "runtime_resources_cli",
+          "seconds": 0.850353
+        },
+        {
+          "name": "r3_evaluation",
+          "seconds": 10.8443
+        },
+        {
+          "name": "handoff_integrity",
+          "seconds": 0.0383933
+        },
+        {
+          "name": "review_source_integrity",
+          "seconds": 0.0338334
+        },
+        {
+          "name": "specification_contracts",
+          "seconds": 0.612826
+        },
+        {
+          "name": "demo_smoke",
+          "seconds": 0.070353
+        },
+        {
+          "name": "s1_cli_smoke",
+          "seconds": 1.21318
+        },
+        {
+          "name": "s12_cli_smoke",
+          "seconds": 1.91516
+        },
+        {
+          "name": "s13_cli_smoke",
+          "seconds": 7.44958
+        },
+        {
+          "name": "s14_cli_smoke",
+          "seconds": 8.57651
+        },
+        {
+          "name": "s15_cli_smoke",
+          "seconds": 8.33416
+        },
+        {
+          "name": "s16_cli_smoke",
+          "seconds": 6.73352
+        },
+        {
+          "name": "audit24_reconcile_cli_smoke",
+          "seconds": 0.837777
+        },
+        {
+          "name": "audit24_reopen_cli_smoke",
+          "seconds": 0.461443
+        },
+        {
+          "name": "review_cli_smoke",
+          "seconds": 2.86607
+        },
+        {
+          "name": "audit24_capacity_cli_smoke",
+          "seconds": 5.58059
+        },
+        {
+          "name": "r1_history_cli_smoke",
+          "seconds": 5.09311
+        },
+        {
+          "name": "r1_structured_cli_smoke",
+          "seconds": 2.99274
+        },
+        {
+          "name": "r1_window_cli_smoke",
+          "seconds": 7.45878
+        },
+        {
+          "name": "r2_rework_cli_smoke",
+          "seconds": 5.44263
+        },
+        {
+          "name": "r2_recovery_cli_smoke",
+          "seconds": 2.67171
+        },
+        {
+          "name": "r2_integration_cli_smoke",
+          "seconds": 4.44134
+        },
+        {
+          "name": "r2_amend_cli_smoke",
+          "seconds": 4.87697
+        },
+        {
+          "name": "r2a_mkdir_cli_smoke",
+          "seconds": 1.20936
+        },
+        {
+          "name": "allocation_recovery_cli",
+          "seconds": 3.3986
+        }
+      ],
+      "ctest_wall_seconds": 138.07
+    },
+    {
+      "gate": "release-0002",
+      "command": [
+        "setpriv",
+        "--reuid=65534",
+        "--regid=65534",
+        "--clear-groups",
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-billing-baseline-validation/source/build-release",
+        "--parallel",
+        "2",
+        "--output-on-failure",
+        "--output-junit",
+        "/tmp/wls861-billing-baseline-post-ci/release-0002.xml"
+      ],
+      "umask": "0002",
+      "started_at": "2026-10-27T16:48:11.645305+00:00",
+      "elapsed_seconds": 143.872,
+      "returncode": 0,
+      "log": "/tmp/wls861-billing-baseline-post-ci/release-0002.txt",
+      "suites_passed": 78,
+      "suites_total": 78,
+      "tests": [
+        {
+          "name": "journal",
+          "seconds": 0.270207
+        },
+        {
+          "name": "config",
+          "seconds": 0.00393613
+        },
+        {
+          "name": "scheduler",
+          "seconds": 0.00394211
+        },
+        {
+          "name": "task_engine",
+          "seconds": 0.1061
+        },
+        {
+          "name": "runtime_types",
+          "seconds": 0.01343
+        },
+        {
+          "name": "runtime_resources",
+          "seconds": 0.466597
+        },
+        {
+          "name": "store",
+          "seconds": 1.44802
+        },
+        {
+          "name": "event_store",
+          "seconds": 0.845196
+        },
+        {
+          "name": "workflow_store",
+          "seconds": 2.04674
+        },
+        {
+          "name": "acceptance_store",
+          "seconds": 2.23269
+        },
+        {
+          "name": "config_loader",
+          "seconds": 0.172847
+        },
+        {
+          "name": "model",
+          "seconds": 0.0338465
+        },
+        {
+          "name": "schema",
+          "seconds": 0.0176976
+        },
+        {
+          "name": "offline_runtime",
+          "seconds": 0.59163
+        },
+        {
+          "name": "event_runtime",
+          "seconds": 3.67494
+        },
+        {
+          "name": "workflow_runtime",
+          "seconds": 3.24151
+        },
+        {
+          "name": "acceptance_runtime",
+          "seconds": 7.69167
+        },
+        {
+          "name": "workspace",
+          "seconds": 0.0298186
+        },
+        {
+          "name": "sandbox",
+          "seconds": 3.04107
+        },
+        {
+          "name": "worker_tools",
+          "seconds": 2.16946
+        },
+        {
+          "name": "delivery",
+          "seconds": 0.0679803
+        },
+        {
+          "name": "cleanup",
+          "seconds": 0.0497099
+        },
+        {
+          "name": "cleanup_runtime",
+          "seconds": 4.98194
+        },
+        {
+          "name": "audit24_reopen",
+          "seconds": 0.364674
+        },
+        {
+          "name": "process_evidence",
+          "seconds": 0.0217053
+        },
+        {
+          "name": "audit24_reconcile",
+          "seconds": 0.237624
+        },
+        {
+          "name": "audit24_capacity",
+          "seconds": 0.460812
+        },
+        {
+          "name": "audit24_capacity_repro",
+          "seconds": 18.9354
+        },
+        {
+          "name": "r1_history",
+          "seconds": 2.11124
+        },
+        {
+          "name": "r1_structured",
+          "seconds": 0.0453436
+        },
+        {
+          "name": "r1_window",
+          "seconds": 1.77209
+        },
+        {
+          "name": "r2_rework",
+          "seconds": 6.32606
+        },
+        {
+          "name": "r2_recovery",
+          "seconds": 1.34326
+        },
+        {
+          "name": "r2_amend",
+          "seconds": 6.88076
+        },
+        {
+          "name": "r2a_mkdir",
+          "seconds": 1.34418
+        },
+        {
+          "name": "allocation_recovery",
+          "seconds": 2.34054
+        },
+        {
+          "name": "doctor_diagnostics",
+          "seconds": 0.0806872
+        },
+        {
+          "name": "protocol_codec",
+          "seconds": 0.0390169
+        },
+        {
+          "name": "sse_replay",
+          "seconds": 2.29371
+        },
+        {
+          "name": "r1_management",
+          "seconds": 13.5437
+        },
+        {
+          "name": "owned_capacity",
+          "seconds": 4.9404
+        },
+        {
+          "name": "owned_capacity_runtime",
+          "seconds": 3.86249
+        },
+        {
+          "name": "live_model_store",
+          "seconds": 1.419
+        },
+        {
+          "name": "billing",
+          "seconds": 0.941286
+        },
+        {
+          "name": "single_agent",
+          "seconds": 2.87498
+        },
+        {
+          "name": "single_agent_runtime",
+          "seconds": 2.61758
+        },
+        {
+          "name": "doctor_diagnostics_cli",
+          "seconds": 0.412244
+        },
+        {
+          "name": "protocol_replay_cli",
+          "seconds": 0.435005
+        },
+        {
+          "name": "https_transport",
+          "seconds": 9.64371
+        },
+        {
+          "name": "live_model_store_tls",
+          "seconds": 2.68774
+        },
+        {
+          "name": "live_workflow",
+          "seconds": 22.0208
+        },
+        {
+          "name": "live_workflow_cli",
+          "seconds": 2.30715
+        },
+        {
+          "name": "billing_baseline_e2e",
+          "seconds": 42.9032
+        },
+        {
+          "name": "runtime_resources_cli",
+          "seconds": 0.855971
+        },
+        {
+          "name": "r3_evaluation",
+          "seconds": 12.0013
+        },
+        {
+          "name": "handoff_integrity",
+          "seconds": 0.037408
+        },
+        {
+          "name": "review_source_integrity",
+          "seconds": 0.0367155
+        },
+        {
+          "name": "specification_contracts",
+          "seconds": 0.610814
+        },
+        {
+          "name": "demo_smoke",
+          "seconds": 0.0698273
+        },
+        {
+          "name": "s1_cli_smoke",
+          "seconds": 1.38793
+        },
+        {
+          "name": "s12_cli_smoke",
+          "seconds": 1.86981
+        },
+        {
+          "name": "s13_cli_smoke",
+          "seconds": 8.40702
+        },
+        {
+          "name": "s14_cli_smoke",
+          "seconds": 8.23641
+        },
+        {
+          "name": "s15_cli_smoke",
+          "seconds": 9.03414
+        },
+        {
+          "name": "s16_cli_smoke",
+          "seconds": 8.13037
+        },
+        {
+          "name": "audit24_reconcile_cli_smoke",
+          "seconds": 0.857086
+        },
+        {
+          "name": "audit24_reopen_cli_smoke",
+          "seconds": 0.507394
+        },
+        {
+          "name": "review_cli_smoke",
+          "seconds": 2.8445
+        },
+        {
+          "name": "audit24_capacity_cli_smoke",
+          "seconds": 5.10708
+        },
+        {
+          "name": "r1_history_cli_smoke",
+          "seconds": 5.01322
+        },
+        {
+          "name": "r1_structured_cli_smoke",
+          "seconds": 3.40737
+        },
+        {
+          "name": "r1_window_cli_smoke",
+          "seconds": 8.25473
+        },
+        {
+          "name": "r2_rework_cli_smoke",
+          "seconds": 5.7244
+        },
+        {
+          "name": "r2_recovery_cli_smoke",
+          "seconds": 2.71764
+        },
+        {
+          "name": "r2_integration_cli_smoke",
+          "seconds": 4.53865
+        },
+        {
+          "name": "r2_amend_cli_smoke",
+          "seconds": 4.98924
+        },
+        {
+          "name": "r2a_mkdir_cli_smoke",
+          "seconds": 1.26959
+        },
+        {
+          "name": "allocation_recovery_cli",
+          "seconds": 3.37306
+        }
+      ],
+      "ctest_wall_seconds": 143.86
+    }
+  ],
+  "release_cli_sha256": "c0fe1336f3cd35a5fab1a23725aeb5389adad9ffba9ef7de28d3745f8191fd46",
+  "scope": "post-CI combined runtime reuse, full ordinary-user Release suites under both umasks",
+  "real_provider_calls": 0,
+  "paid_calls": 0,
+  "asan_record": "docs/reports/billing-baseline-post-ci-asan-results.json",
+  "archives": [
+    {
+      "path": "docs/reports/billing-baseline-post-ci-release-build.txt",
+      "raw_sha256": "223bf6b7dc1846f034c5e875a0e167a7855bde5668b92f6031828fd5b6b398eb",
+      "saved_sha256": "223bf6b7dc1846f034c5e875a0e167a7855bde5668b92f6031828fd5b6b398eb",
+      "raw_bytes": 2859,
+      "saved_bytes": 2859,
+      "normalization": "remove trailing ASCII space/tab/CR only; preserve lines and terminal newline"
+    },
+    {
+      "path": "docs/reports/billing-baseline-post-ci-release-0022.txt",
+      "raw_sha256": "e1e289cb0e3d65e76be28bfdfa552d08bd5c64adde171eabc2105f6c34249975",
+      "saved_sha256": "e1e289cb0e3d65e76be28bfdfa552d08bd5c64adde171eabc2105f6c34249975",
+      "raw_bytes": 8360,
+      "saved_bytes": 8360,
+      "normalization": "remove trailing ASCII space/tab/CR only; preserve lines and terminal newline"
+    },
+    {
+      "path": "docs/reports/billing-baseline-post-ci-release-0022.xml",
+      "raw_sha256": "2114ee311ab44ea62f2857acb088e521653731f88779a6c12962100a12c4b47a",
+      "saved_sha256": "2114ee311ab44ea62f2857acb088e521653731f88779a6c12962100a12c4b47a",
+      "raw_bytes": 79522,
+      "saved_bytes": 79522,
+      "normalization": "none"
+    },
+    {
+      "path": "docs/reports/billing-baseline-post-ci-release-0002.txt",
+      "raw_sha256": "103329809b01f2cff6f889ab6677dfe2d24f836184363445c650f6f615f004a8",
+      "saved_sha256": "103329809b01f2cff6f889ab6677dfe2d24f836184363445c650f6f615f004a8",
+      "raw_bytes": 8360,
+      "saved_bytes": 8360,
+      "normalization": "remove trailing ASCII space/tab/CR only; preserve lines and terminal newline"
+    },
+    {
+      "path": "docs/reports/billing-baseline-post-ci-release-0002.xml",
+      "raw_sha256": "7df0c37f4029198de6c8b6c2636ef4415bcab9d4de42449b72457f6766f37944",
+      "saved_sha256": "7df0c37f4029198de6c8b6c2636ef4415bcab9d4de42449b72457f6766f37944",
+      "raw_bytes": 79523,
+      "saved_bytes": 79523,
+      "normalization": "none"
+    },
+    {
+      "path": "docs/reports/billing-baseline-post-ci-asan.xml",
+      "raw_sha256": "38ed968a62662d2be4a758a8fa40404e0117bccfd4a645feea7e688709164082",
+      "saved_sha256": "38ed968a62662d2be4a758a8fa40404e0117bccfd4a645feea7e688709164082",
+      "raw_bytes": 6126,
+      "saved_bytes": 6126,
+      "normalization": "none"
+    }
+  ]
+}

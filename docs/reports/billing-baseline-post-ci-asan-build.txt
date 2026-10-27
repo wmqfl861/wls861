@@ -1,0 +1,13 @@
+[1/13] Building CXX object CMakeFiles/wls_s1.dir/src/config_loader.cpp.o
+[2/13] Building CXX object CMakeFiles/wls_s1.dir/src/management_context.cpp.o
+[3/13] Building CXX object CMakeFiles/wls_s1.dir/src/store.cpp.o
+[4/13] Building CXX object CMakeFiles/wls_s1.dir/src/offline_runtime.cpp.o
+[5/13] Building CXX object CMakeFiles/wls_s1.dir/src/worker_tools.cpp.o
+[6/13] Building CXX object CMakeFiles/wls_s1.dir/src/event_runtime.cpp.o
+[7/13] Linking CXX static library libwls_s1.a
+[8/13] Linking CXX executable store_tests
+[9/13] Linking CXX executable offline_runtime_tests
+[10/13] Linking CXX executable acceptance_runtime_tests
+[11/13] Linking CXX executable live_model_store_tests
+[12/13] Building CXX object CMakeFiles/worker_tools_tests.dir/tests/worker_tools_tests.cpp.o
+[13/13] Linking CXX executable worker_tools_tests

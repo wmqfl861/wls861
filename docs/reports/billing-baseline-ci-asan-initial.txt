@@ -1,0 +1,643 @@
+﻿2026-10-27T15:27:31.3692127Z Current runner version: '2.338.0'
+2026-10-27T15:27:31.3716597Z ##[group]Runner Image Provisioner
+2026-10-27T15:27:31.3717499Z Hosted Compute Agent
+2026-10-27T15:27:31.3718183Z Version: 20261021.618
+2026-10-27T15:27:31.3718798Z Commit: 21505ad2541d5be6135ed84fc33697146cf75b8e
+2026-10-27T15:27:31.3719577Z Build Date: 2026-10-21T00:45:21Z
+2026-10-27T15:27:31.3720259Z Worker ID: {3f0b0ca6-c824-4570-adb5-8ce0a682291c}
+2026-10-27T15:27:31.3720985Z Region: centralus
+2026-10-27T15:27:31.3721556Z Cloud: Azure
+2026-10-27T15:27:31.3722077Z ##[endgroup]
+2026-10-27T15:27:31.3723679Z ##[group]Operating System
+2026-10-27T15:27:31.3724303Z Ubuntu
+2026-10-27T15:27:31.3724833Z 24.04.5
+2026-10-27T15:27:31.3725577Z LTS
+2026-10-27T15:27:31.3726087Z ##[endgroup]
+2026-10-27T15:27:31.3726607Z ##[group]Runner Image
+2026-10-27T15:27:31.3727253Z Image: ubuntu-24.04
+2026-10-27T15:27:31.3727828Z Version: 20261025.353.1
+2026-10-27T15:27:31.3729063Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261025.353/images/ubuntu/Ubuntu2404-Readme.md
+2026-10-27T15:27:31.3730753Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261025.353
+2026-10-27T15:27:31.3731765Z ##[endgroup]
+2026-10-27T15:27:31.3732813Z ##[group]GITHUB_TOKEN Permissions
+2026-10-27T15:27:31.3735249Z Contents: read
+2026-10-27T15:27:31.3735826Z Metadata: read
+2026-10-27T15:27:31.3736388Z ##[endgroup]
+2026-10-27T15:27:31.3738585Z Secret source: Actions
+2026-10-27T15:27:31.3739528Z Cache mode: write
+2026-10-27T15:27:31.3740373Z Prepare workflow directory
+2026-10-27T15:27:31.4120233Z Prepare all required actions
+2026-10-27T15:27:31.4168044Z Getting action download info
+2026-10-27T15:27:31.6745689Z Download action repository 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-27T15:27:31.8387831Z Complete job name: Linux C++20 (ASan)
+2026-10-27T15:27:31.9249812Z ##[group]Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+2026-10-27T15:27:31.9250861Z with:
+2026-10-27T15:27:31.9251425Z   persist-credentials: false
+2026-10-27T15:27:31.9252022Z   repository: wmqfl861/wls861
+2026-10-27T15:27:31.9256252Z   token: ***
+2026-10-27T15:27:31.9256759Z   ssh-strict: true
+2026-10-27T15:27:31.9257320Z   ssh-user: git
+2026-10-27T15:27:31.9257822Z   clean: true
+2026-10-27T15:27:31.9258548Z   sparse-checkout-cone-mode: true
+2026-10-27T15:27:31.9259417Z   fetch-depth: 1
+2026-10-27T15:27:31.9259923Z   fetch-tags: false
+2026-10-27T15:27:31.9260422Z   show-progress: true
+2026-10-27T15:27:31.9260973Z   lfs: false
+2026-10-27T15:27:31.9261459Z   submodules: false
+2026-10-27T15:27:31.9261986Z   set-safe-directory: true
+2026-10-27T15:27:31.9262595Z   allow-unsafe-pr-checkout: false
+2026-10-27T15:27:31.9263437Z env:
+2026-10-27T15:27:31.9264020Z   UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+2026-10-27T15:27:31.9264837Z   ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
+2026-10-27T15:27:31.9265846Z ##[endgroup]
+2026-10-27T15:27:32.1975913Z Syncing repository: wmqfl861/wls861
+2026-10-27T15:27:32.1979493Z ##[group]Getting Git version info
+2026-10-27T15:27:32.1980726Z Working directory is '/home/runner/work/wls861/wls861'
+2026-10-27T15:27:32.1982609Z [command]/usr/bin/git version
+2026-10-27T15:27:32.2069947Z git version 2.56.0
+2026-10-27T15:27:32.2089445Z ##[endgroup]
+2026-10-27T15:27:32.2104370Z Temporarily overriding HOME='/home/runner/work/_temp/7b0ed495-4d1d-4d37-be23-3352ff58c89c' before making global git config changes
+2026-10-27T15:27:32.2107114Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-27T15:27:32.2109832Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/wls861/wls861
+2026-10-27T15:27:32.2164475Z Deleting the contents of '/home/runner/work/wls861/wls861'
+2026-10-27T15:27:32.2168404Z ##[group]Initializing the repository
+2026-10-27T15:27:32.2174272Z [command]/usr/bin/git init /home/runner/work/wls861/wls861
+2026-10-27T15:27:32.2281870Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-27T15:27:32.2284621Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-27T15:27:32.2286559Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-27T15:27:32.2287991Z hint: call:
+2026-10-27T15:27:32.2288764Z hint:
+2026-10-27T15:27:32.2289700Z hint: 	git config --global init.defaultBranch <name>
+2026-10-27T15:27:32.2291565Z hint:
+2026-10-27T15:27:32.2292673Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-27T15:27:32.2294332Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-27T15:27:32.2295944Z hint:
+2026-10-27T15:27:32.2296762Z hint: 	git branch -m <name>
+2026-10-27T15:27:32.2297732Z hint:
+2026-10-27T15:27:32.2298869Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-27T15:27:32.2300692Z Initialized empty Git repository in /home/runner/work/wls861/wls861/.git/
+2026-10-27T15:27:32.2305592Z [command]/usr/bin/git remote add origin https://github.com/wmqfl861/wls861
+2026-10-27T15:27:32.2384629Z ##[endgroup]
+2026-10-27T15:27:32.2386376Z ##[group]Disabling automatic garbage collection
+2026-10-27T15:27:32.2387630Z [command]/usr/bin/git config --local gc.auto 0
+2026-10-27T15:27:32.2430973Z ##[endgroup]
+2026-10-27T15:27:32.2432450Z ##[group]Setting up auth
+2026-10-27T15:27:32.2437982Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-27T15:27:32.2480249Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-27T15:27:32.2844826Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-27T15:27:32.2881636Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-27T15:27:32.3093748Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-27T15:27:32.3130534Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-27T15:27:32.3335919Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-27T15:27:32.3384065Z ##[endgroup]
+2026-10-27T15:27:32.3386631Z ##[group]Fetching the repository
+2026-10-27T15:27:32.3404787Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +1df86cefbf7a18e618251c1dbdf72fe88c5d479b:refs/remotes/origin/main
+2026-10-27T15:27:33.2814173Z From https://github.com/wmqfl861/wls861
+2026-10-27T15:27:33.2817319Z  * [new ref]         1df86cefbf7a18e618251c1dbdf72fe88c5d479b -> origin/main
+2026-10-27T15:27:33.2822286Z ##[endgroup]
+2026-10-27T15:27:33.2824259Z ##[group]Determining the checkout info
+2026-10-27T15:27:33.2827052Z ##[endgroup]
+2026-10-27T15:27:33.2828647Z [command]/usr/bin/git sparse-checkout disable
+2026-10-27T15:27:33.2886825Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-27T15:27:33.2921303Z ##[group]Checking out the ref
+2026-10-27T15:27:33.2923684Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-10-27T15:27:33.3507417Z Switched to a new branch 'main'
+2026-10-27T15:27:33.3511588Z branch 'main' set up to track 'origin/main'.
+2026-10-27T15:27:33.3521532Z ##[endgroup]
+2026-10-27T15:27:33.3562305Z [command]/usr/bin/git log -1 --format=%H
+2026-10-27T15:27:33.3586770Z 1df86cefbf7a18e618251c1dbdf72fe88c5d479b
+2026-10-27T15:27:33.3595196Z ##[group]Removing auth
+2026-10-27T15:27:33.3600199Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-27T15:27:33.3630032Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-27T15:27:33.3827766Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-27T15:27:33.3857727Z http.https://github.com/.extraheader
+2026-10-27T15:27:33.3862779Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-27T15:27:33.3897813Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-27T15:27:33.4093355Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-27T15:27:33.4124590Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-27T15:27:33.4316583Z ##[endgroup]
+2026-10-27T15:27:33.4590688Z ##[group]Run sudo apt-get update
+2026-10-27T15:27:33.4592241Z [36;1msudo apt-get update[0m
+2026-10-27T15:27:33.4594787Z [36;1msudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libcurl4-openssl-dev libyaml-dev openssl[0m
+2026-10-27T15:27:33.4597598Z [36;1mif [ "g++" = clang++-18 ]; then[0m
+2026-10-27T15:27:33.4599126Z [36;1m  sudo apt-get install --yes clang-18[0m
+2026-10-27T15:27:33.4600611Z [36;1mfi[0m
+2026-10-27T15:27:33.4620474Z shell: /usr/bin/bash -e {0}
+2026-10-27T15:27:33.4621850Z env:
+2026-10-27T15:27:33.4623053Z   UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+2026-10-27T15:27:33.4625456Z   ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
+2026-10-27T15:27:33.4626876Z ##[endgroup]
+2026-10-27T15:27:33.5327896Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+2026-10-27T15:27:33.5931562Z Hit:2 http://azure.archive.ubuntu.com/ubuntu noble InRelease
+2026-10-27T15:27:33.5936134Z Get:6 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]
+2026-10-27T15:27:33.6058387Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+2026-10-27T15:27:33.6078034Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+2026-10-27T15:27:33.6088602Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+2026-10-27T15:27:33.7052692Z Get:7 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [661 kB]
+2026-10-27T15:27:33.7184550Z Get:8 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [598 kB]
+2026-10-27T15:27:33.7490238Z Get:9 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1401 kB]
+2026-10-27T15:27:33.7576620Z Get:10 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [310 kB]
+2026-10-27T15:27:33.7628176Z Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1706 kB]
+2026-10-27T15:27:33.7665522Z Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe Translation-en [343 kB]
+2026-10-27T15:27:33.8474630Z Get:13 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1146 kB]
+2026-10-27T15:27:33.9108606Z Get:14 http://azure.archive.ubuntu.com/ubuntu noble-security/main Translation-en [231 kB]
+2026-10-27T15:27:33.9122800Z Get:15 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1223 kB]
+2026-10-27T15:27:33.9176396Z Get:16 http://azure.archive.ubuntu.com/ubuntu noble-security/universe Translation-en [246 kB]
+2026-10-27T15:27:36.8269820Z Fetched 8246 kB in 1s (8991 kB/s)
+2026-10-27T15:27:37.8853819Z Reading package lists...
+2026-10-27T15:27:37.9247086Z Reading package lists...
+2026-10-27T15:27:38.1584089Z Building dependency tree...
+2026-10-27T15:27:38.1591414Z Reading state information...
+2026-10-27T15:27:38.3408858Z libsqlite3-dev is already the newest version (3.45.1-1ubuntu2.8).
+2026-10-27T15:27:38.3409713Z libssl-dev is already the newest version (3.0.13-0ubuntu3.16).
+2026-10-27T15:27:38.3410454Z libyaml-dev is already the newest version (0.2.5-1build1).
+2026-10-27T15:27:38.3410922Z openssl is already the newest version (3.0.13-0ubuntu3.16).
+2026-10-27T15:27:38.3411860Z Suggested packages:
+2026-10-27T15:27:38.3412451Z   libboost1.83-doc libboost-atomic1.83-dev libboost-chrono1.83-dev
+2026-10-27T15:27:38.3413111Z   libboost-container1.83-dev libboost-context1.83-dev
+2026-10-27T15:27:38.3413576Z   libboost-contract1.83-dev libboost-coroutine1.83-dev
+2026-10-27T15:27:38.3414098Z   libboost-date-time1.83-dev libboost-exception1.83-dev libboost-fiber1.83-dev
+2026-10-27T15:27:38.3414699Z   libboost-filesystem1.83-dev libboost-graph-parallel1.83-dev
+2026-10-27T15:27:38.3415700Z   libboost-graph1.83-dev libboost-iostreams1.83-dev libboost-json1.83-dev
+2026-10-27T15:27:38.3416350Z   libboost-locale1.83-dev libboost-log1.83-dev libboost-math1.83-dev
+2026-10-27T15:27:38.3416894Z   libboost-mpi-python1.83-dev libboost-mpi1.83-dev libboost-nowide1.83-dev
+2026-10-27T15:27:38.3417672Z   libboost-numpy1.83-dev libboost-program-options1.83-dev
+2026-10-27T15:27:38.3418434Z   libboost-python1.83-dev libboost-random1.83-dev libboost-regex1.83-dev
+2026-10-27T15:27:38.3419143Z   libboost-serialization1.83-dev libboost-stacktrace1.83-dev
+2026-10-27T15:27:38.3419923Z   libboost-system1.83-dev libboost-test1.83-dev libboost-thread1.83-dev
+2026-10-27T15:27:38.3420773Z   libboost-timer1.83-dev libboost-type-erasure1.83-dev libboost-url1.83-dev
+2026-10-27T15:27:38.3421389Z   libboost-wave1.83-dev libboost1.83-tools-dev libmpfrc++-dev libntl-dev
+2026-10-27T15:27:38.3421945Z   libcurl4-doc libidn-dev libkrb5-dev libldap2-dev librtmp-dev libssh2-1-dev
+2026-10-27T15:27:38.3587739Z The following NEW packages will be installed:
+2026-10-27T15:27:38.3595390Z   libboost1.83-dev libcurl4-openssl-dev
+2026-10-27T15:27:38.3782071Z 0 upgraded, 2 newly installed, 0 to remove and 5 not upgraded.
+2026-10-27T15:27:38.3782973Z Need to get 11.2 MB of archives.
+2026-10-27T15:27:38.3783937Z After this operation, 163 MB of additional disk space will be used.
+2026-10-27T15:27:38.3784737Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+2026-10-27T15:27:38.4444819Z Get:2 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 libboost1.83-dev amd64 1.83.0-2.1ubuntu3.2 [10.7 MB]
+2026-10-27T15:27:38.5932575Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 libcurl4-openssl-dev amd64 8.5.0-2ubuntu10.16 [447 kB]
+2026-10-27T15:27:38.8997614Z Fetched 11.2 MB in 0s (49.1 MB/s)
+2026-10-27T15:27:39.1056057Z Selecting previously unselected package libboost1.83-dev:amd64.
+2026-10-27T15:27:39.1391229Z (Reading database ...
+2026-10-27T15:27:39.1391664Z (Reading database ... 5%
+2026-10-27T15:27:39.1392011Z (Reading database ... 10%
+2026-10-27T15:27:39.1392489Z (Reading database ... 15%
+2026-10-27T15:27:39.1393112Z (Reading database ... 20%
+2026-10-27T15:27:39.1393555Z (Reading database ... 25%
+2026-10-27T15:27:39.1394003Z (Reading database ... 30%
+2026-10-27T15:27:39.1394320Z (Reading database ... 35%
+2026-10-27T15:27:39.1394735Z (Reading database ... 40%
+2026-10-27T15:27:39.1395324Z (Reading database ... 45%
+2026-10-27T15:27:39.1395787Z (Reading database ... 50%
+2026-10-27T15:27:39.1396294Z (Reading database ... 55%
+2026-10-27T15:27:39.2427111Z (Reading database ... 60%
+2026-10-27T15:27:39.4554710Z (Reading database ... 65%
+2026-10-27T15:27:39.7672668Z (Reading database ... 70%
+2026-10-27T15:27:39.9398368Z (Reading database ... 75%
+2026-10-27T15:27:40.0873300Z (Reading database ... 80%
+2026-10-27T15:27:40.1571591Z (Reading database ... 85%
+2026-10-27T15:27:40.2675920Z (Reading database ... 90%
+2026-10-27T15:27:40.4031136Z (Reading database ... 95%
+2026-10-27T15:27:40.4031855Z (Reading database ... 100%
+2026-10-27T15:27:40.4032459Z (Reading database ... 215504 files and directories currently installed.)
+2026-10-27T15:27:40.4082260Z Preparing to unpack .../libboost1.83-dev_1.83.0-2.1ubuntu3.2_amd64.deb ...
+2026-10-27T15:27:40.4108976Z Unpacking libboost1.83-dev:amd64 (1.83.0-2.1ubuntu3.2) ...
+2026-10-27T15:27:43.4749888Z Selecting previously unselected package libcurl4-openssl-dev:amd64.
+2026-10-27T15:27:43.4970983Z Preparing to unpack .../libcurl4-openssl-dev_8.5.0-2ubuntu10.16_amd64.deb ...
+2026-10-27T15:27:43.4984618Z Unpacking libcurl4-openssl-dev:amd64 (8.5.0-2ubuntu10.16) ...
+2026-10-27T15:27:43.5498327Z Setting up libboost1.83-dev:amd64 (1.83.0-2.1ubuntu3.2) ...
+2026-10-27T15:27:43.5527777Z Setting up libcurl4-openssl-dev:amd64 (8.5.0-2ubuntu10.16) ...
+2026-10-27T15:27:43.5558511Z Processing triggers for man-db (2.12.0-4build2) ...
+2026-10-27T15:27:43.5584423Z Not building database; man-db/auto-update is not 'true'.
+2026-10-27T15:27:44.1509329Z
+2026-10-27T15:27:44.1510108Z Running kernel seems to be up-to-date.
+2026-10-27T15:27:44.1510437Z
+2026-10-27T15:27:44.1510575Z No services need to be restarted.
+2026-10-27T15:27:44.1510967Z
+2026-10-27T15:27:44.1511113Z No containers need to be restarted.
+2026-10-27T15:27:44.1511350Z
+2026-10-27T15:27:44.1511548Z No user sessions are running outdated binaries.
+2026-10-27T15:27:44.1511825Z
+2026-10-27T15:27:44.1512612Z No VM guests are running outdated hypervisor (qemu) binaries on this host.
+2026-10-27T15:27:45.1773314Z ##[group]Run python3 -m venv .local/test-venv
+2026-10-27T15:27:45.1773830Z [36;1mpython3 -m venv .local/test-venv[0m
+2026-10-27T15:27:45.1774318Z [36;1m.local/test-venv/bin/python -m pip install -r requirements-test.txt[0m
+2026-10-27T15:27:45.1789768Z shell: /usr/bin/bash -e {0}
+2026-10-27T15:27:45.1790194Z env:
+2026-10-27T15:27:45.1790566Z   UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+2026-10-27T15:27:45.1791004Z   ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
+2026-10-27T15:27:45.1791383Z ##[endgroup]
+2026-10-27T15:27:48.3287224Z Collecting jsonschema==4.10.3 (from -r requirements-test.txt (line 3))
+2026-10-27T15:27:48.3859716Z   Downloading jsonschema-4.10.3-py3-none-any.whl.metadata (8.0 kB)
+2026-10-27T15:27:48.4484091Z Collecting attrs>=17.4.0 (from jsonschema==4.10.3->-r requirements-test.txt (line 3))
+2026-10-27T15:27:48.4591048Z   Downloading attrs-26.1.0-py3-none-any.whl.metadata (8.8 kB)
+2026-10-27T15:27:48.5077266Z Collecting pyrsistent!=0.17.0,!=0.17.1,!=0.17.2,>=0.14.0 (from jsonschema==4.10.3->-r requirements-test.txt (line 3))
+2026-10-27T15:27:48.5184087Z   Downloading pyrsistent-0.20.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (27 kB)
+2026-10-27T15:27:48.5453534Z Downloading jsonschema-4.10.3-py3-none-any.whl (81 kB)
+2026-10-27T15:27:48.5589109Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 81.2/81.2 kB 6.5 MB/s eta 0:00:00
+2026-10-27T15:27:48.5694751Z Downloading attrs-26.1.0-py3-none-any.whl (67 kB)
+2026-10-27T15:27:48.5740432Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 67.5/67.5 kB 23.6 MB/s eta 0:00:00
+2026-10-27T15:27:48.5844182Z Downloading pyrsistent-0.20.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (122 kB)
+2026-10-27T15:27:48.5904473Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 122.3/122.3 kB 26.2 MB/s eta 0:00:00
+2026-10-27T15:27:48.6104305Z Installing collected packages: pyrsistent, attrs, jsonschema
+2026-10-27T15:27:48.7318774Z Successfully installed attrs-26.1.0 jsonschema-4.10.3 pyrsistent-0.20.0
+2026-10-27T15:27:48.8040539Z ##[group]Run cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++ -DWLS_ENABLE_UBSAN=OFF -DWLS_ENABLE_ASAN=ON -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
+2026-10-27T15:27:48.8041895Z [36;1mcmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++ -DWLS_ENABLE_UBSAN=OFF -DWLS_ENABLE_ASAN=ON -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"[0m
+2026-10-27T15:27:48.8056187Z shell: /usr/bin/bash -e {0}
+2026-10-27T15:27:48.8056508Z env:
+2026-10-27T15:27:48.8056908Z   UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+2026-10-27T15:27:48.8057355Z   ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
+2026-10-27T15:27:48.8057726Z ##[endgroup]
+2026-10-27T15:27:50.1863156Z -- The CXX compiler identification is GNU 13.3.0
+2026-10-27T15:27:50.7189982Z -- Detecting CXX compiler ABI info
+2026-10-27T15:27:51.2510752Z -- Detecting CXX compiler ABI info - done
+2026-10-27T15:27:51.2667417Z -- Check for working CXX compiler: /usr/bin/g++ - skipped
+2026-10-27T15:27:51.2990154Z -- Detecting CXX compile features
+2026-10-27T15:27:51.2998868Z -- Detecting CXX compile features - done
+2026-10-27T15:27:51.4647660Z -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+2026-10-27T15:27:51.5626099Z -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+2026-10-27T15:27:51.6086784Z -- Found Threads: TRUE
+2026-10-27T15:27:51.6087465Z CMake Warning (dev) at CMakeLists.txt:16 (find_package):
+2026-10-27T15:27:51.6088465Z   Policy CMP0167 is not set: The FindBoost module is removed.  Run "cmake
+2026-10-27T15:27:51.6089144Z   --help-policy CMP0167" for policy details.  Use the cmake_policy command to
+2026-10-27T15:27:51.6089702Z   set the policy and suppress this warning.
+2026-10-27T15:27:51.6089979Z
+2026-10-27T15:27:51.6090230Z This warning is for project developers.  Use -Wno-dev to suppress it.
+2026-10-27T15:27:51.6090514Z
+2026-10-27T15:27:51.6934112Z -- Found Boost: /usr/lib/x86_64-linux-gnu/cmake/Boost-1.83.0/BoostConfig.cmake (found suitable version "1.83.0", minimum required is "1.83")
+2026-10-27T15:27:51.7710640Z -- Found SQLite3: /usr/include (found suitable version "3.45.1", minimum required is "3.37")
+2026-10-27T15:27:51.8059076Z -- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found suitable version "3.0.13", minimum required is "3") found components: Crypto
+2026-10-27T15:27:51.8708567Z -- Found CURL: /usr/lib/x86_64-linux-gnu/libcurl.so (found suitable version "8.5.0", minimum required is "7.88")
+2026-10-27T15:27:52.2084550Z -- Found Python3: /home/runner/work/wls861/wls861/.local/test-venv/bin/python (found version "3.12.3") found components: Interpreter
+2026-10-27T15:27:52.3087187Z -- Configuring done (3.4s)
+2026-10-27T15:27:52.4081256Z -- Generating done (0.1s)
+2026-10-27T15:27:52.4084976Z -- Build files have been written to: /home/runner/work/wls861/wls861/build
+2026-10-27T15:27:52.4180280Z ##[group]Run cmake --build build --parallel 2
+2026-10-27T15:27:52.4180851Z [36;1mcmake --build build --parallel 2[0m
+2026-10-27T15:27:52.4194788Z shell: /usr/bin/bash -e {0}
+2026-10-27T15:27:52.4195546Z env:
+2026-10-27T15:27:52.4195948Z   UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+2026-10-27T15:27:52.4196375Z   ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
+2026-10-27T15:27:52.4196812Z ##[endgroup]
+2026-10-27T15:27:52.4428750Z [  0%] Building CXX object CMakeFiles/wls_kernel.dir/src/task_engine.cpp.o
+2026-10-27T15:27:52.4431649Z [  1%] Building CXX object CMakeFiles/wls_kernel.dir/src/config.cpp.o
+2026-10-27T15:27:53.2565920Z [  2%] Building CXX object CMakeFiles/wls_kernel.dir/src/scheduler.cpp.o
+2026-10-27T15:27:54.8809587Z [  3%] Building CXX object CMakeFiles/wls_kernel.dir/src/journal_posix.cpp.o
+2026-10-27T15:27:56.2503913Z [  3%] Linking CXX static library libwls_kernel.a
+2026-10-27T15:27:56.9731554Z [  3%] Built target wls_kernel
+2026-10-27T15:27:56.9797327Z [  4%] Building CXX object CMakeFiles/wls861.dir/src/main.cpp.o
+2026-10-27T15:27:56.9811285Z [  5%] Building CXX object CMakeFiles/wls_s1.dir/src/boost_json.cpp.o
+2026-10-27T15:27:58.9768410Z [  6%] Linking CXX executable wls861
+2026-10-27T15:27:59.3752553Z [  6%] Built target wls861
+2026-10-27T15:27:59.3818940Z [  7%] Building CXX object CMakeFiles/journal_tests.dir/tests/journal_tests.cpp.o
+2026-10-27T15:28:01.0063433Z [  8%] Linking CXX executable journal_tests
+2026-10-27T15:28:01.0789595Z [  8%] Built target journal_tests
+2026-10-27T15:28:01.0853483Z [  8%] Building CXX object CMakeFiles/config_tests.dir/tests/config_tests.cpp.o
+2026-10-27T15:28:01.1659804Z [  9%] Building CXX object CMakeFiles/wls_s1.dir/src/runtime_types.cpp.o
+2026-10-27T15:28:02.1649032Z [ 10%] Linking CXX executable config_tests
+2026-10-27T15:28:02.2285949Z [ 10%] Built target config_tests
+2026-10-27T15:28:02.2353165Z [ 11%] Building CXX object CMakeFiles/scheduler_tests.dir/tests/scheduler_tests.cpp.o
+2026-10-27T15:28:04.6931316Z [ 11%] Building CXX object CMakeFiles/wls_s1.dir/src/runtime_resources.cpp.o
+2026-10-27T15:28:04.7718428Z [ 11%] Linking CXX executable scheduler_tests
+2026-10-27T15:28:04.8531405Z [ 11%] Built target scheduler_tests
+2026-10-27T15:28:04.8600137Z [ 12%] Building CXX object CMakeFiles/task_engine_tests.dir/tests/task_engine_tests.cpp.o
+2026-10-27T15:28:06.5341461Z [ 13%] Building CXX object CMakeFiles/wls_s1.dir/src/migrations.cpp.o
+2026-10-27T15:28:07.8318714Z [ 14%] Building CXX object CMakeFiles/wls_s1.dir/src/capacity.cpp.o
+2026-10-27T15:28:08.0300535Z [ 15%] Linking CXX executable task_engine_tests
+2026-10-27T15:28:08.1463132Z [ 15%] Built target task_engine_tests
+2026-10-27T15:28:08.1486004Z [ 16%] Building CXX object CMakeFiles/wls_s1.dir/src/store.cpp.o
+2026-10-27T15:28:08.8646587Z [ 16%] Building CXX object CMakeFiles/wls_s1.dir/src/config_loader.cpp.o
+2026-10-27T15:28:13.0491646Z [ 17%] Building CXX object CMakeFiles/wls_s1.dir/src/model.cpp.o
+2026-10-27T15:28:15.8001548Z [ 18%] Building CXX object CMakeFiles/wls_s1.dir/src/provider_profile.cpp.o
+2026-10-27T15:28:17.8341917Z [ 19%] Building CXX object CMakeFiles/wls_s1.dir/src/protocol_codec.cpp.o
+2026-10-27T15:28:18.5190819Z [ 19%] Building CXX object CMakeFiles/wls_s1.dir/src/sse_replay.cpp.o
+2026-10-27T15:28:20.0992648Z [ 20%] Building CXX object CMakeFiles/wls_s1.dir/src/https_transport.cpp.o
+2026-10-27T15:28:21.2525022Z [ 21%] Building CXX object CMakeFiles/wls_s1.dir/src/live_model.cpp.o
+2026-10-27T15:28:22.4222990Z [ 22%] Building CXX object CMakeFiles/wls_s1.dir/src/billing.cpp.o
+2026-10-27T15:28:23.5054620Z [ 22%] Building CXX object CMakeFiles/wls_s1.dir/src/single_agent.cpp.o
+2026-10-27T15:28:25.0885171Z [ 23%] Building CXX object CMakeFiles/wls_s1.dir/src/management_context.cpp.o
+2026-10-27T15:28:25.5237412Z [ 24%] Building CXX object CMakeFiles/wls_s1.dir/src/owned_capacity.cpp.o
+2026-10-27T15:28:26.7455481Z [ 24%] Building CXX object CMakeFiles/wls_s1.dir/src/context.cpp.o
+2026-10-27T15:28:27.1926387Z [ 25%] Building CXX object CMakeFiles/wls_s1.dir/src/structured_context.cpp.o
+2026-10-27T15:28:28.6523241Z [ 26%] Building CXX object CMakeFiles/wls_s1.dir/src/structured_history.cpp.o
+2026-10-27T15:28:29.0928633Z [ 27%] Building CXX object CMakeFiles/wls_s1.dir/src/worker_history.cpp.o
+2026-10-27T15:28:30.4179222Z [ 27%] Building CXX object CMakeFiles/wls_s1.dir/src/schema.cpp.o
+2026-10-27T15:28:31.0223459Z [ 28%] Building CXX object CMakeFiles/wls_s1.dir/src/offline_runtime.cpp.o
+2026-10-27T15:28:35.3192509Z [ 29%] Building CXX object CMakeFiles/wls_s1.dir/src/event_runtime.cpp.o
+2026-10-27T15:28:38.9999747Z [ 30%] Building CXX object CMakeFiles/wls_s1.dir/src/workspace_posix.cpp.o
+2026-10-27T15:28:39.8241435Z [ 30%] Building CXX object CMakeFiles/wls_s1.dir/src/sandbox_posix.cpp.o
+2026-10-27T15:28:41.2331169Z [ 31%] Building CXX object CMakeFiles/wls_s1.dir/src/process_evidence.cpp.o
+2026-10-27T15:28:43.3010138Z [ 32%] Building CXX object CMakeFiles/wls_s1.dir/src/worker_tools.cpp.o
+2026-10-27T15:28:43.9338633Z [ 32%] Building CXX object CMakeFiles/wls_s1.dir/src/delivery.cpp.o
+2026-10-27T15:28:46.1070876Z [ 33%] Building CXX object CMakeFiles/wls_s1.dir/src/cleanup_posix.cpp.o
+2026-10-27T15:28:46.8623169Z [ 34%] Building CXX object CMakeFiles/wls_s1.dir/src/cleanup_runtime.cpp.o
+2026-10-27T15:28:48.3168957Z [ 35%] Linking CXX static library libwls_s1.a
+2026-10-27T15:28:49.5271072Z [ 35%] Built target wls_s1
+2026-10-27T15:28:49.5345651Z [ 35%] Building CXX object CMakeFiles/wls.dir/src/cli.cpp.o
+2026-10-27T15:28:49.5346600Z [ 36%] Building CXX object CMakeFiles/runtime_types_tests.dir/tests/runtime_types_tests.cpp.o
+2026-10-27T15:28:51.2451249Z [ 37%] Linking CXX executable runtime_types_tests
+2026-10-27T15:28:51.4078251Z [ 37%] Built target runtime_types_tests
+2026-10-27T15:28:51.4146851Z [ 37%] Building CXX object CMakeFiles/runtime_resources_tests.dir/tests/runtime_resources_tests.cpp.o
+2026-10-27T15:28:53.9921256Z [ 38%] Linking CXX executable wls
+2026-10-27T15:28:54.5554573Z [ 38%] Built target wls
+2026-10-27T15:28:54.5582806Z [ 39%] Linking CXX executable runtime_resources_tests
+2026-10-27T15:28:54.5636660Z [ 40%] Building CXX object CMakeFiles/store_tests.dir/tests/store_tests.cpp.o
+2026-10-27T15:28:55.0978432Z [ 40%] Built target runtime_resources_tests
+2026-10-27T15:28:55.1047214Z [ 41%] Building CXX object CMakeFiles/event_store_tests.dir/tests/event_store_tests.cpp.o
+2026-10-27T15:28:59.5858216Z [ 42%] Linking CXX executable event_store_tests
+2026-10-27T15:29:00.1487301Z [ 42%] Built target event_store_tests
+2026-10-27T15:29:00.1556703Z [ 42%] Building CXX object CMakeFiles/workflow_store_tests.dir/tests/workflow_store_tests.cpp.o
+2026-10-27T15:29:01.1529766Z [ 42%] Linking CXX executable store_tests
+2026-10-27T15:29:01.7222642Z [ 42%] Built target store_tests
+2026-10-27T15:29:01.7296464Z [ 43%] Building CXX object CMakeFiles/acceptance_store_tests.dir/tests/acceptance_store_tests.cpp.o
+2026-10-27T15:29:05.1445000Z [ 44%] Linking CXX executable workflow_store_tests
+2026-10-27T15:29:05.6962855Z [ 44%] Built target workflow_store_tests
+2026-10-27T15:29:05.7035923Z [ 45%] Building CXX object CMakeFiles/config_loader_tests.dir/tests/config_loader_tests.cpp.o
+2026-10-27T15:29:06.4681016Z [ 45%] Linking CXX executable acceptance_store_tests
+2026-10-27T15:29:07.0209431Z [ 45%] Built target acceptance_store_tests
+2026-10-27T15:29:07.0277405Z [ 46%] Building CXX object CMakeFiles/model_tests.dir/tests/model_tests.cpp.o
+2026-10-27T15:29:08.2119710Z [ 47%] Linking CXX executable config_loader_tests
+2026-10-27T15:29:08.7517790Z [ 47%] Built target config_loader_tests
+2026-10-27T15:29:08.7587383Z [ 48%] Building CXX object CMakeFiles/schema_tests.dir/tests/schema_tests.cpp.o
+2026-10-27T15:29:10.8449902Z [ 49%] Linking CXX executable model_tests
+2026-10-27T15:29:11.0599710Z [ 49%] Built target model_tests
+2026-10-27T15:29:11.0670252Z [ 49%] Building CXX object CMakeFiles/offline_runtime_tests.dir/tests/offline_runtime_tests.cpp.o
+2026-10-27T15:29:11.2356958Z [ 50%] Linking CXX executable schema_tests
+2026-10-27T15:29:11.5110181Z [ 50%] Built target schema_tests
+2026-10-27T15:29:11.5190411Z [ 51%] Building CXX object CMakeFiles/event_runtime_tests.dir/tests/event_runtime_tests.cpp.o
+2026-10-27T15:29:14.3263764Z [ 52%] Linking CXX executable offline_runtime_tests
+2026-10-27T15:29:14.8762841Z [ 52%] Built target offline_runtime_tests
+2026-10-27T15:29:14.8832429Z [ 53%] Building CXX object CMakeFiles/workflow_runtime_tests.dir/tests/workflow_runtime_tests.cpp.o
+2026-10-27T15:29:16.2030052Z [ 53%] Linking CXX executable event_runtime_tests
+2026-10-27T15:29:16.7528693Z [ 53%] Built target event_runtime_tests
+2026-10-27T15:29:16.7595908Z [ 53%] Building CXX object CMakeFiles/acceptance_runtime_tests.dir/tests/acceptance_runtime_tests.cpp.o
+2026-10-27T15:29:19.1201352Z [ 54%] Linking CXX executable workflow_runtime_tests
+2026-10-27T15:29:19.6740091Z [ 54%] Built target workflow_runtime_tests
+2026-10-27T15:29:19.6811544Z [ 55%] Building CXX object CMakeFiles/workspace_tests.dir/tests/workspace_tests.cpp.o
+2026-10-27T15:29:21.0196350Z [ 56%] Linking CXX executable acceptance_runtime_tests
+2026-10-27T15:29:21.5610384Z [ 56%] Built target acceptance_runtime_tests
+2026-10-27T15:29:21.5676785Z [ 56%] Building CXX object CMakeFiles/sandbox_tests.dir/tests/sandbox_tests.cpp.o
+2026-10-27T15:29:22.0791381Z [ 57%] Linking CXX executable workspace_tests
+2026-10-27T15:29:22.2572617Z [ 57%] Built target workspace_tests
+2026-10-27T15:29:22.2641526Z [ 57%] Building CXX object CMakeFiles/worker_tools_tests.dir/tests/worker_tools_tests.cpp.o
+2026-10-27T15:29:25.3106315Z [ 58%] Linking CXX executable sandbox_tests
+2026-10-27T15:29:25.5020256Z [ 58%] Built target sandbox_tests
+2026-10-27T15:29:25.5087230Z [ 59%] Building CXX object CMakeFiles/delivery_tests.dir/tests/delivery_tests.cpp.o
+2026-10-27T15:29:28.0546494Z [ 59%] Linking CXX executable delivery_tests
+2026-10-27T15:29:28.2499611Z [ 59%] Built target delivery_tests
+2026-10-27T15:29:28.2568825Z [ 59%] Building CXX object CMakeFiles/cleanup_tests.dir/tests/cleanup_tests.cpp.o
+2026-10-27T15:29:28.7992357Z [ 60%] Linking CXX executable worker_tools_tests
+2026-10-27T15:29:29.3549921Z [ 60%] Built target worker_tools_tests
+2026-10-27T15:29:29.3620078Z [ 61%] Building CXX object CMakeFiles/cleanup_runtime_tests.dir/tests/cleanup_runtime_tests.cpp.o
+2026-10-27T15:29:30.1452271Z [ 62%] Linking CXX executable cleanup_tests
+2026-10-27T15:29:30.3349193Z [ 62%] Built target cleanup_tests
+2026-10-27T15:29:30.3419829Z [ 63%] Building CXX object CMakeFiles/audit24_reopen_tests.dir/tests/audit24_reopen_tests.cpp.o
+2026-10-27T15:29:32.4422259Z [ 64%] Linking CXX executable audit24_reopen_tests
+2026-10-27T15:29:32.8982619Z [ 65%] Linking CXX executable cleanup_runtime_tests
+2026-10-27T15:29:32.9820798Z [ 65%] Built target audit24_reopen_tests
+2026-10-27T15:29:32.9891948Z [ 66%] Building CXX object CMakeFiles/process_evidence_tests.dir/tests/process_evidence_tests.cpp.o
+2026-10-27T15:29:33.4607674Z [ 66%] Built target cleanup_runtime_tests
+2026-10-27T15:29:33.4683227Z [ 67%] Building CXX object CMakeFiles/audit24_reconcile_tests.dir/tests/audit24_reconcile_tests.cpp.o
+2026-10-27T15:29:35.1166861Z [ 67%] Linking CXX executable process_evidence_tests
+2026-10-27T15:29:35.2794857Z [ 67%] Built target process_evidence_tests
+2026-10-27T15:29:35.2865903Z [ 68%] Building CXX object CMakeFiles/audit24_capacity_tests.dir/tests/audit24_capacity_tests.cpp.o
+2026-10-27T15:29:36.2404143Z [ 68%] Linking CXX executable audit24_reconcile_tests
+2026-10-27T15:29:36.7823946Z [ 68%] Built target audit24_reconcile_tests
+2026-10-27T15:29:36.7897866Z [ 69%] Building CXX object CMakeFiles/audit24_capacity_repro_tests.dir/tests/audit24_capacity_repro_tests.cpp.o
+2026-10-27T15:29:37.5987568Z [ 70%] Linking CXX executable audit24_capacity_tests
+2026-10-27T15:29:38.1391194Z [ 70%] Built target audit24_capacity_tests
+2026-10-27T15:29:38.1459058Z [ 71%] Building CXX object CMakeFiles/r1_history_tests.dir/tests/r1_history_tests.cpp.o
+2026-10-27T15:29:38.6420928Z [ 71%] Linking CXX executable audit24_capacity_repro_tests
+2026-10-27T15:29:39.1771726Z [ 71%] Built target audit24_capacity_repro_tests
+2026-10-27T15:29:39.1843284Z [ 72%] Building CXX object CMakeFiles/r1_structured_tests.dir/tests/r1_structured_tests.cpp.o
+2026-10-27T15:29:41.3987873Z [ 72%] Linking CXX executable r1_history_tests
+2026-10-27T15:29:41.9464855Z [ 72%] Built target r1_history_tests
+2026-10-27T15:29:41.9538537Z [ 73%] Building CXX object CMakeFiles/r1_window_tests.dir/tests/r1_window_tests.cpp.o
+2026-10-27T15:29:43.1500548Z [ 73%] Linking CXX executable r1_structured_tests
+2026-10-27T15:29:43.7030564Z [ 73%] Built target r1_structured_tests
+2026-10-27T15:29:43.7103542Z [ 73%] Building CXX object CMakeFiles/r2_rework_tests.dir/tests/r2_rework_tests.cpp.o
+2026-10-27T15:29:45.0790374Z [ 74%] Linking CXX executable r1_window_tests
+2026-10-27T15:29:45.6130131Z [ 74%] Built target r1_window_tests
+2026-10-27T15:29:45.6197147Z [ 75%] Building CXX object CMakeFiles/r2_recovery_tests.dir/tests/r2_recovery_tests.cpp.o
+2026-10-27T15:29:48.3809030Z [ 76%] Linking CXX executable r2_rework_tests
+2026-10-27T15:29:48.8524316Z [ 77%] Linking CXX executable r2_recovery_tests
+2026-10-27T15:29:48.9293625Z [ 77%] Built target r2_rework_tests
+2026-10-27T15:29:48.9362552Z [ 77%] Building CXX object CMakeFiles/r2_amend_tests.dir/tests/r2_amend_tests.cpp.o
+2026-10-27T15:29:49.3889902Z [ 77%] Built target r2_recovery_tests
+2026-10-27T15:29:49.3958040Z [ 78%] Building CXX object CMakeFiles/r2a_mkdir_tests.dir/tests/r2a_mkdir_tests.cpp.o
+2026-10-27T15:29:52.8217936Z [ 79%] Linking CXX executable r2_amend_tests
+2026-10-27T15:29:53.3609130Z [ 79%] Built target r2_amend_tests
+2026-10-27T15:29:53.3675818Z [ 80%] Building CXX object CMakeFiles/allocation_recovery_tests.dir/tests/allocation_recovery_tests.cpp.o
+2026-10-27T15:29:55.3229288Z [ 81%] Linking CXX executable r2a_mkdir_tests
+2026-10-27T15:29:55.8562269Z [ 81%] Built target r2a_mkdir_tests
+2026-10-27T15:29:55.8630482Z [ 82%] Building CXX object CMakeFiles/doctor_diagnostics_tests.dir/tests/doctor_diagnostics_tests.cpp.o
+2026-10-27T15:29:57.9216864Z [ 83%] Linking CXX executable allocation_recovery_tests
+2026-10-27T15:29:58.4995185Z [ 83%] Built target allocation_recovery_tests
+2026-10-27T15:29:58.5066439Z [ 84%] Building CXX object CMakeFiles/protocol_codec_tests.dir/tests/protocol_codec_tests.cpp.o
+2026-10-27T15:29:58.8046868Z [ 85%] Linking CXX executable doctor_diagnostics_tests
+2026-10-27T15:29:59.0005749Z [ 85%] Built target doctor_diagnostics_tests
+2026-10-27T15:29:59.0076759Z [ 86%] Building CXX object CMakeFiles/sse_replay_tests.dir/tests/sse_replay_tests.cpp.o
+2026-10-27T15:30:02.7116928Z [ 87%] Linking CXX executable sse_replay_tests
+2026-10-27T15:30:02.9270071Z [ 88%] Linking CXX executable protocol_codec_tests
+2026-10-27T15:30:02.9340663Z [ 88%] Built target sse_replay_tests
+2026-10-27T15:30:02.9408271Z [ 89%] Building CXX object CMakeFiles/r1_management_tests.dir/tests/r1_management_tests.cpp.o
+2026-10-27T15:30:03.1414206Z [ 89%] Built target protocol_codec_tests
+2026-10-27T15:30:03.1483415Z [ 89%] Building CXX object CMakeFiles/owned_capacity_tests.dir/tests/owned_capacity_tests.cpp.o
+2026-10-27T15:30:05.2696369Z [ 90%] Linking CXX executable owned_capacity_tests
+2026-10-27T15:30:05.4550431Z [ 90%] Built target owned_capacity_tests
+2026-10-27T15:30:05.4621833Z [ 91%] Building CXX object CMakeFiles/owned_capacity_runtime_tests.dir/tests/owned_capacity_runtime_tests.cpp.o
+2026-10-27T15:30:07.5673103Z [ 92%] Linking CXX executable r1_management_tests
+2026-10-27T15:30:08.1357122Z [ 92%] Built target r1_management_tests
+2026-10-27T15:30:08.1429028Z [ 93%] Building CXX object CMakeFiles/live_model_store_tests.dir/tests/live_model_store_tests.cpp.o
+2026-10-27T15:30:08.8543157Z [ 94%] Linking CXX executable owned_capacity_runtime_tests
+2026-10-27T15:30:09.4179599Z [ 94%] Built target owned_capacity_runtime_tests
+2026-10-27T15:30:09.4249363Z [ 94%] Building CXX object CMakeFiles/billing_tests.dir/tests/billing_tests.cpp.o
+2026-10-27T15:30:12.7875717Z [ 95%] Linking CXX executable live_model_store_tests
+2026-10-27T15:30:13.3279105Z [ 95%] Built target live_model_store_tests
+2026-10-27T15:30:13.3346348Z [ 96%] Building CXX object CMakeFiles/single_agent_tests.dir/tests/single_agent_tests.cpp.o
+2026-10-27T15:30:13.4005313Z [ 97%] Linking CXX executable billing_tests
+2026-10-27T15:30:13.9737941Z [ 97%] Built target billing_tests
+2026-10-27T15:30:13.9809904Z [ 98%] Building CXX object CMakeFiles/https_transport_driver.dir/tests/https_transport_driver.cpp.o
+2026-10-27T15:30:16.6638271Z [ 98%] Linking CXX executable https_transport_driver
+2026-10-27T15:30:16.8918683Z [ 98%] Built target https_transport_driver
+2026-10-27T15:30:16.8986788Z [ 99%] Building CXX object CMakeFiles/live_model_store_driver.dir/tests/live_model_store_driver.cpp.o
+2026-10-27T15:30:17.0797654Z [ 99%] Linking CXX executable single_agent_tests
+2026-10-27T15:30:17.6198371Z [ 99%] Built target single_agent_tests
+2026-10-27T15:30:17.6266734Z [ 99%] Building CXX object CMakeFiles/live_workflow_driver.dir/tests/live_workflow_driver.cpp.o
+2026-10-27T15:30:20.5155954Z [ 99%] Linking CXX executable live_model_store_driver
+2026-10-27T15:30:21.0557722Z [ 99%] Built target live_model_store_driver
+2026-10-27T15:30:21.3078223Z [100%] Linking CXX executable live_workflow_driver
+2026-10-27T15:30:21.8478450Z [100%] Built target live_workflow_driver
+2026-10-27T15:30:21.8739457Z ##[group]Run test "$(id -u)" -ne 0
+2026-10-27T15:30:21.8739894Z [36;1mtest "$(id -u)" -ne 0[0m
+2026-10-27T15:30:21.8740253Z [36;1mumask "0002"[0m
+2026-10-27T15:30:21.8740630Z [36;1mctest --test-dir build --output-on-failure[0m
+2026-10-27T15:30:21.8753829Z shell: /usr/bin/bash -e {0}
+2026-10-27T15:30:21.8754205Z env:
+2026-10-27T15:30:21.8754544Z   UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+2026-10-27T15:30:21.8754992Z   ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
+2026-10-27T15:30:21.8755717Z ##[endgroup]
+2026-10-27T15:30:23.6000681Z Internal ctest changing into directory: /home/runner/work/wls861/wls861/build
+2026-10-27T15:30:23.9618516Z Test project /home/runner/work/wls861/wls861/build
+2026-10-27T15:30:24.1843679Z       Start  1: journal
+2026-10-27T15:30:25.0918885Z  1/78 Test  #1: journal ..........................   Passed    0.89 sec
+2026-10-27T15:30:25.1261081Z       Start  2: config
+2026-10-27T15:30:25.1359195Z  2/78 Test  #2: config ...........................   Passed    0.01 sec
+2026-10-27T15:30:25.1364466Z       Start  3: scheduler
+2026-10-27T15:30:25.1633521Z  3/78 Test  #3: scheduler ........................   Passed    0.03 sec
+2026-10-27T15:30:25.1647961Z       Start  4: task_engine
+2026-10-27T15:30:25.5401376Z  4/78 Test  #4: task_engine ......................   Passed    0.38 sec
+2026-10-27T15:30:25.5607962Z       Start  5: runtime_types
+2026-10-27T15:30:25.7928582Z  5/78 Test  #5: runtime_types ....................   Passed    0.23 sec
+2026-10-27T15:30:25.7929428Z       Start  6: runtime_resources
+2026-10-27T15:30:27.3393349Z  6/78 Test  #6: runtime_resources ................   Passed    1.55 sec
+2026-10-27T15:30:27.3393866Z       Start  7: store
+2026-10-27T15:30:37.7550685Z  7/78 Test  #7: store ............................   Passed   10.42 sec
+2026-10-27T15:30:37.7552676Z       Start  8: event_store
+2026-10-27T15:30:42.9661954Z  8/78 Test  #8: event_store ......................   Passed    5.21 sec
+2026-10-27T15:30:42.9663060Z       Start  9: workflow_store
+2026-10-27T15:30:54.7981568Z  9/78 Test  #9: workflow_store ...................   Passed   11.83 sec
+2026-10-27T15:30:54.7983145Z       Start 10: acceptance_store
+2026-10-27T15:31:09.5821432Z 10/78 Test #10: acceptance_store .................   Passed   14.78 sec
+2026-10-27T15:31:09.5823129Z       Start 11: config_loader
+2026-10-27T15:31:11.0970850Z 11/78 Test #11: config_loader ....................   Passed    1.51 sec
+2026-10-27T15:31:11.0972656Z       Start 12: model
+2026-10-27T15:31:11.2207077Z 12/78 Test #12: model ............................   Passed    0.12 sec
+2026-10-27T15:31:11.2208305Z       Start 13: schema
+2026-10-27T15:31:11.5746278Z 13/78 Test #13: schema ...........................   Passed    0.35 sec
+2026-10-27T15:31:11.5747314Z       Start 14: offline_runtime
+2026-10-27T15:31:17.5417543Z 14/78 Test #14: offline_runtime ..................   Passed    5.97 sec
+2026-10-27T15:31:17.5418188Z       Start 15: event_runtime
+2026-10-27T15:32:00.3381752Z 15/78 Test #15: event_runtime ....................   Passed   42.80 sec
+2026-10-27T15:32:00.3382682Z       Start 16: workflow_runtime
+2026-10-27T15:32:41.5436767Z 16/78 Test #16: workflow_runtime .................   Passed   41.21 sec
+2026-10-27T15:32:41.5438357Z       Start 17: acceptance_runtime
+2026-10-27T15:34:11.6756186Z 17/78 Test #17: acceptance_runtime ...............***Timeout  90.13 sec
+2026-10-27T15:34:11.6756687Z
+2026-10-27T15:34:11.6757073Z       Start 18: workspace
+2026-10-27T15:34:11.7603008Z 18/78 Test #18: workspace ........................   Passed    0.08 sec
+2026-10-27T15:34:11.7606180Z       Start 19: sandbox
+2026-10-27T15:34:13.1686408Z 19/78 Test #19: sandbox ..........................   Passed    1.41 sec
+2026-10-27T15:34:13.1687221Z       Start 20: worker_tools
+2026-10-27T15:34:43.8641280Z 20/78 Test #20: worker_tools .....................   Passed   30.70 sec
+2026-10-27T15:34:43.8642134Z       Start 21: delivery
+2026-10-27T15:34:44.0482881Z 21/78 Test #21: delivery .........................   Passed    0.18 sec
+2026-10-27T15:34:44.0484314Z       Start 22: cleanup
+2026-10-27T15:34:44.2057528Z 22/78 Test #22: cleanup ..........................   Passed    0.16 sec
+2026-10-27T15:34:44.2058585Z       Start 23: cleanup_runtime
+2026-10-27T15:35:43.2412187Z 23/78 Test #23: cleanup_runtime ..................   Passed   59.03 sec
+2026-10-27T15:35:43.2412934Z       Start 24: audit24_reopen
+2026-10-27T15:35:45.3281554Z 24/78 Test #24: audit24_reopen ...................   Passed    2.09 sec
+2026-10-27T15:35:45.3282586Z       Start 25: process_evidence
+2026-10-27T15:35:45.4199268Z 25/78 Test #25: process_evidence .................   Passed    0.09 sec
+2026-10-27T15:35:45.4200280Z       Start 26: audit24_reconcile
+2026-10-27T15:35:46.8662369Z 26/78 Test #26: audit24_reconcile ................   Passed    1.45 sec
+2026-10-27T15:35:46.8663109Z       Start 27: audit24_capacity
+2026-10-27T15:35:49.9035425Z 27/78 Test #27: audit24_capacity .................   Passed    3.04 sec
+2026-10-27T15:35:49.9036751Z       Start 28: audit24_capacity_repro
+2026-10-27T15:37:18.7960222Z 28/78 Test #28: audit24_capacity_repro ...........   Passed   88.89 sec
+2026-10-27T15:37:18.7961474Z       Start 29: r1_history
+2026-10-27T15:37:32.7600747Z 29/78 Test #29: r1_history .......................   Passed   13.96 sec
+2026-10-27T15:37:32.7601613Z       Start 30: r1_structured
+2026-10-27T15:37:33.2732810Z 30/78 Test #30: r1_structured ....................   Passed    0.51 sec
+2026-10-27T15:37:33.2733735Z       Start 31: r1_window
+2026-10-27T15:37:51.5709241Z 31/78 Test #31: r1_window ........................   Passed   18.30 sec
+2026-10-27T15:37:51.5710279Z       Start 32: r2_rework
+2026-10-27T15:39:13.1952462Z 32/78 Test #32: r2_rework ........................   Passed   81.62 sec
+2026-10-27T15:39:13.1953538Z       Start 33: r2_recovery
+2026-10-27T15:39:18.9524513Z 33/78 Test #33: r2_recovery ......................   Passed    5.76 sec
+2026-10-27T15:39:18.9525731Z       Start 34: r2_amend
+2026-10-27T15:40:32.9604996Z 34/78 Test #34: r2_amend .........................   Passed   74.01 sec
+2026-10-27T15:40:32.9606611Z       Start 35: r2a_mkdir
+2026-10-27T15:40:44.7240926Z 35/78 Test #35: r2a_mkdir ........................   Passed   11.76 sec
+2026-10-27T15:40:44.7242434Z       Start 36: allocation_recovery
+2026-10-27T15:40:56.9801906Z 36/78 Test #36: allocation_recovery ..............   Passed   12.26 sec
+2026-10-27T15:40:56.9803382Z       Start 37: doctor_diagnostics
+2026-10-27T15:40:58.3115827Z 37/78 Test #37: doctor_diagnostics ...............   Passed    1.33 sec
+2026-10-27T15:40:58.3117781Z       Start 38: protocol_codec
+2026-10-27T15:40:59.3227099Z 38/78 Test #38: protocol_codec ...................   Passed    1.01 sec
+2026-10-27T15:40:59.3228860Z       Start 39: sse_replay
+2026-10-27T15:41:55.3255944Z 39/78 Test #39: sse_replay .......................   Passed   56.00 sec
+2026-10-27T15:41:55.3257733Z       Start 40: r1_management
+2026-10-27T15:44:21.0799973Z 40/78 Test #40: r1_management ....................   Passed  145.75 sec
+2026-10-27T15:44:21.0801749Z       Start 41: owned_capacity
+2026-10-27T15:44:33.8701772Z 41/78 Test #41: owned_capacity ...................   Passed   12.79 sec
+2026-10-27T15:44:33.8702440Z       Start 42: owned_capacity_runtime
+2026-10-27T15:45:10.9118746Z 42/78 Test #42: owned_capacity_runtime ...........   Passed   37.04 sec
+2026-10-27T15:45:10.9120683Z       Start 43: live_model_store
+2026-10-27T15:45:18.4731541Z 43/78 Test #43: live_model_store .................   Passed    7.56 sec
+2026-10-27T15:45:18.4732967Z       Start 44: billing
+2026-10-27T15:45:25.2076127Z 44/78 Test #44: billing ..........................   Passed    6.73 sec
+2026-10-27T15:45:25.2077938Z       Start 45: single_agent
+2026-10-27T15:46:08.8401275Z 45/78 Test #45: single_agent .....................   Passed   43.63 sec
+2026-10-27T15:46:08.8402981Z       Start 46: single_agent_runtime
+2026-10-27T15:46:51.0276822Z 46/78 Test #46: single_agent_runtime .............   Passed   42.19 sec
+2026-10-27T15:46:51.0277968Z       Start 47: doctor_diagnostics_cli
+2026-10-27T15:46:52.9595773Z 47/78 Test #47: doctor_diagnostics_cli ...........   Passed    1.93 sec
+2026-10-27T15:46:52.9596774Z       Start 48: protocol_replay_cli
+2026-10-27T15:46:54.8783385Z 48/78 Test #48: protocol_replay_cli ..............   Passed    1.92 sec
+2026-10-27T15:46:54.8784415Z       Start 49: https_transport
+2026-10-27T15:47:06.7619197Z 49/78 Test #49: https_transport ..................   Passed   11.88 sec
+2026-10-27T15:47:06.7620130Z       Start 50: live_model_store_tls
+2026-10-27T15:47:22.4624933Z 50/78 Test #50: live_model_store_tls .............   Passed   15.70 sec
+2026-10-27T15:47:22.4625832Z       Start 51: live_workflow
+2026-10-27T15:50:43.5418841Z 51/78 Test #51: live_workflow ....................   Passed  201.08 sec
+2026-10-27T15:50:43.5421668Z       Start 52: live_workflow_cli
+2026-10-27T15:50:57.6459089Z 52/78 Test #52: live_workflow_cli ................   Passed   14.10 sec
+2026-10-27T15:50:57.6460988Z       Start 53: billing_baseline_e2e
+2026-10-27T15:59:15.5292104Z 53/78 Test #53: billing_baseline_e2e .............   Passed  497.88 sec
+2026-10-27T15:59:15.5293148Z       Start 54: runtime_resources_cli
+2026-10-27T15:59:17.8424063Z 54/78 Test #54: runtime_resources_cli ............   Passed    2.31 sec
+2026-10-27T15:59:17.8425266Z       Start 55: r3_evaluation
+2026-10-27T16:01:07.0278550Z 55/78 Test #55: r3_evaluation ....................   Passed  109.19 sec
+2026-10-27T16:01:07.0279902Z       Start 56: handoff_integrity
+2026-10-27T16:01:07.0742325Z 56/78 Test #56: handoff_integrity ................   Passed    0.05 sec
+2026-10-27T16:01:07.0743716Z       Start 57: review_source_integrity
+2026-10-27T16:01:07.1187838Z 57/78 Test #57: review_source_integrity ..........   Passed    0.04 sec
+2026-10-27T16:01:07.1189285Z       Start 58: specification_contracts
+2026-10-27T16:01:07.8073217Z 58/78 Test #58: specification_contracts ..........   Passed    0.69 sec
+2026-10-27T16:01:07.8074180Z       Start 59: demo_smoke
+2026-10-27T16:01:07.9553024Z 59/78 Test #59: demo_smoke .......................   Passed    0.15 sec
+2026-10-27T16:01:07.9553917Z       Start 60: s1_cli_smoke
+2026-10-27T16:01:15.7203343Z 60/78 Test #60: s1_cli_smoke .....................   Passed    7.76 sec
+2026-10-27T16:01:15.7204753Z       Start 61: s12_cli_smoke
+2026-10-27T16:01:33.8127262Z 61/78 Test #61: s12_cli_smoke ....................   Passed   18.09 sec
+2026-10-27T16:01:33.8131080Z       Start 62: s13_cli_smoke
+2026-10-27T16:02:26.5508640Z 62/78 Test #62: s13_cli_smoke ....................   Passed   52.74 sec
+2026-10-27T16:02:26.5509399Z       Start 63: s14_cli_smoke
+2026-10-27T16:03:22.1003867Z 63/78 Test #63: s14_cli_smoke ....................   Passed   55.55 sec
+2026-10-27T16:03:22.1004854Z       Start 64: s15_cli_smoke
+2026-10-27T16:04:27.8330679Z 64/78 Test #64: s15_cli_smoke ....................   Passed   65.73 sec
+2026-10-27T16:04:27.8332758Z       Start 65: s16_cli_smoke
+2026-10-27T16:05:21.6314824Z 65/78 Test #65: s16_cli_smoke ....................   Passed   53.80 sec
+2026-10-27T16:05:21.6316563Z       Start 66: audit24_reconcile_cli_smoke
+2026-10-27T16:05:26.6450127Z 66/78 Test #66: audit24_reconcile_cli_smoke ......   Passed    5.01 sec
+2026-10-27T16:05:26.6451570Z       Start 67: audit24_reopen_cli_smoke
+2026-10-27T16:05:29.8515832Z 67/78 Test #67: audit24_reopen_cli_smoke .........   Passed    3.21 sec
+2026-10-27T16:05:29.8516632Z       Start 68: review_cli_smoke
+2026-10-27T16:05:39.4663745Z 68/78 Test #68: review_cli_smoke .................   Passed    9.61 sec
+2026-10-27T16:05:39.4665504Z       Start 69: audit24_capacity_cli_smoke
+2026-10-27T16:06:02.4220836Z 69/78 Test #69: audit24_capacity_cli_smoke .......   Passed   22.96 sec
+2026-10-27T16:06:02.4221747Z       Start 70: r1_history_cli_smoke
+2026-10-27T16:06:35.5087403Z 70/78 Test #70: r1_history_cli_smoke .............   Passed   33.09 sec
+2026-10-27T16:06:35.5088273Z       Start 71: r1_structured_cli_smoke
+2026-10-27T16:07:15.6449901Z 71/78 Test #71: r1_structured_cli_smoke ..........   Passed   40.14 sec
+2026-10-27T16:07:15.6451170Z       Start 72: r1_window_cli_smoke
+2026-10-27T16:07:44.9916207Z ##[error]The operation was canceled.
+2026-10-27T16:07:45.0058442Z Post job cleanup.
+2026-10-27T16:07:45.1106181Z [command]/usr/bin/git version
+2026-10-27T16:07:45.1106868Z git version 2.56.0
+2026-10-27T16:07:45.1111740Z Temporarily overriding HOME='/home/runner/work/_temp/eabe89e7-5384-43be-950c-481adf9f3031' before making global git config changes
+2026-10-27T16:07:45.1113091Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-27T16:07:45.1122325Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/wls861/wls861
+2026-10-27T16:07:45.1164179Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-27T16:07:45.1226685Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-27T16:07:45.1535981Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-27T16:07:45.1591287Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-27T16:07:45.2383773Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-27T16:07:45.2386803Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-27T16:07:45.2512859Z Cleaning up orphan processes
+2026-10-27T16:07:45.2753987Z Terminate orphan process: pid (4055) (ctest)
+2026-10-27T16:07:45.3137633Z Terminate orphan process: pid (8425) (python)
+2026-10-27T16:07:45.3162483Z Terminate orphan process: pid (8437) (wls)
+2026-10-27T16:07:45.3228859Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@11d5960a326750d5838078e36cf38b85af677262. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

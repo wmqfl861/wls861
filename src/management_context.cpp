@@ -1,10 +1,12 @@
 #include "wls/management_context.hpp"
 
 #include "wls/config_loader.hpp"
+#include "runtime_config_internal.hpp"
 
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <set>
 
 namespace wls::s1 {
@@ -104,10 +106,21 @@ Json execute_management_history_control(Store& store, const StoreActor& actor,
 
 std::vector<Json> visible_management_questions(Store& store, Role role,
         const std::string& request_id, const std::string& task_id) {
+    return runtime_detail::visible_management_questions(store, role, request_id, task_id, nullptr);
+}
+
+std::vector<Json> runtime_detail::visible_management_questions(Store& store, Role role,
+        const std::string& request_id, const std::string& task_id,
+        const FrozenRequestConfig* config) {
     const auto record = store.request(request_id);
-    const auto config = FrozenRequestConfig::restore(canonical_json(record.at("config_snapshot")),
-        text(record.at("config_snapshot_sha256")));
-    if (config.management_history_policy().is_null()) return store.questions(request_id, task_id);
+    std::optional<FrozenRequestConfig> restored;
+    if (config) require_matching_config(record, *config);
+    else {
+        restored.emplace(FrozenRequestConfig::restore(canonical_json(record.at("config_snapshot")),
+            text(record.at("config_snapshot_sha256"))));
+        config = &*restored;
+    }
+    if (config->management_history_policy().is_null()) return store.questions(request_id, task_id);
     require((role == Role::Dispatcher && task_id.empty()) || (role == Role::TeamLead && !task_id.empty()),
         "management question scope disagrees with role");
     const auto current = task_id.empty() ? store.request_binding(request_id) : store.binding(task_id);

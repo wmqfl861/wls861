@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="Linux-c++"
+	tests="5"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname="6357ad3f489e"
+	time="130"
+	timestamp="2026-10-27T12:42:19"
+	>
+	<testcase name="store" classname="store" time="10.948" status="run">
+		<properties/>
+		<system-out>PASS malformed catalog is invalid input and creates no rows
+PASS SQLite FULL/WAL/FK, writer lease, read-only and repeated migration
+PASS unknown and incomplete reference databases remain intact
+PASS scoped immutable admission and original retry after AMEND
+PASS state, plan and event commit atomically
+PASS initial instruction, bounded acknowledgment and durable command retry
+PASS full assigned constraint text and frozen team capacity
+PASS AMEND omission stays paused and old dispositions cannot be retagged
+PASS plan-only rebind fences running effects and old results
+PASS operation idempotency, owner, cancellation and reconciliation
+PASS ordinary tool quota preserves instruction/cancel controls
+PASS durable model reservations, exact retry and nullable accounting
+PASS complete model envelope and frozen permissions precede reservation
+PASS late model response is accounted without current-version retagging
+PASS restart keeps UNKNOWN operation and model reservations
+PASS concurrent request CAS has exactly one succes...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="offline_runtime" classname="offline_runtime" time="6.1227" status="run">
+		<properties/>
+		<system-out>PASS offline chain persists exact model input, instructions and note evidence
+PASS invalid plan constraints keep accounting but do not change the plan
+PASS forged host fields and undeclared Worker tools never apply
+PASS AMEND fences late output and keep requires fresh instruction and ack
+PASS interrupted usage holds reservation while cancellation retains capacity
+PASS read-only access is inert and restart fences pending call before resume
+PASS published plan resumes task binding after process restart
+PASS explicit cancel disposition does not create a Worker model attempt
+PASS bounded input reads reject parent/leaf symlinks and special files
+PASS runtime input rejects FIFO before any observable open
+RESULT 10 passed, 0 failed
+</system-out>
+	</testcase>
+	<testcase name="acceptance_runtime" classname="acceptance_runtime" time="77.71" status="run">
+		<properties/>
+		<system-out>PASS Dispatcher acceptance and explicit experience do not imply delivery
+PASS Dispatcher sees immutable candidate bytes and exact response replay
+PASS raw Worker submission cannot bypass TeamLead checking
+PASS captured acceptance identity and task CAS cannot be relabelled
+PASS model acceptance cannot forge identity hashes waivers or evidence
+PASS AMEND records stale acceptance responses without applying them
+PASS recovery accepts original candidate without reissuing business work
+PASS negative business judgment blocks without inventing experience
+PASS experience uses frozen source and host-owned report identity
+PASS experience rejects forged identities and unbound memory claims
+PASS experience proposals remain reports with memory disabled
+PASS captured experience source cannot be relabelled or become business work
+PASS old experience can finish while amended task still awaits disposition
+PASS accepted experience is not starved by an unanswered optional question
+PASS terminal cancellation resumes only the boun...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="worker_tools" classname="worker_tools" time="26.9834" status="run">
+		<properties/>
+		<system-out>PASS static registration and frozen request tool grants
+PASS durable real file write/read/patch and side-effect-free business replay
+PASS AMEND rejects old model file effects while retaining usage
+PASS old business key only reads its fact during a pending new instruction
+PASS workspace directory and execution manifest binding are immutable
+PASS non-Worker, cross-workspace and model authority forgery are rejected
+PASS missing strong sandbox gives a durable FAILED result without spawning
+PASS read-only diagnostics do not mutate epochs, task state, budgets or events
+PASS UNKNOWN preserves diagnostics and instruction control while blocking business
+PASS bounded model loop preserves original text and complete tool feedback
+PASS Worker call bounds and failed tools stop subsequent model effects
+PASS payload, path and schema restrictions precede filesystem effects
+PASS concurrent exact commands have at most one actual execution owner
+PASS current policy revocation removes tools from new model contexts
+PASS SQLite res...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="live_model_store" classname="live_model_store" time="8.49438" status="run">
+		<properties/>
+		<system-out>PASS disabled, credential authorization and full frozen envelope reject before reservation
+PASS live profile capacity rejects impossible durable evidence before admission
+PASS original encoding/options CAS and concurrent one-time durable send claim
+PASS reservation and send-claim faults roll back original budget and authority
+PASS private observation and immutable original settlement faults are atomic
+PASS partial usage, exact replay, version conflict and dimension completion
+PASS known zero balances retain explicit unknown cache dimensions
+PASS contradiction preserves known facts and actual excess cost stops paid admission
+PASS reconciliation faults roll back all projections and source bytes stay private
+PASS recovery-only missing response settlement keeps original identity and never resends
+PASS reservation-only recovery requires explicit no-dispatch proof and original null settlement
+PASS terminal scoped reconciliation cannot alter sibling or restore business
+PASS explicit migration preserves original fake...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+</testsuite>

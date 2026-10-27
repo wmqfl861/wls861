@@ -1,0 +1,16 @@
+PASS Dispatcher acceptance and explicit experience do not imply delivery
+PASS Dispatcher sees immutable candidate bytes and exact response replay
+PASS raw Worker submission cannot bypass TeamLead checking
+PASS captured acceptance identity and task CAS cannot be relabelled
+PASS model acceptance cannot forge identity hashes waivers or evidence
+PASS AMEND records stale acceptance responses without applying them
+PASS recovery accepts original candidate without reissuing business work
+PASS negative business judgment blocks without inventing experience
+PASS experience uses frozen source and host-owned report identity
+PASS experience rejects forged identities and unbound memory claims
+PASS experience proposals remain reports with memory disabled
+PASS captured experience source cannot be relabelled or become business work
+PASS old experience can finish while amended task still awaits disposition
+PASS accepted experience is not starved by an unanswered optional question
+PASS terminal cancellation resumes only the bounded experience job
+PASS terminal recovery fences previously captured experience response

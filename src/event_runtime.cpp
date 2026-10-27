@@ -1,6 +1,7 @@
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "wls/management_context.hpp"
+#include "runtime_config_internal.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -562,7 +563,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             const auto amendment = next_amendment_action(store_, id);
             if (!amendment.is_null()) return amendment;
         }
-        return next_workflow_action(store_, role, id, task);
+        return runtime_detail::next_workflow_action(store_, role, id, task, &config);
     };
     const auto invoke = [&](Role role, const std::string& node, const std::string& task,
                             WorkerTools* tools, const Json& claim) -> std::optional<Json> {
@@ -936,7 +937,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                         binding = store_.binding(task_id);
                         const bool current_order = instruction_current(store_.instruction(task_id), binding);
                         const auto current_submission = store_.current_submission(task_id);
-                        const auto questions = visible_management_questions(store_, Role::TeamLead, id, task_id);
+                        const auto questions = runtime_detail::visible_management_questions(store_, Role::TeamLead, id, task_id, &config);
                         const bool question_pending = std::any_of(questions.begin(), questions.end(), [](const auto& question) {
                             return text(question, "status") == "OPEN";
                         });
@@ -1053,7 +1054,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             else block(Role::Worker, node, task_id, "submission_pending", "Worker submission awaits its captured TeamLead check");
         }
     }
-    for (const auto& question : visible_management_questions(store_, Role::Dispatcher, id)) questions.push_back(question);
+    for (const auto& question : runtime_detail::visible_management_questions(store_, Role::Dispatcher, id, {}, &config)) questions.push_back(question);
     if (static_cast<std::int64_t>(calls.size()) >= options.max_calls && !pending.empty())
         block(Role::Dispatcher, {}, {}, "call_limit", "this explicit pump reached its total call limit; remaining events stay durable");
     Object result{{"mode", live ? "event_live" : "event_fake"}, {"workflow_runtime", true}, {"request_id", id},

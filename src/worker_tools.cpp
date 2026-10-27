@@ -2,6 +2,7 @@
 #include "wls/process_evidence.hpp"
 #include "wls/offline_runtime.hpp"
 #include "wls/owned_capacity.hpp"
+#include "runtime_config_internal.hpp"
 
 #include <unistd.h>
 
@@ -110,6 +111,12 @@ Json limits_snapshot(const Json& capacity) {
         result["inventory_stage_budget_bytes"] = owned_inventory_stage_budget;
     }
     return result;
+}
+SandboxPolicy policy_from_config(Store& store, const StoreActor& actor,
+        const Json& manifest, const FrozenRequestConfig& config) {
+    const auto record = store.request(actor.request_id);
+    runtime_detail::require_matching_config(record, config);
+    return worker_sandbox_policy(config, field(store.task(actor.task_id), "template_id"), manifest);
 }
 // All WorkerTools instances sharing a writer use the same cancellation source.
 // A Store's process-wide writer lease prevents a second Store for this database.
@@ -284,7 +291,8 @@ void WorkerTools::bind(const StoreActor& actor) {
     verify_owned_capacity(actor, capacity, identity);
     workspace_.bind_limits(owned_workspace_limits(capacity));
     const auto template_id = field(store_.task(actor.task_id), "template_id");
-    const auto policy = worker_execution_policy(config, template_id, policy_for(actor));
+    const auto policy = worker_execution_policy(config, template_id,
+        policy_from_config(store_, actor, manifest_, config));
     if (!read_only_) static_cast<void>(store_.bind_workspace(actor.team_id, field(identity, "path"),
         unsigned_number(identity.at("device")), unsigned_number(identity.at("inode")), policy));
     verify_workspace(actor);
@@ -302,7 +310,8 @@ void WorkerTools::verify_workspace(const StoreActor& actor) const {
     verify_owned_capacity(actor, capacity, identity);
     require(workspace_.limits() == owned_workspace_limits(capacity), ErrorCode::Conflict,
             "workspace limits do not match the request's frozen capacity; bind before tool use");
-    const auto policy = worker_execution_policy(config, field(store_.task(actor.task_id), "template_id"), policy_for(actor));
+    const auto policy = worker_execution_policy(config, field(store_.task(actor.task_id), "template_id"),
+        policy_from_config(store_, actor, manifest_, config));
     require(stored.at("execution_policy") == policy, ErrorCode::Conflict, "team execution policy changed; explicit migration is required");
 }
 
