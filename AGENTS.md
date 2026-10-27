@@ -1,7 +1,26 @@
 # WLS861 development contract
 
-Current implementation: **0.10.0-r3.3c-runtime**, blueprint **v0.4.1**, Store **410**.
-The current two-module continuation is specified in
+Current implementation: **0.11.0-r3.3c-baseline**, blueprint **v0.4.1**, Store **410**.
+The next two-module continuation is specified in
+`docs/implementation/two-module-billing-baseline.md`. Read ADR-088/089 and
+`docs/implementation/R3-signed-billing.md` plus
+`docs/implementation/R3-single-agent-baseline.md` before modifying these paths.
+Billing is an explicit versioned trusted-gateway contract, not proof that a real
+vendor supports it. Freeze the unique challenge opt-in, bind captured policy bytes
+to v2 host authorization, verify independent Ed25519 receipts against the original
+wire identity and settlement, and enforce one source owner inside the Store transaction.
+Read all authorization, policy and receipt files only after full-Store workspace
+path guards. Exact late reconciliation replay is read-only; unknown values remain
+unknown, and accounting never restores business authority or sends again.
+The single-Agent runner requires a frozen single-agent-role-broker-v1 policy,
+one model/reasoning, complete cross-role original response/feedback history and
+transactional continuity validation. Store authority roles remain separate scopes;
+shared names or labels alone do not establish one Agent. R3 v3 independently checks
+actual native input and original history. Preserve v1/v2 historical identity rules.
+Actual results for this continuation belong in
+`docs/reports/billing-baseline-validation.md`; earlier reports retain their source scope.
+
+The preceding 0.10.0 two-module continuation is specified in
 `docs/implementation/two-module-continuation.md`. Read ADR-085/086/087 and
 `docs/implementation/R3-live-workflow.md` plus
 `docs/implementation/runtime-resources-and-migrations.md` before modifying these paths.
@@ -19,7 +38,7 @@ published SQL bytes. Resource discovery is executable-relative, never ambient cw
 R3 v2 evaluation requires original model/target/feedback provenance. Preserve v1's
 structural-only meaning and its existing single-Worker identity rule; do not rename
 multiple Store Workers to claim a completed single-Agent baseline.
-Actual current results belong in `docs/reports/two-module-validation.md`.
+That earlier batch's results belong in `docs/reports/two-module-validation.md`.
 Earlier reports retain their original source scope. Check final-SHA CI; implemented
 interfaces and planned acceptance cases are not evidence of a completed live product.
 

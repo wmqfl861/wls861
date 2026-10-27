@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(wls861 VERSION 0.10.0 LANGUAGES CXX)
+project(wls861 VERSION 0.11.0 LANGUAGES CXX)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "M1 currently requires Linux journal and process semantics")
@@ -64,6 +64,8 @@ add_library(wls_s1 STATIC
     src/sse_replay.cpp
     src/https_transport.cpp
     src/live_model.cpp
+    src/billing.cpp
+    src/single_agent.cpp
     src/management_context.cpp
     src/owned_capacity.cpp
     src/context.cpp
@@ -109,12 +111,20 @@ if(BUILD_TESTING)
         add_test(NAME ${suite} COMMAND ${suite}_tests)
         set_tests_properties(${suite} PROPERTIES TIMEOUT 90)
     endforeach()
-    foreach(suite IN ITEMS runtime_types runtime_resources store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery cleanup cleanup_runtime audit24_reopen process_evidence audit24_reconcile audit24_capacity audit24_capacity_repro r1_history r1_structured r1_window r2_rework r2_recovery r2_amend r2a_mkdir allocation_recovery doctor_diagnostics protocol_codec sse_replay r1_management owned_capacity owned_capacity_runtime live_model_store)
+    foreach(suite IN ITEMS runtime_types runtime_resources store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery cleanup cleanup_runtime audit24_reopen process_evidence audit24_reconcile audit24_capacity audit24_capacity_repro r1_history r1_structured r1_window r2_rework r2_recovery r2_amend r2a_mkdir allocation_recovery doctor_diagnostics protocol_codec sse_replay r1_management owned_capacity owned_capacity_runtime live_model_store billing single_agent)
         add_executable(${suite}_tests tests/${suite}_tests.cpp)
         target_link_libraries(${suite}_tests PRIVATE wls_s1)
         target_include_directories(${suite}_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
         target_compile_definitions(${suite}_tests PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-        add_test(NAME ${suite} COMMAND ${suite}_tests)
+        if(suite STREQUAL "single_agent")
+            # The 11 new cases include 71 original model calls. Keep all cases
+            # and the 90-second per-suite deadline in two bounded groups.
+            add_test(NAME single_agent COMMAND single_agent_tests --group history)
+            add_test(NAME single_agent_runtime COMMAND single_agent_tests --group runtime)
+            set_tests_properties(single_agent_runtime PROPERTIES TIMEOUT 90)
+        else()
+            add_test(NAME ${suite} COMMAND ${suite}_tests)
+        endif()
         set_tests_properties(${suite} PROPERTIES TIMEOUT 90)
     endforeach()
     set_tests_properties(owned_capacity_runtime PROPERTIES TIMEOUT 180)
@@ -151,6 +161,10 @@ if(BUILD_TESTING)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_live_workflow_cli.py"
                 "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
     set_tests_properties(live_workflow_cli PROPERTIES TIMEOUT 180)
+    add_test(NAME billing_baseline_e2e
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_billing_baseline_e2e.py"
+                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(billing_baseline_e2e PROPERTIES TIMEOUT 900)
     add_test(NAME runtime_resources_cli
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime_resources_cli_tests.py"
                 "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")

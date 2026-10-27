@@ -1,0 +1,156 @@
+{
+  "baseline_sha": "1b7020e3676a57da233aa097d32956a80942734e",
+  "scope": "Module-specialty snapshot; final whole-tree gates and real TLS CLI coverage are reported separately.",
+  "source_snapshot": "/tmp/wls861-billing-module-9du67etw/source",
+  "module_inputs": {
+    "include/wls/billing.hpp": "d91ef9ef85c598d2d0ba903fc2d440f11b9f19416148362e1af5f31177be0d4f",
+    "include/wls/live_model.hpp": "33a035392ab1fc93c20711551fbde2669f10ec618a294a6368c9dd0dde6983d7",
+    "include/wls/provider_profile.hpp": "24e900d28c3461a485bbbec4d0bb466b5c3f747874c8a9976bcab9334e4b5d4e",
+    "include/wls/protocol_codec.hpp": "eb85240d6a6694a470e34ba35ac7c7eef1b7f5407505a2c0a32e1c6c6e1563d0",
+    "include/wls/store.hpp": "67a77bf705f5030f482e39d78cce393c4fefddd31ebb6da9cc5c921b0ab4314f",
+    "src/billing.cpp": "924cf3a7ee7a198a446e2f89005dd3d21062bb17176da68be8d736bbb3694b7c",
+    "src/provider_profile.cpp": "e709aa8bf199d1d15cc805edf920887cbff0f54a7cb686a04012384efd71c8dc",
+    "src/protocol_codec.cpp": "eb390bfc74a39e1e9c9dc8e452676780af01c50399eed221dd7c953ba941fa2c",
+    "src/https_transport.cpp": "58679a0c7f75388b310c4afc8ba878d11cfe78e12691977bbf82cd8ba7b1259b",
+    "src/store_live.inc": "4547b29864f3546a2db32bb26ede109f1da0ccead2f887ac2e1f79d8660e073b",
+    "tests/billing_tests.cpp": "37c8f366a8d8698f0320f54734b41bde1cf23c7c46d04c9bc212f2103d407925"
+  },
+  "module_current_differences_at_recording": [],
+  "tested_snapshot_manifest": "signed-billing-inputs-20261027.sha256",
+  "tested_snapshot_manifest_sha256": "399fb62aaa3fd5c71a79ba03404e3153af4e0ae980f6677c6738c7b75c3ff621",
+  "tested_snapshot_manifest_count": 299,
+  "checks": {
+    "release-0002": {
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-billing-module-9du67etw/build-release",
+        "--parallel",
+        "2",
+        "--output-on-failure",
+        "-V",
+        "-R",
+        "^(billing|live_model_store|protocol_codec)$"
+      ],
+      "uid": 65534,
+      "gid": 65534,
+      "groups": [],
+      "outer_umask": "0002",
+      "native_harness_umask": "0077",
+      "ASAN_OPTIONS": null,
+      "exit_code": 0,
+      "elapsed_seconds": 1.244,
+      "log": "/tmp/wls861-billing-module-9du67etw/release-0002.log"
+    },
+    "asan-0002": {
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-billing-module-9du67etw/build-asan",
+        "--parallel",
+        "2",
+        "--output-on-failure",
+        "-V",
+        "-R",
+        "^(billing|live_model_store|protocol_codec)$"
+      ],
+      "uid": 65534,
+      "gid": 65534,
+      "groups": [],
+      "outer_umask": "0002",
+      "native_harness_umask": "0077",
+      "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+      "exit_code": 0,
+      "elapsed_seconds": 9.1,
+      "log": "/tmp/wls861-billing-module-9du67etw/asan-0002.log"
+    },
+    "clang18": {
+      "command": [
+        "clang++-18",
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Wconversion",
+        "-Wshadow",
+        "-Werror",
+        "-I/tmp/wls861-billing-module-9du67etw/source/include",
+        "-I/tmp/wls861-billing-module-9du67etw/source/tests",
+        "-I/tmp/wls861-billing-module-9du67etw/source/third_party/valijson/include",
+        "-I/tmp/wls861-billing-module-9du67etw/source/third_party/libyaml/include",
+        "-fsyntax-only",
+        "/tmp/wls861-billing-module-9du67etw/source/src/billing.cpp",
+        "/tmp/wls861-billing-module-9du67etw/source/src/provider_profile.cpp",
+        "/tmp/wls861-billing-module-9du67etw/source/src/protocol_codec.cpp",
+        "/tmp/wls861-billing-module-9du67etw/source/src/https_transport.cpp",
+        "/tmp/wls861-billing-module-9du67etw/source/src/store.cpp",
+        "/tmp/wls861-billing-module-9du67etw/source/tests/billing_tests.cpp"
+      ],
+      "units": [
+        "src/billing.cpp",
+        "src/provider_profile.cpp",
+        "src/protocol_codec.cpp",
+        "src/https_transport.cpp",
+        "src/store.cpp",
+        "tests/billing_tests.cpp"
+      ],
+      "uid": 65534,
+      "gid": 65534,
+      "groups": [],
+      "outer_umask": "0002",
+      "exit_code": 0,
+      "elapsed_seconds": 14.925,
+      "log": "/tmp/wls861-billing-module-9du67etw/clang18.log"
+    }
+  },
+  "logs": {
+    "release": {
+      "file": "signed-billing-release-20261027.txt",
+      "raw_sha256": "59c876c1cd348d6994953a5a9322314f4bb86ac8c2b08efa810337fee250f8af",
+      "saved_sha256": "59c876c1cd348d6994953a5a9322314f4bb86ac8c2b08efa810337fee250f8af",
+      "normalization": "Remove trailing spaces, tabs and CR from each LF-separated line only.",
+      "summary": [
+        "44: RESULT 12 passed, 0 failed",
+        "1/3 Test #44: billing ..........................   Passed    1.08 sec",
+        "38: RESULT 30 passed, 0 failed",
+        "2/3 Test #38: protocol_codec ...................   Passed    0.04 sec",
+        "43: RESULT 15 passed, 0 failed",
+        "3/3 Test #43: live_model_store .................   Passed    1.23 sec",
+        "The following tests passed:",
+        "100% tests passed, 0 tests failed out of 3",
+        "Total Test time (real) =   1.23 sec"
+      ]
+    },
+    "asan": {
+      "file": "signed-billing-asan-20261027.txt",
+      "raw_sha256": "016a2e3feddc06f496dcc908f551c1a36db6700b760b693c3eb8d546e1eb5eb9",
+      "saved_sha256": "016a2e3feddc06f496dcc908f551c1a36db6700b760b693c3eb8d546e1eb5eb9",
+      "normalization": "Remove trailing spaces, tabs and CR from each LF-separated line only.",
+      "summary": [
+        "38: RESULT 30 passed, 0 failed",
+        "1/3 Test #38: protocol_codec ...................   Passed    1.05 sec",
+        "44: RESULT 12 passed, 0 failed",
+        "43: RESULT 15 passed, 0 failed",
+        "2/3 Test #44: billing ..........................   Passed    8.00 sec",
+        "3/3 Test #43: live_model_store .................   Passed    9.09 sec",
+        "The following tests passed:",
+        "100% tests passed, 0 tests failed out of 3",
+        "Total Test time (real) =   9.09 sec"
+      ]
+    }
+  },
+  "clang_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "clang_log_empty": true,
+  "sanitizer_diagnostics_found": false,
+  "environment": {
+    "gcc": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "clang": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+    "cmake": "cmake version 3.28.3",
+    "ninja": "1.11.1",
+    "openssl": "OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)",
+    "python": "Python 3.12.14"
+  },
+  "initial_compile_correction": "The first Store replay helper syntax check failed on an unavailable obj helper and boost::json::value vs std::string comparison. Replaced with as_object() and original string accessor; no production guard relaxed.",
+  "external_provider_calls": 0,
+  "paid_calls": 0
+}

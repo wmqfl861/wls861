@@ -163,6 +163,8 @@ void validate_provider_profile(const ProviderProfile& p) {
             p.responses_path.back() != '/', "provider endpoint must be an explicit HTTPS origin/path without credentials, query or fragment");
     require(ascii_token(p.model, 128), "provider model alias must be a bounded ASCII token");
     require(environment_name(p.api_key_env), "authentication must be a valid environment reference name");
+    require(p.billing_challenge.empty() || p.billing_challenge == "wls-billing-challenge-v1",
+            "unsupported frozen billing challenge extension");
     require(!p.parallel_tool_calls || p.tool_calling, "parallel tool calls require tool calling capability");
     require(p.reasoning_provider_default || p.reasoning_off || !p.reasoning_efforts.empty(),
             "provider must explicitly declare a reasoning mode");
@@ -188,9 +190,11 @@ void validate_provider_profile(const ProviderProfile& p) {
 
 ProviderProfile provider_profile_from_json(const Json& value) {
     require(canonical_json(value).size() <= 65536, "provider profile byte limit exceeded");
-    exact(value, {"format", "profile_id", "adapter", "adapter_version", "protocol", "base_url",
+    auto keys = std::set<std::string>{"format", "profile_id", "adapter", "adapter_version", "protocol", "base_url",
         "responses_path", "model_ref", "model", "api_key_env", "real_calls_enabled", "max_paid_retries",
-        "capabilities", "limits"});
+        "capabilities", "limits"};
+    if (object(value).contains("billing_challenge")) keys.insert("billing_challenge");
+    exact(value, keys);
     if (text(value, "format") != "wls-provider-profile-v1" || text(value, "adapter") != "openai-responses")
         throw Error(ErrorCode::Unsupported, "unsupported offline provider profile format or adapter");
     if (boolean(value, "real_calls_enabled") || integer(value, "max_paid_retries") != 0)
@@ -200,6 +204,10 @@ ProviderProfile provider_profile_from_json(const Json& value) {
     p.protocol = text(value, "protocol"); p.base_url = text(value, "base_url");
     p.responses_path = text(value, "responses_path"); p.model_ref = text(value, "model_ref");
     p.model = text(value, "model"); p.api_key_env = text(value, "api_key_env");
+    if (object(value).contains("billing_challenge")) {
+        p.billing_challenge = text(value, "billing_challenge");
+        require(p.billing_challenge == "wls-billing-challenge-v1", "unsupported frozen billing challenge extension");
+    }
     const auto& caps = field(value, "capabilities");
     exact(caps, {"streaming", "tool_calling", "parallel_tool_calls", "reasoning_modes", "reasoning_efforts",
                  "context_window", "max_output_tokens"});
@@ -237,7 +245,7 @@ Json to_json(const ProviderProfile& p) {
     if (p.reasoning_off) modes.emplace_back("off");
     if (!p.reasoning_efforts.empty()) modes.emplace_back("effort");
     for (const auto& effort : p.reasoning_efforts) efforts.emplace_back(effort);
-    return Object{{"format", "wls-provider-profile-v1"}, {"profile_id", p.profile_id},
+    Object result{{"format", "wls-provider-profile-v1"}, {"profile_id", p.profile_id},
         {"adapter", "openai-responses"}, {"adapter_version", p.adapter_version}, {"protocol", p.protocol},
         {"base_url", p.base_url}, {"responses_path", p.responses_path}, {"model_ref", p.model_ref},
         {"model", p.model}, {"api_key_env", p.api_key_env}, {"real_calls_enabled", false}, {"max_paid_retries", 0},
@@ -245,6 +253,8 @@ Json to_json(const ProviderProfile& p) {
             {"parallel_tool_calls", p.parallel_tool_calls}, {"reasoning_modes", modes}, {"reasoning_efforts", efforts},
             {"context_window", p.context_window}, {"max_output_tokens", p.max_output_tokens}}},
         {"limits", limits_json(p.limits)}};
+    if (!p.billing_challenge.empty()) result["billing_challenge"] = p.billing_challenge;
+    return result;
 }
 
 std::string provider_profile_sha256(const ProviderProfile& profile) {

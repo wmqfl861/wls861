@@ -1,14 +1,17 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.10.0-r3.3c-runtime；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化工作流、受控 Worker 工具和独立离线协议回放。
+C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.11.0-r3.3c-baseline；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化工作流、受控 Worker 工具和独立离线协议回放。
 
-本增量接续已推送的五节点版本，交付两个大模块：**受控在线工作流**与
-**迁移注册表／可安装运行资源**。Store 保持410，原SQL、原预约、结算、恢复和业务权限保持兼容。
-`pump-live` 在明确冻结配置与独立宿主授权下驱动原角色流程；默认仍关闭网络和真实调用。
-资源安装包包含经固定清单校验的SQL、Schema和公共提示词，可以从任意工作目录启动。
-本轮测试使用临时 SQLite、合成凭据与 loopback TLS；真实供应商和付费调用为0。
-[两模块范围](docs/implementation/two-module-continuation.md)、
-[当前状态](docs/STATUS.md)与[联合验证](docs/reports/two-module-validation.md)分别记录实现和实际证据。
+本增量沿蓝图补齐两个大模块：**签名计费适配与连续 CLI**、**单 Agent 连续执行与 v3 对照评测**。
+前者以独立 Ed25519 收据核对原调用账目，支持同步结算与迟到追加；后者让同一逻辑 Agent
+实际接收跨角色的全部原响应和工具反馈，原 Store 角色继续限定各自权限。
+Store 保持410，原SQL、原预约、结算、恢复和业务权限保持兼容。
+默认仍关闭网络与真实调用；本轮使用临时 SQLite、独立合成签名和 loopback TLS，
+真实供应商及付费调用为0。新计费接口是项目定义的受信中转契约，实际服务接入仍需单独验收。
+[本批范围](docs/implementation/two-module-billing-baseline.md)、
+[当前状态](docs/STATUS.md)与[联合验证](docs/reports/billing-baseline-validation.md)分别记录实现和实际证据。
+上一批的[受控工作流与安装资源](docs/implementation/two-module-continuation.md)及
+[原验证](docs/reports/two-module-validation.md)保留各自版本范围。
 前一补丁的独立边界审核及其证据保留在[审核处置](docs/reviews/independent-2026-10-26.md)
 和[历史验证](docs/reports/independent-audit-validation.md)。
 
@@ -24,10 +27,11 @@ R1.3 在此基础上接通显式冻结的Worker窗口与模型回读；旧请求
 
 ## 本轮新增接口
 
-- `EventRuntime::pump_live`：沿原 Store 预约、唯一发送、结算和反馈驱动计划、派工、工具、提交、检查、验收、经验、模型 AMEND 及有限返工。
-- `wls live-status` / `wls pump-live`：读取原冻结身份及账目，生成默认禁用的授权模板；只有精确绑定请求、配置和模型 profile 的显式授权才能执行。
-- `RuntimeResources` / `MigrationRegistry` / `wls resources`：校验并一次捕获固定资源字节，按注册表使用原迁移；支持显式资源根和可执行文件相对发现。
-- `scripts/evaluate_r3.py`：v2 从原模型响应、捕获目标、不可变反馈和业务事实核验模型决策来源。v1 保留结构性验收语义；尚未提供通用单 Agent 执行器。
+- `BillingTrustPolicy` / 签名收据核验：显式冻结唯一调用 challenge，核对签名、原请求/响应字节和账单身份；Store 在原事务内阻止同一账单跨调用认领。
+- `wls live-status` / `wls pump-live --billing-policy-file FILE`：v2 宿主授权绑定一次捕获的信任政策原字节；完整独立账目可继续原流程，未知、冲突及超预留仍停止。
+- `wls reconcile-billing`：核验迟到收据并追加原账目，精确重复走只读重放，不重应用响应、不恢复业务资格。
+- `wls pump-single-live` / `wls pump-single-fake`：显式冻结的一个逻辑 Agent 串行使用原角色权限，跨批次与重启保留真实共享对话和原工具反馈。
+- `scripts/evaluate_r3.py plan --identity-contract single-agent-role-broker-v1`：新增 v3，独立重建实际共享输入与原证据链；v1/v2 的历史含义及单 Worker 规则保持不变。
 
 升级已有库先执行显式 `wls init --db FILE` 全库维护。请求限定写者不会隐式升级非空旧库；
 旧假调用、配置快照、原结算和已发布SQL保持原字节。
@@ -49,11 +53,41 @@ R1.3 在此基础上接通显式冻结的Worker窗口与模型回读；旧请求
 批次期限和正数费用预留，并精确绑定请求、配置快照及全部已选模型。文件必须位于业务工作区外。
 凭据只从原冻结的环境变量引用读取，不写入授权文件或公开摘要。CLI 不自动重试、发布或签收交付。
 
-当前 Responses 子集不能从响应确认实际费用，原费用保持 `null`。CLI 会在首个可应用的
-响应后报告 `needs_accounting`，不继续消耗下一次调用；重复运行不能重发旧 attempt。
-完整受控连续流程需宿主库提供能验证独立账单来源的 hook，且证据绑定原 attempt 与原结算哈希。
-预留金额不等于实际费用，模型自报费用或任意 JSON 不能作为核对授权。
+当前 Responses 子集不能从模型响应确认实际费用，原费用保持 `null`。未配置可信计费适配时，
+CLI 在首个可应用响应后报告 `needs_accounting`；重复运行不能重发旧 attempt。
+0.11.0 增加[签名计费契约](docs/implementation/R3-signed-billing.md)：原 profile 显式启用
+`billing_challenge: wls-billing-challenge-v1`，宿主信任政策绑定请求、冻结 profile、签发方、
+账户及公钥。`live-status --billing-policy-file FILE` 生成仍默认禁用的 v2 授权模板，
+启用后 `pump-live` 才能验证该政策下的同步收据并继续。原费用与原结算不改写。
+预留金额不等于实际费用；模型自报费用、任意 JSON 或测试签名都不是实际供应商账单证明。
 详细接口、停止条件及边界见[在线工作流契约](docs/implementation/R3-live-workflow.md)。
+
+迟到收据可由本地所有者独立核账；显式版本用于阻止覆盖已变化的用量投影：
+
+```sh
+./build-cmake/wls reconcile-billing --db /absolute/runtime.sqlite --request REQUEST_ID \
+  --attempt ATTEMPT_ID --billing-policy-file /absolute/billing-policy.json \
+  --receipt-file /absolute/signed-receipt.json --expected-version 1 --key IMPORT_KEY
+```
+
+### 单 Agent 基线
+
+创建新请求时，在 `context` 显式冻结以下策略；三个执行角色须解析到同一模型和 reasoning：
+
+```yaml
+context:
+  request_format: structured-v2
+  logical_agent:
+    mode: single-agent-role-broker-v1
+    max_attempts: 128
+    max_history_bytes: 524288
+```
+
+随后使用 `pump-single-live`，参数与受控 `pump-live` 相同；离线固定脚本使用
+`pump-single-fake`。每次原生输入包含全部已闭合的跨角色响应/反馈，预约事务验证全局顺序
+和前链；未闭合、缺反馈、历史超限或旧捕获明确阻止新预约。该模式不授予管理角色业务工具，
+也不为已有请求补贴身份。v3 的五任务双条件样本保留失败和未知，实际模型质量与成本比较
+另行验收。配置、限制和评测命令见[单 Agent 契约](docs/implementation/R3-single-agent-baseline.md)。
 
 ### 安装与资源发现
 
@@ -244,6 +278,9 @@ context:
 | [独立审核与修复](docs/reviews/independent-2026-10-26.md) | 本轮确认的五类问题、最小修复和代码/蓝图优化决定 |
 | [本轮验证](docs/reports/independent-audit-validation.md) | 基线失败、普通用户回归、完整源码与原日志绑定 |
 | [R3.3受控闭环计划](docs/implementation/R3-controlled-live-plan.md) | 传输/Store账本/真实任务三节点及长任务前置的依赖、反例、完成条件 |
+| [签名计费适配](docs/implementation/R3-signed-billing.md) | 信任政策、唯一challenge、同步及迟到收据、事务内归属与只读重放 |
+| [单Agent基线](docs/implementation/R3-single-agent-baseline.md) | 一个逻辑执行者、原角色权限、完整原生历史与v3对照身份 |
+| [本批联合验证](docs/reports/billing-baseline-validation.md) | 普通用户回归、独立CLI/TLS双条件与最终输入/提交门禁 |
 | [0.8.5三节点验证](docs/reports/r2a3-r3-offline-validation.md) | 前一版本R2a.3诊断、R3.1 HTTP与R3.2 SSE的实际证据 |
 | [S1.6 历史发布复验](docs/reports/s1-owned-cleanup-followup-validation.md) | 当时的非root复现、夹具修复、只读保护与完整门禁 |
 | [S1.6首次本地验证](docs/reports/s1-owned-cleanup-validation.md) | 原始本地记录与边界；不能替代后续CI权限失败修复后的复验 |
@@ -266,7 +303,7 @@ context:
 
 ## 当前可以运行什么
 
-`wls` 已有 `config check/explain`、`schema check`、`doctor`、`encode-model/replay-model`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`inbox/history/history-page/history-read/wait/wake`、`questions/submissions/answer`、`deliveries/experience/closeout`、`publish-delivery/verify-delivery/ack-delivery`、`allocate-workspace/abandon-workspace/owned-workspaces/cleanup-workspaces`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
+`wls` 已有 `config check/explain`、`schema check`、`doctor`、`encode-model/replay-model`、`init/submit`、`show/events/budget/config-snapshot`、`run-fake/pump-fake`、`live-status/pump-live`、`reconcile-billing`、`pump-single-live/pump-single-fake`、`inbox/history/history-page/history-read/wait/wake`、`questions/submissions/answer`、`deliveries/experience/closeout`、`publish-delivery/verify-delivery/ack-delivery`、`allocate-workspace/abandon-workspace/owned-workspaces/cleanup-workspaces`、`tool-query`、`amend/cancel/pending`。只读命令不会改变执行代次；写者重开会先围栏旧执行，保留未决模型预算与 UNKNOWN。
 
 | S1 模块 | 当前实现 |
 | --- | --- |
@@ -564,7 +601,14 @@ ACK 会重新核验并同步完整包，随后原子保存精确回执和收尾�
 
 当前内核是受信宿主进程内 API，`Actor` 由宿主构造。本机 CLI 不提供远程认证；诊断速率限制在单进程内，写者持租约期间没有第二个 CLI 的 socket 取消通道。文件容量是代理的逻辑上限，不是任意进程磁盘配额；合作锁不防任意同 UID 宿主绕过。强进程正向测试、残留 cgroup 恢复及完整 SBX/SEC 验收仍需独立证据。
 
-R2a.2已接入PREPARED分配恢复/显式放弃，R2a.3已接入doctor实际路径与有界阻塞诊断，R3.1/R3.2提供独立Responses HTTP/SSE离线回放。后继按[R3.3a/b/c计划](docs/implementation/R3-controlled-live-plan.md)推进本地TLS组件、原Store/账本集成及获准小任务与单Agent对照；管理视图与owned容量单列长任务前置。私有行purge与wlsd/API继续后置。跨功能独立审核、DAG和审核双容量按S2推进，S3记忆、S4 MCP/评测和S5证据驱动扩展保持原路线。S1-06/07强环境正向独立验收；真实协议的端点、凭据引用、能力和预算由外部配置提供。现有运行器仍用FakeModel，协议夹具不联网，付费重试为零。
+R2a.2已接入PREPARED分配恢复/显式放弃，R2a.3提供doctor实际路径与有界阻塞诊断，
+R3.1/R3.2保留独立Responses HTTP/SSE离线回放。R3.3a/b与原角色受控在线工作流已经接通；
+本批补齐显式签名计费和单Agent连续执行，后继按[R3.3c计划](docs/implementation/R3-controlled-live-plan.md)
+验收实际中转能力、获准真实小任务与同条件对照。管理视图、owned容量和单Agent完整历史
+都有明确边界，长任务仍须单独验证。私有行purge与wlsd/API继续后置。
+跨功能独立审核、DAG和审核双容量按S2推进，S3记忆、S4 MCP/评测和S5证据驱动扩展保持原路线。
+S1-06/07强环境正向独立验收；端点、凭据引用、能力和预算由外部配置提供。
+FakeModel与离线协议入口保留，live入口要求明确授权，自动付费重试为零。
 
 ### 存储准入窗口和人工续进
 

@@ -19,6 +19,9 @@ struct EncodedResponsesRequest {
     // Binds this complete local report against accidental later mutation.
     // This is neither a transport receipt nor authorization against the host.
     std::string record_sha256;
+    // Appended fixed opt-in HTTP challenge, bound into the encoded record.
+    // Never an arbitrary header, idempotency guarantee or billing receipt.
+    std::string billing_challenge{};
 };
 
 struct DecodedResponsesResponse {

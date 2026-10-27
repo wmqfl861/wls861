@@ -1,0 +1,38 @@
+Internal ctest changing into directory: /tmp/wls861-single-agent-validation/build-release
+UpdateCTestConfiguration  from :/tmp/wls861-single-agent-validation/build-release/DartConfiguration.tcl
+Parse Config file:/tmp/wls861-single-agent-validation/build-release/DartConfiguration.tcl
+UpdateCTestConfiguration  from :/tmp/wls861-single-agent-validation/build-release/DartConfiguration.tcl
+Parse Config file:/tmp/wls861-single-agent-validation/build-release/DartConfiguration.tcl
+Test project /tmp/wls861-single-agent-validation/build-release
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 45
+    Start 45: single_agent
+
+45: Test command: /tmp/wls861-single-agent-validation/build-release/single_agent_tests
+45: Working Directory: /tmp/wls861-single-agent-validation/build-release
+45: Test timeout computed to be: 90
+45: PASS shared native history crosses roles and tasks
+45: PASS omitted original pair refuses reservation
+45: PASS reordered original pairs refuse reservation
+45: PASS changed or missing logical identity refuses reservation
+45: PASS concurrent captures cannot fork original history
+45: PASS settled turn without immutable feedback blocks continuation
+45: PASS historical Worker tools do not authorize manager actions
+45: PASS ordinary restart continues one chain without rewriting bindings
+45: PASS sibling request history never enters the shared transcript
+45: PASS frozen attempt and byte capacities stop before reservation
+45: PASS explicit frozen policy and common model are required
+45: RESULT 11 passed, 0 failed
+1/1 Test #45: single_agent .....................   Passed    7.87 sec
+
+The following tests passed:
+	single_agent
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   7.88 sec

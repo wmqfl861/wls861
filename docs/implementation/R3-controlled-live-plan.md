@@ -5,10 +5,13 @@
 0.9.0-r3.3b已接入原Store发送/结算/核对和两项新冻结长任务策略；R3.3c的
 [本地评测框架](R3-evaluation-framework.md)已实现，真实供应商和单Agent质量执行仍待独立验收。
 0.10.0-r3.3c-runtime进一步接入[受控原角色工作流](R3-live-workflow.md)、独立授权CLI、
-v2模型来源评测和[可安装资源](runtime-resources-and-migrations.md)。真实供应商特定计费核验
-与单Agent逻辑身份/原权限身份契约仍是后继工作，未从loopback结果推导已完成。
-此前五节点的限定范围见[接续记录](five-node-continuation-20261027.md)，本轮见
-[两模块记录](two-module-continuation.md)，当前能力见
+v2模型来源评测和[可安装资源](runtime-resources-and-migrations.md)。
+0.11.0-r3.3c-baseline补齐[签名计费适配](R3-signed-billing.md)和
+[单Agent原生执行器](R3-single-agent-baseline.md)及v3身份评测。
+计费是本项目定义的受信中转协议；真实服务支持、账单来源和同模型质量对照仍独立验收。
+此前五节点的限定范围见[接续记录](five-node-continuation-20261027.md)，上一批见
+[工作流/资源记录](two-module-continuation.md)，本轮见
+[计费/基线记录](two-module-billing-baseline.md)，当前能力见
 [STATUS](../STATUS.md)，现有离线边界见 [R3.1/R3.2](R3-offline-responses.md)；
 原 Store 的[请求恢复](S1-request-recovery.md)、[容量窗口](S1-capacity-windows.md)
 和[不可变交付](S1-acceptance-delivery.md)继续适用。

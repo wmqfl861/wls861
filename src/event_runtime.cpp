@@ -748,7 +748,8 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                                     ErrorCode::Conflict, "usage evidence hook returned a different original attempt or settlement");
                             const auto projection = store_.usage_projection(captured.request.attempt_id);
                             UsageReconciliation reconciliation;
-                            reconciliation.reconciliation_id = new_id("usage");
+                            reconciliation.reconciliation_id = evidence->required_reconciliation_id().empty()
+                                ? new_id("usage") : evidence->required_reconciliation_id();
                             reconciliation.idempotency_key = "live-workflow:" + captured.request.attempt_id + ":" + evidence->sha256();
                             reconciliation.expected_projection_version = number(projection.at("projection"), "state_version");
                             static_cast<void>(store_.reconcile_usage(store_.host_actor(Role::Root, id), *evidence, reconciliation));

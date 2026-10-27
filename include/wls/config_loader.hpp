@@ -53,6 +53,7 @@ public:
     std::string context_request_format() const;
     Json worker_history_policy() const; // Null preserves the complete legacy history.
     Json management_history_policy() const; // Null preserves complete legacy management views.
+    Json logical_agent_policy() const; // Null preserves the original role-isolated execution.
     Json model_profile(Role role) const;
     ToolSet worker_tools(std::string_view template_id = "default") const;
 

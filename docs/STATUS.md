@@ -1,6 +1,23 @@
-# 当前实现 **0.10.0-r3.3c-runtime**，目标蓝图 **v0.4.1**，Store **410**。
+# 当前实现 **0.11.0-r3.3c-baseline**，目标蓝图 **v0.4.1**，Store **410**。
 
-本轮按[两个大模块](implementation/two-module-continuation.md)接续已推送版本：
+本轮按[两个后继模块](implementation/two-module-billing-baseline.md)接续已推送的 `1b7020e`：
+
+| 模块 | 当前新增实现 | 验收边界 |
+| --- | --- | --- |
+| 签名计费与连续 CLI | 冻结 opt-in challenge、Ed25519 独立收据、请求/响应原字节绑定、事务内账单唯一归属、v2 授权精确绑定政策原字节、同步与迟到核账、无写者接管的精确重放 | 项目自定义受信中转协议；临时密钥和 loopback TLS 只验工程契约，不证明实际供应商支持或真实费用 |
+| 单 Agent 与 v3 基线 | 一个逻辑执行者的全部跨角色原响应/反馈、预约事务内连续性核验、显式 live/fake CLI、跨重启继续；v3 重建实际原生输入及五任务双条件证据 | 原角色仍分别限定权限；历史有界且完整，不压缩丢弃失败；真实同模型品质和成本对照仍待现场执行 |
+
+Store 仍为410，无新增或改写已发布 SQL。原结算保持不可变，未知值、业务 UNKNOWN、
+预算和一次发送规则继续生效；旧 v1/v2 评测、原角色执行及资源安装保持兼容。
+全库工作区路径检查在授权、信任政策、收据内容读取之前完成；运行只使用一次捕获的字节。
+实际专项、完整回归、输入身份和最终提交门禁见[本批验证](reports/billing-baseline-validation.md)。
+接口与限制见[签名计费](implementation/R3-signed-billing.md)、
+[单 Agent 基线](implementation/R3-single-agent-baseline.md)及[评测契约](implementation/R3-evaluation-framework.md)。
+本批真实外部供应商调用、付费调用和生产数据操作均为0。
+
+## 上一批 0.10.0 的实现与证据范围
+
+上一批按[两个大模块](implementation/two-module-continuation.md)接续已推送版本：
 
 | 模块 | 当前新增实现 | 验收边界 |
 | --- | --- | --- |
@@ -8,9 +25,9 @@
 | 迁移与安装资源 | 版本化迁移注册表、固定35项SQL/Schema/提示词清单、完整字节/hash验证、Schema一次捕获、可执行文件相对发现与prefix/DESTDIR安装 | Store保持410、旧构造器与已发布SQL兼容；安装后配置显式外置；不能据此宣称daemon/API或部署强隔离已完成 |
 
 评测随工作流新增v2 `model-origin-v1`，把原模型响应、捕获目标、不可变反馈与业务事实关联；
-v1继续只证明结构验收，不改写历史成绩。单Agent基线执行器仍待版本化身份契约，
+v1继续只证明结构验收，不改写历史成绩。该版本的单Agent基线执行器仍待版本化身份契约，
 不能把多个Store Worker重命名为同一Agent绕过现有检查。
-当前实际命令、失败修正、输入身份和最终门禁见[两模块验证](reports/two-module-validation.md)。
+该版本实际命令、失败修正、输入身份和最终门禁见[两模块验证](reports/two-module-validation.md)。
 新接口及宿主边界见[在线工作流](implementation/R3-live-workflow.md)、
 [安装资源](implementation/runtime-resources-and-migrations.md)与[评测契约](implementation/R3-evaluation-framework.md)。
 
@@ -76,9 +93,10 @@ Dispatcher纠正与TeamLead共享冻结返工计数，新说明必须保留旧�
 | 交付/清理 | 不可变包、精确回执、经验作业、固定清单受控 work 删除 | 实际发布/删除/恢复；私有行、owner收据保留；全局cleanup仍PENDING；PREPARED有原收据恢复/显式弃置；弃置残留保留、不可重用。部署 doctor 不扫描或采用分配残留 |
 | 上下文/模型 | 冻结选择v1/v2和Worker window-v1；近期完整轮次、旧/大结果原证据引用；模型回读与持久频率限制 | FakeModel大文件多轮/重开继续、模型回读原字节；旧请求不迁移。已接管理角色冻结窗口和原Store网络attempt；LLM语义压缩/真实模型质量待验收，完整当前契约超限在预约前拒绝 |
 | Responses 离线协议 | 显式 provider profile、HTTP 文本/function_call 编解码、有界 SSE 回放；独立 encode-model/replay-model | 两个CLI仍零网络、零凭据解析、零工具派发。Schema/Completed 不授予权限；原wire字段不改标 |
-| HTTPS / live工作流 | libcurl multi、显式CA/host验证、有界deadline/取消、原HTTP/SSE解码；原角色event pump与精确授权CLI | 自建loopback TLS，严格IPv4/显式路由，DNS名另需c-ares；零自动重试。费用未知停止，可信核验hook可追加对账；实际供应商与c-ares外部DNS验收未执行 |
+| HTTPS / live工作流 | libcurl multi、显式CA/host验证、有界deadline/取消、原HTTP/SSE解码；原角色event pump与精确授权CLI | 自建loopback TLS，严格IPv4/显式路由，DNS名另需c-ares；零自动重试。费用未知停止，v2授权绑定独立签名计费；实际供应商与c-ares外部DNS验收未执行 |
+| 签名计费 / 迟到核账 | 独立Ed25519收据、原challenge/字节身份、五维nullable账目、跨调用唯一归属、追加投影与只读重放 | 错签、错绑、重放、缺值、超预留和错误响应各按原账本限制；自定义中转契约需实际服务另行接入 |
 | 运行资源 / 迁移 | 编译认可清单、35项固定资源、版本注册表及CMake安装 | 从无关cwd与删除安装来源后运行；prefix/DESTDIR、资源篡改/缺失/特殊文件拒绝、旧API/迁移兼容；配置和凭据外置 |
-| 评测证据 | v1结构验收、v2模型决策原响应/target/feedback证据 | 原生合成模型链和错绑/缺失反例；真实供应商质量和版本化单Agent执行器未完成 |
+| 单 Agent / 评测证据 | 显式冻结共享原生对话与原权限代理；v1结构验收、v2原模型来源、v3独立验证单逻辑Agent连续性 | 五任务双条件合成工程链、跨重启与错标/缺反馈反例；真实供应商质量、成本及长对话语义效果未验收 |
 | 事件/并发 | 持久inbox、逐任务AMEND、串行pump；冻结准入窗口/独立计数/Root检查点 | 旧快照不改写；到限可核对后续进；不清审计/不重置预算。CLI 已按请求恢复；默认全库维护仍保留。并发租约、只在确有在途时提升选中请求代次仍未实现 |
 | 配置执行状态 | check/explain显示 runtime_support 和 validated_only 项 | 形状有效不代表墙钟/告警/压缩/并发/停滞检测已执行 |
 | 记忆、MCP、跨功能审核 | 规格/参考契约 | 完整C++闭环及真实互通未实现 |
@@ -92,8 +110,9 @@ S2 独立审核/DAG，S3 记忆，S4 MCP/评测，S5 按证据扩展仍为后续
 R2a.2已按[ADR-075](adr/075-owned-allocation-recovery.md)实现迁移、创建收据、精确恢复、弃置与清理联动。
 R2a.3、R3.1、R3.2 的上述限定接口已实施；真实强沙箱部署正向验收保持独立。
 R3.3a/b、两项长任务前置及受控event pump/CLI已按限定范围实施。迁移注册表与可安装资源
-已补齐服务化之前置，但daemon/API继续后置。下一步按[R3.3c计划](implementation/R3-controlled-live-plan.md)
-先补独立计费核验与单Agent逻辑身份契约，在端点能力、凭据、预算和明确授权具备后进行真实小任务及对照。
+已补齐服务化之前置，但daemon/API继续后置。本批补齐版本化签名计费适配和单Agent逻辑身份执行器。
+下一步按[R3.3c计划](implementation/R3-controlled-live-plan.md)，核验实际中转签发与所选端点能力；
+在凭据、预算和明确授权具备后进行真实小任务与同条件对照，保留全部失败和未知样本。
 离线codec profile继续固定real_calls_enabled=false；外层宿主live配置另有显式开关和独立执行授权，
 默认关闭，max_paid_retries=0；CLI只有完整宿主授权后的受控入口，本次未使用真实供应商。
 并发租约和选中请求按需提升代次继续开放，不因模型 AMEND 接入而视为完成。

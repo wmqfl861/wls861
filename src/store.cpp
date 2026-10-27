@@ -1,4 +1,5 @@
 #include "wls/store.hpp"
+#include "wls/single_agent.hpp"
 #include "wls/migrations.hpp"
 #include "wls/capacity.hpp"
 #include "wls/config_loader.hpp"
@@ -2012,6 +2013,7 @@ std::vector<Json> Store::attempt_history(const StoreActor& actor, std::int64_t l
 }
 
 #include "store_history.inc"
+#include "store_single_agent.inc"
 
 bool Store::workflow_runtime_enabled() const {
     const std::lock_guard lock(impl_->mutex); return impl_->workflow_schema;
@@ -3664,6 +3666,17 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         original_model_request.context.adapter_version == std::string(profile.at("adapter_version").as_string()) &&
         original_model_request.context.protocol_version == std::string(profile.at("protocol").as_string()),
         ErrorCode::Unauthorized, "compiled model context differs from frozen role/profile settings");
+    if (!frozen_config.logical_agent_policy().is_null()) {
+        const auto history = single_agent_original_history(*impl_, actor.request_id, frozen_config);
+        require(history.size() < static_cast<std::size_t>(number(frozen_config.logical_agent_policy().as_object(), "max_attempts")),
+            ErrorCode::Quota, "single-Agent frozen attempt capacity exhausted");
+        const auto transcript = single_agent_transcript(actor.request_id, frozen_config, history);
+        const auto contract = model_contract(original_model_request);
+        const auto* execution = contract.is_object() ? contract.as_object().if_contains("logical_agent_execution") : nullptr;
+        require(execution && *execution == transcript.execution &&
+                original_model_request.context.logical_input.at("messages") == single_agent_messages_json(transcript.messages),
+            ErrorCode::Conflict, "single-Agent input does not continue the current complete original history");
+    }
     if (!original_model_request.context.tool_names.empty()) require(profile.at("capabilities").at("tool_calling").as_string() == "supported",
         ErrorCode::Unsupported, "frozen model profile does not support tool calls");
     require(profile.at("adapter").as_string() == reservation.adapter_kind, ErrorCode::Unauthorized,

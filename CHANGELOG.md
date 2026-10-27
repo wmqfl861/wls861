@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0-r3.3c-baseline — signed billing and one logical Agent
+
+- Add an explicit trusted-gateway Ed25519 billing contract, opt-in frozen per-attempt challenge, exact original wire identity checks and nullable five-dimensional usage. This project-defined protocol does not assert actual provider support.
+- Bind once-captured trust-policy bytes to versioned v2 live authorization; verify synchronous receipts before continuing the original bounded workflow. Keep original responses and settlements immutable, and stop on unknown, disputed or excessive accounting.
+- Add `reconcile-billing` with exact original evidence, transactional single ownership of receipt identities and read-only exact replay across writer epochs. Reconciliation grants no business authority, repeated send or old-response application.
+- Guard authorization, policy and receipt paths against every bound business workspace before reading content; retain private original evidence and bounded public hashes/results.
+- Add a frozen `single-agent-role-broker-v1` runner with one selected model/reasoning, actual cross-role native history, complete original response/tool feedback and reservation-time continuity validation. Preserve separate Store authority roles, bounded capacity and failed or unclosed turns.
+- Add `pump-single-live` / `pump-single-fake` and v3 paired evaluation over reconstructed original native inputs and logical history. Preserve the v1/v2 historical identity rules and all old execution defaults.
+- Register billing and single-Agent native coverage plus independent real-CLI/local-TLS signed-billing paired tests in CMake and Make. Keep all 11 logical-Agent cases in two bounded groups with the original per-suite deadline. Store remains 410; published SQL, vendor bytes and archived handoffs are unchanged. Actual results and development failures are recorded in `docs/reports/billing-baseline-validation.md`.
+
 ## 0.10.0-r3.3c-runtime — controlled workflow and installed runtime resources
 
 - Connect the bounded live event pump to the original Dispatcher/TeamLead/Worker captures, single-send Store ledger, immutable responses, model feedback, AMEND, rejection/rework, acceptance and experience paths.

@@ -1,0 +1,52 @@
+Internal ctest changing into directory: /tmp/wls861-single-agent-validation/build-release
+UpdateCTestConfiguration  from :/tmp/wls861-single-agent-validation/build-release/DartConfiguration.tcl
+Parse Config file:/tmp/wls861-single-agent-validation/build-release/DartConfiguration.tcl
+UpdateCTestConfiguration  from :/tmp/wls861-single-agent-validation/build-release/DartConfiguration.tcl
+Parse Config file:/tmp/wls861-single-agent-validation/build-release/DartConfiguration.tcl
+Test project /tmp/wls861-single-agent-validation/build-release
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 45
+    Start 45: single_agent
+
+45: Test command: /tmp/wls861-single-agent-validation/build-release/single_agent_tests
+45: Working Directory: /tmp/wls861-single-agent-validation/build-release
+45: Test timeout computed to be: 90
+45: PASS shared native history crosses roles and tasks
+45: PASS omitted original pair refuses reservation
+45: PASS reordered original pairs refuse reservation
+45: PASS changed or missing logical identity refuses reservation
+45: PASS concurrent captures cannot fork original history
+45: PASS settled turn without immutable feedback blocks continuation
+45: FAIL historical Worker tools do not authorize manager actions: unexpected Store error: model response contains an unavailable tool
+45: PASS ordinary restart continues one chain without rewriting bindings
+45: PASS sibling request history never enters the shared transcript
+45: PASS frozen attempt and byte capacities stop before reservation
+45: PASS explicit frozen policy and common model are required
+45: RESULT 10 passed, 1 failed
+1/1 Test #45: single_agent .....................***Failed    6.74 sec
+PASS shared native history crosses roles and tasks
+PASS omitted original pair refuses reservation
+PASS reordered original pairs refuse reservation
+PASS changed or missing logical identity refuses reservation
+PASS concurrent captures cannot fork original history
+PASS settled turn without immutable feedback blocks continuation
+FAIL historical Worker tools do not authorize manager actions: unexpected Store error: model response contains an unavailable tool
+PASS ordinary restart continues one chain without rewriting bindings
+PASS sibling request history never enters the shared transcript
+PASS frozen attempt and byte capacities stop before reservation
+PASS explicit frozen policy and common model are required
+RESULT 10 passed, 1 failed
+
+
+0% tests passed, 1 tests failed out of 1
+
+Total Test time (real) =   6.74 sec
+
+The following tests FAILED:
+	 45 - single_agent (Failed)
+Errors while running CTest

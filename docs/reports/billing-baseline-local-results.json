@@ -1,0 +1,980 @@
+{
+  "implementation": "0.11.0-r3.3c-baseline",
+  "baseline_commit": "1b7020e3676a57da233aa097d32956a80942734e",
+  "blueprint": "0.4.1",
+  "store": 410,
+  "input_manifest": {
+    "file": "docs/reports/billing-baseline-inputs.sha256",
+    "entries": 305,
+    "sha256": "576dd97a0632bc71a1301bff620997ceaf48c78bab3992585ff0accca8b43b48"
+  },
+  "identity": {
+    "uid": 65534,
+    "gid": 65534,
+    "supplementary_groups": [],
+    "outer_umasks": [
+      "0022",
+      "0002"
+    ],
+    "fixture_umask": "0077 where explicitly configured by existing native/Python harnesses"
+  },
+  "toolchain": {
+    "gcc": "13.3.0",
+    "clang": "18.1.3",
+    "cmake": "3.28.3",
+    "ninja": "1.11.1",
+    "openssl": "3.0.13",
+    "cmake_cpp_sqlite": "3.45.1",
+    "cmake_curl": "8.5.0",
+    "python": "3.12.14",
+    "jsonschema": "4.10.3",
+    "python_sqlite": "3.53.1"
+  },
+  "gates": [
+    {
+      "gate": "release-0022",
+      "returncode": 0,
+      "started_at": "2026-10-27T13:27:18.389856+00:00",
+      "elapsed_seconds": 165.929,
+      "command": [
+        "setpriv",
+        "--reuid=65534",
+        "--regid=65534",
+        "--clear-groups",
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-billing-baseline-validation/source/build-release",
+        "--parallel",
+        "2",
+        "--output-on-failure",
+        "--output-junit",
+        "/tmp/wls861-billing-baseline-validation/source/build-release/billing-baseline-release-0022.xml"
+      ],
+      "umask": "0022",
+      "log": "/tmp/wls861-billing-baseline-validation/release-0022.txt",
+      "ctest_seconds": 165.92,
+      "suites_passed": 78,
+      "suites_total": 78,
+      "tests": [
+        {
+          "name": "journal",
+          "seconds": 0.404978
+        },
+        {
+          "name": "config",
+          "seconds": 0.00180434
+        },
+        {
+          "name": "scheduler",
+          "seconds": 0.00549667
+        },
+        {
+          "name": "task_engine",
+          "seconds": 0.143613
+        },
+        {
+          "name": "runtime_types",
+          "seconds": 0.0121509
+        },
+        {
+          "name": "runtime_resources",
+          "seconds": 0.466219
+        },
+        {
+          "name": "store",
+          "seconds": 1.59558
+        },
+        {
+          "name": "event_store",
+          "seconds": 1.01074
+        },
+        {
+          "name": "workflow_store",
+          "seconds": 2.20424
+        },
+        {
+          "name": "acceptance_store",
+          "seconds": 2.85059
+        },
+        {
+          "name": "config_loader",
+          "seconds": 0.297529
+        },
+        {
+          "name": "model",
+          "seconds": 0.033838
+        },
+        {
+          "name": "schema",
+          "seconds": 0.0219212
+        },
+        {
+          "name": "offline_runtime",
+          "seconds": 0.718459
+        },
+        {
+          "name": "event_runtime",
+          "seconds": 5.16645
+        },
+        {
+          "name": "workflow_runtime",
+          "seconds": 4.58204
+        },
+        {
+          "name": "acceptance_runtime",
+          "seconds": 9.14508
+        },
+        {
+          "name": "workspace",
+          "seconds": 0.0283531
+        },
+        {
+          "name": "sandbox",
+          "seconds": 1.5598
+        },
+        {
+          "name": "worker_tools",
+          "seconds": 3.40159
+        },
+        {
+          "name": "delivery",
+          "seconds": 0.0744456
+        },
+        {
+          "name": "cleanup",
+          "seconds": 0.0612616
+        },
+        {
+          "name": "cleanup_runtime",
+          "seconds": 6.7982
+        },
+        {
+          "name": "audit24_reopen",
+          "seconds": 0.578278
+        },
+        {
+          "name": "process_evidence",
+          "seconds": 0.0534338
+        },
+        {
+          "name": "audit24_reconcile",
+          "seconds": 0.299135
+        },
+        {
+          "name": "audit24_capacity",
+          "seconds": 0.489718
+        },
+        {
+          "name": "audit24_capacity_repro",
+          "seconds": 17.8854
+        },
+        {
+          "name": "r1_history",
+          "seconds": 2.55689
+        },
+        {
+          "name": "r1_structured",
+          "seconds": 0.0485956
+        },
+        {
+          "name": "r1_window",
+          "seconds": 1.90906
+        },
+        {
+          "name": "r2_rework",
+          "seconds": 8.66778
+        },
+        {
+          "name": "r2_recovery",
+          "seconds": 1.15038
+        },
+        {
+          "name": "r2_amend",
+          "seconds": 8.7249
+        },
+        {
+          "name": "r2a_mkdir",
+          "seconds": 1.3377
+        },
+        {
+          "name": "allocation_recovery",
+          "seconds": 3.03434
+        },
+        {
+          "name": "doctor_diagnostics",
+          "seconds": 0.0946067
+        },
+        {
+          "name": "protocol_codec",
+          "seconds": 0.0365862
+        },
+        {
+          "name": "sse_replay",
+          "seconds": 2.62169
+        },
+        {
+          "name": "r1_management",
+          "seconds": 15.3851
+        },
+        {
+          "name": "owned_capacity",
+          "seconds": 4.82072
+        },
+        {
+          "name": "owned_capacity_runtime",
+          "seconds": 4.86267
+        },
+        {
+          "name": "live_model_store",
+          "seconds": 1.29389
+        },
+        {
+          "name": "billing",
+          "seconds": 1.06632
+        },
+        {
+          "name": "single_agent",
+          "seconds": 4.26234
+        },
+        {
+          "name": "single_agent_runtime",
+          "seconds": 3.557
+        },
+        {
+          "name": "doctor_diagnostics_cli",
+          "seconds": 0.443866
+        },
+        {
+          "name": "protocol_replay_cli",
+          "seconds": 0.504708
+        },
+        {
+          "name": "https_transport",
+          "seconds": 9.65285
+        },
+        {
+          "name": "live_model_store_tls",
+          "seconds": 3.18557
+        },
+        {
+          "name": "live_workflow",
+          "seconds": 23.0852
+        },
+        {
+          "name": "live_workflow_cli",
+          "seconds": 2.4492
+        },
+        {
+          "name": "billing_baseline_e2e",
+          "seconds": 43.4842
+        },
+        {
+          "name": "runtime_resources_cli",
+          "seconds": 1.05134
+        },
+        {
+          "name": "r3_evaluation",
+          "seconds": 14.8858
+        },
+        {
+          "name": "handoff_integrity",
+          "seconds": 0.03998
+        },
+        {
+          "name": "review_source_integrity",
+          "seconds": 0.0399164
+        },
+        {
+          "name": "specification_contracts",
+          "seconds": 0.690069
+        },
+        {
+          "name": "demo_smoke",
+          "seconds": 0.0782802
+        },
+        {
+          "name": "s1_cli_smoke",
+          "seconds": 1.28946
+        },
+        {
+          "name": "s12_cli_smoke",
+          "seconds": 2.45491
+        },
+        {
+          "name": "s13_cli_smoke",
+          "seconds": 8.81455
+        },
+        {
+          "name": "s14_cli_smoke",
+          "seconds": 9.26842
+        },
+        {
+          "name": "s15_cli_smoke",
+          "seconds": 9.78383
+        },
+        {
+          "name": "s16_cli_smoke",
+          "seconds": 7.98056
+        },
+        {
+          "name": "audit24_reconcile_cli_smoke",
+          "seconds": 0.92574
+        },
+        {
+          "name": "audit24_reopen_cli_smoke",
+          "seconds": 0.531013
+        },
+        {
+          "name": "review_cli_smoke",
+          "seconds": 3.53413
+        },
+        {
+          "name": "audit24_capacity_cli_smoke",
+          "seconds": 6.30074
+        },
+        {
+          "name": "r1_history_cli_smoke",
+          "seconds": 6.3191
+        },
+        {
+          "name": "r1_structured_cli_smoke",
+          "seconds": 4.77195
+        },
+        {
+          "name": "r1_window_cli_smoke",
+          "seconds": 10.3626
+        },
+        {
+          "name": "r2_rework_cli_smoke",
+          "seconds": 8.31548
+        },
+        {
+          "name": "r2_recovery_cli_smoke",
+          "seconds": 3.85014
+        },
+        {
+          "name": "r2_integration_cli_smoke",
+          "seconds": 5.70266
+        },
+        {
+          "name": "r2_amend_cli_smoke",
+          "seconds": 7.46112
+        },
+        {
+          "name": "r2a_mkdir_cli_smoke",
+          "seconds": 1.44563
+        },
+        {
+          "name": "allocation_recovery_cli",
+          "seconds": 4.22669
+        }
+      ]
+    },
+    {
+      "gate": "release-0002",
+      "returncode": 0,
+      "started_at": "2026-10-27T13:30:04.319266+00:00",
+      "elapsed_seconds": 170.457,
+      "command": [
+        "setpriv",
+        "--reuid=65534",
+        "--regid=65534",
+        "--clear-groups",
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-billing-baseline-validation/source/build-release",
+        "--parallel",
+        "2",
+        "--output-on-failure",
+        "--output-junit",
+        "/tmp/wls861-billing-baseline-validation/source/build-release/billing-baseline-release-0002.xml"
+      ],
+      "umask": "0002",
+      "log": "/tmp/wls861-billing-baseline-validation/release-0002.txt",
+      "ctest_seconds": 170.44,
+      "suites_passed": 78,
+      "suites_total": 78,
+      "tests": [
+        {
+          "name": "journal",
+          "seconds": 0.439032
+        },
+        {
+          "name": "config",
+          "seconds": 0.00333916
+        },
+        {
+          "name": "scheduler",
+          "seconds": 0.00681901
+        },
+        {
+          "name": "task_engine",
+          "seconds": 0.260783
+        },
+        {
+          "name": "runtime_types",
+          "seconds": 0.0196924
+        },
+        {
+          "name": "runtime_resources",
+          "seconds": 0.651113
+        },
+        {
+          "name": "store",
+          "seconds": 2.22279
+        },
+        {
+          "name": "event_store",
+          "seconds": 1.1984
+        },
+        {
+          "name": "workflow_store",
+          "seconds": 2.55032
+        },
+        {
+          "name": "acceptance_store",
+          "seconds": 3.00404
+        },
+        {
+          "name": "config_loader",
+          "seconds": 0.298578
+        },
+        {
+          "name": "model",
+          "seconds": 0.0447006
+        },
+        {
+          "name": "schema",
+          "seconds": 0.0585298
+        },
+        {
+          "name": "offline_runtime",
+          "seconds": 1.13955
+        },
+        {
+          "name": "event_runtime",
+          "seconds": 4.51413
+        },
+        {
+          "name": "workflow_runtime",
+          "seconds": 4.29115
+        },
+        {
+          "name": "acceptance_runtime",
+          "seconds": 9.60104
+        },
+        {
+          "name": "workspace",
+          "seconds": 0.0613716
+        },
+        {
+          "name": "sandbox",
+          "seconds": 1.85389
+        },
+        {
+          "name": "worker_tools",
+          "seconds": 3.77449
+        },
+        {
+          "name": "delivery",
+          "seconds": 0.106991
+        },
+        {
+          "name": "cleanup",
+          "seconds": 0.0822791
+        },
+        {
+          "name": "cleanup_runtime",
+          "seconds": 6.5004
+        },
+        {
+          "name": "audit24_reopen",
+          "seconds": 0.458299
+        },
+        {
+          "name": "process_evidence",
+          "seconds": 0.0552586
+        },
+        {
+          "name": "audit24_reconcile",
+          "seconds": 0.308104
+        },
+        {
+          "name": "audit24_capacity",
+          "seconds": 0.702975
+        },
+        {
+          "name": "audit24_capacity_repro",
+          "seconds": 18.9981
+        },
+        {
+          "name": "r1_history",
+          "seconds": 3.04256
+        },
+        {
+          "name": "r1_structured",
+          "seconds": 0.0661299
+        },
+        {
+          "name": "r1_window",
+          "seconds": 2.50414
+        },
+        {
+          "name": "r2_rework",
+          "seconds": 8.15279
+        },
+        {
+          "name": "r2_recovery",
+          "seconds": 1.62503
+        },
+        {
+          "name": "r2_amend",
+          "seconds": 8.07152
+        },
+        {
+          "name": "r2a_mkdir",
+          "seconds": 1.46647
+        },
+        {
+          "name": "allocation_recovery",
+          "seconds": 3.59461
+        },
+        {
+          "name": "doctor_diagnostics",
+          "seconds": 0.0974561
+        },
+        {
+          "name": "protocol_codec",
+          "seconds": 0.059741
+        },
+        {
+          "name": "sse_replay",
+          "seconds": 2.81728
+        },
+        {
+          "name": "r1_management",
+          "seconds": 13.9636
+        },
+        {
+          "name": "owned_capacity",
+          "seconds": 6.05537
+        },
+        {
+          "name": "owned_capacity_runtime",
+          "seconds": 5.20406
+        },
+        {
+          "name": "live_model_store",
+          "seconds": 1.67592
+        },
+        {
+          "name": "billing",
+          "seconds": 1.29712
+        },
+        {
+          "name": "single_agent",
+          "seconds": 3.96222
+        },
+        {
+          "name": "single_agent_runtime",
+          "seconds": 3.90383
+        },
+        {
+          "name": "doctor_diagnostics_cli",
+          "seconds": 0.594715
+        },
+        {
+          "name": "protocol_replay_cli",
+          "seconds": 0.564069
+        },
+        {
+          "name": "https_transport",
+          "seconds": 9.65088
+        },
+        {
+          "name": "live_model_store_tls",
+          "seconds": 3.46908
+        },
+        {
+          "name": "live_workflow",
+          "seconds": 25.0459
+        },
+        {
+          "name": "live_workflow_cli",
+          "seconds": 3.05249
+        },
+        {
+          "name": "billing_baseline_e2e",
+          "seconds": 47.593
+        },
+        {
+          "name": "runtime_resources_cli",
+          "seconds": 1.28337
+        },
+        {
+          "name": "r3_evaluation",
+          "seconds": 13.9044
+        },
+        {
+          "name": "handoff_integrity",
+          "seconds": 0.0581274
+        },
+        {
+          "name": "review_source_integrity",
+          "seconds": 0.054345
+        },
+        {
+          "name": "specification_contracts",
+          "seconds": 1.14869
+        },
+        {
+          "name": "demo_smoke",
+          "seconds": 0.0922068
+        },
+        {
+          "name": "s1_cli_smoke",
+          "seconds": 1.68532
+        },
+        {
+          "name": "s12_cli_smoke",
+          "seconds": 2.66572
+        },
+        {
+          "name": "s13_cli_smoke",
+          "seconds": 9.04359
+        },
+        {
+          "name": "s14_cli_smoke",
+          "seconds": 9.81212
+        },
+        {
+          "name": "s15_cli_smoke",
+          "seconds": 9.97543
+        },
+        {
+          "name": "s16_cli_smoke",
+          "seconds": 8.12221
+        },
+        {
+          "name": "audit24_reconcile_cli_smoke",
+          "seconds": 1.13347
+        },
+        {
+          "name": "audit24_reopen_cli_smoke",
+          "seconds": 0.703331
+        },
+        {
+          "name": "review_cli_smoke",
+          "seconds": 3.96155
+        },
+        {
+          "name": "audit24_capacity_cli_smoke",
+          "seconds": 5.8289
+        },
+        {
+          "name": "r1_history_cli_smoke",
+          "seconds": 6.13316
+        },
+        {
+          "name": "r1_structured_cli_smoke",
+          "seconds": 4.10108
+        },
+        {
+          "name": "r1_window_cli_smoke",
+          "seconds": 11.0087
+        },
+        {
+          "name": "r2_rework_cli_smoke",
+          "seconds": 7.27843
+        },
+        {
+          "name": "r2_recovery_cli_smoke",
+          "seconds": 3.79528
+        },
+        {
+          "name": "r2_integration_cli_smoke",
+          "seconds": 5.70702
+        },
+        {
+          "name": "r2_amend_cli_smoke",
+          "seconds": 6.46984
+        },
+        {
+          "name": "r2a_mkdir_cli_smoke",
+          "seconds": 1.93396
+        },
+        {
+          "name": "allocation_recovery_cli",
+          "seconds": 4.21296
+        }
+      ]
+    },
+    {
+      "gate": "asan-0002",
+      "returncode": 0,
+      "started_at": "2026-10-27T13:28:34.040124+00:00",
+      "elapsed_seconds": 604.313,
+      "command": [
+        "setpriv",
+        "--reuid=65534",
+        "--regid=65534",
+        "--clear-groups",
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-billing-baseline-validation/source/build-asan",
+        "--parallel",
+        "2",
+        "--output-on-failure",
+        "--output-junit",
+        "/tmp/wls861-billing-baseline-validation/source/build-asan/billing-baseline-asan-0002.xml",
+        "-V",
+        "-R",
+        "^(billing|single_agent|single_agent_runtime|live_model_store|protocol_codec|live_model_store_tls|live_workflow_cli|r3_evaluation|billing_baseline_e2e)$"
+      ],
+      "umask": "0002",
+      "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+      "log": "/tmp/wls861-billing-baseline-validation/asan-0002.txt",
+      "ctest_seconds": 604.3,
+      "suites_passed": 9,
+      "suites_total": 9,
+      "tests": [
+        {
+          "name": "protocol_codec",
+          "seconds": 1.51264
+        },
+        {
+          "name": "live_model_store",
+          "seconds": 11.2783
+        },
+        {
+          "name": "billing",
+          "seconds": 10.231
+        },
+        {
+          "name": "single_agent",
+          "seconds": 60.734
+        },
+        {
+          "name": "single_agent_runtime",
+          "seconds": 60.296
+        },
+        {
+          "name": "live_model_store_tls",
+          "seconds": 18.1415
+        },
+        {
+          "name": "live_workflow_cli",
+          "seconds": 16.5976
+        },
+        {
+          "name": "billing_baseline_e2e",
+          "seconds": 604.296
+        },
+        {
+          "name": "r3_evaluation",
+          "seconds": 134.867
+        }
+      ]
+    }
+  ],
+  "archives": [
+    {
+      "original": "/tmp/wls861-billing-baseline-validation/initial-build.txt",
+      "archive": "docs/reports/billing-baseline-build-initial-failure.txt",
+      "raw_sha256": "0f5accb16bd845d69a1b787eaa75ab246185307bf8163a23eae23e98a1148149",
+      "saved_sha256": "5771266fd6b58e7b9b4ca3ad4ff0078f09e7612634ad7b479db479a0767d1b16",
+      "raw_bytes": 140521,
+      "saved_bytes": 140520,
+      "normalization": "strip trailing whitespace on each line; preserve lines and terminal newline"
+    },
+    {
+      "original": "/tmp/wls861-billing-baseline-validation/initial-build-inputs.sha256",
+      "archive": "docs/reports/billing-baseline-build-initial-inputs.sha256",
+      "raw_sha256": "571252fc450750e1b6b79f9fd7507b8be82cdff5126fa8e85572667b17120d0a",
+      "saved_sha256": "571252fc450750e1b6b79f9fd7507b8be82cdff5126fa8e85572667b17120d0a",
+      "raw_bytes": 30053,
+      "saved_bytes": 30053,
+      "normalization": "strip trailing whitespace on each line; preserve lines and terminal newline"
+    },
+    {
+      "original": "/tmp/wls861-billing-baseline-validation/candidate-01/final-inputs.sha256",
+      "archive": "docs/reports/billing-baseline-candidate-inputs.sha256",
+      "raw_sha256": "18b6211e32b045ee16bafc08d9c8e8886bab50a6355458dcd99b15d161de5132",
+      "saved_sha256": "18b6211e32b045ee16bafc08d9c8e8886bab50a6355458dcd99b15d161de5132",
+      "raw_bytes": 30053,
+      "saved_bytes": 30053,
+      "normalization": "strip trailing whitespace on each line; preserve lines and terminal newline"
+    },
+    {
+      "original": "/tmp/wls861-billing-baseline-validation/candidate-01/asan-0002.txt",
+      "archive": "docs/reports/billing-baseline-asan-initial-failure.txt",
+      "raw_sha256": "0c160b78c6bfed56fe1f45ecaccceb629e3a8fab460d8c277b8fcda4ac894239",
+      "saved_sha256": "5d02c5d0995e86ea5c17e8844af37fbb89cbdd08e766898a7695da5cb38de999",
+      "raw_bytes": 348908,
+      "saved_bytes": 348893,
+      "normalization": "strip trailing whitespace on each line; preserve lines and terminal newline"
+    },
+    {
+      "original": "/tmp/wls861-billing-baseline-validation/candidate-01/release-0022.txt",
+      "archive": "docs/reports/billing-baseline-candidate-release-0022.txt",
+      "raw_sha256": "f0169ca1eb837afc4622244b438ddb6c3264c89b1e56209a6017e74c3cf892ce",
+      "saved_sha256": "f0169ca1eb837afc4622244b438ddb6c3264c89b1e56209a6017e74c3cf892ce",
+      "raw_bytes": 8251,
+      "saved_bytes": 8251,
+      "normalization": "strip trailing whitespace on each line; preserve lines and terminal newline"
+    },
+    {
+      "original": "/tmp/wls861-billing-baseline-validation/candidate-01/release-0002.txt",
+      "archive": "docs/reports/billing-baseline-candidate-release-0002.txt",
+      "raw_sha256": "f1569b3b566e0a50eb60e0a8fb1bfcfa74ee4afcda8f672c1fb74576dd1f32cf",
+      "saved_sha256": "f1569b3b566e0a50eb60e0a8fb1bfcfa74ee4afcda8f672c1fb74576dd1f32cf",
+      "raw_bytes": 8251,
+      "saved_bytes": 8251,
+      "normalization": "strip trailing whitespace on each line; preserve lines and terminal newline"
+    },
+    {
+      "original": "/tmp/wls861-billing-baseline-validation/release-0022.txt",
+      "archive": "docs/reports/billing-baseline-release-0022.txt",
+      "raw_sha256": "b4a2d7a92bf4ea16900a79fbec1fe3e7e57e32d6c521b08540e7f500b381c8db",
+      "saved_sha256": "b4a2d7a92bf4ea16900a79fbec1fe3e7e57e32d6c521b08540e7f500b381c8db",
+      "raw_bytes": 8360,
+      "saved_bytes": 8360,
+      "normalization": "strip trailing whitespace on each line; preserve lines and terminal newline"
+    },
+    {
+      "original": "/tmp/wls861-billing-baseline-validation/release-0002.txt",
+      "archive": "docs/reports/billing-baseline-release-0002.txt",
+      "raw_sha256": "1b237ac7b24362dd1d9c83b60848f1e534866bc83bd341e2c9de6fbb80503abf",
+      "saved_sha256": "1b237ac7b24362dd1d9c83b60848f1e534866bc83bd341e2c9de6fbb80503abf",
+      "raw_bytes": 8360,
+      "saved_bytes": 8360,
+      "normalization": "strip trailing whitespace on each line; preserve lines and terminal newline"
+    },
+    {
+      "original": "/tmp/wls861-billing-baseline-validation/asan-0002.txt",
+      "archive": "docs/reports/billing-baseline-asan.txt",
+      "raw_sha256": "a9eb171339d7fb18a7eecb8cd0596b5ac3bf5474139aead7027b1502f86729fb",
+      "saved_sha256": "6b8a605e036fc5ede5a4086c3c5a97e32e0feff42907ef8ef874ae5deb121152",
+      "raw_bytes": 23130,
+      "saved_bytes": 23122,
+      "normalization": "strip trailing whitespace on each line; preserve lines and terminal newline"
+    },
+    {
+      "original": "/tmp/wls861-billing-baseline-validation/asan-0002-detail.txt",
+      "archive": "docs/reports/billing-baseline-asan-detail.txt",
+      "raw_sha256": "a20a172988ddd96bc9ed07cbe78a72654dbe95286604b9ae2c51e3bd86f93aae",
+      "saved_sha256": "a20a172988ddd96bc9ed07cbe78a72654dbe95286604b9ae2c51e3bd86f93aae",
+      "raw_bytes": 23914,
+      "saved_bytes": 23914,
+      "normalization": "strip trailing whitespace on each line; preserve lines and terminal newline"
+    }
+  ],
+  "earlier_candidate_gates": [
+    {
+      "gate": "release-0022",
+      "returncode": 0,
+      "started_at": "2026-10-27T13:16:32.102190+00:00",
+      "elapsed_seconds": 167.687,
+      "command": [
+        "setpriv",
+        "--reuid=65534",
+        "--regid=65534",
+        "--clear-groups",
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-billing-baseline-validation/source/build-release",
+        "--parallel",
+        "2",
+        "--output-on-failure",
+        "--output-junit",
+        "/tmp/wls861-billing-baseline-validation/source/build-release/billing-baseline-release-0022.xml"
+      ],
+      "umask": "0022",
+      "log": "/tmp/wls861-billing-baseline-validation/release-0022.txt"
+    },
+    {
+      "gate": "release-0002",
+      "returncode": 0,
+      "started_at": "2026-10-27T13:19:19.790283+00:00",
+      "elapsed_seconds": 167.144,
+      "command": [
+        "setpriv",
+        "--reuid=65534",
+        "--regid=65534",
+        "--clear-groups",
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-billing-baseline-validation/source/build-release",
+        "--parallel",
+        "2",
+        "--output-on-failure",
+        "--output-junit",
+        "/tmp/wls861-billing-baseline-validation/source/build-release/billing-baseline-release-0002.xml"
+      ],
+      "umask": "0002",
+      "log": "/tmp/wls861-billing-baseline-validation/release-0002.txt"
+    },
+    {
+      "gate": "asan-0002",
+      "returncode": 8,
+      "started_at": "2026-10-27T13:16:32.102747+00:00",
+      "elapsed_seconds": 521.832,
+      "command": [
+        "setpriv",
+        "--reuid=65534",
+        "--regid=65534",
+        "--clear-groups",
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-billing-baseline-validation/source/build-asan",
+        "--parallel",
+        "2",
+        "--output-on-failure",
+        "--output-junit",
+        "/tmp/wls861-billing-baseline-validation/source/build-asan/billing-baseline-asan-0002.xml",
+        "-V",
+        "-R",
+        "^(billing|single_agent|live_model_store|protocol_codec|live_model_store_tls|live_workflow_cli|r3_evaluation|billing_baseline_e2e)$"
+      ],
+      "umask": "0002",
+      "log": "/tmp/wls861-billing-baseline-validation/asan-0002.txt",
+      "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1"
+    }
+  ],
+  "builds": {
+    "final_headers": [
+      {
+        "kind": "release",
+        "returncode": 0,
+        "elapsed_seconds": 97.393,
+        "log": "/tmp/wls861-billing-baseline-validation/final-release-build.txt"
+      },
+      {
+        "kind": "asan",
+        "returncode": 0,
+        "elapsed_seconds": 43.401,
+        "log": "/tmp/wls861-billing-baseline-validation/final-asan-build.txt"
+      }
+    ],
+    "grouped_native": [
+      {
+        "kind": "release",
+        "returncode": 0,
+        "elapsed_seconds": 6.056,
+        "log": "/tmp/wls861-billing-baseline-validation/grouped-release-build.txt"
+      },
+      {
+        "kind": "asan",
+        "returncode": 0,
+        "elapsed_seconds": 6.07,
+        "log": "/tmp/wls861-billing-baseline-validation/grouped-asan-build.txt"
+      }
+    ]
+  },
+  "release_cli_sha256": "4ae6766372f54651260cb346fb607d13a8674d3c66a04bef486c04e48c2e7eb2",
+  "real_provider_calls": 0,
+  "paid_calls": 0,
+  "production_data_operations": 0,
+  "protected_file_changes": [],
+  "remote_ci": "Verify all six jobs and source snapshot on the exact final pushed SHA; local subset success is not a substitute."
+}

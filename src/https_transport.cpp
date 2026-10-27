@@ -684,6 +684,8 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     handles.header("Accept-Encoding: identity");
     handles.header("Expect:");
     handles.header("Connection: close");
+    if (!encoded.billing_challenge.empty())
+        handles.header("X-WLS-Billing-Challenge: " + encoded.billing_challenge);
     handles.header("Authorization: Bearer " + std::string(bearer_token));
 
     auto* easy = handles.easy;

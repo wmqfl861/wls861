@@ -11,6 +11,7 @@ namespace wls::s1 {
 
 class Store;
 struct StoreActor;
+class BillingTrustPolicy;
 
 // This data is part of the original request configuration, not a mutable
 // environment lookup. Credentials remain a name in provider.api_key_env.
@@ -93,14 +94,20 @@ public:
     const std::string& source_reference() const noexcept { return source_reference_; }
     const std::string& bytes() const noexcept { return bytes_; }
     const std::string& sha256() const noexcept { return sha256_; }
+    // Signed receipts use an indexed global source-identity namespace. Empty
+    // retains the original trusted-verifier API and reconciliation semantics.
+    const std::string& required_reconciliation_id() const noexcept { return required_reconciliation_id_; }
 private:
     friend VerifiedUsageEvidence verify_usage_evidence(std::string, std::string,
         std::string, const UsageEvidenceVerifier&);
+    friend VerifiedUsageEvidence verify_signed_billing_receipt(Store&,
+        const BillingTrustPolicy&, const std::string&, std::string);
     UsageEvidenceStatement statement_;
     std::string source_kind_;
     std::string source_reference_;
     std::string bytes_;
     std::string sha256_;
+    std::string required_reconciliation_id_;
 };
 
 // Trusted host callbacks. The reference comes only from the original frozen

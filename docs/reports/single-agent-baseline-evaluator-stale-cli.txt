@@ -1,0 +1,82 @@
+test_budget_disagreement_is_visible_as_invalid_evidence (__main__.Evaluation.test_budget_disagreement_is_visible_as_invalid_evidence) ... ok
+test_cancelled_amendments_do_not_satisfy_update_and_keep (__main__.Evaluation.test_cancelled_amendments_do_not_satisfy_update_and_keep) ... ok
+test_changed_budget_condition_is_not_comparable (__main__.Evaluation.test_changed_budget_condition_is_not_comparable) ... ok
+test_changed_materials_invalid_and_all_other_cells_retained (__main__.Evaluation.test_changed_materials_invalid_and_all_other_cells_retained) ... ok
+test_confirmed_original_delivery_passes_fixed_evidence_rubric (__main__.Evaluation.test_confirmed_original_delivery_passes_fixed_evidence_rubric) ... ok
+test_deadline_exhaustion_is_reported_as_failure (__main__.Evaluation.test_deadline_exhaustion_is_reported_as_failure) ... ok
+test_duplicate_cells_and_request_reuse_refuse (__main__.Evaluation.test_duplicate_cells_and_request_reuse_refuse) ... ok
+test_failed_model_attempt_remains_in_report (__main__.Evaluation.test_failed_model_attempt_remains_in_report) ... ok
+test_hard_link_does_not_allow_reusing_the_same_request (__main__.Evaluation.test_hard_link_does_not_allow_reusing_the_same_request) ... ok
+test_missing_database_is_retained_as_invalid_cell (__main__.Evaluation.test_missing_database_is_retained_as_invalid_cell) ... ok
+test_multi_role_run_cannot_be_called_single_agent (__main__.Evaluation.test_multi_role_run_cannot_be_called_single_agent) ... ok
+test_multiple_worker_principals_cannot_be_a_single_agent (__main__.Evaluation.test_multiple_worker_principals_cannot_be_a_single_agent) ... ok
+test_new_provider_plan_requires_versioned_model_origin_contract (__main__.Evaluation.test_new_provider_plan_requires_versioned_model_origin_contract) ... ok
+test_nonregular_and_duplicate_json_inputs_refuse (__main__.Evaluation.test_nonregular_and_duplicate_json_inputs_refuse) ... ok
+test_original_ledger_counts_and_missing_baseline_remain_visible (__main__.Evaluation.test_original_ledger_counts_and_missing_baseline_remain_visible) ... ok
+test_original_rejection_correction_and_same_task_acceptance_pass (__main__.Evaluation.test_original_rejection_correction_and_same_task_acceptance_pass) ... ok
+test_plan_fixes_five_tasks_and_ten_missing_cells (__main__.Evaluation.test_plan_fixes_five_tasks_and_ten_missing_cells) ... ok
+test_plan_is_required_before_attempts (__main__.Evaluation.test_plan_is_required_before_attempts) ... ok
+test_plan_mutation_and_rehashed_rubric_mutation_refuse (__main__.Evaluation.test_plan_mutation_and_rehashed_rubric_mutation_refuse) ... ok
+test_query_byte_bound_stops_before_fetching_the_complete_result (__main__.Evaluation.test_query_byte_bound_stops_before_fetching_the_complete_result) ... ok
+test_reporting_preserves_all_original_database_rows (__main__.Evaluation.test_reporting_preserves_all_original_database_rows) ... ok
+test_rework_counter_without_original_rejection_is_not_success (__main__.Evaluation.test_rework_counter_without_original_rejection_is_not_success) ... ok
+test_synthetic_evidence_cannot_claim_provider (__main__.Evaluation.test_synthetic_evidence_cannot_claim_provider) ... ok
+test_unknown_cost_is_not_zero_or_dropped (__main__.Evaluation.test_unknown_cost_is_not_zero_or_dropped) ... ok
+test_v1_report_keeps_structural_scope_explicit (__main__.Evaluation.test_v1_report_keeps_structural_scope_explicit) ... ok
+test_v2_captured_target_must_match_actual_application (__main__.Evaluation.test_v2_captured_target_must_match_actual_application) ... ok
+test_v2_diagnostic_read_write_readback_uses_original_feedback (__main__.Evaluation.test_v2_diagnostic_read_write_readback_uses_original_feedback) ... ok
+test_v2_host_acceptance_fact_without_original_feedback_is_not_model_evidence (__main__.Evaluation.test_v2_host_acceptance_fact_without_original_feedback_is_not_model_evidence) ... ok
+test_v2_host_command_cannot_be_relabelled_as_model_application (__main__.Evaluation.test_v2_host_command_cannot_be_relabelled_as_model_application) ... ok
+test_v2_original_model_application_chain_reaches_confirmed_delivery (__main__.Evaluation.test_v2_original_model_application_chain_reaches_confirmed_delivery) ... ok
+test_v2_wrong_attempt_response_refuses_even_with_rehashed_feedback (__main__.Evaluation.test_v2_wrong_attempt_response_refuses_even_with_rehashed_feedback) ... ok
+test_v3_explicit_plan_keeps_v1_v2_meanings (__main__.Evaluation.test_v3_explicit_plan_keeps_v1_v2_meanings) ... ok
+test_v3_fairness_removes_only_the_explicit_topology_variable (__main__.Evaluation.test_v3_fairness_removes_only_the_explicit_topology_variable) ... ok
+test_v3_old_multi_role_run_cannot_gain_logical_identity_from_a_label (__main__.Evaluation.test_v3_old_multi_role_run_cannot_gain_logical_identity_from_a_label) ... ERROR
+test_v3_one_logical_agent_reaches_original_confirmed_delivery (__main__.Evaluation.test_v3_one_logical_agent_reaches_original_confirmed_delivery) ... ok
+test_v3_rehashed_global_chain_fork_refuses (__main__.Evaluation.test_v3_rehashed_global_chain_fork_refuses) ... ERROR
+test_v3_rehashed_omission_of_actual_native_history_refuses (__main__.Evaluation.test_v3_rehashed_omission_of_actual_native_history_refuses) ... ERROR
+test_v3_single_fake_host_dispositions_refuse_before_takeover (__main__.Evaluation.test_v3_single_fake_host_dispositions_refuse_before_takeover) ... FAIL
+
+======================================================================
+ERROR: test_v3_old_multi_role_run_cannot_gain_logical_identity_from_a_label (__main__.Evaluation.test_v3_old_multi_role_run_cannot_gain_logical_identity_from_a_label)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wls861-single-agent-validation/source/tests/r3_evaluation_tests.py", line 172, in test_v3_old_multi_role_run_cannot_gain_logical_identity_from_a_label
+    self.tamper_last_logical_input(relabel)
+  File "/tmp/wls861-single-agent-validation/source/tests/r3_evaluation_tests.py", line 105, in tamper_last_logical_input
+    db.execute('UPDATE call_attempts SET request_envelope=? WHERE attempt_id=?', (e.canonical(envelope).decode(), attempt))
+sqlite3.IntegrityError: attempt state_version
+
+======================================================================
+ERROR: test_v3_rehashed_global_chain_fork_refuses (__main__.Evaluation.test_v3_rehashed_global_chain_fork_refuses)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wls861-single-agent-validation/source/tests/r3_evaluation_tests.py", line 159, in test_v3_rehashed_global_chain_fork_refuses
+    self.tamper_last_logical_input(fork)
+  File "/tmp/wls861-single-agent-validation/source/tests/r3_evaluation_tests.py", line 105, in tamper_last_logical_input
+    db.execute('UPDATE call_attempts SET request_envelope=? WHERE attempt_id=?', (e.canonical(envelope).decode(), attempt))
+sqlite3.IntegrityError: attempt state_version
+
+======================================================================
+ERROR: test_v3_rehashed_omission_of_actual_native_history_refuses (__main__.Evaluation.test_v3_rehashed_omission_of_actual_native_history_refuses)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wls861-single-agent-validation/source/tests/r3_evaluation_tests.py", line 146, in test_v3_rehashed_omission_of_actual_native_history_refuses
+    self.tamper_last_logical_input(lambda logical: logical.update(messages=logical['messages'][2:]))
+  File "/tmp/wls861-single-agent-validation/source/tests/r3_evaluation_tests.py", line 105, in tamper_last_logical_input
+    db.execute('UPDATE call_attempts SET request_envelope=? WHERE attempt_id=?', (e.canonical(envelope).decode(), attempt))
+sqlite3.IntegrityError: attempt state_version
+
+======================================================================
+FAIL: test_v3_single_fake_host_dispositions_refuse_before_takeover (__main__.Evaluation.test_v3_single_fake_host_dispositions_refuse_before_takeover)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wls861-single-agent-validation/source/tests/r3_evaluation_tests.py", line 197, in test_v3_single_fake_host_dispositions_refuse_before_takeover
+    self.assertEqual(self.snapshot(), before)
+AssertionError: {'acc[708 chars]None}, {'inbox_id': 2, 'event_seq': 2, 'reques[26121 chars]: []} != {'acc[708 chars]None}], 'event_runtime_metadata': [{'singleton[25407 chars]: []}
+Diff is 43074 characters long. Set self.maxDiff to None to see it.
+
+----------------------------------------------------------------------
+Ran 38 tests in 9.869s
+
+FAILED (failures=1, errors=3)

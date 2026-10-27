@@ -1,0 +1,260 @@
+Internal ctest changing into directory: /tmp/wls861-billing-baseline-validation/source/build-asan
+UpdateCTestConfiguration  from :/tmp/wls861-billing-baseline-validation/source/build-asan/DartConfiguration.tcl
+Parse Config file:/tmp/wls861-billing-baseline-validation/source/build-asan/DartConfiguration.tcl
+UpdateCTestConfiguration  from :/tmp/wls861-billing-baseline-validation/source/build-asan/DartConfiguration.tcl
+Parse Config file:/tmp/wls861-billing-baseline-validation/source/build-asan/DartConfiguration.tcl
+Test project /tmp/wls861-billing-baseline-validation/source/build-asan
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 45
+    Start 45: single_agent
+
+45: Test command: /tmp/wls861-billing-baseline-validation/source/build-asan/single_agent_tests "--group" "history"
+45: Working Directory: /tmp/wls861-billing-baseline-validation/source/build-asan
+45: Test timeout computed to be: 90
+test 53
+    Start 53: billing_baseline_e2e
+
+53: Test command: /tmp/wls861-r33a-venv/bin/python "/tmp/wls861-billing-baseline-validation/source/tests/test_billing_baseline_e2e.py" "/tmp/wls861-billing-baseline-validation/source/build-asan/wls" "/tmp/wls861-billing-baseline-validation/source"
+53: Working Directory: /tmp/wls861-billing-baseline-validation/source/build-asan
+53: Test timeout computed to be: 900
+45: PASS shared native history crosses roles and tasks
+45: PASS omitted original pair refuses reservation
+45: PASS reordered original pairs refuse reservation
+45: PASS changed or missing logical identity refuses reservation
+45: PASS settled turn without immutable feedback blocks continuation
+45: PASS explicit frozen policy and common model are required
+45: RESULT 6 passed, 0 failed
+1/9 Test #45: single_agent .....................   Passed   60.73 sec
+test 55
+    Start 55: r3_evaluation
+
+55: Test command: /tmp/wls861-r33a-venv/bin/python "/tmp/wls861-billing-baseline-validation/source/tests/r3_evaluation_tests.py" "/tmp/wls861-billing-baseline-validation/source/build-asan/wls" "/tmp/wls861-billing-baseline-validation/source"
+55: Working Directory: /tmp/wls861-billing-baseline-validation/source/build-asan
+55: Test timeout computed to be: 180
+55: test_budget_disagreement_is_visible_as_invalid_evidence (__main__.Evaluation.test_budget_disagreement_is_visible_as_invalid_evidence) ... ok
+53: test_01_original_native_roundtrip_pair (__main__.BillingBaselineIntegration.test_01_original_native_roundtrip_pair) ... ok
+55: test_cancelled_amendments_do_not_satisfy_update_and_keep (__main__.Evaluation.test_cancelled_amendments_do_not_satisfy_update_and_keep) ... ok
+55: test_changed_budget_condition_is_not_comparable (__main__.Evaluation.test_changed_budget_condition_is_not_comparable) ... ok
+55: test_changed_materials_invalid_and_all_other_cells_retained (__main__.Evaluation.test_changed_materials_invalid_and_all_other_cells_retained) ... ok
+55: test_confirmed_original_delivery_passes_fixed_evidence_rubric (__main__.Evaluation.test_confirmed_original_delivery_passes_fixed_evidence_rubric) ... ok
+55: test_deadline_exhaustion_is_reported_as_failure (__main__.Evaluation.test_deadline_exhaustion_is_reported_as_failure) ... ok
+55: test_duplicate_cells_and_request_reuse_refuse (__main__.Evaluation.test_duplicate_cells_and_request_reuse_refuse) ... ok
+55: test_failed_model_attempt_remains_in_report (__main__.Evaluation.test_failed_model_attempt_remains_in_report) ... ok
+55: test_hard_link_does_not_allow_reusing_the_same_request (__main__.Evaluation.test_hard_link_does_not_allow_reusing_the_same_request) ... ok
+55: test_missing_database_is_retained_as_invalid_cell (__main__.Evaluation.test_missing_database_is_retained_as_invalid_cell) ... ok
+55: test_multi_role_run_cannot_be_called_single_agent (__main__.Evaluation.test_multi_role_run_cannot_be_called_single_agent) ... ok
+55: test_multiple_worker_principals_cannot_be_a_single_agent (__main__.Evaluation.test_multiple_worker_principals_cannot_be_a_single_agent) ... ok
+55: test_new_provider_plan_requires_versioned_model_origin_contract (__main__.Evaluation.test_new_provider_plan_requires_versioned_model_origin_contract) ... ok
+55: test_nonregular_and_duplicate_json_inputs_refuse (__main__.Evaluation.test_nonregular_and_duplicate_json_inputs_refuse) ... ok
+55: test_original_ledger_counts_and_missing_baseline_remain_visible (__main__.Evaluation.test_original_ledger_counts_and_missing_baseline_remain_visible) ... ok
+55: test_original_rejection_correction_and_same_task_acceptance_pass (__main__.Evaluation.test_original_rejection_correction_and_same_task_acceptance_pass) ... ok
+55: test_plan_fixes_five_tasks_and_ten_missing_cells (__main__.Evaluation.test_plan_fixes_five_tasks_and_ten_missing_cells) ... ok
+55: test_plan_is_required_before_attempts (__main__.Evaluation.test_plan_is_required_before_attempts) ... ok
+55: test_plan_mutation_and_rehashed_rubric_mutation_refuse (__main__.Evaluation.test_plan_mutation_and_rehashed_rubric_mutation_refuse) ... ok
+55: test_query_byte_bound_stops_before_fetching_the_complete_result (__main__.Evaluation.test_query_byte_bound_stops_before_fetching_the_complete_result) ... ok
+55: test_reporting_preserves_all_original_database_rows (__main__.Evaluation.test_reporting_preserves_all_original_database_rows) ... ok
+55: test_rework_counter_without_original_rejection_is_not_success (__main__.Evaluation.test_rework_counter_without_original_rejection_is_not_success) ... ok
+55: test_synthetic_evidence_cannot_claim_provider (__main__.Evaluation.test_synthetic_evidence_cannot_claim_provider) ... ok
+55: test_unknown_cost_is_not_zero_or_dropped (__main__.Evaluation.test_unknown_cost_is_not_zero_or_dropped) ... ok
+55: test_v1_report_keeps_structural_scope_explicit (__main__.Evaluation.test_v1_report_keeps_structural_scope_explicit) ... ok
+55: test_v2_captured_target_must_match_actual_application (__main__.Evaluation.test_v2_captured_target_must_match_actual_application) ... ok
+55: test_v2_diagnostic_read_write_readback_uses_original_feedback (__main__.Evaluation.test_v2_diagnostic_read_write_readback_uses_original_feedback) ... ok
+55: test_v2_host_acceptance_fact_without_original_feedback_is_not_model_evidence (__main__.Evaluation.test_v2_host_acceptance_fact_without_original_feedback_is_not_model_evidence) ... ok
+55: test_v2_host_command_cannot_be_relabelled_as_model_application (__main__.Evaluation.test_v2_host_command_cannot_be_relabelled_as_model_application) ... ok
+55: test_v2_original_model_application_chain_reaches_confirmed_delivery (__main__.Evaluation.test_v2_original_model_application_chain_reaches_confirmed_delivery) ... ok
+55: test_v2_wrong_attempt_response_refuses_even_with_rehashed_feedback (__main__.Evaluation.test_v2_wrong_attempt_response_refuses_even_with_rehashed_feedback) ... ok
+55: test_v3_explicit_plan_keeps_v1_v2_meanings (__main__.Evaluation.test_v3_explicit_plan_keeps_v1_v2_meanings) ... ok
+55: test_v3_fairness_removes_only_the_explicit_topology_variable (__main__.Evaluation.test_v3_fairness_removes_only_the_explicit_topology_variable) ... ok
+55: test_v3_old_multi_role_run_cannot_gain_logical_identity_from_a_label (__main__.Evaluation.test_v3_old_multi_role_run_cannot_gain_logical_identity_from_a_label) ... ok
+55: test_v3_one_logical_agent_reaches_original_confirmed_delivery (__main__.Evaluation.test_v3_one_logical_agent_reaches_original_confirmed_delivery) ... ok
+55: test_v3_recovered_original_instruction_links_both_conditions (__main__.Evaluation.test_v3_recovered_original_instruction_links_both_conditions) ... ok
+55: test_v3_recovery_projection_requires_original_body_and_exact_epochs (__main__.Evaluation.test_v3_recovery_projection_requires_original_body_and_exact_epochs) ... ok
+55: test_v3_rehashed_global_chain_fork_refuses (__main__.Evaluation.test_v3_rehashed_global_chain_fork_refuses) ... ok
+55: test_v3_rehashed_omission_of_actual_native_history_refuses (__main__.Evaluation.test_v3_rehashed_omission_of_actual_native_history_refuses) ... ok
+55: test_v3_single_fake_host_dispositions_refuse_before_takeover (__main__.Evaluation.test_v3_single_fake_host_dispositions_refuse_before_takeover) ... ok
+55:
+55: ----------------------------------------------------------------------
+55: Ran 40 tests in 134.790s
+55:
+55: OK
+2/9 Test #55: r3_evaluation ....................   Passed  134.87 sec
+test 50
+    Start 50: live_model_store_tls
+
+50: Test command: /tmp/wls861-r33a-venv/bin/python "/tmp/wls861-billing-baseline-validation/source/tests/test_live_model_store.py" "/tmp/wls861-billing-baseline-validation/source/build-asan/live_model_store_driver" "/tmp/wls861-billing-baseline-validation/source"
+50: Working Directory: /tmp/wls861-billing-baseline-validation/source/build-asan
+50: Test timeout computed to be: 180
+50: Live Store loopback UID=65534 effective_umask=0002
+50: test_actual_sigkill_at_five_boundaries_never_resends (__main__.LiveStore.test_actual_sigkill_at_five_boundaries_never_resends) ... ok
+50: test_complete_original_store_path_and_exact_replay (__main__.LiveStore.test_complete_original_store_path_and_exact_replay) ... ok
+50: test_disabled_or_failed_admission_has_zero_network_and_budget_effect (__main__.LiveStore.test_disabled_or_failed_admission_has_zero_network_and_budget_effect) ... ok
+50: test_effective_live_capacity_can_persist_actual_limit_observation (__main__.LiveStore.test_effective_live_capacity_can_persist_actual_limit_observation) ... ok
+50: test_http_429_and_500_never_automatically_retry (__main__.LiveStore.test_http_429_and_500_never_automatically_retry) ... ok
+50: test_large_escaped_valid_output_fits_original_settlement_event (__main__.LiveStore.test_large_escaped_valid_output_fits_original_settlement_event) ... ok
+50: test_late_complete_response_keeps_original_identity_after_all_fences (__main__.LiveStore.test_late_complete_response_keeps_original_identity_after_all_fences) ... ok
+50: test_partial_response_deadline_preserves_unknown_and_no_tools (__main__.LiveStore.test_partial_response_deadline_preserves_unknown_and_no_tools) ... ok
+50: test_private_echo_never_enters_safe_query_or_events (__main__.LiveStore.test_private_echo_never_enters_safe_query_or_events) ... ok
+50: test_sse_tool_terminal_is_original_data_without_tool_dispatch (__main__.LiveStore.test_sse_tool_terminal_is_original_data_without_tool_dispatch) ... ok
+50:
+50: ----------------------------------------------------------------------
+50: Ran 10 tests in 18.068s
+50:
+50: OK
+3/9 Test #50: live_model_store_tls .............   Passed   18.14 sec
+test 52
+    Start 52: live_workflow_cli
+
+52: Test command: /tmp/wls861-r33a-venv/bin/python "/tmp/wls861-billing-baseline-validation/source/tests/test_live_workflow_cli.py" "/tmp/wls861-billing-baseline-validation/source/build-asan/wls" "/tmp/wls861-billing-baseline-validation/source"
+52: Working Directory: /tmp/wls861-billing-baseline-validation/source/build-asan
+52: Test timeout computed to be: 180
+52: test_authorization_hash_uses_bytes_captured_before_execution (__main__.LiveWorkflowCli.test_authorization_hash_uses_bytes_captured_before_execution) ... ok
+52: test_authorization_inside_business_workspace_is_rejected_before_takeover (__main__.LiveWorkflowCli.test_authorization_inside_business_workspace_is_rejected_before_takeover) ... ok
+52: test_current_configuration_cannot_change_frozen_endpoint (__main__.LiveWorkflowCli.test_current_configuration_cannot_change_frozen_endpoint) ... ok
+52: test_http_failure_has_no_automatic_retry_or_private_echo (__main__.LiveWorkflowCli.test_http_failure_has_no_automatic_retry_or_private_echo) ... ok
+52: test_invalid_authorization_is_rejected_before_any_store_effect (__main__.LiveWorkflowCli.test_invalid_authorization_is_rejected_before_any_store_effect) ... ok
+53: test_02_two_task_partial_amend_pair (__main__.BillingBaselineIntegration.test_02_two_task_partial_amend_pair) ... ok
+52: test_missing_and_invalid_credentials_never_reserve_or_send (__main__.LiveWorkflowCli.test_missing_and_invalid_credentials_never_reserve_or_send) ... ok
+52: test_nonregular_and_missing_authorization_are_bounded_preflight_failures (__main__.LiveWorkflowCli.test_nonregular_and_missing_authorization_are_bounded_preflight_failures) ... ok
+52: test_original_plan_applies_then_unknown_cost_stops_and_repeat_cannot_resend (__main__.LiveWorkflowCli.test_original_plan_applies_then_unknown_cost_stops_and_repeat_cannot_resend) ... ok
+52: test_scoped_live_execution_preserves_sibling_request_and_budget (__main__.LiveWorkflowCli.test_scoped_live_execution_preserves_sibling_request_and_budget) ... ok
+52: test_status_is_read_only_and_template_grants_no_authority (__main__.LiveWorkflowCli.test_status_is_read_only_and_template_grants_no_authority) ... ok
+52: test_unknown_cli_arguments_and_host_dispositions_are_rejected_before_takeover (__main__.LiveWorkflowCli.test_unknown_cli_arguments_and_host_dispositions_are_rejected_before_takeover) ... ok
+52:
+52: ----------------------------------------------------------------------
+52: Ran 11 tests in 16.511s
+52:
+52: OK
+4/9 Test #52: live_workflow_cli ................   Passed   16.60 sec
+test 43
+    Start 43: live_model_store
+
+43: Test command: /tmp/wls861-billing-baseline-validation/source/build-asan/live_model_store_tests
+43: Working Directory: /tmp/wls861-billing-baseline-validation/source/build-asan
+43: Test timeout computed to be: 90
+43: PASS disabled, credential authorization and full frozen envelope reject before reservation
+43: PASS live profile capacity rejects impossible durable evidence before admission
+43: PASS original encoding/options CAS and concurrent one-time durable send claim
+43: PASS reservation and send-claim faults roll back original budget and authority
+43: PASS private observation and immutable original settlement faults are atomic
+43: PASS partial usage, exact replay, version conflict and dimension completion
+43: PASS known zero balances retain explicit unknown cache dimensions
+43: PASS contradiction preserves known facts and actual excess cost stops paid admission
+43: PASS reconciliation faults roll back all projections and source bytes stay private
+43: PASS recovery-only missing response settlement keeps original identity and never resends
+43: PASS reservation-only recovery requires explicit no-dispatch proof and original null settlement
+43: PASS terminal scoped reconciliation cannot alter sibling or restore business
+43: PASS explicit migration preserves original fake snapshots, attempts, settlement and budget
+43: PASS policy and cross-request identity are rechecked before first send
+43: PASS host verifier, original settlement, Root role and evidence kind remain mandatory
+43: RESULT 15 passed, 0 failed
+5/9 Test #43: live_model_store .................   Passed   11.28 sec
+test 44
+    Start 44: billing
+
+44: Test command: /tmp/wls861-billing-baseline-validation/source/build-asan/billing_tests
+44: Working Directory: /tmp/wls861-billing-baseline-validation/source/build-asan
+44: Test timeout computed to be: 90
+44: PASS legacy profile bytes and explicit unique wire challenges
+44: PASS bounded exact policy and original full profile binding
+44: PASS signed late receipt keeps original missing response and null settlement immutable
+44: PASS forged signatures, wrong keys and modified payloads reject
+44: PASS issuer, trust domain, units and payload shape are exact
+44: PASS unique attempt challenge and original wire request binding
+44: PASS receipt ownership survives key rotation and recovery
+44: PASS receipt ownership is global across sibling requests
+44: PASS same receipt partial revision and contradictions preserve known facts
+44: PASS receipt ownership and accounting commit atomically
+44: PASS read-only exact replay survives writer epoch without effects
+44: PASS no claim or proven no network cannot consume signed charge
+44: RESULT 12 passed, 0 failed
+6/9 Test #44: billing ..........................   Passed   10.23 sec
+test 38
+    Start 38: protocol_codec
+
+38: Test command: /tmp/wls861-billing-baseline-validation/source/build-asan/protocol_codec_tests
+38: Working Directory: /tmp/wls861-billing-baseline-validation/source/build-asan
+38: Test timeout computed to be: 90
+38: PASS profile round trip binds effective capabilities and limits
+38: PASS profile rejects unknown fields versions credentials and paid execution
+38: PASS endpoint and authentication references are explicit and bounded
+38: PASS profile capability declarations and hard limits are strict
+38: PASS native request preserves system dependencies schema and task contract
+38: PASS encoding preserves original request and null transport evidence
+38: PASS encoding never resolves credential references
+38: PASS native history preserves call pairing raw outputs and provenance
+38: PASS fake wrong-profile and legacy requests cannot be relabelled
+38: PASS reasoning off default and effort map only declared capabilities
+38: PASS request capabilities byte token and deadline limits reject before encoding
+38: PASS complete text retains host tuple and only reported usage
+38: PASS documented empty response metadata preserves compatibility without new capabilities
+38: PASS complete functions preserve provider IDs without execution authority
+38: PASS missing usage remains unknown and explicit zero stays zero
+38: PASS malformed or inconsistent usage cannot become known zero
+38: PASS partial usage respects known totals without inferring missing components
+38: PASS HTTP failures and redirects do not authorize retries
+38: PASS incomplete cancelled failed and nonterminal responses cannot dispatch tools
+38: PASS wrong provider model and spoofed host identity fields reject
+38: PASS unavailable tools and duplicate provider IDs reject
+38: PASS partial nonobject and duplicate-key function arguments reject
+38: PASS unsupported reasoning hosted tools and refusal retain raw evidence
+38: PASS annotations and logprobs remain explicit unsupported content
+38: PASS response aggregate text items arguments and calls are bounded
+38: PASS invalid JSON and UTF-8 bytes survive serializable raw evidence
+38: PASS raw fingerprints preserve exact bytes and detect later mutation
+38: PASS encoding record binds URL stream identity and evidence
+38: PASS decoding record binds tuple result usage and raw evidence
+38: PASS empty completed and contradictory terminal results reject
+38: RESULT 30 passed, 0 failed
+7/9 Test #38: protocol_codec ...................   Passed    1.51 sec
+test 46
+    Start 46: single_agent_runtime
+
+46: Test command: /tmp/wls861-billing-baseline-validation/source/build-asan/single_agent_tests "--group" "runtime"
+46: Working Directory: /tmp/wls861-billing-baseline-validation/source/build-asan
+46: Test timeout computed to be: 90
+46: PASS concurrent captures cannot fork original history
+46: PASS historical Worker tools do not authorize manager actions
+46: PASS ordinary restart continues one chain without rewriting bindings
+46: PASS sibling request history never enters the shared transcript
+46: PASS frozen attempt and byte capacities stop before reservation
+46: RESULT 5 passed, 0 failed
+8/9 Test #46: single_agent_runtime .............   Passed   60.30 sec
+53: test_03_original_rejected_rework_pair (__main__.BillingBaselineIntegration.test_03_original_rejected_rework_pair) ... ok
+53: test_04_exhausted_rework_owner_question_pair (__main__.BillingBaselineIntegration.test_04_exhausted_rework_owner_question_pair) ... ok
+53: test_05_original_delivery_exact_receipt_pair (__main__.BillingBaselineIntegration.test_05_original_delivery_exact_receipt_pair) ... ok
+53: test_90_invalid_signed_sources_never_advance_business_or_repeat_send (__main__.BillingBaselineIntegration.test_90_invalid_signed_sources_never_advance_business_or_repeat_send) ... ok
+53: test_91_partial_unknown_and_over_reserved_remain_stopped (__main__.BillingBaselineIntegration.test_91_partial_unknown_and_over_reserved_remain_stopped) ... ok
+53: test_92_explicit_reconciliation_is_accounting_only_and_exact_replay (__main__.BillingBaselineIntegration.test_92_explicit_reconciliation_is_accounting_only_and_exact_replay) ... ok
+53: test_93_trust_inputs_inside_sibling_workspace_refuse_before_takeover (__main__.BillingBaselineIntegration.test_93_trust_inputs_inside_sibling_workspace_refuse_before_takeover) ... ok
+53: test_94_opposite_runner_mode_cannot_relabel_frozen_identity (__main__.BillingBaselineIntegration.test_94_opposite_runner_mode_cannot_relabel_frozen_identity) ... ok
+53: test_95_complete_http_error_can_reconcile_without_becoming_business_success (__main__.BillingBaselineIntegration.test_95_complete_http_error_can_reconcile_without_becoming_business_success) ... ok
+53: test_96_policy_identity_and_keys_use_the_once_captured_bytes (__main__.BillingBaselineIntegration.test_96_policy_identity_and_keys_use_the_once_captured_bytes) ... ok
+53: test_98_run_index_labels_cannot_change_the_original_agent_condition (__main__.BillingBaselineIntegration.test_98_run_index_labels_cannot_change_the_original_agent_condition) ... ok
+53: test_99_all_ten_fixed_cells_have_original_evidence (__main__.BillingBaselineIntegration.test_99_all_ten_fixed_cells_have_original_evidence) ... ok
+53:
+53: ----------------------------------------------------------------------
+53: Ran 14 tests in 604.198s
+53:
+53: OK
+53: INDEPENDENT_PAIRED_RESULT {"contract": 3, "counts": {"passed": 10}, "expected_cells": 10, "observed_cells": 10, "provider_quality_acceptance_established": false, "rows": [{"attempts": 9, "condition": "multi_agent", "elapsed_ms": 23332, "known_cost_micro_usd": 153, "task_id": "tool_roundtrip"}, {"attempts": 9, "condition": "single_agent", "elapsed_ms": 41099, "known_cost_micro_usd": 153, "task_id": "tool_roundtrip"}, {"attempts": 19, "condition": "multi_agent", "elapsed_ms": 43672, "known_cost_micro_usd": 323, "task_id": "partial_amend"}, {"attempts": 19, "condition": "single_agent", "elapsed_ms": 112959, "known_cost_micro_usd": 323, "task_id": "partial_amend"}, {"attempts": 13, "condition": "multi_agent", "elapsed_ms": 34847, "known_cost_micro_usd": 221, "task_id": "rejected_rework"}, {"attempts": 13, "condition": "single_agent", "elapsed_ms": 63036, "known_cost_micro_usd": 221, "task_id": "rejected_rework"}, {"attempts": 25, "condition": "multi_agent", "elapsed_ms": 54886, "known_cost_micro_usd": 425, "task_id": "exhausted_rework"}, {"attempts": 25, "condition": "single_agent", "elapsed_ms": 154123, "known_cost_micro_usd": 425, "task_id": "exhausted_rework"}, {"attempts": 7, "condition": "multi_agent", "elapsed_ms": 13534, "known_cost_micro_usd": 119, "task_id": "delivery_receipt"}, {"attempts": 7, "condition": "single_agent", "elapsed_ms": 20340, "known_cost_micro_usd": 119, "task_id": "delivery_receipt"}]}
+9/9 Test #53: billing_baseline_e2e .............   Passed  604.30 sec
+
+The following tests passed:
+	single_agent
+	r3_evaluation
+	live_model_store_tls
+	live_workflow_cli
+	live_model_store
+	billing
+	protocol_codec
+	single_agent_runtime
+	billing_baseline_e2e
+
+100% tests passed, 0 tests failed out of 9
+
+Total Test time (real) = 604.30 sec

@@ -1,0 +1,7 @@
+test_v3_recovered_original_instruction_links_both_conditions (eval_tests.Evaluation.test_v3_recovered_original_instruction_links_both_conditions) ... ok
+test_v3_recovery_projection_requires_original_body_and_exact_epochs (eval_tests.Evaluation.test_v3_recovery_projection_requires_original_body_and_exact_epochs) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 2.309s
+
+OK

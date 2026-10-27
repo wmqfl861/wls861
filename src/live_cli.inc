@@ -5,6 +5,8 @@ struct LiveCliAuthorization {
     std::string request_id;
     std::string config_snapshot_sha256;
     std::string execution_kind;
+    // v2 binds the exact captured external trust-policy bytes. Empty in v1.
+    std::string billing_policy_sha256;
     std::map<std::string, std::string> models;
     LiveWorkflowOptions workflow;
 };
@@ -16,18 +18,28 @@ bool live_cli_digest(std::string_view value) {
 }
 
 LiveCliAuthorization live_cli_authorization(const Json& value) {
-    static const std::set<std::string> fields{"schema_version", "kind", "request_id",
+    if (!value.is_object() || !value.as_object().contains("schema_version") ||
+            !value.as_object().contains("kind"))
+        throw Error(ErrorCode::InvalidInput, "live authorization requires a versioned host envelope");
+    const auto version = integer(value.at("schema_version"));
+    if ((version != 1 && version != 2) || text(value.at("kind")) !=
+            (version == 1 ? "wls-live-workflow-authorization-v1" : "wls-live-workflow-authorization-v2"))
+        throw Error(ErrorCode::Unsupported, "unsupported live authorization version");
+    std::set<std::string> fields{"schema_version", "kind", "request_id",
         "config_snapshot_sha256", "execution_kind", "network_enabled", "provider_enabled", "models",
         "max_calls", "max_worker_calls_per_task", "max_batch_duration_ms", "reserved_cost_micro_usd"};
-    if (!value.is_object() || value.as_object().size() != fields.size())
-        throw Error(ErrorCode::InvalidInput, "live authorization requires the complete v1 host envelope");
+    if (version == 2) fields.insert("billing_policy_sha256");
+    if (value.as_object().size() != fields.size())
+        throw Error(ErrorCode::InvalidInput, "live authorization requires the complete versioned host envelope");
     for (const auto& item : value.as_object())
         if (!fields.contains(std::string(item.key())))
             throw Error(ErrorCode::InvalidInput, "live authorization contains an unsupported field");
-    if (integer(value.at("schema_version")) != 1 ||
-            text(value.at("kind")) != "wls-live-workflow-authorization-v1")
-        throw Error(ErrorCode::Unsupported, "unsupported live authorization version");
     LiveCliAuthorization result;
+    if (version == 2) {
+        result.billing_policy_sha256 = text(value.at("billing_policy_sha256"));
+        if (!live_cli_digest(result.billing_policy_sha256))
+            throw Error(ErrorCode::InvalidInput, "live authorization requires the exact billing-policy digest");
+    }
     result.request_id = text(value.at("request_id"));
     result.config_snapshot_sha256 = text(value.at("config_snapshot_sha256"));
     result.execution_kind = text(value.at("execution_kind"));

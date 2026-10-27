@@ -117,6 +117,9 @@ public:
 
     Json diagnostics() const;
     bool live_model_enabled() const;
+    // Read-only control-file placement check across all bound workspaces in
+    // this Store, without exposing any other request's paths or data.
+    void validate_control_file_path(const std::filesystem::path& path) const;
     Json claim_live_send(const StoreActor& actor, const std::string& attempt_id,
         std::int64_t expected_attempt_version, const EncodedResponsesRequest& encoded,
         const HttpsTransportOptions& transport, const std::string& command_id);
@@ -128,6 +131,10 @@ public:
     Json live_attempt(const std::string& attempt_id, bool include_private = false) const;
     Json reconcile_usage(const StoreActor& root, const VerifiedUsageEvidence& evidence,
         const UsageReconciliation& reconciliation);
+    // Exact read-only replay across writer epochs. Uses the original recorded
+    // actor epoch only to compare immutable intent; never restores authority.
+    Json replay_usage_reconciliation(const StoreActor& root, const VerifiedUsageEvidence& evidence,
+        const UsageReconciliation& reconciliation) const;
     Json usage_projection(const std::string& attempt_id) const;
     // Bounded safe readiness observation for the live host. It grants no
     // reservation or send authority; the write path repeats the same gates.
@@ -231,6 +238,10 @@ public:
     // More than limit records fails explicitly rather than dropping history.
     std::vector<Json> attempt_history(const StoreActor& actor,
                                       std::int64_t limit = 256) const;
+    // Explicit frozen single-Agent policy only. Complete request-wide original
+    // history is model data for one logical executor, never another actor's
+    // tool authority. Missing/unsettled turns refuse continuation.
+    std::vector<Json> logical_agent_history(const StoreActor& actor) const;
 
     // R1 evidence reads: bounded metadata pages over an insertion high-water
     // snapshot, then hash-pinned raw feedback bytes. Cursors and records are

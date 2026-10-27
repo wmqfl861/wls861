@@ -594,8 +594,8 @@ CapabilityRegistry validate_system(const Json& system) {
     const auto& context = required(system, "context", "system");
     fields(context, "system.context", {{"compaction_at_fraction", 'n'}, {"snapshot_decision_log_entries", 'i'},
         {"schema_retry_max", 'z'}, {"cache_dependencies", 'a'}, {"policy_updates_use_runtime_gate", 'b'},
-        {"request_format", 's'}, {"worker_history", '-'}, {"management_history", '-'}},
-        {"request_format", "worker_history", "management_history"});
+        {"request_format", 's'}, {"worker_history", '-'}, {"management_history", '-'}, {"logical_agent", '-'}},
+        {"request_format", "worker_history", "management_history", "logical_agent"});
     if (const auto* format = optional(context, "request_format")) {
         const auto name = string_value(*format, "system.context.request_format");
         if (name != "framed-v1" && name != "structured-v2")
@@ -625,6 +625,16 @@ CapabilityRegistry validate_system(const Json& system) {
         if (recent * bytes > 131072) invalid("system.context.management_history", "combined inline history exceeds 128 KiB");
         (void)integer_value(required(*history, "max_context_bytes", "management_history"),
             "management_history.max_context_bytes", 131072, 1048576);
+    }
+    if (const auto* logical = optional(context, "logical_agent")) {
+        const auto* format = optional(context, "request_format");
+        if (!format || string_value(*format, "system.context.request_format") != "structured-v2")
+            invalid("system.context.logical_agent", "single-agent execution requires explicit structured-v2");
+        fields(*logical, "system.context.logical_agent", {{"mode", 's'}, {"max_attempts", 'i'}, {"max_history_bytes", 'i'}});
+        literal(*logical, "mode", "single-agent-role-broker-v1", "system.context.logical_agent");
+        (void)integer_value(required(*logical, "max_attempts", "logical_agent"), "logical_agent.max_attempts", 1, 128);
+        (void)integer_value(required(*logical, "max_history_bytes", "logical_agent"),
+            "logical_agent.max_history_bytes", 4096, 524288);
     }
     (void)number_value(required(context, "compaction_at_fraction", "system.context"), "system.context.compaction_at_fraction", 0.1, 0.95);
     flag(context, "policy_updates_use_runtime_gate", true, "system.context");
@@ -898,6 +908,12 @@ FrozenRequestConfig::FrozenRequestConfig(Json document, const ConfigLoadOptions&
         resolved_.emplace(role, ModelSelection{string_value(required(entry, "model_ref", "role_resolution"), "role_resolution.model_ref"),
             reasoning(&required(entry, "reasoning", "role_resolution"), "role_resolution.reasoning", false)});
     }
+    if (!logical_agent_policy().is_null()) {
+        const auto selected = resolve(Role::Dispatcher);
+        for (const auto role : {Role::TeamLead, Role::Worker})
+            if (resolve(role) != selected)
+                invalid("system.context.logical_agent", "one logical Agent requires the same model and reasoning for every authority role");
+    }
     for (const auto& item : required(document_, "dependencies", "snapshot").as_array()) {
         dependencies_.push_back({string_value(required(item, "path", "dependency"), "dependency.path"),
             string_value(required(item, "kind", "dependency"), "dependency.kind"),
@@ -950,6 +966,12 @@ Json FrozenRequestConfig::management_history_policy() const {
     return policy ? *policy : Json(nullptr);
 }
 
+Json FrozenRequestConfig::logical_agent_policy() const {
+    const auto& context = required(required(document_, "system", "snapshot"), "context", "system");
+    const auto* policy = optional(context, "logical_agent");
+    return policy ? *policy : Json(nullptr);
+}
+
 Json FrozenRequestConfig::runtime_support() const {
     Array deferred;
     const auto add = [&](std::string_view section, std::string_view key, std::string_view reason) {
@@ -975,6 +997,8 @@ Json FrozenRequestConfig::runtime_support() const {
         {"live_workflow_available", true}, {"context_request_format", context_request_format()},
         {"history_window_integrated", !worker_history_policy().is_null()}, {"worker_history_policy", worker_history_policy()},
         {"management_window_integrated", !management_history_policy().is_null()},
+        {"logical_agent_policy", logical_agent_policy()},
+        {"single_agent_shared_history", !logical_agent_policy().is_null()},
         {"management_history_policy", management_history_policy()}, {"real_calls_ready", false},
         {"all_configured_controls_enforced", false}, {"unenforced_settings", deferred}};
 }

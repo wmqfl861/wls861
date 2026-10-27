@@ -22,6 +22,8 @@ import time
 MAX_JSON = 8 * 1024 * 1024
 MAX_ROWS = 4096
 CONDITIONS = ('multi_agent', 'single_agent')
+LOGICAL_AGENT_CONTRACT = 'single-agent-role-broker-v1'
+DEFAULT_LOGICAL_AGENT_POLICY = {'mode': LOGICAL_AGENT_CONTRACT, 'max_attempts': 128, 'max_history_bytes': 524288}
 DIMENSIONS = {'input': 'input_tokens', 'output': 'output_tokens', 'cost': 'cost_micro_usd'}
 TASKS = (
     ('tool_roundtrip', 'The input seed.txt contains exactly alpha\\nbeta\\n (UTF-8, LF). Read it, write result.txt with the same bytes, read it back, and submit the captured result.',
@@ -131,15 +133,21 @@ def environment_digest(snapshot):
         if item['kind'] == 'environment_template']})
 
 
-def common_lock(db, request_id, model_ref, reasoning):
+def common_lock(db, request_id, model_ref, reasoning, *, logical_agent_comparison=False):
     request = one(db, 'SELECT * FROM requests WHERE request_id=?', (request_id,))
     snapshot = strict_json(request['config_snapshot'])
     profile = snapshot['system']['models'][model_ref]
     runtime = one(db, 'SELECT * FROM request_runtime WHERE request_id=?', (request_id,))
     budget = one(db, 'SELECT * FROM request_budgets WHERE request_id=?', (request_id,))
+    workflow_policy = {key: snapshot['system'][key] for key in ('amendment', 'limits', 'control', 'context')}
+    if logical_agent_comparison:
+        # Only the explicitly versioned experimental topology differs. All
+        # other context, permission, environment and budget facts still lock.
+        workflow_policy['context'] = {key: value for key, value in workflow_policy['context'].items()
+                                      if key != 'logical_agent'}
     return {'model_ref': model_ref, 'profile_sha256': digest(profile), 'reasoning': reasoning,
             'environment_sha256': environment_digest(snapshot),
-            'workflow_policy_sha256': digest({key: snapshot['system'][key] for key in ('amendment', 'limits', 'control', 'context')}),
+            'workflow_policy_sha256': digest(workflow_policy),
             'constraints_sha256': digest(rows(db, 'SELECT constraint_id,source_revision,text FROM request_constraints WHERE request_id=? AND requirements_revision=1 ORDER BY constraint_id', (request_id,))),
             'tools': sorted(strict_json(runtime['tool_allowlist'])),
             'budget': {key: budget[key] for key in ('max_attempts', 'input_limit', 'output_limit', 'cost_limit')},
@@ -147,23 +155,45 @@ def common_lock(db, request_id, model_ref, reasoning):
             'max_paid_retries': 0}
 
 
+def validate_logical_agent_policy(policy):
+    require(isinstance(policy, dict) and set(policy) == {'mode', 'max_attempts', 'max_history_bytes'},
+            'invalid logical Agent policy shape')
+    require(policy['mode'] == LOGICAL_AGENT_CONTRACT, 'unknown logical Agent policy')
+    require(type(policy['max_attempts']) is int and 1 <= policy['max_attempts'] <= 128,
+            'logical Agent attempt capacity is invalid')
+    require(type(policy['max_history_bytes']) is int and 4096 <= policy['max_history_bytes'] <= 524288,
+            'logical Agent history capacity is invalid')
+
+
 def make_plan(db, request_id, model_ref='fake', reasoning=None, evidence_mode='synthetic',
-              decision_evidence=None):
+              decision_evidence=None, identity_contract=None):
     require(evidence_mode in ('synthetic', 'provider'), 'unknown evidence mode')
-    decision_evidence = decision_evidence or ('model-origin-v1' if evidence_mode == 'provider' else 'structural-v1')
+    require(identity_contract in (None, LOGICAL_AGENT_CONTRACT), 'unknown logical identity contract')
+    decision_evidence = decision_evidence or ('model-origin-v1' if evidence_mode == 'provider' or identity_contract else 'structural-v1')
     require(decision_evidence in ('structural-v1', 'model-origin-v1'), 'unknown decision evidence contract')
     require(evidence_mode != 'provider' or decision_evidence == 'model-origin-v1',
             'new provider plans require model-origin-v1 decision evidence')
+    require(not identity_contract or decision_evidence == 'model-origin-v1',
+            'logical Agent comparison requires original model-decision provenance')
     budget = one(db, 'SELECT attempts FROM request_budgets WHERE request_id=?', (request_id,))
     require(budget['attempts'] == 0, 'plan seed must be admitted before any model attempt')
     plan = {'schema_version': 1, 'benchmark_id': 'r3-small-tasks-v1', 'evidence_mode': evidence_mode,
             'conditions': list(CONDITIONS), 'repetitions': 1,
-            'common': common_lock(db, request_id, model_ref, reasoning or {'mode': 'provider_default'}),
+            'common': common_lock(db, request_id, model_ref, reasoning or {'mode': 'provider_default'},
+                                  logical_agent_comparison=bool(identity_contract)),
             'tasks': [{'task_id': name, 'material': material,
                        'material_sha256': hashlib.sha256(material.encode()).hexdigest(), 'checks': checks}
                       for name, material, checks in TASKS]}
     if decision_evidence == 'model-origin-v1':
         plan.update(schema_version=2, benchmark_id='r3-small-tasks-v2', decision_evidence=decision_evidence)
+    if identity_contract:
+        request = one(db, 'SELECT config_snapshot FROM requests WHERE request_id=?', (request_id,))
+        context = strict_json(request['config_snapshot'])['system']['context']
+        require(context.get('request_format') == 'structured-v2', 'logical Agent comparison requires a structured-v2 seed')
+        policy = context.get('logical_agent', DEFAULT_LOGICAL_AGENT_POLICY)
+        validate_logical_agent_policy(policy)
+        plan.update(schema_version=3, benchmark_id='r3-small-tasks-v3', identity_contract=identity_contract,
+                    single_agent_policy=policy)
     plan['plan_sha256'] = digest(plan)
     return plan
 
@@ -173,11 +203,15 @@ def validate_plan(plan):
               'conditions', 'repetitions', 'common', 'tasks', 'plan_sha256'}
     require(isinstance(plan, dict), 'plan must be an object')
     version = plan.get('schema_version')
-    if version == 2:
+    if version in (2, 3):
         fields.add('decision_evidence')
         require(plan.get('decision_evidence') == 'model-origin-v1', 'unknown decision evidence contract')
+    if version == 3:
+        fields.update(('identity_contract', 'single_agent_policy'))
+        require(plan.get('identity_contract') == LOGICAL_AGENT_CONTRACT, 'unknown logical identity contract')
+        validate_logical_agent_policy(plan.get('single_agent_policy'))
     require(set(plan) == fields, 'unexpected plan shape')
-    require(type(version) is int and version in (1, 2) and
+    require(type(version) is int and version in (1, 2, 3) and
             plan['benchmark_id'] == f'r3-small-tasks-v{version}', 'unknown evaluation contract')
     require(plan['plan_sha256'] == digest({key: value for key, value in plan.items() if key != 'plan_sha256'}), 'plan fingerprint mismatch')
     require(plan['conditions'] == list(CONDITIONS) and plan['repetitions'] == 1, 'fixed paired conditions required')
@@ -217,6 +251,122 @@ def captured_contract(envelope):
     size = int(match[1])
     require(size < len(remaining) and remaining[size:size + 1] == b'\n', 'original task contract frame is truncated')
     return strict_json(remaining[:size])
+
+
+def logical_agent_marker(logical_id, prefix, chain):
+    return {'contract': LOGICAL_AGENT_CONTRACT, 'logical_agent_id': logical_id,
+            'global_step': len(prefix) + 1, 'history_count': len(prefix),
+            'history_sha256': digest(prefix), 'previous_chain_sha256': chain}
+
+
+def logical_agent_messages(history):
+    """Independent reconstruction of the native messages actually sent onward."""
+    messages = []
+    for record in history:
+        response, feedback = record['response'], record['feedback']
+        runtime_error = isinstance(feedback['result'], dict) and feedback['result'].get('runtime_error') is True
+        paired = (record['accepted'] == 1 and response['status'] == 'completed' and
+                  len(response['tool_calls']) == 1 and not runtime_error)
+        if not paired:
+            messages.append({'role': 'user', 'content': canonical(record).decode(), 'tool_calls': [], 'tool_call_id': '',
+                             'source': {'kind': 'unapplied_or_missing_observation', 'not_execution_authority': True}})
+            continue
+        tool = response['tool_calls'][0]
+        call_id = 'history_' + digest({'format': 'wls-history-tool-id-v1', 'attempt_id': response['attempt_id'],
+                                       'call_id': tool['call_id']})
+        source = {key: value for key, value in record.items() if key not in ('request_envelope', 'response', 'feedback')}
+        source.update(record_sha256=feedback['record_sha256'], original_tool_call_id=tool['call_id'],
+                      kind='recorded_tool_turn', not_execution_authority=True)
+        messages.append({'role': 'assistant', 'content': response['text'],
+                         'tool_calls': [{'call_id': call_id, 'name': tool['name'], 'arguments': tool['arguments']}],
+                         'tool_call_id': '', 'source': source})
+        messages.append({'role': 'tool', 'content': canonical(feedback['result']).decode(),
+                         'tool_calls': [], 'tool_call_id': call_id, 'source': source})
+    return messages
+
+
+def logical_agent_evidence(db, request, attempts, condition, policy):
+    snapshot = strict_json(request['config_snapshot'])
+    configured = snapshot['system']['context'].get('logical_agent')
+    if condition == 'multi_agent':
+        require(configured is None, 'multi-Agent condition uses the single-Agent shared-history policy')
+        for attempt in attempts:
+            envelope = strict_json(attempt['request_envelope'])
+            require('logical_agent_execution' not in captured_contract(envelope),
+                    'multi-Agent condition contains a shared logical execution marker')
+            if envelope['context']['format'] == 'wls-compiled-context-v2':
+                for message in envelope['context']['input']['messages']:
+                    source = message['source'] or {}
+                    if source.get('kind') == 'unapplied_or_missing_observation':
+                        source = strict_json(message['content'])
+                    if source.get('kind') == 'recorded_tool_turn' or 'attempt_id' in source:
+                        require(all(source[key] == attempt[key] for key in ('role', 'principal_id', 'task_id', 'team_id')),
+                                'multi-Agent native history crossed its original authority identity')
+                    if message['role'] in ('assistant', 'tool'):
+                        require(source.get('kind') == 'recorded_tool_turn', 'multi-Agent native history has no original actor provenance')
+        return {'contract': 'role-isolated-v1', 'status': 'linked' if attempts else 'incomplete',
+                'shared_request_history': False}
+    require(configured == policy, 'single-Agent frozen policy differs from the precommitted plan')
+    validate_logical_agent_policy(configured)
+    require(snapshot['system']['context'].get('request_format') == 'structured-v2', 'single-Agent input is not structured-v2')
+    require(len(attempts) <= policy['max_attempts'], 'single-Agent history exceeds its frozen attempt capacity')
+    resolutions = snapshot['role_resolutions']
+    selected = resolutions['dispatcher']
+    for role in ('team_lead', 'worker'):
+        require(all(resolutions[role][key] == selected[key] for key in ('model_ref', 'reasoning')),
+                'single-Agent authority roles changed model or reasoning')
+    config_hash = one(db, 'SELECT config_snapshot_sha256 FROM request_runtime WHERE request_id=?',
+                      (request['request_id'],))['config_snapshot_sha256']
+    require(hashlib.sha256(request['config_snapshot'].encode()).hexdigest() == config_hash,
+            'single-Agent frozen configuration fingerprint mismatch')
+    seed = digest({'format': 'wls-single-agent-chain-v1', 'request_id': request['request_id'],
+                   'config_snapshot_sha256': config_hash, 'policy': policy})
+    logical_id, chain, history = 'logical_' + seed, seed, []
+    tables = {row['name'] for row in rows(db, "SELECT name FROM sqlite_master WHERE type='table'")}
+    for attempt in attempts:
+        envelope = strict_json(attempt['request_envelope'])
+        require(envelope['context']['format'] == 'wls-compiled-context-v2', 'single-Agent original context is not structured')
+        contract = captured_contract(envelope)
+        marker = logical_agent_marker(logical_id, history, chain)
+        require(contract.get('logical_agent_execution') == marker, 'single-Agent execution chain is missing, reordered or forked')
+        require(envelope['context']['input']['messages'] == logical_agent_messages(history),
+                'single-Agent actual model input omitted or changed the shared original history')
+        require(len(canonical(history)) <= policy['max_history_bytes'], 'single-Agent shared history byte capacity exceeded')
+        require(envelope['logical_request_sha256'] == digest({key: value for key, value in envelope.items()
+                if key not in ('logical_request_sha256', 'wire_request_sha256')}), 'single-Agent original request fingerprint mismatch')
+        if 'live_attempt_execution' in tables:
+            live = rows(db, 'SELECT logical_request_sha256 FROM live_attempt_execution WHERE attempt_id=?', (attempt['attempt_id'],))
+            if live:
+                require(live[0]['logical_request_sha256'] == envelope['logical_request_sha256'],
+                        'single-Agent transcript differs from the request admitted for original live transport')
+        require(attempt['settlement_sha256'] is not None and attempt['response'] is not None,
+                'single-Agent original turn remains unsettled')
+        feedback = one(db, 'SELECT * FROM model_tool_feedback WHERE attempt_id=?', (attempt['attempt_id'],))
+        for key in ('original_binding', 'response', 'result'):
+            feedback[key] = strict_json(feedback[key])
+        response, binding = strict_json(attempt['response']), strict_json(attempt['frozen_binding'])
+        require(feedback['original_binding'] == binding and feedback['response'] == response,
+                'single-Agent immutable feedback changed its original response or binding')
+        require(digest({key: feedback[key] for key in ('attempt_id', 'original_binding', 'response', 'result')}) == feedback['record_sha256'],
+                'single-Agent immutable feedback fingerprint mismatch')
+        require(response['call_id'] == attempt['call_id'] and response['attempt_id'] == attempt['attempt_id'] and
+                response['binding'] == binding and response['role'] == attempt['role'] and
+                response['config_snapshot_id'] == attempt['config_snapshot_sha256'] and
+                response['role_call_index'] == envelope['role_call_index'], 'single-Agent original response identity mismatch')
+        record = {key: attempt[key] for key in ('attempt_id', 'call_id', 'request_id', 'task_id', 'team_id', 'role',
+                    'principal_id', 'config_snapshot_sha256', 'model_ref', 'reservation_sha256', 'status', 'accepted',
+                    'settlement_sha256')}
+        record.update(frozen_binding=binding, role_call_index=envelope['role_call_index'], response=response,
+                      usage=strict_json(attempt['usage']), logical_agent_execution=marker,
+                      history_sequence=len(history) + 1, feedback=feedback, feedback_missing=False)
+        require(record['request_id'] == request['request_id'] and record['config_snapshot_sha256'] == config_hash,
+                'single-Agent history crossed its request or configuration')
+        chain = digest({'format': 'wls-single-agent-link-v1', 'previous_sha256': chain, 'fact': record})
+        history.append(record)
+    return {'contract': LOGICAL_AGENT_CONTRACT, 'status': 'linked' if attempts else 'incomplete',
+            'logical_agent_id': logical_id, 'logical_agent_count': 1 if attempts else 0,
+            'global_steps': len(history), 'final_chain_sha256': chain, 'shared_request_history': True,
+            'authority_roles_are_separate_agents': False, 'private_history_in_report': False}
 
 
 def model_applications(db, request_id, attempts):
@@ -423,7 +573,7 @@ def model_applications(db, request_id, attempts):
                           'source_authenticity': 'trusted_host_records_not_provider_signatures'}
 
 
-def model_origin_checks(db, request, task, applications, evidence):
+def model_origin_checks(db, request, task, applications, evidence, *, allow_recovery_projection=False):
     """Require the model's actual application to be the business fact scored."""
     by_name = {name: [app for app in applications if app['tool_name'] == name]
                for name in {app['tool_name'] for app in applications}}
@@ -435,6 +585,73 @@ def model_origin_checks(db, request, task, applications, evidence):
     orders = by_name.get('issue_work_order', [])
     tasks = {row['task_id']: row for row in rows(db, 'SELECT * FROM tasks WHERE request_id=?', (request['request_id'],))}
     originals = {}
+    recovery_witnesses = {}
+    original_orders = {}
+    prior_recoveries = {}
+
+    def order_reaches_submission(order, app):
+        original, target = order['result']['binding'], app['binding']
+        if order['ordinal'] >= app['ordinal']:
+            return False
+        if original == target:
+            return True
+        # v1/v2 retain their original exact-binding interpretation. v3 can
+        # follow the Store's explicitly recorded epoch-only recovery lease;
+        # it cannot infer a semantic decision from today's task state.
+        if not allow_recovery_projection:
+            return False
+        epochs = ('dispatcher_epoch', 'execution_epoch')
+        if set(original) != set(target) or any(original[key] != target[key] for key in original if key not in epochs):
+            return False
+        if any(target[key] <= original[key] for key in epochs):
+            return False
+        key = (original['task_id'], original['instruction_revision'])
+        if key not in original_orders:
+            original_orders[key] = one(db, 'SELECT * FROM instructions WHERE request_id=? AND task_id=? AND instruction_revision=?',
+                                      (request['request_id'], *key))
+        instruction = original_orders[key]
+        semantic = ('request_id', 'task_id', 'team_id', 'plan_revision', 'task_revision',
+                    'instruction_revision', 'dispatcher_epoch', 'execution_epoch')
+        require(all(instruction[name] == original[name] for name in semantic) and
+                instruction['based_on_requirements_revision'] == original['requirements_revision'] and
+                strict_json(instruction['body']) == dict(order['arguments'], **original),
+                'recovered instruction differs from its original model work order')
+        interval = (order['event_seq'], app['event_seq'])
+        if interval not in prior_recoveries:
+            prior_recoveries[interval] = rows(db,
+                "SELECT * FROM events WHERE request_id=? AND type='recover' AND seq>? AND seq<? ORDER BY seq",
+                (request['request_id'], *interval))
+        recoveries = prior_recoveries[interval]
+        if not recoveries:
+            return False
+        body_sha256 = hashlib.sha256(instruction['body'].encode()).hexdigest()
+        projected = {name: original[name] for name in epochs}
+        for recovery in recoveries:
+            payload, result = strict_json(recovery['payload']), strict_json(recovery['result'])
+            require(payload == {'type': 'recover'} and digest(payload) == recovery['command_sha256'],
+                    'original instruction recovery event fingerprint mismatch')
+            entries = [item for item in result.get('rebound_instructions', [])
+                       if item['task_id'] == original['task_id'] and item['instruction_revision'] == original['instruction_revision']]
+            if not entries:
+                return False
+            require(len(entries) == 1, 'original instruction recovery contains ambiguous projections')
+            entry = entries[0]
+            # Store 410's previous_* fields reference the immutable original
+            # instruction, not a previous projection. Each actual recover
+            # advances current dispatcher/team epochs by one. Check the whole
+            # interval without inventing an intermediate binding record.
+            require(entry['body_sha256'] == body_sha256 and
+                    result['dispatcher_epoch'] == entry['dispatcher_epoch'] and
+                    all(entry['previous_' + name] == original[name] and entry[name] == projected[name] + 1 for name in epochs),
+                    'original instruction recovery does not prove the submitted epoch projection')
+            projected = {name: entry[name] for name in epochs}
+            recovery_witnesses[(order['attempt_id'], app['attempt_id'], recovery['seq'])] = {
+                'order_attempt_id': order['attempt_id'], 'submission_attempt_id': app['attempt_id'],
+                'recovery_event_id': recovery['event_id'], 'recovery_event_seq': recovery['seq'],
+                'instruction_body_sha256': body_sha256, **projected}
+        require(all(projected[name] == target[name] for name in epochs),
+                'original instruction recovery does not prove the submitted epoch projection')
+        return True
 
     def current(binding):
         return (binding['requirements_revision'] == request['requirements_revision'] and
@@ -461,7 +678,7 @@ def model_origin_checks(db, request, task, applications, evidence):
         require(binding == app['binding'] and original['record_sha256'] == app['result']['record_sha256'] and
                 digest({'body': body, 'original_binding': binding, 'artifact_snapshot': artifacts}) == original['record_sha256'],
                 'submission fact differs from original model application')
-        if not any(order['result']['binding'] == binding and order['ordinal'] < app['ordinal'] for order in orders):
+        if not any(order_reaches_submission(order, app) for order in orders):
             return False
         return any(plan['plan_revision'] == binding['plan_revision'] and plan['ordinal'] < app['ordinal'] and
                    (any(item['task_id'] == binding['task_id'] for item in plan['result']['tasks']) or
@@ -558,6 +775,10 @@ def model_origin_checks(db, request, task, applications, evidence):
         checks['model_accepted_delivery_source'] = any(
             bool(strict_json(delivery['acceptance_snapshot'])) and all(item['acceptance_id'] in ids for item in strict_json(delivery['acceptance_snapshot']))
             for delivery in deliveries)
+    if allow_recovery_projection:
+        witnesses = list(recovery_witnesses.values())
+        evidence['recovery_projections'] = {'contract': 'original-instruction-epoch-rebind-v1',
+                                          'witnesses': witnesses, 'witnesses_sha256': digest(witnesses)}
     return checks
 
 
@@ -649,7 +870,9 @@ def inspect_run(plan, task, condition, run, base_directory):
         original = one(db, 'SELECT text FROM request_texts WHERE request_id=? AND requirements_revision=1', (run['request_id'],))
         require(original['text'] == task['material'], 'original task materials differ')
         common = plan['common']
-        require(common_lock(db, run['request_id'], common['model_ref'], common['reasoning']) == common, 'model/environment/tools/budget conditions differ')
+        require(common_lock(db, run['request_id'], common['model_ref'], common['reasoning'],
+                            logical_agent_comparison=plan['schema_version'] == 3) == common,
+                'model/environment/tools/budget conditions differ')
         attempts = rows(db, 'SELECT * FROM call_attempts WHERE request_id=? ORDER BY rowid', (run['request_id'],))
         budget = one(db, 'SELECT * FROM request_budgets WHERE request_id=?', (run['request_id'],))
         require(budget['attempts'] == len(attempts), 'attempt count does not reconstruct from original ledger')
@@ -710,14 +933,20 @@ def inspect_run(plan, task, condition, run, base_directory):
             require(totals[key]['known_total'] == budget['spent_' + dimension], 'usage projection does not reconstruct budget')
         condition_valid = bool(attempts) and (set(roles) == {'worker'} and len(agent_identities) == 1
             if condition == 'single_agent' else len(roles) > 1)
+        identity_evidence = None
+        if plan['schema_version'] == 3:
+            identity_evidence = logical_agent_evidence(db, request, attempts, condition, plan['single_agent_policy'])
+            condition_valid = bool(attempts) and identity_evidence['status'] == 'linked' and (
+                condition == 'single_agent' or len(roles) > 1)
         applications = None
         decision_evidence = {'contract': 'structural-v1', 'status': 'not_checked',
                              'model_decision_origin_established': False}
-        if plan['schema_version'] == 2:
+        if plan['schema_version'] in (2, 3):
             applications, decision_evidence = model_applications(db, run['request_id'], attempts)
         checks = evidence_checks(db, request, task, applications)
         if applications is not None:
-            origin_checks = model_origin_checks(db, request, task, applications, decision_evidence)
+            origin_checks = model_origin_checks(db, request, task, applications, decision_evidence,
+                                                allow_recovery_projection=plan['schema_version'] == 3)
             checks.update(origin_checks)
             decision_evidence['status'] = 'linked' if all(origin_checks.values()) else 'incomplete'
             decision_evidence['model_decision_origin_established'] = all(origin_checks.values())
@@ -735,6 +964,7 @@ def inspect_run(plan, task, condition, run, base_directory):
                 'source_kinds': dict(kinds), 'attempts': evidence,
                 'transport_observations': transport_observations, 'disputed_attempts': reconciliation_disputes,
                 'decision_evidence': decision_evidence,
+                **({'identity_evidence': identity_evidence} if identity_evidence is not None else {}),
                 'pass_scope': 'model_application_and_structural_checks' if applications is not None else 'original_structural_checks_only',
                 'usage': totals, 'budget': {key: budget[key] for key in budget if key != 'request_id'},
                 'request_status': request['status'], 'evidence_sha256': digest({'attempts': attempts, 'budget': budget})}
@@ -781,6 +1011,9 @@ def build_report(plan, run_index, base_directory=Path('.')):
               'provider_quality_acceptance_established': False,
               'cache_definition': 'provider-reported nullable cache token dimensions; not inferred savings',
               'provenance': 'trusted local SQLite snapshot; fingerprints are consistency checks, not signatures'}
+    if plan['schema_version'] == 3:
+        report['identity_contract'] = plan['identity_contract']
+        report['comparison_scope'] = 'shared_request_history_vs_role_isolated_history_with_original_authority_brokers'
     report['report_sha256'] = digest(report)
     return report
 
@@ -795,6 +1028,7 @@ def main():
     seed.add_argument('--reasoning', default='{"mode":"provider_default"}')
     seed.add_argument('--evidence-mode', choices=('synthetic', 'provider'), default='synthetic')
     seed.add_argument('--decision-evidence', choices=('structural-v1', 'model-origin-v1'))
+    seed.add_argument('--identity-contract', choices=(LOGICAL_AGENT_CONTRACT,))
     report = sub.add_parser('report', help='read all supplied evidence; retain every missing or invalid cell')
     report.add_argument('--plan', required=True)
     report.add_argument('--runs', required=True)
@@ -803,7 +1037,7 @@ def main():
         if args.command == 'plan':
             with database(args.db) as db:
                 result = make_plan(db, args.request, args.model_ref, strict_json(args.reasoning), args.evidence_mode,
-                                   args.decision_evidence)
+                                   args.decision_evidence, args.identity_contract)
         else:
             result = build_report(read_json(args.plan), read_json(args.runs), Path(args.runs).absolute().parent)
         print(canonical(result).decode())

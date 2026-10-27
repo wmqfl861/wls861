@@ -7,6 +7,8 @@
 #include "wls/sse_replay.hpp"
 #include "wls/runtime_resources.hpp"
 #include "wls/migrations.hpp"
+#include "wls/billing.hpp"
+#include "wls/single_agent.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -307,9 +309,10 @@ Json request_view(Store& store, const std::string& id) {
 }
 
 #include "live_cli.inc"
+#include "billing_cli.inc"
 
 void help() {
-    std::cout << R"(wls 0.10.0-r3.3c-runtime — controlled workflow and verified runtime resources
+    std::cout << R"(wls 0.11.0-r3.3c-baseline — signed billing and a continuous single Agent
 
 Resources are discovered relative to the executable, never the current directory.
 Use --resource-root PATH for an installed bundle or --source-root PATH for a checkout.
@@ -341,9 +344,15 @@ init is explicit all-request recovery and migration maintenance.
   wls pump-fake --db FILE --request ID --script FILE [--workspaces-file FILE]
                 [--dispositions-file FILE] [--max-calls 1..64] [--worker-calls 1..16]
                 [--sandbox-manifest FILE]
-  wls live-status --db FILE --request ID
+  wls live-status --db FILE --request ID [--billing-policy-file FILE]
   wls pump-live --db FILE --request ID --authorization-file FILE
-                [--workspaces-file FILE] [--sandbox-manifest FILE]
+                [--billing-policy-file FILE] [--workspaces-file FILE] [--sandbox-manifest FILE]
+  wls pump-single-live --db FILE --request ID --authorization-file FILE
+                [--billing-policy-file FILE] [--workspaces-file FILE] [--sandbox-manifest FILE]
+  wls pump-single-fake --db FILE --request ID --script FILE [--workspaces-file FILE]
+                [--max-calls N] [--worker-calls N] [--sandbox-manifest FILE]
+  wls reconcile-billing --db FILE --request ID --attempt ID --billing-policy-file FILE
+                --receipt-file FILE --expected-version N --key KEY
   wls inbox --db FILE --request ID [--role dispatcher] [--task ID] [--limit N]
   wls history --db FILE --request ID --role ROLE [--task ID] [--limit N]
   wls history-page --db FILE --request ID --role ROLE [--task ID] [--after N] [--through N] [--limit N]
@@ -429,8 +438,13 @@ open Store or send requests. Replay returns 4 with JSON for Error/Interrupted re
 live-status reads frozen identities and accounting without resolving credentials.
 pump-live requires an explicit request/config/profile-bound host authorization;
 only the frozen credential environment reference is resolved after preflight.
-Unknown usage stops further paid attempts. Provider usage verification is a trusted
-host library integration; this CLI never treats a JSON file as verified billing.
+Unknown usage stops further paid attempts. Signed billing requires an explicitly
+frozen challenge adapter, external public-key policy and v2 authorization binding
+the exact captured policy bytes. No arbitrary JSON value can verify billing.
+reconcile-billing authenticates a late receipt against an original settled attempt;
+it performs no network call, model call or business response application.
+pump-single-live/fake require the original frozen single-agent-role-broker-v1 policy
+and continue one request-wide model history through the original role permissions.
 pump-live never automatically retries a paid attempt or publishes delivery.
 No command starts a daemon.
 )";
@@ -445,7 +459,7 @@ int run_cli(int argc, char** argv) {
     const std::string command(argv[1]);
     if (command == "--version" || command == "version") {
         if (argc != 2) throw Error(ErrorCode::InvalidInput, "version takes no options");
-        output(Object{{"version", "0.10.0-r3.3c-runtime"}, {"blueprint", "0.4.1"},
+        output(Object{{"version", "0.11.0-r3.3c-baseline"}, {"blueprint", "0.4.1"},
             {"mode", "offline_fake_and_controlled_live"}, {"default_network_authorized", false}}); return 0;
     }
     int start = 2;
@@ -548,7 +562,7 @@ int run_cli(int argc, char** argv) {
         bound_sandbox_doctor_report(result);
         output(result); return 0;
     }
-    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "pump-live", "live-status", "inbox", "history", "history-page", "history-read", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "abandon-workspace", "owned-workspaces", "cleanup-workspaces", "reconcile-op", "capacity", "capacity-checkpoint"};
+    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "pump-live", "pump-single-fake", "pump-single-live", "live-status", "reconcile-billing", "inbox", "history", "history-page", "history-read", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "abandon-workspace", "owned-workspaces", "cleanup-workspaces", "reconcile-op", "capacity", "capacity-checkpoint"};
     if (!commands.contains(command)) throw Error(ErrorCode::InvalidInput, "unknown command: " + command);
     const auto database = options.required("--db");
     const MigrationRegistry migrations(resources);
@@ -922,15 +936,60 @@ int run_cli(int argc, char** argv) {
         return 0;
     }
     if (command == "live-status") {
+        const auto billing_policy_path = options.take("--billing-policy-file");
         options.finish();
         Store inspect(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
-        output(live_cli_status(inspect, request));
+        const auto billing_policy = billing_cli_policy(inspect, billing_policy_path);
+        output(billing_cli_status(inspect, request, billing_policy));
         return 0;
     }
-    if (command == "pump-live") {
+    if (command == "reconcile-billing") {
+        const auto attempt_id = options.required("--attempt");
+        const auto billing_policy_path = options.required("--billing-policy-file");
+        const std::filesystem::path receipt_path = options.required("--receipt-file");
+        const auto expected = options.number("--expected-version", 0, 1);
+        const auto key = options.required("--key");
+        options.finish();
+        if (expected <= 0 || attempt_id.size() > 256 || key.size() > 256)
+            throw Error(ErrorCode::InvalidInput, "billing reconciliation needs bounded identities and an explicit positive version");
+        const auto receipt_absolute = std::filesystem::absolute(receipt_path).lexically_normal();
+        std::optional<BillingCliPolicy> policy;
+        std::string receipt_bytes;
+        std::string receipt_sha256;
+        {
+            Store inspect(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
+            inspect.validate_control_file_path(receipt_absolute);
+            policy = billing_cli_policy(inspect, billing_policy_path);
+            validate_billing_cli_policy(inspect, request, *policy);
+            receipt_bytes = billing_cli_control_bytes(inspect, receipt_path);
+            receipt_sha256 = sha256_hex(receipt_bytes);
+            const auto evidence = verify_signed_billing_receipt(inspect, policy->policy, attempt_id, receipt_bytes);
+            const UsageReconciliation reconciliation{evidence.required_reconciliation_id(), key, expected};
+            const auto replay = inspect.replay_usage_reconciliation(
+                inspect.host_actor(Role::Root, request), evidence, reconciliation);
+            if (!replay.is_null()) {
+                output(billing_cli_result(request, attempt_id, *policy, receipt_sha256, replay, true));
+                return 0;
+            }
+            const auto projection = inspect.usage_projection(attempt_id).at("projection");
+            if (!projection.is_object() || integer(projection.at("state_version")) != expected)
+                throw Error(ErrorCode::Conflict, "billing projection changed before writer takeover");
+        }
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
+        validate_billing_cli_policy(store, request, *policy);
+        store.validate_control_file_path(receipt_absolute);
+        const auto evidence = verify_signed_billing_receipt(store, policy->policy, attempt_id, receipt_bytes);
+        const UsageReconciliation reconciliation{evidence.required_reconciliation_id(), key, expected};
+        const auto root = store.host_actor(Role::Root, request);
+        const auto replay = store.replay_usage_reconciliation(root, evidence, reconciliation);
+        const auto result = replay.is_null() ? store.reconcile_usage(root, evidence, reconciliation) : replay;
+        output(billing_cli_result(request, attempt_id, *policy, receipt_sha256, result, !replay.is_null()));
+        return 0;
+    }
+    if (command == "pump-live" || command == "pump-single-live") {
+        const bool single_agent = command == "pump-single-live";
         const std::filesystem::path authorization_path = options.required("--authorization-file");
-        const auto authorization_bytes = read_runtime_file(authorization_path, 65536);
-        const auto authorization = live_cli_authorization(parse_json_strict(authorization_bytes, 65536));
+        const auto billing_policy_path = options.take("--billing-policy-file");
         const auto workspaces_file = options.take("--workspaces-file");
         const auto paths = workspace_map(workspaces_file.empty() ? Json(Object{}) :
             parse_json_strict(read_runtime_file(workspaces_file, 262144)), database);
@@ -941,15 +1000,29 @@ int run_cli(int argc, char** argv) {
             parse_json_strict(read_runtime_file(manifest_path, 262144));
         options.finish();
         const auto authorization_absolute = std::filesystem::absolute(authorization_path).lexically_normal();
+        const auto billing_absolute = billing_policy_path.empty() ? std::filesystem::path{} :
+            std::filesystem::absolute(billing_policy_path).lexically_normal();
         for (const auto& [node, path] : paths) {
             (void)node;
             if (path_contains(path, authorization_absolute))
                 throw Error(ErrorCode::Unauthorized, "host authorization must be outside business workspaces");
+            if (!billing_absolute.empty() && path_contains(path, billing_absolute))
+                throw Error(ErrorCode::Unauthorized, "billing trust policy must be outside business workspaces");
         }
         const SchemaRegistry schemas(resources.schema_documents());
+        std::optional<BillingCliPolicy> billing_policy;
+        LiveCliAuthorization authorization;
+        std::string authorization_bytes;
         {
             Store inspect(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
+            inspect.validate_control_file_path(authorization_absolute);
+            if (!billing_absolute.empty()) inspect.validate_control_file_path(billing_absolute);
+            authorization_bytes = billing_cli_control_bytes(inspect, authorization_path);
+            authorization = live_cli_authorization(parse_json_strict(authorization_bytes, 65536));
+            billing_policy = billing_cli_policy(inspect, billing_policy_path);
+            validate_cli_model_topology(inspect, request, single_agent);
             validate_live_cli_authorization(inspect, request, authorization);
+            validate_billing_cli_authorization(inspect, request, authorization, billing_policy);
             const auto frozen = restore_request_config(inspect.request(request));
             for (const auto& entry : frozen.json().at("function").at("team_templates").as_object())
                 (void)worker_sandbox_policy(frozen, std::string(entry.key()), manifest);
@@ -961,19 +1034,35 @@ int run_cli(int argc, char** argv) {
             }
         }
         Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
+        store.validate_control_file_path(authorization_absolute);
+        validate_cli_model_topology(store, request, single_agent);
         validate_live_cli_authorization(store, request, authorization);
+        validate_billing_cli_authorization(store, request, authorization, billing_policy);
+        if (billing_policy) {
+            authorization.workflow.usage_evidence = [&store, policy = billing_policy->policy](
+                    const ModelRequest& call, const ModelResponse& response, const Json& settlement) {
+                return verify_observed_billing_receipt(store, policy, call, response, settlement);
+            };
+        }
         std::vector<std::unique_ptr<WorkerTools>> owners;
         std::map<std::string, WorkerTools*> tools_by_node;
         for (const auto& [node, path] : paths) {
             owners.push_back(std::make_unique<WorkerTools>(store, path, manifest));
             tools_by_node.emplace(node, owners.back().get());
         }
-        auto result = EventRuntime(store, schemas, std::move(tools_by_node)).pump_live(request, authorization.workflow);
+        auto result = single_agent
+            ? SingleAgentRuntime(store, schemas, std::move(tools_by_node)).pump_live(request, authorization.workflow)
+            : EventRuntime(store, schemas, std::move(tools_by_node)).pump_live(request, authorization.workflow);
         result.as_object()["host_authorization_sha256"] = sha256_hex(authorization_bytes);
+        if (billing_policy) {
+            result.as_object()["billing_policy_sha256"] = billing_policy->bytes_sha256;
+            result.as_object()["billing_policy_canonical_sha256"] = billing_policy->policy.sha256();
+        }
         output(result);
         return 0;
     }
-    if (command == "pump-fake") {
+    if (command == "pump-fake" || command == "pump-single-fake") {
+        const bool single_agent = command == "pump-single-fake";
         const auto script = event_fake_script_from_json(parse_json_strict(read_runtime_file(options.required("--script"))));
         const auto workspaces_file = options.take("--workspaces-file");
         const auto paths = workspace_map(workspaces_file.empty() ? Json(Object{}) :
@@ -983,6 +1072,8 @@ int run_cli(int argc, char** argv) {
         if (!dispositions_file.empty())
             pump_options.amendment_dispositions = parse_json_strict(read_runtime_file(dispositions_file, 262144));
         validate_dispositions(pump_options.amendment_dispositions);
+        if (single_agent && !pump_options.amendment_dispositions.as_object().empty())
+            throw Error(ErrorCode::Unauthorized, "single-Agent AMEND decisions must come from original model calls");
         pump_options.max_calls = options.number("--max-calls", 12, 1);
         pump_options.max_worker_calls_per_task = options.number("--worker-calls", 1, 1);
         if (pump_options.max_calls > 64 || pump_options.max_worker_calls_per_task > 16)
@@ -993,14 +1084,21 @@ int run_cli(int argc, char** argv) {
         const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
         options.finish();
         const SchemaRegistry schemas(resources.schema_documents());
+        {
+            Store inspect(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
+            validate_cli_model_topology(inspect, request, single_agent);
+        }
         Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
+        validate_cli_model_topology(store, request, single_agent);
         std::vector<std::unique_ptr<WorkerTools>> owners;
         std::map<std::string, WorkerTools*> tools_by_node;
         for (const auto& [node, path] : paths) {
             owners.push_back(std::make_unique<WorkerTools>(store, path, manifest));
             tools_by_node.emplace(node, owners.back().get());
         }
-        output(EventRuntime(store, schemas, std::move(tools_by_node)).pump(request, script, pump_options));
+        output(single_agent
+            ? SingleAgentRuntime(store, schemas, std::move(tools_by_node)).pump(request, script, pump_options)
+            : EventRuntime(store, schemas, std::move(tools_by_node)).pump(request, script, pump_options));
         return 0;
     }
     if (command == "tool-query") {

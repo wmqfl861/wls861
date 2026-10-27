@@ -1,0 +1,22 @@
+INDEPENDENT_IDENTITY {"uid": 65534, "gid": 65534, "groups": []}
+test_01_original_native_roundtrip_pair (__main__.BillingBaselineIntegration.test_01_original_native_roundtrip_pair) ... ok
+test_02_two_task_partial_amend_pair (__main__.BillingBaselineIntegration.test_02_two_task_partial_amend_pair) ... ok
+test_03_original_rejected_rework_pair (__main__.BillingBaselineIntegration.test_03_original_rejected_rework_pair) ... ok
+test_04_exhausted_rework_owner_question_pair (__main__.BillingBaselineIntegration.test_04_exhausted_rework_owner_question_pair) ... ok
+test_05_original_delivery_exact_receipt_pair (__main__.BillingBaselineIntegration.test_05_original_delivery_exact_receipt_pair) ... ok
+test_90_invalid_signed_sources_never_advance_business_or_repeat_send (__main__.BillingBaselineIntegration.test_90_invalid_signed_sources_never_advance_business_or_repeat_send) ... ok
+test_91_partial_unknown_and_over_reserved_remain_stopped (__main__.BillingBaselineIntegration.test_91_partial_unknown_and_over_reserved_remain_stopped) ... ok
+test_92_explicit_reconciliation_is_accounting_only_and_exact_replay (__main__.BillingBaselineIntegration.test_92_explicit_reconciliation_is_accounting_only_and_exact_replay) ... ok
+test_93_trust_inputs_inside_sibling_workspace_refuse_before_takeover (__main__.BillingBaselineIntegration.test_93_trust_inputs_inside_sibling_workspace_refuse_before_takeover) ... ok
+test_94_opposite_runner_mode_cannot_relabel_frozen_identity (__main__.BillingBaselineIntegration.test_94_opposite_runner_mode_cannot_relabel_frozen_identity) ... ok
+test_95_complete_http_error_can_reconcile_without_becoming_business_success (__main__.BillingBaselineIntegration.test_95_complete_http_error_can_reconcile_without_becoming_business_success) ... ok
+test_96_policy_identity_and_keys_use_the_once_captured_bytes (__main__.BillingBaselineIntegration.test_96_policy_identity_and_keys_use_the_once_captured_bytes) ... ok
+test_98_run_index_labels_cannot_change_the_original_agent_condition (__main__.BillingBaselineIntegration.test_98_run_index_labels_cannot_change_the_original_agent_condition) ... ok
+test_99_all_ten_fixed_cells_have_original_evidence (__main__.BillingBaselineIntegration.test_99_all_ten_fixed_cells_have_original_evidence) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 43.683s
+
+OK
+INDEPENDENT_PAIRED_RESULT {"contract": 3, "counts": {"passed": 10}, "expected_cells": 10, "observed_cells": 10, "provider_quality_acceptance_established": false, "rows": [{"attempts": 9, "condition": "multi_agent", "elapsed_ms": 1678, "known_cost_micro_usd": 153, "task_id": "tool_roundtrip"}, {"attempts": 9, "condition": "single_agent", "elapsed_ms": 2123, "known_cost_micro_usd": 153, "task_id": "tool_roundtrip"}, {"attempts": 19, "condition": "multi_agent", "elapsed_ms": 2970, "known_cost_micro_usd": 323, "task_id": "partial_amend"}, {"attempts": 19, "condition": "single_agent", "elapsed_ms": 5965, "known_cost_micro_usd": 323, "task_id": "partial_amend"}, {"attempts": 13, "condition": "multi_agent", "elapsed_ms": 2199, "known_cost_micro_usd": 221, "task_id": "rejected_rework"}, {"attempts": 13, "condition": "single_agent", "elapsed_ms": 3664, "known_cost_micro_usd": 221, "task_id": "rejected_rework"}, {"attempts": 25, "condition": "multi_agent", "elapsed_ms": 4439, "known_cost_micro_usd": 425, "task_id": "exhausted_rework"}, {"attempts": 25, "condition": "single_agent", "elapsed_ms": 10011, "known_cost_micro_usd": 425, "task_id": "exhausted_rework"}, {"attempts": 7, "condition": "multi_agent", "elapsed_ms": 1209, "known_cost_micro_usd": 119, "task_id": "delivery_receipt"}, {"attempts": 7, "condition": "single_agent", "elapsed_ms": 1440, "known_cost_micro_usd": 119, "task_id": "delivery_receipt"}]}
+INDEPENDENT_EVIDENCE_DIRECTORY /tmp/wls861-billing-baseline-independent-03/evidence

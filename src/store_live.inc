@@ -104,12 +104,41 @@ std::int64_t apply_ledger_delta(std::int64_t value, std::int64_t delta) {
 Row live_reconciliation_command(const StoreActor& actor, const VerifiedUsageEvidence& evidence,
                                 const UsageReconciliation& reconciliation) {
     const auto& statement = evidence.statement();
-    return payload(actor, "reconcile_usage", Row{{"format", "wls-usage-reconciliation-v1"},
+    Row fields{{"format", "wls-usage-reconciliation-v1"},
         {"reconciliation_id", reconciliation.reconciliation_id}, {"idempotency_key", reconciliation.idempotency_key},
         {"expected_projection_version", reconciliation.expected_projection_version},
         {"source_kind", evidence.source_kind()}, {"source_reference_sha256", sha256_hex(evidence.source_reference())},
         {"evidence_sha256", evidence.sha256()}, {"statement", Row{{"attempt_id", statement.attempt_id},
-            {"settlement_sha256", statement.settlement_sha256}, {"usage", to_json(statement.usage)}}}});
+            {"settlement_sha256", statement.settlement_sha256}, {"usage", to_json(statement.usage)}}}};
+    if (!evidence.required_reconciliation_id().empty())
+        fields["exclusive_source"] = Row{{"kind", "wls-signed-billing-source-v1"},
+            {"identity_sha256", evidence.source_reference().substr(std::string_view("wls-signed-billing-v1:").size())}};
+    return payload(actor, "reconcile_usage", std::move(fields));
+}
+std::string validate_usage_reconciliation_input(const VerifiedUsageEvidence& evidence,
+                                                const UsageReconciliation& reconciliation) {
+    text_field(reconciliation.reconciliation_id, "reconciliation_id");
+    text_field(reconciliation.idempotency_key, "usage idempotency key");
+    require(reconciliation.expected_projection_version > 0 &&
+            !evidence.bytes().empty() && evidence.bytes().size() <= 256U * 1024U &&
+            sha256_hex(evidence.bytes()) == evidence.sha256() &&
+            (evidence.source_kind() == "loopback_fixture" || evidence.source_kind() == "host_verified_provider" ||
+             evidence.source_kind() == "host_no_dispatch"),
+            ErrorCode::InvalidInput, "invalid verified usage evidence or projection version");
+    if (evidence.required_reconciliation_id().empty()) return {};
+    constexpr std::string_view source_prefix = "wls-signed-billing-v1:";
+    require(evidence.source_reference().starts_with(source_prefix), ErrorCode::InvalidInput,
+            "signed billing evidence lost its exclusive source identity");
+    const auto identity = evidence.source_reference().substr(source_prefix.size());
+    require(identity.size() == 64 && std::all_of(identity.begin(), identity.end(), [](char c) {
+                return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+            }), ErrorCode::InvalidInput, "invalid exclusive billing source fingerprint");
+    const auto prefix = "billing:" + identity + ":";
+    require(evidence.required_reconciliation_id() == prefix + evidence.sha256() &&
+            reconciliation.reconciliation_id == evidence.required_reconciliation_id() &&
+            evidence.source_kind() != "host_no_dispatch", ErrorCode::InvalidInput,
+            "signed billing reconciliation must preserve its indexed source identity");
+    return prefix;
 }
 } // namespace
 
@@ -159,6 +188,18 @@ void Store::Impl::initialize_usage_projection(const Row& original) {
 bool Store::live_model_enabled() const {
     const std::lock_guard lock(impl_->mutex);
     return impl_->live_schema && impl_->reconciliation_schema;
+}
+
+void Store::validate_control_file_path(const std::filesystem::path& path) const {
+    require(path.is_absolute() && path == path.lexically_normal(), ErrorCode::InvalidInput,
+            "control file placement requires an absolute normalized path");
+    const auto normalized = path.string();
+    require(!normalized.empty() && normalized.find('\0') == std::string::npos, ErrorCode::InvalidInput,
+            "invalid control file path");
+    const std::lock_guard lock(impl_->mutex);
+    require(!impl_->optional("SELECT 1 AS present FROM workspace_bindings WHERE canonical_path=? OR "
+            "substr(?,1,length(canonical_path)+1)=canonical_path||'/' LIMIT 1", {normalized, normalized}),
+            ErrorCode::Unauthorized, "host control files must be outside every bound business workspace");
 }
 
 Json Store::claim_live_send(const StoreActor& actor, const std::string& attempt_id,
@@ -372,14 +413,7 @@ Json Store::settle_unobserved_live(const StoreActor& root, const std::string& at
 Json Store::reconcile_usage(const StoreActor& root, const VerifiedUsageEvidence& evidence,
                             const UsageReconciliation& reconciliation) {
     const auto& statement = evidence.statement();
-    text_field(reconciliation.reconciliation_id, "reconciliation_id");
-    text_field(reconciliation.idempotency_key, "usage idempotency key");
-    require(reconciliation.expected_projection_version > 0 &&
-            !evidence.bytes().empty() && evidence.bytes().size() <= 256U * 1024U &&
-            sha256_hex(evidence.bytes()) == evidence.sha256() &&
-            (evidence.source_kind() == "loopback_fixture" || evidence.source_kind() == "host_verified_provider" ||
-             evidence.source_kind() == "host_no_dispatch"),
-            ErrorCode::InvalidInput, "invalid verified usage evidence or projection version");
+    const auto exclusive_prefix = validate_usage_reconciliation_input(evidence, reconciliation);
     const auto proposed = to_json(model_usage_from_json(to_json(statement.usage))).as_object();
     const auto command = live_reconciliation_command(root, evidence, reconciliation);
     const auto fingerprint = sha256_hex(canonical_json(command));
@@ -404,6 +438,19 @@ Json Store::reconcile_usage(const StoreActor& root, const VerifiedUsageEvidence&
     }
     require(!original.at("settlement_sha256").is_null() && str(original, "settlement_sha256") == statement.settlement_sha256,
             ErrorCode::Conflict, "usage evidence changed the original settlement identity");
+    if (!exclusive_prefix.empty()) {
+        // The primary-key range is an indexed source-identity lookup. Receipt
+        // revisions/key rotation use different evidence suffixes, but remain
+        // owned by the first original attempt within this transaction.
+        if (const auto owner = impl_->optional("SELECT attempt_id,source_reference,source_kind FROM usage_reconciliations "
+                "WHERE reconciliation_id>=? AND reconciliation_id<? ORDER BY reconciliation_id LIMIT 1",
+                {exclusive_prefix, exclusive_prefix + "~"})) {
+            require(str(*owner, "source_reference") == evidence.source_reference() &&
+                    str(*owner, "source_kind") == evidence.source_kind() &&
+                    str(*owner, "attempt_id") == statement.attempt_id,
+                    ErrorCode::Conflict, "signed billing source is already owned by a different original attempt");
+        }
+    }
     if (const auto previous = impl_->optional("SELECT * FROM usage_reconciliations WHERE reconciliation_id=? OR (attempt_id=? AND idempotency_key=?)",
             {reconciliation.reconciliation_id, statement.attempt_id, reconciliation.idempotency_key})) {
         require(str(*previous, "record_sha256") == fingerprint && str(*previous, "reconciliation_id") == reconciliation.reconciliation_id &&
@@ -446,6 +493,46 @@ Json Store::reconcile_usage(const StoreActor& root, const VerifiedUsageEvidence&
          evidence.source_reference(), live_hex(evidence.bytes()), canonical_json(command.at("statement")), json_text(answer), stamp()});
     impl_->event(root.request_id, "usage:" + reconciliation.reconciliation_id, command, answer, "root");
     tx.commit(); return answer;
+}
+
+Json Store::replay_usage_reconciliation(const StoreActor& root, const VerifiedUsageEvidence& evidence,
+                                       const UsageReconciliation& reconciliation) const {
+    (void)validate_usage_reconciliation_input(evidence, reconciliation);
+    const auto& statement = evidence.statement();
+    (void)model_usage_from_json(to_json(statement.usage));
+    const std::lock_guard lock(impl_->mutex);
+    require(impl_->reconciliation_schema, ErrorCode::Unsupported, "usage replay requires the 410 migration");
+    (void)impl_->authorize(root, {Role::Root});
+    impl_->check_request_scope(root.request_id);
+    const auto original = impl_->one("SELECT request_id,settlement_sha256 FROM call_attempts WHERE attempt_id=?", {statement.attempt_id});
+    require(str(original, "request_id") == root.request_id, ErrorCode::Unauthorized, "usage replay belongs to another request");
+    require(!original.at("settlement_sha256").is_null() && str(original, "settlement_sha256") == statement.settlement_sha256,
+            ErrorCode::Conflict, "usage replay changed the original settlement identity");
+    const auto previous = impl_->optional("SELECT * FROM usage_reconciliations WHERE reconciliation_id=? OR (attempt_id=? AND idempotency_key=?)",
+        {reconciliation.reconciliation_id, statement.attempt_id, reconciliation.idempotency_key});
+    if (!previous) return nullptr;
+    require(str(*previous, "reconciliation_id") == reconciliation.reconciliation_id &&
+            str(*previous, "attempt_id") == statement.attempt_id &&
+            str(*previous, "source_kind") == evidence.source_kind() &&
+            str(*previous, "source_reference") == evidence.source_reference() &&
+            str(*previous, "evidence_sha256") == evidence.sha256(), ErrorCode::Conflict,
+            "usage replay identity or evidence differs from the original record");
+    const auto result = parse_json_strict(str(*previous, "result"));
+    const auto& recorded = result.at("command").as_object();
+    const auto& actor = recorded.at("actor").as_object();
+    const auto current = actor_json(root);
+    for (const auto* key : {"role", "principal_id", "request_id", "task_id", "team_id", "execution_epoch"})
+        require(actor.at(key) == current.at(key), ErrorCode::Unauthorized, "usage replay changed the original Root identity");
+    StoreActor original_actor = root;
+    original_actor.dispatcher_epoch = number(actor, "dispatcher_epoch");
+    require(original_actor.dispatcher_epoch > 0, ErrorCode::Corrupt, "usage replay original Root epoch is invalid");
+    const auto command = live_reconciliation_command(original_actor, evidence, reconciliation);
+    const auto fingerprint = sha256_hex(canonical_json(command));
+    require(command == recorded && fingerprint == str(*previous, "record_sha256") &&
+            str(result.as_object(), "record_sha256") == fingerprint &&
+            str(*previous, "statement") == canonical_json(command.at("statement")),
+            ErrorCode::Conflict, "usage replay differs from the complete immutable command");
+    return result;
 }
 
 Json Store::live_accounting_status(const std::string& request_id) const {

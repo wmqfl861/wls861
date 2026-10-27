@@ -1,0 +1,33 @@
+[
+  {
+    "case": "partial_amend-single_agent",
+    "exit_code": 0,
+    "database_rows_unchanged": true,
+    "output": [
+      "{\"error\":\"quota\",\"message\":\"request reservations exceed declared provider token capabilities\",\"profile_window\":100000,\"reserved_input_tokens\":102730,\"reserved_output_tokens\":4096,\"role\":\"dispatcher\"}",
+      "{\"error\":\"not_ready\",\"message\":\"submission awaits separate acceptance or controlled escalation; no automatic order is allowed\",\"role\":\"team_lead\"}",
+      "{\"error\":\"quota\",\"message\":\"request reservations exceed declared provider token capabilities\",\"profile_window\":100000,\"reserved_input_tokens\":99250,\"reserved_output_tokens\":4096,\"role\":\"team_lead\"}"
+    ],
+    "stderr": ""
+  },
+  {
+    "case": "rejected_rework-single_agent",
+    "exit_code": 0,
+    "database_rows_unchanged": true,
+    "output": [
+      "{\"error\":\"quota\",\"message\":\"request reservations exceed declared provider token capabilities\",\"profile_window\":100000,\"reserved_input_tokens\":96392,\"reserved_output_tokens\":4096,\"role\":\"dispatcher\"}",
+      "{\"error\":\"quota\",\"message\":\"request reservations exceed declared provider token capabilities\",\"profile_window\":100000,\"reserved_input_tokens\":112877,\"reserved_output_tokens\":4096,\"role\":\"team_lead\"}"
+    ],
+    "stderr": ""
+  },
+  {
+    "case": "exhausted_rework-single_agent",
+    "exit_code": 0,
+    "database_rows_unchanged": true,
+    "output": [
+      "{\"error\":\"quota\",\"message\":\"request reservations exceed declared provider token capabilities\",\"profile_window\":100000,\"reserved_input_tokens\":106239,\"reserved_output_tokens\":4096,\"role\":\"dispatcher\"}",
+      "{\"error\":\"not_ready\",\"message\":\"submission awaits separate acceptance or controlled escalation; no automatic order is allowed\",\"role\":\"team_lead\"}"
+    ],
+    "stderr": ""
+  }
+]

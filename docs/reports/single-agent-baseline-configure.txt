@@ -1,0 +1,17 @@
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Found Boost: /usr/lib/x86_64-linux-gnu/cmake/Boost-1.83.0/BoostConfig.cmake (found suitable version "1.83.0", minimum required is "1.83")
+-- Found SQLite3: /usr/include (found suitable version "3.45.1", minimum required is "3.37")
+-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found suitable version "3.0.13", minimum required is "3") found components: Crypto
+-- Found CURL: /usr/lib/x86_64-linux-gnu/libcurl.so (found suitable version "8.5.0", minimum required is "7.88")
+-- Found Python3: /tmp/wls861-r33a-venv/bin/python (found version "3.12.14") found components: Interpreter
+-- Configuring done (0.7s)
+-- Generating done (0.0s)
+-- Build files have been written to: /tmp/wls861-single-agent-validation/build-release

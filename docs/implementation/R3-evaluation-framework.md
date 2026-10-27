@@ -1,7 +1,7 @@
 # R3.3c 本地评测框架
 
 接口：`scripts/evaluate_r3.py`。设计见 [ADR-082](../adr/082-paired-evaluation-evidence.md)
-及 [ADR-087](../adr/087-model-decision-evidence.md)。
+及 [ADR-087](../adr/087-model-decision-evidence.md)、[ADR-089](../adr/089-single-agent-role-broker.md)。
 模型来源契约更新日期：2026-10-26（America/Los_Angeles）。
 这是固定任务、共同条件、原账本统计和报告实现；实际供应商及单 Agent 质量对照未执行。
 
@@ -19,6 +19,19 @@ python scripts/evaluate_r3.py plan --db benchmark.sqlite --request req_SEED > pl
 新生成的 provider 计划固定为 `schema_version: 2`、`r3-small-tasks-v2` 和
 `decision_evidence: model-origin-v1`。Synthetic 计划默认保持 v1，可显式传
 `--decision-evidence model-origin-v1` 验证本地合成的完整来源关系；计划命令不执行模型。
+
+使用新的单逻辑 Agent 基线时，种子请求必须已经冻结 structured-v2，显式生成 v3：
+
+```sh
+python scripts/evaluate_r3.py plan --db benchmark.sqlite --request req_SEED \
+  --identity-contract single-agent-role-broker-v1 > plan-v3.json
+```
+
+v3 自动要求 `model-origin-v1`，并固定 `single_agent_policy`。种子已有该策略时采用其
+原值，否则使用 `max_attempts=128`、`max_history_bytes=524288`；这些是历史容量，不增加
+原请求预算。只有新 `context.logical_agent` 被作为显式实验变量从共同条件剥离，实际
+single 请求必须精确冻结计划里的策略，multi 请求必须没有该策略。其他 context 字段、
+模型、环境、工具、约束和预算保持共同条件锁定。真实运行见[单 Agent 契约](R3-single-agent-baseline.md)。
 
 计划固定五项任务，每项 `multi_agent`、`single_agent` 各一次；更大的采样设计应另行版本化。
 按计划中逐字 material 新建各自请求，共同模型、约束、工具、环境、政策和预算必须相同。
@@ -72,6 +85,7 @@ python scripts/evaluate_r3.py report --plan plan.json --runs runs.json > report.
 | --- | --- | --- |
 | v1 / `r3-small-tasks-v1` | 原固定判据不变；旧 provider 计划也不改义 | `structural-v1`，`original_structural_checks_only`；来源 `not_checked` |
 | v2 / `r3-small-tasks-v2` | 原结构判据加 `model-origin-v1`，下述两项原诊断/路径来源明确化 | `model_application_and_structural_checks`，逐应用来源 linked/incomplete |
+| v3 / `r3-small-tasks-v3` | 继承 v2，并核单逻辑 Agent 的跨角色/任务完整原生历史或多角色隔离历史 | 另列 `identity_evidence`；固定十样本，不重解释旧版本 |
 
 v2 从原 accepted completed response 的唯一 tool_call 开始，核对原 request envelope 身份、
 冻结配置和绑定，读取当时捕获的 workflow_action 与目标版本，再关联 immutable
@@ -109,8 +123,23 @@ submission 的模型检查。当前接受链还核实际 acceptance/任务仍为
 
 `provider_quality_acceptance_established` 始终为 false。v2 来源通过、原结构通过与真实供应商
 质量是三种不同结论；后者仍需明确的授权、端点能力、语义标准、真实样本与人审。固定脚本的
-Fake 或 TLS peer 只能验证工程路径。`single_agent` 在两个版本都保持同一 Worker
-principal/team 规则；多任务基线身份设计与执行器仍开放，不能把多个 Worker 或管理者重命名通过。
+Fake 或 TLS peer 只能验证工程路径。v1/v2 的 `single_agent` 保持同一 Worker principal/team
+规则。v3 使用 [ADR-089](../adr/089-single-agent-role-broker.md) 的共享逻辑历史和原权限代理，
+不能通过给多个 Worker 或管理者重命名通过。
+
+v3 从每个原 attempt 的全局顺序重建逻辑身份、步号、前链 hash 和原消息。每次原 envelope
+必须实际含前序原响应与不可变反馈，不接受只有 ID 或 hashes 的标签。live 输入还与原
+预约的 logical request hash 相符；缺原结算、反馈、错误顺序或重哈希后删改消息均不能通过。
+报告的 `agent_identity_count` 仍计原 Store 权限身份，不悄悄改义；实际单逻辑 Agent 数由
+`identity_evidence.logical_agent_count` 单列。该实验保留原角色调度与工具权限，仅比较共享
+请求历史和角色隔离历史，不代表任意自由代理架构。
+
+v3 另列 `original-instruction-epoch-rebind-v1` 恢复来源证据。原模型工单与实际提交之间
+的全部原 recover 按 seq 有界读取；不可变 instructions 的原正文、语义 binding 与
+body hash 必须匹配，每次记录的当前 dispatcher/execution epoch 必须连续递增并最终
+精确等于原提交。Store 的 `previous_*` 始终指原工单 epoch，按其实际含义检查。缺中间
+事件、错 body 或错 epoch 均失败；报告仅保留见证 ID、epoch 和 hashes。v1/v2 仍按完整
+binding 相等检查工单来源，不把新版恢复解释套进旧计划。
 
 ## 4. 本地读取界限
 
@@ -121,5 +150,5 @@ principal/team 规则；多任务基线身份设计与执行器仍开放，不�
 不是远程攻击面；hash 是一致性校验而不是签名或外部真实性证明。
 
 语义质量、人审标准、实际端点能力、供应商身份与真实计费验收仍按
-[R3.3c 计划](R3-controlled-live-plan.md)执行。当前框架不包含通用单 Agent 执行器或付费入口；
-它可接收符合共同条件、通过原 Store 保存的未来单 Agent 运行。
+[R3.3c 计划](R3-controlled-live-plan.md)执行。评测脚本始终只读；单 Agent 运行由独立
+`SingleAgentRuntime` 和显式 CLI 入口完成，live 调用继续要求原宿主授权与账目门禁。

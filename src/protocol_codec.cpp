@@ -252,11 +252,14 @@ std::string hexadecimal(std::string_view bytes) {
 }
 
 Object encoded_record(const EncodedResponsesRequest& encoded) {
-    return Object{{"format", "wls-encoded-responses-request-v1"}, {"method", encoded.method},
+    Object result{{"format", encoded.billing_challenge.empty() ? "wls-encoded-responses-request-v1" :
+                      "wls-encoded-responses-request-v2-billing"}, {"method", encoded.method},
         {"url", encoded.url}, {"content_type", "application/json"}, {"body", encoded.body},
         {"body_sha256", encoded.body_sha256}, {"profile_sha256", encoded.profile_sha256},
         {"logical_request_sha256", encoded.logical_request_sha256}, {"stream", encoded.stream},
         {"evidence", encoded.evidence}, {"record_integrity", "local_consistency_only"}};
+    if (!encoded.billing_challenge.empty()) result["billing_challenge"] = encoded.billing_challenge;
+    return result;
 }
 
 Object decoded_record(const DecodedResponsesResponse& decoded) {
@@ -321,6 +324,8 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     encoded.body_sha256 = sha256_hex(encoded.body);
     encoded.profile_sha256 = provider_profile_sha256(profile);
     encoded.logical_request_sha256 = text(envelope, "logical_request_sha256");
+    if (!profile.billing_challenge.empty())
+        encoded.billing_challenge = sha256_hex("wls-billing-challenge-v1\n" + canonical_json(envelope));
     encoded.stream = stream;
     auto evidence = host_evidence(profile, request, envelope);
     evidence["format"] = "wls-responses-encoding-evidence-v1";
@@ -424,6 +429,11 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
 Json to_json(const EncodedResponsesRequest& encoded) {
     require(encoded.body_sha256 == sha256_hex(encoded.body), ErrorCode::Corrupt,
             "encoded request bytes differ from their fingerprint");
+    require(encoded.billing_challenge.empty() ||
+            (encoded.billing_challenge.size() == 64 &&
+             std::all_of(encoded.billing_challenge.begin(), encoded.billing_challenge.end(), [](char c) {
+                 return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+             })), ErrorCode::Corrupt, "invalid encoded billing challenge");
     auto record = encoded_record(encoded);
     require(encoded.record_sha256 == sha256_hex(canonical_json(record)), ErrorCode::Corrupt,
             "encoded request report differs from its local record fingerprint");

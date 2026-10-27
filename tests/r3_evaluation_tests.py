@@ -25,6 +25,8 @@ class Evaluation(unittest.TestCase):
     fixture = h.AcceptanceCliSmoke.fixture
     publish = h.AcceptanceCliSmoke.publish
     ack = h.AcceptanceCliSmoke.ack
+    rows = h.AcceptanceCliSmoke.rows
+    snapshot = h.AcceptanceCliSmoke.snapshot
 
     def seed(self, task=0, key='seed'):
         material = self.directory / (key + '.txt')
@@ -61,9 +63,212 @@ class Evaluation(unittest.TestCase):
             fixture['default'][0]['error_code'] = 'synthetic_failure'
             fixture['default'][0]['error_message'] = 'synthetic only'
             fixture['default'][0]['tool_calls'] = []
-        return self.invoke('pump-fake', '--db', self.database, '--request', request,
+        return self.invoke(getattr(self, 'execution_command', 'pump-fake'), '--db', self.database, '--request', request,
             '--script', self.json_file('script.json', fixture), '--workspaces-file', self.mapping,
             '--worker-calls', worker_calls, '--max-calls', max_calls)
+
+    def logical_seed(self, task=4, *, logical=True, key='logical-seed', context_change=None):
+        system = (h.SOURCE / 'config/examples/system.yaml').read_text()
+        self.assertIn('request_format: framed-v1', system)
+        system = system.replace('request_format: framed-v1', 'request_format: structured-v2')
+        if logical:
+            system = system.replace('context:\n', 'context:\n  logical_agent:\n'
+                                    '    mode: single-agent-role-broker-v1\n'
+                                    '    max_attempts: 128\n    max_history_bytes: 524288\n', 1)
+        if context_change:
+            before, after = context_change
+            self.assertIn(before, system)
+            system = system.replace(before, after, 1)
+        config = self.directory / (key + '-system.yaml')
+        config.write_text(system)
+        material = self.directory / (key + '-material.txt')
+        material.write_text(e.TASKS[task][1])
+        self.execution_command = 'pump-single-fake' if logical else 'pump-fake'
+        return self.invoke('submit', '--db', self.database, '--key', key, '--text-file', material,
+                           '--config', config, '--functions-dir',
+                           h.SOURCE / 'config/examples/functions')['request']['request_id']
+
+    def logical_plan(self, request):
+        with e.database(self.database) as db:
+            return e.make_plan(db, request, identity_contract=e.LOGICAL_AGENT_CONTRACT)
+
+    def tamper_last_logical_input(self, edit):
+        # Disposable fixture only. Rehash the modified logical envelope so
+        # the v3 relation itself, rather than a stale checksum, must reject it.
+        with closing(sqlite3.connect(self.database)) as db, db:
+            attempt, raw = db.execute('SELECT attempt_id,request_envelope FROM call_attempts ORDER BY rowid DESC LIMIT 1').fetchone()
+            envelope = json.loads(raw)
+            edit(envelope['context']['input'])
+            envelope['context']['logical_input_sha256'] = e.digest(envelope['context']['input'])
+            envelope['logical_request_sha256'] = e.digest({key: value for key, value in envelope.items()
+                                                           if key not in ('logical_request_sha256', 'wire_request_sha256')})
+            db.execute('UPDATE call_attempts SET request_envelope=?,state_version=state_version+1 WHERE attempt_id=?',
+                       (e.canonical(envelope).decode(), attempt))
+            self.assertEqual(json.loads(db.execute('SELECT request_envelope FROM call_attempts WHERE attempt_id=?',
+                                                  (attempt,)).fetchone()[0]), envelope)
+
+    def test_v3_explicit_plan_keeps_v1_v2_meanings(self):
+        request = self.logical_seed()
+        with e.database(self.database) as db:
+            self.assertEqual(e.make_plan(db, request)['schema_version'], 1)
+            self.assertEqual(e.make_plan(db, request, decision_evidence='model-origin-v1')['schema_version'], 2)
+            plan = e.make_plan(db, request, identity_contract=e.LOGICAL_AGENT_CONTRACT)
+            self.assertEqual(plan['schema_version'], 3)
+            self.assertEqual(plan['decision_evidence'], 'model-origin-v1')
+            self.assertEqual(plan['single_agent_policy'], e.DEFAULT_LOGICAL_AGENT_POLICY)
+            e.validate_plan(plan)
+            with self.assertRaises(e.InvalidEvidence):
+                e.make_plan(db, request, decision_evidence='structural-v1', identity_contract=e.LOGICAL_AGENT_CONTRACT)
+        report = e.build_report(plan, [])
+        self.assertEqual(report['counts'], {'not_executed': 10})
+        self.assertFalse(report['provider_quality_acceptance_established'])
+
+    def test_v3_one_logical_agent_reaches_original_confirmed_delivery(self):
+        request = self.logical_seed()
+        plan = self.logical_plan(request)
+        legacy_plan = self.plan(request, model_origin=True)
+        self.execute(request, max_calls=12, worker_calls=2)
+        self.ack(request, self.publish(request))
+        row = e.build_report(plan, [self.run_entry(plan, request, 'single_agent', task=4)])['rows'][9]
+        self.assertEqual(row['status'], 'passed', row)
+        self.assertGreater(row['agent_identity_count'], 1)
+        self.assertEqual(row['identity_evidence']['logical_agent_count'], 1)
+        self.assertTrue(row['identity_evidence']['shared_request_history'])
+        self.assertTrue(row['checks']['model_accepted_delivery_source'])
+        self.assertEqual(row['identity_evidence']['global_steps'], len(row['attempts']))
+        legacy = e.build_report(legacy_plan, [self.run_entry(legacy_plan, request, 'single_agent', task=4)])['rows'][9]
+        self.assertEqual(legacy['status'], 'failed', legacy)
+        self.assertFalse(legacy['checks']['condition_roles'])
+
+    def test_v3_rehashed_omission_of_actual_native_history_refuses(self):
+        request = self.logical_seed()
+        plan = self.logical_plan(request)
+        self.execute(request, max_calls=12, worker_calls=2)
+        self.tamper_last_logical_input(lambda logical: logical.update(messages=logical['messages'][2:]))
+        row = e.build_report(plan, [self.run_entry(plan, request, 'single_agent', task=4)])['rows'][9]
+        self.assertEqual(row['status'], 'invalid_evidence', row)
+        self.assertIn('actual model input omitted or changed', row['reason'])
+
+    def test_v3_rehashed_global_chain_fork_refuses(self):
+        request = self.logical_seed()
+        plan = self.logical_plan(request)
+        self.execute(request, max_calls=12, worker_calls=2)
+        def fork(logical):
+            contract = json.loads(logical['task_contract'])
+            contract['logical_agent_execution']['global_step'] = 1
+            logical['task_contract'] = e.canonical(contract).decode()
+        self.tamper_last_logical_input(fork)
+        row = e.build_report(plan, [self.run_entry(plan, request, 'single_agent', task=4)])['rows'][9]
+        self.assertEqual(row['status'], 'invalid_evidence', row)
+        self.assertIn('chain is missing, reordered or forked', row['reason'])
+
+    def test_v3_old_multi_role_run_cannot_gain_logical_identity_from_a_label(self):
+        request = self.logical_seed(logical=False)
+        plan = self.logical_plan(request)
+        self.execute(request, max_calls=12, worker_calls=2)
+        def relabel(logical):
+            contract = json.loads(logical['task_contract'])
+            contract['logical_agent_execution'] = {'logical_agent_id': 'same-label-for-all-roles'}
+            logical['task_contract'] = e.canonical(contract).decode()
+        self.tamper_last_logical_input(relabel)
+        row = e.build_report(plan, [self.run_entry(plan, request, 'single_agent', task=4)])['rows'][9]
+        self.assertEqual(row['status'], 'invalid_evidence', row)
+        self.assertIn('frozen policy differs', row['reason'])
+
+    def test_v3_fairness_removes_only_the_explicit_topology_variable(self):
+        multi = self.logical_seed(logical=False, key='multi')
+        single = self.logical_seed(key='single')
+        changed = self.logical_seed(key='different-context', context_change=(
+            'snapshot_decision_log_entries: 20', 'snapshot_decision_log_entries: 19'))
+        with e.database(self.database) as db:
+            original = e.common_lock(db, multi, 'fake', {'mode': 'provider_default'}, logical_agent_comparison=True)
+            same = e.common_lock(db, single, 'fake', {'mode': 'provider_default'}, logical_agent_comparison=True)
+            other = e.common_lock(db, changed, 'fake', {'mode': 'provider_default'}, logical_agent_comparison=True)
+            self.assertEqual(original, same)
+            self.assertNotEqual(original['workflow_policy_sha256'], other['workflow_policy_sha256'])
+
+    def test_v3_single_fake_host_dispositions_refuse_before_takeover(self):
+        request = self.logical_seed()
+        before = self.snapshot()
+        self.invoke('pump-single-fake', '--db', self.database, '--request', request,
+                    '--script', h.FIXTURES / 's15_fake_complete.json',
+                    '--dispositions-file', self.json_file('host-dispositions.json', {
+                        'alpha': {'disposition': 'keep', 'rationale': 'Unexecuted host choice must not drive the model baseline.'}}),
+                    error='unauthorized')
+        self.assertEqual(self.snapshot(), before)
+
+    def execute_across_two_recoveries(self, request):
+        def continuation(counts):
+            script = self.fixture()
+            for steps in [script['default'], *script['nodes'].values()]:
+                steps[:] = [step for step in steps if step['role_call_index'] > counts.get(step['role'], 0)]
+                for step in steps:
+                    step['role_call_index'] -= counts.get(step['role'], 0)
+            return script
+        # Fake script indices are local to each process. The first process
+        # produces the plan/order; the next writes; the third submits/checks/
+        # accepts. All original model bindings remain in the real Store.
+        self.assertEqual(len(self.execute(request, max_calls=2, worker_calls=2)['calls']), 2)
+        self.assertEqual(len(self.execute(request, max_calls=1, worker_calls=1,
+            script=continuation({'dispatcher': 1, 'team_lead': 1}))['calls']), 1)
+        self.execute(request, max_calls=12, worker_calls=2,
+                     script=continuation({'dispatcher': 1, 'team_lead': 1, 'worker': 1}))
+
+    def test_v3_recovered_original_instruction_links_both_conditions(self):
+        for logical in (False, True):
+            with self.subTest(logical=logical):
+                workspace = self.directory / ('restart-workspace-' + str(logical))
+                workspace.mkdir(mode=0o700)
+                self.mapping = self.json_file('restart-workspaces-' + str(logical) + '.json', {'alpha': str(workspace)})
+                request = self.logical_seed(logical=logical, key='restart-' + str(logical))
+                plan = self.logical_plan(request)
+                legacy_plan = self.plan(request, model_origin=True)
+                self.execute_across_two_recoveries(request)
+                self.ack(request, self.publish(request), key='restart-receipt-' + str(logical))
+                condition = 'single_agent' if logical else 'multi_agent'
+                row = e.build_report(plan, [self.run_entry(plan, request, condition, task=4)])['rows'][8 + logical]
+                self.assertEqual(row['status'], 'passed', row)
+                recovery = row['decision_evidence']['recovery_projections']
+                self.assertEqual(recovery['contract'], 'original-instruction-epoch-rebind-v1')
+                self.assertEqual(len(recovery['witnesses']), 2)
+                self.assertEqual(recovery['witnesses_sha256'], e.digest(recovery['witnesses']))
+                # Historical v2 retains its exact-binding source interpretation.
+                legacy = e.build_report(legacy_plan, [self.run_entry(legacy_plan, request, task=4)])['rows'][8]
+                self.assertEqual(legacy['status'], 'failed', legacy)
+                self.assertFalse(legacy['checks']['model_accepted_delivery_source'])
+                self.assertNotIn('recovery_projections', legacy['decision_evidence'])
+
+    def test_v3_recovery_projection_requires_original_body_and_exact_epochs(self):
+        request = self.logical_seed(logical=False)
+        plan = self.logical_plan(request)
+        self.execute_across_two_recoveries(request)
+        self.ack(request, self.publish(request))
+        with closing(sqlite3.connect(self.database)) as db, db:
+            recovered = db.execute("SELECT event_id,result FROM events WHERE request_id=? AND type='recover' "
+                "AND seq<(SELECT MIN(seq) FROM events WHERE request_id=? AND type='submit_work') "
+                "AND json_array_length(json_extract(result,'$.rebound_instructions'))>0 ORDER BY seq",
+                (request, request)).fetchall()
+            self.assertEqual(len(recovered), 2)
+            event_id, raw = recovered[0]
+            result = json.loads(raw)
+            self.assertTrue(result['rebound_instructions'])
+            db.execute('DROP TRIGGER events_immutable')
+        for field, replacement in (('body_sha256', '0' * 64), ('execution_epoch', 999)):
+            with self.subTest(field=field):
+                changed = copy.deepcopy(result)
+                changed['rebound_instructions'][0][field] = replacement
+                with closing(sqlite3.connect(self.database)) as db, db:
+                    db.execute('UPDATE events SET result=? WHERE event_id=?', (e.canonical(changed).decode(), event_id))
+                row = e.build_report(plan, [self.run_entry(plan, request, task=4)])['rows'][8]
+                self.assertEqual(row['status'], 'invalid_evidence', row)
+                self.assertIn('does not prove the submitted epoch projection', row['reason'])
+        # Remove the first projection rather than merely changing its final
+        # target. The later original record cannot fill the missing interval.
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute('DELETE FROM events WHERE event_id=?', (event_id,))
+        row = e.build_report(plan, [self.run_entry(plan, request, task=4)])['rows'][8]
+        self.assertEqual(row['status'], 'invalid_evidence', row)
+        self.assertIn('does not prove the submitted epoch projection', row['reason'])
 
     def step(self, role, name, arguments, index=1):
         return {'role': role, 'role_call_index': index, 'status': 'completed',

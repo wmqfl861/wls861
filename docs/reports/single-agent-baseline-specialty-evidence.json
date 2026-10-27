@@ -1,0 +1,101 @@
+{
+  "archive_normalization": {
+    "single-agent-baseline-configure.txt": {
+      "archived_bytes": 1113,
+      "archived_sha256": "58b64629b7ccc8bb6db6d0708b770e3daccdb801dd5ba3b701efaa1cf0ecdd6a",
+      "changed_lines": [
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
+      "ends_with_lf": true,
+      "line_count": 17,
+      "line_count_preserved": true,
+      "operation": "remove trailing ASCII space/tab from each line; preserve each line ending and final newline",
+      "original_bytes": 1122,
+      "original_sha256": "8acfed9ec33307146180fa0b74d7dc8883d00fbffb8d6a93f61c1f0ef286a309",
+      "terminal_newline_preserved": true
+    },
+    "single-agent-baseline-evaluator-continuation-fixture.txt": {
+      "archived_bytes": 9355,
+      "archived_sha256": "2ee8a0d3163a70e15e5d1ce966c0b1dc20c55d2240a6657192c884b26f6f971e",
+      "changed_lines": [
+        36
+      ],
+      "ends_with_lf": true,
+      "line_count": 92,
+      "line_count_preserved": true,
+      "operation": "remove trailing ASCII space/tab from each line; preserve each line ending and final newline",
+      "original_bytes": 9356,
+      "original_sha256": "22b8340e44cb78758066ed6f6ef523ed69bd23b949c509a2caaa50bd9f144f75",
+      "terminal_newline_preserved": true
+    }
+  },
+  "evaluator_final": {
+    "binary_sha256": "4ae6766372f54651260cb346fb607d13a8674d3c66a04bef486c04e48c2e7eb2",
+    "evaluator_sha256": "6bc4263e50f062504e22bfc40ee9ec582be308fdced9aeda3bc6c69836251cbf",
+    "gid": 65534,
+    "groups": [],
+    "log": "/tmp/wls861-single-agent-validation/r3-evaluation-release-final.log",
+    "outer_umask": "0002",
+    "returncode": 0,
+    "seconds": 12.41,
+    "test_setUp_umask": "0077",
+    "tests_sha256": "8eed09d58280e1811977c2d5393daf80732209c1017e0f2321bfba6342285a3a",
+    "uid": 65534
+  },
+  "evidence_files": {
+    "single-agent-baseline-build.txt": "58315f4ff325f0a68325de4cd62e630309e0ee68b6312b5d82231ed44e3f02ef",
+    "single-agent-baseline-configure.txt": "58b64629b7ccc8bb6db6d0708b770e3daccdb801dd5ba3b701efaa1cf0ecdd6a",
+    "single-agent-baseline-evaluator-continuation-fixture.txt": "2ee8a0d3163a70e15e5d1ce966c0b1dc20c55d2240a6657192c884b26f6f971e",
+    "single-agent-baseline-evaluator-final.txt": "0a0e19d300ef18109310f910381784750c58ab4accf9f8e7b3e6112775b9ab6e",
+    "single-agent-baseline-evaluator-initial.txt": "ccfd8fc580fa2c0f1b532d88cd073fc590621e546e08089a9242af6f62c5ffac",
+    "single-agent-baseline-evaluator-stale-cli.txt": "53d39fe97e5de934d7ef211d989eb0058cd96165e0c73816e692bd47142a5e2c",
+    "single-agent-baseline-native-final.txt": "11411cd092e48f795d05321055df89bb0739c68c695bb72df6d31b3e817b15ad",
+    "single-agent-baseline-native-initial.txt": "3ed53de920a301128a73811834f2363725cbd100ab1118d21b9f8eb2f06a544c",
+    "single-agent-baseline-rebuild.txt": "dda5a4718c686bab3a23a131cbd43cbc4b6e6ab73ec39f6e2ca49371a76a0bbb",
+    "single-agent-baseline-recovery-focused.txt": "f863f05198b626679fca81a728f4a63a02e5b03d19f8cbde6e1bf1b3f61e4df1"
+  },
+  "native_build": {
+    "compiler": "/usr/bin/c++",
+    "configuration": "Release",
+    "ctest_suite_timeout_seconds": 90,
+    "final_ctest_seconds": 7.88,
+    "final_failed": 0,
+    "final_passed": 11,
+    "flags_release": "-O3 -DNDEBUG",
+    "gid": 65534,
+    "groups": [],
+    "initial_failed": 1,
+    "initial_passed": 10,
+    "outer_umask": "0002",
+    "test_harness_umask": "0077",
+    "uid": 65534
+  },
+  "native_staged_inputs": {
+    "CMakeLists.txt": "f546e3f8a265bf2ef4e5c2beb88924ae3f439e806bbc230ed32922041d2c6ebd",
+    "Makefile": "302b2d037ad7f33f55fe31f82520ce0dc133cb3776d1aa7c660e01d994ff6eed",
+    "include/wls/config_loader.hpp": "77caa28881eeb84d2f9f8173370e2f84c678c433c801b768465cb7ab514d26f5",
+    "include/wls/single_agent.hpp": "a4460951eec0f1bd7d38bee770b47ab3d9a6f4197ea1f5d409219fe73056dea6",
+    "include/wls/store.hpp": "67a77bf705f5030f482e39d78cce393c4fefddd31ebb6da9cc5c921b0ab4314f",
+    "src/config_loader.cpp": "fc0327a17eaeff6604db0a3b74b7a5ed80a9dcf161482639d6c6127dadac8ca0",
+    "src/event_runtime.cpp": "604a0c51f3c598d7b7ba97accfe4ea0a96386384772832d8b1cac7228a8cd292",
+    "src/offline_runtime.cpp": "abd7f1159ff91a3dd1d0be177ae042df88a738a578d061a655410197ff114ae2",
+    "src/single_agent.cpp": "bab0638279d13c672ef7c6618b04dd9446095c76f5a92741335431cb52dfb4ac",
+    "src/store.cpp": "781aa4804f384d499d6fc02518bee55ee1f9dedb4bec8cc62e24cdca7e963b43",
+    "src/store_single_agent.inc": "5030f624447c2269aba2c3b65b1dd417a1f1006f69efbda4595124497be43d9f",
+    "tests/fixtures/s13_constraints.json": "d7551f44f0114d771691e43483a14d0378b178e472ef5a4c9e2d3142ad221dbb",
+    "tests/fixtures/s13_fake_initial.json": "b044825092fdd41a43ff28503174d5e9bcf90cbc92dce167779a61f97a0c47cd",
+    "tests/fixtures/s13_request.txt": "dd3db6249d6b8e110fa9d3cfa479e6db178be5419b1b8ef6ad134aacba55e11a",
+    "tests/fixtures/s15_fake_complete.json": "5592649454676bbfd433ba6921e8eb3d41dfd79088583e6b88ba8eb219306b7a",
+    "tests/live_test_support.hpp": "c997659f0be2c85418cfb7ac31026555ebe80a9c786df2067615df78d0baf952",
+    "tests/single_agent_tests.cpp": "67a939e7b95a9915486a83a3caa685d9c1490a691261ac3d80ac124929205c82"
+  },
+  "provider_quality_acceptance_established": false,
+  "real_provider_calls": 0,
+  "schema_version": 1,
+  "scope": "single-Agent specialty validation; final integrated tree gates are separately reported"
+}

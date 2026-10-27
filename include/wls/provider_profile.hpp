@@ -47,6 +47,9 @@ struct ProviderProfile {
     std::int64_t context_window{};
     std::int64_t max_output_tokens{};
     ProtocolLimits limits;
+    // Appended optional extension: old aggregate field order is preserved.
+    // Empty preserves the original v1 profile and wire encoding byte-for-byte.
+    std::string billing_challenge{};
 };
 
 // All profile fields, including limits, must be explicitly supplied. Unknown
