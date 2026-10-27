@@ -5,6 +5,7 @@
             "'execute_tool_control','wait_worker','wake_worker','tool_feedback','ask_question',"
             "'forward_question','answer_question','escalate_task','report_experience','record_delivery_publication',"
             "'acknowledge_delivery','cancel_request','settle_attempt','attempts_unknown',"
+            "'claim_live_send','record_live_transport','reconcile_usage',"
             "'allocation_receipt','allocation_registered','allocation_abandoned') OR "
             "(type='check_submission' AND json_extract(payload,'$.adverse_revoke')=1) OR "
             "(type='accept_candidate' AND json_extract(payload,'$.decision.passed')=0) OR "
@@ -16,6 +17,7 @@
             "execute_tool_control", "wait_worker", "wake_worker", "tool_feedback", "ask_question",
             "forward_question", "answer_question", "escalate_task", "report_experience", "record_delivery_publication",
             "acknowledge_delivery", "cancel_request", "settle_attempt", "attempts_unknown",
+            "claim_live_send", "record_live_transport", "reconcile_usage",
             "allocation_receipt", "allocation_registered", "allocation_abandoned"};
         return types.contains(type) || (type == "check_submission" && command.at("adverse_revoke").as_bool()) ||
             (type == "accept_candidate" && !command.at("decision").at("passed").as_bool()) ||

@@ -12,6 +12,12 @@
 
 namespace wls::s1 {
 
+struct HttpsTransportResult;
+struct EncodedResponsesRequest;
+struct HttpsTransportOptions;
+class VerifiedUsageEvidence;
+struct UsageReconciliation;
+
 // Trusted-host context, never constructed from a model tool argument. A host
 // authenticates first; Store checks its persisted owner and fencing epochs.
 struct StoreActor {
@@ -94,12 +100,28 @@ public:
           std::string_view acceptance_migration_sql = {},
           std::string_view cleanup_migration_sql = {},
           StoreRecoveryScope recovery_scope = {},
-          std::string_view allocation_migration_sql = {});
+          std::string_view allocation_migration_sql = {},
+          std::string_view live_migration_sql = {},
+          std::string_view reconciliation_migration_sql = {});
     ~Store();
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;
 
     Json diagnostics() const;
+    bool live_model_enabled() const;
+    Json claim_live_send(const StoreActor& actor, const std::string& attempt_id,
+        std::int64_t expected_attempt_version, const EncodedResponsesRequest& encoded,
+        const HttpsTransportOptions& transport, const std::string& command_id);
+    Json record_live_transport(const std::string& attempt_id, const std::string& claim_id,
+        const HttpsTransportResult& result);
+    Json settle_unobserved_live(const StoreActor& root, const std::string& attempt_id,
+        std::int64_t expected_attempt_version, const std::string& reason,
+        const std::string& idempotency_key);
+    Json live_attempt(const std::string& attempt_id, bool include_private = false) const;
+    Json reconcile_usage(const StoreActor& root, const VerifiedUsageEvidence& evidence,
+        const UsageReconciliation& reconciliation);
+    Json usage_projection(const std::string& attempt_id) const;
+    Json verify_usage_ledger(const std::string& request_id) const;
     Json admit(const AdmissionInput& input);
     Json request(const std::string& request_id) const;
     Json request_snapshot(const std::string& request_id) const;
@@ -221,6 +243,21 @@ public:
                                const std::string& section,
                                std::int64_t offset = 0,
                                std::int64_t max_bytes = 16384) const;
+
+    // Frozen management windows keep current facts complete and expose bounded,
+    // original hash/version-pinned history. Reads never authorize business work.
+    Json management_view(const StoreActor& actor, const ExecutionBinding& current) const;
+    std::vector<std::string> authorized_management_tools(const StoreActor& actor,
+        const ExecutionBinding& current) const;
+    void authorize_management_control(const StoreActor& actor, const ExecutionBinding& current,
+        const std::string& tool_id) const;
+    Json management_history_page(const StoreActor& actor, const ExecutionBinding& current,
+        const std::string& kind, std::int64_t after_sequence = 0,
+        std::int64_t through_sequence = 0, std::int64_t limit = 4) const;
+    Json read_management_history(const StoreActor& actor, const ExecutionBinding& current,
+        const std::string& kind, const std::string& record_id,
+        const std::string& expected_record_sha256, std::int64_t expected_record_version,
+        std::int64_t offset = 0, std::int64_t max_bytes = 4096) const;
 
     // S1.4 question/answer and local submission checking require the known 007
     // asset. These bounded records retain their original semantic bindings;

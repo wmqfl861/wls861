@@ -1,0 +1,69 @@
+R1.4 final corrected-source CTest detail excerpts
+Execution-input manifest SHA-256: 42b2f25aba2bc04b13777d9b5a5518beeb2a898e118eb37031a4e29a6c9cb59b
+Only r1_management sections are reproduced below; unrelated suites are omitted.
+
+Source log: /tmp/wls861-five-validation/release-0022-detail.log
+Source log SHA-256: 1feed13e89cad00575a412a897352534b8ca3e368fc077da938fd13bcdb0121f
+
+39/70 Testing: r1_management
+39/70 Test: r1_management
+Command: "/tmp/wls861-five-validation/build-release/r1_management_tests"
+Directory: /tmp/wls861-five-validation/build-release
+"r1_management" start time: Oct 26 21:48 EDT
+Output:
+----------------------------------------------------------
+PASS management policy is explicit frozen and legacy-compatible
+PASS 130 management turns cross restart with exact original readback
+PASS legacy full management history still stops explicitly
+PASS exact management query replay keeps receipt and budget
+PASS management reader scope hash version and epoch guards
+PASS all open UNKNOWN and missing original facts stay pinned
+PASS full current contract overflow has zero new reservations
+PASS current policy fences new and captured management reads
+PASS failed read queries consume persistent cross-restart allowance
+PASS policy change during read refuses original bytes
+PASS AMEND and independent old task CAS refuse stale decisions
+PASS event pump readback keeps pending target across restart
+PASS captured candidate files stay complete through AMEND
+PASS live cache unknown and reconciliation preserve original management facts
+RESULT 14 passed, 0 failed
+<end of output>
+Test time =  13.46 sec
+----------------------------------------------------------
+Test Passed.
+"r1_management" end time: Oct 26 21:48 EDT
+"r1_management" time elapsed: 00:00:13
+----------------------------------------------------------
+
+Source log: /tmp/wls861-five-validation/asan-focused-detail.log
+Source log SHA-256: 175e26d009bf1e219a23703bedb81a085de1ee4a84e52313d4edfe82310ecac5
+
+39/70 Testing: r1_management
+39/70 Test: r1_management
+Command: "/tmp/wls861-five-validation/build-asan/r1_management_tests"
+Directory: /tmp/wls861-five-validation/build-asan
+"r1_management" start time: Oct 26 21:48 EDT
+Output:
+----------------------------------------------------------
+PASS management policy is explicit frozen and legacy-compatible
+PASS 130 management turns cross restart with exact original readback
+PASS legacy full management history still stops explicitly
+PASS exact management query replay keeps receipt and budget
+PASS management reader scope hash version and epoch guards
+PASS all open UNKNOWN and missing original facts stay pinned
+PASS full current contract overflow has zero new reservations
+PASS current policy fences new and captured management reads
+PASS failed read queries consume persistent cross-restart allowance
+PASS policy change during read refuses original bytes
+PASS AMEND and independent old task CAS refuse stale decisions
+PASS event pump readback keeps pending target across restart
+PASS captured candidate files stay complete through AMEND
+PASS live cache unknown and reconciliation preserve original management facts
+RESULT 14 passed, 0 failed
+<end of output>
+Test time = 167.49 sec
+----------------------------------------------------------
+Test Passed.
+"r1_management" end time: Oct 26 21:51 EDT
+"r1_management" time elapsed: 00:02:47
+----------------------------------------------------------

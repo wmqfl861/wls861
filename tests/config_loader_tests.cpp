@@ -521,6 +521,37 @@ void configuration_fifo_is_rejected_without_open_side_effects() {
     CHECK(received < 0 && saved_errno == EAGAIN);
 }
 
+void management_and_owned_capacity_policies_are_opt_in_and_frozen() {
+    Fixture fixture;
+    const auto legacy = fixture.freeze();
+    CHECK(legacy.management_history_policy().is_null());
+    auto system = legacy.json().at("system");
+    auto& context = field(system, "context").as_object();
+    context["request_format"] = "structured-v2";
+    context["management_history"] = Object{{"mode", "window-v1"}, {"recent_attempts", 2},
+        {"inline_bytes", 32768}, {"max_context_bytes", 262144}};
+    field(system, "cleanup").as_object()["owned_workspace_capacity"] = Object{
+        {"version", "owned-capacity-v1"}, {"max_entries", 4095},
+        {"max_total_bytes", 251658240}, {"max_inventory_bytes", 8388608}};
+    fixture.system(system);
+    const auto frozen = fixture.freeze();
+    CHECK(!frozen.management_history_policy().is_null());
+    CHECK(frozen.runtime_support().at("management_window_integrated").as_bool());
+    CHECK(FrozenRequestConfig::restore(legacy.serialize(), legacy.sha256()).management_history_policy().is_null());
+    CHECK(FrozenRequestConfig::restore(frozen.serialize(), frozen.sha256()).serialize() == frozen.serialize());
+    context["request_format"] = "framed-v1";
+    fixture.system(system);
+    expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.freeze(); });
+    context["request_format"] = "structured-v2";
+    context.at("management_history").as_object()["recent_attempts"] = 5;
+    fixture.system(system);
+    expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.freeze(); });
+    context.at("management_history").as_object()["recent_attempts"] = 2;
+    field(system, "cleanup").as_object().at("owned_workspace_capacity").as_object()["max_entries"] = 4096;
+    fixture.system(system);
+    expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.freeze(); });
+}
+
 } // namespace
 
 int main() {
@@ -543,6 +574,7 @@ int main() {
         {"size and time validators preserve the exact ASCII grammar without regex", simple_format_validators_preserve_the_original_grammar},
         {"validated but unenforced settings are explicit and do not change frozen config", unsupported_enforcement_is_visible_without_changing_frozen_bytes},
         {"unknown functions capabilities roles and tools reject", unknown_functions_capabilities_and_tools_are_rejected},
-        {"configuration FIFO is rejected before any observable open", configuration_fifo_is_rejected_without_open_side_effects}
+        {"configuration FIFO is rejected before any observable open", configuration_fifo_is_rejected_without_open_side_effects},
+        {"management and owned capacity policies preserve old frozen semantics", management_and_owned_capacity_policies_are_opt_in_and_frozen}
     });
 }

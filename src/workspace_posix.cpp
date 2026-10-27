@@ -1,4 +1,5 @@
 #include "wls/workspace.hpp"
+#include "wls/owned_capacity.hpp"
 
 #include <linux/fs.h>
 #include <linux/openat2.h>
@@ -188,8 +189,27 @@ struct Snapshot {
     std::string digest;
 };
 struct Entry { std::string path; std::string name; struct stat metadata{}; };
-struct Inventory { std::vector<Entry> files; std::uint64_t bytes{0}; std::size_t entries{0}; };
+struct Inventory {
+    std::vector<Entry> files;
+    std::uint64_t bytes{0};
+    std::size_t entries{0};
+    std::size_t encoded_bytes{owned_inventory_root_budget + owned_inventory_stage_budget};
+};
 struct PatchSpec { std::uint64_t offset; std::string_view expected; };
+void validate_limits(WorkspaceLimits limits) {
+    constexpr std::uint64_t mib = 1024U * 1024U;
+    if (limits.max_file_bytes == 0 || limits.max_file_bytes > 256U * mib || limits.max_total_bytes == 0 ||
+        limits.max_total_bytes > 65536U * mib || limits.max_read_bytes == 0 || limits.max_read_bytes > 64U * mib ||
+        limits.max_write_bytes == 0 || limits.max_write_bytes > 256U * mib || limits.max_entries == 0 ||
+        limits.max_entries > 1000000 || limits.max_list_entries == 0 || limits.max_list_entries > 10000 ||
+        limits.max_search_files == 0 || limits.max_search_files > 1000000 || limits.max_search_bytes == 0 ||
+        limits.max_search_bytes > 65536U * mib || limits.max_search_matches == 0 || limits.max_search_matches > 100000 ||
+        limits.max_path_bytes == 0 || limits.max_path_bytes > 4096 || limits.max_depth == 0 || limits.max_depth > 128 ||
+        (limits.max_inventory_bytes != 0 && (limits.max_inventory_bytes < 256U * 1024U ||
+          limits.max_inventory_bytes > 8U * mib || limits.max_entries > 4095 ||
+          limits.max_total_bytes > 240U * mib || limits.max_file_bytes > 16U * mib || limits.max_depth > 32)))
+        throw Error(ErrorCode::InvalidInput, "invalid workspace capacity limits");
+}
 } // namespace
 
 struct Workspace::Impl {
@@ -199,20 +219,14 @@ struct Workspace::Impl {
     struct stat identity{};
     std::string canonical_path;
     mutable std::mutex mutex;
+    bool limits_bound{false};
 
     Impl(const std::filesystem::path& path, WorkspaceAccess selected, WorkspaceLimits bounds)
         : root(open_root(path)), access(selected), limits(bounds), identity(stat_fd(root.get())),
           canonical_path(canonical_fd_path(root.get())) {
-        constexpr std::uint64_t mib = 1024U * 1024U;
-        if ((access != WorkspaceAccess::ReadOnly && access != WorkspaceAccess::ReadWrite) ||
-            limits.max_file_bytes == 0 || limits.max_file_bytes > 256U * mib || limits.max_total_bytes == 0 ||
-            limits.max_total_bytes > 65536U * mib || limits.max_read_bytes == 0 || limits.max_read_bytes > 64U * mib ||
-            limits.max_write_bytes == 0 || limits.max_write_bytes > 256U * mib || limits.max_entries == 0 ||
-            limits.max_entries > 1000000 || limits.max_list_entries == 0 || limits.max_list_entries > 10000 ||
-            limits.max_search_files == 0 || limits.max_search_files > 1000000 || limits.max_search_bytes == 0 ||
-            limits.max_search_bytes > 65536U * mib || limits.max_search_matches == 0 || limits.max_search_matches > 100000 ||
-            limits.max_path_bytes == 0 || limits.max_path_bytes > 4096 || limits.max_depth == 0 || limits.max_depth > 128)
+        if (access != WorkspaceAccess::ReadOnly && access != WorkspaceAccess::ReadWrite)
             throw Error(ErrorCode::InvalidInput, "invalid workspace capacity limits");
+        validate_limits(limits);
         check_directory(identity);
         const auto probe = open_resolved(root.get(), ".", O_RDONLY | O_DIRECTORY);
         if (!same_inode(identity, stat_fd(probe.get()))) throw Error(ErrorCode::Conflict, "workspace root changed");
@@ -345,10 +359,19 @@ struct Workspace::Impl {
         return entries;
     }
 
+    void charge_inventory(Inventory& inventory, std::string_view name) const {
+        if (limits.max_inventory_bytes == 0) return;
+        const auto charge = owned_inventory_entry_budget(name);
+        if (inventory.encoded_bytes > limits.max_inventory_bytes || charge > limits.max_inventory_bytes - inventory.encoded_bytes)
+            throw Error(ErrorCode::Quota, "projected owned inventory encoded-byte capacity exceeded");
+        inventory.encoded_bytes += charge;
+    }
+
     void collect(std::string_view name, std::size_t depth, Inventory& inventory) const {
         if (depth > limits.max_depth) throw Error(ErrorCode::Quota, "workspace traversal depth exceeded");
         for (auto& entry : directory(name)) {
             if (++inventory.entries > limits.max_entries) throw Error(ErrorCode::Quota, "workspace entry capacity exceeded");
+            charge_inventory(inventory, entry.path);
             if (S_ISDIR(entry.metadata.st_mode)) collect(entry.path, depth + 1, inventory);
             else {
                 const auto size = static_cast<std::uint64_t>(entry.metadata.st_size);
@@ -406,6 +429,7 @@ struct Workspace::Impl {
             collect(".", 1, inventory);
             if (inventory.entries >= limits.max_entries)
                 throw Error(ErrorCode::Quota, "projected workspace entry capacity exceeded");
+            charge_inventory(inventory, logical);
             phase = "recheck";
             check_root();
             const auto live_parent = inspected(parent_name);
@@ -549,13 +573,18 @@ struct Workspace::Impl {
                 inventory.bytes - old_size > limits.max_total_bytes - bytes.size() ||
                 (!previous.exists && inventory.entries >= limits.max_entries))
                 throw Error(ErrorCode::Quota, "projected workspace capacity exceeded");
+            if (!previous.exists) charge_inventory(inventory, logical);
+            temporary = ".wls-tmp-" + new_id("tmp");
+            // A short destination name beneath a long parent must not create
+            // an unrepresentable staging path when interrupted before rename.
+            if (limits.max_inventory_bytes != 0 && join_path(parent_name, temporary).size() > limits.max_path_bytes)
+                throw Error(ErrorCode::Quota, "projected owned staging path exceeds inventory capacity");
             evidence = {{"path", logical}, {"before_sha256", previous.exists ? Json(previous.digest) : Json(nullptr)},
                         {"after_sha256", sha256_hex(bytes)}, {"size_bytes", static_cast<std::uint64_t>(bytes.size())},
                         {"root_device", static_cast<std::uint64_t>(identity.st_dev)},
                         {"root_inode", static_cast<std::uint64_t>(identity.st_ino)}};
 
             phase = "stage";
-            temporary = ".wls-tmp-" + new_id("tmp");
             evidence["temporary_path"] = join_path(parent_name, temporary);
             staged = open_resolved(parent.get(), temporary, O_WRONLY | O_CREAT | O_EXCL, 0600);
             stage_exists = true;
@@ -667,6 +696,24 @@ Workspace::Workspace(const std::filesystem::path& root, WorkspaceAccess access, 
 Workspace::~Workspace() = default;
 Workspace::Workspace(Workspace&&) noexcept = default;
 Workspace& Workspace::operator=(Workspace&&) noexcept = default;
+
+void Workspace::bind_limits(WorkspaceLimits limits) {
+    validate_limits(limits);
+    std::lock_guard lock(impl_->mutex);
+    impl_->check_root();
+    if (impl_->limits_bound) {
+        if (impl_->limits != limits)
+            throw Error(ErrorCode::Conflict, "workspace instance limits already have a different frozen binding");
+        return;
+    }
+    impl_->limits = limits;
+    impl_->limits_bound = true;
+}
+
+WorkspaceLimits Workspace::limits() const {
+    std::lock_guard lock(impl_->mutex);
+    return impl_->limits;
+}
 
 Json Workspace::root_identity() const {
     std::lock_guard lock(impl_->mutex);

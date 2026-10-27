@@ -85,7 +85,8 @@ fake-only门禁保持；原wire字段继续为null，编码body指纹不是已�
 
 R3.3a 在 0.8.7-r3.3a 接入库级 HTTPS/TLS、本地故障夹具和安全观察摘要，见
 [实施契约](implementation/R3-https-transport.md)及[本次验证](reports/r3-https-transport-validation.md)。
-生产 fake-only 边界保持；R3.3b 的发送权和追加对账目前只有先行设计，未新增 Store API/迁移。
+0.9.0-r3.3b通过Store409/410接原预约、唯一发送权、原观察、不可变结算与追加用量投影。
+CLI/OfflineRuntime保持fake-only，宿主库调用需独立授权且默认关闭。
 R3.3 各节点的独立交付边界、详细依赖、失败反例及完成条件见
 [R3.3受控真实闭环计划](implementation/R3-controlled-live-plan.md)：
 
@@ -100,6 +101,14 @@ R1.4管理视图与owned工作区贯通容量另作长任务前置；强沙箱�
 离线profile的reasoning effort字段不等于支持reasoning输出项；首个live配置必须验证当前
 文本/function_call子集，或先另行版本化扩展协议。每批协议改动保留所选官方默认字段的
 可重复fixture，不以供应商兼容声明代替现场验证。
+
+### 2026-10-27 五节点接续
+
+本轮实现映射见[五节点范围](implementation/five-node-continuation-20261027.md)：
+R3.3b按发送与结算两个节点分列，R3.3c完成本地固定任务/账本报告框架，
+R1.4完成新冻结管理窗口，owned容量完成新请求贯通限制与旧树保留出口。
+实际测试以[联合报告](reports/five-node-validation-20261027.md)和最终提交CI为准。
+真实供应商/单Agent质量评测、强隔离部署正向和并发服务继续各自验收，不从本轮代码存在推导完成。
 
 ## 2. 五阶段目标
 

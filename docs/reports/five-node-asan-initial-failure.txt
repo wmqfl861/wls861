@@ -1,0 +1,132 @@
+Internal ctest changing into directory: /tmp/wls861-five-validation/build-asan
+Test project /tmp/wls861-five-validation/build-asan
+    Start 10: config_loader
+    Start 39: r1_management
+1/7 Test #39: r1_management ....................***Failed    1.39 sec
+=================================================================
+==21727==ERROR: AddressSanitizer: heap-use-after-free on address 0x513000135090 at pc 0x55f072887811 bp 0x7fffa30f46b0 sp 0x7fffa30f46a0
+READ of size 1 at 0x513000135090 thread T0
+    #0 0x55f072887810 in boost::json::value::kind() const /usr/include/boost/json/value.hpp:1689
+    #1 0x55f0728ea662 in boost::json::value::value(boost::json::value const&, boost::json::storage_ptr) /usr/include/boost/json/impl/value.ipp:112
+    #2 0x55f0728eb925 in boost::json::value::operator=(boost::json::value const&) /usr/include/boost/json/impl/value.ipp:253
+    #3 0x55f072a2ab3a in wls::s1::Store::management_view(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&) const /tmp/wls861-five-validation/source/src/store_history.inc:464
+    #4 0x55f072e9358e in wls::s1::OfflineRuntime::reserve_call(wls::s1::ModelAdapter const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, wls::Role, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long, std::vector<boost::json::value, std::allocator<boost::json::value> > const&, bool) /tmp/wls861-five-validation/source/src/offline_runtime.cpp:419
+    #5 0x55f072eb8844 in operator() /tmp/wls861-five-validation/source/src/offline_runtime.cpp:1002
+    #6 0x55f072ebc419 in wls::s1::OfflineRuntime::run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::vector<wls::s1::FakeModelStep, std::allocator<wls::s1::FakeModelStep> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long) /tmp/wls861-five-validation/source/src/offline_runtime.cpp:1015
+    #7 0x55f07283e51e in Fixture /tmp/wls861-five-validation/source/tests/r1_management_tests.cpp:102
+    #8 0x55f072846b96 in legacy_policy_is_unchanged_and_frozen_selection_is_explicit /tmp/wls861-five-validation/source/tests/r1_management_tests.cpp:173
+    #9 0x55f0728c8e2a in void std::__invoke_impl<void, void (*&)()>(std::__invoke_other, void (*&)()) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x16be2a) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #10 0x55f0728c28a7 in std::enable_if<is_invocable_r_v<void, void (*&)()>, void>::type std::__invoke_r<void, void (*&)()>(void (*&)()) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x1658a7) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #11 0x55f0728b9ee3 in std::_Function_handler<void (), void (*)()>::_M_invoke(std::_Any_data const&) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x15cee3) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #12 0x55f0728a5425 in std::function<void ()>::operator()() const (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x148425) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #13 0x55f07288b9a1 in test::run(std::vector<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()> >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()> > > > const&) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x12e9a1) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #14 0x55f07287a07c in main /tmp/wls861-five-validation/source/tests/r1_management_tests.cpp:543
+    #15 0x7fdee81911c9  (/lib/x86_64-linux-gnu/libc.so.6+0x2a1c9) (BuildId: 274eec488d230825a136fa9c4d85370fed7a0a5e)
+    #16 0x7fdee819128a in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x2a28a) (BuildId: 274eec488d230825a136fa9c4d85370fed7a0a5e)
+    #17 0x55f0728388c4 in _start (/tmp/wls861-five-validation/build-asan/r1_management_tests+0xdb8c4) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+
+0x513000135090 is located 144 bytes inside of 336-byte region [0x513000135000,0x513000135150)
+freed by thread T0 here:
+    #0 0x7fdee8f6c0a8 in operator delete(void*) ../../../../src/libsanitizer/asan/asan_new_delete.cpp:152
+    #1 0x55f0728f2305 in boost::json::detail::default_resource::do_deallocate(void*, unsigned long, unsigned long) /usr/include/boost/json/detail/impl/default_resource.ipp:53
+    #2 0x55f0728f9576 in boost::container::pmr::memory_resource::deallocate(void*, unsigned long, unsigned long) /usr/include/boost/container/pmr/memory_resource.hpp:54
+    #3 0x55f072901314 in boost::json::object::table::deallocate(boost::json::object::table*, boost::json::storage_ptr const&) /usr/include/boost/json/impl/object.hpp:114
+    #4 0x55f072901b42 in boost::json::object::reserve(unsigned long) /usr/include/boost/json/impl/object.hpp:354
+    #5 0x55f07291efaf in std::pair<boost::json::key_value_pair*, bool> boost::json::object::emplace_impl<boost::core::basic_string_view<char>&, decltype(nullptr)>(boost::core::basic_string_view<char>, boost::core::basic_string_view<char>&, decltype(nullptr)&&) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x1c1faf) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #6 0x55f0729135d2 in std::pair<boost::json::key_value_pair*, bool> boost::json::object::emplace<decltype(nullptr)>(boost::core::basic_string_view<char>, decltype(nullptr)&&) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x1b65d2) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #7 0x55f0728dbe53 in boost::json::object::operator[](boost::core::basic_string_view<char>) /usr/include/boost/json/impl/object.ipp:604
+    #8 0x55f072a2ab2f in wls::s1::Store::management_view(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&) const /tmp/wls861-five-validation/source/src/store_history.inc:464
+    #9 0x55f072e9358e in wls::s1::OfflineRuntime::reserve_call(wls::s1::ModelAdapter const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, wls::Role, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long, std::vector<boost::json::value, std::allocator<boost::json::value> > const&, bool) /tmp/wls861-five-validation/source/src/offline_runtime.cpp:419
+    #10 0x55f072eb8844 in operator() /tmp/wls861-five-validation/source/src/offline_runtime.cpp:1002
+    #11 0x55f072ebc419 in wls::s1::OfflineRuntime::run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::vector<wls::s1::FakeModelStep, std::allocator<wls::s1::FakeModelStep> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long) /tmp/wls861-five-validation/source/src/offline_runtime.cpp:1015
+    #12 0x55f07283e51e in Fixture /tmp/wls861-five-validation/source/tests/r1_management_tests.cpp:102
+    #13 0x55f072846b96 in legacy_policy_is_unchanged_and_frozen_selection_is_explicit /tmp/wls861-five-validation/source/tests/r1_management_tests.cpp:173
+    #14 0x55f0728c8e2a in void std::__invoke_impl<void, void (*&)()>(std::__invoke_other, void (*&)()) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x16be2a) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #15 0x55f0728c28a7 in std::enable_if<is_invocable_r_v<void, void (*&)()>, void>::type std::__invoke_r<void, void (*&)()>(void (*&)()) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x1658a7) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #16 0x55f0728b9ee3 in std::_Function_handler<void (), void (*)()>::_M_invoke(std::_Any_data const&) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x15cee3) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #17 0x55f0728a5425 in std::function<void ()>::operator()() const (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x148425) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #18 0x55f07288b9a1 in test::run(std::vector<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()> >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()> > > > const&) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x12e9a1) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #19 0x55f07287a07c in main /tmp/wls861-five-validation/source/tests/r1_management_tests.cpp:543
+    #20 0x7fdee81911c9  (/lib/x86_64-linux-gnu/libc.so.6+0x2a1c9) (BuildId: 274eec488d230825a136fa9c4d85370fed7a0a5e)
+    #21 0x7fdee819128a in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x2a28a) (BuildId: 274eec488d230825a136fa9c4d85370fed7a0a5e)
+    #22 0x55f0728388c4 in _start (/tmp/wls861-five-validation/build-asan/r1_management_tests+0xdb8c4) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+
+previously allocated by thread T0 here:
+    #0 0x7fdee8f6b548 in operator new(unsigned long) ../../../../src/libsanitizer/asan/asan_new_delete.cpp:95
+    #1 0x55f0728f22db in boost::json::detail::default_resource::do_allocate(unsigned long, unsigned long) /usr/include/boost/json/detail/impl/default_resource.ipp:43
+    #2 0x55f0728f94e1 in boost::container::pmr::memory_resource::allocate(unsigned long, unsigned long) /usr/include/boost/container/pmr/memory_resource.hpp:48
+    #3 0x55f072904c11 in boost::json::object::table::allocate(unsigned long, unsigned long, boost::json::storage_ptr const&) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x1a7c11) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #4 0x55f0728dcd82 in boost::json::object::reserve_impl(unsigned long) /usr/include/boost/json/impl/object.ipp:717
+    #5 0x55f072901b2b in boost::json::object::reserve(unsigned long) /usr/include/boost/json/impl/object.hpp:353
+    #6 0x55f0728d9f22 in boost::json::object::object(std::initializer_list<std::pair<boost::core::basic_string_view<char>, boost::json::value_ref> >, unsigned long, boost::json::storage_ptr) /usr/include/boost/json/impl/object.ipp:380
+    #7 0x55f0728846e0 in boost::json::object::object(std::initializer_list<std::pair<boost::core::basic_string_view<char>, boost::json::value_ref> >, boost::json::storage_ptr) /usr/include/boost/json/object.hpp:460
+    #8 0x55f072b79278 in management_catalog<wls::s1::Store::Impl> /tmp/wls861-five-validation/source/src/store_history.inc:365
+    #9 0x55f072a2717e in wls::s1::Store::management_view(wls::s1::StoreActor const&, wls::s1::ExecutionBinding const&) const /tmp/wls861-five-validation/source/src/store_history.inc:414
+    #10 0x55f072e9358e in wls::s1::OfflineRuntime::reserve_call(wls::s1::ModelAdapter const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, wls::Role, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long, std::vector<boost::json::value, std::allocator<boost::json::value> > const&, bool) /tmp/wls861-five-validation/source/src/offline_runtime.cpp:419
+    #11 0x55f072eb8844 in operator() /tmp/wls861-five-validation/source/src/offline_runtime.cpp:1002
+    #12 0x55f072ebc419 in wls::s1::OfflineRuntime::run(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::vector<wls::s1::FakeModelStep, std::allocator<wls::s1::FakeModelStep> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long) /tmp/wls861-five-validation/source/src/offline_runtime.cpp:1015
+    #13 0x55f07283e51e in Fixture /tmp/wls861-five-validation/source/tests/r1_management_tests.cpp:102
+    #14 0x55f072846b96 in legacy_policy_is_unchanged_and_frozen_selection_is_explicit /tmp/wls861-five-validation/source/tests/r1_management_tests.cpp:173
+    #15 0x55f0728c8e2a in void std::__invoke_impl<void, void (*&)()>(std::__invoke_other, void (*&)()) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x16be2a) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #16 0x55f0728c28a7 in std::enable_if<is_invocable_r_v<void, void (*&)()>, void>::type std::__invoke_r<void, void (*&)()>(void (*&)()) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x1658a7) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #17 0x55f0728b9ee3 in std::_Function_handler<void (), void (*)()>::_M_invoke(std::_Any_data const&) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x15cee3) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #18 0x55f0728a5425 in std::function<void ()>::operator()() const (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x148425) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #19 0x55f07288b9a1 in test::run(std::vector<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()> >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::function<void ()> > > > const&) (/tmp/wls861-five-validation/build-asan/r1_management_tests+0x12e9a1) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+    #20 0x55f07287a07c in main /tmp/wls861-five-validation/source/tests/r1_management_tests.cpp:543
+    #21 0x7fdee81911c9  (/lib/x86_64-linux-gnu/libc.so.6+0x2a1c9) (BuildId: 274eec488d230825a136fa9c4d85370fed7a0a5e)
+    #22 0x7fdee819128a in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x2a28a) (BuildId: 274eec488d230825a136fa9c4d85370fed7a0a5e)
+    #23 0x55f0728388c4 in _start (/tmp/wls861-five-validation/build-asan/r1_management_tests+0xdb8c4) (BuildId: 0ab92a9aa1756ee007abbff32477ca0acf3e8907)
+
+SUMMARY: AddressSanitizer: heap-use-after-free /usr/include/boost/json/value.hpp:1689 in boost::json::value::kind() const
+Shadow bytes around the buggy address:
+  0x513000134e00: fa fa fa fa fa fa fa fa fd fd fd fd fd fd fd fd
+  0x513000134e80: fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd
+  0x513000134f00: fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd
+  0x513000134f80: fd fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x513000135000: fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd
+=>0x513000135080: fd fd[fd]fd fd fd fd fd fd fd fd fd fd fd fd fd
+  0x513000135100: fd fd fd fd fd fd fd fd fd fd fa fa fa fa fa fa
+  0x513000135180: fa fa fa fa fa fa fa fa fd fd fd fd fd fd fd fd
+  0x513000135200: fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd
+  0x513000135280: fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd
+  0x513000135300: fd fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==21727==ABORTING
+
+    Start 40: owned_capacity
+2/7 Test #10: config_loader ....................   Passed    1.85 sec
+    Start 41: owned_capacity_runtime
+3/7 Test #40: owned_capacity ...................   Passed   17.20 sec
+    Start 42: live_model_store
+4/7 Test #42: live_model_store .................   Passed    7.72 sec
+    Start 46: live_model_store_tls
+5/7 Test #46: live_model_store_tls .............   Passed   15.08 sec
+    Start 47: r3_evaluation
+6/7 Test #41: owned_capacity_runtime ...........   Passed   41.91 sec
+7/7 Test #47: r3_evaluation ....................   Passed   36.09 sec
+
+86% tests passed, 1 tests failed out of 7
+
+Total Test time (real) =  77.49 sec
+
+The following tests FAILED:
+	 39 - r1_management (Failed)
+Errors while running CTest

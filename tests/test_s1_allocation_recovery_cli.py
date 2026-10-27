@@ -111,7 +111,7 @@ class AllocationRecoveryCLI(helpers.OwnedCleanupCLI):
 
     def test_current_allocation_receipt_private_modes_and_readonly_queries(self):
         request, task, resource = self.start_owned()
-        self.assertEqual(self.rows("PRAGMA user_version"), [{"user_version": 408}])
+        self.assertEqual(self.rows("PRAGMA user_version"), [{"user_version": 410}])
         stage, final = self.paths(resource)
         self.assertFalse(stage.exists())
         self.assertEqual(stat.S_IMODE(final.stat().st_mode), 0o700)

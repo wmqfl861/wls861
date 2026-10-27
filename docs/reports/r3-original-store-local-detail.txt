@@ -1,0 +1,132 @@
+Verbatim CTest excerpts for the final R3.3b source inputs.
+Input manifest SHA-256: 42b2f25aba2bc04b13777d9b5a5518beeb2a898e118eb37031a4e29a6c9cb59b
+Only the two named suites are excerpted; full logs are retained with the five-node report.
+
+Source: /tmp/wls861-five-validation/release-0022-detail.log
+Mode: Release, umask 0022
+46/70 Testing: live_model_store_tls
+46/70 Test: live_model_store_tls
+Command: "/tmp/wls861-r33a-venv/bin/python" "/tmp/wls861-five-validation/source/tests/test_live_model_store.py" "/tmp/wls861-five-validation/build-release/live_model_store_driver" "/tmp/wls861-five-validation/source"
+Directory: /tmp/wls861-five-validation/build-release
+"live_model_store_tls" start time: Oct 26 21:50 EDT
+Output:
+----------------------------------------------------------
+Live Store loopback UID=65534 effective_umask=0022
+test_actual_sigkill_at_five_boundaries_never_resends (__main__.LiveStore.test_actual_sigkill_at_five_boundaries_never_resends) ... ok
+test_complete_original_store_path_and_exact_replay (__main__.LiveStore.test_complete_original_store_path_and_exact_replay) ... ok
+test_disabled_or_failed_admission_has_zero_network_and_budget_effect (__main__.LiveStore.test_disabled_or_failed_admission_has_zero_network_and_budget_effect) ... ok
+test_effective_live_capacity_can_persist_actual_limit_observation (__main__.LiveStore.test_effective_live_capacity_can_persist_actual_limit_observation) ... ok
+test_http_429_and_500_never_automatically_retry (__main__.LiveStore.test_http_429_and_500_never_automatically_retry) ... ok
+test_large_escaped_valid_output_fits_original_settlement_event (__main__.LiveStore.test_large_escaped_valid_output_fits_original_settlement_event) ... ok
+test_late_complete_response_keeps_original_identity_after_all_fences (__main__.LiveStore.test_late_complete_response_keeps_original_identity_after_all_fences) ... ok
+test_partial_response_deadline_preserves_unknown_and_no_tools (__main__.LiveStore.test_partial_response_deadline_preserves_unknown_and_no_tools) ... ok
+test_private_echo_never_enters_safe_query_or_events (__main__.LiveStore.test_private_echo_never_enters_safe_query_or_events) ... ok
+test_sse_tool_terminal_is_original_data_without_tool_dispatch (__main__.LiveStore.test_sse_tool_terminal_is_original_data_without_tool_dispatch) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 2.721s
+
+OK
+<end of output>
+Test time =   2.78 sec
+----------------------------------------------------------
+Test Passed.
+"live_model_store_tls" end time: Oct 26 21:50 EDT
+"live_model_store_tls" time elapsed: 00:00:02
+----------------------------------------------------------
+
+42/70 Testing: live_model_store
+42/70 Test: live_model_store
+Command: "/tmp/wls861-five-validation/build-release/live_model_store_tests"
+Directory: /tmp/wls861-five-validation/build-release
+"live_model_store" start time: Oct 26 21:50 EDT
+Output:
+----------------------------------------------------------
+PASS disabled, credential authorization and full frozen envelope reject before reservation
+PASS live profile capacity rejects impossible durable evidence before admission
+PASS original encoding/options CAS and concurrent one-time durable send claim
+PASS reservation and send-claim faults roll back original budget and authority
+PASS private observation and immutable original settlement faults are atomic
+PASS partial usage, exact replay, version conflict and dimension completion
+PASS known zero balances retain explicit unknown cache dimensions
+PASS contradiction preserves known facts and actual excess cost stops paid admission
+PASS reconciliation faults roll back all projections and source bytes stay private
+PASS recovery-only missing response settlement keeps original identity and never resends
+PASS reservation-only recovery requires explicit no-dispatch proof and original null settlement
+PASS terminal scoped reconciliation cannot alter sibling or restore business
+PASS explicit migration preserves original fake snapshots, attempts, settlement and budget
+PASS policy and cross-request identity are rechecked before first send
+PASS host verifier, original settlement, Root role and evidence kind remain mandatory
+RESULT 15 passed, 0 failed
+<end of output>
+Test time =   1.09 sec
+----------------------------------------------------------
+Test Passed.
+"live_model_store" end time: Oct 26 21:50 EDT
+"live_model_store" time elapsed: 00:00:01
+----------------------------------------------------------
+
+
+Source: /tmp/wls861-five-validation/asan-focused-detail.log
+Mode: ASan/LSan, umask 0002
+46/70 Testing: live_model_store_tls
+46/70 Test: live_model_store_tls
+Command: "/tmp/wls861-r33a-venv/bin/python" "/tmp/wls861-five-validation/source/tests/test_live_model_store.py" "/tmp/wls861-five-validation/build-asan/live_model_store_driver" "/tmp/wls861-five-validation/source"
+Directory: /tmp/wls861-five-validation/build-asan
+"live_model_store_tls" start time: Oct 26 21:50 EDT
+Output:
+----------------------------------------------------------
+Live Store loopback UID=65534 effective_umask=0002
+test_actual_sigkill_at_five_boundaries_never_resends (__main__.LiveStore.test_actual_sigkill_at_five_boundaries_never_resends) ... ok
+test_complete_original_store_path_and_exact_replay (__main__.LiveStore.test_complete_original_store_path_and_exact_replay) ... ok
+test_disabled_or_failed_admission_has_zero_network_and_budget_effect (__main__.LiveStore.test_disabled_or_failed_admission_has_zero_network_and_budget_effect) ... ok
+test_effective_live_capacity_can_persist_actual_limit_observation (__main__.LiveStore.test_effective_live_capacity_can_persist_actual_limit_observation) ... ok
+test_http_429_and_500_never_automatically_retry (__main__.LiveStore.test_http_429_and_500_never_automatically_retry) ... ok
+test_large_escaped_valid_output_fits_original_settlement_event (__main__.LiveStore.test_large_escaped_valid_output_fits_original_settlement_event) ... ok
+test_late_complete_response_keeps_original_identity_after_all_fences (__main__.LiveStore.test_late_complete_response_keeps_original_identity_after_all_fences) ... ok
+test_partial_response_deadline_preserves_unknown_and_no_tools (__main__.LiveStore.test_partial_response_deadline_preserves_unknown_and_no_tools) ... ok
+test_private_echo_never_enters_safe_query_or_events (__main__.LiveStore.test_private_echo_never_enters_safe_query_or_events) ... ok
+test_sse_tool_terminal_is_original_data_without_tool_dispatch (__main__.LiveStore.test_sse_tool_terminal_is_original_data_without_tool_dispatch) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 14.573s
+
+OK
+<end of output>
+Test time =  14.64 sec
+----------------------------------------------------------
+Test Passed.
+"live_model_store_tls" end time: Oct 26 21:50 EDT
+"live_model_store_tls" time elapsed: 00:00:14
+----------------------------------------------------------
+
+42/70 Testing: live_model_store
+42/70 Test: live_model_store
+Command: "/tmp/wls861-five-validation/build-asan/live_model_store_tests"
+Directory: /tmp/wls861-five-validation/build-asan
+"live_model_store" start time: Oct 26 21:50 EDT
+Output:
+----------------------------------------------------------
+PASS disabled, credential authorization and full frozen envelope reject before reservation
+PASS live profile capacity rejects impossible durable evidence before admission
+PASS original encoding/options CAS and concurrent one-time durable send claim
+PASS reservation and send-claim faults roll back original budget and authority
+PASS private observation and immutable original settlement faults are atomic
+PASS partial usage, exact replay, version conflict and dimension completion
+PASS known zero balances retain explicit unknown cache dimensions
+PASS contradiction preserves known facts and actual excess cost stops paid admission
+PASS reconciliation faults roll back all projections and source bytes stay private
+PASS recovery-only missing response settlement keeps original identity and never resends
+PASS reservation-only recovery requires explicit no-dispatch proof and original null settlement
+PASS terminal scoped reconciliation cannot alter sibling or restore business
+PASS explicit migration preserves original fake snapshots, attempts, settlement and budget
+PASS policy and cross-request identity are rechecked before first send
+PASS host verifier, original settlement, Root role and evidence kind remain mandatory
+RESULT 15 passed, 0 failed
+<end of output>
+Test time =   7.64 sec
+----------------------------------------------------------
+Test Passed.
+"live_model_store" end time: Oct 26 21:50 EDT
+"live_model_store" time elapsed: 00:00:07
+----------------------------------------------------------

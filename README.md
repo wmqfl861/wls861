@@ -1,12 +1,14 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.8.7-r3.3a；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程、受控 Worker 工具和独立离线协议回放。
+C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.9.0-r3.3b；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程、受控 Worker 工具和独立离线协议回放。
 
-本增量按蓝图接入 **R3.3a 有界 HTTPS/TLS 库组件**：明确 CA 与主机名验证、统一 deadline、
-实时取消、独立发送/读取观察，并继续使用原 HTTP/SSE 严格解码器。
-[实施契约](docs/implementation/R3-https-transport.md)、[实际验证](docs/reports/r3-https-transport-validation.md)
-和[后继计划](docs/implementation/R3-controlled-live-plan.md)分别记录接口、证据与后续 Store 账本集成。
-生产 CLI 与 Store 保持 FakeModel；本地 TLS 测试不代表真实模型或付费闭环完成。
+本增量交付五个接续节点：**R3.3b 原 Store 预约/唯一发送权、不可变结算/追加用量核对、
+R3.3c 本地评测框架、R1.4 管理窗口、owned 工作区贯通容量**。
+Store 新版本为410，真实路径只由受信宿主库在明确冻结配置和独立执行授权下调用；
+`wls`/OfflineRuntime 继续提供 FakeModel 入口，默认真实开关关闭。
+本轮测试使用临时 SQLite、合成凭据与 loopback TLS；真实供应商和付费调用为0。
+[五节点范围](docs/implementation/five-node-continuation-20261027.md)、
+[当前状态](docs/STATUS.md)与[联合验证](docs/reports/five-node-validation-20261027.md)分别记录实现和实际证据。
 前一补丁的独立边界审核及其证据保留在[审核处置](docs/reviews/independent-2026-10-26.md)
 和[历史验证](docs/reports/independent-audit-validation.md)。
 
@@ -19,6 +21,16 @@ R1.3 在此基础上接通显式冻结的Worker窗口与模型回读；旧请求
 
 新增入口及证据要求见[进程结算/核对契约](docs/implementation/S1-process-settlement.md)，
 说明恢复见[epoch恢复契约](docs/implementation/S1-epoch-recovery.md)。本地控制CLI不是网络认证服务。
+
+## 本轮新增接口
+
+- `include/wls/live_model.hpp`：原 Store 的预约、一次性发送、私有原传输与结算；恢复后丢失响应的明确宿主观察；有来源的追加用量核对。
+- `context.management_history`：新请求显式冻结管理窗口；完整当前契约/未决事实保留，原历史按hash/版本受控回读，超限在预约前诊断。
+- `cleanup.owned_workspace_capacity`：新请求显式冻结文件工具容量，贯穿stage、原库存和清理；旧超限工作树保留并报告明确出口。
+- `scripts/evaluate_r3.py`：[固定任务与对照报告](docs/implementation/R3-evaluation-framework.md)，按原账本保留失败/未知/未执行样本。它不启动供应商或通用单 Agent 执行器。
+
+升级已有库先执行显式 `wls init --db FILE` 全库维护。请求限定写者不会隐式升级非空旧库；
+旧假调用、配置快照、原结算和已发布SQL保持原字节。
 
 ## R3.3a：有界 HTTPS 组件与本地集成
 
@@ -38,8 +50,8 @@ IPv4 路由；普通 threaded resolver 未提供这种路由时在联网前拒�
 ctest --test-dir build-cmake -R '^https_transport$' --output-on-failure
 ```
 
-R3.3b 必须先实现原 attempt 预约、一次性发送权、不可变原结算及追加用量核对，才能把
-本组件接入生产模型运行器；这些先行约束已写入 [ADR-080](docs/adr/080-bounded-https-transport.md)。
+R3.3b 已实现原 attempt 预约、一次性发送权、不可变原结算及追加用量核对，
+受信宿主接入仍须显式配置和独立执行授权；原约束见 [ADR-080](docs/adr/080-bounded-https-transport.md)。
 
 ## 已有离线节点：部署诊断、HTTP 编解码、SSE 回放
 
@@ -73,7 +85,7 @@ R3.3b 必须先实现原 attempt 预约、一次性发送权、不可变原结�
 
 本次[实际验证报告](docs/reports/r2a3-r3-offline-validation.md)区分本地协议夹具与真实系统观察。
 R3.3a 的库级 TLS 证据另见[传输验证](docs/reports/r3-https-transport-validation.md)。
-后续 R3.3b 接 Store attempt/发送观察和预算结算；供应商能力与获准真实小任务
+本轮 R3.3b 已接 Store attempt/发送观察和预算结算；供应商能力与获准真实小任务
 仍须独立验收。doctor 的只读前提观察也不能替代强沙箱运行、网络隔离和后代退出证明。
 
 ## 拒绝验收后的纠正（R2.1）

@@ -2,6 +2,7 @@
 #include "wls/worker_tools.hpp"
 #include "wls/structured_context.hpp"
 #include "wls/worker_history.hpp"
+#include "wls/management_context.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -323,7 +324,7 @@ Json next_workflow_action(Store& store, Role role, const std::string& request_id
             current_status == "SKIPPED" || current_status == "SUPERSEDED";
     };
     if (!terminal_request) {
-        for (const auto& question : store.questions(request_id, task_id))
+        for (const auto& question : visible_management_questions(store, role, request_id, task_id))
             if (string_at(question, "status") == "OPEN" &&
                     string_at(question, "holder") == role_name(role) &&
                     !task_terminal(string_at(question, "task_id")))
@@ -345,9 +346,10 @@ Json next_workflow_action(Store& store, Role role, const std::string& request_id
                     const auto wait = store.worker_wait(subject);
                     const auto& escalation = rejected.at("escalation");
                     if (!wait.is_null() && wait.at("status") == "WAITING") continue;
-                    const auto questions = store.questions(request_id, subject);
-                    if (std::any_of(questions.begin(), questions.end(), [](const auto& question) {
-                            return question.at("status") == "OPEN" && question.at("blocking").as_int64() != 0;
+                    const auto questions = visible_management_questions(store, Role::Dispatcher, request_id);
+                    if (std::any_of(questions.begin(), questions.end(), [&](const auto& question) {
+                            return string_at(question, "task_id") == subject && question.at("status") == "OPEN" &&
+                                question.at("blocking").as_int64() != 0;
                         })) continue;
                     // An answer does not create more attempts or an automatic second escalation.
                     if (integer_at(rejected, "rework_remaining") == 0 && !escalation.is_null()) continue;
@@ -412,6 +414,9 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
     require(binding.request_id == request_id, ErrorCode::Unauthorized, "task belongs to another request");
     const auto actor = store_.host_actor(role, request_id, binding.team_id);
     const auto template_id = task_id.empty() ? "default" : string_at(task, "template_id");
+    const auto management_policy = role == Role::Dispatcher || role == Role::TeamLead
+        ? config.management_history_policy() : Json(nullptr);
+    const auto management_view = management_policy.is_null() ? Json(nullptr) : store_.management_view(actor, binding);
     if (role == Role::Worker && !worker_tools_ && !store_.workflow_runtime_enabled())
         require(config.worker_tools(template_id).contains("note"), ErrorCode::Unauthorized, "frozen Worker template does not grant note");
     Json contract = Object{{"request", store_.request_snapshot(request_id)}, {"task", task},
@@ -420,10 +425,17 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
     if (!task_id.empty()) contract.as_object()["instruction"] = store_.instruction(task_id);
     if (store_.workflow_runtime_enabled()) {
         contract.as_object()["captured_state_version"] = integer_at(task_id.empty() ? record : task, "state_version");
-        const auto questions = store_.questions(request_id, task_id);
         const auto submission = task_id.empty() ? Json(nullptr) : store_.current_submission(task_id);
         Array visible_questions;
-        for (const auto& question : questions) visible_questions.push_back(question);
+        if (management_view.is_null()) {
+            for (const auto& question : store_.questions(request_id, task_id)) visible_questions.push_back(question);
+        } else {
+            visible_questions = management_view.at("questions").as_array();
+            contract.as_object()["management_history_policy"] = management_policy;
+            contract.as_object()["management_history_catalogs"] = management_view.at("history_catalogs");
+            contract.as_object()["unresolved_operations"] = management_view.at("unresolved_operations");
+            contract.as_object()["unresolved_attempts"] = management_view.at("unresolved_attempts");
+        }
         contract.as_object()["questions"] = std::move(visible_questions);
         contract.as_object()["submission"] = submission;
         if (role == Role::Dispatcher && model_amendment)
@@ -525,11 +537,20 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
         for (const auto& tool : history_control_declarations()) declared_tools.push_back(tool);
         contract.as_object()["worker_history_policy"] = history_policy;
     }
+    const bool management_controls = !management_policy.is_null() &&
+        (action.is_null() || string_at(action, "kind") != "experience");
+    if (management_controls) {
+        require(store_.authorized_management_tools(actor, binding).size() == 2, ErrorCode::Unauthorized,
+            "management window requires both current readback controls; policy revoked");
+        for (const auto& tool : management_history_declarations()) declared_tools.push_back(tool);
+    }
     if (role == Role::Worker)
         require(!declared_tools.empty(), ErrorCode::Unauthorized, "Worker has no implemented authorized tools");
     auto context = make_context(config, role, template_id, declared_tools, contract);
     if (!history_policy.is_null())
         context.dependencies.push_back({"worker_history_policy", "window-v1", sha256_hex(canonical_json(history_policy))});
+    if (!management_policy.is_null())
+        context.dependencies.push_back({"management_history_policy", "window-v1", sha256_hex(canonical_json(management_policy))});
     if (role == Role::Worker && worker_tools_) {
         const auto execution = worker_tools_->environment_card(actor);
         auto environment = parse_json_strict(context.environment_card);
@@ -578,7 +599,14 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
     require(role == Role::Worker || tool_feedback.empty(), ErrorCode::InvalidInput, "tool feedback belongs to the Worker context");
     const bool structured = config.context_request_format() == "structured-v2";
     std::vector<StructuredContextMessage> native_messages;
-    if (!history_policy.is_null()) {
+    if (management_controls) {
+        native_messages = management_history_messages(management_view, management_policy);
+        context.approved_rules += " Management history controls read scoped original records only. "
+            "A catalog is a hash-pinned insertion range, not a complete current-state snapshot or a management authorization. "
+            "Only completed older facts are omitted; all OPEN questions, unresolved effects/usage and the exact captured target remain complete. "
+            "Readback does not answer a question, approve a candidate, revise a plan or refresh old CAS guards. "
+            "Every query consumes an ordinary model attempt and the persistent control allowance.";
+    } else if (!history_policy.is_null()) {
         native_messages = worker_history_messages(store_.attempt_history_tail(actor,
             integer_at(history_policy, "recent_attempts")), history_policy);
         context.approved_rules += " History controls read only this Worker's immutable original evidence. "
@@ -602,8 +630,9 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
             else context.messages.push_back({"tool", canonical_json(feedback)});
         }
     }
-    request.context = structured ? compile_structured_context(context, native_messages)
-                                 : ContextCompiler().compile(context);
+    request.context = !management_policy.is_null()
+        ? compile_management_context(context, native_messages, management_policy)
+        : (structured ? compile_structured_context(context, native_messages) : ContextCompiler().compile(context));
     const auto profile = config.model_profile(role);
     require(string_at(profile.at("capabilities"), "tool_calling") == "supported",
             ErrorCode::Unsupported, "frozen model profile does not support required tool calls");
@@ -698,6 +727,12 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     require(response.tool_calls.size() == 1, ErrorCode::InvalidInput, "offline wake requires exactly one declared tool call");
     const auto& tool = response.tool_calls.front();
     const auto command = captured.attempt_id + ":" + tool.call_id;
+    if ((captured.role == Role::Dispatcher || captured.role == Role::TeamLead) &&
+            is_management_history_control(tool.name)) {
+        require(call.workflow_action.is_null() || string_at(call.workflow_action, "kind") != "experience",
+                ErrorCode::Unauthorized, "an experience-only call cannot open general management history");
+        return execute_management_history_control(store_, call.actor, captured.binding, tool.name, tool.arguments);
+    }
     if (!call.workflow_action.is_null()) {
         const auto& target = call.workflow_action.at("target");
         if (string_at(call.workflow_action, "kind") == "amendment") {
@@ -925,7 +960,7 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
     require(tasks.size() <= 1, ErrorCode::Unsupported, "offline runner supports one task per request");
     if (store_.workflow_runtime_enabled() && !tasks.empty()) {
         const auto task_id = string_at(tasks.front(), "task_id");
-        const auto questions = store_.questions(id, task_id);
+        const auto questions = visible_management_questions(store_, Role::TeamLead, id, task_id);
         require(std::none_of(questions.begin(), questions.end(), [](const auto& question) {
                     return string_at(question, "status") == "OPEN";
                 }) && store_.current_submission(task_id).is_null(), ErrorCode::NotReady,

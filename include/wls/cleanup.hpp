@@ -31,6 +31,8 @@ Json allocation_parent_identity(const std::filesystem::path& parent);
 Json stage_owned_workspace(const Json& intent);
 Json publish_owned_workspace(const Json& resource);
 Json inspect_owned_workspace(const Json& resource);
+// An explicit owned-capacity-v1 intent further narrows the effective limits and
+// binds its policy into the inventory. It never widens these legacy hard caps.
 Json inventory_owned_workspace(const Json& resource, CleanupLimits limits = {});
 
 // Each bounded pass preflights ALL surviving entries before the first unlink.

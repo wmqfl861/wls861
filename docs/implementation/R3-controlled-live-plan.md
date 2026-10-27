@@ -2,7 +2,9 @@
 
 本文是各节点的开发计划与验收契约，不是测试通过记录。R3.3a 的实现契约已另列于
 [HTTPS 组件](R3-https-transport.md)，实际执行证据见[传输报告](../reports/r3-https-transport-validation.md)；
-R3.3b/c 与下文长任务前置继续待实现/验收。当前能力见
+0.9.0-r3.3b已接入原Store发送/结算/核对和两项新冻结长任务策略；R3.3c的
+[本地评测框架](R3-evaluation-framework.md)已实现，真实供应商和单Agent质量执行仍待独立验收。
+本轮五节点的限定范围见[接续记录](five-node-continuation-20261027.md)，当前能力见
 [STATUS](../STATUS.md)，现有离线边界见 [R3.1/R3.2](R3-offline-responses.md)；
 原 Store 的[请求恢复](S1-request-recovery.md)、[容量窗口](S1-capacity-windows.md)
 和[不可变交付](S1-acceptance-delivery.md)继续适用。
@@ -10,7 +12,7 @@ R3.3b/c 与下文长任务前置继续待实现/验收。当前能力见
 ## 1. 拆分原因与依赖
 
 现有协议组件能编码请求和回放响应，尚不能证明实际请求已发送、供应商已接收或用量已结清。
-Store 目前只准入 FakeModel；已有结算记录只允许原完整指纹重放，未知用量继续保留预留并
+在本轮之前Store只准入FakeModel；原结算记录仍只允许原完整指纹重放，未知用量继续保留预留并
 阻止要求完整账目的收尾。开放真实网络前必须同时解决准入、发送事实和事后用量核对，
 不能通过修改原响应、把 null 写成 0 或单独提供可绕过 Store 的 transport 入口解决。
 

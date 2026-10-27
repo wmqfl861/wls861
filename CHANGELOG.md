@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0-r3.3b — original live ledger, evaluation, management and workspace capacity
+
+- Add Store 409/410 migrations for original live identity, immutable one-time send claims, private transport observations, immutable settlements and append-only usage reconciliation. Preserve old SQL and fake records.
+- Add explicit recovered-unobserved settlement and late evidence retention without retries or renewed business authority; reconstruct original budgets from usage projections.
+- Add opt-in frozen management windows with original hash/version-bound readback, current facts preserved and pre-reservation capacity diagnostics.
+- Add opt-in owned workspace capacity across writes, temporary stages, immutable inventory and cleanup; preserve legacy overflow with an explicit retained-capacity result.
+- Add the fixed five-task paired evaluation plan/report framework over original local Store evidence; retain failed, unknown and unexecuted cells. Real provider quality/cost execution remains unperformed.
+- Keep CLI fake-only, production calls disabled by default, external profiles and independent host network authorization. Current actual tests are recorded separately in the five-node validation report.
+
 ## 0.8.7-r3.3a — bounded HTTPS transport and local TLS integration
 
 - Add a libcurl multi HTTPS component that revalidates the exact original profile/request/encoding, uses explicit trust bytes, and retains immutable identity and separate encoding/transport hashes.

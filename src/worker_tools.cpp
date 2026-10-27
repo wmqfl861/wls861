@@ -1,6 +1,7 @@
 #include "wls/worker_tools.hpp"
 #include "wls/process_evidence.hpp"
 #include "wls/offline_runtime.hpp"
+#include "wls/owned_capacity.hpp"
 
 #include <unistd.h>
 
@@ -94,15 +95,21 @@ std::uint64_t memory_bytes(const std::string& text) {
     require(value <= std::numeric_limits<std::uint64_t>::max() / multiplier, ErrorCode::Corrupt, "memory size overflow");
     return value * multiplier;
 }
-Json limits_snapshot() {
-    const WorkspaceLimits limits;
-    return Object{{"max_file_bytes", limits.max_file_bytes}, {"max_total_bytes", limits.max_total_bytes},
+Json limits_snapshot(const Json& capacity) {
+    const auto limits = owned_workspace_limits(capacity);
+    Object result{{"max_file_bytes", limits.max_file_bytes}, {"max_total_bytes", limits.max_total_bytes},
         {"max_read_bytes", limits.max_read_bytes}, {"max_write_bytes", limits.max_write_bytes},
         {"max_entries", limits.max_entries}, {"max_list_entries", limits.max_list_entries},
         {"max_search_files", limits.max_search_files}, {"max_search_bytes", limits.max_search_bytes},
         {"max_search_matches", limits.max_search_matches}, {"max_path_bytes", limits.max_path_bytes},
         {"max_depth", limits.max_depth}, {"tool_write_bytes", 65536}, {"tool_read_page_bytes", 65536},
         {"tool_list_page_entries", 256}, {"tool_search_matches", 100}, {"tool_schema_version", "wls-worker-tools-v1"}};
+    if (!capacity.is_null()) {
+        result["max_inventory_bytes"] = limits.max_inventory_bytes;
+        result["inventory_root_budget_bytes"] = owned_inventory_root_budget;
+        result["inventory_stage_budget_bytes"] = owned_inventory_stage_budget;
+    }
+    return result;
 }
 // All WorkerTools instances sharing a writer use the same cancellation source.
 // A Store's process-wide writer lease prevents a second Store for this database.
@@ -236,13 +243,19 @@ SandboxPolicy worker_sandbox_policy(const FrozenRequestConfig& config, std::stri
 Json worker_execution_policy(const FrozenRequestConfig& config, std::string_view template_id, const SandboxPolicy& policy) {
     Array files;
     for (const auto& item : policy.runtime_files) files.push_back(Object{{"source", item.source.string()}, {"destination", item.destination}, {"sha256", item.expected_sha256}});
-    return Object{{"version", "wls-worker-execution-v1"}, {"config_snapshot_sha256", config.sha256()}, {"template_id", template_id},
-        {"workspace_limits", limits_snapshot()}, {"network", "none"}, {"process_isolation", "strong"},
+    const auto capacity = owned_workspace_capacity_policy(config.json());
+    Object result{{"version", "wls-worker-execution-v1"}, {"config_snapshot_sha256", config.sha256()}, {"template_id", template_id},
+        {"workspace_limits", limits_snapshot(capacity)}, {"network", "none"}, {"process_isolation", "strong"},
         {"bwrap_path", policy.bwrap_path.string()}, {"bwrap_sha256", policy.expected_bwrap_sha256},
         {"cgroup_root", policy.cgroup_root.string()}, {"runtime_files", files},
         {"memory_max_bytes", policy.memory_max_bytes}, {"pids_max", policy.pids_max}, {"cpu_quota_us", policy.cpu_quota_us},
         {"cpu_period_us", policy.cpu_period_us}, {"max_timeout_ms", policy.max_timeout.count()},
         {"cleanup_timeout_ms", policy.cleanup_timeout.count()}, {"max_output_bytes", policy.max_output_bytes}};
+    if (!capacity.is_null()) {
+        result["owned_workspace_capacity"] = capacity;
+        result["business_effect_scope"] = "file-tools-only";
+    }
+    return result;
 }
 
 WorkerTools::WorkerTools(Store& store, const std::filesystem::path& root, Json manifest, bool read_only)
@@ -267,6 +280,9 @@ void WorkerTools::bind(const StoreActor& actor) {
     check_actor(actor);
     const auto identity = workspace_.root_identity();
     const auto config = restore_request_config(store_.request(actor.request_id));
+    const auto capacity = owned_workspace_capacity_policy(config.json());
+    verify_owned_capacity(actor, capacity, identity);
+    workspace_.bind_limits(owned_workspace_limits(capacity));
     const auto template_id = field(store_.task(actor.task_id), "template_id");
     const auto policy = worker_execution_policy(config, template_id, policy_for(actor));
     if (!read_only_) static_cast<void>(store_.bind_workspace(actor.team_id, field(identity, "path"),
@@ -282,15 +298,39 @@ void WorkerTools::verify_workspace(const StoreActor& actor) const {
     require(stored.at("canonical_path") == identity.at("path") && stored.at("device") == identity.at("device") && stored.at("inode") == identity.at("inode"),
             ErrorCode::Conflict, "workspace path or directory identity changed");
     const auto config = restore_request_config(store_.request(actor.request_id));
+    const auto capacity = owned_workspace_capacity_policy(config.json());
+    verify_owned_capacity(actor, capacity, identity);
+    require(workspace_.limits() == owned_workspace_limits(capacity), ErrorCode::Conflict,
+            "workspace limits do not match the request's frozen capacity; bind before tool use");
     const auto policy = worker_execution_policy(config, field(store_.task(actor.task_id), "template_id"), policy_for(actor));
     require(stored.at("execution_policy") == policy, ErrorCode::Conflict, "team execution policy changed; explicit migration is required");
+}
+
+void WorkerTools::verify_owned_capacity(const StoreActor& actor, const Json& capacity, const Json& identity) const {
+    if (capacity.is_null()) return;
+    std::optional<Json> owned;
+    for (const auto& resource : store_.active_owned_workspaces(actor.request_id)) {
+        if (resource.at("team_id") != Json(actor.team_id)) continue;
+        require(!owned, ErrorCode::Conflict, "team has multiple active owned allocations");
+        owned = resource;
+    }
+    require(owned.has_value() && !owned->at("identity").is_null(), ErrorCode::Unauthorized,
+            "owned-capacity-v1 requires an original runtime-owned allocation");
+    require(owned_workspace_intent_capacity(owned->at("intent")) == capacity, ErrorCode::Conflict,
+            "owned allocation capacity differs from the frozen request");
+    const auto& original = owned->at("identity").at("workspace_identity");
+    for (const auto* key : {"path", "device", "inode"})
+        require(original.at(key) == identity.at(key), ErrorCode::Conflict,
+                "workspace does not match the original capacity-bound allocation");
 }
 
 std::vector<ContextTool> WorkerTools::declarations(const StoreActor& actor) const {
     verify_workspace(actor);
     const auto grants = store_.authorized_worker_tools(actor, store_.binding(actor.task_id));
+    const auto capacity = owned_workspace_capacity_policy(restore_request_config(store_.request(actor.request_id)).json());
     std::vector<ContextTool> result;
-    for (const auto& entry : worker_tool_registry()) if (std::find(grants.begin(), grants.end(), entry.name) != grants.end())
+    for (const auto& entry : worker_tool_registry()) if ((capacity.is_null() || entry.name != "run") &&
+        std::find(grants.begin(), grants.end(), entry.name) != grants.end())
         result.push_back({entry.name, entry.version, entry.input_schema});
     return result;
 }
@@ -298,9 +338,15 @@ std::vector<ContextTool> WorkerTools::declarations(const StoreActor& actor) cons
 Json WorkerTools::environment_card(const StoreActor& actor) const {
     verify_workspace(actor);
     const auto binding = store_.workspace(actor.team_id);
-    return Object{{"file_executor", "dirfd-openat2"}, {"process_executor", "bwrap-cgroup-v2"}, {"logical_workspace", "/work"},
+    Object result{{"file_executor", "dirfd-openat2"}, {"process_executor", "bwrap-cgroup-v2"}, {"logical_workspace", "/work"},
         {"environment_checks_executed", false}, {"process_isolation_verified", false},
         {"execution_policy_sha256", binding.at("execution_policy_sha256")}, {"note_is_business_delivery", false}};
+    if (binding.at("execution_policy").as_object().contains("owned_workspace_capacity")) {
+        result["process_executor"] = "disabled-by-owned-capacity-v1";
+        result["business_effect_scope"] = "file-tools-only";
+        result["owned_workspace_capacity"] = binding.at("execution_policy").at("owned_workspace_capacity");
+    }
+    return result;
 }
 
 void WorkerTools::rate_limit(const StoreActor& actor, const Json& allowance) {
@@ -380,6 +426,8 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
     std::optional<ProcessRequest> process_request;
     std::optional<ProcessRunner> process_runner;
     if (name == "run") {
+        require(owned_workspace_capacity_policy(restore_request_config(store_.request(actor.request_id)).json()).is_null(),
+            ErrorCode::Unauthorized, "owned-capacity-v1 permits file tools only; run cannot enforce the frozen workspace capacity");
         const auto policy = policy_for(actor);
         ProcessRequest request;
         for (const auto& value : args.at("argv").as_array()) request.argv.push_back(string(value));

@@ -4,6 +4,10 @@
 本契约描述实现边界；实际执行证据见[验证报告](../reports/r2a-allocation-validation.md)。
 它承接 [S1.6](S1-owned-cleanup.md) 的受控所有权与清理，不改变 Worker `fs_mkdir` 的业务授权。
 
+后续 [owned 贯通容量](R3-owned-workspace-capacity.md) 允许新请求显式冻结容量对象，
+保存到原 intent 并以 marker hash 绑定；v2 原创建收据同时绑定该原始内容。
+旧 intent/receipt 不回填，分配与恢复的代次、空树和无覆盖条件保持，本节点的 010 SQL 不变。
+
 ## 意图、创建收据与发布
 
 新 CLI 使用结构版本 408。新分配先保存 `PREPARED` 记录及原命令键；v2 意图包含资源、请求、团队、

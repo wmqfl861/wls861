@@ -1,31 +1,41 @@
 # WLS861 development contract
 
-Current implementation: **0.8.7-r3.3a**, blueprint **v0.4.1**. This slice adds the
-bounded HTTPS library component specified in `docs/adr/080-bounded-https-transport.md`
-and `docs/implementation/R3-https-transport.md`. Its tests use temporary loopback
-TLS services and synthetic credentials; CLI/Store/OfflineRuntime remain fake-only.
-There is no production live entry point or complete R3 model loop. Actual current
-results belong in `docs/reports/r3-https-transport-validation.md`; prior independent
-review evidence stays in `docs/reports/independent-audit-validation.md`, and the
-earlier offline slice evidence in `docs/reports/r2a3-r3-offline-validation.md`.
-Check CI for the specific commit.
-Do not turn an implemented interface or a planned test into a passing result.
+Current implementation: **0.9.0-r3.3b**, blueprint **v0.4.1**, Store **410**.
+The five-node continuation is specified in
+`docs/implementation/five-node-continuation-20261027.md`. R3.3b adds the original
+Store reservation/send/transport/settlement path and append-only usage reconciliation.
+R3.3c has a local paired-evidence evaluation framework; R1.4 management windows and
+owned workspace capacity are explicit new frozen policies. The CLI and
+OfflineRuntime remain fake-only. Default real calls and host execution authorization
+remain disabled. Tests use disposable SQLite/files and loopback TLS with synthetic
+credentials; no actual provider spending is authorized by this development task.
+Actual current results belong in `docs/reports/five-node-validation-20261027.md`.
+Earlier reports retain their original source scope. Check final-SHA CI; implemented
+interfaces and planned acceptance cases are not evidence of a completed live product.
 
-The HTTPS component must validate the original encoded request and keep explicit
-trust/route/limit bindings. Preserve TLS verification, one monotonic deadline,
-bounded cancellation, private raw evidence and the separate safe summary. A local
-upload count is not provider receipt or billing proof. Do not enable ambient
-proxy/redirect/netrc/key logging or threaded DNS waits outside the cancellation
-boundary. R3.3b must add original Store admission, one-time send authority and
-immutable settlement plus append-only usage reconciliation before a live adapter
-can be enabled. Its design types are not implemented Store methods or migrations.
+Preserve the R3.3a transport contract: exact original encoding, explicit trust/route,
+one monotonic deadline, bounded cancellation, private raw evidence and separate safe
+summaries. Preserve original Store attempts and settlements, immutable unique send
+claims, explicit host observations after response loss, and independently versioned
+usage projections. Missing observations and zero-sized unknown reservations remain
+unknown. Reconciliation cannot restore business authority, dispatch tools, erase
+UNKNOWN, overwrite original usage or grant another send. All new attempts consume
+original request budgets. Original fake settlements and old snapshot interpretation
+remain compatible; populated upgrades need explicit all-request maintenance.
+
+R1.4 only projects completed history under a frozen management policy. Current
+contracts, questions, UNKNOWN, captured targets and CAS bindings stay complete.
+Controls consume ordinary attempts and persistent query limits. New owned capacity
+is file-tools-only and must cover temporary stages and inventory encoding; it never
+expands deletion authority or silently narrows existing requests. A retained oversized
+legacy tree is an explicit capacity exit, not a completed cleanup.
 
 Read ADR-079 for this follow-up: inspect runtime sources and shared configuration/input files before a read-mode open,
 prove EOF within actual read budgets before reporting complete file identity,
 preserve Workspace-accepted UTF-8 names through owned cleanup without relaxing
 resource identifiers or deletion authority, keep default SSE obfuscation outside
 semantic output, and validate CLI argv before Store effects with bounded error
-reporting. R3.3b/c and long-task prerequisites are specified in
+reporting. The original R3.3b/c and long-task prerequisites are specified in
 `docs/implementation/R3-controlled-live-plan.md`; transport alone cannot open a
 live path. Additional usage evidence must not rewrite original settlements or
 restore old business authority. CLI can serve S1 acceptance; daemon/API stay later.
@@ -111,8 +121,8 @@ max_paid_retries=0. Preserve the original structured-v2 host tuple, raw bytes,
 separate local/wire fingerprints and nullable usage; never retag a FakeModel
 reservation as real protocol evidence. Schemas and decoded Completed do not grant
 business authority. Partial streams, cancellation, deadline and protocol errors
-must not release partial tools. R3.3 transport plus original Store admission,
-attempt and settlement integration, and an approved small real loop remain open.
+must not release partial tools. R3.3a/b now add transport and original Store integration. Approved real small tasks
+and provider quality/cost acceptance remain open; the codec itself grants no authority.
 
 Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
 review fixes and priority changes. Model contract/context/rework and an approved

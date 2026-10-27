@@ -1,0 +1,20 @@
+Internal ctest changing into directory: /tmp/wls861-five-validation/build-asan
+Test project /tmp/wls861-five-validation/build-asan
+    Start 39: r1_management
+    Start 41: owned_capacity_runtime
+1/7 Test #41: owned_capacity_runtime ...........   Passed   44.56 sec
+    Start 47: r3_evaluation
+2/7 Test #47: r3_evaluation ....................   Passed   38.06 sec
+    Start 40: owned_capacity
+3/7 Test #40: owned_capacity ...................   Passed   16.24 sec
+    Start 46: live_model_store_tls
+4/7 Test #46: live_model_store_tls .............   Passed   14.64 sec
+    Start 42: live_model_store
+5/7 Test #42: live_model_store .................   Passed    7.64 sec
+    Start 10: config_loader
+6/7 Test #10: config_loader ....................   Passed    1.60 sec
+7/7 Test #39: r1_management ....................   Passed  167.49 sec
+
+100% tests passed, 0 tests failed out of 7
+
+Total Test time (real) = 167.50 sec

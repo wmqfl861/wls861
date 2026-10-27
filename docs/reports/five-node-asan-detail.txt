@@ -1,0 +1,230 @@
+Start testing: Oct 26 21:48 EDT
+----------------------------------------------------------
+41/70 Testing: owned_capacity_runtime
+41/70 Test: owned_capacity_runtime
+Command: "/tmp/wls861-five-validation/build-asan/owned_capacity_runtime_tests"
+Directory: /tmp/wls861-five-validation/build-asan
+"owned_capacity_runtime" start time: Oct 26 21:48 EDT
+Output:
+----------------------------------------------------------
+PASS allocation and real Worker file tools share frozen capacity
+PASS run is refused before operation preparation or filesystem effects
+PASS configuration changes only new request capacity
+PASS invalid new policy has no Store or directory effects
+PASS prepared v2 allocation recovery retains original capacity
+PASS partial cleanup and reopen keep original inventory and frozen limits
+PASS legacy SQLite inventory and snapshot never acquire new policy
+PASS legacy over-capacity tree returns explicit retention without cleanup commit
+PASS host overflow cannot expand new cleanup authority
+PASS Store rejects capacity-retagged inventory before deletion claim
+PASS replaced inode after inventory is retained across reopen
+PASS SIGKILL after unlink reuses original SQLite inventory
+PASS failed inventory transaction leaves the complete tree
+RESULT 13 passed, 0 failed
+<end of output>
+Test time =  44.56 sec
+----------------------------------------------------------
+Test Passed.
+"owned_capacity_runtime" end time: Oct 26 21:49 EDT
+"owned_capacity_runtime" time elapsed: 00:00:44
+----------------------------------------------------------
+
+47/70 Testing: r3_evaluation
+47/70 Test: r3_evaluation
+Command: "/tmp/wls861-r33a-venv/bin/python" "/tmp/wls861-five-validation/source/tests/r3_evaluation_tests.py" "/tmp/wls861-five-validation/build-asan/wls" "/tmp/wls861-five-validation/source"
+Directory: /tmp/wls861-five-validation/build-asan
+"r3_evaluation" start time: Oct 26 21:49 EDT
+Output:
+----------------------------------------------------------
+test_budget_disagreement_is_visible_as_invalid_evidence (__main__.Evaluation.test_budget_disagreement_is_visible_as_invalid_evidence) ... ok
+test_cancelled_amendments_do_not_satisfy_update_and_keep (__main__.Evaluation.test_cancelled_amendments_do_not_satisfy_update_and_keep) ... ok
+test_changed_budget_condition_is_not_comparable (__main__.Evaluation.test_changed_budget_condition_is_not_comparable) ... ok
+test_changed_materials_invalid_and_all_other_cells_retained (__main__.Evaluation.test_changed_materials_invalid_and_all_other_cells_retained) ... ok
+test_confirmed_original_delivery_passes_fixed_evidence_rubric (__main__.Evaluation.test_confirmed_original_delivery_passes_fixed_evidence_rubric) ... ok
+test_deadline_exhaustion_is_reported_as_failure (__main__.Evaluation.test_deadline_exhaustion_is_reported_as_failure) ... ok
+test_duplicate_cells_and_request_reuse_refuse (__main__.Evaluation.test_duplicate_cells_and_request_reuse_refuse) ... ok
+test_failed_model_attempt_remains_in_report (__main__.Evaluation.test_failed_model_attempt_remains_in_report) ... ok
+test_hard_link_does_not_allow_reusing_the_same_request (__main__.Evaluation.test_hard_link_does_not_allow_reusing_the_same_request) ... ok
+test_missing_database_is_retained_as_invalid_cell (__main__.Evaluation.test_missing_database_is_retained_as_invalid_cell) ... ok
+test_multi_role_run_cannot_be_called_single_agent (__main__.Evaluation.test_multi_role_run_cannot_be_called_single_agent) ... ok
+test_multiple_worker_principals_cannot_be_a_single_agent (__main__.Evaluation.test_multiple_worker_principals_cannot_be_a_single_agent) ... ok
+test_nonregular_and_duplicate_json_inputs_refuse (__main__.Evaluation.test_nonregular_and_duplicate_json_inputs_refuse) ... ok
+test_original_ledger_counts_and_missing_baseline_remain_visible (__main__.Evaluation.test_original_ledger_counts_and_missing_baseline_remain_visible) ... ok
+test_original_rejection_correction_and_same_task_acceptance_pass (__main__.Evaluation.test_original_rejection_correction_and_same_task_acceptance_pass) ... ok
+test_plan_fixes_five_tasks_and_ten_missing_cells (__main__.Evaluation.test_plan_fixes_five_tasks_and_ten_missing_cells) ... ok
+test_plan_is_required_before_attempts (__main__.Evaluation.test_plan_is_required_before_attempts) ... ok
+test_plan_mutation_and_rehashed_rubric_mutation_refuse (__main__.Evaluation.test_plan_mutation_and_rehashed_rubric_mutation_refuse) ... ok
+test_query_byte_bound_stops_before_fetching_the_complete_result (__main__.Evaluation.test_query_byte_bound_stops_before_fetching_the_complete_result) ... ok
+test_reporting_preserves_all_original_database_rows (__main__.Evaluation.test_reporting_preserves_all_original_database_rows) ... ok
+test_rework_counter_without_original_rejection_is_not_success (__main__.Evaluation.test_rework_counter_without_original_rejection_is_not_success) ... ok
+test_synthetic_evidence_cannot_claim_provider (__main__.Evaluation.test_synthetic_evidence_cannot_claim_provider) ... ok
+test_unknown_cost_is_not_zero_or_dropped (__main__.Evaluation.test_unknown_cost_is_not_zero_or_dropped) ... ok
+
+----------------------------------------------------------------------
+Ran 23 tests in 37.985s
+
+OK
+<end of output>
+Test time =  38.06 sec
+----------------------------------------------------------
+Test Passed.
+"r3_evaluation" end time: Oct 26 21:49 EDT
+"r3_evaluation" time elapsed: 00:00:38
+----------------------------------------------------------
+
+40/70 Testing: owned_capacity
+40/70 Test: owned_capacity
+Command: "/tmp/wls861-five-validation/build-asan/owned_capacity_tests"
+Directory: /tmp/wls861-five-validation/build-asan
+"owned_capacity" start time: Oct 26 21:49 EDT
+Output:
+----------------------------------------------------------
+PASS legacy 4097-entry legal tree reproduces cleanup gap
+PASS 4095-entry boundary rejects extra effects and completes cleanup
+PASS exact total-byte boundary rejects writes and patches before effects
+PASS exact encoded inventory budget counts escaped names
+PASS SIGKILL after replacement stage sync remains cleanup-bounded
+PASS long parent cannot create an unrepresentable stage path
+PASS partial pass resumes only the original immutable inventory
+PASS replacement identity is refused even within capacity
+PASS frozen policy and bound Workspace limits cannot widen
+PASS legacy inventory keeps exact bytes across replay
+PASS new policy never expands cleanup hard limits
+RESULT 11 passed, 0 failed
+<end of output>
+Test time =  16.24 sec
+----------------------------------------------------------
+Test Passed.
+"owned_capacity" end time: Oct 26 21:50 EDT
+"owned_capacity" time elapsed: 00:00:16
+----------------------------------------------------------
+
+46/70 Testing: live_model_store_tls
+46/70 Test: live_model_store_tls
+Command: "/tmp/wls861-r33a-venv/bin/python" "/tmp/wls861-five-validation/source/tests/test_live_model_store.py" "/tmp/wls861-five-validation/build-asan/live_model_store_driver" "/tmp/wls861-five-validation/source"
+Directory: /tmp/wls861-five-validation/build-asan
+"live_model_store_tls" start time: Oct 26 21:50 EDT
+Output:
+----------------------------------------------------------
+Live Store loopback UID=65534 effective_umask=0002
+test_actual_sigkill_at_five_boundaries_never_resends (__main__.LiveStore.test_actual_sigkill_at_five_boundaries_never_resends) ... ok
+test_complete_original_store_path_and_exact_replay (__main__.LiveStore.test_complete_original_store_path_and_exact_replay) ... ok
+test_disabled_or_failed_admission_has_zero_network_and_budget_effect (__main__.LiveStore.test_disabled_or_failed_admission_has_zero_network_and_budget_effect) ... ok
+test_effective_live_capacity_can_persist_actual_limit_observation (__main__.LiveStore.test_effective_live_capacity_can_persist_actual_limit_observation) ... ok
+test_http_429_and_500_never_automatically_retry (__main__.LiveStore.test_http_429_and_500_never_automatically_retry) ... ok
+test_large_escaped_valid_output_fits_original_settlement_event (__main__.LiveStore.test_large_escaped_valid_output_fits_original_settlement_event) ... ok
+test_late_complete_response_keeps_original_identity_after_all_fences (__main__.LiveStore.test_late_complete_response_keeps_original_identity_after_all_fences) ... ok
+test_partial_response_deadline_preserves_unknown_and_no_tools (__main__.LiveStore.test_partial_response_deadline_preserves_unknown_and_no_tools) ... ok
+test_private_echo_never_enters_safe_query_or_events (__main__.LiveStore.test_private_echo_never_enters_safe_query_or_events) ... ok
+test_sse_tool_terminal_is_original_data_without_tool_dispatch (__main__.LiveStore.test_sse_tool_terminal_is_original_data_without_tool_dispatch) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 14.573s
+
+OK
+<end of output>
+Test time =  14.64 sec
+----------------------------------------------------------
+Test Passed.
+"live_model_store_tls" end time: Oct 26 21:50 EDT
+"live_model_store_tls" time elapsed: 00:00:14
+----------------------------------------------------------
+
+42/70 Testing: live_model_store
+42/70 Test: live_model_store
+Command: "/tmp/wls861-five-validation/build-asan/live_model_store_tests"
+Directory: /tmp/wls861-five-validation/build-asan
+"live_model_store" start time: Oct 26 21:50 EDT
+Output:
+----------------------------------------------------------
+PASS disabled, credential authorization and full frozen envelope reject before reservation
+PASS live profile capacity rejects impossible durable evidence before admission
+PASS original encoding/options CAS and concurrent one-time durable send claim
+PASS reservation and send-claim faults roll back original budget and authority
+PASS private observation and immutable original settlement faults are atomic
+PASS partial usage, exact replay, version conflict and dimension completion
+PASS known zero balances retain explicit unknown cache dimensions
+PASS contradiction preserves known facts and actual excess cost stops paid admission
+PASS reconciliation faults roll back all projections and source bytes stay private
+PASS recovery-only missing response settlement keeps original identity and never resends
+PASS reservation-only recovery requires explicit no-dispatch proof and original null settlement
+PASS terminal scoped reconciliation cannot alter sibling or restore business
+PASS explicit migration preserves original fake snapshots, attempts, settlement and budget
+PASS policy and cross-request identity are rechecked before first send
+PASS host verifier, original settlement, Root role and evidence kind remain mandatory
+RESULT 15 passed, 0 failed
+<end of output>
+Test time =   7.64 sec
+----------------------------------------------------------
+Test Passed.
+"live_model_store" end time: Oct 26 21:50 EDT
+"live_model_store" time elapsed: 00:00:07
+----------------------------------------------------------
+
+10/70 Testing: config_loader
+10/70 Test: config_loader
+Command: "/tmp/wls861-five-validation/build-asan/config_loader_tests"
+Directory: /tmp/wls861-five-validation/build-asan
+"config_loader" start time: Oct 26 21:50 EDT
+Output:
+----------------------------------------------------------
+PASS configuration sample loads with field provenance and literal environment paths
+PASS role fields resolve independently from frozen Root
+PASS loaded configuration and restored requests ignore later disk changes
+PASS snapshot fingerprints are independent of checkout location
+PASS snapshot integrity checks dependencies and recomputed role bindings
+PASS strict YAML rejects ambiguous strings duplicate keys anchors and extra documents
+PASS scalar types unknown models and unsupported reasoning reject
+PASS control amendment and review capacity policies remain mandatory
+PASS cleanup opt-in is frozen and requires separate execution guards
+PASS unimplemented real calls memory and paid retries reject
+PASS budget durability and explicit weak isolation policies validate
+PASS template references reject traversal and file or directory symlinks
+PASS configuration parsing and frozen payload have explicit capacity bounds
+PASS template dispatch requires a host registered deterministic validator
+PASS environment check commands are data and never execute on load or restore
+PASS size and time validators preserve the exact ASCII grammar without regex
+PASS validated but unenforced settings are explicit and do not change frozen config
+PASS unknown functions capabilities roles and tools reject
+PASS configuration FIFO is rejected before any observable open
+PASS management and owned capacity policies preserve old frozen semantics
+RESULT 20 passed, 0 failed
+<end of output>
+Test time =   1.60 sec
+----------------------------------------------------------
+Test Passed.
+"config_loader" end time: Oct 26 21:50 EDT
+"config_loader" time elapsed: 00:00:01
+----------------------------------------------------------
+
+39/70 Testing: r1_management
+39/70 Test: r1_management
+Command: "/tmp/wls861-five-validation/build-asan/r1_management_tests"
+Directory: /tmp/wls861-five-validation/build-asan
+"r1_management" start time: Oct 26 21:48 EDT
+Output:
+----------------------------------------------------------
+PASS management policy is explicit frozen and legacy-compatible
+PASS 130 management turns cross restart with exact original readback
+PASS legacy full management history still stops explicitly
+PASS exact management query replay keeps receipt and budget
+PASS management reader scope hash version and epoch guards
+PASS all open UNKNOWN and missing original facts stay pinned
+PASS full current contract overflow has zero new reservations
+PASS current policy fences new and captured management reads
+PASS failed read queries consume persistent cross-restart allowance
+PASS policy change during read refuses original bytes
+PASS AMEND and independent old task CAS refuse stale decisions
+PASS event pump readback keeps pending target across restart
+PASS captured candidate files stay complete through AMEND
+PASS live cache unknown and reconciliation preserve original management facts
+RESULT 14 passed, 0 failed
+<end of output>
+Test time = 167.49 sec
+----------------------------------------------------------
+Test Passed.
+"r1_management" end time: Oct 26 21:51 EDT
+"r1_management" time elapsed: 00:02:47
+----------------------------------------------------------
+
+End testing: Oct 26 21:51 EDT

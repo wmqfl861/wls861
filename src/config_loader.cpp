@@ -1,5 +1,7 @@
 #include "wls/config_loader.hpp"
 #include "wls/capacity.hpp"
+#include "wls/live_model.hpp"
+#include "wls/owned_capacity.hpp"
 
 #include <yaml.h>
 
@@ -465,12 +467,15 @@ CapabilityRegistry validate_models(const Json& value) {
         const auto where = child("system.models", name);
         const auto& profile = item.value();
         fields(profile, where, {{"adapter", 's'}, {"model", 's'}, {"capabilities", '-'},
-                               {"adapter_version", 's'}, {"protocol", 's'}});
-        if (string_value(required(profile, "adapter", where), where) != "fake") unsupported(where, "only the fake adapter is implemented in this increment");
+                               {"adapter_version", 's'}, {"protocol", 's'}, {"responses", '-'}}, {"responses"});
+        const auto adapter = string_value(required(profile, "adapter", where), where);
+        if (adapter != "fake" && adapter != "openai-responses") unsupported(where, "unknown model adapter");
+        if (adapter == "openai-responses") (void)live_model_settings_from_json(profile, name);
+        else if (optional(profile, "responses")) invalid(where, "fake profiles cannot carry live provider settings");
         if (string_value(required(profile, "adapter_version", where), where) != "1") {
-            unsupported(where, "unknown fake adapter version");
+            unsupported(where, "unknown model adapter version");
         }
-        if (string_value(required(profile, "protocol", where), where) != "fake-v1") {
+        if (adapter == "fake" && string_value(required(profile, "protocol", where), where) != "fake-v1") {
             unsupported(where, "unknown fake protocol");
         }
         const auto& capabilities = required(profile, "capabilities", where);
@@ -482,7 +487,7 @@ CapabilityRegistry validate_models(const Json& value) {
             const auto status = string_value(required(capabilities, key, cap_where), child(cap_where, key));
             if (status != "supported" && status != "unsupported" && status != "unknown") invalid(child(cap_where, key), "expected supported, unsupported, or unknown");
         }
-        if (string_value(required(capabilities, "streaming", cap_where), child(cap_where, "streaming")) != "unsupported") {
+        if (adapter == "fake" && string_value(required(capabilities, "streaming", cap_where), child(cap_where, "streaming")) != "unsupported") {
             unsupported(child(cap_where, "streaming"), "the fake adapter has no streaming transport");
         }
         const auto modes = strings(required(capabilities, "reasoning_modes", cap_where), child(cap_where, "reasoning_modes"), 16);
@@ -515,7 +520,12 @@ CapabilityRegistry validate_system(const Json& system) {
     const auto& calls = required(system, "model_calls", "system");
     fields(calls, "system.model_calls", {{"real_calls_enabled", 'b'}, {"max_paid_retries", 'z'},
         {"charge_all_attempts", 'b'}, {"require_fresh_reservation_for_retry", 'b'}, {"unknown_cost_policy", 's'}});
-    if (bool_value(required(calls, "real_calls_enabled", "system.model_calls"), "system.model_calls.real_calls_enabled")) unsupported("system.model_calls", "real model calls are not implemented or authorized by configuration loading");
+    if (bool_value(required(calls, "real_calls_enabled", "system.model_calls"), "system.model_calls.real_calls_enabled")) {
+        bool has_live_profile = false;
+        for (const auto& entry : required(system, "models", "system").as_object())
+            if (entry.value().at("adapter").as_string() == "openai-responses") has_live_profile = true;
+        if (!has_live_profile) unsupported("system.model_calls", "real calls require a complete explicit responses profile and independent host authorization");
+    }
     if (integer_value(required(calls, "max_paid_retries", "system.model_calls"), "system.model_calls.max_paid_retries", 0) != 0) unsupported("system.model_calls", "paid retries are not implemented; max_paid_retries must remain zero");
     flag(calls, "charge_all_attempts", true, "system.model_calls");
     flag(calls, "require_fresh_reservation_for_retry", true, "system.model_calls");
@@ -584,7 +594,8 @@ CapabilityRegistry validate_system(const Json& system) {
     const auto& context = required(system, "context", "system");
     fields(context, "system.context", {{"compaction_at_fraction", 'n'}, {"snapshot_decision_log_entries", 'i'},
         {"schema_retry_max", 'z'}, {"cache_dependencies", 'a'}, {"policy_updates_use_runtime_gate", 'b'},
-        {"request_format", 's'}, {"worker_history", '-'}}, {"request_format", "worker_history"});
+        {"request_format", 's'}, {"worker_history", '-'}, {"management_history", '-'}},
+        {"request_format", "worker_history", "management_history"});
     if (const auto* format = optional(context, "request_format")) {
         const auto name = string_value(*format, "system.context.request_format");
         if (name != "framed-v1" && name != "structured-v2")
@@ -599,6 +610,21 @@ CapabilityRegistry validate_system(const Json& system) {
         const auto recent = integer_value(required(*history, "recent_attempts", "worker_history"), "worker_history.recent_attempts", 1, 8);
         const auto bytes = integer_value(required(*history, "inline_bytes", "worker_history"), "worker_history.inline_bytes", 32768, 65536);
         if (recent * bytes > 196608) invalid("system.context.worker_history", "combined inline history exceeds 192 KiB");
+    }
+    if (const auto* history = optional(context, "management_history")) {
+        const auto* format = optional(context, "request_format");
+        if (!format || string_value(*format, "system.context.request_format") != "structured-v2")
+            invalid("system.context.management_history", "window-v1 requires explicit structured-v2");
+        fields(*history, "system.context.management_history", {{"mode", 's'}, {"recent_attempts", 'i'},
+            {"inline_bytes", 'i'}, {"max_context_bytes", 'i'}});
+        literal(*history, "mode", "window-v1", "system.context.management_history");
+        const auto recent = integer_value(required(*history, "recent_attempts", "management_history"),
+            "management_history.recent_attempts", 1, 4);
+        const auto bytes = integer_value(required(*history, "inline_bytes", "management_history"),
+            "management_history.inline_bytes", 32768, 65536);
+        if (recent * bytes > 131072) invalid("system.context.management_history", "combined inline history exceeds 128 KiB");
+        (void)integer_value(required(*history, "max_context_bytes", "management_history"),
+            "management_history.max_context_bytes", 131072, 1048576);
     }
     (void)number_value(required(context, "compaction_at_fraction", "system.context"), "system.context.compaction_at_fraction", 0.1, 0.95);
     flag(context, "policy_updates_use_runtime_gate", true, "system.context");
@@ -628,7 +654,10 @@ CapabilityRegistry validate_system(const Json& system) {
     const auto& cleanup = required(system, "cleanup", "system");
     fields(cleanup, "system.cleanup", {{"enabled", 'b'}, {"policy", 's'}, {"cli_receipt_mode", 's'}, {"api_receipt_mode", 's'},
         {"receipt_ttl_days", 'i'}, {"require_all_team_experience_jobs", 'b'}, {"require_unknown_outcomes_reconciled", 'b'},
-        {"preserve_job_manifest_until_complete", 'b'}, {"resume_terminal_jobs", 'b'}, {"vacuum_weekly", 'b'}});
+        {"preserve_job_manifest_until_complete", 'b'}, {"resume_terminal_jobs", 'b'}, {"vacuum_weekly", 'b'},
+        {"owned_workspace_capacity", '-'}}, {"owned_workspace_capacity"});
+    if (const auto* policy = optional(cleanup, "owned_workspace_capacity"))
+        validate_owned_workspace_capacity_policy(*policy);
     (void)bool_value(required(cleanup, "enabled", "system.cleanup"), "system.cleanup.enabled");
     // Opt-in only; Store 407 and explicit host cleanup authorize deletion.
     literal(cleanup, "policy", "clean_runtime", "system.cleanup");
@@ -915,6 +944,12 @@ Json FrozenRequestConfig::worker_history_policy() const {
     return policy ? *policy : Json(nullptr);
 }
 
+Json FrozenRequestConfig::management_history_policy() const {
+    const auto& context = required(required(document_, "system", "snapshot"), "context", "system");
+    const auto* policy = optional(context, "management_history");
+    return policy ? *policy : Json(nullptr);
+}
+
 Json FrozenRequestConfig::runtime_support() const {
     Array deferred;
     const auto add = [&](std::string_view section, std::string_view key, std::string_view reason) {
@@ -936,7 +971,9 @@ Json FrozenRequestConfig::runtime_support() const {
     add("cleanup", "vacuum_weekly", "no periodic private-data purge or maintenance scheduler");
     return Object{{"validation_scope", "configuration_shape_references_and_policies"},
         {"execution_mode", "offline_fake"}, {"context_request_format", context_request_format()},
-        {"history_window_integrated", !worker_history_policy().is_null()}, {"worker_history_policy", worker_history_policy()}, {"real_calls_ready", false},
+        {"history_window_integrated", !worker_history_policy().is_null()}, {"worker_history_policy", worker_history_policy()},
+        {"management_window_integrated", !management_history_policy().is_null()},
+        {"management_history_policy", management_history_policy()}, {"real_calls_ready", false},
         {"all_configured_controls_enforced", false}, {"unenforced_settings", deferred}};
 }
 

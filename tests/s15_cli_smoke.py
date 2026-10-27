@@ -163,7 +163,7 @@ class AcceptanceCliSmoke(unittest.TestCase):
 
     def test_complete_acceptance_package_receipt_and_retained_closeout(self):
         request = self.accepted()
-        self.assertEqual(self.rows("PRAGMA user_version")[0]["user_version"], 408)
+        self.assertEqual(self.rows("PRAGMA user_version")[0]["user_version"], 410)
         self.assertEqual([job["status"] for job in self.jobs(request)], ["DONE"])
         delivery = self.publish(request)
         self.assert_bundle_bytes(delivery)

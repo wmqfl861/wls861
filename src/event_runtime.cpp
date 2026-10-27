@@ -1,5 +1,6 @@
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
+#include "wls/management_context.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -677,7 +678,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                         binding = store_.binding(task_id);
                         const bool current_order = instruction_current(store_.instruction(task_id), binding);
                         const auto current_submission = store_.current_submission(task_id);
-                        const auto questions = store_.questions(id, task_id);
+                        const auto questions = visible_management_questions(store_, Role::TeamLead, id, task_id);
                         const bool question_pending = std::any_of(questions.begin(), questions.end(), [](const auto& question) {
                             return text(question, "status") == "OPEN";
                         });
@@ -787,7 +788,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             else block(Role::Worker, node, task_id, "submission_pending", "Worker submission awaits its captured TeamLead check");
         }
     }
-    for (const auto& question : store_.questions(id)) questions.push_back(question);
+    for (const auto& question : visible_management_questions(store_, Role::Dispatcher, id)) questions.push_back(question);
     if (static_cast<std::int64_t>(calls.size()) >= options.max_calls && !pending.empty())
         block(Role::Dispatcher, {}, {}, "call_limit", "this explicit pump reached its total call limit; remaining events stay durable");
     Object result{{"mode", "event_fake"}, {"workflow_runtime", true}, {"request_id", id},
@@ -799,6 +800,9 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         {"business_delivered", store_.acceptance_runtime_enabled() && text(final_request, "status") == "DELIVERED" &&
             text(final_request, "delivery_status") == "CONFIRMED"},
         {"environment_checks_executed", false}, {"real_model_calls", 0}};
+    if (!config.management_history_policy().is_null())
+        result["management_history"] = store_.management_view(store_.host_actor(Role::Dispatcher, id),
+            store_.request_binding(id)).at("history_catalogs");
     if (store_.acceptance_runtime_enabled()) {
         Array jobs;
         for (const auto& job : store_.experience_jobs(id)) jobs.push_back(job);

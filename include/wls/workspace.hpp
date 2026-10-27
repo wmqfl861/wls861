@@ -27,6 +27,10 @@ struct WorkspaceLimits {
     std::size_t max_search_matches{1000};
     std::size_t max_path_bytes{4096};
     std::size_t max_depth{32};
+    // Zero preserves the historical policy. owned-capacity-v1 reserves enough
+    // encoded inventory space for the complete tree and one interrupted stage.
+    std::size_t max_inventory_bytes{0};
+    bool operator==(const WorkspaceLimits&) const = default;
 };
 
 struct WorkspaceMutationResult {
@@ -58,6 +62,11 @@ public:
     Json root_identity() const;
     // The caller owns the returned descriptor. FD_CLOEXEC is always set.
     int dup_root_fd() const;
+
+    // Trusted-host binding of request-frozen bounds before tool use. Rebinding
+    // this instance must be exact; it never mutates a directory or its files.
+    void bind_limits(WorkspaceLimits limits);
+    WorkspaceLimits limits() const;
 
     // Bytes are represented losslessly by content_base64. Valid UTF-8 also has
     // a content field; otherwise content is null. sha256 identifies the complete

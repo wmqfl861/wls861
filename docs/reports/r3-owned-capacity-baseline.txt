@@ -1,0 +1,10 @@
+BASELINE=56185a48303deb1c72b2ec53d896e8c0b32055f0
+COMMAND=setpriv --reuid=65534 --regid=65534 --clear-groups g++ -std=c++20 -O0 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -I/tmp/wls-owned-capacity-validation/baseline-source/include /tmp/wls-owned-capacity-validation/baseline-source/owned_capacity_baseline_repro.cpp /tmp/wls-owned-capacity-validation/baseline-source/src/runtime_types.cpp /tmp/wls-owned-capacity-validation/baseline-source/src/workspace_posix.cpp /tmp/wls-owned-capacity-validation/baseline-source/src/cleanup_posix.cpp /tmp/wls-owned-capacity-validation/baseline-source/src/boost_json.cpp -lcrypto -pthread -o /tmp/wls-owned-capacity-validation/baseline-source/baseline-repro
+EXIT_CODE=0
+ELAPSED_SECONDS=10.008
+
+BASELINE=56185a48303deb1c72b2ec53d896e8c0b32055f0
+COMMAND=setpriv --reuid=65534 --regid=65534 --clear-groups /tmp/wls-owned-capacity-validation/baseline-source/baseline-repro
+REPRODUCED uid=65534 workspace_default_entries=20000 legal_tree_entries=4097 cleanup_default_entries=4096 inventory_error=quota deletion_performed=false
+EXIT_CODE=0
+ELAPSED_SECONDS=0.743

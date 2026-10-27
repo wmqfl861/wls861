@@ -52,7 +52,7 @@ Array Store::Impl::cleanup_blockers(const std::string& id) const {
         blockers.emplace_back("exact_delivery_receipt_missing");
     if (optional("SELECT experience_id FROM experience_jobs WHERE request_id=? AND status<>'DONE' LIMIT 1", {id})) blockers.emplace_back("experience_pending");
     if (optional("SELECT op_id FROM ops WHERE request_id=? AND status IN ('PREPARED','RUNNING','CANCEL_REQUESTED','UNKNOWN') LIMIT 1", {id})) blockers.emplace_back("unsettled_operations");
-    if (optional("SELECT attempt_id FROM call_attempts WHERE request_id=? AND (status IN ('PENDING','UNKNOWN') OR unknown_input=1 OR unknown_output=1 OR unknown_cost=1) LIMIT 1", {id})) blockers.emplace_back("unsettled_model_accounting");
+    if (has_unsettled_model(id)) blockers.emplace_back("unsettled_model_accounting");
     if (optional("SELECT resource_id FROM owned_workspaces WHERE request_id=? AND status='PREPARED' LIMIT 1", {id})) blockers.emplace_back("workspace_creation_incomplete");
     for (const auto& bound : all("SELECT w.* FROM workspace_bindings w JOIN teams t USING(team_id) WHERE t.request_id=?", {id})) {
         const auto resource = optional("SELECT * FROM owned_workspaces WHERE request_id=? AND team_id=? AND status<>'ABANDONED'", {id, bound.at("team_id")});
@@ -186,6 +186,11 @@ Json Store::prepare_owned_workspace(const StoreActor& actor, const std::string& 
     const Row marker{{"format", "wls-owned-workspace-v1"}, {"resource_id", id}, {"request_id", actor.request_id}, {"team_id", team_id}, {"nonce", new_id("nonce")}};
     Row intent{{"resource_id", id}, {"request_id", actor.request_id}, {"team_id", team_id}, {"leaf", id},
         {"parent_identity", Row{{"path", parent.at("path")}, {"device", parent.at("device")}, {"inode", parent.at("inode")}}}, {"marker", marker}};
+    const auto capacity = owned_workspace_capacity_policy(parse_json_strict(str(request, "config_snapshot"), 8 * 1024 * 1024));
+    if (!capacity.is_null()) {
+        intent["capacity_policy"] = capacity;
+        intent["marker"].as_object()["capacity_policy_sha256"] = sha256_hex(canonical_json(capacity));
+    }
     if (impl_->allocation_schema) {
         owned_generation(parent);
         intent["version"] = "owned-allocation-v2"; intent["stage_leaf"] = new_id("stage"); intent["parent_identity"] = parent;
@@ -364,6 +369,7 @@ Json Store::begin_workspace_cleanup(const StoreActor& actor, const Json& publica
         const auto id = str(row, "resource_id"); const auto current = impl_->owned_info(row); const Json* inventory = nullptr;
         for (const auto& item : inventories.as_array()) if (item.at("resource_id") == Json(id)) { require(!inventory, ErrorCode::InvalidInput, "duplicate cleanup inventory"); inventory = &item; }
         require(inventory && inventory->at("identity") == current.at("identity") && inventory->at("entries").is_array(), ErrorCode::Conflict, "cleanup inventory does not bind owned identity");
+        validate_owned_workspace_inventory_capacity(current, *inventory);
         if (!current.at("inventory").is_null()) require(current.at("inventory") == *inventory, ErrorCode::Conflict, "cleanup cannot change its frozen inventory");
         targets.emplace_back(Row{{"resource_id", id}, {"identity", current.at("identity")}, {"inventory_sha256", sha256_hex(canonical_json(*inventory))}});
     }

@@ -63,6 +63,8 @@ public:
 private:
     void check_actor(const StoreActor& actor) const;
     void verify_workspace(const StoreActor& actor) const;
+    void verify_owned_capacity(const StoreActor& actor, const Json& capacity,
+                               const Json& identity) const;
     SandboxPolicy policy_for(const StoreActor& actor) const;
     void rate_limit(const StoreActor& actor, const Json& allowance);
     Json control(const StoreActor& actor, const ExecutionBinding& binding,

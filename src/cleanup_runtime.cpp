@@ -2,6 +2,7 @@
 #include "wls/cleanup.hpp"
 #include "wls/delivery.hpp"
 #include "wls/workspace.hpp"
+#include "wls/owned_capacity.hpp"
 #include <optional>
 
 namespace wls::s1 {
@@ -89,7 +90,27 @@ Json cleanup_owned_workspaces(Store& store, const std::string& id, std::size_t l
     const auto verified = directory.verify_and_sync_existing(plan);
     auto resources = store.active_owned_workspaces(id); boost::json::array inventories;
     for (const auto& resource : resources) {
-        inventories.push_back(resource.at("inventory").is_null() ? inventory_owned_workspace(resource) : resource.at("inventory"));
+        try {
+            inventories.push_back(resource.at("inventory").is_null() ? inventory_owned_workspace(resource) : resource.at("inventory"));
+        } catch (const Error& error) {
+            if (error.code() != ErrorCode::Quota) throw;
+            // This is before begin_workspace_cleanup and before any unlink in
+            // this pass. A legacy tree is never split, adopted or silently
+            // assigned today's policy merely to make cleanup succeed.
+            auto retained = status;
+            retained.as_object()["workspace_eligible"] = false;
+            retained.at("workspace_blockers").as_array().push_back("owned_workspace_capacity_exceeded");
+            retained.at("blockers").as_array().push_back("owned_workspace_capacity_exceeded");
+            retained.as_object()["capacity_exit"] = boost::json::object{
+                {"status", "RETAINED_CAPACITY_EXCEEDED"}, {"resource_id", resource.at("resource_id")},
+                {"original_capacity_policy", owned_workspace_intent_capacity(resource.at("intent"))},
+                {"reason", error.what()}, {"inventory_committed_this_pass", false},
+                {"deletion_performed_this_pass", false},
+                {"host_action_required", "retain_or_explicitly_handle_outside_automated_cleanup"}};
+            retained.as_object()["pass_removed_entries"] = 0;
+            retained.as_object()["workspace_absence_verified_now"] = false;
+            return retained;
+        }
     }
     const auto actor = store.host_actor(Role::Root, id);
     const auto claim = store.begin_workspace_cleanup(actor, verified, inventories);

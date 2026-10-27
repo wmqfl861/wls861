@@ -1,0 +1,53 @@
+{
+  "baseline_commit": "56185a48303deb1c72b2ec53d896e8c0b32055f0",
+  "baseline_compile_seconds": 10.008,
+  "baseline_execution_seconds": 0.743,
+  "baseline_result": "REPRODUCED",
+  "build_type": "Release",
+  "caller_umask": "0002",
+  "current_component_input_sha256": {
+    "include/wls/cleanup.hpp": "dc29123bb7ba937752df672e5d30f0c2e8a1de492f86bdabe3c3ccdb2bc96b09",
+    "include/wls/owned_capacity.hpp": "efd0112a506f724bf5c0be8269aefedf2b39992481c9eec57d1850094d334d16",
+    "include/wls/worker_tools.hpp": "432f2ab527f658ffdf23f23a412678129e5e6d7b6c3d4c39df56e172cbf461a9",
+    "include/wls/workspace.hpp": "9d273d18d6692410fc55cd1266d5e1d2f31db163b3a2113792df62628f9d041f",
+    "src/cleanup_posix.cpp": "6e80144df4c1b38ef5cd3d447975d6a2c398fa490009d660fd8a832dc1b3e3ea",
+    "src/cleanup_runtime.cpp": "81a32549079ffb152b79f0ff9d8982b565aeb0f5fb9f9c2395751f7964c2e20a",
+    "src/owned_capacity.cpp": "e2d72789edd6c825e97b128c1f8280fa02941653631725063595e617f03489ab",
+    "src/store_cleanup.inc": "c0255d6582a2a2a0faae5b5a981abb818329f9674e20d256bd143f2b3b9558a5",
+    "src/worker_tools.cpp": "d4d2d563dc01c2715be7cdf64720d76a1bf71e2dcaf3888c1d9086b3dcfb68d3",
+    "src/workspace_posix.cpp": "c41cb084533bef122ee59f09cabf51ce677114b4af9be7b9b9b8cb812ea4da6c",
+    "tests/owned_capacity_runtime_tests.cpp": "ba0e8f289ac1759d094a5b002ef358c22861998be116384c00c58121029f5524",
+    "tests/owned_capacity_tests.cpp": "85f9977332adf3ae5331224d03bdd35c778c63f9e08198fe17d0dacae3a16ad6"
+  },
+  "execution_gid": 65534,
+  "execution_uid": 65534,
+  "full_build_inputs": "See five-node-validation-20261027.md for the complete final execution-input manifest and final-SHA CI.",
+  "logs_sha256": {
+    "r3-owned-capacity-baseline.txt": "39eb17a0db96c3a91772adbc5f9ff9333ba5d32b357bca96e6bb76a2dc7299eb",
+    "r3-owned-capacity-release-detail.txt": "c3ab4679a7a75af5f19b4e95e1152688f8dd332b433f62de71626e2014630ede"
+  },
+  "network_provider_calls": 0,
+  "schema_version": 1,
+  "tests": [
+    {
+      "elapsed_seconds": 4.26,
+      "failed": 0,
+      "maximum_stage_test": {
+        "business_bytes": 251658240,
+        "business_entries": 4095,
+        "inventory_content_bytes_observed": 268435456,
+        "stage_bytes": 16777216,
+        "stage_entries": 1
+      },
+      "methods_passed": 11,
+      "name": "owned_capacity"
+    },
+    {
+      "elapsed_seconds": 4.22,
+      "failed": 0,
+      "fixture_store_version": 408,
+      "methods_passed": 13,
+      "name": "owned_capacity_runtime"
+    }
+  ]
+}

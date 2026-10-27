@@ -2,10 +2,13 @@
 #include "wls/capacity.hpp"
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
+#include "wls/live_model.hpp"
+#include "wls/owned_capacity.hpp"
 
 #include <sqlite3.h>
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <charconv>
 #include <chrono>
@@ -123,6 +126,18 @@ std::string json_text(const Json& value, std::size_t maximum = 1024 * 1024) {
     // strings and finite values before their canonical bytes become durable.
     (void)parse_json_strict(encoded, maximum);
     return encoded;
+}
+ModelResponse unobserved_live_response(const ModelRequest& request, const std::string& reason) {
+    ModelResponse response;
+    response.call_id = request.call_id; response.attempt_id = request.attempt_id;
+    response.role_call_index = request.role_call_index; response.role = request.role;
+    response.binding = request.binding; response.config_snapshot_id = request.config_snapshot_id;
+    response.status = ModelResultStatus::Interrupted;
+    response.error_code = reason;
+    response.error_message = reason == "not_dispatched_after_recovery" ?
+        "Host recovery found no original durable send authority; original usage awaits explicit host reconciliation." :
+        "Host recovery found no recorded transport response; remote outcome remains unknown.";
+    return response;
 }
 Array strings(const std::vector<std::string>& values) {
     Array result;
@@ -416,7 +431,8 @@ public:
          std::string_view tools_migration_sql, std::string_view events_migration_sql,
          std::string_view workflow_migration_sql, std::string_view acceptance_migration_sql,
          std::string_view cleanup_migration_sql, StoreRecoveryScope selected_scope,
-         std::string_view allocation_migration_sql)
+         std::string_view allocation_migration_sql, std::string_view live_migration_sql,
+         std::string_view reconciliation_migration_sql)
         : mode(selected_mode), recovery_scope(std::move(selected_scope)) {
         using Kind = StoreRecoveryScope::Kind;
         require(recovery_scope.kind == Kind::AllRequests || recovery_scope.kind == Kind::OneRequest ||
@@ -435,6 +451,10 @@ public:
                 "owned cleanup migration requires the acceptance asset");
         require(allocation_migration_sql.empty() || !cleanup_migration_sql.empty(), ErrorCode::InvalidInput,
                 "owned allocation migration requires the cleanup asset");
+        require(live_migration_sql.empty() || !allocation_migration_sql.empty(), ErrorCode::InvalidInput,
+                "live model migration requires the owned allocation asset");
+        require(reconciliation_migration_sql.empty() || !live_migration_sql.empty(), ErrorCode::InvalidInput,
+                "usage reconciliation migration requires the live model asset");
         require(database_path != ":memory:", ErrorCode::InvalidInput, "Store requires a durable file path");
         const auto absolute = std::filesystem::absolute(database_path).lexically_normal();
         const auto path = (std::filesystem::canonical(absolute.parent_path()) / absolute.filename()).string();
@@ -478,11 +498,12 @@ public:
                 exec(base_sql);
                 version = number(one("PRAGMA user_version"), "user_version");
             }
-            require(version >= 401 && version <= 408, ErrorCode::Unsupported, "unknown database version; explicit migration required");
+            require(version >= 401 && version <= 410, ErrorCode::Unsupported, "unknown database version; explicit migration required");
             require(str(one("SELECT schema_version FROM contract_metadata WHERE singleton=1"), "schema_version") == "0.4.1",
                     ErrorCode::Unsupported, "unsupported base contract metadata");
             if (recovery_scope.kind != Kind::AllRequests) {
-                const auto target = !allocation_migration_sql.empty() ? 408 : !cleanup_migration_sql.empty() ? 407 : !acceptance_migration_sql.empty() ? 406 :
+                const auto target = !reconciliation_migration_sql.empty() ? 410 : !live_migration_sql.empty() ? 409 :
+                    !allocation_migration_sql.empty() ? 408 : !cleanup_migration_sql.empty() ? 407 : !acceptance_migration_sql.empty() ? 406 :
                     !workflow_migration_sql.empty() ? 405 : !events_migration_sql.empty() ? 404 :
                     !tools_migration_sql.empty() ? 403 : 402;
                 require(version >= target || !optional("SELECT request_id FROM requests LIMIT 1"),
@@ -546,6 +567,18 @@ public:
                 const auto info = one("SELECT * FROM owned_allocation_metadata WHERE singleton=1");
                 require(number(info, "store_version") == 10 && str(info, "migration_sha256") == sha256_hex(allocation_migration_sql),
                         ErrorCode::Corrupt, "owned allocation migration fingerprint mismatch");
+            }
+            if (version >= 409) {
+                require(!live_migration_sql.empty(), ErrorCode::Unsupported, "409 database requires the live model asset");
+                const auto info = one("SELECT * FROM live_model_metadata WHERE singleton=1");
+                require(number(info, "store_version") == 11 && str(info, "migration_sha256") == sha256_hex(live_migration_sql),
+                        ErrorCode::Corrupt, "live model migration fingerprint mismatch");
+            }
+            if (version >= 410) {
+                require(!reconciliation_migration_sql.empty(), ErrorCode::Unsupported, "410 database requires the usage reconciliation asset");
+                const auto info = one("SELECT * FROM usage_reconciliation_metadata WHERE singleton=1");
+                require(number(info, "store_version") == 12 && str(info, "migration_sha256") == sha256_hex(reconciliation_migration_sql),
+                        ErrorCode::Corrupt, "usage reconciliation migration fingerprint mismatch");
             }
             // Validate ownership/version before any persistent journal-mode
             // change; rejecting an unrelated database preserves its bytes.
@@ -650,6 +683,28 @@ public:
                 } catch (...) { rollback(); throw; }
             }
             allocation_schema = version >= 408;
+            if (version == 408 && !live_migration_sql.empty() && mode == StoreOpenMode::Takeover) {
+                exec("BEGIN IMMEDIATE");
+                try {
+                    exec(live_migration_sql);
+                    execute("INSERT INTO live_model_metadata VALUES (1,11,?)", {sha256_hex(live_migration_sql)});
+                    require(number(one("PRAGMA user_version"), "user_version") == 409,
+                            ErrorCode::Corrupt, "live model migration did not produce 409");
+                    exec("COMMIT"); version = 409;
+                } catch (...) { rollback(); throw; }
+            }
+            live_schema = version >= 409;
+            if (version == 409 && !reconciliation_migration_sql.empty() && mode == StoreOpenMode::Takeover) {
+                exec("BEGIN IMMEDIATE");
+                try {
+                    exec(reconciliation_migration_sql);
+                    execute("INSERT INTO usage_reconciliation_metadata VALUES (1,12,?)", {sha256_hex(reconciliation_migration_sql)});
+                    require(number(one("PRAGMA user_version"), "user_version") == 410,
+                            ErrorCode::Corrupt, "usage reconciliation migration did not produce 410");
+                    exec("COMMIT"); version = 410;
+                } catch (...) { rollback(); throw; }
+            }
+            reconciliation_schema = version >= 410;
             require(str(one("PRAGMA quick_check"), "quick_check") == "ok", ErrorCode::Corrupt, "SQLite quick_check failed");
             require(!optional("PRAGMA foreign_key_check"), ErrorCode::Corrupt, "SQLite foreign key check failed");
             if (mode == StoreOpenMode::Takeover && recovery_scope.kind == Kind::OneRequest) {
@@ -829,7 +884,7 @@ public:
         const Array args = team_id.empty() ? Array{request_id} : Array{request_id, team_id};
         require(!optional("SELECT op_id FROM ops WHERE request_id=? AND status IN ('PREPARED','RUNNING','CANCEL_REQUESTED','UNKNOWN')" + filter + " LIMIT 1", args),
                 ErrorCode::UnknownOutcome, "unsettled operation blocks acceptance or delivery");
-        require(!optional("SELECT attempt_id FROM call_attempts WHERE request_id=? AND (status IN ('PENDING','UNKNOWN') OR unknown_input=1 OR unknown_output=1 OR unknown_cost=1)" + filter + " LIMIT 1", args),
+        require(!has_unsettled_model(request_id, team_id),
                 ErrorCode::UnknownOutcome, "unsettled model attempt blocks acceptance or delivery");
     }
     Row delivery_row(const std::string& id) const {
@@ -1179,13 +1234,14 @@ public:
 #include "store_capacity.inc"
 
     void event(const std::string& request_id, const std::string& command_id,
-               const Row& command, const Json& result, std::string_view actor = "runtime") {
+               const Row& command, const Json& result, std::string_view actor = "runtime",
+               std::size_t payload_limit = 1024U * 1024U) {
         check_request_scope(request_id);
         text_field(command_id, "command_id");
         const auto type = str(command, "type");
         guard_capacity_event(request_id, command);
         execute("INSERT INTO events(event_id,request_id,type,actor,command_id,command_sha256,payload,result,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            {new_id("evt"), request_id, type, actor, command_id, sha256_hex(canonical_json(command)), json_text(command), json_text(result, 16 * 1024 * 1024), stamp()});
+            {new_id("evt"), request_id, type, actor, command_id, sha256_hex(canonical_json(command)), json_text(command, payload_limit), json_text(result, 16 * 1024 * 1024), stamp()});
         capacity_event_inserted(request_id, command);
         if (events_schema) route_event(request_id, type, command, result, sqlite3_last_insert_rowid(db));
         observe_capacity(request_id);
@@ -1613,6 +1669,15 @@ public:
     bool acceptance_schema{false};
     bool cleanup_schema{false};
     bool allocation_schema{false};
+    bool live_schema{false};
+    bool reconciliation_schema{false};
+    bool has_unsettled_model(const std::string& id, const std::string& team_id = {}) const;
+    void live_accounting_ready(const std::string& request_id, const std::string& excluding = {}) const;
+    void initialize_usage_projection(const Row& original);
+    Json settle_model_attempt(const std::string& attempt_id, const ExecutionBinding& frozen,
+        const std::string& config_hash, const std::string& outcome, const Json& usage, const Json& response,
+        bool existing_transaction = false);
+    const std::string writer_instance{new_id("writer")};
     Json owned_info(const Row& row) const;
     Row allocation_authorize(const StoreActor& actor, const std::string& id, std::int64_t expected) const;
     Row abandonment_intent(const StoreActor& actor, const std::string& id, std::int64_t expected,
@@ -1630,9 +1695,11 @@ public:
 Store::Store(const std::filesystem::path& path, std::string_view base, std::string_view migration, StoreOpenMode mode,
              std::string_view tools_migration, std::string_view events_migration,
              std::string_view workflow_migration, std::string_view acceptance_migration, std::string_view cleanup_migration,
-             StoreRecoveryScope recovery_scope, std::string_view allocation_migration)
+             StoreRecoveryScope recovery_scope, std::string_view allocation_migration,
+             std::string_view live_migration, std::string_view reconciliation_migration)
     : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration, events_migration, workflow_migration,
-                                 acceptance_migration, cleanup_migration, std::move(recovery_scope), allocation_migration)) {}
+                                 acceptance_migration, cleanup_migration, std::move(recovery_scope), allocation_migration,
+                                 live_migration, reconciliation_migration)) {}
 Store::~Store() = default;
 
 Json Store::diagnostics() const {
@@ -2629,7 +2696,7 @@ Json Store::closeout(const std::string& request_id) const {
     if (!job) blockers.emplace_back("business_not_terminal");
     if (impl_->optional("SELECT experience_id FROM experience_jobs WHERE request_id=? AND status<>'DONE' LIMIT 1", {request_id})) blockers.emplace_back("experience_pending");
     if (impl_->optional("SELECT op_id FROM ops WHERE request_id=? AND status IN ('PREPARED','RUNNING','CANCEL_REQUESTED','UNKNOWN') LIMIT 1", {request_id})) blockers.emplace_back("unsettled_operations");
-    if (impl_->optional("SELECT attempt_id FROM call_attempts WHERE request_id=? AND (status IN ('PENDING','UNKNOWN') OR unknown_input=1 OR unknown_output=1 OR unknown_cost=1) LIMIT 1", {request_id})) blockers.emplace_back("unsettled_model_accounting");
+    if (impl_->has_unsettled_model(request_id)) blockers.emplace_back("unsettled_model_accounting");
     if (impl_->optional("SELECT delivery_id FROM delivery_runtime WHERE request_id=? AND status IN ('PREPARED','STORED') LIMIT 1", {request_id})) blockers.emplace_back("delivery_unconfirmed");
     blockers.emplace_back("controlled_resource_ownership_not_registered");
     blockers.emplace_back("process_exit_and_cleanup_runner_not_implemented");
@@ -3529,7 +3596,11 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
     const std::lock_guard lock(impl_->mutex);
     text_field(reservation.call_id, "call_id"); text_field(reservation.attempt_id, "attempt_id");
     text_field(reservation.model_ref, "model_ref");
-    require(reservation.adapter_kind == "fake", ErrorCode::Unsupported, "this Store increment only admits the fake adapter");
+    require(reservation.adapter_kind == "fake" || reservation.adapter_kind == "openai-responses",
+            ErrorCode::Unsupported, "unsupported Store model adapter");
+    const bool live = reservation.adapter_kind == "openai-responses";
+    if (live) require(impl_->live_schema && impl_->reconciliation_schema, ErrorCode::Unsupported,
+                      "live admission requires the complete 410 accounting schema");
     require(reservation.reserved_input_tokens >= 0 && reservation.reserved_output_tokens >= 0 &&
         reservation.reserved_cost_micro_usd >= 0 && reservation.max_output_tokens > 0 &&
         reservation.max_output_tokens <= reservation.reserved_output_tokens,
@@ -3587,7 +3658,20 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         ErrorCode::Unauthorized, "compiled model context differs from frozen role/profile settings");
     if (!original_model_request.context.tool_names.empty()) require(profile.at("capabilities").at("tool_calling").as_string() == "supported",
         ErrorCode::Unsupported, "frozen model profile does not support tool calls");
-    require(profile.at("adapter").as_string() == "fake", ErrorCode::Unsupported, "only frozen fake profiles are implemented");
+    require(profile.at("adapter").as_string() == reservation.adapter_kind, ErrorCode::Unauthorized,
+            "attempt adapter differs from the original frozen model profile");
+    std::optional<LiveModelSettings> live_settings;
+    std::optional<EncodedResponsesRequest> live_encoded;
+    if (live) {
+        require(frozen_config.json().at("system").at("model_calls").at("real_calls_enabled").as_bool(),
+                ErrorCode::Unauthorized, "live calls are disabled in the original request snapshot");
+        require(reservation.reserved_input_tokens > 0 && reservation.reserved_output_tokens > 0 &&
+                reservation.reserved_cost_micro_usd > 0, ErrorCode::InvalidInput,
+                "live admission requires explicit positive token and cost reservations");
+        live_settings = live_model_settings_from_json(profile, reservation.model_ref);
+        live_encoded = encode_responses_request(live_settings->provider, original_model_request, live_settings->stream);
+        impl_->live_accounting_ready(actor.request_id);
+    }
     require(reservation.max_output_tokens <= number(profile.at("capabilities").as_object(), "max_output_tokens"), ErrorCode::Quota, "attempt output exceeds frozen model capability");
     if (actor.role == Role::Worker) {
         impl_->ready(actor, frozen);
@@ -3606,6 +3690,25 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
                     "history control is absent from frozen/current policy");
             } else impl_->ready(actor, frozen, tool);
         }
+    }
+    if ((actor.role == Role::Dispatcher || actor.role == Role::TeamLead) && !experience) {
+        const auto history_policy = frozen_config.management_history_policy();
+        const auto declared = [&](std::string_view tool) {
+            return std::find(original_model_request.context.tool_names.begin(),
+                original_model_request.context.tool_names.end(), tool) != original_model_request.context.tool_names.end();
+        };
+        if (!history_policy.is_null()) {
+            impl_->require_events_schema(); impl_->require_workflow_schema();
+            const auto contract = parse_json_strict(compiled_task_contract(original_model_request.context));
+            const auto* policy = contract.as_object().if_contains("management_history_policy");
+            require(policy && *policy == history_policy && declared("management_history_page") &&
+                    declared("management_history_read"), ErrorCode::Unauthorized,
+                    "management window or controls differ from frozen history policy");
+            const auto denied = parse_json_strict(str(impl_->one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
+            require(!contains(denied, "management_history_page") && !contains(denied, "management_history_read"),
+                    ErrorCode::Unauthorized, "management history control was revoked by current policy");
+        } else require(!declared("management_history_page") && !declared("management_history_read"),
+                       ErrorCode::Unauthorized, "management history controls lack a frozen policy");
     }
     if (experience) {
         const auto job = impl_->validate_experience_target(actor, frozen, reservation.experience_job_id,
@@ -3642,6 +3745,13 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
          actor.team_id.empty() ? Json(nullptr) : Json(actor.team_id), role_name(actor.role), actor.principal_id,
          reservation.config_snapshot_sha256, reservation.model_ref, canonical_json(to_json(frozen)), json_text(reservation.request_envelope, 4 * 1024 * 1024), fingerprint,
          reservation.reserved_input_tokens, reservation.reserved_output_tokens, reservation.reserved_cost_micro_usd, reservation.max_output_tokens, stamp()});
+    if (live) {
+        const auto settings_bytes = json_text(live_model_settings_json(*live_settings), 2U * 1024U * 1024U);
+        impl_->execute("INSERT INTO live_attempt_execution VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            {reservation.attempt_id, live_settings->execution_kind, settings_bytes, sha256_hex(settings_bytes),
+             live_encoded->profile_sha256, live_transport_options_sha256(live_settings->transport),
+             live_encoded->record_sha256, live_encoded->body_sha256, live_encoded->logical_request_sha256, impl_->writer_instance, stamp()});
+    }
     if (experience) impl_->execute("INSERT INTO experience_attempts VALUES (?,?,?,?)",
         {reservation.attempt_id, reservation.experience_job_id, reservation.experience_job_version, reservation.experience_source_sha256});
     const auto result = exposed(impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {reservation.attempt_id}));
@@ -3653,6 +3763,12 @@ Json Store::settle_attempt(const std::string& attempt_id, const ExecutionBinding
         const std::string& config_hash, const std::string& outcome, const Json& usage,
         const Json& response) {
     const std::lock_guard lock(impl_->mutex);
+    return impl_->settle_model_attempt(attempt_id, frozen, config_hash, outcome, usage, response);
+}
+
+Json Store::Impl::settle_model_attempt(const std::string& attempt_id, const ExecutionBinding& frozen,
+        const std::string& config_hash, const std::string& outcome, const Json& usage,
+        const Json& response, bool existing_transaction) {
     require(outcome == "COMPLETED" || outcome == "ERROR" || outcome == "INTERRUPTED", ErrorCode::InvalidInput, "unknown adapter outcome");
     require(usage.is_object(), ErrorCode::InvalidInput, "usage must be an object");
     const std::set<std::string> allowed_usage{"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_micro_usd"};
@@ -3670,34 +3786,52 @@ Json Store::settle_attempt(const std::string& attempt_id, const ExecutionBinding
     const Row command{{"type", "settle_attempt"}, {"attempt_id", attempt_id}, {"binding", to_json(frozen)},
         {"config_snapshot_sha256", config_hash}, {"outcome", outcome}, {"usage", usage}, {"response", response}};
     const auto fingerprint = sha256_hex(json_text(command, 4 * 1024 * 1024));
-    Impl::Transaction tx(*impl_);
-    const auto record = impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {attempt_id});
+    std::unique_ptr<Transaction> tx;
+    if (!existing_transaction) tx = std::make_unique<Transaction>(*this);
+    const auto record = one("SELECT * FROM call_attempts WHERE attempt_id=?", {attempt_id});
     require(execution_binding_from_json(parse_json_strict(str(record, "frozen_binding"))) == frozen && str(record, "config_snapshot_sha256") == config_hash,
         ErrorCode::Conflict, "response changed the original frozen model context");
     const auto request_id = str(record, "request_id");
-    impl_->check_request_scope(request_id);
+    check_request_scope(request_id);
     if (!record.at("settlement_sha256").is_null()) {
         require(str(record, "settlement_sha256") == fingerprint, ErrorCode::Conflict, "attempt was already settled with different original response or usage");
-        const auto result = exposed(record); tx.commit(); return result;
+        const auto result = exposed(record); if (tx) tx->commit(); return result;
     }
     require(str(record, "status") == "PENDING" || str(record, "status") == "UNKNOWN", ErrorCode::NotReady, "attempt cannot settle from this state");
-    const auto current_request = impl_->request_row(request_id);
+    const bool live = live_schema &&
+        optional("SELECT attempt_id FROM live_attempt_execution WHERE attempt_id=?", {attempt_id}).has_value();
+    if (live) {
+        const auto observed = optional("SELECT response FROM live_transport_observations WHERE attempt_id=?", {attempt_id});
+        const auto host_unobserved = optional("SELECT reason FROM live_unobserved_settlements WHERE attempt_id=?", {attempt_id});
+        require(observed.has_value() || (host_unobserved.has_value() && existing_transaction), ErrorCode::UnknownOutcome,
+                "live original settlement requires its transport or atomic host recovery observation");
+        const auto original_request = model_request_from_json(parse_json_strict(str(record, "request_envelope"), 4U * 1024U * 1024U));
+        const auto saved_response = observed ? parse_json_strict(str(*observed, "response"), 4U * 1024U * 1024U) :
+            to_json(unobserved_live_response(original_request, str(*host_unobserved, "reason")));
+        const auto decoded = model_response_from_json(saved_response);
+        validate_response(original_request, decoded);
+        const auto saved_outcome = decoded.status == ModelResultStatus::Completed ? "COMPLETED" :
+            decoded.status == ModelResultStatus::Interrupted ? "INTERRUPTED" : "ERROR";
+        require(response == saved_response && usage == to_json(decoded.usage) && outcome == saved_outcome,
+                ErrorCode::Conflict, "live settlement changed original transport response or nullable usage");
+    }
+    const auto current_request = request_row(request_id);
     bool experience_current = false;
-    if (impl_->acceptance_schema) if (const auto job_attempt = impl_->optional("SELECT * FROM experience_attempts WHERE attempt_id=?", {attempt_id})) {
-        const auto job = impl_->experience_info(str(*job_attempt, "experience_id"));
+    if (acceptance_schema) if (const auto job_attempt = optional("SELECT * FROM experience_attempts WHERE attempt_id=?", {attempt_id})) {
+        const auto job = experience_info(str(*job_attempt, "experience_id"));
         experience_current = str(job.as_object(), "status") != "DONE" && number(job.as_object(), "state_version") == number(*job_attempt, "job_version") &&
             str(job.as_object(), "source_sha256") == str(*job_attempt, "source_sha256") && str(record, "role") == "team_lead" &&
             job.at("request_id") == record.at("request_id") && job.at("task_id") == record.at("task_id") && job.at("team_id") == record.at("team_id");
     }
     bool current = experience_current || (!terminal_request(str(current_request, "status")) && frozen.plan_revision == number(current_request, "plan_revision") &&
         frozen.requirements_revision == number(current_request, "requirements_revision"));
-    if (impl_->acceptance_schema && impl_->optional("SELECT attempt_id FROM experience_attempts WHERE attempt_id=?", {attempt_id}) && !experience_current) current = false;
-    try { impl_->matches(frozen); } catch (const Error& error) {
+    if (acceptance_schema && optional("SELECT attempt_id FROM experience_attempts WHERE attempt_id=?", {attempt_id}) && !experience_current) current = false;
+    try { matches(frozen); } catch (const Error& error) {
         if (error.code() != ErrorCode::Stale && error.code() != ErrorCode::InvalidInput && error.code() != ErrorCode::NotReady) throw;
         current = false;
     }
     const bool accepted = current && outcome == "COMPLETED";
-    auto budget_row = impl_->one("SELECT * FROM request_budgets WHERE request_id=?", {request_id});
+    auto budget_row = one("SELECT * FROM request_budgets WHERE request_id=?", {request_id});
     for (const auto& dimension : {std::pair<std::string, std::string>{"input", "input_tokens"}, {"output", "output_tokens"}, {"cost", "cost_micro_usd"}}) {
         const auto value = usage_value(dimension.second);
         const auto reserved = number(record, "reserved_" + dimension.first);
@@ -3710,19 +3844,27 @@ Json Store::settle_attempt(const std::string& attempt_id, const ExecutionBinding
             budget_row["unknown_" + dimension.first] = add(number(budget_row, "unknown_" + dimension.first), reserved);
         }
     }
-    impl_->cas("UPDATE request_budgets SET reserved_input=?,reserved_output=?,reserved_cost=?,spent_input=?,spent_output=?,spent_cost=?,unknown_input=?,unknown_output=?,unknown_cost=?,state_version=state_version+1 WHERE request_id=? AND state_version=?",
+    cas("UPDATE request_budgets SET reserved_input=?,reserved_output=?,reserved_cost=?,spent_input=?,spent_output=?,spent_cost=?,unknown_input=?,unknown_output=?,unknown_cost=?,state_version=state_version+1 WHERE request_id=? AND state_version=?",
         {budget_row.at("reserved_input"), budget_row.at("reserved_output"), budget_row.at("reserved_cost"),
          budget_row.at("spent_input"), budget_row.at("spent_output"), budget_row.at("spent_cost"),
          budget_row.at("unknown_input"), budget_row.at("unknown_output"), budget_row.at("unknown_cost"), request_id, number(budget_row, "state_version")});
-    impl_->cas("UPDATE call_attempts SET status=?,accepted=?,input_tokens=?,output_tokens=?,cache_read_tokens=?,cache_write_tokens=?,cost_micro_usd=?,unknown_input=?,unknown_output=?,unknown_cost=?,response=?,usage=?,settlement_sha256=?,state_version=state_version+1,settled_at=? WHERE attempt_id=? AND state_version=?",
+    cas("UPDATE call_attempts SET status=?,accepted=?,input_tokens=?,output_tokens=?,cache_read_tokens=?,cache_write_tokens=?,cost_micro_usd=?,unknown_input=?,unknown_output=?,unknown_cost=?,response=?,usage=?,settlement_sha256=?,state_version=state_version+1,settled_at=? WHERE attempt_id=? AND state_version=?",
         {current ? outcome : "STALE", accepted, usage_value("input_tokens"), usage_value("output_tokens"), usage_value("cache_read_tokens"), usage_value("cache_write_tokens"),
          usage_value("cost_micro_usd"), usage_value("input_tokens").is_null(), usage_value("output_tokens").is_null(), usage_value("cost_micro_usd").is_null(),
          json_text(response, 4 * 1024 * 1024), json_text(usage), fingerprint, stamp(), attempt_id, number(record, "state_version")});
-    const auto result = exposed(impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {attempt_id}));
-    impl_->event(request_id, "settle:" + attempt_id, command, result);
-    tx.commit(); return result;
+    const auto settled = one("SELECT * FROM call_attempts WHERE attempt_id=?", {attempt_id});
+    if (live) initialize_usage_projection(settled);
+    const auto result = exposed(settled);
+    // New live responses can serialize beyond the legacy 1 MiB event payload
+    // (for example escaped control characters). Keep the original 4 MiB
+    // settlement fingerprint bound through its event; all old paths retain 1 MiB.
+    event(request_id, "settle:" + attempt_id, command, result, "runtime",
+          live ? 4U * 1024U * 1024U : 1024U * 1024U);
+    if (tx) tx->commit();
+    return result;
 }
 
+#include "store_live.inc"
 #include "store_cleanup.inc"
 
 } // namespace wls::s1

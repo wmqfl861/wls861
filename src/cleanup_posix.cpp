@@ -1,5 +1,6 @@
 #include "wls/cleanup.hpp"
 #include "wls/workspace.hpp"
+#include "wls/owned_capacity.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -199,6 +200,7 @@ bool staged_intent(const Json& intent) {
     return version && version->is_string() && version->as_string() == "owned-allocation-v2";
 }
 void validate_intent(const Json& intent) {
+    (void)owned_workspace_intent_capacity(intent);
     const auto leaf = text(intent, "resource_id"); name_ok(leaf);
     need(leaf.starts_with("res_") && leaf.size() <= 64, ErrorCode::InvalidInput, "invalid owned resource id");
     need(text(intent, "leaf") == leaf, ErrorCode::InvalidInput, "owned leaf must be the allocated resource id");
@@ -321,12 +323,23 @@ Json entry(int root, const std::string& path, CleanupLimits limits, std::uint64_
     }
     return record;
 }
+CleanupLimits capacity_limits(const Json& resource, CleanupLimits supplied) {
+    need(supplied.max_entries > 0 && supplied.max_entries <= 4096 && supplied.max_depth > 0 && supplied.max_depth <= 32 &&
+         supplied.max_file_bytes <= 16U * 1024U * 1024U && supplied.max_total_bytes <= 256U * 1024U * 1024U,
+         ErrorCode::InvalidInput, "invalid cleanup limits");
+    const auto frozen = owned_cleanup_limits(owned_workspace_intent_capacity(intent_of(resource)));
+    supplied.max_entries = std::min(supplied.max_entries, frozen.max_entries);
+    supplied.max_depth = std::min(supplied.max_depth, frozen.max_depth);
+    supplied.max_file_bytes = std::min(supplied.max_file_bytes, frozen.max_file_bytes);
+    supplied.max_total_bytes = std::min(supplied.max_total_bytes, frozen.max_total_bytes);
+    return supplied;
+}
 A scan_tree(int root, CleanupLimits limits) {
     need(limits.max_entries > 0 && limits.max_entries <= 4096 && limits.max_depth > 0 && limits.max_depth <= 32 &&
          limits.max_file_bytes <= 16U * 1024U * 1024U && limits.max_total_bytes <= 256U * 1024U * 1024U,
          ErrorCode::InvalidInput, "invalid cleanup limits");
     std::vector<std::pair<std::string, std::size_t>> pending{{".", 0}};
-    A result; std::uint64_t bytes = 0;
+    A result; std::uint64_t bytes = 0; std::size_t encoded_bytes = 0;
     while (!pending.empty()) {
         const auto [parent, depth] = pending.back(); pending.pop_back();
         auto directory = open_at(root, parent, O_RDONLY | O_DIRECTORY);
@@ -334,6 +347,10 @@ A scan_tree(int root, CleanupLimits limits) {
             need(result.size() < limits.max_entries && depth < limits.max_depth, ErrorCode::Quota, "cleanup tree capacity exceeded");
             const auto path = parent == "." ? name : parent + "/" + name;
             auto record = entry(root, path, limits, bytes);
+            const auto record_bytes = canonical_json(record).size() + 1U;
+            need(record_bytes <= 8U * 1024U * 1024U - encoded_bytes, ErrorCode::Quota,
+                 "cleanup inventory encoded-byte capacity exceeded");
+            encoded_bytes += record_bytes;
             if (text(record, "type") == "directory") pending.emplace_back(path, depth + 1);
             result.push_back(std::move(record));
         }
@@ -344,6 +361,7 @@ A scan_tree(int root, CleanupLimits limits) {
     return result;
 }
 std::map<std::string, Json> frozen_entries(const Json& resource, const Json& inventory) {
+    validate_owned_workspace_inventory_capacity(resource, inventory);
     need(inventory.is_object() && inventory.at("resource_id") == resource.at("resource_id") &&
          inventory.at("identity") == resource.at("identity") && inventory.at("entries").is_array() &&
          inventory.at("entries").as_array().size() <= 4096,
@@ -473,15 +491,19 @@ Json inspect_owned_workspace(const Json& resource) {
     return resource.at("identity");
 }
 Json inventory_owned_workspace(const Json& resource, CleanupLimits limits) {
+    limits = capacity_limits(resource, limits);
     Handle h(intent_of(resource)); h.open_existing(resource.at("identity"));
     const auto records = scan_tree(h.work.get(), limits); h.recheck();
     Json result = O{{"resource_id", resource.at("resource_id")}, {"identity", resource.at("identity")}, {"entries", records}};
-    need(canonical_json(result).size() <= 8U * 1024U * 1024U, ErrorCode::Quota, "cleanup inventory too large");
+    const auto policy = owned_workspace_intent_capacity(intent_of(resource));
+    if (!policy.is_null()) result.as_object()["capacity_policy"] = policy;
+    validate_owned_workspace_inventory_capacity(resource, result);
     return result;
 }
 Json erase_owned_workspace(const Json& resource, const Json& inventory, std::size_t max_unlinks, CleanupLimits limits) {
     need(max_unlinks > 0 && max_unlinks <= 4096, ErrorCode::InvalidInput, "cleanup pass limit must be 1..4096");
     const auto expected = frozen_entries(resource, inventory);
+    limits = capacity_limits(resource, limits);
     Handle h(intent_of(resource)); h.open_existing(resource.at("identity"), true);
     if (h.work.get() < 0) {
         h.recheck(); sync_fd(h.envelope.get()); sync_fd(h.parent_fd.get());

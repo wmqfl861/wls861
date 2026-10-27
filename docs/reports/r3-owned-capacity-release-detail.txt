@@ -1,0 +1,55 @@
+40/70 Testing: owned_capacity
+40/70 Test: owned_capacity
+Command: "/tmp/wls861-five-validation/build-release/owned_capacity_tests"
+Directory: /tmp/wls861-five-validation/build-release
+"owned_capacity" start time: Oct 26 21:35 EDT
+Output:
+----------------------------------------------------------
+PASS legacy 4097-entry legal tree reproduces cleanup gap
+PASS 4095-entry boundary rejects extra effects and completes cleanup
+PASS exact total-byte boundary rejects writes and patches before effects
+PASS exact encoded inventory budget counts escaped names
+PASS SIGKILL after replacement stage sync remains cleanup-bounded
+PASS long parent cannot create an unrepresentable stage path
+PASS partial pass resumes only the original immutable inventory
+PASS replacement identity is refused even within capacity
+PASS frozen policy and bound Workspace limits cannot widen
+PASS legacy inventory keeps exact bytes across replay
+PASS new policy never expands cleanup hard limits
+RESULT 11 passed, 0 failed
+<end of output>
+Test time =   4.26 sec
+----------------------------------------------------------
+Test Passed.
+"owned_capacity" end time: Oct 26 21:35 EDT
+"owned_capacity" time elapsed: 00:00:04
+----------------------------------------------------------
+
+41/70 Testing: owned_capacity_runtime
+41/70 Test: owned_capacity_runtime
+Command: "/tmp/wls861-five-validation/build-release/owned_capacity_runtime_tests"
+Directory: /tmp/wls861-five-validation/build-release
+"owned_capacity_runtime" start time: Oct 26 21:35 EDT
+Output:
+----------------------------------------------------------
+PASS allocation and real Worker file tools share frozen capacity
+PASS run is refused before operation preparation or filesystem effects
+PASS configuration changes only new request capacity
+PASS invalid new policy has no Store or directory effects
+PASS prepared v2 allocation recovery retains original capacity
+PASS partial cleanup and reopen keep original inventory and frozen limits
+PASS legacy SQLite inventory and snapshot never acquire new policy
+PASS legacy over-capacity tree returns explicit retention without cleanup commit
+PASS host overflow cannot expand new cleanup authority
+PASS Store rejects capacity-retagged inventory before deletion claim
+PASS replaced inode after inventory is retained across reopen
+PASS SIGKILL after unlink reuses original SQLite inventory
+PASS failed inventory transaction leaves the complete tree
+RESULT 13 passed, 0 failed
+<end of output>
+Test time =   4.22 sec
+----------------------------------------------------------
+Test Passed.
+"owned_capacity_runtime" end time: Oct 26 21:35 EDT
+"owned_capacity_runtime" time elapsed: 00:00:04
+----------------------------------------------------------
