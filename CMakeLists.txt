@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(wls861 VERSION 0.9.0 LANGUAGES CXX)
+project(wls861 VERSION 0.10.0 LANGUAGES CXX)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "M1 currently requires Linux journal and process semantics")
@@ -140,6 +140,21 @@ if(BUILD_TESTING)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_live_model_store.py"
                 "$<TARGET_FILE:live_model_store_driver>" "${CMAKE_CURRENT_SOURCE_DIR}")
     set_tests_properties(live_model_store_tls PROPERTIES TIMEOUT 180)
+    add_executable(live_workflow_driver tests/live_workflow_driver.cpp)
+    target_link_libraries(live_workflow_driver PRIVATE wls_s1)
+    target_include_directories(live_workflow_driver PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    add_test(NAME live_workflow
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_live_workflow.py"
+                "$<TARGET_FILE:live_workflow_driver>" "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(live_workflow PROPERTIES TIMEOUT 300)
+    add_test(NAME live_workflow_cli
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_live_workflow_cli.py"
+                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(live_workflow_cli PROPERTIES TIMEOUT 180)
+    add_test(NAME runtime_resources_cli
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime_resources_cli_tests.py"
+                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+    set_tests_properties(runtime_resources_cli PROPERTIES TIMEOUT 120)
     add_test(NAME r3_evaluation
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/r3_evaluation_tests.py"
                 "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")

@@ -1,0 +1,63 @@
+Internal ctest changing into directory: /tmp/wls861-two-module-validation/source/build-release
+Test project /tmp/wls861-two-module-validation/source/build-release
+      Start  6: runtime_resources
+ 1/10 Test  #6: runtime_resources ................   Passed    0.38 sec
+      Start 11: config_loader
+ 2/10 Test #11: config_loader ....................   Passed    0.17 sec
+      Start 16: workflow_runtime
+ 3/10 Test #16: workflow_runtime .................   Passed    3.53 sec
+      Start 17: acceptance_runtime
+ 4/10 Test #17: acceptance_runtime ...............   Passed    7.77 sec
+      Start 43: live_model_store
+ 5/10 Test #43: live_model_store .................   Passed    0.97 sec
+      Start 44: doctor_diagnostics_cli
+ 6/10 Test #44: doctor_diagnostics_cli ...........   Passed    0.39 sec
+      Start 48: live_workflow
+ 7/10 Test #48: live_workflow ....................***Failed    9.87 sec
+test_cache_only_unknown_is_not_zero_balance_readiness (__main__.LiveWorkflow.test_cache_only_unknown_is_not_zero_balance_readiness) ... ok
+test_deadline_preserves_original_partial_response_without_business_apply (__main__.LiveWorkflow.test_deadline_preserves_original_partial_response_without_business_apply) ... ok
+test_explicit_cancellation_before_and_during_transport_remains_cancelled (__main__.LiveWorkflow.test_explicit_cancellation_before_and_during_transport_remains_cancelled) ... ok
+test_independent_receipt_must_match_observed_request_bytes (__main__.LiveWorkflow.test_independent_receipt_must_match_observed_request_bytes) ... ok
+test_live_accounting_status_preserves_all_unknown_and_disputed_boundaries (__main__.LiveWorkflow.test_live_accounting_status_preserves_all_unknown_and_disputed_boundaries) ... ok
+test_missing_usage_stops_batch_and_next_batch_before_credential_lookup (__main__.LiveWorkflow.test_missing_usage_stops_batch_and_next_batch_before_credential_lookup) ... ok
+test_model_exhaustion_escalates_original_rejected_submission (__main__.LiveWorkflow.test_model_exhaustion_escalates_original_rejected_submission) ... FAIL
+test_model_rejection_correction_and_new_acceptance_share_original_task (__main__.LiveWorkflow.test_model_rejection_correction_and_new_acceptance_share_original_task) ... ok
+test_native_diagnostic_roundtrip_uses_original_feedback (__main__.LiveWorkflow.test_native_diagnostic_roundtrip_uses_original_feedback) ... ok
+test_old_settled_response_without_feedback_cannot_be_applied_later (__main__.LiveWorkflow.test_old_settled_response_without_feedback_cannot_be_applied_later) ... ok
+test_original_native_workflow_acceptance_experience_and_safe_summary (__main__.LiveWorkflow.test_original_native_workflow_acceptance_experience_and_safe_summary) ... ok
+test_original_settlement_feedback_replay_has_no_second_send_or_apply (__main__.LiveWorkflow.test_original_settlement_feedback_replay_has_no_second_send_or_apply) ... ok
+test_partial_model_amend_then_keep_preserves_pending_original_task (__main__.LiveWorkflow.test_partial_model_amend_then_keep_preserves_pending_original_task) ... ok
+test_preconditions_refuse_before_credentials_and_reservation (__main__.LiveWorkflow.test_preconditions_refuse_before_credentials_and_reservation) ... ok
+test_transport_response_cannot_be_swapped_under_original_model_decision (__main__.LiveWorkflow.test_transport_response_cannot_be_swapped_under_original_model_decision) ... ok
+test_verified_hook_statement_must_match_this_original_attempt_and_settlement (__main__.LiveWorkflow.test_verified_hook_statement_must_match_this_original_attempt_and_settlement) ... ok
+
+======================================================================
+FAIL: test_model_exhaustion_escalates_original_rejected_submission (__main__.LiveWorkflow.test_model_exhaustion_escalates_original_rejected_submission)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wls861-two-module-validation/source/tests/test_live_workflow.py", line 261, in test_model_exhaustion_escalates_original_rejected_submission
+    self.assertEqual(model.actions[-1], 'escalate_task')
+AssertionError: 'accept_candidate' != 'escalate_task'
+- accept_candidate
++ escalate_task
+
+
+----------------------------------------------------------------------
+Ran 16 tests in 9.792s
+
+FAILED (failures=1)
+
+      Start 49: live_workflow_cli
+ 8/10 Test #49: live_workflow_cli ................   Passed    2.04 sec
+      Start 50: runtime_resources_cli
+ 9/10 Test #50: runtime_resources_cli ............   Passed    0.88 sec
+      Start 51: r3_evaluation
+10/10 Test #51: r3_evaluation ....................   Passed    6.99 sec
+
+90% tests passed, 1 tests failed out of 10
+
+Total Test time (real) =  33.01 sec
+
+The following tests FAILED:
+	 48 - live_workflow (Failed)
+Errors while running CTest

@@ -401,10 +401,13 @@ Json next_amendment_action(Store& store, const std::string& request_id) {
 OfflineRuntime::OfflineRuntime(Store& store, const SchemaRegistry& schemas, WorkerTools* worker_tools)
     : store_(store), schemas_(schemas), worker_tools_(worker_tools) {}
 
-CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
+CapturedModelCall OfflineRuntime::capture_call(
         const std::string& request_id, Role role, const std::string& task_id, std::int64_t index,
-        const std::vector<Json>& tool_feedback, bool model_amendment) {
-    require(!adapter.capabilities().real_calls, ErrorCode::Unsupported, "offline runner refuses real adapters");
+        const std::vector<Json>& tool_feedback, bool model_amendment,
+        const CapturedCallLimits& limits) {
+    require(limits.reserved_cost_micro_usd >= 0 && limits.timeout.count() > 0 &&
+            limits.timeout <= std::chrono::hours(1), ErrorCode::InvalidInput,
+            "captured call requires bounded nonnegative reservation and positive timeout");
     require((role == Role::Dispatcher && task_id.empty()) ||
         ((role == Role::TeamLead || role == Role::Worker) && !task_id.empty()), ErrorCode::InvalidInput, "role and task scope disagree");
     const auto record = store_.request(request_id);
@@ -642,7 +645,17 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
     require(request.context.prompt().size() < static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max()), ErrorCode::Quota, "input reservation overflow");
     request.reserved_input_tokens = static_cast<std::int64_t>(request.context.prompt().size());
     request.reserved_output_tokens = request.max_output_tokens;
-    request.reserved_cost_micro_usd = 0; // this adapter performs zero network calls
+    request.reserved_cost_micro_usd = limits.reserved_cost_micro_usd;
+    request.timeout = limits.timeout;
+    return {std::move(request), actor, integer_at(task_id.empty() ? record : task, "state_version"), std::move(action)};
+}
+
+CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
+        const std::string& request_id, Role role, const std::string& task_id, std::int64_t index,
+        const std::vector<Json>& tool_feedback, bool model_amendment) {
+    require(!adapter.capabilities().real_calls, ErrorCode::Unsupported, "offline runner refuses real adapters");
+    auto captured = capture_call(request_id, role, task_id, index, tool_feedback, model_amendment);
+    const auto& request = captured.request;
     adapter.validate(request);
     AttemptReservation reservation;
     reservation.call_id = request.call_id; reservation.attempt_id = request.attempt_id;
@@ -652,14 +665,14 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
     reservation.reserved_cost_micro_usd = request.reserved_cost_micro_usd;
     reservation.max_output_tokens = request.max_output_tokens;
     reservation.request_envelope = to_json(request);
-    if (!action.is_null() && string_at(action, "kind") == "experience") {
-        const auto& job = action.at("target");
+    if (!captured.workflow_action.is_null() && string_at(captured.workflow_action, "kind") == "experience") {
+        const auto& job = captured.workflow_action.at("target");
         reservation.experience_job_id = string_at(job, "experience_id");
         reservation.experience_job_version = integer_at(job, "state_version");
         reservation.experience_source_sha256 = string_at(job, "source_sha256");
     }
-    static_cast<void>(store_.reserve_attempt(actor, binding, reservation));
-    return {std::move(request), actor, integer_at(task_id.empty() ? record : task, "state_version"), std::move(action)};
+    static_cast<void>(store_.reserve_attempt(captured.actor, request.binding, reservation));
+    return captured;
 }
 
 Json OfflineRuntime::accept_response(const CapturedModelCall& call, const ModelResponse& response,
@@ -674,9 +687,20 @@ Json OfflineRuntime::accept_independent_response(const CapturedModelCall& call, 
     return accept_captured_response(call, response, {}, true, dispositions);
 }
 
+Json OfflineRuntime::accept_live_response(const CapturedModelCall& call, const ModelResponse& response,
+                                         const AfterModelSettlement& after_settlement,
+                                         bool independent_plan) {
+    require(store_.live_model_enabled(), ErrorCode::Unsupported, "live workflow requires Store 410");
+    // This lookup requires an original live reservation. A caller cannot
+    // apply the live accounting hook to an old FakeModel attempt.
+    static_cast<void>(store_.live_attempt(call.request.attempt_id));
+    return accept_captured_response(call, response, {}, independent_plan, Object{}, after_settlement);
+}
+
 Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, const ModelResponse& response,
                                              const std::string& disposition, bool independent_plan,
-                                             const Json& dispositions) {
+                                             const Json& dispositions,
+                                             const AfterModelSettlement& after_settlement) {
     const auto& captured = call.request;
     // No current-row metadata is copied onto a response. A corrupted envelope
     // cannot impersonate another pending attempt; its reservation remains held.
@@ -720,6 +744,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         return result;
     }
     const auto apply = [&]() -> Json {
+    if (after_settlement) after_settlement(settlement);
     require_complete_response(captured, response);
     const auto& accepted = settlement.at("accepted");
     require((accepted.is_bool() && accepted.as_bool()) || (accepted.is_int64() && accepted.as_int64() == 1),

@@ -87,8 +87,8 @@ private:
 // Load system YAML, each direct child function/function.yaml, and common role
 // prompts. Relative template references are confined to their function root;
 // aliases, duplicate/unknown keys, symbolic links and oversized inputs reject.
-// In this increment only the fake adapter is executable. Enabling real calls,
-// memory or real cleanup rejects explicitly instead of silently doing nothing.
+// A complete live profile can be frozen, but configuration validation alone
+// never grants the separate host network authorization or resolves credentials.
 ConfigCatalog load_config_catalog(const std::filesystem::path& system_file,
                                   const std::filesystem::path& functions_directory,
                                   const std::filesystem::path& prompts_directory,

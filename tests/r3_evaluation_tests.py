@@ -32,9 +32,9 @@ class Evaluation(unittest.TestCase):
         return self.invoke('submit', '--db', self.database, '--key', key,
                            '--text-file', material)['request']['request_id']
 
-    def plan(self, request):
+    def plan(self, request, *, model_origin=False):
         with e.database(self.database) as db:
-            return e.make_plan(db, request)
+            return e.make_plan(db, request, decision_evidence='model-origin-v1' if model_origin else None)
 
     def run_entry(self, plan, request, condition='multi_agent', task=0):
         return {'task_id': e.TASKS[task][0], 'condition': condition,
@@ -76,6 +76,134 @@ class Evaluation(unittest.TestCase):
         second.mkdir(mode=0o700)
         self.mapping = self.json_file('workspaces.json', {'alpha': str(self.workspace), 'beta': str(second)})
         return self.execute(request, script=self.fixture('s13_fake_initial.json'), max_calls=5)
+
+    def corrupt_feedback(self, name, change):
+        # Corruption is restricted to this disposable SQLite fixture. Hashes
+        # are recomputed so provenance checks must inspect the actual relation.
+        with closing(sqlite3.connect(self.database)) as db, db:
+            row = db.execute("SELECT f.attempt_id,f.original_binding,f.response,f.result FROM model_tool_feedback f "
+                             "WHERE json_extract(f.response,'$.tool_calls[0].name')=? LIMIT 1", (name,)).fetchone()
+            self.assertIsNotNone(row)
+            fact = {'attempt_id': row[0], 'original_binding': json.loads(row[1]),
+                    'response': json.loads(row[2]), 'result': json.loads(row[3])}
+            change(fact)
+            db.execute('DROP TRIGGER model_tool_feedback_immutable')
+            db.execute('UPDATE model_tool_feedback SET original_binding=?,response=?,result=?,record_sha256=? WHERE attempt_id=?',
+                       (e.canonical(fact['original_binding']).decode(), e.canonical(fact['response']).decode(),
+                        e.canonical(fact['result']).decode(), e.digest(fact), row[0]))
+
+    def test_new_provider_plan_requires_versioned_model_origin_contract(self):
+        request = self.seed()
+        with e.database(self.database) as db:
+            plan = e.make_plan(db, request, evidence_mode='provider')
+            self.assertEqual(plan['schema_version'], 2)
+            self.assertEqual(plan['decision_evidence'], 'model-origin-v1')
+            e.validate_plan(plan)
+            with self.assertRaisesRegex(e.InvalidEvidence, 'require model-origin'):
+                e.make_plan(db, request, evidence_mode='provider', decision_evidence='structural-v1')
+
+    def test_v1_report_keeps_structural_scope_explicit(self):
+        request = self.seed(task=4)
+        plan = self.plan(request)
+        self.execute(request, max_calls=12, worker_calls=2)
+        self.ack(request, self.publish(request))
+        report = e.build_report(plan, [self.run_entry(plan, request, task=4)])
+        self.assertEqual(plan['schema_version'], 1)
+        self.assertEqual(report['rows'][8]['status'], 'passed')
+        self.assertEqual(report['rows'][8]['pass_scope'], 'original_structural_checks_only')
+        self.assertFalse(report['rows'][8]['decision_evidence']['model_decision_origin_established'])
+        self.assertFalse(report['provider_quality_acceptance_established'])
+
+    def test_v2_original_model_application_chain_reaches_confirmed_delivery(self):
+        request = self.seed(task=4)
+        plan = self.plan(request, model_origin=True)
+        self.execute(request, max_calls=12, worker_calls=2)
+        self.ack(request, self.publish(request))
+        row = e.build_report(plan, [self.run_entry(plan, request, task=4)])['rows'][8]
+        self.assertEqual(row['status'], 'passed', row)
+        self.assertTrue(row['checks']['model_accepted_delivery_source'])
+        self.assertTrue(row['decision_evidence']['model_decision_origin_established'])
+        self.assertNotIn('arguments', e.canonical(row['decision_evidence']).decode())
+        self.assertNotIn('alpha candidate version', e.canonical(row['decision_evidence']).decode())
+
+    def test_v2_host_acceptance_fact_without_original_feedback_is_not_model_evidence(self):
+        request = self.seed(task=4)
+        plan = self.plan(request, model_origin=True)
+        self.execute(request, max_calls=12, worker_calls=2)
+        self.ack(request, self.publish(request))
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute("DELETE FROM model_tool_feedback WHERE json_extract(response,'$.tool_calls[0].name')='accept_candidate'")
+        row = e.build_report(plan, [self.run_entry(plan, request, task=4)])['rows'][8]
+        self.assertEqual(row['status'], 'failed', row)
+        self.assertTrue(row['checks']['confirmed_delivery'])
+        self.assertFalse(row['checks']['model_accepted_delivery_source'])
+        self.assertFalse(row['checks']['model_application_records_complete'])
+
+    def test_v2_host_command_cannot_be_relabelled_as_model_application(self):
+        request = self.seed(task=4)
+        plan = self.plan(request, model_origin=True)
+        self.execute(request, max_calls=12, worker_calls=2)
+        self.ack(request, self.publish(request))
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute('DROP TRIGGER events_immutable')
+            db.execute("UPDATE events SET command_id='host-explicit-acceptance' WHERE type='accept_candidate'")
+            self.assertEqual(db.execute("SELECT count(*) FROM events WHERE command_id='host-explicit-acceptance'").fetchone()[0], 1)
+        row = e.build_report(plan, [self.run_entry(plan, request, task=4)])['rows'][8]
+        self.assertEqual(row['status'], 'failed', row)
+        self.assertTrue(row['checks']['confirmed_delivery'])
+        self.assertFalse(row['checks']['model_accepted_delivery_source'])
+
+    def test_v2_wrong_attempt_response_refuses_even_with_rehashed_feedback(self):
+        request = self.seed(task=4)
+        plan = self.plan(request, model_origin=True)
+        self.execute(request, max_calls=12, worker_calls=2)
+        self.ack(request, self.publish(request))
+        self.corrupt_feedback('accept_candidate', lambda fact: fact['response'].update(attempt_id='attempt-another-original'))
+        row = e.build_report(plan, [self.run_entry(plan, request, task=4)])['rows'][8]
+        self.assertEqual(row['status'], 'invalid_evidence', row)
+        self.assertIn('feedback changed original response', row['reason'])
+
+    def test_v2_captured_target_must_match_actual_application(self):
+        request = self.seed(task=4)
+        plan = self.plan(request, model_origin=True)
+        self.execute(request, max_calls=12, worker_calls=2)
+        self.ack(request, self.publish(request))
+        with closing(sqlite3.connect(self.database)) as db, db:
+            row = db.execute("SELECT attempt_id,request_envelope FROM call_attempts WHERE json_extract(response,'$.tool_calls[0].name')='accept_candidate'").fetchone()
+            envelope = json.loads(row[1])
+            context = envelope['context']
+            contract = e.captured_contract(envelope)
+            contract['workflow_action']['target']['submission_id'] = 'sub_uncaptured_synthetic_target'
+            content = e.canonical(contract)
+            original = context['dynamic_suffix'].encode()
+            header, _, tail = original.partition(b'\n')
+            old_size = int(header.split()[1])
+            context['dynamic_suffix'] = (b'task_contract ' + str(len(content)).encode() + b'\n' + content + b'\n' + tail[old_size + 1:]).decode()
+            db.execute('UPDATE call_attempts SET request_envelope=?,state_version=state_version+1 WHERE attempt_id=?',
+                       (e.canonical(envelope).decode(), row[0]))
+        row = e.build_report(plan, [self.run_entry(plan, request, task=4)])['rows'][8]
+        self.assertEqual(row['status'], 'invalid_evidence', row)
+        self.assertIn('another target or version', row['reason'])
+
+    def test_v2_diagnostic_read_write_readback_uses_original_feedback(self):
+        request = self.seed()
+        plan = self.plan(request, model_origin=True)
+        (self.workspace / 'seed.txt').write_bytes(b'alpha\nbeta\n')
+        fixture = self.fixture()
+        nodes = fixture['nodes']['alpha']
+        worker = [self.step('worker', 'fs_read', {'path': 'seed.txt'}, 1),
+                  self.step('worker', 'fs_write', {'path': 'result.txt', 'content': 'alpha\nbeta\n'}, 2),
+                  self.step('worker', 'fs_read', {'path': 'result.txt'}, 3),
+                  copy.deepcopy(nodes[2])]
+        worker[-1]['role_call_index'] = 4
+        fixture['nodes']['alpha'] = [nodes[0], *worker, *nodes[3:]]
+        self.execute(request, script=fixture, max_calls=16, worker_calls=4)
+        row = e.build_report(plan, [self.run_entry(plan, request)])['rows'][0]
+        self.assertEqual(row['status'], 'passed', row)
+        self.assertTrue(row['checks']['model_tool_roundtrip'])
+        self.assertTrue(row['checks']['artifact_sha256'])
+        with closing(sqlite3.connect(self.database)) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM ops WHERE tool_id='fs_read'").fetchone()[0], 0)
 
     def test_multiple_worker_principals_cannot_be_a_single_agent(self):
         request = self.seed()
@@ -123,6 +251,7 @@ class Evaluation(unittest.TestCase):
     def test_original_rejection_correction_and_same_task_acceptance_pass(self):
         request = self.seed(task=2)
         plan = self.plan(request)
+        origin_plan = self.plan(request, model_origin=True)
         rejection = self.fixture()
         rejection['default'][1] = self.step('dispatcher', 'accept_candidate', {'passed': False, 'notes': 'Synthetic rejection.'}, 2)
         rejection['nodes']['alpha'] = [step for step in rejection['nodes']['alpha'] if step['tool_calls'][0]['name'] != 'report_experience']
@@ -137,6 +266,9 @@ class Evaluation(unittest.TestCase):
         row = e.build_report(plan, [self.run_entry(plan, request, task=2)])['rows'][4]
         self.assertEqual(row['status'], 'passed', row)
         self.assertTrue(row['checks']['accepted_rework_same_task'])
+        origin = e.build_report(origin_plan, [self.run_entry(origin_plan, request, task=2)])['rows'][4]
+        self.assertEqual(origin['status'], 'passed', origin)
+        self.assertTrue(origin['checks']['model_rejection_correction_acceptance'])
 
     def test_confirmed_original_delivery_passes_fixed_evidence_rubric(self):
         request = self.seed(task=4)

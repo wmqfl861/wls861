@@ -1,0 +1,22 @@
+Internal ctest changing into directory: /tmp/wls861-two-module-validation/source/build-asan
+Test project /tmp/wls861-two-module-validation/source/build-asan
+    Start 48: live_workflow
+    Start 51: r3_evaluation
+1/8 Test #51: r3_evaluation ....................   Passed   68.51 sec
+    Start 47: live_model_store_tls
+2/8 Test #47: live_model_store_tls .............   Passed   16.00 sec
+    Start 49: live_workflow_cli
+3/8 Test #49: live_workflow_cli ................   Passed   12.66 sec
+    Start 43: live_model_store
+4/8 Test #43: live_model_store .................   Passed    8.43 sec
+    Start 50: runtime_resources_cli
+5/8 Test #50: runtime_resources_cli ............   Passed    2.40 sec
+    Start  6: runtime_resources
+6/8 Test  #6: runtime_resources ................   Passed    1.54 sec
+    Start 13: schema
+7/8 Test #13: schema ...........................   Passed    0.44 sec
+8/8 Test #48: live_workflow ....................   Passed  230.46 sec
+
+100% tests passed, 0 tests failed out of 8
+
+Total Test time (real) = 230.46 sec

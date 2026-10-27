@@ -1,0 +1,273 @@
+Start testing: Oct 27 02:53 EDT
+----------------------------------------------------------
+51/74 Testing: r3_evaluation
+51/74 Test: r3_evaluation
+Command: "/tmp/wls861-r33a-venv/bin/python" "/tmp/wls861-two-module-validation/source/tests/r3_evaluation_tests.py" "/tmp/wls861-two-module-validation/source/build-asan/wls" "/tmp/wls861-two-module-validation/source"
+Directory: /tmp/wls861-two-module-validation/source/build-asan
+"r3_evaluation" start time: Oct 27 02:53 EDT
+Output:
+----------------------------------------------------------
+test_budget_disagreement_is_visible_as_invalid_evidence (__main__.Evaluation.test_budget_disagreement_is_visible_as_invalid_evidence) ... ok
+test_cancelled_amendments_do_not_satisfy_update_and_keep (__main__.Evaluation.test_cancelled_amendments_do_not_satisfy_update_and_keep) ... ok
+test_changed_budget_condition_is_not_comparable (__main__.Evaluation.test_changed_budget_condition_is_not_comparable) ... ok
+test_changed_materials_invalid_and_all_other_cells_retained (__main__.Evaluation.test_changed_materials_invalid_and_all_other_cells_retained) ... ok
+test_confirmed_original_delivery_passes_fixed_evidence_rubric (__main__.Evaluation.test_confirmed_original_delivery_passes_fixed_evidence_rubric) ... ok
+test_deadline_exhaustion_is_reported_as_failure (__main__.Evaluation.test_deadline_exhaustion_is_reported_as_failure) ... ok
+test_duplicate_cells_and_request_reuse_refuse (__main__.Evaluation.test_duplicate_cells_and_request_reuse_refuse) ... ok
+test_failed_model_attempt_remains_in_report (__main__.Evaluation.test_failed_model_attempt_remains_in_report) ... ok
+test_hard_link_does_not_allow_reusing_the_same_request (__main__.Evaluation.test_hard_link_does_not_allow_reusing_the_same_request) ... ok
+test_missing_database_is_retained_as_invalid_cell (__main__.Evaluation.test_missing_database_is_retained_as_invalid_cell) ... ok
+test_multi_role_run_cannot_be_called_single_agent (__main__.Evaluation.test_multi_role_run_cannot_be_called_single_agent) ... ok
+test_multiple_worker_principals_cannot_be_a_single_agent (__main__.Evaluation.test_multiple_worker_principals_cannot_be_a_single_agent) ... ok
+test_new_provider_plan_requires_versioned_model_origin_contract (__main__.Evaluation.test_new_provider_plan_requires_versioned_model_origin_contract) ... ok
+test_nonregular_and_duplicate_json_inputs_refuse (__main__.Evaluation.test_nonregular_and_duplicate_json_inputs_refuse) ... ok
+test_original_ledger_counts_and_missing_baseline_remain_visible (__main__.Evaluation.test_original_ledger_counts_and_missing_baseline_remain_visible) ... ok
+test_original_rejection_correction_and_same_task_acceptance_pass (__main__.Evaluation.test_original_rejection_correction_and_same_task_acceptance_pass) ... ok
+test_plan_fixes_five_tasks_and_ten_missing_cells (__main__.Evaluation.test_plan_fixes_five_tasks_and_ten_missing_cells) ... ok
+test_plan_is_required_before_attempts (__main__.Evaluation.test_plan_is_required_before_attempts) ... ok
+test_plan_mutation_and_rehashed_rubric_mutation_refuse (__main__.Evaluation.test_plan_mutation_and_rehashed_rubric_mutation_refuse) ... ok
+test_query_byte_bound_stops_before_fetching_the_complete_result (__main__.Evaluation.test_query_byte_bound_stops_before_fetching_the_complete_result) ... ok
+test_reporting_preserves_all_original_database_rows (__main__.Evaluation.test_reporting_preserves_all_original_database_rows) ... ok
+test_rework_counter_without_original_rejection_is_not_success (__main__.Evaluation.test_rework_counter_without_original_rejection_is_not_success) ... ok
+test_synthetic_evidence_cannot_claim_provider (__main__.Evaluation.test_synthetic_evidence_cannot_claim_provider) ... ok
+test_unknown_cost_is_not_zero_or_dropped (__main__.Evaluation.test_unknown_cost_is_not_zero_or_dropped) ... ok
+test_v1_report_keeps_structural_scope_explicit (__main__.Evaluation.test_v1_report_keeps_structural_scope_explicit) ... ok
+test_v2_captured_target_must_match_actual_application (__main__.Evaluation.test_v2_captured_target_must_match_actual_application) ... ok
+test_v2_diagnostic_read_write_readback_uses_original_feedback (__main__.Evaluation.test_v2_diagnostic_read_write_readback_uses_original_feedback) ... ok
+test_v2_host_acceptance_fact_without_original_feedback_is_not_model_evidence (__main__.Evaluation.test_v2_host_acceptance_fact_without_original_feedback_is_not_model_evidence) ... ok
+test_v2_host_command_cannot_be_relabelled_as_model_application (__main__.Evaluation.test_v2_host_command_cannot_be_relabelled_as_model_application) ... ok
+test_v2_original_model_application_chain_reaches_confirmed_delivery (__main__.Evaluation.test_v2_original_model_application_chain_reaches_confirmed_delivery) ... ok
+test_v2_wrong_attempt_response_refuses_even_with_rehashed_feedback (__main__.Evaluation.test_v2_wrong_attempt_response_refuses_even_with_rehashed_feedback) ... ok
+
+----------------------------------------------------------------------
+Ran 31 tests in 68.444s
+
+OK
+<end of output>
+Test time =  68.51 sec
+----------------------------------------------------------
+Test Passed.
+"r3_evaluation" end time: Oct 27 02:54 EDT
+"r3_evaluation" time elapsed: 00:01:08
+----------------------------------------------------------
+
+47/74 Testing: live_model_store_tls
+47/74 Test: live_model_store_tls
+Command: "/tmp/wls861-r33a-venv/bin/python" "/tmp/wls861-two-module-validation/source/tests/test_live_model_store.py" "/tmp/wls861-two-module-validation/source/build-asan/live_model_store_driver" "/tmp/wls861-two-module-validation/source"
+Directory: /tmp/wls861-two-module-validation/source/build-asan
+"live_model_store_tls" start time: Oct 27 02:54 EDT
+Output:
+----------------------------------------------------------
+Live Store loopback UID=65534 effective_umask=0002
+test_actual_sigkill_at_five_boundaries_never_resends (__main__.LiveStore.test_actual_sigkill_at_five_boundaries_never_resends) ... ok
+test_complete_original_store_path_and_exact_replay (__main__.LiveStore.test_complete_original_store_path_and_exact_replay) ... ok
+test_disabled_or_failed_admission_has_zero_network_and_budget_effect (__main__.LiveStore.test_disabled_or_failed_admission_has_zero_network_and_budget_effect) ... ok
+test_effective_live_capacity_can_persist_actual_limit_observation (__main__.LiveStore.test_effective_live_capacity_can_persist_actual_limit_observation) ... ok
+test_http_429_and_500_never_automatically_retry (__main__.LiveStore.test_http_429_and_500_never_automatically_retry) ... ok
+test_large_escaped_valid_output_fits_original_settlement_event (__main__.LiveStore.test_large_escaped_valid_output_fits_original_settlement_event) ... ok
+test_late_complete_response_keeps_original_identity_after_all_fences (__main__.LiveStore.test_late_complete_response_keeps_original_identity_after_all_fences) ... ok
+test_partial_response_deadline_preserves_unknown_and_no_tools (__main__.LiveStore.test_partial_response_deadline_preserves_unknown_and_no_tools) ... ok
+test_private_echo_never_enters_safe_query_or_events (__main__.LiveStore.test_private_echo_never_enters_safe_query_or_events) ... ok
+test_sse_tool_terminal_is_original_data_without_tool_dispatch (__main__.LiveStore.test_sse_tool_terminal_is_original_data_without_tool_dispatch) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 15.934s
+
+OK
+<end of output>
+Test time =  16.00 sec
+----------------------------------------------------------
+Test Passed.
+"live_model_store_tls" end time: Oct 27 02:54 EDT
+"live_model_store_tls" time elapsed: 00:00:16
+----------------------------------------------------------
+
+49/74 Testing: live_workflow_cli
+49/74 Test: live_workflow_cli
+Command: "/tmp/wls861-r33a-venv/bin/python" "/tmp/wls861-two-module-validation/source/tests/test_live_workflow_cli.py" "/tmp/wls861-two-module-validation/source/build-asan/wls" "/tmp/wls861-two-module-validation/source"
+Directory: /tmp/wls861-two-module-validation/source/build-asan
+"live_workflow_cli" start time: Oct 27 02:54 EDT
+Output:
+----------------------------------------------------------
+test_authorization_hash_uses_bytes_captured_before_execution (__main__.LiveWorkflowCli.test_authorization_hash_uses_bytes_captured_before_execution) ... ok
+test_authorization_inside_business_workspace_is_rejected_before_takeover (__main__.LiveWorkflowCli.test_authorization_inside_business_workspace_is_rejected_before_takeover) ... ok
+test_current_configuration_cannot_change_frozen_endpoint (__main__.LiveWorkflowCli.test_current_configuration_cannot_change_frozen_endpoint) ... ok
+test_http_failure_has_no_automatic_retry_or_private_echo (__main__.LiveWorkflowCli.test_http_failure_has_no_automatic_retry_or_private_echo) ... ok
+test_invalid_authorization_is_rejected_before_any_store_effect (__main__.LiveWorkflowCli.test_invalid_authorization_is_rejected_before_any_store_effect) ... ok
+test_missing_and_invalid_credentials_never_reserve_or_send (__main__.LiveWorkflowCli.test_missing_and_invalid_credentials_never_reserve_or_send) ... ok
+test_nonregular_and_missing_authorization_are_bounded_preflight_failures (__main__.LiveWorkflowCli.test_nonregular_and_missing_authorization_are_bounded_preflight_failures) ... ok
+test_original_plan_applies_then_unknown_cost_stops_and_repeat_cannot_resend (__main__.LiveWorkflowCli.test_original_plan_applies_then_unknown_cost_stops_and_repeat_cannot_resend) ... ok
+test_scoped_live_execution_preserves_sibling_request_and_budget (__main__.LiveWorkflowCli.test_scoped_live_execution_preserves_sibling_request_and_budget) ... ok
+test_status_is_read_only_and_template_grants_no_authority (__main__.LiveWorkflowCli.test_status_is_read_only_and_template_grants_no_authority) ... ok
+test_unknown_cli_arguments_and_host_dispositions_are_rejected_before_takeover (__main__.LiveWorkflowCli.test_unknown_cli_arguments_and_host_dispositions_are_rejected_before_takeover) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 12.585s
+
+OK
+<end of output>
+Test time =  12.66 sec
+----------------------------------------------------------
+Test Passed.
+"live_workflow_cli" end time: Oct 27 02:54 EDT
+"live_workflow_cli" time elapsed: 00:00:12
+----------------------------------------------------------
+
+43/74 Testing: live_model_store
+43/74 Test: live_model_store
+Command: "/tmp/wls861-two-module-validation/source/build-asan/live_model_store_tests"
+Directory: /tmp/wls861-two-module-validation/source/build-asan
+"live_model_store" start time: Oct 27 02:54 EDT
+Output:
+----------------------------------------------------------
+PASS disabled, credential authorization and full frozen envelope reject before reservation
+PASS live profile capacity rejects impossible durable evidence before admission
+PASS original encoding/options CAS and concurrent one-time durable send claim
+PASS reservation and send-claim faults roll back original budget and authority
+PASS private observation and immutable original settlement faults are atomic
+PASS partial usage, exact replay, version conflict and dimension completion
+PASS known zero balances retain explicit unknown cache dimensions
+PASS contradiction preserves known facts and actual excess cost stops paid admission
+PASS reconciliation faults roll back all projections and source bytes stay private
+PASS recovery-only missing response settlement keeps original identity and never resends
+PASS reservation-only recovery requires explicit no-dispatch proof and original null settlement
+PASS terminal scoped reconciliation cannot alter sibling or restore business
+PASS explicit migration preserves original fake snapshots, attempts, settlement and budget
+PASS policy and cross-request identity are rechecked before first send
+PASS host verifier, original settlement, Root role and evidence kind remain mandatory
+RESULT 15 passed, 0 failed
+<end of output>
+Test time =   8.43 sec
+----------------------------------------------------------
+Test Passed.
+"live_model_store" end time: Oct 27 02:54 EDT
+"live_model_store" time elapsed: 00:00:08
+----------------------------------------------------------
+
+50/74 Testing: runtime_resources_cli
+50/74 Test: runtime_resources_cli
+Command: "/tmp/wls861-r33a-venv/bin/python" "/tmp/wls861-two-module-validation/source/tests/runtime_resources_cli_tests.py" "/tmp/wls861-two-module-validation/source/build-asan/wls" "/tmp/wls861-two-module-validation/source" "/tmp/wls861-two-module-validation/source/build-asan"
+Directory: /tmp/wls861-two-module-validation/source/build-asan
+"runtime_resources_cli" start time: Oct 27 02:54 EDT
+Output:
+----------------------------------------------------------
+test_bundle_failures_reject_before_database_or_writer_effects (__main__.RuntimeResourceInstallation.test_bundle_failures_reject_before_database_or_writer_effects) ... ok
+test_explicit_roots_and_schema_inputs_keep_legacy_compatibility (__main__.RuntimeResourceInstallation.test_explicit_roots_and_schema_inputs_keep_legacy_compatibility) ... ok
+test_external_prompts_and_frozen_requests_have_separate_identity (__main__.RuntimeResourceInstallation.test_external_prompts_and_frozen_requests_have_separate_identity) ... ok
+test_fifo_resource_is_refused_without_waiting_for_a_writer (__main__.RuntimeResourceInstallation.test_fifo_resource_is_refused_without_waiting_for_a_writer) ... ok
+test_installed_configuration_is_explicit_and_not_bundled (__main__.RuntimeResourceInstallation.test_installed_configuration_is_explicit_and_not_bundled) ... ok
+test_installed_runtime_survives_removal_of_its_installation_source (__main__.RuntimeResourceInstallation.test_installed_runtime_survives_removal_of_its_installation_source) ... ok
+test_installer_refuses_destination_symlink_without_writing_target (__main__.RuntimeResourceInstallation.test_installer_refuses_destination_symlink_without_writing_target) ... ok
+test_installer_validates_all_source_bytes_before_destination_effects (__main__.RuntimeResourceInstallation.test_installer_validates_all_source_bytes_before_destination_effects) ... ok
+test_real_prefix_destdir_install_has_only_readonly_program_resources (__main__.RuntimeResourceInstallation.test_real_prefix_destdir_install_has_only_readonly_program_resources) ... ok
+test_relocated_executable_ignores_cwd_and_environment_resource_poison (__main__.RuntimeResourceInstallation.test_relocated_executable_ignores_cwd_and_environment_resource_poison) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 2.345s
+
+OK
+<end of output>
+Test time =   2.40 sec
+----------------------------------------------------------
+Test Passed.
+"runtime_resources_cli" end time: Oct 27 02:54 EDT
+"runtime_resources_cli" time elapsed: 00:00:02
+----------------------------------------------------------
+
+6/74 Testing: runtime_resources
+6/74 Test: runtime_resources
+Command: "/tmp/wls861-two-module-validation/source/build-asan/runtime_resources_tests"
+Directory: /tmp/wls861-two-module-validation/source/build-asan
+"runtime_resources" start time: Oct 27 02:54 EDT
+Output:
+----------------------------------------------------------
+PASS source and installed bundle capture identical compiled program bytes
+PASS manifest rejects omissions extras duplicates and unknown versions
+PASS altered SQL and self-reported hashes fail before Store effects
+PASS missing leaf parent and root symbolic resources are refused
+PASS FIFO and oversized resources stop before data reading
+PASS captured resource bytes remain valid after source removal
+PASS captured Schema registry preserves shape and filename guards
+PASS executable-relative discovery relocates and ignores cwd/environment
+PASS invalid preferred bundle never falls back to another location
+PASS all registered prefixes retain original version and durable SQL hashes
+PASS populated legacy Store requires explicit all-request upgrade
+PASS legacy failing migration rolls back before registered retry
+PASS registry entry retains writer exclusivity and unknown-version refusal
+PASS distributed prompt identity stays separate from external frozen config
+RESULT 14 passed, 0 failed
+<end of output>
+Test time =   1.54 sec
+----------------------------------------------------------
+Test Passed.
+"runtime_resources" end time: Oct 27 02:54 EDT
+"runtime_resources" time elapsed: 00:00:01
+----------------------------------------------------------
+
+13/74 Testing: schema
+13/74 Test: schema
+Command: "/tmp/wls861-two-module-validation/source/build-asan/schema_tests"
+Directory: /tmp/wls861-two-module-validation/source/build-asan
+"schema" start time: Oct 27 02:54 EDT
+Output:
+----------------------------------------------------------
+PASS all 13 complete examples validate with the 17-schema closed registry
+PASS complete records enforce binding, usage and strong types
+PASS model input cannot forge host metadata or self-approval
+PASS projection removes host conditions and preserves business conditions
+PASS projection scopes host names without weakening nested business fields
+PASS plan team briefs and draft-07 conditional requirements validate
+PASS 100 findings remain legal and unique constraints are enforced
+PASS registered relative references preserve model projection and deny host fields
+PASS local JSON Pointers, boolean schemas and patterns are enforced
+PASS unvisited remote, file and traversal refs fail before validation
+PASS duplicate IDs, duplicate JSON keys and missing pointers reject
+PASS schema symlinks and unsupported declared drafts reject
+RESULT 12 passed, 0 failed
+<end of output>
+Test time =   0.44 sec
+----------------------------------------------------------
+Test Passed.
+"schema" end time: Oct 27 02:54 EDT
+"schema" time elapsed: 00:00:00
+----------------------------------------------------------
+
+48/74 Testing: live_workflow
+48/74 Test: live_workflow
+Command: "/tmp/wls861-r33a-venv/bin/python" "/tmp/wls861-two-module-validation/source/tests/test_live_workflow.py" "/tmp/wls861-two-module-validation/source/build-asan/live_workflow_driver" "/tmp/wls861-two-module-validation/source"
+Directory: /tmp/wls861-two-module-validation/source/build-asan
+"live_workflow" start time: Oct 27 02:53 EDT
+Output:
+----------------------------------------------------------
+test_cache_only_unknown_is_not_zero_balance_readiness (__main__.LiveWorkflow.test_cache_only_unknown_is_not_zero_balance_readiness) ... ok
+test_cross_task_host_submission_cannot_complete_model_roundtrip_witness (__main__.LiveWorkflow.test_cross_task_host_submission_cannot_complete_model_roundtrip_witness) ... ok
+test_deadline_preserves_original_partial_response_without_business_apply (__main__.LiveWorkflow.test_deadline_preserves_original_partial_response_without_business_apply) ... ok
+test_explicit_cancellation_before_and_during_transport_remains_cancelled (__main__.LiveWorkflow.test_explicit_cancellation_before_and_during_transport_remains_cancelled) ... ok
+test_independent_receipt_must_match_observed_request_bytes (__main__.LiveWorkflow.test_independent_receipt_must_match_observed_request_bytes) ... ok
+test_live_accounting_status_preserves_all_unknown_and_disputed_boundaries (__main__.LiveWorkflow.test_live_accounting_status_preserves_all_unknown_and_disputed_boundaries) ... ok
+test_missing_usage_stops_batch_and_next_batch_before_credential_lookup (__main__.LiveWorkflow.test_missing_usage_stops_batch_and_next_batch_before_credential_lookup) ... ok
+test_model_exhaustion_escalates_original_rejected_submission (__main__.LiveWorkflow.test_model_exhaustion_escalates_original_rejected_submission) ... ok
+test_model_rejection_correction_and_new_acceptance_share_original_task (__main__.LiveWorkflow.test_model_rejection_correction_and_new_acceptance_share_original_task) ... ok
+test_native_diagnostic_roundtrip_uses_original_feedback (__main__.LiveWorkflow.test_native_diagnostic_roundtrip_uses_original_feedback) ... ok
+test_old_model_rework_and_escalation_cannot_score_a_later_requirement (__main__.LiveWorkflow.test_old_model_rework_and_escalation_cannot_score_a_later_requirement) ... ok
+test_old_settled_response_without_feedback_cannot_be_applied_later (__main__.LiveWorkflow.test_old_settled_response_without_feedback_cannot_be_applied_later) ... ok
+test_original_native_workflow_acceptance_experience_and_safe_summary (__main__.LiveWorkflow.test_original_native_workflow_acceptance_experience_and_safe_summary) ... ok
+test_original_settlement_feedback_replay_has_no_second_send_or_apply (__main__.LiveWorkflow.test_original_settlement_feedback_replay_has_no_second_send_or_apply) ... ok
+test_partial_model_amend_then_keep_preserves_pending_original_task (__main__.LiveWorkflow.test_partial_model_amend_then_keep_preserves_pending_original_task) ... ok
+test_preconditions_refuse_before_credentials_and_reservation (__main__.LiveWorkflow.test_preconditions_refuse_before_credentials_and_reservation) ... ok
+test_transport_response_cannot_be_swapped_under_original_model_decision (__main__.LiveWorkflow.test_transport_response_cannot_be_swapped_under_original_model_decision) ... ok
+test_verified_hook_statement_must_match_this_original_attempt_and_settlement (__main__.LiveWorkflow.test_verified_hook_statement_must_match_this_original_attempt_and_settlement) ... ok
+
+----------------------------------------------------------------------
+Ran 18 tests in 230.384s
+
+OK
+<end of output>
+Test time = 230.46 sec
+----------------------------------------------------------
+Test Passed.
+"live_workflow" end time: Oct 27 02:56 EDT
+"live_workflow" time elapsed: 00:03:50
+----------------------------------------------------------
+
+End testing: Oct 27 02:56 EDT

@@ -3,9 +3,12 @@
 #include "wls/management_context.hpp"
 
 #include <algorithm>
+#include <condition_variable>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <set>
+#include <thread>
 
 namespace wls::s1 {
 namespace {
@@ -77,7 +80,61 @@ void validate_dispositions(const Json& dispositions) {
                 ErrorCode::InvalidInput, "invalid AMEND decision or rationale");
     }
 }
+
+// Public live reports identify private Store evidence without copying model
+// text, tool arguments, captured file bytes, or credential values into logs.
+Json live_record_summary(const Json& value, std::size_t depth = 0) {
+    const auto bytes = canonical_json(value);
+    Object result{{"record_sha256", sha256_hex(bytes)}, {"record_bytes", bytes.size()}};
+    if (!value.is_object()) return result;
+    for (const auto* name : {"request_id", "task_id", "team_id", "attempt_id", "call_id", "op_id", "claim_id",
+            "submission_id", "question_id", "experience_id", "acceptance_id", "delivery_id", "inbox_id",
+            "status", "type", "state_version", "requirements_revision", "plan_revision", "task_revision",
+            "instruction_revision", "execution_epoch", "dispatcher_epoch", "policy_epoch",
+            "original_attempt_version", "new_send_authority"}) {
+        const auto* found = value.as_object().if_contains(name);
+        if (found && !found->is_object() && !found->is_array()) result[name] = *found;
+    }
+    if (depth < 3) for (const auto* name : {"operation", "submission", "acceptance", "question", "experience", "task"}) {
+        const auto* child = value.as_object().if_contains(name);
+        if (child && child->is_object()) result[name] = live_record_summary(*child, depth + 1);
+    }
+    return result;
+}
+
+struct EphemeralCredential {
+    std::string bytes;
+    ~EphemeralCredential() { std::fill(bytes.begin(), bytes.end(), '\0'); }
+};
 } // namespace
+
+void validate_live_workflow_config(const FrozenRequestConfig& config,
+                                  const LiveWorkflowOptions& options) {
+    require(options.authorization.network_enabled, ErrorCode::Unauthorized,
+            "live workflow needs explicit host network authorization");
+    require(options.limits.max_calls >= 1 && options.limits.max_calls <= 64 &&
+            options.limits.max_worker_calls_per_task >= 1 && options.limits.max_worker_calls_per_task <= 16,
+            ErrorCode::InvalidInput, "invalid finite live workflow call limits");
+    require(options.limits.amendment_dispositions.is_object() &&
+            options.limits.amendment_dispositions.as_object().empty(), ErrorCode::Unauthorized,
+            "live workflow AMEND decisions must come from the captured model response");
+    require(options.reserved_cost_micro_usd > 0 && options.max_batch_duration.count() > 0 &&
+            options.max_batch_duration <= std::chrono::hours(1), ErrorCode::InvalidInput,
+            "live workflow needs explicit positive cost reservation and a bounded batch deadline");
+    require(static_cast<bool>(options.credentials), ErrorCode::InvalidInput,
+            "live workflow requires a trusted credential resolver");
+    require(config.json().at("system").at("model_calls").at("real_calls_enabled").as_bool(),
+            ErrorCode::Unauthorized, "live calls are disabled in the frozen request configuration");
+    require(config.context_request_format() == "structured-v2", ErrorCode::Unsupported,
+            "live workflow requires the original structured-v2 context policy");
+    for (const auto role : {Role::Dispatcher, Role::TeamLead, Role::Worker}) {
+        const auto settings = live_model_settings_from_json(config.model_profile(role), config.resolve(role).model);
+        require(settings.execution_kind == "local_tls" || options.authorization.provider_enabled,
+                ErrorCode::Unauthorized, "provider calls require separate explicit host authorization");
+        require(settings.provider.tool_calling, ErrorCode::Unsupported,
+                "live workflow requires the declared native tool-call capability");
+    }
+}
 
 EventFakeScript event_fake_script_from_json(const Json& value) {
     EventFakeScript result;
@@ -345,8 +402,34 @@ Json EventRuntime::pump(const std::string& id, const EventFakeScript& script,
         {"business_delivered", false}, {"environment_checks_executed", false}, {"real_model_calls", 0}};
 }
 
+Json EventRuntime::pump_live(const std::string& id, const LiveWorkflowOptions& options,
+                            std::stop_token stop) {
+    require(store_.live_model_enabled() && store_.workflow_runtime_enabled(), ErrorCode::Unsupported,
+            "live workflow requires the complete Store 410 workflow and accounting path");
+    validate_live_workflow_config(restore_request_config(store_.request(id)), options);
+    const auto deadline = std::chrono::steady_clock::now() + options.max_batch_duration;
+    std::stop_source batch;
+    std::stop_callback cancelled(stop, [&] { batch.request_stop(); });
+    // One scoped deadline watcher cancels the existing bounded transport wait.
+    // It creates no actor, model retry, scheduler, or persistent background job.
+    std::jthread timer([&](std::stop_token finished) {
+        std::mutex mutex;
+        std::unique_lock lock(mutex);
+        std::condition_variable_any wake;
+        static_cast<void>(wake.wait_until(lock, finished, deadline, [] { return false; }));
+        if (!finished.stop_requested()) batch.request_stop();
+    });
+    auto result = pump_workflow(id, {}, options.limits, &options, batch.get_token());
+    if (result.at("stop_reason") == "cancelled" && !stop.stop_requested() &&
+            std::chrono::steady_clock::now() >= deadline)
+        result.as_object()["stop_reason"] = "deadline";
+    return result;
+}
+
 Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& script,
-                                 const EventPumpOptions& options) {
+                                 const EventPumpOptions& options,
+                                 const LiveWorkflowOptions* live, std::stop_token stop) {
+    const auto batch_started = std::chrono::steady_clock::now();
     require(options.max_calls >= 1 && options.max_calls <= 64 && options.max_worker_calls_per_task >= 1 &&
             options.max_worker_calls_per_task <= 16, ErrorCode::InvalidInput, "invalid finite pump call limits");
     validate_dispositions(options.amendment_dispositions);
@@ -357,6 +440,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         if (!steps.empty()) (void)FakeModel(steps);
     }
     const auto config = restore_request_config(store_.request(id));
+    if (live) validate_live_workflow_config(config, *live);
     const auto manager_cap = number(config.json().at("system").at("limits"), "manager_max_tool_calls_per_wake");
     require(manager_cap > 0, ErrorCode::Corrupt, "frozen manager wake limit must be positive");
     using ActorKey = std::pair<Role, std::string>;
@@ -365,6 +449,10 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     std::set<std::string> block_keys;
     Array calls, blocked;
     std::int64_t manager_calls = 0;
+    bool live_halted = false;
+    std::string stop_reason = "quiescent";
+    std::int64_t network_started_calls = 0, provider_calls = 0, unobserved_send_claims = 0;
+    bool network_count_complete = true;
     // Explicit host decisions retain their compatibility path for this whole
     // pump. Otherwise the Dispatcher captures its own bounded AMEND target;
     // later omitted-node decisions must not publish another plan.
@@ -375,7 +463,26 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         const auto key = std::string(role_name(role)) + ":" + node + ":" + std::string(code);
         if (block_keys.insert(key).second)
             blocked.push_back(Object{{"role", role_name(role)}, {"node_id", node}, {"task_id", task},
-                {"code", code}, {"reason", reason}});
+                {"code", code}, {"reason", live ? "Live workflow stopped at an original runtime guard; inspect private Store evidence." : reason}});
+    };
+    const auto live_continue = [&] {
+        if (!live) return true;
+        if (live_halted) return false;
+        if (stop.stop_requested()) {
+            live_halted = true; stop_reason = "cancelled";
+        } else if (std::chrono::steady_clock::now() - batch_started >= live->max_batch_duration) {
+            live_halted = true; stop_reason = "deadline";
+        }
+        if (live_halted) block(Role::Dispatcher, {}, {}, stop_reason, "live batch stopped before another action");
+        return !live_halted;
+    };
+    const auto accounting_ready = [&] {
+        if (!live) return true;
+        const auto status = store_.live_accounting_status(id);
+        if (status.at("ready").as_bool()) return true;
+        live_halted = true; stop_reason = "needs_accounting";
+        block(Role::Dispatcher, {}, {}, "needs_accounting", "original model accounting requires independent evidence");
+        return false;
     };
     const auto finish = [&](const StoreActor& actor, const Json& claim,
                             const std::vector<std::int64_t>& completed) {
@@ -459,11 +566,10 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     };
     const auto invoke = [&](Role role, const std::string& node, const std::string& task,
                             WorkerTools* tools, const Json& claim) -> std::optional<Json> {
+        if (!live_continue() || !accounting_ready()) return std::nullopt;
         const ActorKey key{role, node};
         if (stopped.contains(key)) return std::nullopt;
         if (store_.capacity_status(id).at("status") == "WAITING_INPUT") {
-            // Resolve a potentially large immutable target only for a hold.
-            // The normal path already captures/validates it in reserve_call.
             const auto pending_action = role == Role::Worker ? Json(nullptr) : management_target(role, task);
             if (pending_action.is_null() || text(pending_action, "kind") != "experience") {
                 block(role, node, task, "capacity_waiting_input", "Root capacity-checkpoint required; no new model reservation");
@@ -472,6 +578,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         }
         if (static_cast<std::int64_t>(calls.size()) >= options.max_calls) {
             block(role, node, task, "call_limit", "this explicit pump reached its total call limit");
+            if (live) { live_halted = true; stop_reason = "call_limit"; }
             stopped.insert(key); return std::nullopt;
         }
         if (role != Role::Worker && manager_calls >= manager_cap) {
@@ -482,31 +589,91 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             block(role, node, task, "worker_limit", "this task reached the explicit per-pump Worker call limit");
             stopped.insert(key); return std::nullopt;
         }
-        const auto found = script.by_node.find(node);
-        const auto& steps = node.empty() || found == script.by_node.end() ? script.default_steps : found->second;
         const auto index = indices[key] + 1;
-        if (std::none_of(steps.begin(), steps.end(), [&](const auto& step) {
-                return step.role == role && step.role_call_index == index;
-            })) {
-            block(role, node, task, "missing_script", "no explicit Fake step for this role/node sequence");
-            stopped.insert(key); return std::nullopt;
-        }
-        const FakeModel fake(steps, config.resolve(role).model);
+        std::optional<FakeModel> fake;
         OfflineRuntime runtime(store_, schemas_, tools);
-        const auto captured = runtime.reserve_call(fake, id, role, task, index, {},
-            role == Role::Dispatcher && model_amendment);
+        CapturedModelCall captured;
+        std::optional<LiveModelSettings> settings;
+        if (live) {
+            settings = live_model_settings_from_json(config.model_profile(role), config.resolve(role).model);
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                live->max_batch_duration - (std::chrono::steady_clock::now() - batch_started));
+            if (remaining.count() <= 0) {
+                live_halted = true; stop_reason = "deadline";
+                block(role, node, task, stop_reason, "batch deadline reached before capture");
+                return std::nullopt;
+            }
+            CapturedCallLimits bounds;
+            bounds.reserved_cost_micro_usd = live->reserved_cost_micro_usd;
+            bounds.timeout = std::min(remaining, std::chrono::milliseconds(settings->provider.limits.max_timeout_ms));
+            captured = runtime.capture_call(id, role, task, index, {},
+                role == Role::Dispatcher && model_amendment, bounds);
+            // Check the captured claim before any reservation or credential
+            // lookup. A live preflight cannot reuse the Fake zero-usage abort.
+            require(captured.workflow_action.is_null() || action_in_claim(captured.workflow_action, claim),
+                    ErrorCode::Stale, "live workflow target is outside its original captured event claim");
+            static_cast<void>(encode_responses_request(settings->provider, captured.request, settings->stream));
+            const auto budget = store_.budget(id);
+            require(number(budget, "attempts") < number(budget, "max_attempts"), ErrorCode::Quota,
+                    "original model attempt budget exhausted before credential lookup");
+            for (const auto& [dimension, reservation] : {
+                    std::pair<std::string, std::int64_t>{"input", captured.request.reserved_input_tokens},
+                    {"output", captured.request.reserved_output_tokens}, {"cost", captured.request.reserved_cost_micro_usd}}) {
+                const auto limit = number(budget, dimension + "_limit");
+                const auto spent = number(budget, "spent_" + dimension);
+                const auto reserved = number(budget, "reserved_" + dimension);
+                require(spent <= limit && reserved <= limit - spent && reservation <= limit - spent - reserved,
+                        ErrorCode::Quota, "original model budget exhausted before credential lookup");
+            }
+        } else {
+            const auto found = script.by_node.find(node);
+            const auto& steps = node.empty() || found == script.by_node.end() ? script.default_steps : found->second;
+            if (std::none_of(steps.begin(), steps.end(), [&](const auto& step) {
+                    return step.role == role && step.role_call_index == index;
+                })) {
+                block(role, node, task, "missing_script", "no explicit Fake step for this role/node sequence");
+                stopped.insert(key); return std::nullopt;
+            }
+            fake.emplace(steps, config.resolve(role).model);
+            captured = runtime.reserve_call(*fake, id, role, task, index, {},
+                role == Role::Dispatcher && model_amendment);
+        }
         indices[key] = index;
         if (role != Role::Worker) ++manager_calls;
         Object invocation{{"attempt_id", captured.request.attempt_id}, {"role", role_name(role)},
             {"node_id", node}, {"task_id", task}, {"role_call_index", index},
             {"config_snapshot_sha256", captured.request.config_snapshot_id},
-            {"prefix_sha256", captured.request.context.prefix_sha256},
-            {"workflow_action", captured.workflow_action}};
+            {"prefix_sha256", captured.request.context.prefix_sha256}};
+        if (live) invocation["workflow_kind"] = captured.workflow_action.is_null()
+            ? Json(nullptr) : captured.workflow_action.at("kind");
+        else invocation["workflow_action"] = captured.workflow_action;
+        bool live_execution_started = false;
+        const auto preserve_observation_gap = [&] {
+            if (!live || !live_execution_started || invocation.contains("network_started")) return;
+            try {
+                const auto original = store_.live_attempt(captured.request.attempt_id);
+                invocation["send_claim"] = live_record_summary(original.at("send_claim"));
+                invocation["transport"] = original.at("transport");
+                if (!original.at("transport").is_null()) {
+                    const bool sent = original.at("transport").at("network_started").as_bool();
+                    invocation["network_started"] = sent;
+                    if (sent) {
+                        ++network_started_calls;
+                        if (settings->execution_kind == "provider") ++provider_calls;
+                    }
+                } else if (!original.at("send_claim").is_null()) {
+                    invocation["network_started"] = nullptr;
+                    ++unobserved_send_claims; network_count_complete = false;
+                } else invocation["network_started"] = false;
+            } catch (...) {
+                // An unavailable original observation cannot prove zero sends.
+                invocation["network_started"] = nullptr;
+                invocation["transport_observation_unavailable"] = true;
+                network_count_complete = false;
+            }
+        };
         try {
-            // Ordinary events select one exact object. A recovery event may
-            // reconstruct a current workflow target only within its captured
-            // task subject. Neither case completes newly arrived inbox rows.
-            if (!captured.workflow_action.is_null() && !action_in_claim(captured.workflow_action, claim)) {
+            if (!live && !captured.workflow_action.is_null() && !action_in_claim(captured.workflow_action, claim)) {
                 ModelResponse aborted;
                 aborted.call_id = captured.request.call_id;
                 aborted.attempt_id = captured.request.attempt_id;
@@ -527,21 +694,107 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                         {"message", aborted.error_message}, {"model_invoked", false}, {"observation_complete", false}}));
                 throw Error(ErrorCode::Stale, aborted.error_message);
             }
-            const auto response = fake.complete(captured.request);
-            invocation["response"] = to_json(response);
-            const auto result = role == Role::Dispatcher
-                ? runtime.accept_independent_response(captured, response,
-                    dispositions_applied ? Json(Object{}) : options.amendment_dispositions)
-                : runtime.accept_response(captured, response);
-            invocation["result"] = result;
+            ModelResponse response;
+            if (live) {
+                if (!live_continue()) return std::nullopt;
+                EphemeralCredential credential;
+                try { credential.bytes = live->credentials(settings->provider.api_key_env); }
+                catch (...) { throw Error(ErrorCode::InvalidInput, "trusted credential resolver failed"); }
+                if (!live_continue()) return std::nullopt;
+                const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    live->max_batch_duration - (std::chrono::steady_clock::now() - batch_started));
+                require(remaining.count() > 0, ErrorCode::NotReady, "batch deadline reached before live reservation");
+                captured.request.timeout = std::min(remaining,
+                    std::chrono::milliseconds(settings->provider.limits.max_timeout_ms));
+                LiveExperienceBinding experience;
+                if (!captured.workflow_action.is_null() && text(captured.workflow_action, "kind") == "experience") {
+                    const auto& job = captured.workflow_action.at("target");
+                    experience.experience_job_id = text(job, "experience_id");
+                    experience.experience_job_version = number(job, "state_version");
+                    experience.experience_source_sha256 = text(job, "source_sha256");
+                }
+                live_execution_started = true;
+                auto observed = observe_live_attempt(store_, captured.actor, captured.request, credential.bytes,
+                    live->authorization, experience, stop);
+                invocation["send_claim"] = live_record_summary(observed.send_claim);
+                invocation["transport"] = observed.transport_summary;
+                invocation["network_started"] = observed.sent;
+                invocation["execution_kind"] = settings->execution_kind;
+                if (observed.sent) {
+                    ++network_started_calls;
+                    if (settings->execution_kind == "provider") ++provider_calls;
+                }
+                require(observed.response.has_value(), ErrorCode::NotReady,
+                        "original live send claim cannot be executed or applied again");
+                response = std::move(*observed.response);
+                const auto original_response = to_json(response);
+                invocation["response_summary"] = Object{{"status", original_response.at("status")},
+                    {"tool_call_count", response.tool_calls.size()}, {"usage", to_json(response.usage)},
+                    {"response_sha256", sha256_hex(canonical_json(original_response))}};
+            } else {
+                response = fake->complete(captured.request);
+                invocation["response"] = to_json(response);
+            }
+            Json result;
+            if (live) {
+                const auto after_settlement = [&](const Json& settlement) {
+                    if (live->usage_evidence) {
+                        std::optional<VerifiedUsageEvidence> evidence;
+                        try { evidence = live->usage_evidence(captured.request, response, settlement); }
+                        catch (...) { throw Error(ErrorCode::InvalidInput, "trusted usage evidence hook failed"); }
+                        if (evidence) {
+                            require(evidence->statement().attempt_id == captured.request.attempt_id &&
+                                    evidence->statement().settlement_sha256 == text(settlement, "settlement_sha256"),
+                                    ErrorCode::Conflict, "usage evidence hook returned a different original attempt or settlement");
+                            const auto projection = store_.usage_projection(captured.request.attempt_id);
+                            UsageReconciliation reconciliation;
+                            reconciliation.reconciliation_id = new_id("usage");
+                            reconciliation.idempotency_key = "live-workflow:" + captured.request.attempt_id + ":" + evidence->sha256();
+                            reconciliation.expected_projection_version = number(projection.at("projection"), "state_version");
+                            static_cast<void>(store_.reconcile_usage(store_.host_actor(Role::Root, id), *evidence, reconciliation));
+                            invocation["usage_evidence_sha256"] = evidence->sha256();
+                        }
+                    }
+                    // A batch stop is never permission for a late business
+                    // effect. Original settlement/evidence remain durable.
+                    require(live_continue(), ErrorCode::NotReady, "live batch stopped before response application");
+                };
+                result = runtime.accept_live_response(captured, response, after_settlement, role == Role::Dispatcher);
+                invocation["result"] = live_record_summary(result);
+                static_cast<void>(accounting_ready());
+                const auto* operation = result.is_object() ? result.as_object().if_contains("operation") : nullptr;
+                if (operation && text(*operation, "status") != "SUCCEEDED") {
+                    live_halted = true; stop_reason = "error";
+                    block(role, node, task, "operation_incomplete", "failed or unknown operation stops the live batch");
+                }
+            } else {
+                result = role == Role::Dispatcher
+                    ? runtime.accept_independent_response(captured, response,
+                        dispositions_applied ? Json(Object{}) : options.amendment_dispositions)
+                    : runtime.accept_response(captured, response);
+                invocation["result"] = result;
+            }
             calls.push_back(std::move(invocation));
             return result;
         } catch (const Error& error) {
-            invocation["error"] = Object{{"code", error_name(error.code())}, {"message", error.what()}};
-            calls.push_back(std::move(invocation)); stopped.insert(key); throw;
+            preserve_observation_gap();
+            invocation["error"] = Object{{"code", error_name(error.code())},
+                {"message", live ? "Live invocation stopped; inspect the original private Store evidence." : error.what()}};
+            calls.push_back(std::move(invocation)); stopped.insert(key);
+            if (live) {
+                if (stop_reason == "quiescent") stop_reason = "error";
+                if (stop_reason != "cancelled" && stop_reason != "deadline")
+                    static_cast<void>(accounting_ready());
+                live_halted = true;
+            }
+            throw;
         } catch (const std::exception& error) {
-            invocation["error"] = Object{{"code", "unexpected"}, {"message", error.what()}};
-            calls.push_back(std::move(invocation)); stopped.insert(key); throw;
+            preserve_observation_gap();
+            invocation["error"] = Object{{"code", "unexpected"},
+                {"message", live ? "Live invocation stopped; inspect the original private Store evidence." : error.what()}};
+            calls.push_back(std::move(invocation)); stopped.insert(key);
+            if (live) { live_halted = true; stop_reason = "error"; }
+            throw;
         }
     };
 
@@ -549,7 +802,8 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     // rounds instead of discarding those events or waiting inside a transaction.
     // Ordinary errors and missing script steps stop only that actor for this
     // explicit pump; another round is never an implicit retry of its failure.
-    for (std::int64_t round = 0; round < 128 && (!request_terminal() || store_.acceptance_runtime_enabled()); ++round) {
+    for (std::int64_t round = 0; round < 128 && live_continue() && accounting_ready() &&
+            (!request_terminal() || store_.acceptance_runtime_enabled()); ++round) {
         bool progress = false;
         const auto dispatcher = store_.host_actor(Role::Dispatcher, id);
         Json dispatcher_claim = nullptr;
@@ -631,17 +885,20 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             dispatcher_claim = nullptr;
         } catch (const Error& error) {
             stopped.insert({Role::Dispatcher, {}});
+            if (live) { live_halted = true; if (stop_reason == "quiescent") stop_reason = "error"; }
             block(Role::Dispatcher, {}, {}, error_name(error.code()), error.what());
             if (!dispatcher_claim.is_null()) try { finish(dispatcher, dispatcher_claim, {}); }
                 catch (const Error& release) { block(Role::Dispatcher, {}, {}, error_name(release.code()), release.what()); }
         } catch (const std::exception& error) {
             stopped.insert({Role::Dispatcher, {}});
+            if (live) { live_halted = true; if (stop_reason == "quiescent") stop_reason = "error"; }
             block(Role::Dispatcher, {}, {}, "unexpected", error.what());
             if (!dispatcher_claim.is_null()) try { finish(dispatcher, dispatcher_claim, {}); }
                 catch (const std::exception& release) { block(Role::Dispatcher, {}, {}, "claim_release_failed", release.what()); }
         }
 
         for (const auto& assigned : store_.tasks(id)) {
+            if (!live_continue()) break;
             const auto node = text(assigned, "node_id"), task_id = text(assigned, "task_id");
             const auto queued_action = management_target(Role::TeamLead, task_id);
             const bool experience_pending = !queued_action.is_null() && text(queued_action, "kind") == "experience";
@@ -714,6 +971,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                     active_claim = nullptr;
                 }
 
+                if (!live_continue()) break;
                 const auto current_task = store_.task(task_id);
                 if (request_terminal()) continue;
                 const auto status = text(current_task, "status");
@@ -748,17 +1006,23 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 progress = true;
             } catch (const Error& error) {
                 const auto role = active_actor.role == Role::Root ? Role::Worker : active_actor.role;
+                if (live) { live_halted = true; if (stop_reason == "quiescent") stop_reason = "error"; }
                 stopped.insert({role, node}); block(role, node, task_id, error_name(error.code()), error.what());
                 if (!active_claim.is_null()) try { finish(active_actor, active_claim, {}); }
                     catch (const Error& release) { block(role, node, task_id, error_name(release.code()), release.what()); }
             } catch (const std::exception& error) {
                 const auto role = active_actor.role == Role::Root ? Role::Worker : active_actor.role;
+                if (live) { live_halted = true; if (stop_reason == "quiescent") stop_reason = "error"; }
                 stopped.insert({role, node}); block(role, node, task_id, "unexpected", error.what());
                 if (!active_claim.is_null()) try { finish(active_actor, active_claim, {}); }
                     catch (const std::exception& release) { block(role, node, task_id, "claim_release_failed", release.what()); }
             }
         }
-        if (!progress || static_cast<std::int64_t>(calls.size()) >= options.max_calls) break;
+        if (!progress || static_cast<std::int64_t>(calls.size()) >= options.max_calls) {
+            if (live && stop_reason == "quiescent" && static_cast<std::int64_t>(calls.size()) >= options.max_calls)
+                stop_reason = "call_limit";
+            break;
+        }
     }
 
     Array pending, tasks, questions, submissions;
@@ -791,7 +1055,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     for (const auto& question : visible_management_questions(store_, Role::Dispatcher, id)) questions.push_back(question);
     if (static_cast<std::int64_t>(calls.size()) >= options.max_calls && !pending.empty())
         block(Role::Dispatcher, {}, {}, "call_limit", "this explicit pump reached its total call limit; remaining events stay durable");
-    Object result{{"mode", "event_fake"}, {"workflow_runtime", true}, {"request_id", id},
+    Object result{{"mode", live ? "event_live" : "event_fake"}, {"workflow_runtime", true}, {"request_id", id},
         {"config_snapshot_sha256", config.sha256()}, {"calls", std::move(calls)}, {"blocked", std::move(blocked)},
         {"pending", std::move(pending)}, {"tasks", std::move(tasks)}, {"questions", std::move(questions)},
         {"submissions", std::move(submissions)}, {"request_status", final_request.at("status")}, {"budget", store_.budget(id)},
@@ -799,7 +1063,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         {"manager_calls", manager_calls}, {"worker_tools_enabled", !tools_by_node_.empty()},
         {"business_delivered", store_.acceptance_runtime_enabled() && text(final_request, "status") == "DELIVERED" &&
             text(final_request, "delivery_status") == "CONFIRMED"},
-        {"environment_checks_executed", false}, {"real_model_calls", 0}};
+        {"environment_checks_executed", false}, {"real_model_calls", provider_calls}};
     if (!config.management_history_policy().is_null())
         result["management_history"] = store_.management_view(store_.host_actor(Role::Dispatcher, id),
             store_.request_binding(id)).at("history_catalogs");
@@ -808,6 +1072,28 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         for (const auto& job : store_.experience_jobs(id)) jobs.push_back(job);
         result["acceptance_runtime"] = true;
         result["experience_jobs"] = std::move(jobs);
+    }
+    if (live) {
+        result["stop_reason"] = stop_reason;
+        result["network_started_calls"] = network_started_calls;
+        result["provider_calls"] = provider_calls;
+        result["network_count_complete"] = network_count_complete;
+        result["unobserved_send_claims"] = unobserved_send_claims;
+        result["network_count_scope"] = "observed network starts; missing observations do not prove zero sends";
+        result["max_batch_duration_ms"] = live->max_batch_duration.count();
+        result["elapsed_ms"] = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - batch_started).count();
+        result["reserved_cost_micro_usd_per_attempt"] = live->reserved_cost_micro_usd;
+        result["cost_reservation_is_actual_usage"] = false;
+        result["accounting"] = store_.live_accounting_status(id);
+        result["report_scope"] = "safe_identifiers_counts_and_hashes; original evidence remains private in Store";
+        for (const auto* field : {"pending", "tasks", "questions", "submissions", "experience_jobs"}) {
+            if (auto* values = result.if_contains(field); values && values->is_array()) {
+                Array safe;
+                for (const auto& value : values->as_array()) safe.emplace_back(live_record_summary(value));
+                *values = std::move(safe);
+            }
+        }
     }
     return result;
 }

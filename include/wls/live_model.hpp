@@ -3,6 +3,7 @@
 #include "wls/https_transport.hpp"
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -46,6 +47,27 @@ struct LiveAttemptResult {
     bool response_accepted{false};
 };
 
+struct LiveExperienceBinding {
+    std::string experience_job_id;
+    std::int64_t experience_job_version{};
+    std::string experience_source_sha256;
+};
+
+// A fresh claim's durable transport observation, not a business permission.
+// Replayed claims return no response and never issue another network send.
+struct ObservedLiveAttempt {
+    Json reservation = nullptr;
+    Json send_claim = nullptr;
+    Json transport_summary = nullptr;
+    std::optional<ModelResponse> response;
+    bool sent{false};
+};
+
+ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
+        const ModelRequest& request, std::string_view bearer_token,
+        const LiveExecutionAuthorization& authorization = {},
+        const LiveExperienceBinding& experience = {}, std::stop_token stop = {});
+
 // The complete original Store path: reserve -> unique send claim -> HTTPS
 // outside any transaction -> private transport record -> original settlement.
 // An exception after the claim retains unresolved accounting and never retries.
@@ -80,6 +102,13 @@ private:
     std::string bytes_;
     std::string sha256_;
 };
+
+// Trusted host callbacks. The reference comes only from the original frozen
+// provider profile. Neither callback is exposed as a model tool; an ordinary
+// JSON "verified" value cannot construct VerifiedUsageEvidence.
+using LiveCredentialResolver = std::function<std::string(std::string_view)>;
+using LiveUsageEvidenceHook = std::function<std::optional<VerifiedUsageEvidence>(
+    const ModelRequest&, const ModelResponse&, const Json& original_settlement)>;
 
 // source_kind is loopback_fixture, host_verified_provider or host_no_dispatch.
 // A loopback fixture can only reconcile an attempt frozen as local_tls.

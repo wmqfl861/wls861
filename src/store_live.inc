@@ -448,6 +448,54 @@ Json Store::reconcile_usage(const StoreActor& root, const VerifiedUsageEvidence&
     tx.commit(); return answer;
 }
 
+Json Store::live_accounting_status(const std::string& request_id) const {
+    const std::lock_guard lock(impl_->mutex);
+    require(impl_->reconciliation_schema, ErrorCode::Unsupported,
+            "live accounting status requires the 410 migration");
+    (void)impl_->request_row(request_id);
+    const std::string predicate = " FROM call_attempts c JOIN live_attempt_execution l USING(attempt_id) "
+        "LEFT JOIN live_usage_projection p USING(attempt_id) WHERE c.request_id=? AND "
+        "(c.settlement_sha256 IS NULL OR p.attempt_id IS NULL OR p.disputed=1 OR p.over_reserved=1 OR "
+        "p.input_tokens IS NULL OR p.output_tokens IS NULL OR p.cache_read_tokens IS NULL OR "
+        "p.cache_write_tokens IS NULL OR p.cost_micro_usd IS NULL)";
+    // Count, bounded details and budget are observed by one SQLite statement,
+    // including on a read-only connection alongside another process's writer.
+    const auto rows = impl_->all("WITH blocked AS ("
+        "SELECT c.attempt_id,c.status,(c.settlement_sha256 IS NULL) AS unsettled,"
+        "(p.attempt_id IS NULL) AS missing_projection,COALESCE(p.disputed,0) AS disputed,"
+        "COALESCE(p.over_reserved,0) AS over_reserved,(p.input_tokens IS NULL) AS unknown_input,"
+        "(p.output_tokens IS NULL) AS unknown_output,(p.cache_read_tokens IS NULL) AS unknown_cache_read,"
+        "(p.cache_write_tokens IS NULL) AS unknown_cache_write,(p.cost_micro_usd IS NULL) AS unknown_cost" +
+        predicate + "), summary AS (SELECT COUNT(*) AS blocked_count FROM blocked) "
+        "SELECT summary.blocked_count,b.spent_input,b.reserved_input,b.input_limit,"
+        "b.spent_output,b.reserved_output,b.output_limit,b.spent_cost,b.reserved_cost,b.cost_limit,blocked.* "
+        "FROM request_budgets b CROSS JOIN summary LEFT JOIN blocked ON 1 "
+        "WHERE b.request_id=? ORDER BY blocked.attempt_id LIMIT 64", {request_id, request_id});
+    require(!rows.empty(), ErrorCode::Corrupt, "request has no accounting budget");
+    const auto& budget = rows.front();
+    const auto count = number(budget, "blocked_count");
+    Array blocked;
+    for (const auto& item : rows) {
+        if (item.at("attempt_id").is_null()) continue;
+        Row safe;
+        for (const auto* field : {"attempt_id", "status", "unsettled", "missing_projection", "disputed", "over_reserved",
+                "unknown_input", "unknown_output", "unknown_cache_read", "unknown_cache_write", "unknown_cost"})
+            safe[field] = item.at(field);
+        blocked.push_back(std::move(safe));
+    }
+    bool within_limits = true;
+    for (const auto& [dimension, unused] : ledger_dimensions) {
+        (void)unused;
+        if (add(number(budget, "spent_" + std::string(dimension)),
+                number(budget, "reserved_" + std::string(dimension))) >
+                number(budget, std::string(dimension) + "_limit")) within_limits = false;
+    }
+    return Row{{"request_id", request_id}, {"ready", count == 0 && within_limits},
+        {"blocked_count", count}, {"blocked_attempts", std::move(blocked)},
+        {"truncated", count > 64}, {"budget_within_limits", within_limits},
+        {"reservation_authority", false}};
+}
+
 Json Store::verify_usage_ledger(const std::string& request_id) const {
     const std::lock_guard lock(impl_->mutex);
     require(impl_->reconciliation_schema, ErrorCode::Unsupported, "ledger reconstruction requires the 410 migration");

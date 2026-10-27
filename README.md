@@ -1,14 +1,14 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.9.0-r3.3b；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程、受控 Worker 工具和独立离线协议回放。
+C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.10.0-r3.3c-runtime；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化工作流、受控 Worker 工具和独立离线协议回放。
 
-本增量交付五个接续节点：**R3.3b 原 Store 预约/唯一发送权、不可变结算/追加用量核对、
-R3.3c 本地评测框架、R1.4 管理窗口、owned 工作区贯通容量**。
-Store 新版本为410，真实路径只由受信宿主库在明确冻结配置和独立执行授权下调用；
-`wls`/OfflineRuntime 继续提供 FakeModel 入口，默认真实开关关闭。
+本增量接续已推送的五节点版本，交付两个大模块：**受控在线工作流**与
+**迁移注册表／可安装运行资源**。Store 保持410，原SQL、原预约、结算、恢复和业务权限保持兼容。
+`pump-live` 在明确冻结配置与独立宿主授权下驱动原角色流程；默认仍关闭网络和真实调用。
+资源安装包包含经固定清单校验的SQL、Schema和公共提示词，可以从任意工作目录启动。
 本轮测试使用临时 SQLite、合成凭据与 loopback TLS；真实供应商和付费调用为0。
-[五节点范围](docs/implementation/five-node-continuation-20261027.md)、
-[当前状态](docs/STATUS.md)与[联合验证](docs/reports/five-node-validation-20261027.md)分别记录实现和实际证据。
+[两模块范围](docs/implementation/two-module-continuation.md)、
+[当前状态](docs/STATUS.md)与[联合验证](docs/reports/two-module-validation.md)分别记录实现和实际证据。
 前一补丁的独立边界审核及其证据保留在[审核处置](docs/reviews/independent-2026-10-26.md)
 和[历史验证](docs/reports/independent-audit-validation.md)。
 
@@ -24,13 +24,54 @@ R1.3 在此基础上接通显式冻结的Worker窗口与模型回读；旧请求
 
 ## 本轮新增接口
 
-- `include/wls/live_model.hpp`：原 Store 的预约、一次性发送、私有原传输与结算；恢复后丢失响应的明确宿主观察；有来源的追加用量核对。
-- `context.management_history`：新请求显式冻结管理窗口；完整当前契约/未决事实保留，原历史按hash/版本受控回读，超限在预约前诊断。
-- `cleanup.owned_workspace_capacity`：新请求显式冻结文件工具容量，贯穿stage、原库存和清理；旧超限工作树保留并报告明确出口。
-- `scripts/evaluate_r3.py`：[固定任务与对照报告](docs/implementation/R3-evaluation-framework.md)，按原账本保留失败/未知/未执行样本。它不启动供应商或通用单 Agent 执行器。
+- `EventRuntime::pump_live`：沿原 Store 预约、唯一发送、结算和反馈驱动计划、派工、工具、提交、检查、验收、经验、模型 AMEND 及有限返工。
+- `wls live-status` / `wls pump-live`：读取原冻结身份及账目，生成默认禁用的授权模板；只有精确绑定请求、配置和模型 profile 的显式授权才能执行。
+- `RuntimeResources` / `MigrationRegistry` / `wls resources`：校验并一次捕获固定资源字节，按注册表使用原迁移；支持显式资源根和可执行文件相对发现。
+- `scripts/evaluate_r3.py`：v2 从原模型响应、捕获目标、不可变反馈和业务事实核验模型决策来源。v1 保留结构性验收语义；尚未提供通用单 Agent 执行器。
 
 升级已有库先执行显式 `wls init --db FILE` 全库维护。请求限定写者不会隐式升级非空旧库；
 旧假调用、配置快照、原结算和已发布SQL保持原字节。
+
+### 受控工作流入口
+
+先用显式外部配置创建请求，再通过 `live-status` 查看原冻结 profile 哈希、预算和账目。
+配置需选择 `structured-v2`、受支持的 Responses profile、明确 CA/路由与凭据环境变量引用；
+请求外层 `model_calls.real_calls_enabled` 和宿主执行授权是两个独立条件。
+
+```sh
+./build-cmake/wls live-status --db /absolute/runtime.sqlite --request REQUEST_ID
+./build-cmake/wls pump-live --db /absolute/runtime.sqlite --request REQUEST_ID \
+  --authorization-file /absolute/host-authorization.json \
+  --workspaces-file /absolute/workspaces.json
+```
+
+`live-status` 的模板默认不授权网络，费用预留为0。宿主须显式填写调用数、每任务调用数、
+批次期限和正数费用预留，并精确绑定请求、配置快照及全部已选模型。文件必须位于业务工作区外。
+凭据只从原冻结的环境变量引用读取，不写入授权文件或公开摘要。CLI 不自动重试、发布或签收交付。
+
+当前 Responses 子集不能从响应确认实际费用，原费用保持 `null`。CLI 会在首个可应用的
+响应后报告 `needs_accounting`，不继续消耗下一次调用；重复运行不能重发旧 attempt。
+完整受控连续流程需宿主库提供能验证独立账单来源的 hook，且证据绑定原 attempt 与原结算哈希。
+预留金额不等于实际费用，模型自报费用或任意 JSON 不能作为核对授权。
+详细接口、停止条件及边界见[在线工作流契约](docs/implementation/R3-live-workflow.md)。
+
+### 安装与资源发现
+
+```sh
+cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release
+cmake --build build-cmake --parallel 2
+cmake --install build-cmake --component wls-runtime --prefix /absolute/wls-install
+/absolute/wls-install/bin/wls resources
+/absolute/wls-install/bin/wls init --db /absolute/runtime.sqlite
+```
+
+安装目录包含 `bin/wls`、`bin/wls861` 和 `share/wls861` 的35项固定运行资源。
+运行资源与编译时认可的清单精确一致；缺失、篡改、特殊文件或软链接均拒绝。
+默认从实际可执行文件位置发现资源，不依赖当前工作目录。也可显式指定
+`--resource-root /absolute/bundle` 或 `--source-root /absolute/checkout`，两者互斥。
+安装包不含用户配置、示例凭据或数据库；安装后的配置命令须显式提供 `--config` 和
+`--functions-dir`，需要自定义提示词时使用 `--prompts-dir`。
+迁移兼容、DESTDIR 与完整安装约束见[资源契约](docs/implementation/runtime-resources-and-migrations.md)。
 
 ## R3.3a：有界 HTTPS 组件与本地集成
 
@@ -44,7 +85,7 @@ IPv4 路由；普通 threaded resolver 未提供这种路由时在联网前拒�
 线程。数字 IPv4 和显式路由保持原 TLS 主机验证。当前供应商 profile 的 IPv6 URL 语法未扩展。
 
 本地测试会临时生成 CA/服务器证书并启动 loopback HTTPS 服务；测试入口仅在
-`BUILD_TESTING=ON` 时构建，不是新增的 `wls` live 命令：
+`BUILD_TESTING=ON` 时构建，与受控 `pump-live` 的宿主授权入口分开：
 
 ```sh
 ctest --test-dir build-cmake -R '^https_transport$' --output-on-failure

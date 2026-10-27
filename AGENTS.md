@@ -1,15 +1,25 @@
 # WLS861 development contract
 
-Current implementation: **0.9.0-r3.3b**, blueprint **v0.4.1**, Store **410**.
-The five-node continuation is specified in
-`docs/implementation/five-node-continuation-20261027.md`. R3.3b adds the original
-Store reservation/send/transport/settlement path and append-only usage reconciliation.
-R3.3c has a local paired-evidence evaluation framework; R1.4 management windows and
-owned workspace capacity are explicit new frozen policies. The CLI and
-OfflineRuntime remain fake-only. Default real calls and host execution authorization
-remain disabled. Tests use disposable SQLite/files and loopback TLS with synthetic
-credentials; no actual provider spending is authorized by this development task.
-Actual current results belong in `docs/reports/five-node-validation-20261027.md`.
+Current implementation: **0.10.0-r3.3c-runtime**, blueprint **v0.4.1**, Store **410**.
+The current two-module continuation is specified in
+`docs/implementation/two-module-continuation.md`. Read ADR-085/086/087 and
+`docs/implementation/R3-live-workflow.md` plus
+`docs/implementation/runtime-resources-and-migrations.md` before modifying these paths.
+The controlled live event pump uses original captured targets, Store reservations,
+unique sends, original settlement and model feedback. CLI `pump-live` requires an
+explicit request/config/profile-bound host authorization; `live-status` only returns
+a disabled template. Defaults remain offline and no actual provider spending is
+authorized by this development task. Tests use disposable SQLite/files and loopback
+TLS with synthetic credentials. Unknown accounting stops the entire batch; the CLI
+cannot import a generic JSON billing attestation. A trusted library evidence hook
+must match the original attempt and settlement before any application or next call.
+The versioned resource bundle captures verified SQL, Schema and common prompt bytes;
+configuration and credentials remain external. Keep old Store constructor/API and
+published SQL bytes. Resource discovery is executable-relative, never ambient cwd.
+R3 v2 evaluation requires original model/target/feedback provenance. Preserve v1's
+structural-only meaning and its existing single-Worker identity rule; do not rename
+multiple Store Workers to claim a completed single-Agent baseline.
+Actual current results belong in `docs/reports/two-module-validation.md`.
 Earlier reports retain their original source scope. Check final-SHA CI; implemented
 interfaces and planned acceptance cases are not evidence of a completed live product.
 

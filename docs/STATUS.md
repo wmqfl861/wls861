@@ -1,6 +1,20 @@
-# 当前实现 **0.9.0-r3.3b**，目标蓝图 **v0.4.1**，Store **410**。
+# 当前实现 **0.10.0-r3.3c-runtime**，目标蓝图 **v0.4.1**，Store **410**。
 
-本轮从0.8.7-r3.3a接续[五个实现节点](implementation/five-node-continuation-20261027.md)：
+本轮按[两个大模块](implementation/two-module-continuation.md)接续已推送版本：
+
+| 模块 | 当前新增实现 | 验收边界 |
+| --- | --- | --- |
+| 受控在线工作流 | 原角色event pump连接原预约/唯一发送/结算/反馈；计划、派工、工具、提交、检查、验收、经验、模型AMEND和有限返工；独立授权CLI、批次期限及五维账目停批 | 本地TLS合成模型与原SQLite/文件。实际供应商、付费调用及模型质量验收仍未执行；CLI遇未知费用停止，完整连续流程需受信独立计费核验hook |
+| 迁移与安装资源 | 版本化迁移注册表、固定35项SQL/Schema/提示词清单、完整字节/hash验证、Schema一次捕获、可执行文件相对发现与prefix/DESTDIR安装 | Store保持410、旧构造器与已发布SQL兼容；安装后配置显式外置；不能据此宣称daemon/API或部署强隔离已完成 |
+
+评测随工作流新增v2 `model-origin-v1`，把原模型响应、捕获目标、不可变反馈与业务事实关联；
+v1继续只证明结构验收，不改写历史成绩。单Agent基线执行器仍待版本化身份契约，
+不能把多个Store Worker重命名为同一Agent绕过现有检查。
+当前实际命令、失败修正、输入身份和最终门禁见[两模块验证](reports/two-module-validation.md)。
+新接口及宿主边界见[在线工作流](implementation/R3-live-workflow.md)、
+[安装资源](implementation/runtime-resources-and-migrations.md)与[评测契约](implementation/R3-evaluation-framework.md)。
+
+此前0.9.0-r3.3b从0.8.7-r3.3a接续[五个实现节点](implementation/five-node-continuation-20261027.md)：
 
 | 节点 | 当前新增实现 | 验收边界 |
 | --- | --- | --- |
@@ -10,9 +24,9 @@
 | R1.4 管理窗口 | 新冻结management_history、完整当前事实、历史hash/版本回读、预约前超限诊断 | 旧配置完整历史保持；模型语义使用质量待真实验收 |
 | owned 容量 | 新冻结文件工具容量贯穿写入stage/库存/删除，旧大树结构化保留 | file-tools-only，不提供进程磁盘quota，不扩大清理权限 |
 
-实际命令、故障修正、输入身份和门禁统一见[五节点验证](reports/five-node-validation-20261027.md)。
-当前 CLI/OfflineRuntime 仍为 fake-only；Store受信宿主API有显式关闭的live路径。
-测试仅使用合成凭据、本地TLS和临时数据；真实供应商及付费调用均为0。
+该历史批次的实际命令、故障修正、输入身份和门禁见[五节点验证](reports/five-node-validation-20261027.md)。
+当前 CLI 的 `pump-live` 与库入口均需独立宿主授权，默认Fake路径继续兼容。
+本轮测试仅使用合成凭据、本地TLS和临时数据；真实供应商及付费调用均为0。
 原 [R3.3a组件](implementation/R3-https-transport.md)及[历史验证](reports/r3-https-transport-validation.md)保留其原版本范围。
 
 前一补丁依据[独立工程审核](reviews/independent-2026-10-26.md)修复五类边界问题：
@@ -54,7 +68,7 @@ Dispatcher纠正与TeamLead共享冻结返工计数，新说明必须保留旧�
 
 | 能力 | 当前实现 | 已有证据 / 缺口 |
 | --- | --- | --- |
-| 四角色、版本、幂等、UNKNOWN | C++ Store + FakeModel 有界流程 | 真实 SQLite/文件/跨进程回归；不证明模型决策质量 |
+| 四角色、版本、幂等、UNKNOWN | C++ Store + FakeModel及显式授权live有界流程 | 真实 SQLite/文件/跨进程和loopback原模型反馈回归；不证明实际供应商决策质量 |
 | 文件/进程 | fs_list/read/search/mkdir/write/patch；完整强证明与前后清单可结算失败，Root专用核对；子进程固定0077 | 真实目录/文件和监督夹具；mkdir有投影配额、首次派发及UNKNOWN故障回归；强 bwrap/cgroup 部署正向和后台操作待完成 |
 | 部署诊断 | doctor 的输入来源、实际路径、typed reasons、逐项文件/cgroup/proc 观察与预算/截断 | 只读，不开 Store；未来 operation 控制为 not_checked。只读前提、固定 cgroup 分支和拒绝用例不等于强隔离部署正向 |
 | 问答/候选/验收 | Worker问题、原字节提交、TL/Dispatcher共享有限返工、验收及用户升级 | 固定脚本实现拒绝→新说明/确认→重提/验收及耗尽上报；回答不追加额度。通用任务重定义仍未实现 |
@@ -62,7 +76,9 @@ Dispatcher纠正与TeamLead共享冻结返工计数，新说明必须保留旧�
 | 交付/清理 | 不可变包、精确回执、经验作业、固定清单受控 work 删除 | 实际发布/删除/恢复；私有行、owner收据保留；全局cleanup仍PENDING；PREPARED有原收据恢复/显式弃置；弃置残留保留、不可重用。部署 doctor 不扫描或采用分配残留 |
 | 上下文/模型 | 冻结选择v1/v2和Worker window-v1；近期完整轮次、旧/大结果原证据引用；模型回读与持久频率限制 | FakeModel大文件多轮/重开继续、模型回读原字节；旧请求不迁移。已接管理角色冻结窗口和原Store网络attempt；LLM语义压缩/真实模型质量待验收，完整当前契约超限在预约前拒绝 |
 | Responses 离线协议 | 显式 provider profile、HTTP 文本/function_call 编解码、有界 SSE 回放；独立 encode-model/replay-model | 两个CLI仍零网络、零凭据解析、零工具派发。Schema/Completed 不授予权限；原wire字段不改标 |
-| HTTPS 传输组件 | libcurl multi、显式 CA/host 验证、单 deadline/取消、头/体/累计容量、原HTTP/SSE解码及独立安全摘要 | 自建loopback TLS故障夹具；严格IPv4/显式路由，DNS名另需c-ares；无生产入口或自动重试。Store预约/一次发送权/结算/追加对账已接入；实际供应商与c-ares外部DNS验收未执行 |
+| HTTPS / live工作流 | libcurl multi、显式CA/host验证、有界deadline/取消、原HTTP/SSE解码；原角色event pump与精确授权CLI | 自建loopback TLS，严格IPv4/显式路由，DNS名另需c-ares；零自动重试。费用未知停止，可信核验hook可追加对账；实际供应商与c-ares外部DNS验收未执行 |
+| 运行资源 / 迁移 | 编译认可清单、35项固定资源、版本注册表及CMake安装 | 从无关cwd与删除安装来源后运行；prefix/DESTDIR、资源篡改/缺失/特殊文件拒绝、旧API/迁移兼容；配置和凭据外置 |
+| 评测证据 | v1结构验收、v2模型决策原响应/target/feedback证据 | 原生合成模型链和错绑/缺失反例；真实供应商质量和版本化单Agent执行器未完成 |
 | 事件/并发 | 持久inbox、逐任务AMEND、串行pump；冻结准入窗口/独立计数/Root检查点 | 旧快照不改写；到限可核对后续进；不清审计/不重置预算。CLI 已按请求恢复；默认全库维护仍保留。并发租约、只在确有在途时提升选中请求代次仍未实现 |
 | 配置执行状态 | check/explain显示 runtime_support 和 validated_only 项 | 形状有效不代表墙钟/告警/压缩/并发/停滞检测已执行 |
 | 记忆、MCP、跨功能审核 | 规格/参考契约 | 完整C++闭环及真实互通未实现 |
@@ -75,10 +91,11 @@ S2 独立审核/DAG，S3 记忆，S4 MCP/评测，S5 按证据扩展仍为后续
 单 Agent 对照框架前移 S1，不再以整套 S2 完成为前提。
 R2a.2已按[ADR-075](adr/075-owned-allocation-recovery.md)实现迁移、创建收据、精确恢复、弃置与清理联动。
 R2a.3、R3.1、R3.2 的上述限定接口已实施；真实强沙箱部署正向验收保持独立。
-R3.3a/b与两项长任务前置已按本轮限定范围实施，下一步按[R3.3c计划](implementation/R3-controlled-live-plan.md)
-在端点能力、凭据、预算和明确授权具备后进行真实小任务及单Agent对照。
+R3.3a/b、两项长任务前置及受控event pump/CLI已按限定范围实施。迁移注册表与可安装资源
+已补齐服务化之前置，但daemon/API继续后置。下一步按[R3.3c计划](implementation/R3-controlled-live-plan.md)
+先补独立计费核验与单Agent逻辑身份契约，在端点能力、凭据、预算和明确授权具备后进行真实小任务及对照。
 离线codec profile继续固定real_calls_enabled=false；外层宿主live配置另有显式开关和独立执行授权，
-默认关闭，max_paid_retries=0，CLI不提供付费调用入口。
+默认关闭，max_paid_retries=0；CLI只有完整宿主授权后的受控入口，本次未使用真实供应商。
 并发租约和选中请求按需提升代次继续开放，不因模型 AMEND 接入而视为完成。
 
 历史进度保留在 CHANGELOG 与 `docs/reports/`；原 handoff 的51项产品验收记录保持原状。

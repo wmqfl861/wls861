@@ -12,10 +12,11 @@ jobs:
   build-and-test:
     name: Linux C++20 (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    # The full baseline ASan CTest already takes about 18 minutes, before
-    # dependency setup, build and job cleanup. Keep individual test deadlines
-    # unchanged while allowing the growing complete matrix to finish.
-    timeout-minutes: 30
+    # The preceding 70-suite ASan CTest took 1333 seconds before dependency
+    # setup/build/cleanup. The new full live workflow adds instrumented native
+    # calls and real TLS phase tests. Keep every per-test deadline and sanitizer
+    # assertion; allow the complete 74-suite job enough time to finish.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:

@@ -129,6 +129,9 @@ public:
     Json reconcile_usage(const StoreActor& root, const VerifiedUsageEvidence& evidence,
         const UsageReconciliation& reconciliation);
     Json usage_projection(const std::string& attempt_id) const;
+    // Bounded safe readiness observation for the live host. It grants no
+    // reservation or send authority; the write path repeats the same gates.
+    Json live_accounting_status(const std::string& request_id) const;
     Json verify_usage_ledger(const std::string& request_id) const;
     Json admit(const AdmissionInput& input);
     Json request(const std::string& request_id) const;

@@ -4,7 +4,11 @@
 [HTTPS 组件](R3-https-transport.md)，实际执行证据见[传输报告](../reports/r3-https-transport-validation.md)；
 0.9.0-r3.3b已接入原Store发送/结算/核对和两项新冻结长任务策略；R3.3c的
 [本地评测框架](R3-evaluation-framework.md)已实现，真实供应商和单Agent质量执行仍待独立验收。
-本轮五节点的限定范围见[接续记录](five-node-continuation-20261027.md)，当前能力见
+0.10.0-r3.3c-runtime进一步接入[受控原角色工作流](R3-live-workflow.md)、独立授权CLI、
+v2模型来源评测和[可安装资源](runtime-resources-and-migrations.md)。真实供应商特定计费核验
+与单Agent逻辑身份/原权限身份契约仍是后继工作，未从loopback结果推导已完成。
+此前五节点的限定范围见[接续记录](five-node-continuation-20261027.md)，本轮见
+[两模块记录](two-module-continuation.md)，当前能力见
 [STATUS](../STATUS.md)，现有离线边界见 [R3.1/R3.2](R3-offline-responses.md)；
 原 Store 的[请求恢复](S1-request-recovery.md)、[容量窗口](S1-capacity-windows.md)
 和[不可变交付](S1-acceptance-delivery.md)继续适用。

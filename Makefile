@@ -27,10 +27,11 @@ TEST_BINARIES := $(addprefix $(BUILD_DIR)/,$(TEST_NAMES))
 S1_SOURCES := src/boost_json.cpp src/runtime_types.cpp src/runtime_resources.cpp src/migrations.cpp src/capacity.cpp src/store.cpp src/config_loader.cpp src/model.cpp src/provider_profile.cpp src/protocol_codec.cpp src/sse_replay.cpp src/https_transport.cpp src/live_model.cpp src/management_context.cpp src/owned_capacity.cpp src/context.cpp src/structured_context.cpp src/structured_history.cpp src/worker_history.cpp src/schema.cpp src/offline_runtime.cpp src/event_runtime.cpp src/workspace_posix.cpp src/sandbox_posix.cpp src/process_evidence.cpp src/worker_tools.cpp src/delivery.cpp src/cleanup_posix.cpp src/cleanup_runtime.cpp
 S1_OBJECTS := $(S1_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 S1_TEST_NAMES := runtime_types_tests runtime_resources_tests store_tests event_store_tests workflow_store_tests acceptance_store_tests config_loader_tests model_tests schema_tests offline_runtime_tests event_runtime_tests workflow_runtime_tests acceptance_runtime_tests workspace_tests sandbox_tests worker_tools_tests delivery_tests cleanup_tests cleanup_runtime_tests audit24_reopen_tests process_evidence_tests audit24_reconcile_tests audit24_capacity_tests audit24_capacity_repro_tests r1_history_tests r1_structured_tests r1_window_tests r2_rework_tests r2_recovery_tests r2_amend_tests r2a_mkdir_tests allocation_recovery_tests doctor_diagnostics_tests protocol_codec_tests sse_replay_tests r1_management_tests owned_capacity_tests owned_capacity_runtime_tests live_model_store_tests
-S1_TEST_OBJECTS := $(addprefix $(BUILD_DIR)/tests/,$(addsuffix .o,$(S1_TEST_NAMES))) $(BUILD_DIR)/tests/https_transport_driver.o $(BUILD_DIR)/tests/live_model_store_driver.o
+S1_TEST_OBJECTS := $(addprefix $(BUILD_DIR)/tests/,$(addsuffix .o,$(S1_TEST_NAMES))) $(BUILD_DIR)/tests/https_transport_driver.o $(BUILD_DIR)/tests/live_model_store_driver.o $(BUILD_DIR)/tests/live_workflow_driver.o
 S1_TEST_BINARIES := $(addprefix $(BUILD_DIR)/,$(S1_TEST_NAMES))
 HTTPS_TEST_DRIVER := $(BUILD_DIR)/https_transport_driver
 LIVE_TEST_DRIVER := $(BUILD_DIR)/live_model_store_driver
+WORKFLOW_TEST_DRIVER := $(BUILD_DIR)/live_workflow_driver
 S1_LIBRARY := $(BUILD_DIR)/libwls_s1.a
 S1_APPLICATION := $(BUILD_DIR)/wls
 S1_MAIN_OBJECT := $(BUILD_DIR)/src/cli.o
@@ -59,7 +60,7 @@ $(S1_LIBRARY): $(S1_OBJECTS)
 $(S1_APPLICATION): $(S1_MAIN_OBJECT) $(S1_LIBRARY) $(LIBRARY)
 	$(CXX) $(CXXFLAGS) $(REQUIRED_CXXFLAGS) $(LDFLAGS) "$(S1_MAIN_OBJECT)" "$(S1_LIBRARY)" "$(LIBRARY)" $(S1_LIBS) $(LDLIBS) -o "$@"
 
-$(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_DRIVER): $(BUILD_DIR)/%: $(BUILD_DIR)/tests/%.o $(S1_LIBRARY) $(LIBRARY)
+$(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_DRIVER) $(WORKFLOW_TEST_DRIVER): $(BUILD_DIR)/%: $(BUILD_DIR)/tests/%.o $(S1_LIBRARY) $(LIBRARY)
 	$(CXX) $(CXXFLAGS) $(REQUIRED_CXXFLAGS) $(LDFLAGS) "$<" "$(S1_LIBRARY)" "$(LIBRARY)" $(S1_LIBS) $(LDLIBS) -o "$@"
 
 $(APPLICATION): $(MAIN_OBJECT) $(LIBRARY)
@@ -68,7 +69,7 @@ $(APPLICATION): $(MAIN_OBJECT) $(LIBRARY)
 $(TEST_BINARIES): $(BUILD_DIR)/%: $(BUILD_DIR)/tests/%.o $(LIBRARY)
 	$(CXX) $(CXXFLAGS) $(REQUIRED_CXXFLAGS) $(LDFLAGS) "$<" "$(LIBRARY)" $(LDLIBS) -o "$@"
 
-test-binaries: $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_DRIVER)
+test-binaries: $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_DRIVER) $(WORKFLOW_TEST_DRIVER)
 
 verify-handoff:
 	$(PYTHON) scripts/verify_handoff.py
@@ -77,7 +78,7 @@ verify-handoff:
 verify-contracts:
 	$(PYTHON) tests/contracts_tests.py
 
-test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_DRIVER)
+test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_DRIVER) $(WORKFLOW_TEST_DRIVER)
 	$(PYTHON) scripts/verify_handoff.py
 	$(PYTHON) scripts/verify_review_source.py
 	$(PYTHON) tests/contracts_tests.py
@@ -150,6 +151,9 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_
 	$(PYTHON) tests/r3_evaluation_tests.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/test_https_transport.py "$(abspath $(HTTPS_TEST_DRIVER))" "$(abspath .)"
 	$(PYTHON) tests/test_live_model_store.py "$(abspath $(LIVE_TEST_DRIVER))" "$(abspath .)"
+	$(PYTHON) tests/test_live_workflow.py "$(abspath $(WORKFLOW_TEST_DRIVER))" "$(abspath .)"
+	$(PYTHON) tests/test_live_workflow_cli.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
+	$(PYTHON) tests/runtime_resources_cli_tests.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/review_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 
 # The default sanitizer gate is UBSan; ASan is independently available so a

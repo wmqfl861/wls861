@@ -106,11 +106,11 @@ class DoctorCli(unittest.TestCase):
             self.assertEqual(config[name]["origin"], "supplied")
         self.assertEqual(report["config_snapshot_sha256"], checked["snapshot_sha256"])
 
-    def test_default_source_root_is_reported_without_canonical_claim(self):
-        report = self.invoke("doctor", cwd=SOURCE, source=False)
+    def test_executable_relative_source_is_reported_without_cwd_dependency(self):
+        report = self.invoke("doctor", cwd=self.directory, source=False)
         source = report["inputs"]["config"]["source_root"]
         self.assertEqual(source["origin"], "default")
-        self.assertEqual(source["input_path"], ".")
+        self.assertEqual(Path(source["input_path"]), SOURCE)
         self.assertEqual(Path(source["absolute_lexical_path"]), SOURCE)
         self.assertEqual(source["path_kind"], "lexical_interpretation")
 

@@ -959,7 +959,7 @@ Json FrozenRequestConfig::runtime_support() const {
             {"configured_value", value}, {"status", "validated_only"}, {"reason", reason}});
     };
     for (const auto key : {"max_wall_minutes", "warn_at_fraction"})
-        add("budget_defaults", key, "requires the paid-call deadline and warning runtime");
+        add("budget_defaults", key, "requires persistent request-lifetime deadlines and warnings; live batches have separate host deadlines");
     for (const auto key : {"compaction_at_fraction", "schema_retry_max", "snapshot_decision_log_entries"})
         add("context", key, "requires bounded structured history/compaction; no automatic retry");
     for (const auto key : {"max_active_dispatchers", "max_active_workers", "reserve_dispatchers_for_review",
@@ -970,7 +970,9 @@ Json FrozenRequestConfig::runtime_support() const {
         add("limits", key, "requires persistent stall detection and escalation");
     add("cleanup", "vacuum_weekly", "no periodic private-data purge or maintenance scheduler");
     return Object{{"validation_scope", "configuration_shape_references_and_policies"},
-        {"execution_mode", "offline_fake"}, {"context_request_format", context_request_format()},
+        {"execution_mode", "explicit_host_selected"},
+        {"available_execution_modes", Array{"offline_fake", "controlled_live"}},
+        {"live_workflow_available", true}, {"context_request_format", context_request_format()},
         {"history_window_integrated", !worker_history_policy().is_null()}, {"worker_history_policy", worker_history_policy()},
         {"management_window_integrated", !management_history_policy().is_null()},
         {"management_history_policy", management_history_policy()}, {"real_calls_ready", false},

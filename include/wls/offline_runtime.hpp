@@ -6,6 +6,7 @@
 #include "wls/store.hpp"
 
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -13,7 +14,7 @@ namespace wls::s1 {
 
 class WorkerTools;
 
-// Host-held value: only reserve_call constructs this from authenticated Store
+// Host-held value: capture_call/reserve_call construct this from authenticated Store
 // actors and persisted records. Never deserialize it from model arguments.
 struct CapturedModelCall {
     ModelRequest request;
@@ -25,17 +26,36 @@ struct CapturedModelCall {
     Json workflow_action = nullptr;
 };
 
+// Host-selected reservation bounds. Cost is a reservation, never observed
+// billing. The live workflow requires a positive explicit amount; old Fake
+// callers retain the original zero-cost reservation.
+struct CapturedCallLimits {
+    std::int64_t reserved_cost_micro_usd{};
+    std::chrono::milliseconds timeout{std::chrono::seconds(30)};
+};
+
+using AfterModelSettlement = std::function<void(const Json& original_settlement)>;
+
 // A deliberately bounded first S1 runner. It connects real configuration,
 // Schema, SQLite accounting and version gates to FakeModel. It supports one
 // independent task. An explicit WorkerTools host adds bounded real tools; the
 // default preserves the note-only path. Schema 406 adds explicit Dispatcher
 // acceptance and source-bound TeamLead experience. Package publication and
-// receipts remain separate host operations; this is not a daemon or supplier
-// integration.
+// receipts remain separate host operations. The live event host reuses capture
+// and first-settlement application; this compatibility runner is not a daemon.
 class OfflineRuntime final {
 public:
     OfflineRuntime(Store& store, const SchemaRegistry& schemas,
                    WorkerTools* worker_tools = nullptr);
+    // Capture the complete original context/target without reserving an
+    // attempt. A trusted host must still use the original Store reservation
+    // and settlement path before applying this response.
+    CapturedModelCall capture_call(const std::string& request_id, Role role,
+                                  const std::string& task_id = {},
+                                  std::int64_t role_call_index = 1,
+                                  const std::vector<Json>& tool_feedback = {},
+                                  bool model_amendment = false,
+                                  const CapturedCallLimits& limits = {});
     CapturedModelCall reserve_call(const ModelAdapter& adapter,
                                   const std::string& request_id, Role role,
                                   const std::string& task_id = {},
@@ -54,6 +74,13 @@ public:
     Json accept_independent_response(const CapturedModelCall& call,
                                      const ModelResponse& response,
                                      const Json& amendment_dispositions = boost::json::object{});
+    // Only a fresh original live settlement may run this trusted accounting
+    // hook, before the unchanged business guards. It never replays a missing
+    // feedback/application or restores an old response's authority.
+    Json accept_live_response(const CapturedModelCall& call,
+                              const ModelResponse& response,
+                              const AfterModelSettlement& after_settlement = {},
+                              bool independent_plan = true);
     // At most one Dispatcher, one TeamLead and 1..16 explicit Worker calls.
     // Pending questions/submissions require the durable event pump; this
     // compatibility entry never replaces them with an automatic work order.
@@ -67,7 +94,8 @@ private:
                                   const ModelResponse& response,
                                   const std::string& amendment_disposition,
                                   bool independent_plan,
-                                  const Json& amendment_dispositions);
+                                  const Json& amendment_dispositions,
+                                  const AfterModelSettlement& after_settlement = {});
     Store& store_;
     const SchemaRegistry& schemas_;
     WorkerTools* worker_tools_;

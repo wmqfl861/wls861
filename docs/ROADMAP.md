@@ -86,7 +86,8 @@ fake-only门禁保持；原wire字段继续为null，编码body指纹不是已�
 R3.3a 在 0.8.7-r3.3a 接入库级 HTTPS/TLS、本地故障夹具和安全观察摘要，见
 [实施契约](implementation/R3-https-transport.md)及[本次验证](reports/r3-https-transport-validation.md)。
 0.9.0-r3.3b通过Store409/410接原预约、唯一发送权、原观察、不可变结算与追加用量投影。
-CLI/OfflineRuntime保持fake-only，宿主库调用需独立授权且默认关闭。
+该版本CLI/OfflineRuntime保持fake-only；0.10.0-r3.3c-runtime继续接入原角色在线event pump与
+显式授权CLI，默认网络与供应商授权仍关闭。真实质量/计费验收保持独立。
 R3.3 各节点的独立交付边界、详细依赖、失败反例及完成条件见
 [R3.3受控真实闭环计划](implementation/R3-controlled-live-plan.md)：
 
@@ -109,6 +110,21 @@ R3.3b按发送与结算两个节点分列，R3.3c完成本地固定任务/账本
 R1.4完成新冻结管理窗口，owned容量完成新请求贯通限制与旧树保留出口。
 实际测试以[联合报告](reports/five-node-validation-20261027.md)和最终提交CI为准。
 真实供应商/单Agent质量评测、强隔离部署正向和并发服务继续各自验收，不从本轮代码存在推导完成。
+
+### 两模块接续：受控工作流与可安装资源
+
+按[两模块范围](implementation/two-module-continuation.md)，0.10.0-r3.3c-runtime将
+原Store发送和结算接入角色event pump，保留捕获目标、原模型反馈和最终业务门禁。
+CLI要求请求、配置、profile与有限额度的完整宿主授权，未知计费明确停止；宿主核验hook
+只能追加原attempt/settlement绑定的独立证据。v2评测额外证明管理决策的模型来源。
+
+第二模块完成服务化前要求的迁移注册表与运行资源安装：原SQL保持不变，Store仍410；
+固定资源按编译认可清单捕获，安装后脱离源码与cwd工作，用户配置外置。
+实际结果见[联合验证](reports/two-module-validation.md)，并保留各专项报告的源文件范围。
+
+后继工作有两个明确接口缺口：供应商特定的可信费用核验；单Agent逻辑身份与Store权限身份的
+版本化关系。现有v1单Worker检查不能覆盖要求两个任务的partial-AMEND基线，不能通过重命名
+Worker或宿主预生成成果宣称完成。先补契约和原生运行器，再做获准真实同模型对照。
 
 ## 2. 五阶段目标
 

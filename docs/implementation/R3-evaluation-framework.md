@@ -1,6 +1,8 @@
 # R3.3c 本地评测框架
 
-接口：`scripts/evaluate_r3.py`。设计见 [ADR-082](../adr/082-paired-evaluation-evidence.md)。
+接口：`scripts/evaluate_r3.py`。设计见 [ADR-082](../adr/082-paired-evaluation-evidence.md)
+及 [ADR-087](../adr/087-model-decision-evidence.md)。
+模型来源契约更新日期：2026-10-26（America/Los_Angeles）。
 这是固定任务、共同条件、原账本统计和报告实现；实际供应商及单 Agent 质量对照未执行。
 
 ## 1. 计划与执行分离
@@ -14,6 +16,10 @@ python scripts/evaluate_r3.py plan --db benchmark.sqlite --request req_SEED > pl
 
 `req_SEED` 是待替换的真实种子请求 ID。真实供应商实验需显式选择 `--model-ref`、
 `--reasoning` 与 `--evidence-mode provider`；该命令自身不授权或执行调用。
+新生成的 provider 计划固定为 `schema_version: 2`、`r3-small-tasks-v2` 和
+`decision_evidence: model-origin-v1`。Synthetic 计划默认保持 v1，可显式传
+`--decision-evidence model-origin-v1` 验证本地合成的完整来源关系；计划命令不执行模型。
+
 计划固定五项任务，每项 `multi_agent`、`single_agent` 各一次；更大的采样设计应另行版本化。
 按计划中逐字 material 新建各自请求，共同模型、约束、工具、环境、政策和预算必须相同。
 运行器仍走原 Store；运行索引只记录本次计划、原数据库/请求及宿主观察的耗时。
@@ -60,7 +66,53 @@ python scripts/evaluate_r3.py report --plan plan.json --runs runs.json > report.
 报告给出当前 request 状态、原 attempt/settlement 身份、计数、hash 和判据，不展开提示词、
 私有 provider 原响应、凭据或原交付正文。
 
-## 3. 本地读取界限
+## 3. 版本与模型决定来源
+
+| 计划版本 | 原判据解释 | 报告范围 |
+| --- | --- | --- |
+| v1 / `r3-small-tasks-v1` | 原固定判据不变；旧 provider 计划也不改义 | `structural-v1`，`original_structural_checks_only`；来源 `not_checked` |
+| v2 / `r3-small-tasks-v2` | 原结构判据加 `model-origin-v1`，下述两项原诊断/路径来源明确化 | `model_application_and_structural_checks`，逐应用来源 linked/incomplete |
+
+v2 从原 accepted completed response 的唯一 tool_call 开始，核对原 request envelope 身份、
+冻结配置和绑定，读取当时捕获的 workflow_action 与目标版本，再关联 immutable
+`model_tool_feedback`、原业务 event 及实际业务记录。原 v1 task_contract 帧与 v2 logical input
+均按自身格式读取；不能用当前任务/目标行补写旧模型输入。event 的 command ID 必须来自原
+attempt/tool_call；payload、feedback/result 和业务记录必须相符。
+
+存在 live 原记录时，还需同一 attempt 的唯一 send claim、已冻结的请求/端点配置 hash、完整
+transport、原 decoded response 及原 headers/body/protocol hash 相同。该来源链只证明受信宿主
+资料内的关系；本地一致性 hash 不是 provider 签名或账单真实性证明。
+
+各任务的 v2 附加判据如下：
+
+| 固定任务 | 必需的原模型来源 |
+| --- | --- |
+| tool_roundtrip | 同绑定按顺序 read seed → write result → read result → model submission → model check；期望原文件字节属于这同一 submission |
+| partial_amend | 捕获原 AMEND 阶段、pending 节点与 task CAS；模型 update/keep 与原处置同值；两个不同当前任务都由模型提交、检查、接受 |
+| rejected_rework | 同任务原模型否定接受、change_task、较新修订提交/检查/接受；不能仅增加返工计数 |
+| exhausted_rework | 原失败来源、捕获时冻结返工额度耗尽、模型 escalate_task 与实际当前用户问题同目标 |
+| delivery_receipt | 原 CONFIRMED package/receipt 的每个 acceptance 都来自模型 plan/order/submit/check/accept 链 |
+
+v1 的工具/文件判断保持原解释。v2 明确读取 `fs_read` 的原诊断 feedback，因诊断不生成
+业务 ops 行；文件判据仅将原提交 `/work/result.txt` 映射到固定逻辑文件名 `result.txt`。
+这两项只作用于 v2，不静默改变已经发布的 v1 判据。
+
+v2 的文件判据仅消费已验证原模型 submit 对应的原提交，不能从另一宿主提交补齐。
+往返后的同一提交必须处于当前业务版本，且原 readback 早于该模型 submit、submit 早于该
+submission 的模型检查。当前接受链还核实际 acceptance/任务仍为 ACCEPTED，以及原 producer
+需求、计划、任务、指令版本；恢复 epoch 不替代业务版本判断。返工和升级的原来源必须与同一
+当前要求/计划的实际接受或问题一致，旧模型事实不能与当前宿主事实拼接通过。
+
+缺原 feedback 或原应用 event 使来源不完整并失败；原响应、捕获目标、实际应用或 hash 矛盾为
+`invalid_evidence`。受信宿主独立写入的合法管理事实不能填补模型链。报告只暴露原 ID、角色、
+动作名和 hash，既不暴露模型 arguments/私有正文，也不重读当前工作区代替旧提交。
+
+`provider_quality_acceptance_established` 始终为 false。v2 来源通过、原结构通过与真实供应商
+质量是三种不同结论；后者仍需明确的授权、端点能力、语义标准、真实样本与人审。固定脚本的
+Fake 或 TLS peer 只能验证工程路径。`single_agent` 在两个版本都保持同一 Worker
+principal/team 规则；多任务基线身份设计与执行器仍开放，不能把多个 Worker 或管理者重命名通过。
+
+## 4. 本地读取界限
 
 输入 JSON 限 8 MiB、64 层、100000 节点，拒绝重复键、非有限数、符号链接与特殊文件。
 只读 SQLite 事务上限 10 秒、最多4096项/查询、32 MiB/结果、512 MiB 主库；逐行累计编码容量，到限即停止读取；

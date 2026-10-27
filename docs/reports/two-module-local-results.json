@@ -1,0 +1,332 @@
+{
+  "base_commit": "1c572d3aa9121e85cf22aa1e4bb330b25a34a143",
+  "input_manifest": "two-module-inputs.sha256",
+  "input_count": 296,
+  "input_manifest_sha256": "c58ebacb60620cf6e1a8c5435d26233edc2837177050ca6c33bbad36f149b06e",
+  "environment": {
+    "uid": 65534,
+    "gid": 65534,
+    "umask": "0002",
+    "gcc": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.",
+    "clang": "Ubuntu clang version 18.1.3 (1ubuntu1)\nTarget: x86_64-pc-linux-gnu\nThread model: posix\nInstalledDir: /usr/bin",
+    "cmake": "cmake version 3.28.3\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake).",
+    "ninja": "1.11.1",
+    "openssl": "OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)",
+    "curl": "libcurl 8.5.0",
+    "python_test": "{\"python\": \"3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]\", \"sqlite3\": \"3.53.1\", \"jsonschema\": \"4.10.3\"}",
+    "runtime_version": "{\"blueprint\":\"0.4.1\",\"default_network_authorized\":false,\"mode\":\"offline_fake_and_controlled_live\",\"version\":\"0.10.0-r3.3c-runtime\"}"
+  },
+  "release": [
+    {
+      "step": "build-release-final.log",
+      "exit_code": 0,
+      "seconds": 4.766,
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0022",
+      "command": [
+        "cmake",
+        "--build",
+        "/tmp/wls861-two-module-validation/source/build-release",
+        "--parallel",
+        "2"
+      ],
+      "input_manifest_sha256": "c58ebacb60620cf6e1a8c5435d26233edc2837177050ca6c33bbad36f149b06e",
+      "log_sha256": "4aeec11d8c54e7058fe5b53c9b83a408fa5af2dbb1ebd23649e0bd59d130450f"
+    },
+    {
+      "step": "release-0022.log",
+      "exit_code": 0,
+      "seconds": 124.765,
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0022",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-two-module-validation/source/build-release",
+        "--parallel",
+        "2",
+        "--output-on-failure"
+      ],
+      "input_manifest_sha256": "c58ebacb60620cf6e1a8c5435d26233edc2837177050ca6c33bbad36f149b06e",
+      "log_sha256": "983f0069761370403a89836a961148727ddaa3d1f2daf278694156f056ec84ab"
+    },
+    {
+      "step": "release-0002.log",
+      "exit_code": 0,
+      "seconds": 126.526,
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-two-module-validation/source/build-release",
+        "--parallel",
+        "2",
+        "--output-on-failure"
+      ],
+      "input_manifest_sha256": "c58ebacb60620cf6e1a8c5435d26233edc2837177050ca6c33bbad36f149b06e",
+      "log_sha256": "39542c1d6843ab3a14b2c02ffc875a3e3d635164eccddeb7523f7cda12fa00c5"
+    }
+  ],
+  "asan": [
+    {
+      "step": "build-asan-final.log",
+      "exit_code": 0,
+      "seconds": 5.093,
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "command": [
+        "cmake",
+        "--build",
+        "/tmp/wls861-two-module-validation/source/build-asan",
+        "--parallel",
+        "2",
+        "--target",
+        "wls",
+        "wls861",
+        "runtime_resources_tests",
+        "live_model_store_tests",
+        "live_model_store_driver",
+        "live_workflow_driver",
+        "schema_tests"
+      ],
+      "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+      "input_manifest_sha256": "c58ebacb60620cf6e1a8c5435d26233edc2837177050ca6c33bbad36f149b06e",
+      "log_sha256": "4aeec11d8c54e7058fe5b53c9b83a408fa5af2dbb1ebd23649e0bd59d130450f"
+    },
+    {
+      "step": "asan-final.log",
+      "exit_code": 0,
+      "seconds": 230.473,
+      "uid": 65534,
+      "gid": 65534,
+      "umask": "0002",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/wls861-two-module-validation/source/build-asan",
+        "--parallel",
+        "2",
+        "--output-on-failure",
+        "-R",
+        "^(runtime_resources|schema|live_model_store|live_model_store_tls|live_workflow|live_workflow_cli|runtime_resources_cli|r3_evaluation)$"
+      ],
+      "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+      "input_manifest_sha256": "c58ebacb60620cf6e1a8c5435d26233edc2837177050ca6c33bbad36f149b06e",
+      "log_sha256": "9503fd670200f2c71f94c63847cf786c8a34f9c194e072105b656505c12b1ad8"
+    }
+  ],
+  "clang": {
+    "uid": 65534,
+    "gid": 65534,
+    "umask": "0002",
+    "compiler": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+    "seconds": 27.797,
+    "input_manifest_sha256": "c58ebacb60620cf6e1a8c5435d26233edc2837177050ca6c33bbad36f149b06e",
+    "results": [
+      {
+        "unit": "src/runtime_resources.cpp",
+        "source_sha256": "5810f458013444cd6624e0f42960f619d045b37aec3b72a4e672d52563c9f9fd",
+        "exit_code": 0,
+        "seconds": 1.941
+      },
+      {
+        "unit": "src/migrations.cpp",
+        "source_sha256": "48b5d9971af0d38c472ed3409f8e96f0b227f57e642a22ed3fbe31e33853d5b4",
+        "exit_code": 0,
+        "seconds": 1.563
+      },
+      {
+        "unit": "src/store.cpp",
+        "source_sha256": "b7b76a4bde2dce65f5b619ad36a2149ef978fb48165f72214cc8c6685ca4280d",
+        "exit_code": 0,
+        "seconds": 4.194
+      },
+      {
+        "unit": "src/schema.cpp",
+        "source_sha256": "05fd2a25d04e9a736befb7671d66e92e1a5c98e6ae222588fbfe152f8370bc79",
+        "exit_code": 0,
+        "seconds": 3.076
+      },
+      {
+        "unit": "src/config_loader.cpp",
+        "source_sha256": "30d7f4acbb226d00433a8abd13356ad835e78efb77a3da04e00c910e7645b0c7",
+        "exit_code": 0,
+        "seconds": 2.611
+      },
+      {
+        "unit": "src/live_model.cpp",
+        "source_sha256": "6eff38a9e070f76fe3305ed4a9b51931297a7d25f5c7bc92dc04354a1bbf318b",
+        "exit_code": 0,
+        "seconds": 2.19
+      },
+      {
+        "unit": "src/offline_runtime.cpp",
+        "source_sha256": "c503a4648f4b2c6f874609da568cad8ec190e561df4e4f8b550ea8e4fedc52fe",
+        "exit_code": 0,
+        "seconds": 2.505
+      },
+      {
+        "unit": "src/event_runtime.cpp",
+        "source_sha256": "a3b95aa546af6eb593b101a9595b936d47737defaa8ba654b10a51e7791262c2",
+        "exit_code": 0,
+        "seconds": 2.506
+      },
+      {
+        "unit": "src/cli.cpp",
+        "source_sha256": "95126c0671001fdbe508771971493b406ead80870224c4afe5a1040ea94d7848",
+        "exit_code": 0,
+        "seconds": 2.77
+      },
+      {
+        "unit": "tests/live_workflow_driver.cpp",
+        "source_sha256": "b90e4b89d1c3901471f5c10e6ec6a81f60427a77154de885b82b096dd0cfb881",
+        "exit_code": 0,
+        "seconds": 2.511
+      },
+      {
+        "unit": "tests/runtime_resources_tests.cpp",
+        "source_sha256": "14081b57f457eb7a7c020811a7304b51628e2bfb149230edc0bc9ea7fc60f3f1",
+        "exit_code": 0,
+        "seconds": 1.911
+      }
+    ],
+    "log_sha256": "50ea47fa36150cb43a3d3f0452adf5d43797a9f976e005c89129ed96e373056d"
+  },
+  "logs": {
+    "two-module-build-initial-failure.txt": {
+      "original_path": "/tmp/wls861-two-module-validation/build-first.log",
+      "original_sha256": "3c013cd22ff7e6f580207934ceca165b0eba8dea056abbf74d61e1998e836f60",
+      "saved_sha256": "959181824cd25d1bc124a95bca9cc01a06c71e568f0f99af43bb21fb5af32f31",
+      "normalization": "trailing line whitespace only"
+    },
+    "two-module-focused-initial-failure.txt": {
+      "original_path": "/tmp/wls861-two-module-validation/test-focused-second.log",
+      "original_sha256": "39a411e946671d71c5dde77049988d54a77bf6499ab5a680d755ae58485f7dbe",
+      "saved_sha256": "39a411e946671d71c5dde77049988d54a77bf6499ab5a680d755ae58485f7dbe",
+      "normalization": "trailing line whitespace only"
+    },
+    "two-module-asan-initial-failure.txt": {
+      "original_path": "/tmp/wls861-two-module-validation/asan-initial-failure.log",
+      "original_sha256": "01a51a22c128cc795e6df384bdb5ea8bfffadc5af704d83820b19a4fd828ceeb",
+      "saved_sha256": "d9478981a8e1b2250ac47cf032bafa8a649c8faa62f3a067387d30476ace8554",
+      "normalization": "trailing line whitespace only"
+    },
+    "two-module-asan-initial-inputs.sha256": {
+      "original_path": "/tmp/wls861-two-module-validation/inputs-before-timing-fixture-fix.sha256",
+      "original_sha256": "135b90f061ac126fa73a6eb8de7addf3549f14d3ee69a9d0a0d9d7d936c0c305",
+      "saved_sha256": "135b90f061ac126fa73a6eb8de7addf3549f14d3ee69a9d0a0d9d7d936c0c305",
+      "normalization": "trailing line whitespace only"
+    },
+    "two-module-clang18.txt": {
+      "original_path": "/tmp/wls861-two-module-validation/clang18-final.log",
+      "original_sha256": "50ea47fa36150cb43a3d3f0452adf5d43797a9f976e005c89129ed96e373056d",
+      "saved_sha256": "50ea47fa36150cb43a3d3f0452adf5d43797a9f976e005c89129ed96e373056d",
+      "normalization": "trailing line whitespace only"
+    },
+    "two-module-release-0022.txt": {
+      "original_path": "/tmp/wls861-two-module-validation/release-0022.log",
+      "original_sha256": "983f0069761370403a89836a961148727ddaa3d1f2daf278694156f056ec84ab",
+      "saved_sha256": "983f0069761370403a89836a961148727ddaa3d1f2daf278694156f056ec84ab",
+      "normalization": "trailing line whitespace only"
+    },
+    "two-module-release-0002.txt": {
+      "original_path": "/tmp/wls861-two-module-validation/release-0002.log",
+      "original_sha256": "39542c1d6843ab3a14b2c02ffc875a3e3d635164eccddeb7523f7cda12fa00c5",
+      "saved_sha256": "39542c1d6843ab3a14b2c02ffc875a3e3d635164eccddeb7523f7cda12fa00c5",
+      "normalization": "trailing line whitespace only"
+    },
+    "two-module-asan.txt": {
+      "original_path": "/tmp/wls861-two-module-validation/asan-final.log",
+      "original_sha256": "9503fd670200f2c71f94c63847cf786c8a34f9c194e072105b656505c12b1ad8",
+      "saved_sha256": "9503fd670200f2c71f94c63847cf786c8a34f9c194e072105b656505c12b1ad8",
+      "normalization": "trailing line whitespace only"
+    },
+    "two-module-asan-detail.txt": {
+      "original_path": "/tmp/wls861-two-module-validation/asan-final-detail.log",
+      "original_sha256": "73c307234eaf9c87ee7aee7e0880daf976446cc8c7bf2da806d2fbb6cd333c92",
+      "saved_sha256": "73c307234eaf9c87ee7aee7e0880daf976446cc8c7bf2da806d2fbb6cd333c92",
+      "normalization": "trailing line whitespace only"
+    }
+  },
+  "earlier_attempts": {
+    "build_initial": {
+      "exit_code": 1,
+      "log": "two-module-build-initial-failure.txt",
+      "reason": "new test compared Boost.JSON value directly with std::string"
+    },
+    "focused_initial": {
+      "passed_suites": 9,
+      "total_suites": 10,
+      "log": "two-module-focused-initial-failure.txt",
+      "reason": "early exhaustion fixture did not continue its pending escalation in an explicit second batch"
+    },
+    "asan_initial": {
+      "passed_suites": 7,
+      "total_suites": 8,
+      "workflow_methods_passed": 10,
+      "workflow_methods_total": 18,
+      "workflow_seconds": 124.7,
+      "source_manifest": "two-module-asan-initial-inputs.sha256",
+      "log": "two-module-asan-initial-failure.txt",
+      "reason": "fixed Release timing assumptions interrupted normal batches or cancelled before transport under instrumentation"
+    },
+    "release_before_timing_fix": [
+      {
+        "step": "build-release-final.log",
+        "exit_code": 0,
+        "seconds": 4.707,
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0022",
+        "command": [
+          "cmake",
+          "--build",
+          "/tmp/wls861-two-module-validation/source/build-release",
+          "--parallel",
+          "2"
+        ],
+        "log_sha256": "4aeec11d8c54e7058fe5b53c9b83a408fa5af2dbb1ebd23649e0bd59d130450f"
+      },
+      {
+        "step": "release-0022.log",
+        "exit_code": 0,
+        "seconds": 129.641,
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0022",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-two-module-validation/source/build-release",
+          "--parallel",
+          "2",
+          "--output-on-failure"
+        ],
+        "log_sha256": "0a786e1733056a3bb89f96d3275d099ade981272a5e625ccdb5789d355bfd77d"
+      },
+      {
+        "step": "release-0002.log",
+        "exit_code": 0,
+        "seconds": 112.492,
+        "uid": 65534,
+        "gid": 65534,
+        "umask": "0002",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/wls861-two-module-validation/source/build-release",
+          "--parallel",
+          "2",
+          "--output-on-failure"
+        ],
+        "log_sha256": "34ea0f374417ebd497c541a0d68d7f8ae0c6e8efb379e0417c3b2ead714e0de3"
+      }
+    ]
+  },
+  "scope": "Local release full suites; local ASan selected eight suites; Clang syntax-only eleven TUs. Exact final-SHA six-job CI and source snapshot are verified separately after push."
+}

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.0-r3.3c-runtime — controlled workflow and installed runtime resources
+
+- Connect the bounded live event pump to the original Dispatcher/TeamLead/Worker captures, single-send Store ledger, immutable responses, model feedback, AMEND, rejection/rework, acceptance and experience paths.
+- Add read-only `live-status` and explicit `pump-live` CLI authorization bound to the original request, configuration and complete selected model profiles. Resolve only frozen credential references after preflight; keep defaults disabled and never automatically retry.
+- Stop the whole batch on unknown, disputed or excessive accounting, errors, cancellation or its finite deadline. Keep nullable original usage. A trusted library evidence hook binds the exact attempt and settlement; the CLI has no generic billing import.
+- Add v2 model-origin evaluation over original captured targets, native responses, immutable feedback and original business facts. Retain historical v1 structural-only results and the original single-Worker baseline identity requirement.
+- Add a versioned migration registry and a compiled-approved bundle of SQL, Schema and common prompts. Install verified immutable bytes through CMake with prefix/DESTDIR support; run from unrelated working directories without the source tree.
+- Make installed configuration explicit, capture Schema bytes once, validate distributed default prompts, and replace repeated positional CLI migration loading while preserving old APIs, Store 410 and all published SQL.
+- Register ordinary-user loopback workflow, CLI preflight, resource fault and actual installation regressions in CMake/CTest and Make. Actual results and remaining provider/single-Agent/deployment limitations are recorded in the two-module report.
+
 ## 0.9.0-r3.3b — original live ledger, evaluation, management and workspace capacity
 
 - Add Store 409/410 migrations for original live identity, immutable one-time send claims, private transport observations, immutable settlements and append-only usage reconciliation. Preserve old SQL and fake records.

@@ -204,9 +204,10 @@ LiveModelSettings live_model_settings_from_json(const Json& profile, std::string
     return settings;
 }
 
-LiveAttemptResult execute_live_attempt(Store& store, const StoreActor& actor,
+ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
         const ModelRequest& request, std::string_view bearer_token,
-        const LiveExecutionAuthorization& authorization, std::stop_token stop) {
+        const LiveExecutionAuthorization& authorization,
+        const LiveExperienceBinding& experience, std::stop_token stop) {
     require(authorization.network_enabled, ErrorCode::Unauthorized, "live network execution has no host authorization");
     require(!bearer_token.empty() && bearer_token.size() <= 8192 &&
             std::all_of(bearer_token.begin(), bearer_token.end(), [](char c) {
@@ -228,7 +229,10 @@ LiveAttemptResult execute_live_attempt(Store& store, const StoreActor& actor,
     reservation.reserved_cost_micro_usd = request.reserved_cost_micro_usd;
     reservation.max_output_tokens = request.max_output_tokens;
     reservation.request_envelope = to_json(request);
-    LiveAttemptResult result;
+    reservation.experience_job_id = experience.experience_job_id;
+    reservation.experience_job_version = experience.experience_job_version;
+    reservation.experience_source_sha256 = experience.experience_source_sha256;
+    ObservedLiveAttempt result;
     result.reservation = store.reserve_attempt(actor, request.binding, reservation);
     result.send_claim = store.claim_live_send(actor, request.attempt_id,
         result.reservation.at("state_version").as_int64(), encoded, settings.transport,
@@ -240,10 +244,25 @@ LiveAttemptResult execute_live_attempt(Store& store, const StoreActor& actor,
     result.transport_summary = https_transport_summary(transport);
     (void)store.record_live_transport(request.attempt_id,
         std::string(result.send_claim.at("claim_id").as_string()), transport);
-    const auto outcome = transport.response.status == ModelResultStatus::Completed ? "COMPLETED" :
-        transport.response.status == ModelResultStatus::Interrupted ? "INTERRUPTED" : "ERROR";
+    result.response = transport.response;
+    return result;
+}
+
+LiveAttemptResult execute_live_attempt(Store& store, const StoreActor& actor,
+        const ModelRequest& request, std::string_view bearer_token,
+        const LiveExecutionAuthorization& authorization, std::stop_token stop) {
+    auto observed = observe_live_attempt(store, actor, request, bearer_token, authorization, {}, stop);
+    LiveAttemptResult result;
+    result.reservation = std::move(observed.reservation);
+    result.send_claim = std::move(observed.send_claim);
+    result.transport_summary = std::move(observed.transport_summary);
+    result.sent = observed.sent;
+    if (!observed.response) return result;
+    const auto& response = *observed.response;
+    const auto outcome = response.status == ModelResultStatus::Completed ? "COMPLETED" :
+        response.status == ModelResultStatus::Interrupted ? "INTERRUPTED" : "ERROR";
     result.settlement = store.settle_attempt(request.attempt_id, request.binding, request.config_snapshot_id,
-                                            outcome, to_json(transport.response.usage), to_json(transport.response));
+                                            outcome, to_json(response.usage), to_json(response));
     result.response_accepted = result.settlement.at("accepted").as_int64() == 1;
     return result;
 }

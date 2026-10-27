@@ -5,11 +5,15 @@
 #include "wls/cleanup_runtime.hpp"
 #include "wls/protocol_codec.hpp"
 #include "wls/sse_replay.hpp"
+#include "wls/runtime_resources.hpp"
+#include "wls/migrations.hpp"
 
 #include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -132,13 +136,17 @@ Json input_path_details(const std::filesystem::path& path, std::string_view orig
     return result;
 }
 
-FrozenRequestConfig live_config(Options& options, const std::filesystem::path& source,
+FrozenRequestConfig live_config(Options& options, const RuntimeResources& resources,
                                Json* provenance = nullptr) {
+    const auto& source = resources.root();
     const bool system_supplied = options.has("--config");
     const bool functions_supplied = options.has("--functions-dir");
     const bool prompts_supplied = options.has("--prompts-dir");
     const bool function_supplied = options.has("--function");
     const bool capability_supplied = options.has("--capability");
+    if (!resources.source_tree() && (!system_supplied || !functions_supplied))
+        throw Error(ErrorCode::InvalidInput,
+            "installed runtime requires explicit --config and --functions-dir");
     const std::filesystem::path system = options.take("--config", (source / "config/examples/system.yaml").string());
     const std::filesystem::path functions = options.take("--functions-dir", (system.parent_path() / "functions").string());
     const std::filesystem::path prompts = options.take("--prompts-dir", (source / "prompts").string());
@@ -151,6 +159,7 @@ FrozenRequestConfig live_config(Options& options, const std::filesystem::path& s
             {"prompts", input_path_details(prompts, prompts_supplied ? "supplied" : "default")}};
     }
     auto frozen = load_config_catalog(system, functions, prompts).freeze(function, capability);
+    if (!prompts_supplied) resources.validate_frozen_prompts(frozen);
     if (provenance) {
         auto& inputs = provenance->as_object();
         inputs["function"] = Object{{"origin", function_supplied ? "supplied" : "default"}, {"value", frozen.function_id()}};
@@ -297,11 +306,15 @@ Json request_view(Store& store, const std::string& id) {
                   {"acceptance_runtime_enabled", store.acceptance_runtime_enabled()}, {"budget", store.budget(id)}};
 }
 
-void help() {
-    std::cout << R"(wls 0.8.7-r3.3a — bounded HTTPS component; CLI remains offline
+#include "live_cli.inc"
 
-Resource paths default to the source checkout in the current directory.
-Use --source-root PATH from another directory. Outputs are JSON; errors go to stderr.
+void help() {
+    std::cout << R"(wls 0.10.0-r3.3c-runtime — controlled workflow and verified runtime resources
+
+Resources are discovered relative to the executable, never the current directory.
+Use --resource-root PATH for an installed bundle or --source-root PATH for a checkout.
+Installed configuration commands require explicit --config and --functions-dir.
+Outputs are JSON; errors go to stderr. Network execution is disabled by default.
 Request writes recover only their target; submit only admits/replays.
 init is explicit all-request recovery and migration maintenance.
 
@@ -309,6 +322,7 @@ init is explicit all-request recovery and migration maintenance.
   wls config explain [--config FILE] [--function ID] [--role worker]
   wls schema check --schema NAME --input FILE [--model-input]
   wls doctor [--config FILE] [--template default] [--sandbox-manifest FILE]
+  wls resources [--resource-root PATH | --source-root PATH]
   wls encode-model --profile FILE --request FILE [--stream true|false]
   wls replay-model --profile FILE --request FILE --http-response FILE [--http-status 200]
   wls replay-model --profile FILE --request FILE --sse-stream FILE [--chunk-bytes 4096]
@@ -327,6 +341,9 @@ init is explicit all-request recovery and migration maintenance.
   wls pump-fake --db FILE --request ID --script FILE [--workspaces-file FILE]
                 [--dispositions-file FILE] [--max-calls 1..64] [--worker-calls 1..16]
                 [--sandbox-manifest FILE]
+  wls live-status --db FILE --request ID
+  wls pump-live --db FILE --request ID --authorization-file FILE
+                [--workspaces-file FILE] [--sandbox-manifest FILE]
   wls inbox --db FILE --request ID [--role dispatcher] [--task ID] [--limit N]
   wls history --db FILE --request ID --role ROLE [--task ID] [--limit N]
   wls history-page --db FILE --request ID --role ROLE [--task ID] [--after N] [--through N] [--limit N]
@@ -409,7 +426,13 @@ Opening a writer fences interrupted executions and keeps their unknown budgets.
 doctor observes prerequisites without changing host policy or running template checks.
 encode-model and replay-model only read local fixtures, never resolve credentials,
 open Store or send requests. Replay returns 4 with JSON for Error/Interrupted results.
-No command starts a daemon or calls a real model provider.
+live-status reads frozen identities and accounting without resolving credentials.
+pump-live requires an explicit request/config/profile-bound host authorization;
+only the frozen credential environment reference is resolved after preflight.
+Unknown usage stops further paid attempts. Provider usage verification is a trusted
+host library integration; this CLI never treats a JSON file as verified billing.
+pump-live never automatically retries a paid attempt or publishes delivery.
+No command starts a daemon.
 )";
 }
 
@@ -422,7 +445,8 @@ int run_cli(int argc, char** argv) {
     const std::string command(argv[1]);
     if (command == "--version" || command == "version") {
         if (argc != 2) throw Error(ErrorCode::InvalidInput, "version takes no options");
-        output(Object{{"version", "0.9.0-r3.3b"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
+        output(Object{{"version", "0.10.0-r3.3c-runtime"}, {"blueprint", "0.4.1"},
+            {"mode", "offline_fake_and_controlled_live"}, {"default_network_authorized", false}}); return 0;
     }
     int start = 2;
     std::string action;
@@ -441,16 +465,30 @@ int run_cli(int argc, char** argv) {
     if (command == "encode-model" || command == "replay-model")
         return run_protocol_command(command, options);
     const bool source_supplied = options.has("--source-root");
-    const std::filesystem::path source = options.take("--source-root", ".");
+    const bool resource_supplied = options.has("--resource-root");
+    if (source_supplied && resource_supplied)
+        throw Error(ErrorCode::InvalidInput, "choose either --source-root or --resource-root");
+    const std::filesystem::path source_argument = options.take("--source-root");
+    const std::filesystem::path resource_argument = options.take("--resource-root");
+    const auto resources = source_supplied ? RuntimeResources::from_source_tree(source_argument) :
+        (resource_supplied ? RuntimeResources::from_bundle(resource_argument) : RuntimeResources::discover());
+    const auto& source = resources.root();
+    if (command == "resources") {
+        options.finish();
+        output(Object{{"resources", resources.diagnostics()}, {"migrations", MigrationRegistry(resources).diagnostics()}});
+        return 0;
+    }
     if (command == "config") {
         if (action != "check" && action != "explain") throw Error(ErrorCode::InvalidInput, "config needs check or explain");
-        const auto frozen = live_config(options, source);
+        const auto frozen = live_config(options, resources);
         const auto role = action == "explain" ? role_from_string(options.take("--role", "worker")) : Role::Root;
         options.finish();
         if (action == "explain") output(frozen.explain(role));
         else output(Object{{"valid", true}, {"function_id", frozen.function_id()}, {"capability_id", frozen.capability_id()},
             {"snapshot_sha256", frozen.sha256()}, {"dependency_count", frozen.dependencies().size()},
-            {"snapshot_bytes", frozen.serialize().size()}, {"real_calls_enabled", false}, {"environment_checks_executed", false},
+            {"snapshot_bytes", frozen.serialize().size()},
+            {"real_calls_enabled", frozen.json().at("system").at("model_calls").at("real_calls_enabled")},
+            {"host_network_authorized", false}, {"credentials_resolved", false}, {"environment_checks_executed", false},
             {"runtime_support", frozen.runtime_support()}});
         return 0;
     }
@@ -460,15 +498,16 @@ int run_cli(int argc, char** argv) {
         const auto input = options.required("--input");
         const auto model_input = options.take("--model-input") == "true";
         options.finish();
-        const SchemaRegistry schemas(source / "schemas");
+        const SchemaRegistry schemas(resources.schema_documents());
         schemas.validate(name, parse_json_strict(read_runtime_file(input)), model_input);
         output(Object{{"valid", true}, {"schema", name}, {"model_input", model_input}, {"semantic_acceptance", "not_evaluated"}});
         return 0;
     }
     if (command == "doctor") {
-        const auto source_input = input_path_details(source, source_supplied ? "supplied" : "default");
+        const auto source_input = input_path_details(source_supplied ? source_argument :
+            (resource_supplied ? resource_argument : source), source_supplied || resource_supplied ? "supplied" : "default");
         Json config_inputs;
-        const auto frozen = live_config(options, source, &config_inputs);
+        const auto frozen = live_config(options, resources, &config_inputs);
         const bool template_supplied = options.has("--template");
         const auto template_id = options.take("--template", "default");
         const auto manifest_path = options.take("--sandbox-manifest");
@@ -484,6 +523,7 @@ int run_cli(int argc, char** argv) {
         result.as_object()["process_isolation_verified"] = false;
         result.as_object()["execution_policy_sha256"] = sha256_hex(canonical_json(worker_execution_policy(frozen, template_id, policy)));
         config_inputs.as_object()["source_root"] = source_input;
+        config_inputs.as_object()["runtime_resources"] = resources.diagnostics();
         config_inputs.as_object()["template"] = Object{{"origin", template_supplied ? "supplied" : "default"}, {"value", template_id}};
         auto& inputs = result.at("inputs").as_object();
         inputs["config"] = std::move(config_inputs);
@@ -508,37 +548,25 @@ int run_cli(int argc, char** argv) {
         bound_sandbox_doctor_report(result);
         output(result); return 0;
     }
-    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "inbox", "history", "history-page", "history-read", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "abandon-workspace", "owned-workspaces", "cleanup-workspaces", "reconcile-op", "capacity", "capacity-checkpoint"};
+    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "pump-live", "live-status", "inbox", "history", "history-page", "history-read", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "abandon-workspace", "owned-workspaces", "cleanup-workspaces", "reconcile-op", "capacity", "capacity-checkpoint"};
     if (!commands.contains(command)) throw Error(ErrorCode::InvalidInput, "unknown command: " + command);
     const auto database = options.required("--db");
-    const auto schema_sql = read_runtime_file(source / "db/schema.sql");
-    const auto migration_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");
-    const auto tools_migration_sql = read_runtime_file(source / "db/migrations/005_worker_tools.sql");
-    const auto events_migration_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
-    const auto workflow_migration_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
-    const auto acceptance_migration_sql = read_runtime_file(source / "db/migrations/008_acceptance_runtime.sql");
-    const auto cleanup_migration_sql = read_runtime_file(source / "db/migrations/009_owned_cleanup.sql");
-    const auto allocation_migration_sql = read_runtime_file(source / "db/migrations/010_owned_allocation_recovery.sql");
-    const auto live_migration_sql = read_runtime_file(source / "db/migrations/011_live_model.sql");
-    const auto reconciliation_migration_sql = read_runtime_file(source / "db/migrations/012_usage_reconciliation.sql");
+    const MigrationRegistry migrations(resources);
     if (command == "capacity" || command == "capacity-checkpoint") {
         const auto request = options.required("--request");
         if (command == "capacity") {
             options.finish();
-            Store inspect(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
-                events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+            Store inspect(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
             output(inspect.capacity_status(request)); return 0;
         }
         const auto expected = options.number("--expected-window", -1, 0);
         const auto evidence = read_runtime_file(options.required("--evidence-file"), 4096);
         const auto key = options.required("--key"); options.finish();
         {
-            Store inspect(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
-                events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+            Store inspect(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
             inspect.validate_capacity_checkpoint(inspect.host_actor(Role::Root, request), expected, evidence, key);
         }
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
-            events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request), allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
         output(store.checkpoint_capacity(store.host_actor(Role::Root, request), expected, evidence, key)); return 0;
     }
     if (command == "reconcile-op") {
@@ -552,20 +580,18 @@ int run_cli(int argc, char** argv) {
         // Invalid evidence/CAS/ownership cannot take over the writer or fence
         // unrelated requests. Repeat the identical guard after acquiring it.
         {
-            Store inspect(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
-                events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+            Store inspect(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
             inspect.validate_reconciliation(inspect.host_actor(Role::Root, request), op, expected, outcome, evidence, key);
         }
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
-            events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request), allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
         output(store.reconcile_operation(store.host_actor(Role::Root, request), op, expected, outcome, evidence, key));
         return 0;
     }
     if (command == "init") {
-        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql); output(store.diagnostics()); return 0;
+        options.finish(); Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope{}); output(store.diagnostics()); return 0;
     }
     if (command == "submit") {
-        const auto frozen = live_config(options, source);
+        const auto frozen = live_config(options, resources);
         AdmissionInput admission;
         admission.tenant_id = options.take("--tenant", "local");
         admission.project_id = options.take("--project", "local");
@@ -587,12 +613,12 @@ int run_cli(int argc, char** argv) {
         const auto cost_limit = cost.is_null() ? 0 : cost_limit_micro(cost);
         admission.budget.cost_micro_usd = options.number("--cost-budget-micro-usd", cost_limit);
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::admission(), allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::admission());
         const auto admitted = store.admit(admission);
         output(request_view(store, text(admitted.at("request_id")))); return 0;
     }
     if (command == "pending") {
-        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        options.finish(); Store store(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
         output(store.pending_recovery()); return 0;
     }
     const auto request = options.required("--request");
@@ -602,8 +628,7 @@ int run_cli(int argc, char** argv) {
         if (limit > (command == "experience" ? 128 : 64))
             throw Error(ErrorCode::InvalidInput, "delivery/experience query limit exceeds its bound");
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
-                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
         (void)store.request(request);
         if (!task.empty() && text(store.task(task).at("request_id")) != request)
             throw Error(ErrorCode::Unauthorized, "task belongs to another request");
@@ -645,8 +670,7 @@ int run_cli(int argc, char** argv) {
         // before taking over a writer. The Store repeats version/ownership checks
         // at the final transaction, after durable filesystem verification.
         {
-            Store reader(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
-                         events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+            Store reader(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
             const auto record = reader.request(request);
             check_delivery_root(reader, request, database, root_identity);
             if (!delivery_id.empty()) {
@@ -677,8 +701,7 @@ int run_cli(int argc, char** argv) {
                 }
             }
         }
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
-                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request), allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
         const auto root = store.host_actor(Role::Root, request);
         const auto binding = store.request_binding(request);
         auto delivery = delivery_id.empty()
@@ -703,8 +726,7 @@ int run_cli(int argc, char** argv) {
     }
     if (command == "owned-workspaces") {
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
-                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
         output(Object{{"request_id", request}, {"resources", array_of(store.owned_workspaces(request))}}); return 0;
     }
     if (command == "abandon-workspace") {
@@ -715,14 +737,10 @@ int run_cli(int argc, char** argv) {
         if (!is_typed_id(resource_id, "res") || expected == 0)
             throw Error(ErrorCode::InvalidInput, "abandon-workspace requires a resource ID and explicit positive state version");
         {
-            Store reader(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
-                events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql,
-                StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+            Store reader(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
             reader.validate_abandon_owned_workspace(reader.host_actor(Role::Root, request), resource_id, expected, key, reason);
         }
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
-            events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql,
-            StoreRecoveryScope::request(request), allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
         output(store.abandon_owned_workspace(store.host_actor(Role::Root, request), resource_id, expected, key, reason));
         return 0;
     }
@@ -730,13 +748,11 @@ int run_cli(int argc, char** argv) {
         const auto task_id = options.required("--task"); const auto parent = options.required("--parent");
         const auto key = options.required("--key"); options.finish();
         {
-            Store reader(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
-                         events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+            Store reader(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
             if (text(reader.task(task_id).at("request_id")) != request)
                 throw Error(ErrorCode::Unauthorized, "task belongs to another request");
         }
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
-                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request), allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
         output(allocate_owned_workspace(store, request, task_id, parent, key)); return 0;
     }
     if (command == "cleanup-workspaces") {
@@ -745,13 +761,11 @@ int run_cli(int argc, char** argv) {
         if (confirm != request || max_unlinks > 4096)
             throw Error(ErrorCode::InvalidInput, "cleanup requires exact --confirm-request and max-unlinks 1..4096");
         {
-            Store reader(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
-                         events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+            Store reader(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
             if (!reader.workspace_cleanup_status(request).at("workspace_eligible").as_bool())
                 throw Error(ErrorCode::NotReady, "workspace cleanup blocked; inspect closeout");
         }
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql,
-                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request), allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
         output(cleanup_owned_workspaces(store, request, static_cast<std::size_t>(max_unlinks))); return 0;
     }
     if (command == "questions" || command == "submissions") {
@@ -761,7 +775,7 @@ int run_cli(int argc, char** argv) {
         if (limit > maximum) throw Error(ErrorCode::InvalidInput,
             command == "questions" ? "questions limit must be 1..128" : "submissions limit must be 1..64");
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
         (void)store.request(request);
         if (!task.empty() && text(store.task(task).at("request_id")) != request)
             throw Error(ErrorCode::Unauthorized, "task belongs to another request");
@@ -788,12 +802,12 @@ int run_cli(int argc, char** argv) {
         }
         if (!selected_option.empty()) answer["selected_option"] = selected_option;
         options.finish();
-        const SchemaRegistry schemas(source / "schemas");
+        const SchemaRegistry schemas(resources.schema_documents());
         schemas.validate("answer_question", answer, true);
         // Reject stale UI actions, foreign objects and invalid selections before
         // acquiring a writer. Store repeats the guards atomically after takeover.
         {
-            Store reader(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+            Store reader(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
             const auto record = reader.request(request);
             const auto question = reader.question(question_id);
             if (text(question.at("request_id")) != request)
@@ -813,7 +827,7 @@ int run_cli(int argc, char** argv) {
                     throw Error(ErrorCode::InvalidInput, "selected option is absent from the original question");
             }
         }
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request), allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
         output(store.answer_question(store.host_actor(Role::Root, request), store.request_binding(request),
             question_id, expected_version, answer, new_id("answer")));
         return 0;
@@ -833,8 +847,7 @@ int run_cli(int argc, char** argv) {
             limit = options.number("--limit", 32, 1);
         }
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql,
-                    events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
         const auto actor = scoped_actor(store, request, role, task);
         output(command == "history-page" ? store.attempt_history_page(actor, after, through, limit)
             : store.read_history_feedback(actor, attempt, hash, section, offset, max_bytes));
@@ -846,7 +859,7 @@ int run_cli(int argc, char** argv) {
         const auto limit = options.number("--limit", 256, 1);
         if (limit > 256) throw Error(ErrorCode::InvalidInput, "inbox/history limit must be 1..256");
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
         const auto actor = scoped_actor(store, request, role, task);
         output(array_of(command == "inbox" ? store.inbox(actor, limit) : store.attempt_history(actor, limit)));
         return 0;
@@ -863,7 +876,7 @@ int run_cli(int argc, char** argv) {
         }
         options.finish();
         {
-            Store inspect(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+            Store inspect(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
             (void)scoped_actor(inspect, request, Role::Worker, task);
             const auto record = inspect.task(task);
             const auto request_record = inspect.request(request);
@@ -900,12 +913,64 @@ int run_cli(int argc, char** argv) {
         }
         // This is a preflight, not authorization. Store repeats all guards with
         // the current binding after acquiring the exclusive writer lease.
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request), allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
         const auto actor = scoped_actor(store, request, Role::Worker, task);
         const auto binding = store.binding(task);
         output(command == "wait"
             ? store.wait_worker(actor, binding, integer(store.task(task).at("state_version")), reason, new_id("wait"))
             : store.wake_worker(actor, binding, generation, new_id("wake")));
+        return 0;
+    }
+    if (command == "live-status") {
+        options.finish();
+        Store inspect(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
+        output(live_cli_status(inspect, request));
+        return 0;
+    }
+    if (command == "pump-live") {
+        const std::filesystem::path authorization_path = options.required("--authorization-file");
+        const auto authorization_bytes = read_runtime_file(authorization_path, 65536);
+        const auto authorization = live_cli_authorization(parse_json_strict(authorization_bytes, 65536));
+        const auto workspaces_file = options.take("--workspaces-file");
+        const auto paths = workspace_map(workspaces_file.empty() ? Json(Object{}) :
+            parse_json_strict(read_runtime_file(workspaces_file, 262144)), database);
+        const auto manifest_path = options.take("--sandbox-manifest");
+        if (!manifest_path.empty() && paths.empty())
+            throw Error(ErrorCode::InvalidInput, "sandbox manifest requires explicit task workspaces");
+        const auto manifest = manifest_path.empty() ? Json(Object{}) :
+            parse_json_strict(read_runtime_file(manifest_path, 262144));
+        options.finish();
+        const auto authorization_absolute = std::filesystem::absolute(authorization_path).lexically_normal();
+        for (const auto& [node, path] : paths) {
+            (void)node;
+            if (path_contains(path, authorization_absolute))
+                throw Error(ErrorCode::Unauthorized, "host authorization must be outside business workspaces");
+        }
+        const SchemaRegistry schemas(resources.schema_documents());
+        {
+            Store inspect(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
+            validate_live_cli_authorization(inspect, request, authorization);
+            const auto frozen = restore_request_config(inspect.request(request));
+            for (const auto& entry : frozen.json().at("function").at("team_templates").as_object())
+                (void)worker_sandbox_policy(frozen, std::string(entry.key()), manifest);
+            for (const auto& task : inspect.tasks(request)) {
+                const auto workspace = inspect.workspace(text(task.at("team_id")));
+                if (workspace.is_object() &&
+                        path_contains(text(workspace.at("canonical_path")), authorization_absolute))
+                    throw Error(ErrorCode::Unauthorized, "host authorization must be outside bound business workspaces");
+            }
+        }
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
+        validate_live_cli_authorization(store, request, authorization);
+        std::vector<std::unique_ptr<WorkerTools>> owners;
+        std::map<std::string, WorkerTools*> tools_by_node;
+        for (const auto& [node, path] : paths) {
+            owners.push_back(std::make_unique<WorkerTools>(store, path, manifest));
+            tools_by_node.emplace(node, owners.back().get());
+        }
+        auto result = EventRuntime(store, schemas, std::move(tools_by_node)).pump_live(request, authorization.workflow);
+        result.as_object()["host_authorization_sha256"] = sha256_hex(authorization_bytes);
+        output(result);
         return 0;
     }
     if (command == "pump-fake") {
@@ -927,8 +992,8 @@ int run_cli(int argc, char** argv) {
             throw Error(ErrorCode::InvalidInput, "sandbox manifest requires explicit task workspaces");
         const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
         options.finish();
-        const SchemaRegistry schemas(source / "schemas");
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request), allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        const SchemaRegistry schemas(resources.schema_documents());
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
         std::vector<std::unique_ptr<WorkerTools>> owners;
         std::map<std::string, WorkerTools*> tools_by_node;
         for (const auto& [node, path] : paths) {
@@ -946,7 +1011,7 @@ int run_cli(int argc, char** argv) {
         const auto manifest_path = options.take("--sandbox-manifest");
         const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
         const auto binding = store.binding(task);
         if (binding.request_id != request) throw Error(ErrorCode::Unauthorized, "task belongs to another request");
         const auto actor = store.host_actor(Role::Worker, request, binding.team_id);
@@ -959,7 +1024,7 @@ int run_cli(int argc, char** argv) {
         const auto limit = command == "events" ? options.number("--limit", 100, 1) : 100;
         const auto role = command == "config-snapshot" ? role_from_string(options.take("--role", "worker")) : Role::Root;
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope{}, allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
         if (command == "show") output(request_view(store, request));
         if (command == "events") output(array_of(store.events(request, after, limit)));
         if (command == "budget") output(store.budget(request));
@@ -971,13 +1036,13 @@ int run_cli(int argc, char** argv) {
         const auto catalog = parse_json_strict(read_runtime_file(options.required("--constraints-file")));
         validate_constraint_catalog_shape(catalog);
         options.finish();
-        Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request), allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
         const auto actor = store.host_actor(Role::Root, request);
         output(store.amend(actor, integer(store.request(request).at("state_version")), amendment, catalog, new_id("amend")));
         return 0;
     }
     if (command == "cancel") {
-        options.finish(); Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request), allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+        options.finish(); Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
         output(store.cancel_request(store.host_actor(Role::Root, request), integer(store.request(request).at("state_version")), new_id("cancel")));
         return 0;
     }
@@ -990,8 +1055,8 @@ int run_cli(int argc, char** argv) {
         throw Error(ErrorCode::InvalidInput, "multiple Worker calls and sandbox manifests require --workspace; limit is 16");
     const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
     options.finish();
-    const SchemaRegistry schemas(source / "schemas");
-    Store store(database, schema_sql, migration_sql, StoreOpenMode::Takeover, tools_migration_sql, events_migration_sql, workflow_migration_sql, acceptance_migration_sql, cleanup_migration_sql, StoreRecoveryScope::request(request), allocation_migration_sql, live_migration_sql, reconciliation_migration_sql);
+    const SchemaRegistry schemas(resources.schema_documents());
+    Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
     std::unique_ptr<WorkerTools> worker_tools;
     if (!workspace.empty()) worker_tools = std::make_unique<WorkerTools>(store, workspace, manifest);
     output(OfflineRuntime(store, schemas, worker_tools.get()).run(request, script, disposition, worker_calls));

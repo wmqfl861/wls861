@@ -1,0 +1,70 @@
+{
+  "date": "2026-10-26",
+  "timezone": "America/Los_Angeles",
+  "base_commit": "1c572d3aa9121e85cf22aa1e4bb330b25a34a143",
+  "scope": "Focused module B source files; not a full release source inventory.",
+  "record_encoding": "UTF-8 json.dumps(files,sort_keys=True,separators=(comma,colon)); file list order retained",
+  "files_record_sha256": "af81c64c46cc1de9fc1471bcd4c6ec2f6196be8e5997062190d3156eb59fc76d",
+  "files": [
+    {
+      "path": "include/wls/runtime_resources.hpp",
+      "sha256": "ec3aebdc54afc8841f16b39ccd5272f93dcdd4bbaa60593f17bb3207e2f3e735"
+    },
+    {
+      "path": "src/runtime_resources.cpp",
+      "sha256": "5810f458013444cd6624e0f42960f619d045b37aec3b72a4e672d52563c9f9fd"
+    },
+    {
+      "path": "include/wls/migrations.hpp",
+      "sha256": "75d4546b44e141a76168c260531a0297490c942b62bdc08d983fd8891a328ee5"
+    },
+    {
+      "path": "src/migrations.cpp",
+      "sha256": "48b5d9971af0d38c472ed3409f8e96f0b227f57e642a22ed3fbe31e33853d5b4"
+    },
+    {
+      "path": "src/runtime_resource_catalog.inc",
+      "sha256": "db6896f96e959f3bb1d22e0b691e7cb74334d55fdded59b84d752344919bceb2"
+    },
+    {
+      "path": "resources/runtime-manifest.json",
+      "sha256": "b9f5468c6858ebd467fb4e6905d2ef4b8bd51a006e4fd2a636f8e4db1fde55cf"
+    },
+    {
+      "path": "include/wls/schema.hpp",
+      "sha256": "90fbce0991097266ef6cd05184a6b544a029adbf9a67cbb9475e785ccb533cc4"
+    },
+    {
+      "path": "src/schema.cpp",
+      "sha256": "05fd2a25d04e9a736befb7671d66e92e1a5c98e6ae222588fbfe152f8370bc79"
+    },
+    {
+      "path": "src/store.cpp",
+      "sha256": "b7b76a4bde2dce65f5b619ad36a2149ef978fb48165f72214cc8c6685ca4280d"
+    },
+    {
+      "path": "include/wls/store.hpp",
+      "sha256": "01d8ae85ffcfd52cf0ff1bec5b87530390034f9274eb188ae7589af0e5d83372"
+    },
+    {
+      "path": "cmake/runtime_resources.cmake",
+      "sha256": "3a799604f868dace6c8229567545fbf3206345227f58b5af1596992c4dffc112"
+    },
+    {
+      "path": "cmake/install_runtime_resources.cmake.in",
+      "sha256": "5a7cfc545cfe8821056b93a40597de4ea75c89fbcc7d0842f739708bceab7103"
+    },
+    {
+      "path": "scripts/install_runtime_resources.py",
+      "sha256": "67905fd2c4f78c4c09740c121ad4efd478cd4e7cca92ec4223607981c9fa7844"
+    },
+    {
+      "path": "tests/runtime_resources_tests.cpp",
+      "sha256": "14081b57f457eb7a7c020811a7304b51628e2bfb149230edc0bc9ea7fc60f3f1"
+    },
+    {
+      "path": "tests/runtime_resources_cli_tests.py",
+      "sha256": "24c8a9a93c902d4c940be93679a5a65592a9efc008cd92e981c6eeeda4a68131"
+    }
+  ]
+}
