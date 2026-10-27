@@ -1,4 +1,5 @@
 #include "wls/store.hpp"
+#include "wls/migrations.hpp"
 #include "wls/capacity.hpp"
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
@@ -1700,6 +1701,13 @@ Store::Store(const std::filesystem::path& path, std::string_view base, std::stri
     : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration, events_migration, workflow_migration,
                                  acceptance_migration, cleanup_migration, std::move(recovery_scope), allocation_migration,
                                  live_migration, reconciliation_migration)) {}
+
+Store::Store(const std::filesystem::path& path, const MigrationRegistry& migrations,
+             StoreOpenMode mode, StoreRecoveryScope recovery_scope)
+    : Store(path, migrations.base_schema_sql(), migrations.migration_sql(402), mode,
+            migrations.migration_sql(403), migrations.migration_sql(404), migrations.migration_sql(405),
+            migrations.migration_sql(406), migrations.migration_sql(407), std::move(recovery_scope),
+            migrations.migration_sql(408), migrations.migration_sql(409), migrations.migration_sql(410)) {}
 Store::~Store() = default;
 
 Json Store::diagnostics() const {

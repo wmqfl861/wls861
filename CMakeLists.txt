@@ -53,6 +53,8 @@ target_link_libraries(wls861 PRIVATE wls_kernel)
 add_library(wls_s1 STATIC
     src/boost_json.cpp
     src/runtime_types.cpp
+    src/runtime_resources.cpp
+    src/migrations.cpp
     src/capacity.cpp
     src/store.cpp
     src/config_loader.cpp
@@ -86,6 +88,9 @@ target_link_libraries(wls_s1 PUBLIC wls_kernel SQLite::SQLite3 OpenSSL::Crypto C
 add_executable(wls src/cli.cpp)
 target_link_libraries(wls PRIVATE wls_s1)
 
+include(cmake/runtime_resources.cmake)
+wls_install_runtime_resources(wls wls861)
+
 include(CTest)
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
@@ -104,7 +109,7 @@ if(BUILD_TESTING)
         add_test(NAME ${suite} COMMAND ${suite}_tests)
         set_tests_properties(${suite} PROPERTIES TIMEOUT 90)
     endforeach()
-    foreach(suite IN ITEMS runtime_types store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery cleanup cleanup_runtime audit24_reopen process_evidence audit24_reconcile audit24_capacity audit24_capacity_repro r1_history r1_structured r1_window r2_rework r2_recovery r2_amend r2a_mkdir allocation_recovery doctor_diagnostics protocol_codec sse_replay r1_management owned_capacity owned_capacity_runtime live_model_store)
+    foreach(suite IN ITEMS runtime_types runtime_resources store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery cleanup cleanup_runtime audit24_reopen process_evidence audit24_reconcile audit24_capacity audit24_capacity_repro r1_history r1_structured r1_window r2_rework r2_recovery r2_amend r2a_mkdir allocation_recovery doctor_diagnostics protocol_codec sse_replay r1_management owned_capacity owned_capacity_runtime live_model_store)
         add_executable(${suite}_tests tests/${suite}_tests.cpp)
         target_link_libraries(${suite}_tests PRIVATE wls_s1)
         target_include_directories(${suite}_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")

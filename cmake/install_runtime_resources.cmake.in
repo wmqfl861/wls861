@@ -1,0 +1,17 @@
+set(_wls_python [==[@Python3_EXECUTABLE@]==])
+set(_wls_resource_installer [==[@WLS_RESOURCE_INSTALLER@]==])
+set(_wls_resource_source [==[@WLS_RESOURCE_SOURCE_ROOT@]==])
+set(_wls_resource_manifest [==[@WLS_RESOURCE_BUILD_MANIFEST@]==])
+execute_process(
+    COMMAND "${_wls_python}" "${_wls_resource_installer}"
+        --source-root "${_wls_resource_source}"
+        --manifest "${_wls_resource_manifest}"
+        --destination "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/share/wls861"
+    RESULT_VARIABLE _wls_install_result
+    OUTPUT_VARIABLE _wls_install_output
+    ERROR_VARIABLE _wls_install_error)
+if(NOT _wls_install_result EQUAL 0)
+    message(FATAL_ERROR "Runtime resource installation failed: ${_wls_install_error}")
+endif()
+string(STRIP "${_wls_install_output}" _wls_install_output)
+message(STATUS "Installed verified WLS runtime resources: ${_wls_install_output}")

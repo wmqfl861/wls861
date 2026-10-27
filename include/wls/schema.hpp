@@ -3,6 +3,7 @@
 #include "wls/runtime_types.hpp"
 
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -16,6 +17,9 @@ namespace wls::s1 {
 class SchemaRegistry final {
 public:
     explicit SchemaRegistry(const std::filesystem::path& directory);
+    // Host-captured immutable program bytes. This avoids reopening files after
+    // RuntimeResources has checked their compiled identities.
+    explicit SchemaRegistry(const std::map<std::string, std::string>& documents);
     ~SchemaRegistry();
     SchemaRegistry(const SchemaRegistry&) = delete;
     SchemaRegistry& operator=(const SchemaRegistry&) = delete;

@@ -17,6 +17,7 @@ struct EncodedResponsesRequest;
 struct HttpsTransportOptions;
 class VerifiedUsageEvidence;
 struct UsageReconciliation;
+class MigrationRegistry;
 
 // Trusted-host context, never constructed from a model tool argument. A host
 // authenticates first; Store checks its persisted owner and fencing epochs.
@@ -103,6 +104,13 @@ public:
           std::string_view allocation_migration_sql = {},
           std::string_view live_migration_sql = {},
           std::string_view reconciliation_migration_sql = {});
+    // Compiled-approved contiguous resource registry. This keeps the same
+    // writer lease, per-step migration transactions and recovery semantics as
+    // the original trusted-SQL overload above.
+    Store(const std::filesystem::path& database_path,
+          const MigrationRegistry& migrations,
+          StoreOpenMode mode = StoreOpenMode::Takeover,
+          StoreRecoveryScope recovery_scope = {});
     ~Store();
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;

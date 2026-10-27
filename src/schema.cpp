@@ -52,6 +52,25 @@ std::string read_schema(const std::filesystem::path& path) {
     return bytes;
 }
 
+std::map<std::string, std::string> read_schema_directory(const std::filesystem::path& directory) {
+    require(std::filesystem::is_directory(directory), "schema directory is missing");
+    std::vector<std::filesystem::path> paths;
+    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        if (entry.path().filename().string().ends_with(".schema.json")) paths.push_back(entry.path());
+    }
+    require(!paths.empty() && paths.size() <= max_schema_count, "invalid schema registry size");
+    std::sort(paths.begin(), paths.end());
+    std::map<std::string, std::string> result;
+    std::size_t total_bytes = 0;
+    for (const auto& path : paths) {
+        auto bytes = read_schema(path);
+        require(bytes.size() <= max_registry_bytes - total_bytes, "schema registry exceeds byte limit");
+        total_bytes += bytes.size();
+        result.emplace(path.filename().string(), std::move(bytes));
+    }
+    return result;
+}
+
 std::string string_property(const boost::json::object& source, std::string_view name) {
     const auto* value = source.if_contains(name);
     require(value != nullptr && value->is_string(), "schema needs string " + std::string(name));
@@ -258,20 +277,16 @@ Json project_schema(const Json& value, const std::set<std::string>& inherited_na
 
 class SchemaRegistry::Impl {
 public:
-    explicit Impl(const std::filesystem::path& directory) {
-        require(std::filesystem::is_directory(directory), "schema directory is missing");
-        std::vector<std::filesystem::path> paths;
-        for (const auto& entry : std::filesystem::directory_iterator(directory)) {
-            if (entry.path().filename().string().ends_with(".schema.json")) paths.push_back(entry.path());
-        }
-        require(!paths.empty() && paths.size() <= max_schema_count, "invalid schema registry size");
-        std::sort(paths.begin(), paths.end());
+    explicit Impl(const std::filesystem::path& directory) : Impl(read_schema_directory(directory)) {}
+
+    explicit Impl(const std::map<std::string, std::string>& files) {
+        require(!files.empty() && files.size() <= max_schema_count, "invalid schema registry size");
         std::size_t total_bytes = 0;
-        for (const auto& path : paths) {
-            const auto filename = path.filename().string();
+        for (const auto& [filename, bytes] : files) {
+            require(filename.ends_with(".schema.json"), "registered schema filename has an invalid suffix");
             const auto name = filename.substr(0, filename.size() - std::string(".schema.json").size());
             require(schema_name_valid(name), "invalid schema filename");
-            const auto bytes = read_schema(path);
+            require(bytes.size() <= max_schema_bytes, "schema file exceeds byte limit");
             require(bytes.size() <= max_registry_bytes - total_bytes, "schema registry exceeds byte limit");
             total_bytes += bytes.size();
             auto schema = parse_json_strict(bytes, max_schema_bytes, 64);
@@ -370,6 +385,8 @@ private:
 
 SchemaRegistry::SchemaRegistry(const std::filesystem::path& directory)
     : impl_(std::make_unique<Impl>(directory)) {}
+SchemaRegistry::SchemaRegistry(const std::map<std::string, std::string>& documents)
+    : impl_(std::make_unique<Impl>(documents)) {}
 SchemaRegistry::~SchemaRegistry() = default;
 std::vector<std::string> SchemaRegistry::schema_names() const { return impl_->names(); }
 void SchemaRegistry::validate(std::string_view name, const Json& document, bool model_input) const {
