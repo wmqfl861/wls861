@@ -67,7 +67,7 @@ jobs:
       - name: Install C++ development dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libyaml-dev
+          sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libcurl4-openssl-dev libyaml-dev openssl
           if [ "${{ matrix.compiler }}" = clang++-18 ]; then
             sudo apt-get install --yes clang-18
           fi

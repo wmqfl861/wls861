@@ -1,11 +1,14 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前补丁：0.8.6-r3.2；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程、受控 Worker 工具和独立离线协议回放。
+C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.8.7-r3.3a；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化 FakeModel 流程、受控 Worker 工具和独立离线协议回放。
 
-本补丁修复独立审核确认的共享文件读取/doctor EOF、清理名称、CLI异常与SSE默认填充边界。
-[审核处置](docs/reviews/independent-2026-10-26.md)、[实际验证](docs/reports/independent-audit-validation.md)
-和[后继优化计划](docs/implementation/R3-controlled-live-plan.md)分别记录问题、证据与下一步；
-当前仍未开放真实模型调用。
+本增量按蓝图接入 **R3.3a 有界 HTTPS/TLS 库组件**：明确 CA 与主机名验证、统一 deadline、
+实时取消、独立发送/读取观察，并继续使用原 HTTP/SSE 严格解码器。
+[实施契约](docs/implementation/R3-https-transport.md)、[实际验证](docs/reports/r3-https-transport-validation.md)
+和[后继计划](docs/implementation/R3-controlled-live-plan.md)分别记录接口、证据与后续 Store 账本集成。
+生产 CLI 与 Store 保持 FakeModel；本地 TLS 测试不代表真实模型或付费闭环完成。
+前一补丁的独立边界审核及其证据保留在[审核处置](docs/reviews/independent-2026-10-26.md)
+和[历史验证](docs/reports/independent-audit-validation.md)。
 
 当前增量已接入请求限定恢复、拒绝成果纠正、模型逐任务 AMEND、有界 fs_mkdir 和运行时工作区分配恢复/明确弃置；保留原说明、成果、用量和未知副作用证据。
 [当前能力/证据矩阵](docs/STATUS.md)集中记录实现边界；[审核采纳记录](docs/reviews/claude-disposition.md)
@@ -17,7 +20,28 @@ R1.3 在此基础上接通显式冻结的Worker窗口与模型回读；旧请求
 新增入口及证据要求见[进程结算/核对契约](docs/implementation/S1-process-settlement.md)，
 说明恢复见[epoch恢复契约](docs/implementation/S1-epoch-recovery.md)。本地控制CLI不是网络认证服务。
 
-## 已实现的三个离线节点：部署诊断、HTTP 编解码、SSE 回放
+## R3.3a：有界 HTTPS 组件与本地集成
+
+`include/wls/https_transport.hpp` 提供受信宿主库接口，单次执行一个经原 profile/request
+校验的 HTTPS POST；不读取认证环境变量、不自动重试、不派发工具。安全摘要只含原身份、
+有界原因、计数、时间和哈希，原响应字节及解码内容单独保存为私有证据。
+默认代理、重定向及 TLS 密钥日志不被隐式启用；证书链与 URL 主机名验证始终开启。
+
+组件使用系统 libcurl multi。DNS 主机名需要 c-ares 后端或显式、与 URL host/port 绑定的
+IPv4 路由；普通 threaded resolver 未提供这种路由时在联网前拒绝，避免取消时仍等待 DNS
+线程。数字 IPv4 和显式路由保持原 TLS 主机验证。当前供应商 profile 的 IPv6 URL 语法未扩展。
+
+本地测试会临时生成 CA/服务器证书并启动 loopback HTTPS 服务；测试入口仅在
+`BUILD_TESTING=ON` 时构建，不是新增的 `wls` live 命令：
+
+```sh
+ctest --test-dir build-cmake -R '^https_transport$' --output-on-failure
+```
+
+R3.3b 必须先实现原 attempt 预约、一次性发送权、不可变原结算及追加用量核对，才能把
+本组件接入生产模型运行器；这些先行约束已写入 [ADR-080](docs/adr/080-bounded-https-transport.md)。
+
+## 已有离线节点：部署诊断、HTTP 编解码、SSE 回放
 
 | 节点 | 可以使用的能力 | 契约 |
 | --- | --- | --- |
@@ -48,7 +72,8 @@ R1.3 在此基础上接通显式冻结的Worker窗口与模型回读；旧请求
 编码 body 的哈希不冒充已发送的 wire 证据，局部记录哈希只检验本地一致性。
 
 本次[实际验证报告](docs/reports/r2a3-r3-offline-validation.md)区分本地协议夹具与真实系统观察。
-后续 R3.3 接实际 HTTPS/TLS、Store attempt/wire 和预算结算；供应商能力与获准真实小任务
+R3.3a 的库级 TLS 证据另见[传输验证](docs/reports/r3-https-transport-validation.md)。
+后续 R3.3b 接 Store attempt/发送观察和预算结算；供应商能力与获准真实小任务
 仍须独立验收。doctor 的只读前提观察也不能替代强沙箱运行、网络隔离和后代退出证明。
 
 ## 拒绝验收后的纠正（R2.1）
@@ -225,13 +250,13 @@ context:
 
 ## 构建与验证
 
-需要 Linux、支持 C++20 的 GCC/Clang、Make、Python 3.9+；CMake/CTest 是另一入口。S1 使用 **Boost 1.83+、SQLite 3.37+、OpenSSL 3+ 和 LibYAML 0.2.5 运行库**。Valijson 和 LibYAML 公共头已固定导入，见 [依赖来源与许可证](third_party/README.md)。契约测试需要 `requirements-test.txt` 中的 `jsonschema`，以及 Python 所链接的 SQLite 3.37+。
+需要 Linux、支持 C++20 的 GCC/Clang、Make、Python 3.9+；CMake/CTest 是另一入口。S1 使用 **Boost 1.83+、SQLite 3.37+、OpenSSL 3+、libcurl 7.88+ 和 LibYAML 0.2.5 运行库**。HTTPS 组件核验实际运行库的 TLS/异步 DNS 能力及上述解析限制。Valijson 和 LibYAML 公共头已固定导入，见 [依赖来源与许可证](third_party/README.md)。契约测试需要 `requirements-test.txt` 中的 `jsonschema`、Python 所链接的 SQLite 3.37+，本地 TLS 夹具另需 `openssl` 可执行文件。
 
 ```sh
 git clone https://github.com/wmqfl861/wls861.git
 cd wls861
 # Ubuntu 24.04 开发依赖；不安装或启动服务。
-sudo apt-get install build-essential cmake libboost1.83-dev libsqlite3-dev libssl-dev libyaml-dev python3-venv
+sudo apt-get install build-essential cmake libboost1.83-dev libsqlite3-dev libssl-dev libcurl4-openssl-dev libyaml-dev openssl python3-venv
 python3 -m venv .local/test-venv
 .local/test-venv/bin/python -m pip install -r requirements-test.txt
 make -j2 test PYTHON=.local/test-venv/bin/python

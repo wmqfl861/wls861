@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(wls861 VERSION 0.8.6 LANGUAGES CXX)
+project(wls861 VERSION 0.8.7 LANGUAGES CXX)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "M1 currently requires Linux journal and process semantics")
@@ -16,6 +16,7 @@ find_package(Threads REQUIRED)
 find_package(Boost 1.83 REQUIRED)
 find_package(SQLite3 3.37 REQUIRED)
 find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
+find_package(CURL 7.88 REQUIRED)
 find_library(WLS_YAML_LIBRARY NAMES yaml libyaml-0.so.2 REQUIRED)
 
 option(WLS_ENABLE_UBSAN "Enable undefined-behavior sanitizer" OFF)
@@ -59,6 +60,7 @@ add_library(wls_s1 STATIC
     src/provider_profile.cpp
     src/protocol_codec.cpp
     src/sse_replay.cpp
+    src/https_transport.cpp
     src/context.cpp
     src/structured_context.cpp
     src/structured_history.cpp
@@ -77,13 +79,14 @@ target_include_directories(wls_s1 SYSTEM PUBLIC
     ${Boost_INCLUDE_DIRS}
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/valijson/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libyaml/include")
-target_link_libraries(wls_s1 PUBLIC wls_kernel SQLite::SQLite3 OpenSSL::Crypto ${WLS_YAML_LIBRARY})
+target_link_libraries(wls_s1 PUBLIC wls_kernel SQLite::SQLite3 OpenSSL::Crypto CURL::libcurl ${WLS_YAML_LIBRARY})
 add_executable(wls src/cli.cpp)
 target_link_libraries(wls PRIVATE wls_s1)
 
 include(CTest)
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    find_program(WLS_TEST_OPENSSL openssl REQUIRED)
     execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import jsonschema"
         RESULT_VARIABLE WLS_CONTRACT_DEPENDENCY_RESULT
         OUTPUT_QUIET ERROR_QUIET)
@@ -112,6 +115,14 @@ if(BUILD_TESTING)
                     "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
         set_tests_properties(${suite}_cli PROPERTIES TIMEOUT 90)
     endforeach()
+    # Local TLS fixture harness only: never installed or exposed by wls CLI.
+    add_executable(https_transport_driver tests/https_transport_driver.cpp)
+    target_link_libraries(https_transport_driver PRIVATE wls_s1)
+    target_include_directories(https_transport_driver PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    add_test(NAME https_transport
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_https_transport.py"
+                "$<TARGET_FILE:https_transport_driver>" "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(https_transport PROPERTIES TIMEOUT 180)
     add_test(NAME handoff_integrity
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_handoff.py")
     add_test(NAME review_source_integrity

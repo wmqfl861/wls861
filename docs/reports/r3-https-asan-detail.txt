@@ -1,0 +1,66 @@
+Start testing: Oct 26 19:36 EDT
+----------------------------------------------------------
+41/64 Testing: https_transport
+41/64 Test: https_transport
+Command: "/tmp/wls861-r33a-venv/bin/python" "/tmp/wls861-r33a-validation/source/tests/test_https_transport.py" "/tmp/wls861-r33a-validation/build-asan/https_transport_driver" "/tmp/wls861-r33a-validation/source"
+Directory: /tmp/wls861-r33a-validation/build-asan
+"https_transport" start time: Oct 26 19:36 EDT
+Output:
+----------------------------------------------------------
+HTTPS loopback fixture UID=65534 effective_umask=0002
+test_cancel_after_partial_body_keeps_failure_and_original_bytes (__main__.HttpsTransport.test_cancel_after_partial_body_keeps_failure_and_original_bytes) ... ok
+test_closed_connection_with_truncated_content_length_is_not_success (__main__.HttpsTransport.test_closed_connection_with_truncated_content_length_is_not_success) ... ok
+test_conflicting_http_framing_fails_closed (__main__.HttpsTransport.test_conflicting_http_framing_fails_closed) ... ok
+test_connection_refusal_has_no_upload_and_no_retry (__main__.HttpsTransport.test_connection_refusal_has_no_upload_and_no_retry) ... ok
+test_credential_injection_empty_and_oversize_refuse_before_connection (__main__.HttpsTransport.test_credential_injection_empty_and_oversize_refuse_before_connection) ... ok
+test_deadline_is_not_restarted_after_tls_or_headers (__main__.HttpsTransport.test_deadline_is_not_restarted_after_tls_or_headers) ... ok
+test_header_line_limit_is_observed_and_retained_with_bound (__main__.HttpsTransport.test_header_line_limit_is_observed_and_retained_with_bound) ... ok
+test_header_wait_uses_same_deadline_after_complete_upload (__main__.HttpsTransport.test_header_wait_uses_same_deadline_after_complete_upload) ... ok
+test_hostname_route_still_checks_original_hostname (__main__.HttpsTransport.test_hostname_route_still_checks_original_hostname) ... ok
+test_hostname_uses_explicit_ca_and_hostname_verification (__main__.HttpsTransport.test_hostname_uses_explicit_ca_and_hostname_verification) ... ok
+test_http_errors_never_retry (__main__.HttpsTransport.test_http_errors_never_retry) ... ok
+test_interim_continue_does_not_hide_final_status_or_bytes (__main__.HttpsTransport.test_interim_continue_does_not_hide_final_status_or_bytes) ... ok
+test_invalid_or_inconsistent_routes_refuse_before_connection (__main__.HttpsTransport.test_invalid_or_inconsistent_routes_refuse_before_connection) ... ok
+test_invalid_transport_limits_and_missing_trust_refuse_before_connection (__main__.HttpsTransport.test_invalid_transport_limits_and_missing_trust_refuse_before_connection) ... ok
+test_invalid_utf8_is_retained_losslessly_and_not_usable (__main__.HttpsTransport.test_invalid_utf8_is_retained_losslessly_and_not_usable) ... ok
+test_json_body_limit_retains_bounded_prefix (__main__.HttpsTransport.test_json_body_limit_retains_bounded_prefix) ... ok
+test_json_success_preserves_original_bytes_upload_and_explicit_request (__main__.HttpsTransport.test_json_success_preserves_original_bytes_upload_and_explicit_request) ... ok
+test_mutated_encoding_and_binding_refuse_before_connection (__main__.HttpsTransport.test_mutated_encoding_and_binding_refuse_before_connection) ... ok
+test_native_tool_is_returned_without_dispatch (__main__.HttpsTransport.test_native_tool_is_returned_without_dispatch) ... ok
+test_partial_header_deadline_retains_only_delivered_header_lines (__main__.HttpsTransport.test_partial_header_deadline_retains_only_delivered_header_lines) ... ok
+test_partial_request_upload_deadline_is_not_free_retry_authority (__main__.HttpsTransport.test_partial_request_upload_deadline_is_not_free_retry_authority) ... ok
+test_partial_sse_deadline_never_releases_tools (__main__.HttpsTransport.test_partial_sse_deadline_never_releases_tools) ... ok
+test_precancel_has_zero_connections_and_retains_original_identity (__main__.HttpsTransport.test_precancel_has_zero_connections_and_retains_original_identity) ... ok
+test_proxy_environment_and_credential_reference_are_not_used (__main__.HttpsTransport.test_proxy_environment_and_credential_reference_are_not_used) ... ok
+test_redirect_never_contacts_target_or_forwards_credentials (__main__.HttpsTransport.test_redirect_never_contacts_target_or_forwards_credentials) ... ok
+test_response_secret_echo_is_private_and_safe_summary_only_has_hashes (__main__.HttpsTransport.test_response_secret_echo_is_private_and_safe_summary_only_has_hashes) ... ok
+test_safe_summary_refuses_changed_raw_decoded_or_options_evidence (__main__.HttpsTransport.test_safe_summary_refuses_changed_raw_decoded_or_options_evidence) ... ok
+test_sse_chunked_utf8_boundaries_keep_exact_entity_bytes (__main__.HttpsTransport.test_sse_chunked_utf8_boundaries_keep_exact_entity_bytes) ... ok
+test_sse_event_and_output_limits_still_use_strict_decoder (__main__.HttpsTransport.test_sse_event_and_output_limits_still_use_strict_decoder) ... ok
+test_sse_stream_limit_retains_bounded_prefix (__main__.HttpsTransport.test_sse_stream_limit_retains_bounded_prefix) ... ok
+test_sse_tool_completion (__main__.HttpsTransport.test_sse_tool_completion) ... ok
+test_terminal_followed_by_illegal_sse_tail_invalidates_response (__main__.HttpsTransport.test_terminal_followed_by_illegal_sse_tail_invalidates_response) ... ok
+test_tls_cancellation_does_not_wait_for_idle_progress_callback (__main__.HttpsTransport.test_tls_cancellation_does_not_wait_for_idle_progress_callback) ... ok
+test_tls_handshake_deadline_is_bounded (__main__.HttpsTransport.test_tls_handshake_deadline_is_bounded) ... ok
+test_tls_keylog_environment_refuses_without_creating_keylog (__main__.HttpsTransport.test_tls_keylog_environment_refuses_without_creating_keylog) ... ok
+test_total_header_limit_handles_many_small_lines (__main__.HttpsTransport.test_total_header_limit_handles_many_small_lines) ... ok
+test_total_raw_limit_is_shared_by_headers_and_body (__main__.HttpsTransport.test_total_raw_limit_is_shared_by_headers_and_body) ... ok
+test_unmapped_hostname_requires_bounded_cares_resolver (__main__.HttpsTransport.test_unmapped_hostname_requires_bounded_cares_resolver) ... ok
+test_untrusted_certificate_has_zero_http_requests (__main__.HttpsTransport.test_untrusted_certificate_has_zero_http_requests) ... ok
+test_valid_sse_terminal_before_http_end_still_obeys_cancel (__main__.HttpsTransport.test_valid_sse_terminal_before_http_end_still_obeys_cancel) ... ok
+test_wider_profile_stream_limit_does_not_reject_small_legal_response (__main__.HttpsTransport.test_wider_profile_stream_limit_does_not_reject_small_legal_response) ... ok
+test_wrong_content_type_or_compressed_body_never_becomes_tool_result (__main__.HttpsTransport.test_wrong_content_type_or_compressed_body_never_becomes_tool_result) ... ok
+
+----------------------------------------------------------------------
+Ran 42 tests in 11.272s
+
+OK
+<end of output>
+Test time =  11.33 sec
+----------------------------------------------------------
+Test Passed.
+"https_transport" end time: Oct 26 19:36 EDT
+"https_transport" time elapsed: 00:00:11
+----------------------------------------------------------
+
+End testing: Oct 26 19:36 EDT

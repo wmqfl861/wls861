@@ -298,7 +298,7 @@ Json request_view(Store& store, const std::string& id) {
 }
 
 void help() {
-    std::cout << R"(wls 0.8.6-r3.2 — deployment diagnostics and offline Responses replay
+    std::cout << R"(wls 0.8.7-r3.3a — bounded HTTPS component; CLI remains offline
 
 Resource paths default to the source checkout in the current directory.
 Use --source-root PATH from another directory. Outputs are JSON; errors go to stderr.
@@ -422,7 +422,7 @@ int run_cli(int argc, char** argv) {
     const std::string command(argv[1]);
     if (command == "--version" || command == "version") {
         if (argc != 2) throw Error(ErrorCode::InvalidInput, "version takes no options");
-        output(Object{{"version", "0.8.6-r3.2"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
+        output(Object{{"version", "0.8.7-r3.3a"}, {"blueprint", "0.4.1"}, {"mode", "offline_fake"}}); return 0;
     }
     int start = 2;
     std::string action;

@@ -1,19 +1,31 @@
 # WLS861 development contract
 
-Current implementation: **0.8.6-r3.2**, blueprint **v0.4.1**. This patch follows
-the independent boundary review in `docs/reviews/independent-2026-10-26.md`.
-The prior 0.8.5 limited R2a.3, R3.1 and R3.2 slices remain offline; this does not
-complete all of R3 or a real model loop. Actual current results belong in
-`docs/reports/independent-audit-validation.md`; the previous slice evidence stays
-in `docs/reports/r2a3-r3-offline-validation.md`. Check CI for the specific commit.
+Current implementation: **0.8.7-r3.3a**, blueprint **v0.4.1**. This slice adds the
+bounded HTTPS library component specified in `docs/adr/080-bounded-https-transport.md`
+and `docs/implementation/R3-https-transport.md`. Its tests use temporary loopback
+TLS services and synthetic credentials; CLI/Store/OfflineRuntime remain fake-only.
+There is no production live entry point or complete R3 model loop. Actual current
+results belong in `docs/reports/r3-https-transport-validation.md`; prior independent
+review evidence stays in `docs/reports/independent-audit-validation.md`, and the
+earlier offline slice evidence in `docs/reports/r2a3-r3-offline-validation.md`.
+Check CI for the specific commit.
 Do not turn an implemented interface or a planned test into a passing result.
+
+The HTTPS component must validate the original encoded request and keep explicit
+trust/route/limit bindings. Preserve TLS verification, one monotonic deadline,
+bounded cancellation, private raw evidence and the separate safe summary. A local
+upload count is not provider receipt or billing proof. Do not enable ambient
+proxy/redirect/netrc/key logging or threaded DNS waits outside the cancellation
+boundary. R3.3b must add original Store admission, one-time send authority and
+immutable settlement plus append-only usage reconciliation before a live adapter
+can be enabled. Its design types are not implemented Store methods or migrations.
 
 Read ADR-079 for this follow-up: inspect runtime sources and shared configuration/input files before a read-mode open,
 prove EOF within actual read budgets before reporting complete file identity,
 preserve Workspace-accepted UTF-8 names through owned cleanup without relaxing
 resource identifiers or deletion authority, keep default SSE obfuscation outside
 semantic output, and validate CLI argv before Store effects with bounded error
-reporting. R3.3a/b/c and long-task prerequisites are specified in
+reporting. R3.3b/c and long-task prerequisites are specified in
 `docs/implementation/R3-controlled-live-plan.md`; transport alone cannot open a
 live path. Additional usage evidence must not rewrite original settlements or
 restore old business authority. CLI can serve S1 acceptance; daemon/API stay later.
@@ -223,7 +235,8 @@ before invoking the runtime guard. Never relax production permissions or skip
 a safety assertion to make a fixture pass under an unprivileged account.
 
 M1's kernel remains independent of third-party libraries. The S1 library needs
-Boost 1.83+, SQLite 3.37+, OpenSSL 3+ and LibYAML 0.2.5. Fixed upstream headers,
+Boost 1.83+, SQLite 3.37+, OpenSSL 3+, libcurl 7.88+ and LibYAML 0.2.5.
+Local TLS test fixtures also need the openssl executable. Fixed upstream headers,
 licenses and hashes are recorded in `third_party/README.md`; do not edit vendor
 bytes without an explicit dependency update. Contract tests use `jsonschema`
 from `requirements-test.txt`. Install test dependencies in a virtual environment

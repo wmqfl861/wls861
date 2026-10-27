@@ -83,7 +83,10 @@ fake-only门禁保持；原wire字段继续为null，编码body指纹不是已�
 业务准入授权。实际结果由[本批报告](reports/r2a3-r3-offline-validation.md)记录，不能据此
 将完整R3、真实模型闭环或S1标为完成。
 
-下一节点分为以下可独立审核的交付，详细依赖、失败反例及完成条件见
+R3.3a 在 0.8.7-r3.3a 接入库级 HTTPS/TLS、本地故障夹具和安全观察摘要，见
+[实施契约](implementation/R3-https-transport.md)及[本次验证](reports/r3-https-transport-validation.md)。
+生产 fake-only 边界保持；R3.3b 的发送权和追加对账目前只有先行设计，未新增 Store API/迁移。
+R3.3 各节点的独立交付边界、详细依赖、失败反例及完成条件见
 [R3.3受控真实闭环计划](implementation/R3-controlled-live-plan.md)：
 
 | 顺序 | 产出与验收 | 入口边界 |

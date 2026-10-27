@@ -1,6 +1,8 @@
 # R3.3 受控真实闭环与 R1.4 管理视图实施计划
 
-本文是下一阶段的开发计划与验收契约，不是已经实现或测试通过的记录。当前能力见
+本文是各节点的开发计划与验收契约，不是测试通过记录。R3.3a 的实现契约已另列于
+[HTTPS 组件](R3-https-transport.md)，实际执行证据见[传输报告](../reports/r3-https-transport-validation.md)；
+R3.3b/c 与下文长任务前置继续待实现/验收。当前能力见
 [STATUS](../STATUS.md)，现有离线边界见 [R3.1/R3.2](R3-offline-responses.md)；
 原 Store 的[请求恢复](S1-request-recovery.md)、[容量窗口](S1-capacity-windows.md)
 和[不可变交付](S1-acceptance-delivery.md)继续适用。

@@ -1,14 +1,22 @@
-# 当前实现 **0.8.6-r3.2**，目标蓝图 **v0.4.1**。
+# 当前实现 **0.8.7-r3.3a**，目标蓝图 **v0.4.1**。
 
-本补丁依据[独立工程审核](reviews/independent-2026-10-26.md)修复五类边界问题：
+本增量接入 [R3.3a 有界 HTTPS/TLS 库组件](implementation/R3-https-transport.md)：
+显式信任材料和地址路由、完整编码请求校验、一个单调 deadline、实时取消、分阶段本地观察、
+HTTP/SSE 原字节和独立安全摘要。测试只连接临时 loopback 服务并使用合成凭据。
+设计与后继 Store 账本的先行边界见 [ADR-080](adr/080-bounded-https-transport.md)，
+实际命令、失败修正及本次门禁记录见[传输验证报告](reports/r3-https-transport-validation.md)。
+当前 CLI/Store/OfflineRuntime 仍为 fake-only；R3.3b 的预约/唯一发送权/追加对账尚未实现。
+
+前一补丁依据[独立工程审核](reviews/independent-2026-10-26.md)修复五类边界问题：
 运行源及共享配置/输入文件先检查类型再读打开、doctor以实际EOF确认哈希、合法业务文件名贯通受控清理、
 全CLI argv的UTF-8预检与有界错误输出、SSE默认obfuscation填充兼容。
-实现规则见[ADR-079](adr/079-independent-boundary-review.md)，本轮执行结果与原失败日志见
+实现规则见[ADR-079](adr/079-independent-boundary-review.md)，该补丁执行结果与原失败日志见
 [验证报告](reports/independent-audit-validation.md)；不以历史成功代替当前提交门禁。
 
 蓝图已将R3.3拆为本地TLS组件、原Store/账本集成、获准真实任务与单Agent对照三个节点。
 管理角色视图与owned工作区贯通容量单列长任务前置，CLI可承担S1小任务验收，服务化后置。
-这些是[开发计划](implementation/R3-controlled-live-plan.md)，尚未成为已实现能力。
+R3.3a 已接入本地组件；原 Store/账本、真实小任务、管理视图和工作区容量仍按
+[开发计划](implementation/R3-controlled-live-plan.md)分别实施，不由传输组件推导完成。
 
 前一版本0.8.5-r3.2完成三个限定节点的实施：
 
@@ -45,7 +53,8 @@ Dispatcher纠正与TeamLead共享冻结返工计数，新说明必须保留旧�
 | AMEND | Dispatcher模型提交新计划及逐节点update/keep/cancel；遗漏节点按同计划续办 | 捕获请求/任务CAS和团队代次，遗漏保留待办、keep须新说明/ack；双格式/重开/预算/兄弟隔离回归。真实模型判断质量尚未验收 |
 | 交付/清理 | 不可变包、精确回执、经验作业、固定清单受控 work 删除 | 实际发布/删除/恢复；私有行、owner收据保留；全局cleanup仍PENDING；PREPARED有原收据恢复/显式弃置；弃置残留保留、不可重用。部署 doctor 不扫描或采用分配残留 |
 | 上下文/模型 | 冻结选择v1/v2和Worker window-v1；近期完整轮次、旧/大结果原证据引用；模型回读与持久频率限制 | FakeModel大文件多轮/重开继续、模型回读原字节；旧请求不迁移。LLM语义压缩、管理角色窗口、真实网络 wire/attempt 与 Store 集成仍未实现；完整当前契约超限仍拒绝 |
-| Responses 离线协议 | 显式 provider profile、HTTP 文本/function_call 编解码、有界 SSE 回放；独立 encode-model/replay-model | 本地编码字节/原响应/流事件、身份与用量校验；零网络、零凭据解析、零工具派发。Schema/Completed 不授予权限；真实 transport、Store 预约结算及供应商现场能力仍开放 |
+| Responses 离线协议 | 显式 provider profile、HTTP 文本/function_call 编解码、有界 SSE 回放；独立 encode-model/replay-model | 两个CLI仍零网络、零凭据解析、零工具派发。Schema/Completed 不授予权限；原wire字段不改标 |
+| HTTPS 传输组件 | libcurl multi、显式 CA/host 验证、单 deadline/取消、头/体/累计容量、原HTTP/SSE解码及独立安全摘要 | 自建loopback TLS故障夹具；严格IPv4/显式路由，DNS名另需c-ares；无生产入口或自动重试。Store预约/一次发送权/结算集成、实际供应商与c-ares外部DNS验收未完成 |
 | 事件/并发 | 持久inbox、逐任务AMEND、串行pump；冻结准入窗口/独立计数/Root检查点 | 旧快照不改写；到限可核对后续进；不清审计/不重置预算。CLI 已按请求恢复；默认全库维护仍保留。并发租约、只在确有在途时提升选中请求代次仍未实现 |
 | 配置执行状态 | check/explain显示 runtime_support 和 validated_only 项 | 形状有效不代表墙钟/告警/压缩/并发/停滞检测已执行 |
 | 记忆、MCP、跨功能审核 | 规格/参考契约 | 完整C++闭环及真实互通未实现 |
@@ -58,8 +67,8 @@ S2 独立审核/DAG，S3 记忆，S4 MCP/评测，S5 按证据扩展仍为后续
 单 Agent 对照框架前移 S1，不再以整套 S2 完成为前提。
 R2a.2已按[ADR-075](adr/075-owned-allocation-recovery.md)实现迁移、创建收据、精确恢复、弃置与清理联动。
 R2a.3、R3.1、R3.2 的上述限定接口已实施；真实强沙箱部署正向验收保持独立。
-下一增量按[R3.3a/b/c计划](implementation/R3-controlled-live-plan.md)完成本地真实传输组件、
-Store的原attempt/唯一发送权/预算/附加用量核对集成，再在端点、能力、凭据与预算具备且获准后
+R3.3a已实现本地传输库组件，下一增量按[R3.3a/b/c计划](implementation/R3-controlled-live-plan.md)
+完成Store的原attempt/唯一发送权/预算/附加用量核对集成，再在端点、能力、凭据与预算具备且获准后
 进行小任务及单Agent对照验收。离线 profile 继续固定
 real_calls_enabled=false、max_paid_retries=0；本批未使真实付费调用可用。
 并发租约和选中请求按需提升代次继续开放，不因模型 AMEND 接入而视为完成。

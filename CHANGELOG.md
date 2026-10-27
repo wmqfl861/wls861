@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.7-r3.3a — bounded HTTPS transport and local TLS integration
+
+- Add a libcurl multi HTTPS component that revalidates the exact original profile/request/encoding, uses explicit trust bytes, and retains immutable identity and separate encoding/transport hashes.
+- Enforce peer/hostname verification, one monotonic deadline and stop token through setup, transfer, cleanup and protocol validation; reject ambient proxy/redirect/netrc/key logging and automatic request rewinds/retries.
+- Bound response headers, body, total retained bytes, SSE chunks and upload buffering. Retain exact private HTTP callback bytes, explicit discard/incompleteness facts and safe summaries without credentials or provider content.
+- Require a numeric IPv4 endpoint, an explicit host/port-bound IPv4 route, or a c-ares resolver for DNS names; refuse threaded DNS waits that could outlive cancellation during cleanup.
+- Decode with the existing strict Responses HTTP/SSE subset; incomplete transfers, cancellation, errors and illegal terminal tails do not release text or tools, while validated original usage remains separate.
+- Add temporary loopback TLS integration/fault fixtures and register them in CMake/CTest and Make, including the six existing CI gates.
+- Specify the future original Store reservation, one-time send authority, immutable settlement and append-only usage reconciliation contract. No new Store methods/migration, live CLI, credential resolution, paid model attempt or tool dispatch is enabled.
+- Preserve published SQL, vendored bytes, archived handoffs and earlier validation reports. Current execution evidence belongs in `docs/reports/r3-https-transport-validation.md`.
+
 ## 0.8.6-r3.2 — independent boundary review corrections
 
 - Inspect sandbox sources and shared configuration/runtime input files with O_PATH before read-mode opens, then reopen and recheck the pinned regular inode; reject FIFOs/devices without their read-open effects.

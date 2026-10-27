@@ -1,0 +1,8 @@
+Internal ctest changing into directory: /tmp/wls861-r33a-validation/build-asan
+Test project /tmp/wls861-r33a-validation/build-asan
+    Start 41: https_transport
+1/1 Test #41: https_transport ..................   Passed   11.33 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =  11.33 sec
