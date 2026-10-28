@@ -1,7 +1,21 @@
 # WLS861 development contract
 
-Current implementation: **0.11.0-r3.3c-baseline**, blueprint **v0.4.1**, Store **410**.
-The next two-module continuation is specified in
+Current implementation: **0.11.1-r3.3c-audit**, blueprint **v0.4.1**, Store **410**.
+The whole-code review and minimal fixes are specified in ADR-090 and
+`docs/reviews/code-audit-20261027.md`; actual results belong in
+`docs/reports/code-audit-20261027-validation.md`. Preserve inherited writer
+leases across child destruction, one read snapshot during ledger reconstruction,
+effective five-dimensional settlement capacity, original pre-spawn cancellation
+evidence, pinned type-before-read and EOF checks, and evaluation source identity
+bound to the original frozen configuration and live admission. Preserve captured
+C++ number spellings when reconstructing original facts without changing the
+historical Python plan/report fingerprints. Never relabel a local fixture as
+provider evidence or rewrite original nullable usage to release capacity.
+Keep request restoration and canonical-history reuse local to one function
+invocation. Public mutable-request APIs and every Store admission/send boundary
+must retain full validation; prefix reuse must preserve aggregate array depth,
+UTF-8, finite numbers and the exact original byte budget.
+The preceding two-module continuation is specified in
 `docs/implementation/two-module-billing-baseline.md`. Read ADR-088/089 and
 `docs/implementation/R3-signed-billing.md` plus
 `docs/implementation/R3-single-agent-baseline.md` before modifying these paths.

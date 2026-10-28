@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 
 #ifndef WLS_SOURCE_DIR
@@ -50,6 +51,106 @@ AdmissionInput admission(const Json& logical = policy()) {
     return input;
 }
 void expect(ErrorCode code, const std::function<void()>& action) { support::error(code, action); }
+
+FrozenRequestConfig history_config(const Json& logical = policy()) {
+    const auto bytes = canonical_json(admission(logical).config_snapshot);
+    return FrozenRequestConfig::restore(bytes, sha256_hex(bytes));
+}
+Json complete_prefix_oracle(const std::string& request_id, const FrozenRequestConfig& config,
+                           const std::vector<Json>& history) {
+    const auto seed = sha256_hex(canonical_json(Object{{"format", "wls-single-agent-chain-v1"},
+        {"request_id", request_id}, {"config_snapshot_sha256", config.sha256()},
+        {"policy", config.logical_agent_policy()}}));
+    auto chain = seed;
+    Array prefix;
+    for (const auto& record : history) {
+        chain = sha256_hex(canonical_json(Object{{"format", "wls-single-agent-link-v1"},
+            {"previous_sha256", chain}, {"fact", record}}));
+        prefix.push_back(record);
+    }
+    // Independent oracle: encode the complete aggregate, without concatenating
+    // or reusing any record bytes from the production transcript builder.
+    return Object{{"contract", single_agent_contract}, {"logical_agent_id", "logical_" + seed},
+        {"global_step", static_cast<std::int64_t>(history.size()) + 1},
+        {"history_count", history.size()}, {"history_sha256", sha256_hex(canonical_json(prefix))},
+        {"previous_chain_sha256", chain}};
+}
+Json observation_record(const std::string& request_id, const FrozenRequestConfig& config,
+                        const std::vector<Json>& history, const Json& content) {
+    const auto suffix = std::to_string(history.size() + 1);
+    const std::string attempt_id = "attempt_observation_" + suffix;
+    const Object binding{{"request_id", request_id}};
+    const Object response{{"original_observation", content}};
+    const Object result{{"runtime_error", true}, {"preserved_original", true}};
+    const auto fingerprint = sha256_hex(canonical_json(Object{{"attempt_id", attempt_id},
+        {"original_binding", binding}, {"response", response}, {"result", result}}));
+    return Object{{"request_id", request_id}, {"config_snapshot_sha256", config.sha256()},
+        {"model_ref", config.resolve(Role::Dispatcher).model}, {"attempt_id", attempt_id},
+        {"call_id", "call_observation_" + suffix}, {"frozen_binding", binding}, {"accepted", 0},
+        {"response", response}, {"settlement_sha256", sha256_hex("synthetic original settlement")},
+        {"feedback", Object{{"original_binding", binding}, {"response", response},
+            {"result", result}, {"record_sha256", fingerprint}}},
+        {"logical_agent_execution", complete_prefix_oracle(request_id, config, history)}};
+}
+
+void transcript_prefix_matches_complete_canonical_oracle() {
+    const auto config = history_config();
+    const std::string request_id = "req_prefix_oracle";
+    std::vector<Json> history;
+    CHECK(single_agent_transcript(request_id, config, history).execution ==
+          complete_prefix_oracle(request_id, config, history));
+    for (const auto value : {0.1, -0.0, 1.0, 1e20}) {
+        history.push_back(observation_record(request_id, config, history,
+            Object{{"number", value}, {"text", "Unicode 雪, quote \" and slash \\ with newline\n"},
+                {"nested", Object{{"history_sha256", "original field remains present"}}}}));
+        const auto actual = single_agent_transcript(request_id, config, history);
+        CHECK(actual.execution == complete_prefix_oracle(request_id, config, history));
+        CHECK(actual.messages.size() == history.size());
+        for (std::size_t index = 0; index < history.size(); ++index) {
+            CHECK(actual.messages[index].role == "user");
+            CHECK(actual.messages[index].content == canonical_json(history[index]));
+            CHECK(actual.messages[index].tool_calls.empty());
+        }
+    }
+}
+
+void transcript_keeps_aggregate_depth_and_json_guards() {
+    const auto config = history_config();
+    const std::string request_id = "req_prefix_depth";
+    auto record = observation_record(request_id, config, {}, Object{});
+    Json nested = 0;
+    for (std::size_t depth = 0; depth < 126; ++depth) nested = Array{std::move(nested)};
+    record.as_object()["depth_probe"] = nested;
+    CHECK(!canonical_json(Array{record}).empty());
+    CHECK(single_agent_transcript(request_id, config, {record}).execution ==
+          complete_prefix_oracle(request_id, config, {record}));
+    record.as_object()["depth_probe"] = Array{std::move(nested)};
+    CHECK(!canonical_json(record).empty());
+    expect(ErrorCode::InvalidInput, [&] { (void)canonical_json(Array{record}); });
+    expect(ErrorCode::InvalidInput, [&] { (void)single_agent_transcript(request_id, config, {record}); });
+    for (const auto& invalid : std::vector<Json>{Json(std::string(1, static_cast<char>(0xff))),
+            Json(std::numeric_limits<double>::infinity()), Json(std::numeric_limits<double>::quiet_NaN())}) {
+        auto malformed = observation_record(request_id, config, {}, Object{});
+        malformed.as_object()["invalid_value"] = invalid;
+        expect(ErrorCode::InvalidInput, [&] { (void)single_agent_transcript(request_id, config, {malformed}); });
+    }
+}
+
+void transcript_byte_limit_counts_the_complete_array() {
+    const auto config = history_config(policy(128, 4096));
+    const std::string request_id = "req_prefix_bytes";
+    auto record = observation_record(request_id, config, {}, Object{});
+    record.as_object()["padding"] = "";
+    const auto original_size = canonical_json(Array{record}).size();
+    CHECK(original_size < 4096);
+    record.as_object()["padding"] = std::string(4096 - original_size, 'x');
+    CHECK(canonical_json(Array{record}).size() == 4096);
+    CHECK(single_agent_transcript(request_id, config, {record}).execution ==
+          complete_prefix_oracle(request_id, config, {record}));
+    record.at("padding").as_string().push_back('x');
+    expect(ErrorCode::Quota, [&] { (void)single_agent_transcript(request_id, config, {record}); });
+}
+
 AttemptReservation reservation(const ModelRequest& request) {
     AttemptReservation result;
     result.call_id = request.call_id; result.attempt_id = request.attempt_id;
@@ -285,6 +386,9 @@ int main(int argc, char** argv) {
     schemas = std::make_unique<SchemaRegistry>(source / "schemas");
     struct GroupedCase { std::string_view group; ::test::Case test; };
     const std::vector<GroupedCase> cases{
+        {"history", {"transcript prefixes equal complete canonical arrays", transcript_prefix_matches_complete_canonical_oracle}},
+        {"history", {"transcript keeps aggregate depth and JSON guards", transcript_keeps_aggregate_depth_and_json_guards}},
+        {"history", {"transcript byte limit includes the complete array", transcript_byte_limit_counts_the_complete_array}},
         {"history", {"shared native history crosses roles and tasks", shared_native_history_crosses_roles_and_tasks}},
         {"history", {"omitted original pair refuses reservation", omitted_original_pair_is_refused_before_reservation}},
         {"history", {"reordered original pairs refuse reservation", reordered_original_pairs_are_refused}},

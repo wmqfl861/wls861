@@ -355,6 +355,35 @@ void unavailable_strong_run_is_a_durable_refusal() {
     CHECK(output.at("total_bytes") == 0);
 }
 
+void cancellation_before_effect_preserves_original_no_spawn_evidence() {
+    Session session;
+    std::stop_source cancellation;
+    cancellation.request_stop();
+    const Json args = Object{{"argv", Array{"/bin/sh", "-c", "printf should-not-run > forbidden"}}};
+    const auto cancelled = session.tools->execute(session.actor(), session.binding(), session.version(),
+        "cancelled-run", "run", args, "cancelled-run-command", cancellation.get_token());
+    CHECK(operation(cancelled).at("status") == "CANCELLED");
+    CHECK(execution(cancelled).at("observed_outcome") == "CANCELLED");
+    CHECK(execution(cancelled).at("result").at("status") == "CANCELLED");
+    CHECK(execution(cancelled).at("result").at("spawned") == false);
+    CHECK(execution(cancelled).at("result").at("all_descendants_exited") == true);
+    CHECK(execution(cancelled).at("result").at("strong_isolation") == false);
+    CHECK(execution(cancelled).at("stdout_bytes") == 0 && execution(cancelled).at("stderr_bytes") == 0);
+    CHECK(!std::filesystem::exists(session.work / "forbidden"));
+    // Removing the stop request cannot turn an exact retry into another send.
+    const auto replay = session.execute("run", args, "cancelled-run", "cancelled-run-replay");
+    CHECK(replay.at("executed_now") == false && replay.at("replayed") == true);
+    CHECK(execution(replay) == execution(cancelled));
+
+    const auto file = session.tools->execute(session.actor(), session.binding(), session.version(),
+        "cancelled-write", "fs_write", Object{{"path", "cancelled-file"}, {"content", "unused"}},
+        "cancelled-file-command", cancellation.get_token());
+    CHECK(operation(file).at("status") == "CANCELLED");
+    CHECK(execution(file).at("observed_outcome") == "CANCELLED");
+    CHECK(execution(file).at("evidence").at("effect_started") == false);
+    CHECK(!std::filesystem::exists(session.work / "cancelled-file"));
+}
+
 void readonly_diagnostics_preserve_epochs_and_budgets() {
     Session session;
     const auto write = session.execute("fs_write", Object{{"path", "read.txt"}, {"content", "readable"}});
@@ -691,6 +720,7 @@ int main() {
         {"workspace directory and execution manifest binding are immutable", workspace_and_execution_manifest_are_immutable},
         {"non-Worker, cross-workspace and model authority forgery are rejected", role_scope_and_model_authority_forgery},
         {"missing strong sandbox gives a durable FAILED result without spawning", unavailable_strong_run_is_a_durable_refusal},
+        {"pre-effect cancellation retains exact no-spawn evidence and cannot replay effects", cancellation_before_effect_preserves_original_no_spawn_evidence},
         {"read-only diagnostics do not mutate epochs, task state, budgets or events", readonly_diagnostics_preserve_epochs_and_budgets},
         {"UNKNOWN preserves diagnostics and instruction control while blocking business", unknown_allows_diagnostics_and_instruction_control},
         {"bounded model loop preserves original text and complete tool feedback", model_loop_carries_complete_tool_results},

@@ -11,6 +11,7 @@ from collections import Counter
 from contextlib import closing, contextmanager
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -56,6 +57,73 @@ def digest(value):
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
+class OriginalFloat(float):
+    """A JSON number with its original spelling and normal numeric behavior."""
+    def __new__(cls, spelling):
+        value = super().__new__(cls, spelling)
+        require(math.isfinite(value), 'nonfinite JSON')
+        value.spelling = spelling
+        return value
+
+
+def original_canonical(value):
+    """Rebuild C++ Store facts with their captured numeric tokens.
+
+    Plan and report fingerprints retain canonical()/digest() semantics.
+    Original Store JSON is already canonical; no Boost number formatting is
+    inferred from a rounded Python value when reconstructing its aggregates.
+    """
+    if isinstance(value, OriginalFloat):
+        return value.spelling.encode('ascii')
+    if isinstance(value, dict):
+        return b'{' + b','.join(canonical(key) + b':' + original_canonical(value[key])
+                                for key in sorted(value)) + b'}'
+    if isinstance(value, list):
+        return b'[' + b','.join(original_canonical(item) for item in value) + b']'
+    return canonical(value)
+
+
+def original_digest(value):
+    return hashlib.sha256(original_canonical(value)).hexdigest()
+
+
+def original_logical_request_sha256(raw, envelope):
+    """Hash Store's canonical values without changing nested number spellings.
+
+    The caller has already checked the complete document with strict_json.
+    Python and Boost.JSON serialize doubles differently, so only top-level
+    self-referential fields are removed; every other original value is kept.
+    """
+    decoder, fields = json.JSONDecoder(), {}
+
+    def whitespace(index):
+        while index < len(raw) and raw[index] in ' \t\r\n':
+            index += 1
+        return index
+
+    position = whitespace(0)
+    require(raw[position:position + 1] == '{', 'original request must be an object')
+    position = whitespace(position + 1)
+    while raw[position:position + 1] != '}':
+        key, end = decoder.raw_decode(raw, position)
+        require(isinstance(key, str) and key not in fields, 'invalid original request key')
+        position = whitespace(end)
+        require(raw[position:position + 1] == ':', 'invalid original request member')
+        start = whitespace(position + 1)
+        _, end = decoder.raw_decode(raw, start)
+        fields[key] = raw[start:end]
+        position = whitespace(end)
+        if raw[position:position + 1] == '}':
+            break
+        require(raw[position:position + 1] == ',', 'invalid original request separator')
+        position = whitespace(position + 1)
+    require(whitespace(position + 1) == len(raw) and set(fields) == set(envelope),
+            'original request fields or trailing bytes differ')
+    retained = [canonical(key) + b':' + fields[key].encode() for key in sorted(fields)
+                if key not in ('logical_request_sha256', 'wire_request_sha256')]
+    return hashlib.sha256(b'{' + b','.join(retained) + b'}').hexdigest()
+
+
 def strict_json(data):
     def pairs(items):
         result = {}
@@ -64,7 +132,7 @@ def strict_json(data):
             result[key] = value
         return result
     try:
-        result = json.loads(data, object_pairs_hook=pairs,
+        result = json.loads(data, object_pairs_hook=pairs, parse_float=OriginalFloat,
                             parse_constant=lambda _: (_ for _ in ()).throw(InvalidEvidence('nonfinite JSON')))
     except RecursionError as error:
         raise InvalidEvidence('JSON nesting exceeds bound') from error
@@ -138,6 +206,8 @@ def common_lock(db, request_id, model_ref, reasoning, *, logical_agent_compariso
     snapshot = strict_json(request['config_snapshot'])
     profile = snapshot['system']['models'][model_ref]
     runtime = one(db, 'SELECT * FROM request_runtime WHERE request_id=?', (request_id,))
+    require(hashlib.sha256(request['config_snapshot'].encode()).hexdigest() == runtime['config_snapshot_sha256'],
+            'original frozen configuration fingerprint mismatch')
     budget = one(db, 'SELECT * FROM request_budgets WHERE request_id=?', (request_id,))
     workflow_policy = {key: snapshot['system'][key] for key in ('amendment', 'limits', 'control', 'context')}
     if logical_agent_comparison:
@@ -240,8 +310,8 @@ def captured_contract(envelope):
     context = envelope['context']
     if context['format'] == 'wls-compiled-context-v2':
         source = context['input']
-        require(digest(source) == context['logical_input_sha256'], 'original logical input fingerprint mismatch')
-        require(digest(source['prefix']) == context['prefix_sha256'], 'original context prefix fingerprint mismatch')
+        require(original_digest(source) == context['logical_input_sha256'], 'original logical input fingerprint mismatch')
+        require(original_digest(source['prefix']) == context['prefix_sha256'], 'original context prefix fingerprint mismatch')
         return strict_json(source['task_contract'])
     require(context['format'] == 'wls-compiled-context-v1', 'unknown captured context format')
     raw = context['dynamic_suffix'].encode()
@@ -256,7 +326,7 @@ def captured_contract(envelope):
 def logical_agent_marker(logical_id, prefix, chain):
     return {'contract': LOGICAL_AGENT_CONTRACT, 'logical_agent_id': logical_id,
             'global_step': len(prefix) + 1, 'history_count': len(prefix),
-            'history_sha256': digest(prefix), 'previous_chain_sha256': chain}
+            'history_sha256': original_digest(prefix), 'previous_chain_sha256': chain}
 
 
 def logical_agent_messages(history):
@@ -268,7 +338,7 @@ def logical_agent_messages(history):
         paired = (record['accepted'] == 1 and response['status'] == 'completed' and
                   len(response['tool_calls']) == 1 and not runtime_error)
         if not paired:
-            messages.append({'role': 'user', 'content': canonical(record).decode(), 'tool_calls': [], 'tool_call_id': '',
+            messages.append({'role': 'user', 'content': original_canonical(record).decode(), 'tool_calls': [], 'tool_call_id': '',
                              'source': {'kind': 'unapplied_or_missing_observation', 'not_execution_authority': True}})
             continue
         tool = response['tool_calls'][0]
@@ -280,7 +350,7 @@ def logical_agent_messages(history):
         messages.append({'role': 'assistant', 'content': response['text'],
                          'tool_calls': [{'call_id': call_id, 'name': tool['name'], 'arguments': tool['arguments']}],
                          'tool_call_id': '', 'source': source})
-        messages.append({'role': 'tool', 'content': canonical(feedback['result']).decode(),
+        messages.append({'role': 'tool', 'content': original_canonical(feedback['result']).decode(),
                          'tool_calls': [], 'tool_call_id': call_id, 'source': source})
     return messages
 
@@ -331,9 +401,9 @@ def logical_agent_evidence(db, request, attempts, condition, policy):
         require(contract.get('logical_agent_execution') == marker, 'single-Agent execution chain is missing, reordered or forked')
         require(envelope['context']['input']['messages'] == logical_agent_messages(history),
                 'single-Agent actual model input omitted or changed the shared original history')
-        require(len(canonical(history)) <= policy['max_history_bytes'], 'single-Agent shared history byte capacity exceeded')
-        require(envelope['logical_request_sha256'] == digest({key: value for key, value in envelope.items()
-                if key not in ('logical_request_sha256', 'wire_request_sha256')}), 'single-Agent original request fingerprint mismatch')
+        require(len(original_canonical(history)) <= policy['max_history_bytes'], 'single-Agent shared history byte capacity exceeded')
+        require(envelope['logical_request_sha256'] == original_logical_request_sha256(attempt['request_envelope'], envelope),
+                'single-Agent original request fingerprint mismatch')
         if 'live_attempt_execution' in tables:
             live = rows(db, 'SELECT logical_request_sha256 FROM live_attempt_execution WHERE attempt_id=?', (attempt['attempt_id'],))
             if live:
@@ -347,7 +417,7 @@ def logical_agent_evidence(db, request, attempts, condition, policy):
         response, binding = strict_json(attempt['response']), strict_json(attempt['frozen_binding'])
         require(feedback['original_binding'] == binding and feedback['response'] == response,
                 'single-Agent immutable feedback changed its original response or binding')
-        require(digest({key: feedback[key] for key in ('attempt_id', 'original_binding', 'response', 'result')}) == feedback['record_sha256'],
+        require(original_digest({key: feedback[key] for key in ('attempt_id', 'original_binding', 'response', 'result')}) == feedback['record_sha256'],
                 'single-Agent immutable feedback fingerprint mismatch')
         require(response['call_id'] == attempt['call_id'] and response['attempt_id'] == attempt['attempt_id'] and
                 response['binding'] == binding and response['role'] == attempt['role'] and
@@ -361,7 +431,7 @@ def logical_agent_evidence(db, request, attempts, condition, policy):
                       history_sequence=len(history) + 1, feedback=feedback, feedback_missing=False)
         require(record['request_id'] == request['request_id'] and record['config_snapshot_sha256'] == config_hash,
                 'single-Agent history crossed its request or configuration')
-        chain = digest({'format': 'wls-single-agent-link-v1', 'previous_sha256': chain, 'fact': record})
+        chain = original_digest({'format': 'wls-single-agent-link-v1', 'previous_sha256': chain, 'fact': record})
         history.append(record)
     return {'contract': LOGICAL_AGENT_CONTRACT, 'status': 'linked' if attempts else 'incomplete',
             'logical_agent_id': logical_id, 'logical_agent_count': 1 if attempts else 0,
@@ -404,12 +474,12 @@ def model_applications(db, request_id, attempts):
                 claim = one(db, 'SELECT * FROM live_send_claims WHERE attempt_id=?', (attempt['attempt_id'],))
                 observed = one(db, 'SELECT * FROM live_transport_observations WHERE attempt_id=?', (attempt['attempt_id'],))
                 summary = strict_json(observed['safe_summary'])
-                require(strict_json(observed['response']) == response and summary['decoded_response_sha256'] == digest(response),
+                require(strict_json(observed['response']) == response and summary['decoded_response_sha256'] == original_digest(response),
                         'model decision differs from the original transport response')
                 require(observed['claim_id'] == claim['claim_id'] and strict_json(claim['frozen_binding']) == binding,
                         'model decision changed original live send identity')
                 require(summary['record_sha256'] == observed['record_sha256'] and
-                        digest({key: value for key, value in summary.items() if key != 'record_sha256'}) == observed['record_sha256'],
+                        original_digest({key: value for key, value in summary.items() if key != 'record_sha256'}) == observed['record_sha256'],
                         'original transport fingerprint mismatch')
                 require(summary['response_usable'] and summary['transfer_complete'] and summary['network_started'],
                         'model application has no complete original transport')
@@ -420,7 +490,7 @@ def model_applications(db, request_id, attempts):
                     raw = bytes.fromhex(observed['raw_' + key + '_hex'])
                     require(hashlib.sha256(raw).hexdigest() == summary['raw_' + key + '_sha256'],
                             'original transport bytes differ from their fingerprint')
-                require(digest(strict_json(observed['protocol_evidence'])) == summary['protocol_evidence_sha256'],
+                require(original_digest(strict_json(observed['protocol_evidence'])) == summary['protocol_evidence_sha256'],
                         'original protocol evidence fingerprint mismatch')
                 transport_identity = {'transport_sha256': observed['record_sha256'], 'send_claim_id': claim['claim_id'],
                                       'execution_kind': live[0]['execution_kind']}
@@ -434,7 +504,7 @@ def model_applications(db, request_id, attempts):
         feedback = feedback[0]
         original, recorded, result = (strict_json(feedback[key]) for key in ('original_binding', 'response', 'result'))
         require(original == binding and recorded == response, 'feedback changed original response or binding')
-        require(digest({'attempt_id': attempt['attempt_id'], 'original_binding': original,
+        require(original_digest({'attempt_id': attempt['attempt_id'], 'original_binding': original,
                         'response': recorded, 'result': result}) == feedback['record_sha256'],
                 'original feedback fingerprint mismatch')
         if not isinstance(result, dict) or result.get('runtime_error'):
@@ -459,7 +529,7 @@ def model_applications(db, request_id, attempts):
                 continue
             stored = one(db, 'SELECT * FROM ops WHERE op_id=? AND request_id=?', (operation['op_id'], request_id))
             require(stored['tool_id'] == name and stored['business_idempotency_key'] == attempt['attempt_id'] and
-                    stored['args_sha256'] == digest(arguments), 'operation did not originate from the model tool call')
+                    stored['args_sha256'] == original_digest(arguments), 'operation did not originate from the model tool call')
             for key, value in binding.items():
                 if key in stored:
                     require(stored[key] == value, 'operation changed the original model binding')
@@ -494,7 +564,7 @@ def model_applications(db, request_id, attempts):
             continue
         event = events[0]
         payload = strict_json(event['payload'])
-        require(digest(payload) == event['command_sha256'], 'application event fingerprint mismatch')
+        require(original_digest(payload) == event['command_sha256'], 'application event fingerprint mismatch')
         require(strict_json(event['result']) == result, 'application event result differs from original feedback')
         actor = payload['actor']
         require(actor['role'] == attempt['role'] and actor['principal_id'] == attempt['principal_id'] and
@@ -628,7 +698,7 @@ def model_origin_checks(db, request, task, applications, evidence, *, allow_reco
         projected = {name: original[name] for name in epochs}
         for recovery in recoveries:
             payload, result = strict_json(recovery['payload']), strict_json(recovery['result'])
-            require(payload == {'type': 'recover'} and digest(payload) == recovery['command_sha256'],
+            require(payload == {'type': 'recover'} and original_digest(payload) == recovery['command_sha256'],
                     'original instruction recovery event fingerprint mismatch')
             entries = [item for item in result.get('rebound_instructions', [])
                        if item['task_id'] == original['task_id'] and item['instruction_revision'] == original['instruction_revision']]
@@ -676,7 +746,7 @@ def model_origin_checks(db, request, task, applications, evidence, *, allow_reco
         original = original_submission(submission_id)
         binding, body, artifacts = (strict_json(original[key]) for key in ('original_binding', 'body', 'artifact_snapshot'))
         require(binding == app['binding'] and original['record_sha256'] == app['result']['record_sha256'] and
-                digest({'body': body, 'original_binding': binding, 'artifact_snapshot': artifacts}) == original['record_sha256'],
+                original_digest({'body': body, 'original_binding': binding, 'artifact_snapshot': artifacts}) == original['record_sha256'],
                 'submission fact differs from original model application')
         if not any(order_reaches_submission(order, app) for order in orders):
             return False
@@ -861,6 +931,47 @@ def evidence_checks(db, request, task, applications=None):
     return results
 
 
+def comparable_live_settings(settings):
+    # Provider parsing treats these capabilities as sets, then emits them in
+    # canonical order. The frozen JSON may retain a different valid order.
+    provider = settings['provider_profile']
+    capabilities = provider['capabilities']
+    return {**settings, 'provider_profile': {**provider, 'capabilities': {
+        **capabilities, 'reasoning_modes': sorted(capabilities['reasoning_modes']),
+        'reasoning_efforts': sorted(capabilities['reasoning_efforts'])}}}
+
+
+def original_execution_kind(db, snapshot, config_hash, attempt, envelope, tables):
+    profile = snapshot['system']['models'][attempt['model_ref']]
+    require(attempt['config_snapshot_sha256'] == config_hash and envelope['config_snapshot_id'] == config_hash,
+            'original attempt changed its frozen configuration')
+    require(envelope['context']['adapter_version'] == profile['adapter_version'] and
+            envelope['context']['protocol_version'] == profile['protocol'],
+            'original attempt changed its frozen adapter or protocol')
+    live = rows(db, 'SELECT * FROM live_attempt_execution WHERE attempt_id=?', (attempt['attempt_id'],)) \
+        if 'live_attempt_execution' in tables else []
+    if profile['adapter'] == 'fake':
+        require(not live, 'original live execution conflicts with the frozen synthetic adapter')
+        return 'synthetic_fake'
+    require(profile['adapter'] == 'openai-responses' and len(live) == 1,
+            'original live execution is missing or has an unsupported adapter')
+    live = live[0]
+    settings = strict_json(live['settings'])
+    require(hashlib.sha256(live['settings'].encode()).hexdigest() == live['settings_sha256'],
+            'original live execution settings fingerprint mismatch')
+    original = profile['responses']
+    kind = original['execution_kind']
+    require(kind in ('local_tls', 'provider') and settings['execution_kind'] == kind and live['execution_kind'] == kind,
+            'original live execution source differs from the frozen settings')
+    require(digest(comparable_live_settings(settings)) == digest(comparable_live_settings(original)) and
+            original_digest(settings['provider_profile']) == live['profile_sha256'],
+            'original live execution settings differ from the frozen provider profile')
+    logical_hash = original_logical_request_sha256(attempt['request_envelope'], envelope)
+    require(envelope['logical_request_sha256'] == logical_hash == live['logical_request_sha256'],
+            'transcript differs from the request admitted for original live transport')
+    return kind
+
+
 def inspect_run(plan, task, condition, run, base_directory):
     require(set(run) == {'task_id', 'condition', 'database', 'request_id', 'elapsed_ms', 'plan_sha256'}, 'unexpected run fields')
     require(run['plan_sha256'] == plan['plan_sha256'], 'run references another plan')
@@ -873,6 +984,8 @@ def inspect_run(plan, task, condition, run, base_directory):
         require(common_lock(db, run['request_id'], common['model_ref'], common['reasoning'],
                             logical_agent_comparison=plan['schema_version'] == 3) == common,
                 'model/environment/tools/budget conditions differ')
+        snapshot = strict_json(request['config_snapshot'])
+        config_hash = hashlib.sha256(request['config_snapshot'].encode()).hexdigest()
         attempts = rows(db, 'SELECT * FROM call_attempts WHERE request_id=? ORDER BY rowid', (run['request_id'],))
         budget = one(db, 'SELECT * FROM request_budgets WHERE request_id=?', (run['request_id'],))
         require(budget['attempts'] == len(attempts), 'attempt count does not reconstruct from original ledger')
@@ -894,11 +1007,7 @@ def inspect_run(plan, task, condition, run, base_directory):
             require(envelope['call_id'] == attempt['call_id'] and envelope['attempt_id'] == attempt['attempt_id'], 'attempt identity mismatch')
             roles[attempt['role']] += 1
             agent_identities.add((attempt['role'], attempt['principal_id'], attempt['team_id']))
-            kind = 'synthetic_fake'
-            if 'live_attempt_execution' in tables:
-                live = rows(db, 'SELECT execution_kind FROM live_attempt_execution WHERE attempt_id=?', (attempt['attempt_id'],))
-                if live:
-                    kind = live[0]['execution_kind']
+            kind = original_execution_kind(db, snapshot, config_hash, attempt, envelope, tables)
             kinds[kind] += 1
             require((kind == 'provider') == (plan['evidence_mode'] == 'provider'), 'synthetic/provider evidence cannot be relabelled')
             if kind != 'synthetic_fake':

@@ -67,7 +67,8 @@ void validate_transport(const HttpsTransportOptions& options) {
             options.max_total_response_bytes > 0 && options.max_total_response_bytes <= 32U * 1024U * 1024U &&
             options.poll_interval.count() > 0 && options.poll_interval.count() <= 25,
             ErrorCode::InvalidInput, "live HTTPS configuration is outside hard bounds");
-    // The transport validates the numeric route again immediately before use.
+    // The shared destination parser validates the strict IPv4 spelling with
+    // the profile below, before configuration admission or any reservation.
     require(options.resolved_ipv4.size() <= 15 &&
         std::all_of(options.resolved_ipv4.begin(), options.resolved_ipv4.end(), [](char c) {
             return (c >= '0' && c <= '9') || c == '.';
@@ -135,6 +136,7 @@ LiveModelSettings live_model_settings_from_json(const Json& profile, std::string
     settings.transport.max_total_response_bytes = size("max_total_response_bytes");
     settings.transport.poll_interval = std::chrono::milliseconds(number(transport, "poll_interval_ms"));
     validate_transport(settings.transport);
+    validate_responses_https_target(settings.provider, settings.transport);
     // This Store integration has a narrower envelope than the independent
     // offline/transport components. Reserve durable space before any send:
     // at most 6 MiB of raw hex, bounded decoded output and bounded SSE/HTTP

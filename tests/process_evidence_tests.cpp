@@ -1,9 +1,40 @@
 #include "wls/process_evidence.hpp"
 #include "test_support.hpp"
+#include <array>
+#include <atomic>
+#include <cerrno>
 #include <fcntl.h>
+#include <sys/inotify.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #include <fstream>
 #include <map>
+
+namespace process_evidence_fault {
+std::atomic<bool> enabled{false}, grow_on_read{false};
+std::atomic<std::uint64_t> device{0}, inode{0}, bytes_read{0};
+std::atomic<int> writer{-1}, mutation_error{0};
+constexpr std::uint64_t limit = 16U * 1024U * 1024U;
+}
+extern "C" ssize_t read(int fd, void* buffer, std::size_t length) {
+    bool watched = false;
+    if (process_evidence_fault::enabled.load(std::memory_order_relaxed)) {
+        struct stat status{};
+        if (::syscall(SYS_fstat, fd, &status) == 0)
+            watched = static_cast<std::uint64_t>(status.st_dev) == process_evidence_fault::device.load() &&
+                      static_cast<std::uint64_t>(status.st_ino) == process_evidence_fault::inode.load();
+    }
+    const auto result = static_cast<ssize_t>(::syscall(SYS_read, fd, buffer, length));
+    if (watched && result > 0) {
+        process_evidence_fault::bytes_read.fetch_add(static_cast<std::uint64_t>(result));
+        if (process_evidence_fault::grow_on_read.exchange(false) &&
+            ::syscall(SYS_ftruncate, process_evidence_fault::writer.load(),
+                      static_cast<off_t>(process_evidence_fault::limit + 8192U)) != 0)
+            process_evidence_fault::mutation_error = errno;
+    }
+    return result;
+}
+
 using namespace wls::s1;
 using Object = boost::json::object;
 namespace {
@@ -89,6 +120,46 @@ void unsafe_or_partial_trees_are_rejected() {
         test::throws<Error>([&] { (void)f.snapshot(); });
     }
 }
+void special_entries_are_rejected_before_data_open() {
+    Fixture f;
+    const auto fifo = f.directory.path / "watched-fifo";
+    CHECK(::mkfifo(fifo.c_str(), 0600) == 0);
+    const int events = ::inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    CHECK(events >= 0);
+    CHECK(::inotify_add_watch(events, fifo.c_str(), IN_OPEN) >= 0);
+    test::throws<Error>([&] { (void)f.snapshot(); });
+    std::array<char, 4096> observed{};
+    const auto count = ::read(events, observed.data(), observed.size());
+    const auto saved_errno = errno;
+    CHECK(::close(events) == 0);
+    // A nonblocking read-mode open still opens the FIFO data channel and can
+    // release a waiting writer. O_PATH type inspection has no IN_OPEN effect.
+    CHECK(count < 0 && saved_errno == EAGAIN);
+}
+void growing_files_never_consume_a_full_chunk_past_the_budget() {
+    Fixture f;
+    f.write("growing", std::string(4096, 'x'));
+    const int writer = ::open((f.directory.path / "growing").c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW);
+    CHECK(writer >= 0);
+    struct StopWatching {
+        int fd;
+        ~StopWatching() { process_evidence_fault::enabled = false; ::close(fd); }
+    } stop_watching{writer};
+    struct stat original{};
+    CHECK(::fstat(writer, &original) == 0 && original.st_size == 4096);
+    process_evidence_fault::device = static_cast<std::uint64_t>(original.st_dev);
+    process_evidence_fault::inode = static_cast<std::uint64_t>(original.st_ino);
+    process_evidence_fault::writer = writer;
+    process_evidence_fault::bytes_read = 0;
+    process_evidence_fault::mutation_error = 0;
+    process_evidence_fault::grow_on_read = true;
+    process_evidence_fault::enabled = true;
+    // Grow only this self-created fixture after its first real read, so the
+    // declared-size preflight succeeds and the actual read bound is exercised.
+    test::throws<Error>([&] { (void)f.snapshot(); });
+    CHECK(!process_evidence_fault::grow_on_read && process_evidence_fault::mutation_error == 0);
+    CHECK(process_evidence_fault::bytes_read == process_evidence_fault::limit + 1U);
+}
 void observations_are_bounded_and_root_specific() {
     Fixture f, other; const auto empty = f.snapshot();
     test::throws<Error>([&] { (void)process_workspace_changes(empty, other.snapshot()); });
@@ -119,6 +190,8 @@ int main() { return test::run({
     {"every missing or contradictory proof remains UNKNOWN", missing_or_contradictory_proofs_stay_unknown},
     {"pre-fork refusal and pre-effect cancellation are definite", refused_before_fork_has_no_ambiguous_effect},
     {"links writable modes special files and byte overflow never become partial snapshots", unsafe_or_partial_trees_are_rejected},
+    {"special workspace entries are rejected before opening a data channel", special_entries_are_rejected_before_data_open},
+    {"growing workspace files stop after the bounded EOF probe", growing_files_never_consume_a_full_chunk_past_the_budget},
     {"entry bounds and root generations are enforced", observations_are_bounded_and_root_specific},
     {"root directory mode changes are retained independently of file changes", root_metadata_changes_are_retained},
     {"same-content inode replacement is recorded as a change", replacement_with_same_bytes_is_known_change}}); }

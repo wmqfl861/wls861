@@ -1,14 +1,57 @@
 #include "wls/cleanup.hpp"
 #include "wls/workspace.hpp"
 #include "test_support.hpp"
+#include <atomic>
 #include <fstream>
 #include <sys/stat.h>
 #include <sys/file.h>
+#include <sys/syscall.h>
+#include <sys/sysmacros.h>
 #include <fcntl.h>
+
+// Model a regular filesystem object whose reported length does not describe
+// its actual readable bytes. Only one explicitly recorded private fixture
+// inode is affected; production code has no fault-injection hooks.
+namespace cleanup_fault {
+std::atomic<bool> enabled{false};
+std::atomic<std::uint64_t> inode{0};
+std::atomic<unsigned> major_device{0}, minor_device{0};
+std::atomic<std::uint64_t> reported_size{0};
+std::atomic<std::size_t> observations{0};
+}
+extern "C" int statx(int directory, const char* path, int flags, unsigned mask,
+                     struct statx* output) noexcept {
+    const auto result = static_cast<int>(::syscall(SYS_statx, directory, path, flags, mask, output));
+    if (result == 0 && cleanup_fault::enabled.load(std::memory_order_relaxed) &&
+        output->stx_ino == cleanup_fault::inode.load() &&
+        output->stx_dev_major == cleanup_fault::major_device.load() &&
+        output->stx_dev_minor == cleanup_fault::minor_device.load()) {
+        output->stx_size = cleanup_fault::reported_size.load();
+        ++cleanup_fault::observations;
+    }
+    return result;
+}
 
 using namespace wls::s1;
 using O=boost::json::object;
 namespace {
+class ShortSizeObservation {
+public:
+    ShortSizeObservation(const std::filesystem::path& path, std::uint64_t length) {
+        struct stat original{};
+        CHECK(::stat(path.c_str(), &original) == 0 && S_ISREG(original.st_mode));
+        CHECK(original.st_size > 0 && static_cast<std::uint64_t>(original.st_size) > length);
+        cleanup_fault::inode = static_cast<std::uint64_t>(original.st_ino);
+        cleanup_fault::major_device = ::major(original.st_dev);
+        cleanup_fault::minor_device = ::minor(original.st_dev);
+        cleanup_fault::reported_size = length;
+        cleanup_fault::observations = 0;
+        cleanup_fault::enabled = true;
+    }
+    ~ShortSizeObservation() { cleanup_fault::enabled = false; }
+    ShortSizeObservation(const ShortSizeObservation&) = delete;
+    ShortSizeObservation& operator=(const ShortSizeObservation&) = delete;
+};
 struct Fixture {
     test::TempDir temp;
     Json intent, resource;
@@ -53,6 +96,26 @@ void hardlink(){Fixture f;f.write("one");std::filesystem::create_hard_link(f.wor
 void fifo(){Fixture f;CHECK(::mkfifo((f.work/"pipe").c_str(),0600)==0);test::throws<Error>([&]{(void)inventory_owned_workspace(f.resource);});}
 void marker_tamper(){Fixture f;const auto inv=inventory_owned_workspace(f.resource);{std::ofstream o(f.envelope/"owner.json");o<<"wrong";}
     test::throws<Error>([&]{(void)erase_owned_workspace(f.resource,inv);});CHECK(std::filesystem::exists(f.work));}
+void marker_prefix_is_not_a_complete_receipt() {
+    Fixture f;
+    const auto marker = f.envelope / "owner.json";
+    const auto original_size = std::filesystem::file_size(marker);
+    { std::ofstream out(marker, std::ios::binary | std::ios::app); out << "unexpected tail"; CHECK(out.good()); }
+    ShortSizeObservation short_size(marker, original_size);
+    test::throws<Error>([&] { (void)inventory_owned_workspace(f.resource); });
+    CHECK(cleanup_fault::observations > 0);
+    CHECK(std::filesystem::exists(f.work));
+}
+void inventory_prefix_cannot_authorize_deleting_extra_bytes() {
+    Fixture f;
+    f.write("file", "original");
+    const auto inventory = inventory_owned_workspace(f.resource);
+    f.write("file", "original plus unrecorded bytes");
+    ShortSizeObservation short_size(f.work / "file", std::string_view("original").size());
+    test::throws<Error>([&] { (void)erase_owned_workspace(f.resource, inventory); });
+    CHECK(cleanup_fault::observations > 0);
+    CHECK(std::filesystem::exists(f.work / "file"));
+}
 void root_replaced(){Fixture f;const auto inv=inventory_owned_workspace(f.resource);std::filesystem::rename(f.work,f.temp.path/"old");
     std::filesystem::create_directory(f.work);test::throws<Error>([&]{(void)erase_owned_workspace(f.resource,inv);});CHECK(std::filesystem::exists(f.temp.path/"old"));}
 void envelope_replaced(){Fixture f;const auto inv=inventory_owned_workspace(f.resource);std::filesystem::rename(f.envelope,f.temp.path/"old");
@@ -134,6 +197,8 @@ int main(){return test::run({{"original bytes deleted and exact repeat",complete
     {"empty owned directory",empty},{"no populated adoption",no_adoption},{"new entry preflight",new_entry},{"changed byte preflight",changed_entry},
     {"same byte replacement refused",replaced_entry},{"symlink refused",symlink_test},{"hardlink refused",hardlink},{"special file refused",fifo},
     {"receipt tamper refused",marker_tamper},{"workspace replacement",root_replaced},{"envelope replacement",envelope_replaced},
+    {"ownership receipt needs actual EOF after its complete bytes",marker_prefix_is_not_a_complete_receipt},
+    {"inventory cannot authorize deleting unobserved file tails",inventory_prefix_cannot_authorize_deleting_extra_bytes},
     {"parent replacement",parent_replaced},{"byte and pass limits",limits},{"depth and count bounds",nested_limit},
     {"workspace lock conflict",lock_conflict},{"wrong inventory",wrong_inventory},{"new file after partial cleanup",recovered_new_file},
     {"verification never deletes",verify_not_delete},

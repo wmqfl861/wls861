@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.1-r3.3c-audit — whole-code review and boundary corrections
+
+- Preserve the parent Store writer lease when a forked child destroys its inherited descriptor; release the flock only when its final descriptor closes.
+- Reconstruct usage ledgers within one SQLite read snapshot, and use the current five-dimensional live projection for settlement-control capacity without changing original usage or Fake/legacy accounting.
+- Inspect process-observation leaves before opening data channels, pin the approved inode and bound actual reads to the remaining capacity plus one EOF probe. Require actual EOF before cleanup accepts a marker or complete inventory hash.
+- Preserve the ProcessRunner's original no-spawn/exit evidence on early cancellation; record effect-free file/note cancellation as CANCELLED and keep cleanup authorization unchanged.
+- Reuse pinned bounded runtime input reads for the legacy Schema directory constructor, reject symbolic-link parents before schema contents are opened, and enforce registry bounds during collection and reads.
+- Validate strict route identities during live configuration admission, before any attempt reservation; retain the same transport parser and runtime TLS/DNS checks.
+- Bind evaluation execution sources to original frozen profile/configuration and exact execution settings, preventing local fixtures from being reclassified as providers across v1/v2/v3. Verify the full original logical request against live admission instead of accepting a locally rehashed transcript.
+- Preserve original C++ JSON number spellings when rebuilding input, feedback and history fingerprints, so retained fractional responses do not invalidate an otherwise complete run. Keep historical Python plan/report fingerprints unchanged.
+- Remove repeated context restoration within one request parse and reuse same-call prompt/canonical-history bytes. Preserve public mutable-request validation, current Store/transport checks, full history hashes, aggregate JSON depth and byte limits; retain every original batch/test deadline.
+- Keep published SQL, vendor and archived evidence unchanged. Record ordinary-user baseline failures, repaired regressions, full gates and final-SHA checks in the new audit report.
+
 ## 0.11.0-r3.3c-baseline — signed billing and one logical Agent
 
 - Add an explicit trusted-gateway Ed25519 billing contract, opt-in frozen per-attempt challenge, exact original wire identity checks and nullable five-dimensional usage. This project-defined protocol does not assert actual provider support.

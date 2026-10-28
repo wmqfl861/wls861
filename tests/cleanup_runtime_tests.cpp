@@ -31,7 +31,7 @@ void expect(ErrorCode code,const std::function<void()>& action){try{action();}ca
 struct Fixture {
     test::TempDir dir; std::filesystem::path db{dir.path/"state.sqlite"};
     std::unique_ptr<Store> store; std::unique_ptr<WorkerTools> tools;
-    std::string id,task_id;Json resource,delivery;AdmissionInput admission;std::filesystem::path work;
+    std::string id,task_id;Json resource,delivery,cancelled_run;AdmissionInput admission;std::filesystem::path work;
     EventFakeScript script;
     explicit Fixture(bool enabled=true){
         std::filesystem::create_directory(dir.path/"owned");std::filesystem::create_directory(dir.path/"delivery");
@@ -55,20 +55,27 @@ struct Fixture {
     void open(){tools.reset();store.reset();store=std::make_unique<Store>(db,base,migration,StoreOpenMode::Takeover,tools_sql,events_sql,workflow_sql,acceptance_sql,cleanup_sql);}
     StoreActor root(){return store->host_actor(Role::Root,id);}
     void allocate(){resource=allocate_owned_workspace(*store,id,task_id,dir.path/"owned","allocation");work=text(resource.at("identity").at("workspace_identity"),"path");}
-    void accepted(bool owned=true, std::optional<bool> process_proof={}){
+    void accepted(bool owned=true, std::optional<bool> process_proof={}, bool cancel_before_run=false){
         if(owned)allocate();else {work=dir.path/"legacy";std::filesystem::create_directory(work);}
         tools=std::make_unique<WorkerTools>(*store,work);
-        if(process_proof.has_value()) {
+        if(process_proof.has_value() || cancel_before_run) {
             EventPumpOptions first;first.max_calls=1;
             (void)EventRuntime(*store,*schemas,{{"alpha",tools.get()}}).pump(id,script,first);
             const auto binding=store->binding(task_id);const auto actor=store->host_actor(Role::Worker,id,binding.team_id);
             tools->bind(actor);
-            auto op=store->prepare_tool_operation(actor,binding,num(store->task(task_id),"state_version"),"synthetic-run","run",O{{"argv",A{"/bin/true"}}},"synthetic-prepare");
-            (void)store->start_tool_operation(actor,text(op,"op_id"),num(op,"state_version"),"synthetic-claim");
-            // Controlled original-evidence fixture: no process is launched.
-            (void)store->record_operation_result(text(op,"op_id"),binding,"UNKNOWN",O{{"spawned",true},{"all_descendants_exited",*process_proof},{"status","CLEANUP_UNKNOWN"}},O{{"fixture","synthetic-original-exit-observation"}});
-            op=store->operation(text(op,"op_id"));
-            (void)store->reconcile_operation(text(op,"op_id"),num(op,"state_version"),"FAILED","synthetic-outcome-only","synthetic-reconcile");
+            if(cancel_before_run) {
+                std::stop_source cancellation;
+                cancellation.request_stop();
+                cancelled_run=tools->execute(actor,binding,num(store->task(task_id),"state_version"),"cancelled-run",
+                    "run",O{{"argv",A{"/bin/true"}}},"cancelled-run-command",cancellation.get_token());
+            } else {
+                auto op=store->prepare_tool_operation(actor,binding,num(store->task(task_id),"state_version"),"synthetic-run","run",O{{"argv",A{"/bin/true"}}},"synthetic-prepare");
+                (void)store->start_tool_operation(actor,text(op,"op_id"),num(op,"state_version"),"synthetic-claim");
+                // Controlled original-evidence fixture: no process is launched.
+                (void)store->record_operation_result(text(op,"op_id"),binding,"UNKNOWN",O{{"spawned",true},{"all_descendants_exited",*process_proof},{"status","CLEANUP_UNKNOWN"}},O{{"fixture","synthetic-original-exit-observation"}});
+                op=store->operation(text(op,"op_id"));
+                (void)store->reconcile_operation(text(op,"op_id"),num(op,"state_version"),"FAILED","synthetic-outcome-only","synthetic-reconcile");
+            }
             auto& steps=script.by_node.at("alpha");
             std::erase_if(steps,[](const auto& step){return step.role==Role::TeamLead && step.role_call_index==1;});
             for(auto& step:steps)if(step.role==Role::TeamLead)--step.role_call_index;
@@ -79,7 +86,7 @@ struct Fixture {
         CHECK(store->experience_jobs(id).at(0).at("status")=="DONE");
         CHECK(result.at("real_model_calls")==0);tools.reset();
     }
-    void delivered(bool owned=true, std::optional<bool> process_proof={}){accepted(owned,process_proof);DeliveryDirectory target(dir.path/"delivery");
+    void delivered(bool owned=true, std::optional<bool> process_proof={}, bool cancel_before_run=false){accepted(owned,process_proof,cancel_before_run);DeliveryDirectory target(dir.path/"delivery");
         delivery=store->prepare_delivery(root(),store->request_binding(id),num(store->request(id),"state_version"),target.root_identity(),"prepare");
         auto result=target.publish(delivery.at("frozen_plan"));CHECK(result.status==DeliveryMutationStatus::Succeeded);
         delivery=store->record_delivery_publication(root(),store->request_binding(id),text(delivery,"delivery_id"),num(delivery,"state_version"),result.publication,"publish");
@@ -164,6 +171,19 @@ void outcome_reconciliation_is_not_exit_proof(){Fixture f;f.delivered(true,false
     CHECK(f.store->workspace_cleanup_status(f.id).at("workspace_eligible")==false);}
 void original_exit_fact_is_bound(){Fixture f;f.delivered(true,true);
     CHECK(cleanup_owned_workspaces(*f.store,f.id).at("workspace_cleanup_recorded")==true);}
+void original_pre_spawn_cancellation_permits_cleanup() {
+    Fixture f;
+    f.delivered(true,std::nullopt,true);
+    const auto status=f.store->workspace_cleanup_status(f.id);
+    if(!status.at("workspace_eligible").as_bool())
+        throw std::runtime_error("pre-spawn cancellation blocks cleanup: "+canonical_json(status.at("workspace_blockers")));
+    const auto& original=f.cancelled_run.at("execution_result");
+    CHECK(original.at("observed_outcome")=="CANCELLED");
+    CHECK(original.at("result").at("spawned")==false);
+    CHECK(original.at("result").at("all_descendants_exited")==true);
+    CHECK(cleanup_owned_workspaces(*f.store,f.id).at("workspace_cleanup_recorded")==true);
+    CHECK(f.store->operation_result(text(f.cancelled_run.at("operation"),"op_id"))==original);
+}
 void populated_406_migration(){Fixture f(false);const auto path=f.dir.path/"old.sqlite";std::string id;Json original, original_texts;
     {Store old(path,base,migration,StoreOpenMode::Takeover,tools_sql,events_sql,workflow_sql,acceptance_sql);
         const auto admitted=old.admit(f.admission);id=text(admitted,"request_id");original=old.request(id);original_texts=old.request_snapshot(id);CHECK(old.diagnostics().at("user_version")==406);}
@@ -194,6 +214,7 @@ int main(){
         {"407 migration fingerprints",migration_check},{"SIGKILL after physical deletion recovers",killed_after_unlink},{"missing ownership marker is not adopted",incomplete_creation},
         {"outcome reconciliation does not prove process exit",outcome_reconciliation_is_not_exit_proof},
         {"original exit fact fingerprint is bound",original_exit_fact_is_bound},
+        {"actual pre-spawn cancellation preserves the cleanup exit",original_pre_spawn_cancellation_permits_cleanup},
         {"populated 406 migration retains immutable inputs",populated_406_migration},
         {"owned allocations cannot nest across requests",nested_allocations_refused}});
 }

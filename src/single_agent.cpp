@@ -22,11 +22,11 @@ std::string text(const Json& value, std::string_view key) {
     require(item.is_string(), ErrorCode::Corrupt, "invalid single-Agent identity");
     return std::string(item.as_string());
 }
-Json marker(const std::string& logical_id, std::int64_t step,
-            const Array& history, const std::string& chain) {
+Json marker(const std::string& logical_id, std::size_t count,
+            std::string_view history, const std::string& chain) {
     return Object{{"contract", single_agent_contract}, {"logical_agent_id", logical_id},
-        {"global_step", step}, {"history_count", history.size()},
-        {"history_sha256", sha256_hex(canonical_json(history))}, {"previous_chain_sha256", chain}};
+        {"global_step", static_cast<std::int64_t>(count) + 1}, {"history_count", count},
+        {"history_sha256", sha256_hex(history)}, {"previous_chain_sha256", chain}};
 }
 Json decorate(Json report, const std::string& request_id, const FrozenRequestConfig& config,
               bool live) {
@@ -74,8 +74,8 @@ SingleAgentTranscript single_agent_transcript(const std::string& request_id,
         {"request_id", request_id}, {"config_snapshot_sha256", config.sha256()}, {"policy", policy}}));
     const std::string logical_id = "logical_" + seed;
     std::string chain = seed;
-    Array prefix;
-    std::size_t bytes = 2;
+    std::string prefix = "[]";
+    std::size_t count = 0;
     std::set<std::string> attempts, calls;
     for (const auto& record : history) {
         require(record.is_object() && record.at("frozen_binding").is_object(), ErrorCode::Corrupt,
@@ -88,21 +88,27 @@ SingleAgentTranscript single_agent_transcript(const std::string& request_id,
             ErrorCode::Corrupt, "single-Agent history repeats an original call");
         require(!record.at("settlement_sha256").is_null() && !record.at("feedback").is_null(),
             ErrorCode::NotReady, "single-Agent history has an unsettled call or missing immutable feedback");
-        require(record.at("logical_agent_execution") == marker(logical_id,
-            static_cast<std::int64_t>(prefix.size()) + 1, prefix, chain), ErrorCode::Corrupt,
+        require(record.at("logical_agent_execution") == marker(logical_id, count, prefix, chain), ErrorCode::Corrupt,
             "single-Agent original history is missing, reordered or forked");
-        const auto encoded = canonical_json(record);
+        // Each original is encoded once for this prefix, including its array
+        // level so canonical depth, UTF-8 and finite-number checks still apply.
+        // Reuse only these local bytes; every call rechecks the complete chain.
+        const auto framed = canonical_json(Array{record});
+        const auto encoded = std::string_view(framed).substr(1, framed.size() - 2);
         const auto limit = static_cast<std::size_t>(number(policy, "max_history_bytes"));
-        const auto extra = encoded.size() + (prefix.empty() ? 0U : 1U);
-        require(bytes <= limit && extra <= limit - bytes, ErrorCode::Quota,
+        const auto extra = encoded.size() + (count == 0 ? 0U : 1U);
+        require(prefix.size() <= limit && extra <= limit - prefix.size(), ErrorCode::Quota,
             "complete single-Agent history exceeds its frozen byte capacity");
-        bytes += extra;
         chain = sha256_hex(canonical_json(Object{{"format", "wls-single-agent-link-v1"},
             {"previous_sha256", chain}, {"fact", record}}));
-        prefix.push_back(record);
+        prefix.pop_back();
+        if (count != 0) prefix.push_back(',');
+        prefix.append(encoded);
+        prefix.push_back(']');
+        ++count;
     }
     auto messages = structured_attempt_history(history);
-    return {marker(logical_id, static_cast<std::int64_t>(prefix.size()) + 1, prefix, chain), std::move(messages)};
+    return {marker(logical_id, count, prefix, chain), std::move(messages)};
 }
 
 SingleAgentRuntime::SingleAgentRuntime(Store& store, const SchemaRegistry& schemas,

@@ -277,12 +277,13 @@ class BillingBaselineIntegration(unittest.TestCase):
                 'capability_evidence_sha256': hashlib.sha256(b'independent synthetic capabilities only').hexdigest()}}
 
     @classmethod
-    def admit_case(cls, label, task, condition, *, receipt_mode='valid', register=True, database=None):
+    def admit_case(cls, label, task, condition, *, receipt_mode='valid', register=True, database=None, profile=None):
         directory = cls.directory / label
         directory.mkdir(mode=0o700)
         db = database or directory / 'runtime.sqlite'
         system = copy.deepcopy(cls.system)
-        system['models'][MODEL_REF] = copy.deepcopy(cls.profile)
+        profile = cls.profile if profile is None else profile
+        system['models'][MODEL_REF] = copy.deepcopy(profile)
         system['defaults']['model_ref'] = MODEL_REF
         system['model_calls']['real_calls_enabled'] = True
         system['context']['request_format'] = 'structured-v2'
@@ -304,7 +305,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             'trust_domain': 'local_tls_fixture', 'request_id': request,
             'config_snapshot_sha256': status['config_snapshot_sha256'], 'issuer': ISSUER,
             'account_id': ACCOUNT, 'public_keys': {KEY_ID: cls.endpoint.public_key_hex},
-            'models': {MODEL_REF: digest(cls.profile)}}
+            'models': {MODEL_REF: digest(profile)}}
         policy_file = write_json(directory / 'billing-policy.json', policy)
         workspaces = {}
         for node in ('alpha', 'beta') if task == 1 else ('alpha',):
@@ -631,6 +632,92 @@ class BillingBaselineIntegration(unittest.TestCase):
             '--workspaces-file', case['mapping'], error=True)
         self.assertEqual(snapshot(case['database']), before)
         self.assertEqual(len(self.endpoint.records[case['request']]), 2)
+
+    def test_97_live_evaluation_request_must_match_original_admission(self):
+        case = self.admit_case('evaluation-original-input', 4, 'multi_agent')
+        with evaluator.database(case['database']) as database:
+            plans = [evaluator.make_plan(database, case['request'], MODEL_REF,
+                {'mode': 'provider_default'}, 'synthetic', decision, identity)
+                for decision, identity in ((None, None), ('model-origin-v1', None), ('model-origin-v1', IDENTITY))]
+        self.pump(case, max_calls=64)
+        self.publish(case)
+        entry = {'task_id': evaluator.TASKS[4][0], 'condition': 'multi_agent',
+                 'database': str(case['database']), 'request_id': case['request'], 'elapsed_ms': 1000}
+        for plan in plans:
+            original = evaluator.build_report(plan, [dict(entry, plan_sha256=plan['plan_sha256'])])['rows'][8]
+            self.assertEqual(original['status'], 'passed', original)
+        corrupted = case['directory'] / 'changed-original-input.sqlite'
+        with closing(sqlite3.connect(case['database'])) as source, closing(sqlite3.connect(corrupted)) as target:
+            source.backup(target)
+        with closing(sqlite3.connect(corrupted)) as database, database:
+            attempt, raw = database.execute('SELECT attempt_id,request_envelope FROM call_attempts '
+                                            'ORDER BY rowid DESC LIMIT 1').fetchone()
+            envelope = json.loads(raw)
+            envelope['context']['input']['messages'].append({'role': 'user', 'content': 'unadmitted fixture input',
+                'tool_calls': [], 'tool_call_id': '', 'source': None})
+            envelope['context']['logical_input_sha256'] = digest(envelope['context']['input'])
+            envelope['logical_request_sha256'] = digest({key: value for key, value in envelope.items()
+                if key not in ('logical_request_sha256', 'wire_request_sha256')})
+            database.execute('UPDATE call_attempts SET request_envelope=?,state_version=state_version+1 WHERE attempt_id=?',
+                             (canonical(envelope).decode(), attempt))
+        before = snapshot(corrupted)
+        for plan in plans:
+            with self.subTest(version=plan['schema_version']):
+                run = dict(entry, database=str(corrupted), plan_sha256=plan['plan_sha256'])
+                row = evaluator.build_report(plan, [run])['rows'][8]
+                self.assertEqual(row['status'], 'invalid_evidence', row)
+                self.assertIn('request admitted for original live transport', row['reason'])
+        self.assertEqual(snapshot(corrupted), before)
+
+    def test_97_evaluation_source_kind_must_match_original_frozen_settings(self):
+        profile = copy.deepcopy(self.profile)
+        # Valid historical JSON can list provider capability sets in any
+        # order, while the original live settings serializer orders them.
+        for capabilities in (profile['capabilities'], profile['responses']['provider_profile']['capabilities']):
+            capabilities.update(reasoning_modes=['off', 'effort', 'provider_default'], reasoning_efforts=['low', 'high'])
+        case = self.admit_case('evaluation-source-identity', 4, 'multi_agent', profile=profile)
+        with evaluator.database(case['database']) as database:
+            plans = [evaluator.make_plan(database, case['request'], MODEL_REF,
+                {'mode': 'provider_default'}, 'synthetic', decision, identity)
+                for decision, identity in ((None, None), ('model-origin-v1', None), ('model-origin-v1', IDENTITY))]
+        self.pump(case, max_calls=64)
+        self.publish(case)
+        entry = {'task_id': evaluator.TASKS[4][0], 'condition': 'multi_agent',
+                 'database': str(case['database']), 'request_id': case['request'], 'elapsed_ms': 1000}
+        for plan in plans:
+            original = evaluator.build_report(plan, [dict(entry, plan_sha256=plan['plan_sha256'])])['rows'][8]
+            self.assertEqual(original['status'], 'passed', original)
+            self.assertEqual(original['source_kinds'], {'local_tls': len(original['attempts'])})
+
+        # Only disposable database copies are damaged. A changed source label
+        # (even with rehashed settings) cannot replace the original admission.
+        for rewrite_settings in (False, True):
+            corrupted = case['directory'] / ('source-kind-' + str(rewrite_settings) + '.sqlite')
+            with closing(sqlite3.connect(case['database'])) as source, closing(sqlite3.connect(corrupted)) as target:
+                source.backup(target)
+            with closing(sqlite3.connect(corrupted)) as database, database:
+                database.execute('DROP TRIGGER live_execution_no_update')
+                database.execute("UPDATE live_attempt_execution SET execution_kind='provider'")
+                if rewrite_settings:
+                    for attempt_id, raw in database.execute('SELECT attempt_id,settings FROM live_attempt_execution').fetchall():
+                        settings = json.loads(raw)
+                        settings['execution_kind'] = 'provider'
+                        database.execute('UPDATE live_attempt_execution SET settings=?,settings_sha256=? WHERE attempt_id=?',
+                            (canonical(settings).decode(), digest(settings), attempt_id))
+                self.assertEqual(database.execute("SELECT count(*) FROM live_attempt_execution WHERE execution_kind<>'provider'").fetchone()[0], 0)
+                database.execute("CREATE TRIGGER live_execution_no_update BEFORE UPDATE ON live_attempt_execution "
+                                 "BEGIN SELECT RAISE(ABORT,'immutable live attempt identity'); END")
+            before = snapshot(corrupted)
+            for original_plan in plans:
+                with self.subTest(version=original_plan['schema_version'], rehashed_settings=rewrite_settings):
+                    changed_plan = copy.deepcopy(original_plan)
+                    changed_plan['evidence_mode'] = 'provider'
+                    changed_plan['plan_sha256'] = digest({key: value for key, value in changed_plan.items() if key != 'plan_sha256'})
+                    run = dict(entry, database=str(corrupted), plan_sha256=changed_plan['plan_sha256'])
+                    row = evaluator.build_report(changed_plan, [run])['rows'][8]
+                    self.assertEqual(row['status'], 'invalid_evidence', row)
+                    self.assertIn('original live execution', row['reason'])
+            self.assertEqual(snapshot(corrupted), before)
 
     def test_98_run_index_labels_cannot_change_the_original_agent_condition(self):
         self.assertEqual(len(self.run_index), 10)

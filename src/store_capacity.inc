@@ -140,7 +140,19 @@
         counts["submissions_per_task"] = maximum;
         const auto open_questions = workflow_schema ? number(one("SELECT COUNT(*) AS n FROM questions q JOIN question_runtime x USING(question_id) WHERE q.request_id=? AND x.status='OPEN'", {id}), "n") : 0;
         const auto pending_ops = number(one("SELECT COUNT(*) AS n FROM ops WHERE request_id=? AND status IN ('PREPARED','RUNNING','CANCEL_REQUESTED','UNKNOWN')", {id}), "n");
-        const auto pending_calls = number(one("SELECT COUNT(*) AS n FROM call_attempts WHERE request_id=? AND (status IN ('PENDING','UNKNOWN') OR unknown_input=1 OR unknown_output=1 OR unknown_cost=1)", {id}), "n");
+        // Original nullable settlements are immutable. For reconciled live
+        // calls, the current five-dimensional projection determines whether
+        // settlement controls are still needed; Fake/legacy calls retain
+        // their original three-dimensional accounting rule.
+        const auto pending_calls = number(one(reconciliation_schema ?
+            "SELECT COUNT(*) AS n FROM call_attempts c LEFT JOIN live_attempt_execution l USING(attempt_id) "
+            "LEFT JOIN live_usage_projection p USING(attempt_id) WHERE c.request_id=? AND "
+            "(c.status IN ('PENDING','UNKNOWN') OR "
+            "(l.attempt_id IS NULL AND (c.unknown_input=1 OR c.unknown_output=1 OR c.unknown_cost=1)) OR "
+            "(l.attempt_id IS NOT NULL AND (p.attempt_id IS NULL OR p.disputed=1 OR p.input_tokens IS NULL OR "
+            "p.output_tokens IS NULL OR p.cache_read_tokens IS NULL OR p.cache_write_tokens IS NULL OR p.cost_micro_usd IS NULL)))" :
+            "SELECT COUNT(*) AS n FROM call_attempts WHERE request_id=? AND "
+            "(status IN ('PENDING','UNKNOWN') OR unknown_input=1 OR unknown_output=1 OR unknown_cost=1)", {id}), "n");
         // New allocation stages reserve their remaining finite settlement
         // tail. Old event types retain their original classification. A v1
         // PREPARED resource needs one register-or-abandon event; v2 needs a

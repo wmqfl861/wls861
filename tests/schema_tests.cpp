@@ -7,6 +7,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <fcntl.h>
+#include <sys/inotify.h>
 
 #ifndef WLS_SOURCE_DIR
 #define WLS_SOURCE_DIR "."
@@ -299,6 +301,35 @@ void schema_paths_and_declared_draft_are_checked() {
     reject([&] { (void)SchemaRegistry(directory.path); });
 }
 
+void schema_parent_symlinks_reject_before_reading() {
+    test::TempDir directory;
+    const auto source = directory.path / "source";
+    std::filesystem::create_directory(source);
+    const auto file = source / "test.schema.json";
+    write(file, basic_schema("test"));
+    const auto link = directory.path / "linked";
+    std::filesystem::create_directory_symlink(source, link);
+    struct Watch {
+        int fd = ::inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+        ~Watch() { if (fd >= 0) ::close(fd); }
+    } watch;
+    CHECK(watch.fd >= 0);
+    CHECK(::inotify_add_watch(watch.fd, file.c_str(), IN_OPEN) >= 0);
+    bool rejected = false;
+    try { (void)SchemaRegistry(link); }
+    catch (const Error&) { rejected = true; }
+    alignas(inotify_event) char events[4096];
+    const auto count = ::read(watch.fd, events, sizeof events);
+    // A parent symlink must fail before any schema data channel is opened.
+    CHECK(count < 0 && errno == EAGAIN);
+    CHECK(rejected);
+    // Walking the original path must not erase the symlink with lexical '..'.
+    reject([&] { (void)SchemaRegistry(link / ".." / "source"); });
+    CHECK(::read(watch.fd, events, sizeof events) < 0 && errno == EAGAIN);
+    const SchemaRegistry valid(source);
+    valid.validate("test", boost::json::object{});
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -317,6 +348,7 @@ int main(int argc, char** argv) {
         {"local JSON Pointers, boolean schemas and patterns are enforced", local_pointer_and_boolean_schema},
         {"unvisited remote, file and traversal refs fail before validation", all_references_checked_before_validation},
         {"duplicate IDs, duplicate JSON keys and missing pointers reject", malformed_ids_documents_and_missing_pointer_reject},
-        {"schema symlinks and unsupported declared drafts reject", schema_paths_and_declared_draft_are_checked}
+        {"schema symlinks and unsupported declared drafts reject", schema_paths_and_declared_draft_are_checked},
+        {"schema parent symlinks reject before opening schema contents", schema_parent_symlinks_reject_before_reading}
     });
 }

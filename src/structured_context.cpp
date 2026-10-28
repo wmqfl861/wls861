@@ -131,12 +131,14 @@ CompiledContext compile_structured_context(const ContextInput& base,
     result.dynamic_suffix = canonical_json(Object{{"task_contract", base.task_contract}, {"messages", encoded}});
     result.logical_input = Object{{"format", "wls-logical-input-v1"}, {"selection", selection(result)},
         {"prefix", prefix}, {"task_contract", base.task_contract}, {"messages", encoded}};
-    capacity(result.stable_prefix.size() <= limits.max_prefix_bytes &&
-             result.prompt().size() <= limits.max_total_bytes,
+    capacity(result.stable_prefix.size() <= limits.max_prefix_bytes,
+             "structured context byte limit exceeded; no authoritative content was truncated");
+    const auto logical_bytes = result.prompt();
+    capacity(logical_bytes.size() <= limits.max_total_bytes,
              "structured context byte limit exceeded; no authoritative content was truncated");
     result.prefix_sha256 = sha256_hex(result.stable_prefix);
     result.cache_identity = cache_hash(result);
-    result.logical_input_sha256 = sha256_hex(result.prompt());
+    result.logical_input_sha256 = sha256_hex(logical_bytes);
     return result;
 }
 

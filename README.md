@@ -1,8 +1,14 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.11.0-r3.3c-baseline；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化工作流、受控 Worker 工具和独立离线协议回放。
+C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.11.1-r3.3c-audit；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化工作流、受控 Worker 工具和独立离线协议回放。
 
-本增量沿蓝图补齐两个大模块：**签名计费适配与连续 CLI**、**单 Agent 连续执行与 v3 对照评测**。
+本补丁按全代码审核修复写锁继承、并发账本快照、已核账容量、文件完整读取、启动前取消证据、
+调用路由预检、评测来源/原输入绑定与小数历史指纹兼容。范围和复现见[审核报告](docs/reviews/code-audit-20261027.md)，
+执行结果见[本轮验证](docs/reports/code-audit-20261027-validation.md)。Store 保持410。
+同时优化完整上下文与单 Agent 历史的重复处理；仅复用同次调用内已校验的原字节，
+继续逐次验证公开可变请求和各 Store/发送边界。
+
+前一增量沿蓝图补齐两个大模块：**签名计费适配与连续 CLI**、**单 Agent 连续执行与 v3 对照评测**。
 前者以独立 Ed25519 收据核对原调用账目，支持同步结算与迟到追加；后者让同一逻辑 Agent
 实际接收跨角色的全部原响应和工具反馈，原 Store 角色继续限定各自权限。
 Store 保持410，原SQL、原预约、结算、恢复和业务权限保持兼容。
@@ -25,7 +31,7 @@ R1.3 在此基础上接通显式冻结的Worker窗口与模型回读；旧请求
 新增入口及证据要求见[进程结算/核对契约](docs/implementation/S1-process-settlement.md)，
 说明恢复见[epoch恢复契约](docs/implementation/S1-epoch-recovery.md)。本地控制CLI不是网络认证服务。
 
-## 本轮新增接口
+## 已实现的计费与单 Agent 接口
 
 - `BillingTrustPolicy` / 签名收据核验：显式冻结唯一调用 challenge，核对签名、原请求/响应字节和账单身份；Store 在原事务内阻止同一账单跨调用认领。
 - `wls live-status` / `wls pump-live --billing-policy-file FILE`：v2 宿主授权绑定一次捕获的信任政策原字节；完整独立账目可继续原流程，未知、冲突及超预留仍停止。
@@ -275,12 +281,14 @@ context:
 | [S1.4 问答与提交契约](docs/implementation/S1-workflow-runtime.md) | 405迁移、原问题/答案、文件快照、团队检查与返工、CLI边界 |
 | [S1.5 验收与交付契约](docs/implementation/S1-acceptance-delivery.md) | 406迁移、当前验收、交付恢复、回执、经验和收尾边界 |
 | [S1.6 受控清理契约](docs/implementation/S1-owned-cleanup.md) | 407迁移、所有权清单、退出证据、交付重核、有限删除与恢复边界 |
-| [独立审核与修复](docs/reviews/independent-2026-10-26.md) | 本轮确认的五类问题、最小修复和代码/蓝图优化决定 |
-| [本轮验证](docs/reports/independent-audit-validation.md) | 基线失败、普通用户回归、完整源码与原日志绑定 |
+| [0.11.1全代码审核](docs/reviews/code-audit-20261027.md) | 本轮11类问题、最小修复、性能优化及证据边界 |
+| [0.11.1审核验证](docs/reports/code-audit-20261027-validation.md) | 本轮基线反例、最终源码门禁、历史失败及原始证据 |
+| [10-26独立审核与修复](docs/reviews/independent-2026-10-26.md) | 历史五类问题、最小修复和当时的代码/蓝图优化决定 |
+| [10-26审核验证](docs/reports/independent-audit-validation.md) | 当时的基线失败、普通用户回归、完整源码与原日志绑定 |
 | [R3.3受控闭环计划](docs/implementation/R3-controlled-live-plan.md) | 传输/Store账本/真实任务三节点及长任务前置的依赖、反例、完成条件 |
 | [签名计费适配](docs/implementation/R3-signed-billing.md) | 信任政策、唯一challenge、同步及迟到收据、事务内归属与只读重放 |
 | [单Agent基线](docs/implementation/R3-single-agent-baseline.md) | 一个逻辑执行者、原角色权限、完整原生历史与v3对照身份 |
-| [本批联合验证](docs/reports/billing-baseline-validation.md) | 普通用户回归、独立CLI/TLS双条件与最终输入/提交门禁 |
+| [0.11.0联合验证](docs/reports/billing-baseline-validation.md) | 签名计费/单Agent两模块交付时的普通用户、CLI/TLS与提交证据 |
 | [0.8.5三节点验证](docs/reports/r2a3-r3-offline-validation.md) | 前一版本R2a.3诊断、R3.1 HTTP与R3.2 SSE的实际证据 |
 | [S1.6 历史发布复验](docs/reports/s1-owned-cleanup-followup-validation.md) | 当时的非root复现、夹具修复、只读保护与完整门禁 |
 | [S1.6首次本地验证](docs/reports/s1-owned-cleanup-validation.md) | 原始本地记录与边界；不能替代后续CI权限失败修复后的复验 |

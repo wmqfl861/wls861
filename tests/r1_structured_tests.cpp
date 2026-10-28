@@ -164,6 +164,47 @@ void full_envelope_integrity_covers_reservations() {
     tampered = encoded; tampered.as_object()["format"] = "wls-model-request-v1";
     fails(ErrorCode::InvalidInput, [&] { (void)model_request_from_json(tampered); });
 }
+void restored_requests_keep_deep_and_public_validation() {
+    const auto encoded = to_json(request());
+    CHECK(to_json(model_request_from_json(encoded)) == encoded);
+    const auto rehash = [](Json& value) {
+        auto original = value.as_object();
+        original.erase("logical_request_sha256"); original.erase("wire_request_sha256");
+        value.as_object()["logical_request_sha256"] = sha256_hex(canonical_json(original));
+    };
+    // Self-consistent envelope hashes do not replace identity, reservation or
+    // native-turn checks when the original context is restored only once.
+    for (int change = 0; change < 7; ++change) {
+        auto tampered = encoded;
+        if (change == 0) tampered.at("call_id") = tampered.at("attempt_id");
+        if (change == 1) tampered.at("role") = "dispatcher";
+        if (change == 2) tampered.at("role_call_index") = 0;
+        if (change == 3) tampered.at("reserved_output_tokens") = 127;
+        if (change == 4) tampered.at("timeout_ms") = 0;
+        if (change == 5) tampered.at("config_snapshot_id") = "not-a-frozen-hash";
+        if (change == 6) tampered.at("binding").at("task_id") = "";
+        rehash(tampered);
+        fails(ErrorCode::InvalidInput, [&] { (void)model_request_from_json(tampered); });
+    }
+    auto malformed = encoded;
+    malformed.at("context").at("input").at("messages").as_array().back().at("tool_call_id") = "orphan";
+    malformed.at("context").at("logical_input_sha256") = sha256_hex(canonical_json(malformed.at("context").at("input")));
+    rehash(malformed);
+    fails(ErrorCode::InvalidInput, [&] { (void)model_request_from_json(malformed); });
+
+    auto mutable_request = model_request_from_json(encoded);
+    FakeModelStep step; step.role = Role::Worker; step.text = "original reply";
+    const auto response = FakeModel({step}).complete(mutable_request);
+    auto& context = mutable_request.context;
+    context.logical_input.at("messages").as_array().back().at("tool_call_id") = "orphan";
+    context.dynamic_suffix = canonical_json(Object{{"task_contract", context.logical_input.at("task_contract")},
+        {"messages", context.logical_input.at("messages")}});
+    context.logical_input_sha256 = sha256_hex(context.prompt());
+    // The public mutable-object entry points must still perform deep checks,
+    // even after this same object previously passed complete restoration.
+    fails(ErrorCode::InvalidInput, [&] { (void)to_json(mutable_request); });
+    fails(ErrorCode::InvalidInput, [&] { validate_response(mutable_request, response); });
+}
 void same_provider_ids_have_distinct_logical_ids() {
     const auto a = attempt(), b = attempt(); const auto m = structured_attempt_history({a, b});
     CHECK(m.size() == 4); CHECK(m[0].tool_calls.front().call_id != m[2].tool_calls.front().call_id);
@@ -253,6 +294,7 @@ int main() {
         {"legacy serialized bytes unchanged", legacy_bytes_unchanged},
         {"FakeModel consumes restored structured envelope", fake_uses_same_persisted_structure},
         {"full envelope hash covers reservation and format", full_envelope_integrity_covers_reservations},
+        {"restored envelopes and later mutable requests keep all validation gates", restored_requests_keep_deep_and_public_validation},
         {"provider tool IDs isolated by original attempt", same_provider_ids_have_distinct_logical_ids},
         {"missing and unapplied attempts remain observations", missing_late_and_invalid_are_observations},
         {"source corruption refuses", corrupted_source_binding_refuses},

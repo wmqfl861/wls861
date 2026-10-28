@@ -119,7 +119,7 @@ std::vector<ModelToolCall> parse_tools(const Json& value) {
     return calls;
 }
 
-void validate_envelope(const ModelRequest& request) {
+void validate_envelope_fields(const ModelRequest& request) {
     require(!request.call_id.empty() && !request.attempt_id.empty() &&
             request.call_id != request.attempt_id && request.role_call_index > 0,
             "model call and attempt need distinct IDs and a positive role sequence");
@@ -131,9 +131,36 @@ void validate_envelope(const ModelRequest& request) {
     require(request.timeout.count() > 0, "model timeout must be positive");
     require(request.context.role == request.role && request.context.model == request.model,
             "model request does not match its compiled role/model");
+}
+
+void validate_envelope(const ModelRequest& request) {
+    validate_envelope_fields(request);
     // Verify actual prefix bytes and all non-text cache parameters, including
     // when this request was restored from a persistent frozen snapshot.
     (void)compiled_context_from_json(to_json(request.context));
+}
+
+// Internal serialization after a complete validation. The parser has already
+// restored its context; it can compare the same complete envelope without
+// repeating that restoration through the public to_json entry point.
+Json serialize_validated_request(const ModelRequest& request) {
+    boost::json::object result{
+        {"format", request.context.structured() ? "wls-model-request-v2" : "wls-model-request-v1"}, {"call_id", request.call_id},
+        {"attempt_id", request.attempt_id}, {"role_call_index", request.role_call_index},
+        {"role", role_name(request.role)}, {"binding", to_json(request.binding)},
+        {"config_snapshot_id", request.config_snapshot_id}, {"context", to_json(request.context)},
+        {"max_output_tokens", request.max_output_tokens},
+        {"reserved_input_tokens", request.reserved_input_tokens},
+        {"reserved_output_tokens", request.reserved_output_tokens},
+        {"reserved_cost_micro_usd", request.reserved_cost_micro_usd},
+        {"timeout_ms", request.timeout.count()}};
+    if (request.context.structured()) {
+        // Full captured logical envelope, before adding its own fingerprint or
+        // transport receipt. Includes binding, output cap, timeout and budget.
+        result["logical_request_sha256"] = sha256_hex(canonical_json(result));
+        result["wire_request_sha256"] = nullptr;
+    }
+    return result;
 }
 
 void validate_response_shape(const ModelResponse& response) {
@@ -303,23 +330,7 @@ ModelUsage model_usage_from_json(const Json& value) {
 
 Json to_json(const ModelRequest& request) {
     validate_envelope(request);
-    boost::json::object result{
-        {"format", request.context.structured() ? "wls-model-request-v2" : "wls-model-request-v1"}, {"call_id", request.call_id},
-        {"attempt_id", request.attempt_id}, {"role_call_index", request.role_call_index},
-        {"role", role_name(request.role)}, {"binding", to_json(request.binding)},
-        {"config_snapshot_id", request.config_snapshot_id}, {"context", to_json(request.context)},
-        {"max_output_tokens", request.max_output_tokens},
-        {"reserved_input_tokens", request.reserved_input_tokens},
-        {"reserved_output_tokens", request.reserved_output_tokens},
-        {"reserved_cost_micro_usd", request.reserved_cost_micro_usd},
-        {"timeout_ms", request.timeout.count()}};
-    if (request.context.structured()) {
-        // Full captured logical envelope, before adding its own fingerprint or
-        // transport receipt. Includes binding, output cap, timeout and budget.
-        result["logical_request_sha256"] = sha256_hex(canonical_json(result));
-        result["wire_request_sha256"] = nullptr;
-    }
-    return result;
+    return serialize_validated_request(request);
 }
 
 ModelRequest model_request_from_json(const Json& value) {
@@ -346,9 +357,12 @@ ModelRequest model_request_from_json(const Json& value) {
     request.reserved_output_tokens = integer_field(source, "reserved_output_tokens");
     request.reserved_cost_micro_usd = integer_field(source, "reserved_cost_micro_usd");
     request.timeout = std::chrono::milliseconds(integer_field(source, "timeout_ms"));
-    validate_envelope(request);
+    // compiled_context_from_json above already checked the entire context,
+    // including native turns, projections, metadata and fingerprints.
+    validate_envelope_fields(request);
     require(request.context.structured() == structured, "model envelope and context formats disagree");
-    if (structured) require(to_json(request) == value, "logical model request fingerprint or transport evidence mismatch");
+    if (structured) require(serialize_validated_request(request) == value,
+                            "logical model request fingerprint or transport evidence mismatch");
     return request;
 }
 

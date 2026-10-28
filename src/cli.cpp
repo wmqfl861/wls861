@@ -312,7 +312,7 @@ Json request_view(Store& store, const std::string& id) {
 #include "billing_cli.inc"
 
 void help() {
-    std::cout << R"(wls 0.11.0-r3.3c-baseline — signed billing and a continuous single Agent
+    std::cout << R"(wls 0.11.1-r3.3c-audit — signed billing and a continuous single Agent
 
 Resources are discovered relative to the executable, never the current directory.
 Use --resource-root PATH for an installed bundle or --source-root PATH for a checkout.
@@ -459,7 +459,7 @@ int run_cli(int argc, char** argv) {
     const std::string command(argv[1]);
     if (command == "--version" || command == "version") {
         if (argc != 2) throw Error(ErrorCode::InvalidInput, "version takes no options");
-        output(Object{{"version", "0.11.0-r3.3c-baseline"}, {"blueprint", "0.4.1"},
+        output(Object{{"version", "0.11.1-r3.3c-audit"}, {"blueprint", "0.4.1"},
             {"mode", "offline_fake_and_controlled_live"}, {"default_network_authorized", false}}); return 0;
     }
     int start = 2;

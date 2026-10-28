@@ -1,4 +1,5 @@
 #include "wls/schema.hpp"
+#include "wls/offline_runtime.hpp"
 
 // Valijson's default error helper aborts when this option is absent. Schema
 // failures are normal rejected input, and must never terminate the runtime.
@@ -15,8 +16,6 @@
 #include <valijson/validator.hpp>
 
 #include <algorithm>
-#include <fstream>
-#include <iterator>
 #include <map>
 #include <set>
 #include <string>
@@ -41,30 +40,24 @@ bool schema_name_valid(const std::string& name) {
         });
 }
 
-std::string read_schema(const std::filesystem::path& path) {
-    require(std::filesystem::is_regular_file(std::filesystem::symlink_status(path)),
-            "schema must be a regular file without a symbolic link: " + path.filename().string());
-    require(std::filesystem::file_size(path) <= max_schema_bytes, "schema file exceeds byte limit");
-    std::ifstream stream(path, std::ios::binary);
-    require(static_cast<bool>(stream), "cannot read schema file: " + path.filename().string());
-    std::string bytes((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
-    require(!stream.bad() && bytes.size() <= max_schema_bytes, "failed or oversized schema read");
-    return bytes;
-}
-
 std::map<std::string, std::string> read_schema_directory(const std::filesystem::path& directory) {
     require(std::filesystem::is_directory(directory), "schema directory is missing");
     std::vector<std::filesystem::path> paths;
     for (const auto& entry : std::filesystem::directory_iterator(directory)) {
-        if (entry.path().filename().string().ends_with(".schema.json")) paths.push_back(entry.path());
+        if (entry.path().filename().string().ends_with(".schema.json")) {
+            require(paths.size() < max_schema_count, "invalid schema registry size");
+            paths.push_back(entry.path());
+        }
     }
     require(!paths.empty() && paths.size() <= max_schema_count, "invalid schema registry size");
     std::sort(paths.begin(), paths.end());
     std::map<std::string, std::string> result;
     std::size_t total_bytes = 0;
     for (const auto& path : paths) {
-        auto bytes = read_schema(path);
-        require(bytes.size() <= max_registry_bytes - total_bytes, "schema registry exceeds byte limit");
+        // The compatibility directory entry point obeys the same pinned
+        // regular-file, original-component and bounded EOF checks as other
+        // runtime inputs. Enforce the remaining registry budget while reading.
+        auto bytes = read_runtime_file(path, std::min(max_schema_bytes, max_registry_bytes - total_bytes));
         total_bytes += bytes.size();
         result.emplace(path.filename().string(), std::move(bytes));
     }

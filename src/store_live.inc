@@ -586,6 +586,9 @@ Json Store::live_accounting_status(const std::string& request_id) const {
 Json Store::verify_usage_ledger(const std::string& request_id) const {
     const std::lock_guard lock(impl_->mutex);
     require(impl_->reconciliation_schema, ErrorCode::Unsupported, "ledger reconstruction requires the 410 migration");
+    // A separate writer may commit while a read-only Store reconstructs the
+    // ledger. Budget, original facts and projections must share one snapshot.
+    ManagementReadSnapshot snapshot(impl_->db);
     (void)impl_->request_row(request_id);
     const auto actual = impl_->one("SELECT * FROM request_budgets WHERE request_id=?", {request_id});
     Row rebuilt{{"attempts", 0}, {"reserved_input", 0}, {"reserved_output", 0}, {"reserved_cost", 0},
@@ -658,6 +661,8 @@ Json Store::verify_usage_ledger(const std::string& request_id) const {
     }
     for (const auto& field : rebuilt)
         require(field.value() == actual.at(field.key()), ErrorCode::Corrupt, "request budget differs from original and reconciled usage");
-    return Row{{"request_id", request_id}, {"consistent", true}, {"reconstructed_budget", rebuilt},
+    Row result{{"request_id", request_id}, {"consistent", true}, {"reconstructed_budget", rebuilt},
         {"durable_budget", actual}, {"attempts", attempts}, {"unsettled_accounting", impl_->has_unsettled_model(request_id)}};
+    snapshot.finish();
+    return result;
 }

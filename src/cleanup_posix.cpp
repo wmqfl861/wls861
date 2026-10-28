@@ -174,6 +174,14 @@ std::string read_bytes(int fd, std::uint64_t maximum) {
         need(got > 0, ErrorCode::Conflict, "cleanup file changed while reading");
         offset += static_cast<std::size_t>(got);
     }
+    // stx_size is a preflight bound, not proof of EOF. Refuse a prefix-only
+    // marker or inventory hash even when a filesystem reports stable metadata
+    // with a shorter length than the bytes it actually returns.
+    char trailing{};
+    ssize_t extra;
+    do { extra = ::pread(fd, &trailing, 1, static_cast<off_t>(offset)); } while (extra < 0 && errno == EINTR);
+    if (extra < 0) os_error("verify cleanup file end");
+    need(extra == 0, ErrorCode::Conflict, "cleanup file contains bytes beyond its observed size");
     const auto after = info(fd);
     need(before.stx_size == after.stx_size && before.stx_ino == after.stx_ino &&
          before.stx_mtime.tv_sec == after.stx_mtime.tv_sec && before.stx_mtime.tv_nsec == after.stx_mtime.tv_nsec &&

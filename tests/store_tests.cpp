@@ -205,6 +205,22 @@ void durability_migration_and_readonly() {
     CHECK(n(f.store->diagnostics(), "user_version") == 402);
     error(ErrorCode::Corrupt, [&] { Store observer(f.path, base_sql, migration_sql + "\n-- altered", StoreOpenMode::ReadOnly); });
 }
+void inherited_store_destruction_preserves_writer_lease() {
+    Fixture f;
+    const auto original = f.store->request(f.request_id);
+    const auto child = ::fork(); CHECK(child >= 0);
+    if (child == 0) {
+        f.store.reset();
+        ::_exit(0);
+    }
+    int status{}; CHECK(::waitpid(child, &status, 0) == child);
+    CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    error(ErrorCode::Conflict, [&] { Store competing(f.path, base_sql, migration_sql); });
+    CHECK(f.store->request(f.request_id) == original);
+    f.store.reset();
+    Store successor(f.path, base_sql, migration_sql);
+    CHECK(n(successor.request(f.request_id), "dispatcher_epoch") == n(original, "dispatcher_epoch") + 1);
+}
 void unknown_database_is_preserved() {
     test::TempDir temp;
     const auto path = temp.path / "old.sqlite";
@@ -844,6 +860,7 @@ int main(int argc, char** argv) {
     return test::run({
         {"malformed catalog is invalid input and creates no rows", catalog_shape_rejected_at_store_boundary},
         {"SQLite FULL/WAL/FK, writer lease, read-only and repeated migration", durability_migration_and_readonly},
+        {"inherited Store destruction cannot release the parent writer lease", inherited_store_destruction_preserves_writer_lease},
         {"unknown and incomplete reference databases remain intact", unknown_database_is_preserved},
         {"scoped immutable admission and original retry after AMEND", scoped_admission_and_original_retry},
         {"state, plan and event commit atomically", event_failure_rolls_back_whole_transaction},

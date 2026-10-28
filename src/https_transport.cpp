@@ -455,10 +455,10 @@ struct Endpoint {
     bool numeric{false};
 };
 
-Endpoint endpoint_of(const EncodedResponsesRequest& encoded, const HttpsTransportOptions& options) {
-    // encode_responses_request has already verified this HTTPS authority and
-    // its port. It deliberately accepts no userinfo, percent escapes or IPv6.
-    const auto url = std::string_view(encoded.url).substr(8);
+Endpoint endpoint_of(std::string_view validated_url, const HttpsTransportOptions& options) {
+    // Both callers first validate the provider's HTTPS authority and port.
+    // That validation accepts no userinfo, percent escapes or IPv6.
+    const auto url = validated_url.substr(8);
     const auto authority = url.substr(0, url.find('/'));
     const auto colon = authority.find(':');
     Endpoint endpoint{std::string(authority.substr(0, colon)),
@@ -597,6 +597,12 @@ void finalize(HttpsTransportResult& result, const Transfer& transfer) {
 
 } // namespace
 
+void validate_responses_https_target(const ProviderProfile& profile,
+                                     const HttpsTransportOptions& options) {
+    validate_provider_profile(profile);
+    (void)endpoint_of(profile.base_url, options);
+}
+
 std::string to_string(HttpsTransportStatus status) {
     switch (status) {
     case HttpsTransportStatus::Completed: return "completed";
@@ -644,7 +650,7 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
                 const auto byte = static_cast<unsigned char>(character);
                 return byte >= 33U && byte <= 126U;
             }), ErrorCode::InvalidInput, "HTTPS bearer must be bounded nonempty ASCII without whitespace");
-    const auto endpoint = endpoint_of(encoded, options);
+    const auto endpoint = endpoint_of(encoded.url, options);
     const auto* key_log = std::getenv("SSLKEYLOGFILE");
     require(key_log == nullptr || *key_log == '\0', ErrorCode::Unsupported,
             "HTTPS transport refuses TLS key logging enabled by the environment");

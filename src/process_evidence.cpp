@@ -49,7 +49,10 @@ Json metadata(const struct statx& s) {
 }
 int child_fd(int parent, const std::string& name) {
     open_how how{};
-    how.flags = O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC;
+    // Type/ownership checks must precede a data-channel open. O_NONBLOCK does
+    // not prevent opening a FIFO from releasing a waiting writer, and device
+    // opens may have effects even when the subsequent type check rejects it.
+    how.flags = O_PATH | O_NOFOLLOW | O_CLOEXEC;
     how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV;
     return static_cast<int>(::syscall(SYS_openat2, parent, name.c_str(), &how, sizeof(how)));
 }
@@ -93,17 +96,26 @@ Json scan(int root) {
             Object item{{"path", path}, {"type", S_ISDIR(st.stx_mode) ? "directory" : "file"}, {"metadata", metadata(st)}};
             if (S_ISREG(st.stx_mode)) {
                 check(st.stx_size <= max_bytes - bytes, ErrorCode::Quota, "workspace observation byte cap exceeded");
+                // Reopen the inspected regular inode, not its mutable name.
+                // Read permissions still apply and a missing procfs fails
+                // closed rather than reopening an unchecked pathname.
+                const auto descriptor_path = "/proc/self/fd/" + std::to_string(child.value);
+                Fd readable_file(::open(descriptor_path.c_str(), O_RDONLY | O_NONBLOCK | O_NOCTTY | O_CLOEXEC));
+                check(metadata(st) == metadata(inspect(readable_file.value)), ErrorCode::Conflict,
+                    "workspace file changed before observation");
                 std::string content; content.reserve(static_cast<std::size_t>(st.stx_size));
                 std::array<char, 8192> buffer{};
                 for (;;) {
-                    const auto n = ::read(child.value, buffer.data(), buffer.size());
+                    const auto remaining = max_bytes - bytes - content.size();
+                    const auto requested = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), remaining + 1U));
+                    const auto n = ::read(readable_file.value, buffer.data(), requested);
                     if (n < 0) { if (errno == EINTR) continue; failed("workspace observation read"); }
                     if (!n) break;
                     check(static_cast<std::size_t>(n) <= max_bytes - bytes - content.size(), ErrorCode::Quota,
                         "workspace observation changed beyond byte cap");
                     content.append(buffer.data(), static_cast<std::size_t>(n));
                 }
-                check(content.size() == st.stx_size && metadata(st) == metadata(inspect(child.value)), ErrorCode::Conflict,
+                check(content.size() == st.stx_size && metadata(st) == metadata(inspect(readable_file.value)), ErrorCode::Conflict,
                     "workspace file changed during observation");
                 bytes += content.size(); item["sha256"] = sha256_hex(content);
             }

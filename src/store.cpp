@@ -748,7 +748,10 @@ public:
     ~Impl() { close(); }
     void close() noexcept {
         if (db) { sqlite3_close_v2(db); db = nullptr; }
-        if (lease_fd >= 0) { ::flock(lease_fd, LOCK_UN); ::close(lease_fd); lease_fd = -1; }
+        // fork() inherits this open-file description. Explicit LOCK_UN in a
+        // child's destructor would release the still-live parent's lease;
+        // closing only releases it after the final descriptor is gone.
+        if (lease_fd >= 0) { ::close(lease_fd); lease_fd = -1; }
     }
     void exec(std::string_view sql) {
         const std::string terminated(sql);

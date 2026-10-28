@@ -19,6 +19,100 @@ using fixture::error;
 namespace {
 std::unique_ptr<fixture::Assets> assets;
 
+// Inject a separate writer's commit immediately after the observer finishes
+// reading its budget. SQLite's documented per-connection trace hook fixes the
+// interleaving without sleeps or a probabilistic reader/writer stress loop.
+std::function<void()> after_budget_read;
+std::exception_ptr budget_read_failure;
+int interleave_after_budget(unsigned type, void*, void* statement, void*) noexcept {
+    if (type != SQLITE_TRACE_PROFILE || !after_budget_read) return 0;
+    const auto* sql = sqlite3_sql(static_cast<sqlite3_stmt*>(statement));
+    if (!sql || std::string_view(sql) != "SELECT * FROM request_budgets WHERE request_id=?") return 0;
+    auto callback = std::move(after_budget_read);
+    after_budget_read = {};
+    try { callback(); } catch (...) { budget_read_failure = std::current_exception(); }
+    return 0;
+}
+int install_budget_interleave(sqlite3* database, char**, const sqlite3_api_routines*) {
+    return sqlite3_trace_v2(database, SQLITE_TRACE_PROFILE, interleave_after_budget, nullptr);
+}
+struct BudgetReadInterleave {
+    BudgetReadInterleave() {
+        CHECK(sqlite3_auto_extension(reinterpret_cast<void (*)()>(install_budget_interleave)) == SQLITE_OK);
+    }
+    ~BudgetReadInterleave() {
+        sqlite3_cancel_auto_extension(reinterpret_cast<void (*)()>(install_budget_interleave));
+        after_budget_read = {}; budget_read_failure = {};
+    }
+};
+
+void readonly_ledger_observes_one_snapshot() {
+    fixture::Fixture f(*assets);
+    const auto request = f.request("interleaved-reservation");
+    BudgetReadInterleave interleave;
+    auto reader = assets->open(f.path, {}, 410, StoreOpenMode::ReadOnly);
+    const auto original_request = f.store->request(f.request_id);
+    bool committed = false;
+    after_budget_read = [&] { (void)f.reserve(request); committed = true; };
+    const auto observed = reader->verify_usage_ledger(f.request_id);
+    if (budget_read_failure) std::rethrow_exception(budget_read_failure);
+    CHECK(committed);
+    CHECK(observed.at("consistent").as_bool());
+    CHECK(number(observed.at("durable_budget"), "attempts") == 0);
+    CHECK(observed.at("attempts").as_array().empty());
+    CHECK(!observed.at("unsettled_accounting").as_bool());
+    CHECK(number(f.store->budget(f.request_id), "attempts") == 1);
+    CHECK(reader->request(f.request_id) == original_request);
+    const auto refreshed = reader->verify_usage_ledger(f.request_id);
+    CHECK(refreshed.at("consistent").as_bool());
+    CHECK(number(refreshed.at("durable_budget"), "attempts") == 1);
+    CHECK(refreshed.at("attempts").as_array().size() == 1);
+    CHECK(refreshed.at("unsettled_accounting").as_bool());
+}
+
+void reconciled_usage_releases_settlement_capacity() {
+    fixture::Fixture f(*assets);
+    CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 16);
+    const auto request = f.request();
+    const auto original = f.interrupted(request);
+    const auto original_bytes = canonical_json(f.store->attempt(request.attempt_id));
+    CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 20);
+    auto partial = fixture::complete_usage(); partial.cache_write_tokens.reset();
+    (void)f.store->reconcile_usage(f.actor(Role::Root), fixture::evidence(original, partial, "partial-capacity"),
+        {"partial-capacity", "partial-capacity", 1});
+    // A zero reserved balance cannot substitute for the missing cache fact.
+    CHECK(number(f.store->budget(f.request_id), "reserved_cost") == 0);
+    CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 20);
+    (void)f.store->reconcile_usage(f.actor(Role::Root), fixture::evidence(original, fixture::complete_usage(), "complete-capacity"),
+        {"complete-capacity", "complete-capacity", 2});
+    CHECK(f.store->usage_projection(request.attempt_id).at("accounting_complete").as_bool());
+    CHECK(!f.store->verify_usage_ledger(f.request_id).at("unsettled_accounting").as_bool());
+    CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 16);
+    CHECK(canonical_json(f.store->attempt(request.attempt_id)) == original_bytes);
+}
+
+void fake_and_legacy_capacity_keep_original_usage_rules() {
+    for (const int version : {408, 410}) {
+        fixture::Fixture f(*assets, fixture::settings(), false, version, true);
+        const auto request = f.request("known-fake-usage");
+        CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 16);
+        (void)f.store->reserve_attempt(f.actor(), request.binding, f.reservation(request, true));
+        CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 20);
+        auto usage = fixture::complete_usage();
+        usage.cache_read_tokens.reset(); usage.cache_write_tokens.reset();
+        (void)f.store->settle_attempt(request.attempt_id, request.binding, request.config_snapshot_id,
+            "COMPLETED", to_json(usage), Object{{"synthetic", true}});
+        CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 16);
+        const auto pending = f.request("unknown-fake-cost");
+        (void)f.store->reserve_attempt(f.actor(), pending.binding, f.reservation(pending, true));
+        usage.cost_micro_usd.reset();
+        (void)f.store->settle_attempt(pending.attempt_id, pending.binding, pending.config_snapshot_id,
+            "INTERRUPTED", to_json(usage), Object{{"synthetic", true}});
+        CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 20);
+        if (version == 410) CHECK(f.store->verify_usage_ledger(f.request_id).at("unsettled_accounting").as_bool());
+    }
+}
+
 void disabled_and_complete_envelope() {
     fixture::Fixture f(*assets, fixture::settings(), false);
     const auto request = f.request(); const auto budget = f.store->budget(f.request_id);
@@ -46,6 +140,42 @@ void live_profile_capacity_is_rejected_before_admission() {
     error(ErrorCode::InvalidInput, [&] { (void)live_model_settings_from_json(fixture::model_profile(too_wide), too_wide.provider.model_ref); });
     too_wide = accepted; ++too_wide.provider.limits.max_text_bytes;
     error(ErrorCode::InvalidInput, [&] { (void)live_model_settings_from_json(fixture::model_profile(too_wide), too_wide.provider.model_ref); });
+}
+
+void live_profile_route_is_rejected_before_admission() {
+    auto selected = fixture::settings();
+    selected.execution_kind = "provider";
+    const auto original = fixture::model_profile(selected);
+    for (const auto* route : {"999.0.0.1", "127.1", "127.00.0.1", "127.0.0.1.", "..."}) {
+        auto changed = original;
+        changed.at("responses").at("transport").at("resolved_ipv4") = route;
+        error(ErrorCode::InvalidInput, [&] {
+            (void)live_model_settings_from_json(changed, selected.provider.model_ref);
+        });
+    }
+    for (const auto* host : {"127.1", "2130706433", "0x7f000001", "127.00.0.1"}) {
+        auto changed = original;
+        changed.at("responses").at("provider_profile").at("base_url") = std::string("https://") + host;
+        error(ErrorCode::InvalidInput, [&] {
+            (void)live_model_settings_from_json(changed, selected.provider.model_ref);
+        });
+    }
+    auto inconsistent = original;
+    inconsistent.at("responses").at("provider_profile").at("base_url") = "https://127.0.0.2";
+    error(ErrorCode::InvalidInput, [&] {
+        (void)live_model_settings_from_json(inconsistent, selected.provider.model_ref);
+    });
+    // Valid DNS + explicit route, strict numeric destinations and the existing
+    // c-ares-only runtime DNS path retain their original configuration bytes.
+    for (const auto* host : {"localhost", "gateway.example.invalid", "127.0.0.1"}) {
+        auto changed = original;
+        changed.at("responses").at("provider_profile").at("base_url") = std::string("https://") + host;
+        const auto parsed = live_model_settings_from_json(changed, selected.provider.model_ref);
+        CHECK(live_model_settings_json(parsed) == changed.at("responses"));
+    }
+    auto dns = original;
+    dns.at("responses").at("transport").at("resolved_ipv4") = "";
+    CHECK(live_model_settings_json(live_model_settings_from_json(dns, selected.provider.model_ref)) == dns.at("responses"));
 }
 
 void frozen_identity_and_one_claim() {
@@ -158,6 +288,7 @@ void contradictory_evidence_and_over_reservation() {
     CHECK(disputed.at("status") == "CONFLICT"); CHECK(disputed.at("after").at("input_tokens") == 9);
     CHECK(disputed.at("after").at("disputed") == 1);
     CHECK(number(f.store->budget(f.request_id), "spent_input") == number(balance, "spent_input"));
+    CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 20);
     error(ErrorCode::UnknownOutcome, [&] { (void)f.reserve(f.request("disputed-block")); });
     CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
     fixture::Fixture excess(*assets); const auto other = excess.request(); const auto original = excess.interrupted(other);
@@ -167,6 +298,9 @@ void contradictory_evidence_and_over_reservation() {
     CHECK(number(excess.store->budget(excess.request_id), "spent_input") == 1200);
     CHECK(number(excess.store->budget(excess.request_id), "spent_cost") == 12000);
     CHECK(number(excess.store->budget(excess.request_id), "cost_limit") == 10000);
+    // Complete excess usage blocks paid admission, but does not leave unknown
+    // settlement work or permanently occupy its control reservation.
+    CHECK(number(excess.store->capacity_status(excess.request_id), "reserved_control") == 16);
     error(ErrorCode::UnknownOutcome, [&] { (void)excess.reserve(excess.request("excess-block")); });
     CHECK(excess.store->verify_usage_ledger(excess.request_id).at("consistent").as_bool());
 }
@@ -325,8 +459,12 @@ int main(int argc, char** argv) {
     try { assets = std::make_unique<fixture::Assets>(argc > 1 ? argv[1] : WLS_SOURCE_DIR); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     return test::run({
+        {"read-only ledger reconstruction uses one snapshot across a separate writer commit", readonly_ledger_observes_one_snapshot},
+        {"completed usage reconciliation releases settlement capacity while missing cache stays reserved", reconciled_usage_releases_settlement_capacity},
+        {"Fake and legacy calls retain three-dimensional settlement capacity rules", fake_and_legacy_capacity_keep_original_usage_rules},
         {"disabled, credential authorization and full frozen envelope reject before reservation", disabled_and_complete_envelope},
         {"live profile capacity rejects impossible durable evidence before admission", live_profile_capacity_is_rejected_before_admission},
+        {"invalid live routes reject before admission and valid DNS/numeric routes remain exact", live_profile_route_is_rejected_before_admission},
         {"original encoding/options CAS and concurrent one-time durable send claim", frozen_identity_and_one_claim},
         {"reservation and send-claim faults roll back original budget and authority", reservation_and_claim_rollback},
         {"private observation and immutable original settlement faults are atomic", observation_and_original_settlement_rollback},

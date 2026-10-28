@@ -666,8 +666,9 @@ CapturedModelCall OfflineRuntime::capture_call(
     request.max_output_tokens = std::min<std::int64_t>(8192, integer_at(profile.at("capabilities"), "max_output_tokens"));
     // A conservative byte-based reservation is not a claim about provider
     // tokenization. Fake usage is explicit fixture data or remains unknown.
-    require(request.context.prompt().size() < static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max()), ErrorCode::Quota, "input reservation overflow");
-    request.reserved_input_tokens = static_cast<std::int64_t>(request.context.prompt().size());
+    const auto prompt_size = request.context.prompt().size();
+    require(prompt_size < static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max()), ErrorCode::Quota, "input reservation overflow");
+    request.reserved_input_tokens = static_cast<std::int64_t>(prompt_size);
     request.reserved_output_tokens = request.max_output_tokens;
     request.reserved_cost_micro_usd = limits.reserved_cost_micro_usd;
     request.timeout = limits.timeout;

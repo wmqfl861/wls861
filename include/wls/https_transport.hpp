@@ -37,6 +37,13 @@ struct HttpsTransportOptions {
     std::chrono::milliseconds poll_interval{25};
 };
 
+// Pure preflight shared by configuration admission and the transport. Rejects
+// ambiguous numeric hosts, malformed IPv4 mappings and conflicting numeric
+// destinations without initializing libcurl, resolving DNS or opening sockets.
+// Runtime DNS backend and TLS checks remain part of the actual transport.
+void validate_responses_https_target(const ProviderProfile& profile,
+                                     const HttpsTransportOptions& options);
+
 struct HttpsTransportResult {
     ModelResponse response;
     HttpsTransportStatus status{HttpsTransportStatus::TransferError};

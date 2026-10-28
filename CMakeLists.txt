@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(wls861 VERSION 0.11.0 LANGUAGES CXX)
+project(wls861 VERSION 0.11.1 LANGUAGES CXX)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "M1 currently requires Linux journal and process semantics")
@@ -117,8 +117,8 @@ if(BUILD_TESTING)
         target_include_directories(${suite}_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
         target_compile_definitions(${suite}_tests PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
         if(suite STREQUAL "single_agent")
-            # The 11 new cases include 71 original model calls. Keep all cases
-            # and the 90-second per-suite deadline in two bounded groups.
+            # Keep all original model-call and byte-integrity cases while
+            # preserving the 90-second per-suite deadline in bounded groups.
             add_test(NAME single_agent COMMAND single_agent_tests --group history)
             add_test(NAME single_agent_runtime COMMAND single_agent_tests --group runtime)
             set_tests_properties(single_agent_runtime PROPERTIES TIMEOUT 90)

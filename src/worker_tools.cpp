@@ -494,8 +494,9 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
     std::string outcome = "FAILED", stdout_bytes, stderr_bytes;
     bool output_truncated = false;
     try {
-        if (cancel.stop_requested()) {
+        if (cancel.stop_requested() && name != "run") {
             result = Object{{"error", "cancelled_before_effect"}}; evidence = Object{{"effect_started", false}};
+            outcome = "CANCELLED";
         } else if (name == "note") {
             result = args; evidence = Object{{"kind", "sqlite_note"}, {"sha256", sha256_hex(canonical_json(args))}}; outcome = "SUCCEEDED";
         } else if (name == "fs_mkdir" || name == "fs_write" || name == "fs_patch") {
@@ -510,6 +511,9 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
             if (mutation.status == WorkspaceMutationStatus::Succeeded) outcome = "SUCCEEDED";
             else if (mutation.status == WorkspaceMutationStatus::OutcomeUnknown) outcome = "UNKNOWN";
         } else {
+            // Even pre-spawn cancellation must retain the runner's original
+            // no-process/exit facts. A generic cancelled_before_effect record
+            // cannot satisfy the independent owned-cleanup process gate.
             process_request->operation_id = id;
             const auto process = process_runner->run(*process_request, cancel.get_token());
             stdout_bytes = process.stdout_text; stderr_bytes = process.stderr_text; output_truncated = process.output_truncated;
