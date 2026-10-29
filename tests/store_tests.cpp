@@ -2,6 +2,7 @@
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
 #include "test_support.hpp"
+#include "store_actor_support.hpp"
 
 #include <sqlite3.h>
 
@@ -270,8 +271,14 @@ void instruction_ack_and_durable_exact_commands() {
     error(ErrorCode::NotReady, [&] { f.ack(); });
     CHECK(s(f.prepare(), "status") == "PREPARED");
     f.store.reset(); f.store = std::make_unique<Store>(f.path, base_sql, migration_sql);
-    CHECK(f.store->issue_instruction(lead, binding, version, brief(), "instruction-one") == result);
-    error(ErrorCode::Stale, [&] { f.store->issue_instruction(lead, binding, version, brief(), "late-new-command"); });
+    const auto request = f.store->request(f.request_id);
+    const auto events = f.store->events(f.request_id);
+    error(ErrorCode::Stale, [&] { f.store->issue_instruction(lead, binding, version, brief(), "instruction-one"); });
+    CHECK(f.store->request(f.request_id) == request && f.store->events(f.request_id) == events);
+    const auto replay_lead = test::replay_actor(*f.store, lead);
+    CHECK(f.store->issue_instruction(replay_lead, binding, version, brief(), "instruction-one") == result);
+    error(ErrorCode::Stale, [&] { f.store->issue_instruction(replay_lead, binding, version, brief(), "late-new-command"); });
+    CHECK(f.store->request(f.request_id) == request && f.store->events(f.request_id) == events);
 }
 void full_constraint_text_and_frozen_team_limit() {
     Fixture f(input("first", 1));
@@ -445,7 +452,13 @@ void cancelled_request_retains_accounting_and_control_retry() {
     CHECK(s(f.store->attempt(reservation.attempt_id), "status") == "UNKNOWN");
     f.store.reset(); f.store = std::make_unique<Store>(f.path, base_sql, migration_sql);
     CHECK(n(f.store->budget(f.request_id), "unknown_cost") == 100);
-    CHECK(f.store->cancel_request(root, version, "cancel-request") == cancelled);
+    const auto request = f.store->request(f.request_id);
+    const auto events = f.store->events(f.request_id);
+    error(ErrorCode::Stale, [&] { f.store->cancel_request(root, version, "cancel-request"); });
+    CHECK(f.store->request(f.request_id) == request && f.store->events(f.request_id) == events);
+    CHECK(f.store->cancel_request(test::replay_actor(*f.store, root), version, "cancel-request") == cancelled);
+    CHECK(n(f.store->budget(f.request_id), "unknown_cost") == 100);
+    CHECK(f.store->request(f.request_id) == request && f.store->events(f.request_id) == events);
 }
 void populated_402_migrates_without_replacing_request_history() {
     Fixture f(tools_input()); f.ready();
@@ -641,7 +654,9 @@ void execution_results_and_binary_output_commit_atomically() {
     error(ErrorCode::Unauthorized, [&] { f.store->operation_output(f.actor(Role::Worker, s(extra, "team_id")), f.store->binding(s(extra, "task_id")), id, "stdout"); });
     Store reader(f.path, base_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql);
     CHECK(reader.operation_result(id) == recorded);
-    CHECK(reader.operation_output(actor, binding, id, "stdout", 0, 3) == page);
+    error(ErrorCode::Stale, [&] { reader.operation_output(actor, binding, id, "stdout", 0, 3); });
+    const auto reader_actor = reader.host_actor(Role::Worker, f.request_id, f.team_id);
+    CHECK(reader.operation_output(reader_actor, binding, id, "stdout", 0, 3) == page);
 }
 void stale_execution_facts_survive_amend_cancel_and_reopen() {
     for (const std::string action : {"amend", "cancel", "reopen"}) {
@@ -702,21 +717,24 @@ void diagnostic_and_control_guards_are_current_bounded_and_readonly() {
     const auto before_request = f.store->request(f.request_id);
     const auto before_events = f.store->events(f.request_id);
     Store reader(f.path, base_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql);
-    CHECK(n(reader.authorize_diagnostic(actor, current, "fs_read"), "max_queries_per_minute") == 60);
-    CHECK(n(reader.authorize_control(actor, current, "ack_change"), "max_queries_per_minute") == 60);
-    CHECK(n(reader.authorize_control(actor, current, "op_cancel"), "max_output_bytes") == 1048576);
-    error(ErrorCode::Unauthorized, [&] { reader.authorize_diagnostic(actor, current, "run"); });
-    error(ErrorCode::Unauthorized, [&] { reader.authorize_control(actor, current, "run"); });
-    error(ErrorCode::Unauthorized, [&] { reader.authorize_diagnostic(f.actor(Role::TeamLead), current, "fs_read"); });
-    error(ErrorCode::Stale, [&] { reader.authorize_diagnostic(original_actor, original, "fs_read"); });
-    auto forged = actor; forged.principal_id = "not-the-worker";
+    error(ErrorCode::Stale, [&] { reader.authorize_diagnostic(actor, current, "fs_read"); });
+    error(ErrorCode::Stale, [&] { reader.authorize_control(actor, current, "ack_change"); });
+    const auto reader_actor = reader.host_actor(Role::Worker, f.request_id, f.team_id);
+    CHECK(n(reader.authorize_diagnostic(reader_actor, current, "fs_read"), "max_queries_per_minute") == 60);
+    CHECK(n(reader.authorize_control(reader_actor, current, "ack_change"), "max_queries_per_minute") == 60);
+    CHECK(n(reader.authorize_control(reader_actor, current, "op_cancel"), "max_output_bytes") == 1048576);
+    error(ErrorCode::Unauthorized, [&] { reader.authorize_diagnostic(reader_actor, current, "run"); });
+    error(ErrorCode::Unauthorized, [&] { reader.authorize_control(reader_actor, current, "run"); });
+    error(ErrorCode::Unauthorized, [&] { reader.authorize_diagnostic(reader.host_actor(Role::TeamLead, f.request_id, f.team_id), current, "fs_read"); });
+    error(ErrorCode::Stale, [&] { reader.authorize_diagnostic(reader_actor, original, "fs_read"); });
+    auto forged = reader_actor; forged.principal_id = "not-the-worker";
     error(ErrorCode::Unauthorized, [&] { reader.authorize_diagnostic(forged, current, "fs_read"); });
     CHECK(f.store->request(f.request_id) == before_request && f.store->events(f.request_id) == before_events);
     raw_exec(f.path, "UPDATE runtime_policy SET policy_epoch=policy_epoch+1,denied_tools='[\"fs_read\"]',state_version=state_version+1 WHERE singleton=1;");
-    error(ErrorCode::Stale, [&] { reader.authorize_diagnostic(actor, current, "fs_read"); });
+    error(ErrorCode::Stale, [&] { reader.authorize_diagnostic(reader_actor, current, "fs_read"); });
     const auto policy_current = f.store->binding(f.task_id);
-    error(ErrorCode::Unauthorized, [&] { reader.authorize_diagnostic(actor, policy_current, "fs_read"); });
-    CHECK(reader.authorize_diagnostic(actor, policy_current, "op_status").is_object());
+    error(ErrorCode::Unauthorized, [&] { reader.authorize_diagnostic(reader_actor, policy_current, "fs_read"); });
+    CHECK(reader.authorize_diagnostic(reader_actor, policy_current, "op_status").is_object());
 }
 void revoked_tool_preserves_other_model_declarations_and_business_grants() {
     Fixture f(tools_input()); upgrade_tools(f); bind_tools(f); f.ready();
@@ -765,17 +783,23 @@ void tool_ack_exact_replay_cannot_apply_a_new_instruction() {
     error(ErrorCode::Stale, [&] { f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "fresh-old-ack"); });
     error(ErrorCode::Conflict, [&] { f.store->execute_tool_control(actor, original, expected + 1, "ack_change", Object{}, "tool-ack"); });
     upgrade_tools(f);
-    CHECK(f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "tool-ack") == acknowledged);
+    const auto reopened_task = f.store->task(f.task_id);
+    const auto reopened_events = f.store->events(f.request_id);
+    error(ErrorCode::Stale, [&] { f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "tool-ack"); });
+    CHECK(f.store->task(f.task_id) == reopened_task && f.store->events(f.request_id) == reopened_events);
+    const auto replay_worker = test::replay_actor(*f.store, actor);
+    CHECK(f.store->execute_tool_control(replay_worker, original, expected, "ack_change", Object{}, "tool-ack") == acknowledged);
+    CHECK(f.store->task(f.task_id) == reopened_task && f.store->events(f.request_id) == reopened_events);
     CHECK(n(f.store->task(f.task_id), "instruction_revision") == next_instruction);
     CHECK(n(f.store->task(f.task_id), "applied_instruction_revision") == 0); // takeover requires a fresh control ack
-    error(ErrorCode::Stale, [&] { f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "new-command-old-epoch"); });
+    error(ErrorCode::Stale, [&] { f.store->execute_tool_control(replay_worker, original, expected, "ack_change", Object{}, "new-command-old-epoch"); });
     f.instruction();
     const auto current = f.store->binding(f.task_id);
     const auto current_actor = f.actor(Role::Worker);
     f.store->execute_tool_control(current_actor, current, f.tv(), "ack_change", Object{}, "ack-current");
     CHECK(n(f.store->task(f.task_id), "applied_instruction_revision") == current.instruction_revision);
     raw_exec(f.path, "UPDATE runtime_policy SET policy_epoch=policy_epoch+1,denied_tools='[\"ack_change\"]',state_version=state_version+1 WHERE singleton=1;");
-    error(ErrorCode::Unauthorized, [&] { f.store->execute_tool_control(actor, original, expected, "ack_change", Object{}, "tool-ack"); });
+    error(ErrorCode::Unauthorized, [&] { f.store->execute_tool_control(replay_worker, original, expected, "ack_change", Object{}, "tool-ack"); });
 }
 void tool_cancel_retries_use_original_command_not_changed_op_version() {
     Fixture f(tools_input(1)); upgrade_tools(f); bind_tools(f); f.ready();
@@ -801,7 +825,14 @@ void tool_cancel_retries_use_original_command_not_changed_op_version() {
     CHECK(f.store->execute_tool_control(actor, original, expected, "op_cancel", args, "stable-cancel") == cancelled);
     CHECK(s(f.store->operation(id), "status") == "SUCCEEDED");
     upgrade_tools(f);
-    CHECK(f.store->execute_tool_control(actor, original, expected, "op_cancel", args, "stable-cancel") == cancelled);
+    const auto reopened_op = f.store->operation(id);
+    const auto reopened_events = f.store->events(f.request_id);
+    error(ErrorCode::Stale, [&] { f.store->execute_tool_control(actor, original, expected, "op_cancel", args, "stable-cancel"); });
+    CHECK(f.store->operation(id) == reopened_op && f.store->events(f.request_id) == reopened_events);
+    const auto replay_worker = test::replay_actor(*f.store, actor);
+    CHECK(f.store->execute_tool_control(replay_worker, original, expected, "op_cancel", args, "stable-cancel") == cancelled);
+    error(ErrorCode::Stale, [&] { f.store->execute_tool_control(replay_worker, original, expected, "op_cancel", args, "new-cancel-old-epoch"); });
+    CHECK(f.store->operation(id) == reopened_op && f.store->events(f.request_id) == reopened_events);
     CHECK(s(f.store->operation(id), "status") == "SUCCEEDED");
 }
 void process_crash_keeps_commits_and_rolls_back_uncommitted_change() {

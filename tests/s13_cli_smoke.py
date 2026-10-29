@@ -244,6 +244,9 @@ class EventCliSmoke(unittest.TestCase):
         changed = "替代现场，不能冒充先前的读取结果。\n".encode("utf-8")
         (self.workspaces["alpha"] / "r1.txt").write_bytes(changed)
         script = self.json_file("followup.json", self.diagnostic_script(max_bytes=3))
+        # Explicit recovery keeps this test's original cross-epoch history case.
+        # An idle CLI reopen is covered separately and preserves its epoch.
+        self.invoke("init", "--db", self.database)
         run = self.pump(request, script=script, workers=1)
         self.assertEqual(sum(call["role"] == "worker" for call in run["calls"]), 2)
         self.assertFalse(any(call["role"] == "dispatcher" for call in run["calls"]))

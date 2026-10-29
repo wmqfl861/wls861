@@ -2,6 +2,7 @@
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
 #include "test_support.hpp"
+#include "store_actor_support.hpp"
 #include "capacity_test_support.hpp"
 
 #include <sqlite3.h>
@@ -269,7 +270,15 @@ void question_idempotency_conflicts_and_exact_selection() {
     error(ErrorCode::InvalidInput, [&] { f.store->answer_question(f.actor(Role::TeamLead), f.binding(), s(question, "question_id"), 1, Object{{"selected_option", "missing"}}, "bad-option"); });
     const auto lead = f.actor(Role::TeamLead); const auto captured = f.binding();
     const auto answered = f.store->answer_question(lead, captured, s(question, "question_id"), 1, Object{{"selected_option", "a"}}, "same-answer");
-    f.reopen(); CHECK(f.store->answer_question(lead, captured, s(question, "question_id"), 1, Object{{"selected_option", "a"}}, "same-answer") == answered);
+    f.reopen();
+    const auto events = f.store->events(f.request_id);
+    const auto questions = f.store->questions(f.request_id);
+    error(ErrorCode::Stale, [&] { f.store->answer_question(lead, captured, s(question, "question_id"), 1, Object{{"selected_option", "a"}}, "same-answer"); });
+    CHECK(f.store->events(f.request_id) == events && f.store->questions(f.request_id) == questions);
+    const auto replay_lead = test::replay_actor(*f.store, lead);
+    CHECK(f.store->answer_question(replay_lead, captured, s(question, "question_id"), 1, Object{{"selected_option", "a"}}, "same-answer") == answered);
+    error(ErrorCode::Stale, [&] { f.store->answer_question(replay_lead, captured, s(question, "question_id"), 1, Object{{"selected_option", "a"}}, "new-answer-old-epoch"); });
+    CHECK(f.store->events(f.request_id) == events && f.store->questions(f.request_id) == questions);
     CHECK(f.store->questions(f.request_id).size() == 1);
 }
 
@@ -438,8 +447,16 @@ void concurrent_checks_have_one_captured_winner_and_replay_is_exact() {
     auto second = std::async(std::launch::async, [&] { return check("concurrent-check-b"); });
     gate.arrive_and_wait(); const bool first_won = first.get(); CHECK(first_won != second.get());
     const auto ready = f.store->submission(s(submitted, "submission_id")); CHECK(ready.at("checks").as_array().size() == 1);
-    f.reopen(); CHECK(f.store->check_submission(lead, binding, version, s(submitted, "submission_id"), 1, check_body(), nullptr,
-        first_won ? "concurrent-check-a" : "concurrent-check-b") == ready);
+    f.reopen();
+    const auto events = f.store->events(f.request_id);
+    const auto original = f.store->submission(s(submitted, "submission_id"));
+    const std::string command = first_won ? "concurrent-check-a" : "concurrent-check-b";
+    error(ErrorCode::Stale, [&] { f.store->check_submission(lead, binding, version, s(submitted, "submission_id"), 1, check_body(), nullptr, command); });
+    CHECK(f.store->events(f.request_id) == events && f.store->submission(s(submitted, "submission_id")) == original);
+    const auto replay_lead = test::replay_actor(*f.store, lead);
+    CHECK(f.store->check_submission(replay_lead, binding, version, s(submitted, "submission_id"), 1, check_body(), nullptr, command) == ready);
+    error(ErrorCode::Stale, [&] { f.store->check_submission(replay_lead, binding, version, s(submitted, "submission_id"), 1, check_body(), nullptr, "new-check-old-epoch"); });
+    CHECK(f.store->events(f.request_id) == events && f.store->submission(s(submitted, "submission_id")) == original);
 }
 
 void normal_check_capacity_does_not_borrow_adverse_revocation_reserve() {

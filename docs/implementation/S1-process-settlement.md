@@ -42,8 +42,24 @@ mtime/ctime 和普通文件完整 SHA-256。diff记录新增、移除、变化�
 拒绝链接、特殊文件、跨挂载、非本用户或组/其他用户可写对象；读取前后身份/元数据变化也拒绝。
 同UID恶意宿主并发修改不在合作锁威胁模型内；不把两次扫描说成对恶意同UID代码的隔离。
 
-结果/证据各受Store的256KiB上限，原输出继续独立BLOB保存。结算写入失败沿用原内存阻断和
-持久UNKNOWN兜底，不允许随后取得新业务派发权。原有相关故障注入回归继续执行。
+结果/证据各受Store的256KiB上限，原输出继续独立BLOB保存。结算写入失败沿用内存阻断和
+持久UNKNOWN兜底。后续 [R2.4](R2-demand-driven-recovery.md) 将内存故障键由
+`(team_id, execution_epoch)` 细化为 `(writer_session, team_id, execution_epoch)`。
+业务早期准入、首次派发前复查及故障登记使用同一键，派发与登记继续共享原互斥边界。
+同一 Store、团队和 epoch 内重新签发 `host_actor` 或重建 WorkerTools 仍被阻断，
+即使已合法 Root 核对该 UNKNOWN，也不清除该会话的内存标记。
+
+新 Store 会话只使旧局部标记不再匹配，不修改原操作或结算证据。持久 UNKNOWN 继续
+独立阻断新业务，须由合法 Root 按原请求归属、CAS 和宿主证据核对；先核对后重开，
+或先重开再核对，都必须保留原结果、输出及历史，之后的新操作仍经过所有准入守卫。
+会话变化本身不需要为已空闲请求递增 epoch，旧 Actor 也不会获得新会话权限。
+
+进程内故障表最多保留 4096 条，旧会话记录不自动清除。登记故障时表已满或分配失败
+会设置进程级 `settlement_capacity_exhausted`，阻断进程内所有 WorkerTools 的新业务；
+该全局阻断对新 Store 会话仍有效，须重启进程才能解除，持久 UNKNOWN 和未决恢复
+责任仍保留。新会话、核对成功或
+进程重启均不构成原进程退出证明，不能据此批准清理。原有故障注入与新增会话隔离
+回归须记录实际执行结果，本段不表示候选验证、完整测试或发布已经完成。
 
 ## 3. 受信本地主机 Root 核对入口
 
@@ -61,8 +77,10 @@ wls reconcile-op --db FILE --request REQUEST_ID --op OP_ID \
 
 CLI在读写者接管前校验选项、文件、角色/请求及CAS；取得写者后事务内再次校验。
 事件包含完整证据，operation_intents只记录证据SHA；原执行结果/输出/退出事实不覆盖。
-幂等意图使用稳定Root身份和显式op CAS，不包含易变的dispatcher epoch。精确重放跨重开有效；
-同键异参冲突，陈旧CAS不修改状态。重放不重复reconcile_op事件（合法写者重开仍有自己的recover事件）。
+幂等意图使用稳定Root身份和显式op CAS，不包含易变的dispatcher epoch。精确重放跨重开有效，
+但新 Store 会话须使用本实例签发的 Root Actor；会话字段不加入原核对意图指纹。
+同键异参冲突，陈旧CAS不修改状态。重放不重复reconcile_op事件；OneRequest 重开
+仅在请求确实需要恢复时追加原recover事件，显式强制恢复保持原语义。
 事件插入失败，操作状态和证据引用整体回滚。人工核对不自动ack、不清等待、不批准AMEND，
 也不能替代清理所需的原始进程退出证明；核对成功不等于cleanup完成。
 

@@ -207,10 +207,12 @@ void selected_scope_cannot_initialize_missing_or_empty_database() {
 }
 void selected_recovery_preserves_wait_and_unhandled_amendment() {
     Fixture f;
+    const auto prepared=f.prepare(f.a); // A real recovery need, independent of WAITING.
     const auto wait=f.store->wait_worker(f.actor(f.a),f.store->binding(f.a.task),
         num(f.store->task(f.a.task),"state_version"),"explicit pause",new_id("wait"));
     const auto before=f.snapshot(f.b);
     f.reopen(StoreRecoveryScope::request(f.a.request)); f.ack(f.a);
+    CHECK(f.store->operation(text(prepared,"op_id")).at("status")=="CANCELLED");
     CHECK(f.store->worker_wait(f.a.task)==wait);
     fails(ErrorCode::NotReady,[&]{(void)f.prepare(f.a);});
     f.store->wake_worker(f.actor(f.a),f.store->binding(f.a.task),num(wait,"generation"),new_id("wake"));

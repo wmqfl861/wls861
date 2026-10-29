@@ -2,6 +2,7 @@
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
 #include "test_support.hpp"
+#include "store_actor_support.hpp"
 #include "capacity_test_support.hpp"
 
 #include <sqlite3.h>
@@ -267,11 +268,22 @@ void exact_replay_and_recovery_preserve_original_acceptance() {
     Fixture f; const auto c = candidate(f); const auto actor = f.actor(Role::Dispatcher); const auto binding = f.store->request_binding(f.request_id); const auto tv = f.tv();
     const auto first = f.store->accept_candidate(actor,binding,tv,s(c,"submission_id"),n(c,"state_version"),decision(),"one-accept");
     CHECK(f.store->accept_candidate(actor,binding,tv,s(c,"submission_id"),n(c,"state_version"),decision(),"one-accept") == first);
-    f.reopen(); CHECK(f.store->accept_candidate(actor,binding,tv,s(c,"submission_id"),n(c,"state_version"),decision(),"one-accept") == first);
+    f.reopen();
+    const auto events = f.store->events(f.request_id);
+    const auto original = f.store->submission(s(c,"submission_id"));
+    const auto jobs = f.store->experience_jobs(f.request_id);
+    error(ErrorCode::Stale, [&] { f.store->accept_candidate(actor,binding,tv,s(c,"submission_id"),n(c,"state_version"),decision(),"one-accept"); });
+    CHECK(f.store->events(f.request_id) == events && f.store->submission(s(c,"submission_id")) == original);
+    CHECK(f.store->experience_jobs(f.request_id) == jobs);
+    const auto replay_dispatcher = test::replay_actor(*f.store, actor);
+    CHECK(f.store->accept_candidate(replay_dispatcher,binding,tv,s(c,"submission_id"),n(c,"state_version"),decision(),"one-accept") == first);
+    error(ErrorCode::Stale, [&] { f.store->accept_candidate(replay_dispatcher,binding,tv,s(c,"submission_id"),n(c,"state_version"),decision(),"new-accept-old-epoch"); });
     CHECK(f.store->submission(s(c,"submission_id")).at("acceptance").at("producer_binding") == c.at("original_binding"));
     CHECK(f.store->experience_jobs(f.request_id).size() == 1);
     auto changed = decision(); changed.as_object()["notes"] = "different decision";
-    error(ErrorCode::Conflict, [&] { f.store->accept_candidate(actor,binding,tv,s(c,"submission_id"),n(c,"state_version"),changed,"one-accept"); });
+    error(ErrorCode::Conflict, [&] { f.store->accept_candidate(replay_dispatcher,binding,tv,s(c,"submission_id"),n(c,"state_version"),changed,"one-accept"); });
+    CHECK(f.store->events(f.request_id) == events && f.store->submission(s(c,"submission_id")) == original);
+    CHECK(f.store->experience_jobs(f.request_id) == jobs);
 }
 void negative_control_revokes_accepted_delivery() {
     Fixture f; accept_both(f); const auto delivery = prepare(f);

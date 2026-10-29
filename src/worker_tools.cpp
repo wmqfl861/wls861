@@ -10,6 +10,7 @@
 #include <charconv>
 #include <limits>
 #include <set>
+#include <tuple>
 
 namespace wls::s1 {
 namespace {
@@ -123,7 +124,9 @@ SandboxPolicy policy_from_config(Store& store, const StoreActor& actor,
 struct ActiveRuns {
     std::mutex mutex;
     std::map<std::pair<const Store*, std::string>, std::stop_source> operations;
-    std::set<std::pair<std::string, std::int64_t>> failed_settlements;
+    // The issuing writer session owns this in-memory fault. A new session
+    // still has to satisfy the Store's independent UNKNOWN and epoch gates.
+    std::set<std::tuple<std::string, std::string, std::int64_t>> failed_settlements;
     bool settlement_capacity_exhausted{false};
 };
 ActiveRuns& active_runs() { static ActiveRuns value; return value; }
@@ -274,6 +277,7 @@ void WorkerTools::check_actor(const StoreActor& actor) const {
     const auto current = store_.host_actor(Role::Worker, actor.request_id, actor.team_id);
     require(actor.task_id == current.task_id && actor.principal_id == current.principal_id && actor.request_id == current.request_id && actor.team_id == current.team_id,
             ErrorCode::Unauthorized, "Worker scope does not match the host identity");
+    require(actor.writer_session == current.writer_session, ErrorCode::Stale, "Worker belongs to another Store session");
     require(actor.dispatcher_epoch == current.dispatcher_epoch && actor.execution_epoch == current.execution_epoch,
             ErrorCode::Stale, "Worker identity belongs to a retired execution");
 }
@@ -402,6 +406,7 @@ Json WorkerTools::control(const StoreActor& actor, const ExecutionBinding& bindi
     const auto current = store_.host_actor(Role::Worker, actor.request_id, actor.team_id);
     require(actor.role == Role::Worker && actor.principal_id == current.principal_id && actor.task_id == current.task_id,
         ErrorCode::Unauthorized, "control belongs to another Worker");
+    require(actor.writer_session == current.writer_session, ErrorCode::Stale, "control belongs to another Store session");
     const auto allowance = store_.authorize_control(current, store_.binding(current.task_id), name);
     rate_limit(current, allowance);
     const auto result = store_.execute_tool_control(actor, binding, expected, name, args, command);
@@ -429,7 +434,7 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
     {
         auto& active = active_runs();
         const std::lock_guard lock(active.mutex);
-        require(!active.settlement_capacity_exhausted && !active.failed_settlements.contains({actor.team_id, actor.execution_epoch}),
+        require(!active.settlement_capacity_exhausted && !active.failed_settlements.contains({actor.writer_session, actor.team_id, actor.execution_epoch}),
             ErrorCode::NotReady, "an execution result could not be persisted; recover and reconcile before new business");
     }
     std::optional<ProcessRequest> process_request;
@@ -452,6 +457,11 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
         process_runner.emplace(root.value, policy);
         process_request = std::move(request);
     }
+#ifdef WLS_WORKER_TOOLS_PRIVATE_TEST_BEFORE_PREPARE
+    // This TU-only observer schedules a late prepare replay without changing
+    // any Store state or production admission/dispatch condition.
+    WLS_WORKER_TOOLS_PRIVATE_TEST_BEFORE_PREPARE(key);
+#endif
     const auto prepared = store_.prepare_tool_operation(actor, binding, expected, key, name, args, command + ":prepare");
 #ifdef WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE
     // The regression TU alone supplies this phase observer; normal library
@@ -459,6 +469,11 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
     WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE(key, prepared);
 #endif
     const auto id = field(prepared, "op_id");
+    // A concurrent prepare replay can return an already claimed or settled
+    // row. Its advanced version must not create a different start intent.
+    if (field(prepared, "status") != "PREPARED")
+        return Object{{"operation", prepared}, {"execution_result", store_.operation_result(id)},
+            {"replayed", true}, {"executed_now", false}};
     std::stop_source cancel;
     auto& active = active_runs();
     const auto active_key = std::make_pair(static_cast<const Store*>(&store_), id);
@@ -482,7 +497,7 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
         // passed the early check before another result failed to persist must
         // not acquire a new dispatch claim after that failure is registered.
         const std::lock_guard lock(active.mutex);
-        require(!active.settlement_capacity_exhausted && !active.failed_settlements.contains({actor.team_id, actor.execution_epoch}),
+        require(!active.settlement_capacity_exhausted && !active.failed_settlements.contains({actor.writer_session, actor.team_id, actor.execution_epoch}),
             ErrorCode::NotReady, "an execution result could not be persisted; recover and reconcile before new business");
         claim = store_.start_tool_operation(actor, id, signed_number(prepared.at("state_version")), command + ":start");
     }
@@ -551,7 +566,7 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
             settlement_failed = true;
             if (active.failed_settlements.size() >= 4096) active.settlement_capacity_exhausted = true;
             else {
-                try { active.failed_settlements.emplace(actor.team_id, actor.execution_epoch); }
+                try { active.failed_settlements.emplace(actor.writer_session, actor.team_id, actor.execution_epoch); }
                 catch (...) { active.settlement_capacity_exhausted = true; }
             }
         }
@@ -560,7 +575,7 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
         // An effect followed by a storage failure must not leave a usable
         // RUNNING row as implicit permission for more work. The small fallback
         // facts are best effort; even a wholly unavailable Store fails closed
-        // in every WorkerTools sharing this process and execution epoch.
+        // in every WorkerTools sharing this writer session and execution epoch.
         try {
             const auto existing = store_.operation_result(id);
             if (existing.is_null()) {
