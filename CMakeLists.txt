@@ -129,6 +129,31 @@ if(BUILD_TESTING)
     endforeach()
     set_tests_properties(owned_capacity_runtime PROPERTIES TIMEOUT 180)
     set_tests_properties(r1_management PROPERTIES TIMEOUT 300)
+    # Supplemental R2.4 families keep the existing 90-second S1 deadline.
+    # Capacity exhaustion is process-global, so its two cases use separate
+    # processes; all bounded recovery/concurrency groups are registered.
+    foreach(suite IN ITEMS r24_settlement_capacity r24_recovery_predicates r24_concurrency)
+        add_executable(${suite}_tests tests/${suite}_tests.cpp)
+        target_link_libraries(${suite}_tests PRIVATE wls_s1)
+        target_include_directories(${suite}_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+        target_compile_definitions(${suite}_tests PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    endforeach()
+    add_test(NAME r24_settlement_capacity
+        COMMAND r24_settlement_capacity_tests capacity-boundary)
+    add_test(NAME r24_settlement_allocation_failure
+        COMMAND r24_settlement_capacity_tests allocation-failure)
+    foreach(group IN ITEMS active terminal)
+        add_test(NAME r24_recovery_predicates_${group}
+            COMMAND r24_recovery_predicates_tests --group ${group})
+    endforeach()
+    foreach(group IN ITEMS phases replay settlement cleanup)
+        add_test(NAME r24_concurrency_${group}
+            COMMAND r24_concurrency_tests --group ${group})
+    endforeach()
+    set_tests_properties(r24_settlement_capacity r24_settlement_allocation_failure
+        r24_recovery_predicates_active r24_recovery_predicates_terminal
+        r24_concurrency_phases r24_concurrency_replay r24_concurrency_settlement
+        r24_concurrency_cleanup PROPERTIES TIMEOUT 90)
     foreach(suite IN ITEMS doctor_diagnostics protocol_replay)
         add_test(NAME ${suite}_cli
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_${suite}_cli.py"
