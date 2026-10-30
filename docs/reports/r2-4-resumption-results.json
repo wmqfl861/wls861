@@ -1,0 +1,3857 @@
+{
+  "schema_version": 1,
+  "record_kind": "append_only_same_v3_validation_resumption",
+  "baseline": "a6b8559018a599d7a806b05942857a56d69a00ce",
+  "branch": "feat/r2-4-demand-driven-recovery",
+  "source_manifest_sha256": "59c8310d64a961d2ebac1159b93e8aa925499be61795b06831a96d79e2fa2050",
+  "source_input_count": 312,
+  "source_unchanged_from_original_validation": true,
+  "same_asan_binary_and_build_identity_count": 57,
+  "previous_frozen_artifacts": {
+    "feature/docs/reports/r2-4-results.json": "78c718189cf951ac6a61352ee8390aa46d17502b91196a6377910abb1f7fb2fc",
+    "feature/docs/reports/r2-4-evidence.tar.gz": "45ac14ee3558dfb8f18054f4d543d0598297c7032a012e457943ed806bea4f6c",
+    "feature/docs/reports/r2-4-asan-profile-evidence.tar.gz": "35c838fe112aa648b05f44f6f192fc0b3097fd39b7d356191dd1600898f710b8",
+    "feature/docs/reports/r2-4-serializer-probe-evidence.tar.gz": "92bedd5a7547f3792f7b1d3eb976c93f8a3a9ceab9b5a905ea862e7e9dd2b0da",
+    "evidence/final-validation-plan.json": "282d031865d920b7cbf97cd1969d2150355cc90a82ad53a50127242d09b12a2b"
+  },
+  "resumption_selection_record": {
+    "relative_path": "evidence/resumption-plan.json",
+    "sha256": "7cbc69034c28e7ae2a00c6265a19096be85c4183aaddee99c7f90916a4fbecf4",
+    "bytes": 3906,
+    "recorded_at": "2026-10-29T18:00:05.475247+00:00",
+    "recorded_after_execution_started": true,
+    "scope_note": "Recorded after this run began; this is not a preregistered or pre-run frozen plan. Original selection and timeout identities are independently checked against the earlier frozen plan."
+  },
+  "historical_summary_scope": "r2-4-results.json remains the immutable earlier failure snapshot with local_validation_complete=false. This later summary evaluates the effective gate set without rewriting that history.",
+  "effective_gates": {
+    "release_0022": {
+      "record": "feature-release-0022-session-final",
+      "provenance": "reused_completed_same_v3_gate",
+      "result": {
+        "command": [
+          "ctest",
+          "--test-dir",
+          "build-release",
+          "--output-on-failure",
+          "--parallel",
+          "2"
+        ],
+        "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature",
+        "uid": 1000,
+        "gid": 1000,
+        "groups": [
+          27,
+          999,
+          1000
+        ],
+        "umask": "0022",
+        "environment": {
+          "TMPDIR": "/tmp",
+          "ASAN_OPTIONS": null,
+          "UBSAN_OPTIONS": null,
+          "CC": null,
+          "CXX": null
+        },
+        "cpu_affinity": [
+          0,
+          1
+        ],
+        "nice": 0,
+        "capabilities": {
+          "CapInh": "0000000000000000",
+          "CapPrm": "0000000000000000",
+          "CapEff": "0000000000000000",
+          "CapAmb": "0000000000000000"
+        },
+        "mount_namespace": "mnt:[4026532673]",
+        "tmp_mounts": [
+          "163 50 0:41 / /tmp rw,nosuid,nodev,relatime - tmpfs wls861-test-tmp rw,size=2097152k,inode64"
+        ],
+        "started_at": "2026-10-29T07:43:52.572414+00:00",
+        "finished_at": "2026-10-29T08:03:37.549246+00:00",
+        "exit_code": 0,
+        "elapsed_seconds": 1180.8835599350277,
+        "inputs_unchanged": true,
+        "binaries_unchanged": true,
+        "log_sha256": "547e4cc1af31f9aabfd7be3d1d9f54fb5f0dfca1b45249d0b6eddd5701d4c76c",
+        "execution_finished": true,
+        "registered_count": 81,
+        "log_snapshot_sha256": "547e4cc1af31f9aabfd7be3d1d9f54fb5f0dfca1b45249d0b6eddd5701d4c76c",
+        "source_before_verified": true,
+        "source_after_verified": true,
+        "binary_before_after_verified": true,
+        "ctest": {
+          "reported_total": 81,
+          "reported_failed": 0,
+          "observed_entries": [
+            {
+              "name": "audit24_capacity_repro",
+              "outcome": "...........   Passed",
+              "seconds": 164.9,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_workflow",
+              "outcome": "....................   Passed",
+              "seconds": 134.6,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "billing_baseline_e2e",
+              "outcome": ".............   Passed",
+              "seconds": 389.23,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r3_evaluation",
+              "outcome": "....................   Passed",
+              "seconds": 112.8,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s14_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 77.48,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_management",
+              "outcome": "....................   Passed",
+              "seconds": 104.18,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s15_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 84.82,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s13_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 82.39,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "acceptance_runtime",
+              "outcome": "...............   Passed",
+              "seconds": 63.51,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_window_cli_smoke",
+              "outcome": "..............   Passed",
+              "seconds": 67.3,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_rework",
+              "outcome": "........................   Passed",
+              "seconds": 54.28,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s16_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 61.0,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_amend",
+              "outcome": ".........................   Passed",
+              "seconds": 46.9,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_rework_cli_smoke",
+              "outcome": "..............   Passed",
+              "seconds": 46.18,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "owned_capacity",
+              "outcome": "...................   Passed",
+              "seconds": 30.41,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_history_cli_smoke",
+              "outcome": ".............   Passed",
+              "seconds": 49.01,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "cleanup_runtime",
+              "outcome": "..................   Passed",
+              "seconds": 40.99,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_capacity_cli_smoke",
+              "outcome": ".......   Passed",
+              "seconds": 43.39,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_amend_cli_smoke",
+              "outcome": "...............   Passed",
+              "seconds": 41.41,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_recovery",
+              "outcome": ".....................   Passed",
+              "seconds": 41.59,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_integration_cli_smoke",
+              "outcome": ".........   Passed",
+              "seconds": 36.7,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "allocation_recovery_cli",
+              "outcome": "..........   Passed",
+              "seconds": 30.62,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "review_cli_smoke",
+              "outcome": ".................   Passed",
+              "seconds": 29.3,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "event_runtime",
+              "outcome": "....................   Passed",
+              "seconds": 26.49,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "workflow_runtime",
+              "outcome": ".................   Passed",
+              "seconds": 25.69,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "worker_tools",
+              "outcome": ".....................   Passed",
+              "seconds": 25.6,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "owned_capacity_runtime",
+              "outcome": "...........   Passed",
+              "seconds": 26.7,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "sse_replay",
+              "outcome": ".......................   Passed",
+              "seconds": 27.52,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "single_agent_runtime",
+              "outcome": ".............   Passed",
+              "seconds": 26.19,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_structured_cli_smoke",
+              "outcome": "..........   Passed",
+              "seconds": 23.99,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "single_agent",
+              "outcome": ".....................   Passed",
+              "seconds": 22.72,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_recovery_cli_smoke",
+              "outcome": "............   Passed",
+              "seconds": 23.58,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "acceptance_store",
+              "outcome": ".................   Passed",
+              "seconds": 19.8,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "allocation_recovery",
+              "outcome": "..............   Passed",
+              "seconds": 19.2,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_history",
+              "outcome": ".......................   Passed",
+              "seconds": 18.57,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_model_store_tls",
+              "outcome": ".............   Passed",
+              "seconds": 17.92,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_workflow_cli",
+              "outcome": "................   Passed",
+              "seconds": 17.11,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "workflow_store",
+              "outcome": "...................   Passed",
+              "seconds": 15.48,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "https_transport",
+              "outcome": "..................   Passed",
+              "seconds": 15.29,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s12_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 13.1,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_window",
+              "outcome": "........................   Passed",
+              "seconds": 13.51,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "store",
+              "outcome": "............................   Passed",
+              "seconds": 12.01,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s1_cli_smoke",
+              "outcome": ".....................   Passed",
+              "seconds": 10.6,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_cleanup_recovery",
+              "outcome": ".............   Passed",
+              "seconds": 13.52,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_model_store",
+              "outcome": ".................   Passed",
+              "seconds": 9.49,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2a_mkdir_cli_smoke",
+              "outcome": "..............   Passed",
+              "seconds": 9.98,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_recovery",
+              "outcome": "......................   Passed",
+              "seconds": 8.61,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2a_mkdir",
+              "outcome": "........................   Passed",
+              "seconds": 8.71,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "event_store",
+              "outcome": "......................   Passed",
+              "seconds": 7.78,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "runtime_resources_cli",
+              "outcome": "............   Passed",
+              "seconds": 7.01,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "billing",
+              "outcome": "..........................   Passed",
+              "seconds": 7.6,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reconcile_cli_smoke",
+              "outcome": "......   Passed",
+              "seconds": 7.19,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "offline_runtime",
+              "outcome": "..................   Passed",
+              "seconds": 5.0,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "specification_contracts",
+              "outcome": "..........   Passed",
+              "seconds": 4.6,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reopen_cli_smoke",
+              "outcome": ".........   Passed",
+              "seconds": 3.8,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_recovery_cli_smoke",
+              "outcome": "...........   Passed",
+              "seconds": 5.82,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "doctor_diagnostics_cli",
+              "outcome": "...........   Passed",
+              "seconds": 4.28,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "protocol_replay_cli",
+              "outcome": "..............   Passed",
+              "seconds": 4.38,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_capacity",
+              "outcome": ".................   Passed",
+              "seconds": 4.31,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "sandbox",
+              "outcome": "..........................   Passed",
+              "seconds": 2.53,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reopen",
+              "outcome": "...................   Passed",
+              "seconds": 2.39,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "runtime_resources",
+              "outcome": "................   Passed",
+              "seconds": 2.6,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "journal",
+              "outcome": "..........................   Passed",
+              "seconds": 1.11,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reconcile",
+              "outcome": "................   Passed",
+              "seconds": 1.41,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "doctor_diagnostics",
+              "outcome": "...............   Passed",
+              "seconds": 0.69,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "config_loader",
+              "outcome": "....................   Passed",
+              "seconds": 1.19,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_structured",
+              "outcome": "....................   Passed",
+              "seconds": 0.41,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "demo_smoke",
+              "outcome": ".......................   Passed",
+              "seconds": 0.42,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "handoff_integrity",
+              "outcome": "................   Passed",
+              "seconds": 0.48,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "review_source_integrity",
+              "outcome": "..........   Passed",
+              "seconds": 0.47,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "process_evidence",
+              "outcome": ".................   Passed",
+              "seconds": 0.29,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "protocol_codec",
+              "outcome": "...................   Passed",
+              "seconds": 0.4,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "cleanup",
+              "outcome": "..........................   Passed",
+              "seconds": 0.11,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "model",
+              "outcome": "............................   Passed",
+              "seconds": 0.09,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "schema",
+              "outcome": "...........................   Passed",
+              "seconds": 0.21,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "delivery",
+              "outcome": ".........................   Passed",
+              "seconds": 0.12,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "task_engine",
+              "outcome": "......................   Passed",
+              "seconds": 0.11,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "workspace",
+              "outcome": "........................   Passed",
+              "seconds": 0.09,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "runtime_types",
+              "outcome": "....................   Passed",
+              "seconds": 0.09,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "scheduler",
+              "outcome": "........................   Passed",
+              "seconds": 0.02,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "config",
+              "outcome": "...........................   Passed",
+              "seconds": 0.01,
+              "passed": true,
+              "timeout": false
+            }
+          ],
+          "timeout_names": []
+        },
+        "selection_complete": true,
+        "status": "PASSED",
+        "record_sha256": "d8c954e7a26fb4883151ffbc597d24453792c8a6aca2deffbb1247e82006bb1e"
+      }
+    },
+    "release_0002": {
+      "record": "feature-release-0002-session-final",
+      "provenance": "reused_completed_same_v3_gate",
+      "result": {
+        "command": [
+          "ctest",
+          "--test-dir",
+          "build-release",
+          "--output-on-failure",
+          "--parallel",
+          "2"
+        ],
+        "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature",
+        "uid": 1000,
+        "gid": 1000,
+        "groups": [
+          27,
+          999,
+          1000
+        ],
+        "umask": "0002",
+        "environment": {
+          "TMPDIR": "/tmp",
+          "ASAN_OPTIONS": null,
+          "UBSAN_OPTIONS": null,
+          "CC": null,
+          "CXX": null
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "nice": 0,
+        "capabilities": {
+          "CapInh": "0000000000000000",
+          "CapPrm": "0000000000000000",
+          "CapEff": "0000000000000000",
+          "CapAmb": "0000000000000000"
+        },
+        "mount_namespace": "mnt:[4026532673]",
+        "tmp_mounts": [
+          "163 50 0:41 / /tmp rw,nosuid,nodev,relatime - tmpfs wls861-test-tmp rw,size=2097152k,inode64"
+        ],
+        "started_at": "2026-10-29T08:03:41.848910+00:00",
+        "finished_at": "2026-10-29T08:19:42.968045+00:00",
+        "exit_code": 0,
+        "elapsed_seconds": 957.8077077169437,
+        "inputs_unchanged": true,
+        "binaries_unchanged": true,
+        "log_sha256": "0a37008349c8d3374ab387a30fdd2e9be838714a28c7452347384c3936e561b6",
+        "execution_finished": true,
+        "registered_count": 81,
+        "log_snapshot_sha256": "0a37008349c8d3374ab387a30fdd2e9be838714a28c7452347384c3936e561b6",
+        "source_before_verified": true,
+        "source_after_verified": true,
+        "binary_before_after_verified": true,
+        "ctest": {
+          "reported_total": 81,
+          "reported_failed": 0,
+          "observed_entries": [
+            {
+              "name": "audit24_capacity_repro",
+              "outcome": "...........   Passed",
+              "seconds": 137.19,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_workflow",
+              "outcome": "....................   Passed",
+              "seconds": 106.89,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "billing_baseline_e2e",
+              "outcome": ".............   Passed",
+              "seconds": 306.58,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r3_evaluation",
+              "outcome": "....................   Passed",
+              "seconds": 83.88,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s15_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 63.22,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_management",
+              "outcome": "....................   Passed",
+              "seconds": 89.21,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s13_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 60.08,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s14_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 63.2,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_window_cli_smoke",
+              "outcome": "..............   Passed",
+              "seconds": 54.01,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "acceptance_runtime",
+              "outcome": "...............   Passed",
+              "seconds": 49.98,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_rework",
+              "outcome": "........................   Passed",
+              "seconds": 43.41,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s16_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 47.59,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_history_cli_smoke",
+              "outcome": ".............   Passed",
+              "seconds": 37.09,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_amend",
+              "outcome": ".........................   Passed",
+              "seconds": 40.62,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_capacity_cli_smoke",
+              "outcome": ".......   Passed",
+              "seconds": 34.39,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_rework_cli_smoke",
+              "outcome": "..............   Passed",
+              "seconds": 40.01,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "cleanup_runtime",
+              "outcome": "..................   Passed",
+              "seconds": 35.4,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_amend_cli_smoke",
+              "outcome": "...............   Passed",
+              "seconds": 34.3,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "owned_capacity",
+              "outcome": "...................   Passed",
+              "seconds": 25.7,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_recovery",
+              "outcome": ".....................   Passed",
+              "seconds": 38.19,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_integration_cli_smoke",
+              "outcome": ".........   Passed",
+              "seconds": 30.22,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "allocation_recovery_cli",
+              "outcome": "..........   Passed",
+              "seconds": 24.1,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "review_cli_smoke",
+              "outcome": ".................   Passed",
+              "seconds": 23.77,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "worker_tools",
+              "outcome": ".....................   Passed",
+              "seconds": 21.91,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "event_runtime",
+              "outcome": "....................   Passed",
+              "seconds": 24.41,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "sse_replay",
+              "outcome": ".......................   Passed",
+              "seconds": 23.31,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "owned_capacity_runtime",
+              "outcome": "...........   Passed",
+              "seconds": 22.3,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "workflow_runtime",
+              "outcome": ".................   Passed",
+              "seconds": 22.18,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "single_agent_runtime",
+              "outcome": ".............   Passed",
+              "seconds": 21.1,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_structured_cli_smoke",
+              "outcome": "..........   Passed",
+              "seconds": 20.4,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_recovery_cli_smoke",
+              "outcome": "............   Passed",
+              "seconds": 19.0,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "single_agent",
+              "outcome": ".....................   Passed",
+              "seconds": 19.79,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "acceptance_store",
+              "outcome": ".................   Passed",
+              "seconds": 16.99,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "allocation_recovery",
+              "outcome": "..............   Passed",
+              "seconds": 14.71,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_model_store_tls",
+              "outcome": ".............   Passed",
+              "seconds": 13.91,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_history",
+              "outcome": ".......................   Passed",
+              "seconds": 15.62,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_workflow_cli",
+              "outcome": "................   Passed",
+              "seconds": 13.5,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "workflow_store",
+              "outcome": "...................   Passed",
+              "seconds": 14.38,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "https_transport",
+              "outcome": "..................   Passed",
+              "seconds": 12.4,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s12_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 12.12,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "store",
+              "outcome": "............................   Passed",
+              "seconds": 10.07,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_window",
+              "outcome": "........................   Passed",
+              "seconds": 10.98,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s1_cli_smoke",
+              "outcome": ".....................   Passed",
+              "seconds": 8.42,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_cleanup_recovery",
+              "outcome": ".............   Passed",
+              "seconds": 11.89,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2a_mkdir_cli_smoke",
+              "outcome": "..............   Passed",
+              "seconds": 8.48,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_model_store",
+              "outcome": ".................   Passed",
+              "seconds": 9.23,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_recovery",
+              "outcome": "......................   Passed",
+              "seconds": 8.41,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2a_mkdir",
+              "outcome": "........................   Passed",
+              "seconds": 6.7,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "event_store",
+              "outcome": "......................   Passed",
+              "seconds": 6.8,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "billing",
+              "outcome": "..........................   Passed",
+              "seconds": 6.3,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reconcile_cli_smoke",
+              "outcome": "......   Passed",
+              "seconds": 5.49,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "runtime_resources_cli",
+              "outcome": "............   Passed",
+              "seconds": 5.31,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "offline_runtime",
+              "outcome": "..................   Passed",
+              "seconds": 4.61,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_recovery_cli_smoke",
+              "outcome": "...........   Passed",
+              "seconds": 4.86,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "specification_contracts",
+              "outcome": "..........   Passed",
+              "seconds": 4.6,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "protocol_replay_cli",
+              "outcome": "..............   Passed",
+              "seconds": 3.02,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "doctor_diagnostics_cli",
+              "outcome": "...........   Passed",
+              "seconds": 3.0,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_capacity",
+              "outcome": ".................   Passed",
+              "seconds": 3.48,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reopen_cli_smoke",
+              "outcome": ".........   Passed",
+              "seconds": 2.91,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "sandbox",
+              "outcome": "..........................   Passed",
+              "seconds": 2.29,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "runtime_resources",
+              "outcome": "................   Passed",
+              "seconds": 2.18,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reopen",
+              "outcome": "...................   Passed",
+              "seconds": 2.22,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reconcile",
+              "outcome": "................   Passed",
+              "seconds": 1.38,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "journal",
+              "outcome": "..........................   Passed",
+              "seconds": 1.2,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "doctor_diagnostics",
+              "outcome": "...............   Passed",
+              "seconds": 0.68,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "config_loader",
+              "outcome": "....................   Passed",
+              "seconds": 1.03,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "handoff_integrity",
+              "outcome": "................   Passed",
+              "seconds": 0.41,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_structured",
+              "outcome": "....................   Passed",
+              "seconds": 0.39,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "review_source_integrity",
+              "outcome": "..........   Passed",
+              "seconds": 0.39,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "demo_smoke",
+              "outcome": ".......................   Passed",
+              "seconds": 0.39,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "protocol_codec",
+              "outcome": "...................   Passed",
+              "seconds": 0.31,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "schema",
+              "outcome": "...........................   Passed",
+              "seconds": 0.2,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "process_evidence",
+              "outcome": ".................   Passed",
+              "seconds": 0.21,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "delivery",
+              "outcome": ".........................   Passed",
+              "seconds": 0.08,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "task_engine",
+              "outcome": "......................   Passed",
+              "seconds": 0.05,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "cleanup",
+              "outcome": "..........................   Passed",
+              "seconds": 0.18,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "model",
+              "outcome": "............................   Passed",
+              "seconds": 0.05,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "workspace",
+              "outcome": "........................   Passed",
+              "seconds": 0.03,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "runtime_types",
+              "outcome": "....................   Passed",
+              "seconds": 0.1,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "scheduler",
+              "outcome": "........................   Passed",
+              "seconds": 0.01,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "config",
+              "outcome": "...........................   Passed",
+              "seconds": 0.01,
+              "passed": true,
+              "timeout": false
+            }
+          ],
+          "timeout_names": []
+        },
+        "selection_complete": true,
+        "status": "PASSED",
+        "record_sha256": "222e9401906932577c5c1f25676875599533d518f45b69e379de7f710c8b0fba"
+      }
+    },
+    "clang": {
+      "record": "feature-clang-session-final",
+      "provenance": "reused_completed_same_v3_gate",
+      "result": {
+        "command": [
+          "ctest",
+          "--test-dir",
+          "build-clang",
+          "--output-on-failure",
+          "--parallel",
+          "2"
+        ],
+        "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature",
+        "uid": 1000,
+        "gid": 1000,
+        "groups": [
+          27,
+          999,
+          1000
+        ],
+        "umask": "0002",
+        "environment": {
+          "TMPDIR": "/tmp",
+          "ASAN_OPTIONS": null,
+          "UBSAN_OPTIONS": null,
+          "CC": null,
+          "CXX": null
+        },
+        "cpu_affinity": [
+          2,
+          3
+        ],
+        "nice": 0,
+        "capabilities": {
+          "CapInh": "0000000000000000",
+          "CapPrm": "0000000000000000",
+          "CapEff": "0000000000000000",
+          "CapAmb": "0000000000000000"
+        },
+        "mount_namespace": "mnt:[4026532674]",
+        "tmp_mounts": [
+          "773 212 0:45 / /tmp rw,nosuid,nodev,relatime - tmpfs wls861-test-tmp rw,size=2097152k,inode64"
+        ],
+        "started_at": "2026-10-29T07:43:52.659403+00:00",
+        "finished_at": "2026-10-29T08:03:30.261858+00:00",
+        "exit_code": 0,
+        "elapsed_seconds": 1174.0861522799823,
+        "inputs_unchanged": true,
+        "binaries_unchanged": true,
+        "log_sha256": "e8903ec6bfc335ee260362ccc54677e789e81256de3a9620066a04dcfb1dd6bd",
+        "execution_finished": true,
+        "registered_count": 81,
+        "log_snapshot_sha256": "e8903ec6bfc335ee260362ccc54677e789e81256de3a9620066a04dcfb1dd6bd",
+        "source_before_verified": true,
+        "source_after_verified": true,
+        "binary_before_after_verified": true,
+        "ctest": {
+          "reported_total": 81,
+          "reported_failed": 0,
+          "observed_entries": [
+            {
+              "name": "audit24_capacity_repro",
+              "outcome": "...........   Passed",
+              "seconds": 162.0,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_workflow",
+              "outcome": "....................   Passed",
+              "seconds": 130.58,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "billing_baseline_e2e",
+              "outcome": ".............   Passed",
+              "seconds": 383.4,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_management",
+              "outcome": "....................   Passed",
+              "seconds": 109.71,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s14_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 77.03,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r3_evaluation",
+              "outcome": "....................   Passed",
+              "seconds": 105.3,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s15_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 84.28,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s13_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 78.9,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "acceptance_runtime",
+              "outcome": "...............   Passed",
+              "seconds": 63.9,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_window_cli_smoke",
+              "outcome": "..............   Passed",
+              "seconds": 70.17,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_rework",
+              "outcome": "........................   Passed",
+              "seconds": 53.61,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s16_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 60.51,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_amend",
+              "outcome": ".........................   Passed",
+              "seconds": 46.49,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_history_cli_smoke",
+              "outcome": ".............   Passed",
+              "seconds": 46.98,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_recovery",
+              "outcome": ".....................   Passed",
+              "seconds": 43.3,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_rework_cli_smoke",
+              "outcome": "..............   Passed",
+              "seconds": 48.52,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "cleanup_runtime",
+              "outcome": "..................   Passed",
+              "seconds": 39.8,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_capacity_cli_smoke",
+              "outcome": ".......   Passed",
+              "seconds": 43.51,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_integration_cli_smoke",
+              "outcome": ".........   Passed",
+              "seconds": 33.51,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_amend_cli_smoke",
+              "outcome": "...............   Passed",
+              "seconds": 39.39,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "worker_tools",
+              "outcome": ".....................   Passed",
+              "seconds": 25.39,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "allocation_recovery_cli",
+              "outcome": "..........   Passed",
+              "seconds": 30.69,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "event_runtime",
+              "outcome": "....................   Passed",
+              "seconds": 26.4,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "review_cli_smoke",
+              "outcome": ".................   Passed",
+              "seconds": 29.8,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "owned_capacity",
+              "outcome": "...................   Passed",
+              "seconds": 28.1,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "workflow_runtime",
+              "outcome": ".................   Passed",
+              "seconds": 25.69,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "sse_replay",
+              "outcome": ".......................   Passed",
+              "seconds": 24.5,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_structured_cli_smoke",
+              "outcome": "..........   Passed",
+              "seconds": 25.95,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "owned_capacity_runtime",
+              "outcome": "...........   Passed",
+              "seconds": 27.51,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "single_agent_runtime",
+              "outcome": ".............   Passed",
+              "seconds": 26.16,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "single_agent",
+              "outcome": ".....................   Passed",
+              "seconds": 23.88,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_recovery_cli_smoke",
+              "outcome": "............   Passed",
+              "seconds": 24.0,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "acceptance_store",
+              "outcome": ".................   Passed",
+              "seconds": 20.2,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "workflow_store",
+              "outcome": "...................   Passed",
+              "seconds": 15.89,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "allocation_recovery",
+              "outcome": "..............   Passed",
+              "seconds": 18.51,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_workflow_cli",
+              "outcome": "................   Passed",
+              "seconds": 17.99,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_history",
+              "outcome": ".......................   Passed",
+              "seconds": 17.48,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_model_store_tls",
+              "outcome": ".............   Passed",
+              "seconds": 17.61,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_cleanup_recovery",
+              "outcome": ".............   Passed",
+              "seconds": 13.8,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "https_transport",
+              "outcome": "..................   Passed",
+              "seconds": 18.2,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "store",
+              "outcome": "............................   Passed",
+              "seconds": 10.9,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s12_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 13.8,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_window",
+              "outcome": "........................   Passed",
+              "seconds": 13.42,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s1_cli_smoke",
+              "outcome": ".....................   Passed",
+              "seconds": 11.39,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "event_store",
+              "outcome": "......................   Passed",
+              "seconds": 8.18,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_model_store",
+              "outcome": ".................   Passed",
+              "seconds": 10.61,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2a_mkdir_cli_smoke",
+              "outcome": "..............   Passed",
+              "seconds": 9.61,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_recovery",
+              "outcome": "......................   Passed",
+              "seconds": 8.8,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2a_mkdir",
+              "outcome": "........................   Passed",
+              "seconds": 8.0,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "runtime_resources_cli",
+              "outcome": "............   Passed",
+              "seconds": 7.62,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "billing",
+              "outcome": "..........................   Passed",
+              "seconds": 8.09,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reconcile_cli_smoke",
+              "outcome": "......   Passed",
+              "seconds": 8.42,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "offline_runtime",
+              "outcome": "..................   Passed",
+              "seconds": 5.4,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_recovery_cli_smoke",
+              "outcome": "...........   Passed",
+              "seconds": 6.08,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "sandbox",
+              "outcome": "..........................   Passed",
+              "seconds": 3.5,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "doctor_diagnostics_cli",
+              "outcome": "...........   Passed",
+              "seconds": 3.87,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "specification_contracts",
+              "outcome": "..........   Passed",
+              "seconds": 4.91,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "protocol_replay_cli",
+              "outcome": "..............   Passed",
+              "seconds": 3.81,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reopen_cli_smoke",
+              "outcome": ".........   Passed",
+              "seconds": 3.7,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "runtime_resources",
+              "outcome": "................   Passed",
+              "seconds": 2.59,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_capacity",
+              "outcome": ".................   Passed",
+              "seconds": 3.71,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "journal",
+              "outcome": "..........................   Passed",
+              "seconds": 1.6,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "config_loader",
+              "outcome": "....................   Passed",
+              "seconds": 1.31,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reopen",
+              "outcome": "...................   Passed",
+              "seconds": 2.81,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "doctor_diagnostics",
+              "outcome": "...............   Passed",
+              "seconds": 0.89,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reconcile",
+              "outcome": "................   Passed",
+              "seconds": 1.69,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "demo_smoke",
+              "outcome": ".......................   Passed",
+              "seconds": 0.51,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "protocol_codec",
+              "outcome": "...................   Passed",
+              "seconds": 0.5,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_structured",
+              "outcome": "....................   Passed",
+              "seconds": 0.41,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "handoff_integrity",
+              "outcome": "................   Passed",
+              "seconds": 0.57,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "process_evidence",
+              "outcome": ".................   Passed",
+              "seconds": 0.31,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "review_source_integrity",
+              "outcome": "..........   Passed",
+              "seconds": 0.48,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "model",
+              "outcome": "............................   Passed",
+              "seconds": 0.13,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "schema",
+              "outcome": "...........................   Passed",
+              "seconds": 0.2,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "cleanup",
+              "outcome": "..........................   Passed",
+              "seconds": 0.19,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "delivery",
+              "outcome": ".........................   Passed",
+              "seconds": 0.32,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "workspace",
+              "outcome": "........................   Passed",
+              "seconds": 0.37,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "runtime_types",
+              "outcome": "....................   Passed",
+              "seconds": 0.19,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "scheduler",
+              "outcome": "........................   Passed",
+              "seconds": 0.02,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "task_engine",
+              "outcome": "......................   Passed",
+              "seconds": 0.13,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "config",
+              "outcome": "...........................   Passed",
+              "seconds": 0.01,
+              "passed": true,
+              "timeout": false
+            }
+          ],
+          "timeout_names": []
+        },
+        "selection_complete": true,
+        "status": "PASSED",
+        "record_sha256": "eeacef34ff2e0486d9bb3bbcf753c25a35dea252a17c37f5c322cb475b18575b"
+      }
+    },
+    "ubsan": {
+      "record": "feature-ubsan-session-final",
+      "provenance": "reused_completed_same_v3_gate",
+      "result": {
+        "command": [
+          "ctest",
+          "--test-dir",
+          "build-ubsan-clang-opt",
+          "--output-on-failure",
+          "--parallel",
+          "1",
+          "-R",
+          "^(store|event_store|workflow_store|acceptance_store|event_runtime|workflow_runtime|acceptance_runtime|worker_tools|cleanup|cleanup_runtime|audit24_reopen|process_evidence|audit24_reconcile|r1_window|r2_recovery|r24_recovery|r24_cleanup_recovery|allocation_recovery|live_model_store|billing|single_agent|single_agent_runtime|owned_capacity_runtime|live_model_store_tls|live_workflow|billing_baseline_e2e|r3_evaluation|s13_cli_smoke|r1_structured_cli_smoke|r24_recovery_cli_smoke|r2_recovery_cli_smoke)$"
+        ],
+        "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature",
+        "uid": 1000,
+        "gid": 1000,
+        "groups": [
+          27,
+          999,
+          1000
+        ],
+        "umask": "0002",
+        "environment": {
+          "TMPDIR": "/tmp",
+          "ASAN_OPTIONS": null,
+          "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1",
+          "CC": null,
+          "CXX": null
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "nice": 0,
+        "capabilities": {
+          "CapInh": "0000000000000000",
+          "CapPrm": "0000000000000000",
+          "CapEff": "0000000000000000",
+          "CapAmb": "0000000000000000"
+        },
+        "mount_namespace": "mnt:[4026532673]",
+        "tmp_mounts": [
+          "163 50 0:41 / /tmp rw,nosuid,nodev,relatime - tmpfs wls861-test-tmp rw,size=2097152k,inode64"
+        ],
+        "started_at": "2026-10-29T09:13:31.759119+00:00",
+        "finished_at": "2026-10-29T09:33:10.074895+00:00",
+        "exit_code": 0,
+        "elapsed_seconds": 1156.9044751590118,
+        "inputs_unchanged": true,
+        "binaries_unchanged": true,
+        "log_sha256": "7c9d837a7556a0305dc78f2e4cf7697c22eb82a458c8de297de546aefa2bd33e",
+        "execution_finished": true,
+        "registered_count": 31,
+        "log_snapshot_sha256": "7c9d837a7556a0305dc78f2e4cf7697c22eb82a458c8de297de546aefa2bd33e",
+        "source_before_verified": true,
+        "source_after_verified": true,
+        "binary_before_after_verified": true,
+        "ctest": {
+          "reported_total": 31,
+          "reported_failed": 0,
+          "observed_entries": [
+            {
+              "name": "store",
+              "outcome": "............................   Passed",
+              "seconds": 10.36,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "event_store",
+              "outcome": "......................   Passed",
+              "seconds": 6.91,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "workflow_store",
+              "outcome": "...................   Passed",
+              "seconds": 14.78,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "acceptance_store",
+              "outcome": ".................   Passed",
+              "seconds": 19.13,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "event_runtime",
+              "outcome": "....................   Passed",
+              "seconds": 31.18,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "workflow_runtime",
+              "outcome": ".................   Passed",
+              "seconds": 27.09,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "acceptance_runtime",
+              "outcome": "...............   Passed",
+              "seconds": 62.31,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "worker_tools",
+              "outcome": ".....................   Passed",
+              "seconds": 24.99,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "cleanup",
+              "outcome": "..........................   Passed",
+              "seconds": 0.13,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "cleanup_runtime",
+              "outcome": "..................   Passed",
+              "seconds": 40.9,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reopen",
+              "outcome": "...................   Passed",
+              "seconds": 2.67,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "process_evidence",
+              "outcome": ".................   Passed",
+              "seconds": 0.23,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reconcile",
+              "outcome": "................   Passed",
+              "seconds": 1.78,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_window",
+              "outcome": "........................   Passed",
+              "seconds": 14.02,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_recovery",
+              "outcome": "......................   Passed",
+              "seconds": 8.48,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_recovery",
+              "outcome": ".....................   Passed",
+              "seconds": 36.2,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_cleanup_recovery",
+              "outcome": ".............   Passed",
+              "seconds": 13.91,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "allocation_recovery",
+              "outcome": "..............   Passed",
+              "seconds": 15.3,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "owned_capacity_runtime",
+              "outcome": "...........   Passed",
+              "seconds": 26.18,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_model_store",
+              "outcome": ".................   Passed",
+              "seconds": 8.6,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "billing",
+              "outcome": "..........................   Passed",
+              "seconds": 7.02,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "single_agent",
+              "outcome": ".....................   Passed",
+              "seconds": 24.99,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "single_agent_runtime",
+              "outcome": ".............   Passed",
+              "seconds": 27.12,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_model_store_tls",
+              "outcome": ".............   Passed",
+              "seconds": 14.09,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_workflow",
+              "outcome": "....................   Passed",
+              "seconds": 134.08,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "billing_baseline_e2e",
+              "outcome": ".............   Passed",
+              "seconds": 370.6,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r3_evaluation",
+              "outcome": "....................   Passed",
+              "seconds": 95.2,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s13_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 65.11,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_structured_cli_smoke",
+              "outcome": "..........   Passed",
+              "seconds": 27.89,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_recovery_cli_smoke",
+              "outcome": "...........   Passed",
+              "seconds": 4.85,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_recovery_cli_smoke",
+              "outcome": "............   Passed",
+              "seconds": 20.76,
+              "passed": true,
+              "timeout": false
+            }
+          ],
+          "timeout_names": []
+        },
+        "selection_complete": true,
+        "status": "PASSED",
+        "record_sha256": "961b8326987d0ae7e202d9effcc39936a548a0180090ba6ebf62837a1ed6238f"
+      }
+    },
+    "asan": {
+      "record": "feature-asan-v3-resumption-full",
+      "provenance": "completed_same_v3_resumption",
+      "result": {
+        "command": [
+          "ctest",
+          "--test-dir",
+          "build-asan-clang-opt",
+          "--output-on-failure",
+          "--parallel",
+          "1",
+          "-R",
+          "^(store|event_store|workflow_store|acceptance_store|event_runtime|workflow_runtime|acceptance_runtime|worker_tools|cleanup|cleanup_runtime|audit24_reopen|process_evidence|audit24_reconcile|r1_window|r2_recovery|r24_recovery|r24_cleanup_recovery|allocation_recovery|live_model_store|billing|single_agent|single_agent_runtime|owned_capacity_runtime|live_model_store_tls|live_workflow|billing_baseline_e2e|r3_evaluation|s13_cli_smoke|r1_structured_cli_smoke|r24_recovery_cli_smoke|r2_recovery_cli_smoke)$"
+        ],
+        "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature",
+        "uid": 1000,
+        "gid": 1000,
+        "groups": [
+          27,
+          999,
+          1000
+        ],
+        "umask": "0002",
+        "environment": {
+          "TMPDIR": "/tmp",
+          "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+          "UBSAN_OPTIONS": null,
+          "CC": null,
+          "CXX": null
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "nice": 0,
+        "capabilities": {
+          "CapInh": "0000000000000000",
+          "CapPrm": "0000000000000000",
+          "CapEff": "0000000000000000",
+          "CapAmb": "0000000000000000"
+        },
+        "mount_namespace": "mnt:[4026532673]",
+        "tmp_mounts": [
+          "163 50 0:41 / /tmp rw,nosuid,nodev,relatime - tmpfs wls861-test-tmp rw,size=2097152k,inode64"
+        ],
+        "started_at": "2026-10-29T17:55:47.417050+00:00",
+        "finished_at": "2026-10-29T18:16:38.677013+00:00",
+        "exit_code": 0,
+        "elapsed_seconds": 1243.0675185520668,
+        "inputs_unchanged": true,
+        "binaries_unchanged": true,
+        "log_sha256": "f9a05c1d9b466016fbe8c42887d8cd75126071c2d4109c78bc9e5d27106159a2",
+        "execution_finished": true,
+        "registered_count": 31,
+        "log_snapshot_sha256": "f9a05c1d9b466016fbe8c42887d8cd75126071c2d4109c78bc9e5d27106159a2",
+        "source_before_verified": true,
+        "source_after_verified": true,
+        "binary_before_after_verified": true,
+        "ctest": {
+          "reported_total": 31,
+          "reported_failed": 0,
+          "observed_entries": [
+            {
+              "name": "store",
+              "outcome": "............................   Passed",
+              "seconds": 11.24,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "event_store",
+              "outcome": "......................   Passed",
+              "seconds": 5.83,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "workflow_store",
+              "outcome": "...................   Passed",
+              "seconds": 12.76,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "acceptance_store",
+              "outcome": ".................   Passed",
+              "seconds": 19.15,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "event_runtime",
+              "outcome": "....................   Passed",
+              "seconds": 35.25,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "workflow_runtime",
+              "outcome": ".................   Passed",
+              "seconds": 29.57,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "acceptance_runtime",
+              "outcome": "...............   Passed",
+              "seconds": 84.36,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "worker_tools",
+              "outcome": ".....................   Passed",
+              "seconds": 30.93,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "cleanup",
+              "outcome": "..........................   Passed",
+              "seconds": 0.18,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "cleanup_runtime",
+              "outcome": "..................   Passed",
+              "seconds": 54.58,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reopen",
+              "outcome": "...................   Passed",
+              "seconds": 2.79,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "process_evidence",
+              "outcome": ".................   Passed",
+              "seconds": 0.2,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "audit24_reconcile",
+              "outcome": "................   Passed",
+              "seconds": 1.76,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_window",
+              "outcome": "........................   Passed",
+              "seconds": 16.12,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_recovery",
+              "outcome": "......................   Passed",
+              "seconds": 8.39,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_recovery",
+              "outcome": ".....................   Passed",
+              "seconds": 37.36,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_cleanup_recovery",
+              "outcome": ".............   Passed",
+              "seconds": 14.16,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "allocation_recovery",
+              "outcome": "..............   Passed",
+              "seconds": 16.69,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "owned_capacity_runtime",
+              "outcome": "...........   Passed",
+              "seconds": 29.73,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_model_store",
+              "outcome": ".................   Passed",
+              "seconds": 9.87,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "billing",
+              "outcome": "..........................   Passed",
+              "seconds": 7.55,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "single_agent",
+              "outcome": ".....................   Passed",
+              "seconds": 30.7,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "single_agent_runtime",
+              "outcome": ".............   Passed",
+              "seconds": 32.65,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_model_store_tls",
+              "outcome": ".............   Passed",
+              "seconds": 16.79,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "live_workflow",
+              "outcome": "....................   Passed",
+              "seconds": 143.44,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "billing_baseline_e2e",
+              "outcome": ".............   Passed",
+              "seconds": 387.44,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r3_evaluation",
+              "outcome": "....................   Passed",
+              "seconds": 98.47,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "s13_cli_smoke",
+              "outcome": "....................   Passed",
+              "seconds": 49.18,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r1_structured_cli_smoke",
+              "outcome": "..........   Passed",
+              "seconds": 24.59,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r24_recovery_cli_smoke",
+              "outcome": "...........   Passed",
+              "seconds": 5.96,
+              "passed": true,
+              "timeout": false
+            },
+            {
+              "name": "r2_recovery_cli_smoke",
+              "outcome": "............   Passed",
+              "seconds": 25.31,
+              "passed": true,
+              "timeout": false
+            }
+          ],
+          "timeout_names": []
+        },
+        "selection_complete": true,
+        "status": "PASSED",
+        "record_sha256": "bcedae59e629d09c8bf0f8eae0830e8797399c7486cd7ee81f47b2d565f9d713"
+      }
+    }
+  },
+  "reused_builds": {
+    "feature-build-release-session-final": {
+      "command": [
+        "cmake",
+        "--build",
+        "build-release",
+        "--parallel",
+        "2"
+      ],
+      "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature",
+      "uid": 1000,
+      "gid": 1000,
+      "groups": [
+        27,
+        999,
+        1000
+      ],
+      "umask": "0002",
+      "environment": {
+        "TMPDIR": null,
+        "ASAN_OPTIONS": null,
+        "UBSAN_OPTIONS": null,
+        "CC": null,
+        "CXX": null
+      },
+      "cpu_affinity": [
+        0
+      ],
+      "nice": 0,
+      "capabilities": {
+        "CapInh": "0000000000000000",
+        "CapPrm": "0000000000000000",
+        "CapEff": "0000000000000000",
+        "CapAmb": "0000000000000000"
+      },
+      "mount_namespace": "mnt:[4026531841]",
+      "tmp_mounts": [],
+      "started_at": "2026-10-29T07:30:08.178034+00:00",
+      "finished_at": "2026-10-29T07:38:31.064930+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 502.606075854972,
+      "inputs_unchanged": true,
+      "binaries_unchanged": true,
+      "log_sha256": "55565e010905a0f82b6b98a169fffd543e071a5c29c93a287322c64c4fae69c1",
+      "execution_finished": true,
+      "registered_count": null,
+      "log_snapshot_sha256": "55565e010905a0f82b6b98a169fffd543e071a5c29c93a287322c64c4fae69c1",
+      "source_before_verified": true,
+      "source_after_verified": true,
+      "binary_before_after_verified": null,
+      "ctest": null,
+      "status": "PASSED",
+      "record_sha256": "446a253f29b8f97b113e5bc18b5ecc17b6864da74cf4981ea6ae64b27a0e67da"
+    },
+    "feature-build-clang-session-final": {
+      "command": [
+        "cmake",
+        "--build",
+        "build-clang",
+        "--parallel",
+        "2"
+      ],
+      "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature",
+      "uid": 1000,
+      "gid": 1000,
+      "groups": [
+        27,
+        999,
+        1000
+      ],
+      "umask": "0002",
+      "environment": {
+        "TMPDIR": null,
+        "ASAN_OPTIONS": null,
+        "UBSAN_OPTIONS": null,
+        "CC": null,
+        "CXX": null
+      },
+      "cpu_affinity": [
+        1
+      ],
+      "nice": 0,
+      "capabilities": {
+        "CapInh": "0000000000000000",
+        "CapPrm": "0000000000000000",
+        "CapEff": "0000000000000000",
+        "CapAmb": "0000000000000000"
+      },
+      "mount_namespace": "mnt:[4026531841]",
+      "tmp_mounts": [],
+      "started_at": "2026-10-29T07:30:08.274512+00:00",
+      "finished_at": "2026-10-29T07:38:07.362423+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 478.80574219091795,
+      "inputs_unchanged": true,
+      "binaries_unchanged": true,
+      "log_sha256": "0bacdf270f8ddad6706602139adab40f4d32a0029a8d26b71aa21c474203b219",
+      "execution_finished": true,
+      "registered_count": null,
+      "log_snapshot_sha256": "0bacdf270f8ddad6706602139adab40f4d32a0029a8d26b71aa21c474203b219",
+      "source_before_verified": true,
+      "source_after_verified": true,
+      "binary_before_after_verified": null,
+      "ctest": null,
+      "status": "PASSED",
+      "record_sha256": "ac8886081a8f826126716f9d649e01b6bc510ec5fb246f7738e7a2867b91e4cb"
+    },
+    "feature-build-asan-session-final": {
+      "command": [
+        "cmake",
+        "--build",
+        "build-asan-clang-opt",
+        "--parallel",
+        "2"
+      ],
+      "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature",
+      "uid": 1000,
+      "gid": 1000,
+      "groups": [
+        27,
+        999,
+        1000
+      ],
+      "umask": "0002",
+      "environment": {
+        "TMPDIR": null,
+        "ASAN_OPTIONS": null,
+        "UBSAN_OPTIONS": null,
+        "CC": null,
+        "CXX": null
+      },
+      "cpu_affinity": [
+        2
+      ],
+      "nice": 0,
+      "capabilities": {
+        "CapInh": "0000000000000000",
+        "CapPrm": "0000000000000000",
+        "CapEff": "0000000000000000",
+        "CapAmb": "0000000000000000"
+      },
+      "mount_namespace": "mnt:[4026531841]",
+      "tmp_mounts": [],
+      "started_at": "2026-10-29T07:30:08.260811+00:00",
+      "finished_at": "2026-10-29T07:42:46.548879+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 758.0902929040603,
+      "inputs_unchanged": true,
+      "binaries_unchanged": true,
+      "log_sha256": "2f392fbd1e844aaaa79701fe711b3ad13cdfefa8c59479d8d01aae6ffdeb5ffe",
+      "execution_finished": true,
+      "registered_count": null,
+      "log_snapshot_sha256": "2f392fbd1e844aaaa79701fe711b3ad13cdfefa8c59479d8d01aae6ffdeb5ffe",
+      "source_before_verified": true,
+      "source_after_verified": true,
+      "binary_before_after_verified": null,
+      "ctest": null,
+      "status": "PASSED",
+      "record_sha256": "fd8c9e36235ecd360169d775656263f8b9e3237341ec5d10be3ca5fa0e36b537"
+    },
+    "feature-build-ubsan-session-final": {
+      "command": [
+        "cmake",
+        "--build",
+        "build-ubsan-clang-opt",
+        "--parallel",
+        "2"
+      ],
+      "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature",
+      "uid": 1000,
+      "gid": 1000,
+      "groups": [
+        27,
+        999,
+        1000
+      ],
+      "umask": "0002",
+      "environment": {
+        "TMPDIR": null,
+        "ASAN_OPTIONS": null,
+        "UBSAN_OPTIONS": null,
+        "CC": null,
+        "CXX": null
+      },
+      "cpu_affinity": [
+        3
+      ],
+      "nice": 0,
+      "capabilities": {
+        "CapInh": "0000000000000000",
+        "CapPrm": "0000000000000000",
+        "CapEff": "0000000000000000",
+        "CapAmb": "0000000000000000"
+      },
+      "mount_namespace": "mnt:[4026531841]",
+      "tmp_mounts": [],
+      "started_at": "2026-10-29T07:30:08.288889+00:00",
+      "finished_at": "2026-10-29T07:41:09.262352+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 660.710413913941,
+      "inputs_unchanged": true,
+      "binaries_unchanged": true,
+      "log_sha256": "a2a3e335d043575d270cdfa29ca732492950af36c1e2a542193ce7f1eb7de5e1",
+      "execution_finished": true,
+      "registered_count": null,
+      "log_snapshot_sha256": "a2a3e335d043575d270cdfa29ca732492950af36c1e2a542193ce7f1eb7de5e1",
+      "source_before_verified": true,
+      "source_after_verified": true,
+      "binary_before_after_verified": null,
+      "ctest": null,
+      "status": "PASSED",
+      "record_sha256": "9ce52662022c7d2195a9f96033faf296c9e2d958ac40bed718dd598d628ac003"
+    }
+  },
+  "historical_asan_failure": {
+    "record": "feature-asan-session-final",
+    "result": {
+      "command": [
+        "ctest",
+        "--test-dir",
+        "build-asan-clang-opt",
+        "--output-on-failure",
+        "--parallel",
+        "1",
+        "-R",
+        "^(store|event_store|workflow_store|acceptance_store|event_runtime|workflow_runtime|acceptance_runtime|worker_tools|cleanup|cleanup_runtime|audit24_reopen|process_evidence|audit24_reconcile|r1_window|r2_recovery|r24_recovery|r24_cleanup_recovery|allocation_recovery|live_model_store|billing|single_agent|single_agent_runtime|owned_capacity_runtime|live_model_store_tls|live_workflow|billing_baseline_e2e|r3_evaluation|s13_cli_smoke|r1_structured_cli_smoke|r24_recovery_cli_smoke|r2_recovery_cli_smoke)$"
+      ],
+      "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature",
+      "uid": 1000,
+      "gid": 1000,
+      "groups": [
+        27,
+        999,
+        1000
+      ],
+      "umask": "0002",
+      "environment": {
+        "TMPDIR": "/tmp",
+        "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+        "UBSAN_OPTIONS": null,
+        "CC": null,
+        "CXX": null
+      },
+      "cpu_affinity": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "nice": 0,
+      "capabilities": {
+        "CapInh": "0000000000000000",
+        "CapPrm": "0000000000000000",
+        "CapEff": "0000000000000000",
+        "CapAmb": "0000000000000000"
+      },
+      "mount_namespace": "mnt:[4026532673]",
+      "tmp_mounts": [
+        "163 50 0:41 / /tmp rw,nosuid,nodev,relatime - tmpfs wls861-test-tmp rw,size=2097152k,inode64"
+      ],
+      "started_at": "2026-10-29T08:19:47.264996+00:00",
+      "finished_at": "2026-10-29T09:12:51.962336+00:00",
+      "exit_code": 8,
+      "elapsed_seconds": 3145.3974424430635,
+      "inputs_unchanged": true,
+      "binaries_unchanged": true,
+      "log_sha256": "ae69f84fee73a88a0a4d31aee88ff5da9264613424c42ab8c8183cf795cf6691",
+      "execution_finished": true,
+      "registered_count": 31,
+      "log_snapshot_sha256": "ae69f84fee73a88a0a4d31aee88ff5da9264613424c42ab8c8183cf795cf6691",
+      "source_before_verified": true,
+      "source_after_verified": true,
+      "binary_before_after_verified": true,
+      "ctest": {
+        "reported_total": 31,
+        "reported_failed": 12,
+        "observed_entries": [
+          {
+            "name": "store",
+            "outcome": "............................   Passed",
+            "seconds": 50.68,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "event_store",
+            "outcome": "......................   Passed",
+            "seconds": 24.89,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "workflow_store",
+            "outcome": "...................   Passed",
+            "seconds": 51.31,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "acceptance_store",
+            "outcome": ".................   Passed",
+            "seconds": 67.98,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "event_runtime",
+            "outcome": "....................***Timeout",
+            "seconds": 90.51,
+            "passed": false,
+            "timeout": true
+          },
+          {
+            "name": "workflow_runtime",
+            "outcome": ".................***Timeout",
+            "seconds": 90.6,
+            "passed": false,
+            "timeout": true
+          },
+          {
+            "name": "acceptance_runtime",
+            "outcome": "...............***Timeout",
+            "seconds": 90.4,
+            "passed": false,
+            "timeout": true
+          },
+          {
+            "name": "worker_tools",
+            "outcome": ".....................***Timeout",
+            "seconds": 90.5,
+            "passed": false,
+            "timeout": true
+          },
+          {
+            "name": "cleanup",
+            "outcome": "..........................   Passed",
+            "seconds": 0.6,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "cleanup_runtime",
+            "outcome": "..................***Timeout",
+            "seconds": 180.79,
+            "passed": false,
+            "timeout": true
+          },
+          {
+            "name": "audit24_reopen",
+            "outcome": "...................   Passed",
+            "seconds": 9.99,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "process_evidence",
+            "outcome": ".................   Passed",
+            "seconds": 0.53,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "audit24_reconcile",
+            "outcome": "................   Passed",
+            "seconds": 6.2,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "r1_window",
+            "outcome": "........................   Passed",
+            "seconds": 62.9,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "r2_recovery",
+            "outcome": "......................   Passed",
+            "seconds": 32.09,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "r24_recovery",
+            "outcome": ".....................***Timeout",
+            "seconds": 90.33,
+            "passed": false,
+            "timeout": true
+          },
+          {
+            "name": "r24_cleanup_recovery",
+            "outcome": ".............   Passed",
+            "seconds": 55.46,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "allocation_recovery",
+            "outcome": "..............   Passed",
+            "seconds": 60.81,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "owned_capacity_runtime",
+            "outcome": "...........   Passed",
+            "seconds": 111.4,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "live_model_store",
+            "outcome": ".................   Passed",
+            "seconds": 38.3,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "billing",
+            "outcome": "..........................   Passed",
+            "seconds": 28.68,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "single_agent",
+            "outcome": ".....................***Timeout",
+            "seconds": 90.32,
+            "passed": false,
+            "timeout": true
+          },
+          {
+            "name": "single_agent_runtime",
+            "outcome": ".............***Timeout",
+            "seconds": 90.48,
+            "passed": false,
+            "timeout": true
+          },
+          {
+            "name": "live_model_store_tls",
+            "outcome": ".............   Passed",
+            "seconds": 54.5,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "live_workflow",
+            "outcome": "....................***Timeout",
+            "seconds": 300.08,
+            "passed": false,
+            "timeout": true
+          },
+          {
+            "name": "billing_baseline_e2e",
+            "outcome": ".............***Timeout",
+            "seconds": 900.13,
+            "passed": false,
+            "timeout": true
+          },
+          {
+            "name": "r3_evaluation",
+            "outcome": "....................***Timeout",
+            "seconds": 180.01,
+            "passed": false,
+            "timeout": true
+          },
+          {
+            "name": "s13_cli_smoke",
+            "outcome": "....................***Timeout",
+            "seconds": 90.07,
+            "passed": false,
+            "timeout": true
+          },
+          {
+            "name": "r1_structured_cli_smoke",
+            "outcome": "..........   Passed",
+            "seconds": 93.11,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "r24_recovery_cli_smoke",
+            "outcome": "...........   Passed",
+            "seconds": 20.51,
+            "passed": true,
+            "timeout": false
+          },
+          {
+            "name": "r2_recovery_cli_smoke",
+            "outcome": "............   Passed",
+            "seconds": 91.17,
+            "passed": true,
+            "timeout": false
+          }
+        ],
+        "timeout_names": [
+          "event_runtime",
+          "workflow_runtime",
+          "acceptance_runtime",
+          "worker_tools",
+          "cleanup_runtime",
+          "r24_recovery",
+          "single_agent",
+          "single_agent_runtime",
+          "live_workflow",
+          "billing_baseline_e2e",
+          "r3_evaluation",
+          "s13_cli_smoke"
+        ]
+      },
+      "selection_complete": true,
+      "status": "FAILED",
+      "record_sha256": "608a372237c061523ee5e80f274dbb182c0c6c17ba842e5b5e47e3d111c33a20"
+    }
+  },
+  "same_binary_event_probe": {
+    "record": "feature-asan-v3-current-event-probe",
+    "result": {
+      "command": [
+        "ctest",
+        "--test-dir",
+        "build-asan-clang-opt",
+        "--output-on-failure",
+        "--parallel",
+        "1",
+        "-R",
+        "^event_runtime$"
+      ],
+      "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature",
+      "uid": 1000,
+      "gid": 1000,
+      "groups": [
+        27,
+        999,
+        1000
+      ],
+      "umask": "0002",
+      "environment": {
+        "TMPDIR": "/tmp",
+        "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=1",
+        "UBSAN_OPTIONS": null,
+        "CC": null,
+        "CXX": null
+      },
+      "cpu_affinity": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "nice": 0,
+      "capabilities": {
+        "CapInh": "0000000000000000",
+        "CapPrm": "0000000000000000",
+        "CapEff": "0000000000000000",
+        "CapAmb": "0000000000000000"
+      },
+      "mount_namespace": "mnt:[4026532673]",
+      "tmp_mounts": [
+        "163 50 0:41 / /tmp rw,nosuid,nodev,relatime - tmpfs wls861-test-tmp rw,size=2097152k,inode64"
+      ],
+      "started_at": "2026-10-29T17:53:40.465286+00:00",
+      "finished_at": "2026-10-29T17:55:11.716424+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 71.99360061204061,
+      "inputs_unchanged": true,
+      "binaries_unchanged": true,
+      "log_sha256": "b042800a0420b62adbb1a9ffc2753fab9d345a2c46fa2d87188841ed944007ce",
+      "execution_finished": true,
+      "registered_count": 1,
+      "log_snapshot_sha256": "b042800a0420b62adbb1a9ffc2753fab9d345a2c46fa2d87188841ed944007ce",
+      "source_before_verified": true,
+      "source_after_verified": true,
+      "binary_before_after_verified": true,
+      "ctest": {
+        "reported_total": 1,
+        "reported_failed": 0,
+        "observed_entries": [
+          {
+            "name": "event_runtime",
+            "outcome": "....................   Passed",
+            "seconds": 71.94,
+            "passed": true,
+            "timeout": false
+          }
+        ],
+        "timeout_names": []
+      },
+      "selection_complete": true,
+      "status": "PASSED",
+      "record_sha256": "200a07bc6435c101e3bfac9729e073d3ea62eabc15a2ba4ba3a616df6ba39487"
+    }
+  },
+  "detail_logs": {
+    "feature-asan-v3-current-event-probe": {
+      "relative_path": "evidence/feature-asan-v3-current-event-probe-detail.log",
+      "sha256": "ffe3c96ff69275c75dfc81dc4cf1ec039655077ea821924f4ac8945621cbfdd6",
+      "bytes": 1747,
+      "observed_registered_items": 1
+    },
+    "feature-asan-v3-resumption-full": {
+      "relative_path": "evidence/feature-asan-v3-resumption-full-detail.log",
+      "sha256": "c1c2defa800124558ec6f94ad5834803ea6aadd6fc729c0f6d23ecd4fe6c8556",
+      "bytes": 62558,
+      "observed_registered_items": 31
+    }
+  },
+  "configuration_identities": {
+    "build-asan-clang-opt": {
+      "CMakeCache.txt": {
+        "sha256": "813d9f587a362aae0db22942431ba13557873732ff54ac2546e67fff757acaf1",
+        "bytes": 20315
+      },
+      "CTestTestfile.cmake": {
+        "sha256": "200718795e3a73f1ecc37339ad9523035fec535175bed9e69f400f8d877ca0f9",
+        "bytes": 36012
+      },
+      "build.ninja": {
+        "sha256": "11a66a40546abe38a43c49d849672bf89eeaee57e7415db9e26cb70c62df5340",
+        "bytes": 192229
+      }
+    },
+    "build-clang": {
+      "CMakeCache.txt": {
+        "sha256": "5d9697cafc19f82116818deb85c811edd96ff3b86d856120d4384d09f60ee225",
+        "bytes": 20278
+      },
+      "CTestTestfile.cmake": {
+        "sha256": "ccf8148d76af07a8e5515e6782e55e75b16da5e2ff324959dbdd2d76206a775e",
+        "bytes": 35292
+      },
+      "build.ninja": {
+        "sha256": "4e25b2a1c5cda109c219a0c7d07964cf3795ee6a64b564c648eae35a2a24f9eb",
+        "bytes": 187519
+      }
+    },
+    "build-release": {
+      "CMakeCache.txt": {
+        "sha256": "2582101fc004d4584d0ad667d6f655c29afcc6ada2bb5cb78d7033699835c261",
+        "bytes": 20093
+      },
+      "CTestTestfile.cmake": {
+        "sha256": "07a3024e82a63c1c9e34987bed70479bb2c62cd35d18760fa07e3200a9ed8255",
+        "bytes": 35452
+      },
+      "build.ninja": {
+        "sha256": "9a08f132b5dabe4eed873c163555cdc65ca69a4c32efb6db24f2049f881954c1",
+        "bytes": 187361
+      }
+    },
+    "build-ubsan-clang-opt": {
+      "CMakeCache.txt": {
+        "sha256": "2ef1374c112ca7a0313b9579bc53a4e7db22dd823cf3db8fcae88b1a4a1b7441",
+        "bytes": 20319
+      },
+      "CTestTestfile.cmake": {
+        "sha256": "674a03bf9fe9e0321b49f66bf85e942a3e7c01157abb39280748aea3fa10c14a",
+        "bytes": 36092
+      },
+      "build.ninja": {
+        "sha256": "ed1fd118cadee8026f8967d0f09fc267ecc03131c0da9e6e6f619a14f937fa9f",
+        "bytes": 195328
+      }
+    }
+  },
+  "reused_auxiliary_evidence": {
+    "baseline_counterexamples": {
+      "record": "baseline-final-counterexamples.json",
+      "sha256": "46cc0745164681e28a6a8d2e69c64e410bbc1d20a6e37b41fede87035de85bee",
+      "status": "REUSED_VERIFIED_SAME_SOURCE"
+    },
+    "deterministic_concurrency_counterexample": {
+      "record": "concurrency-counterexamples.json",
+      "sha256": "d2f2de2c7c82a12aaf27051b68d400ebb65a1cfa1b4a6918036a5367419809cd",
+      "status": "REUSED_VERIFIED_SAME_SOURCE"
+    },
+    "settlement_session_counterexample": {
+      "record": "settlement-counterexamples.json",
+      "sha256": "0cbe2832d7a402535db8d9b657201e162e719f0aec3cb7675008629abac49edf",
+      "status": "REUSED_VERIFIED_SAME_SOURCE"
+    },
+    "generated_install_assets": {
+      "record": "generated-install-assets-session-final.json",
+      "sha256": "78362d84f3ebf365c61dbf53e718ed0b492aeaf25652ecd904bee370c4d729ae",
+      "status": "REUSED_VERIFIED_SAME_SOURCE"
+    },
+    "protected_files": {
+      "record": "protected-files-session-final.json",
+      "sha256": "b1ddec1a8b0402163638505f6ab53df3277bbe147f69f66a85990a04543dc384",
+      "status": "REUSED_VERIFIED_SAME_SOURCE"
+    }
+  },
+  "environment_observation": {
+    "relative_path": "evidence/validation-resumption-environment.json",
+    "sha256": "f39eb0d860f21699fbdc3395ac7991adad47ab0a201a9ef7f247b08b3daf114e",
+    "bytes": 3071,
+    "interpretation": "Point-in-time observations, not proof of a unique root cause or guaranteed repeatability."
+  },
+  "final_process_observation": {
+    "relative_path": "evidence/asan-resumption-final-process-check.json",
+    "sha256": "87413fd0a0eb2ca6b2d59089d17dc1ef45fdc20e54124fcd634967f48c1c6603",
+    "bytes": 381,
+    "data": {
+      "at": "2026-10-29T18:17:24.790266+00:00",
+      "scope": "/mnt/d/codex-workspace/wls861-r2-4-20261029/",
+      "matches": [],
+      "permission_denied": 0,
+      "scanned_executable_links": 76,
+      "observation": "Read-only /proc/*/exe inspection after completed validation; no environment or command-line contents read. Scan does not establish process-exit evidence for application cleanup."
+    }
+  },
+  "candidate_preparations": {
+    "json-validation-candidate": {
+      "adoption": "NOT_ADOPTED",
+      "compilation": "COMPLETED",
+      "tests": "NOT_RUN",
+      "runtime_equivalence": "UNVERIFIED",
+      "completed_test_suite_count": 0,
+      "manifest_local_references": {
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/candidate-manifest.json": {
+          "sha256": "7c31f952b58b2be25057745def15b4ff2daa8104dfd5819c0d096c44f68751c1",
+          "bytes": 138412
+        },
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-manifest.json": {
+          "sha256": "6f32ccd49b9c4a4af83af0292aa1ea998fda4b2d466b7ce20567499643a3c600",
+          "bytes": 133274
+        }
+      },
+      "source_local_references": {
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/combined/src/runtime_types.cpp": {
+          "sha256": "38a7e341a6963e712fba083c7a9f8023a029238a52b29816998dd8b1fdf9237e",
+          "bytes": 19893
+        },
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/green/src/runtime_types.cpp": {
+          "sha256": "27dc42939f7906652553816b5f329441dd48758a710a425a07c4026683163ada",
+          "bytes": 19046
+        },
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/red/src/runtime_types.cpp": {
+          "sha256": "60282aee148eaa5f11a2b7b4ad9a5b4a59c0a4bf87efa5127ec942fc8dde83a9",
+          "bytes": 17200
+        },
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/tests/runtime_types_tests.cpp": {
+          "sha256": "f23056b78d9a47fec690c979c98c62a5a0dda7fcc97ababff0a6b7f55928da03",
+          "bytes": 18694
+        }
+      },
+      "builds": {
+        "combined-compile-runtime-types": {
+          "record_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/combined-compile-runtime-types.json",
+          "record_identity": {
+            "sha256": "e1affa27da17603f66085a35b033439d0e76c57e472ffed7d7f82cd890249d45",
+            "bytes": 225653
+          },
+          "argv": [
+            "/usr/bin/clang++-18",
+            "-I/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/include",
+            "-isystem",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/third_party/valijson/include",
+            "-isystem",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/third_party/libyaml/include",
+            "-O2",
+            "-g",
+            "-std=c++20",
+            "-Wall",
+            "-Wextra",
+            "-Wpedantic",
+            "-Wconversion",
+            "-Wshadow",
+            "-Werror",
+            "-fsanitize=address",
+            "-fno-omit-frame-pointer",
+            "-MD",
+            "-MT",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/combined/build/runtime_types.cpp.o",
+            "-MF",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/combined/build/runtime_types.cpp.o.d",
+            "-o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/combined/build/runtime_types.cpp.o",
+            "-c",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/combined/src/runtime_types.cpp"
+          ],
+          "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate",
+          "uid": 1000,
+          "exit_code": 0,
+          "elapsed_seconds": 26.595625365851447,
+          "log_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/combined-compile-runtime-types.log",
+          "log_identity": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "outputs_local_only": {
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/combined/build/runtime_types.cpp.o": {
+              "sha256": "62d4b1216217ba047ec1e325b709ab112a7d0e061945bdd004cab30f71a319a2",
+              "bytes": 2605456
+            },
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/combined/build/runtime_types.cpp.o.d": {
+              "sha256": "35a30b55cb534872ed9b58fc8e5de833fa1bcf4f5404daca2fc4d4788177b629",
+              "bytes": 37801
+            }
+          },
+          "manifest_sha256": "7c31f952b58b2be25057745def15b4ff2daa8104dfd5819c0d096c44f68751c1",
+          "input_fingerprint_count": 739,
+          "post_compile_dependency_count": 601,
+          "record_scope": "Actual successful build only. No test execution or compatibility acceptance."
+        },
+        "combined-link-event-runtime": {
+          "record_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/combined-link-event-runtime.json",
+          "record_identity": {
+            "sha256": "e9233f571bd858d148ef0dd9348a0652e7bc62cf983892b8cd01f792ccd70596",
+            "bytes": 128185
+          },
+          "argv": [
+            "/usr/bin/clang++-18",
+            "-O2",
+            "-g",
+            "-fsanitize=address",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/CMakeFiles/event_runtime_tests.dir/tests/event_runtime_tests.cpp.o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/combined/build/runtime_types.cpp.o",
+            "-Wl,-Map,/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/combined/build/event_runtime_tests.map",
+            "-o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/combined/build/event_runtime_tests",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/libwls_s1.a",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/libwls_kernel.a",
+            "/usr/lib/x86_64-linux-gnu/libsqlite3.so",
+            "/usr/lib/x86_64-linux-gnu/libcrypto.so",
+            "/usr/lib/x86_64-linux-gnu/libcurl.so",
+            "/usr/lib/x86_64-linux-gnu/libyaml.so"
+          ],
+          "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate",
+          "uid": 1000,
+          "exit_code": 0,
+          "elapsed_seconds": 1.5540858150925487,
+          "log_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/combined-link-event-runtime.log",
+          "log_identity": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "outputs_local_only": {
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/combined/build/event_runtime_tests": {
+              "sha256": "3bd9b490e476ee89adcf942535ee0a40c13442d33b555e80fa5cc71a9d6cd074",
+              "bytes": 46239624
+            },
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/combined/build/event_runtime_tests.map": {
+              "sha256": "b87a2e9f1ec9764578f65ee7e379735518cc42fef0d2ccd4c46551f457e2b453",
+              "bytes": 8625857
+            }
+          },
+          "manifest_sha256": "7c31f952b58b2be25057745def15b4ff2daa8104dfd5819c0d096c44f68751c1",
+          "input_fingerprint_count": 739,
+          "post_compile_dependency_count": 0,
+          "record_scope": "Actual successful build only. No test execution or compatibility acceptance."
+        },
+        "combined-link-runtime-types-oracle": {
+          "record_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/combined-link-runtime-types-oracle.json",
+          "record_identity": {
+            "sha256": "1fb41cc69f2536aaaacd3290427b13a855d67f79d9a19474390cc92c58271d6e",
+            "bytes": 128192
+          },
+          "argv": [
+            "/usr/bin/clang++-18",
+            "-O2",
+            "-g",
+            "-fsanitize=address",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/common/runtime_types_tests.cpp.o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/combined/build/runtime_types.cpp.o",
+            "-Wl,-Map,/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/combined/runtime_types_tests.map",
+            "-o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/combined/runtime_types_tests",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/libwls_s1.a",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/libwls_kernel.a",
+            "/usr/lib/x86_64-linux-gnu/libsqlite3.so",
+            "/usr/lib/x86_64-linux-gnu/libcrypto.so",
+            "/usr/lib/x86_64-linux-gnu/libcurl.so",
+            "/usr/lib/x86_64-linux-gnu/libyaml.so"
+          ],
+          "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate",
+          "uid": 1000,
+          "exit_code": 0,
+          "elapsed_seconds": 0.8370620119385421,
+          "log_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/combined-link-runtime-types-oracle.log",
+          "log_identity": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "outputs_local_only": {
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/combined/runtime_types_tests": {
+              "sha256": "ad1fc8ec96b15a5c851f14fb2dc98a27462889e73acdbe8443088d48ae1bf2df",
+              "bytes": 6433224
+            },
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/combined/runtime_types_tests.map": {
+              "sha256": "840546b4d1e834587570d7dbcc4b2edfce5efda034865f5c1d80617095e335ef",
+              "bytes": 3090596
+            }
+          },
+          "manifest_sha256": "6f32ccd49b9c4a4af83af0292aa1ea998fda4b2d466b7ce20567499643a3c600",
+          "input_fingerprint_count": 739,
+          "post_compile_dependency_count": 0,
+          "record_scope": "Actual successful build only. No test execution or compatibility acceptance."
+        },
+        "green-compile-runtime-types": {
+          "record_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/green-compile-runtime-types.json",
+          "record_identity": {
+            "sha256": "96ec5ec8282c501a960a523e32fa1d1eaa1ce2777b99b9e743cee7a81eb6c10d",
+            "bytes": 225628
+          },
+          "argv": [
+            "/usr/bin/clang++-18",
+            "-I/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/include",
+            "-isystem",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/third_party/valijson/include",
+            "-isystem",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/third_party/libyaml/include",
+            "-O2",
+            "-g",
+            "-std=c++20",
+            "-Wall",
+            "-Wextra",
+            "-Wpedantic",
+            "-Wconversion",
+            "-Wshadow",
+            "-Werror",
+            "-fsanitize=address",
+            "-fno-omit-frame-pointer",
+            "-MD",
+            "-MT",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/green/build/runtime_types.cpp.o",
+            "-MF",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/green/build/runtime_types.cpp.o.d",
+            "-o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/green/build/runtime_types.cpp.o",
+            "-c",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/green/src/runtime_types.cpp"
+          ],
+          "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate",
+          "uid": 1000,
+          "exit_code": 0,
+          "elapsed_seconds": 27.83025323995389,
+          "log_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/green-compile-runtime-types.log",
+          "log_identity": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "outputs_local_only": {
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/green/build/runtime_types.cpp.o": {
+              "sha256": "959c410b42d7ef748d18b075153a17b0e0ba0e96552f28102795e93de8a9bf8f",
+              "bytes": 2601504
+            },
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/green/build/runtime_types.cpp.o.d": {
+              "sha256": "0158cbba84944ec05e9aa23730dfecaa77aee9f3747e2308ecdc2994f9fb8465",
+              "bytes": 37795
+            }
+          },
+          "manifest_sha256": "7c31f952b58b2be25057745def15b4ff2daa8104dfd5819c0d096c44f68751c1",
+          "input_fingerprint_count": 739,
+          "post_compile_dependency_count": 601,
+          "record_scope": "Actual successful build only. No test execution or compatibility acceptance."
+        },
+        "green-link-event-runtime": {
+          "record_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/green-link-event-runtime.json",
+          "record_identity": {
+            "sha256": "25151902d6e6ab8ba9d39131edd9d430eef6ef6c7685a070665cec4cda84c943",
+            "bytes": 128167
+          },
+          "argv": [
+            "/usr/bin/clang++-18",
+            "-O2",
+            "-g",
+            "-fsanitize=address",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/CMakeFiles/event_runtime_tests.dir/tests/event_runtime_tests.cpp.o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/green/build/runtime_types.cpp.o",
+            "-Wl,-Map,/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/green/build/event_runtime_tests.map",
+            "-o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/green/build/event_runtime_tests",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/libwls_s1.a",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/libwls_kernel.a",
+            "/usr/lib/x86_64-linux-gnu/libsqlite3.so",
+            "/usr/lib/x86_64-linux-gnu/libcrypto.so",
+            "/usr/lib/x86_64-linux-gnu/libcurl.so",
+            "/usr/lib/x86_64-linux-gnu/libyaml.so"
+          ],
+          "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate",
+          "uid": 1000,
+          "exit_code": 0,
+          "elapsed_seconds": 1.7294483450241387,
+          "log_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/green-link-event-runtime.log",
+          "log_identity": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "outputs_local_only": {
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/green/build/event_runtime_tests": {
+              "sha256": "bbc45cec8a2e720ede9445955e7b745783f64e64fdde4542856bc7ca0fad49ce",
+              "bytes": 46234896
+            },
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/green/build/event_runtime_tests.map": {
+              "sha256": "ad9b4d983020400f4d459593a0a1b458c23b594140fe3992ea34f007fdc2d438",
+              "bytes": 8618324
+            }
+          },
+          "manifest_sha256": "7c31f952b58b2be25057745def15b4ff2daa8104dfd5819c0d096c44f68751c1",
+          "input_fingerprint_count": 739,
+          "post_compile_dependency_count": 0,
+          "record_scope": "Actual successful build only. No test execution or compatibility acceptance."
+        },
+        "green-link-runtime-types-oracle": {
+          "record_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/green-link-runtime-types-oracle.json",
+          "record_identity": {
+            "sha256": "eede72ebb52d07a675893a0509f4a77c0943225da72f8222471202c33c3ba5b4",
+            "bytes": 128174
+          },
+          "argv": [
+            "/usr/bin/clang++-18",
+            "-O2",
+            "-g",
+            "-fsanitize=address",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/common/runtime_types_tests.cpp.o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/green/build/runtime_types.cpp.o",
+            "-Wl,-Map,/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/green/runtime_types_tests.map",
+            "-o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/green/runtime_types_tests",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/libwls_s1.a",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/libwls_kernel.a",
+            "/usr/lib/x86_64-linux-gnu/libsqlite3.so",
+            "/usr/lib/x86_64-linux-gnu/libcrypto.so",
+            "/usr/lib/x86_64-linux-gnu/libcurl.so",
+            "/usr/lib/x86_64-linux-gnu/libyaml.so"
+          ],
+          "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate",
+          "uid": 1000,
+          "exit_code": 0,
+          "elapsed_seconds": 0.9361724900081754,
+          "log_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/green-link-runtime-types-oracle.log",
+          "log_identity": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "outputs_local_only": {
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/green/runtime_types_tests": {
+              "sha256": "352a88f7bcfb1916da6159b78e8584a0b4ada01385991e15298fe288a803bb69",
+              "bytes": 6431728
+            },
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/green/runtime_types_tests.map": {
+              "sha256": "540d9d0e10de1451fbb337dafc430533e202d2c514518366e4751d884a12e12e",
+              "bytes": 3083063
+            }
+          },
+          "manifest_sha256": "6f32ccd49b9c4a4af83af0292aa1ea998fda4b2d466b7ce20567499643a3c600",
+          "input_fingerprint_count": 739,
+          "post_compile_dependency_count": 0,
+          "record_scope": "Actual successful build only. No test execution or compatibility acceptance."
+        },
+        "oracle-compile-tests": {
+          "record_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/oracle-compile-tests.json",
+          "record_identity": {
+            "sha256": "87ec51855f32c876b4e0a5ec9677c04c333fc0bfbf135b92bbb9e9036ecff183",
+            "bytes": 223341
+          },
+          "argv": [
+            "/usr/bin/clang++-18",
+            "-DWLS_SOURCE_DIR=\"/mnt/d/codex-workspace/wls861-r2-4-20261029/feature\"",
+            "-I/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/tests",
+            "-I/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/include",
+            "-isystem",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/third_party/valijson/include",
+            "-isystem",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/third_party/libyaml/include",
+            "-O2",
+            "-g",
+            "-std=c++20",
+            "-Wall",
+            "-Wextra",
+            "-Wpedantic",
+            "-Wconversion",
+            "-Wshadow",
+            "-Werror",
+            "-fsanitize=address",
+            "-fno-omit-frame-pointer",
+            "-MD",
+            "-MT",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/common/runtime_types_tests.cpp.o",
+            "-MF",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/common/runtime_types_tests.cpp.o.d",
+            "-o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/common/runtime_types_tests.cpp.o",
+            "-c",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/tests/runtime_types_tests.cpp"
+          ],
+          "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate",
+          "uid": 1000,
+          "exit_code": 0,
+          "elapsed_seconds": 13.648586279014125,
+          "log_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/oracle-compile-tests.log",
+          "log_identity": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "outputs_local_only": {
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/common/runtime_types_tests.cpp.o": {
+              "sha256": "756b002ae156957ecbf804b8c2acfa7ea36904e01b9a233b5abde258563ec372",
+              "bytes": 1419144
+            },
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/common/runtime_types_tests.cpp.o.d": {
+              "sha256": "b650e7e591257d5548219356e5510007b568de0861f585809e7019bfc7b11e9c",
+              "bytes": 37261
+            }
+          },
+          "manifest_sha256": "6f32ccd49b9c4a4af83af0292aa1ea998fda4b2d466b7ce20567499643a3c600",
+          "input_fingerprint_count": 739,
+          "post_compile_dependency_count": 585,
+          "record_scope": "Actual successful build only. No test execution or compatibility acceptance."
+        },
+        "red-compile-runtime-types": {
+          "record_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/red-compile-runtime-types.json",
+          "record_identity": {
+            "sha256": "a6abbed7cbd8acd82dedf3f836464fe6e8a216c01c98ab99761ec7c5096e036a",
+            "bytes": 225612
+          },
+          "argv": [
+            "/usr/bin/clang++-18",
+            "-I/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/include",
+            "-isystem",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/third_party/valijson/include",
+            "-isystem",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/third_party/libyaml/include",
+            "-O2",
+            "-g",
+            "-std=c++20",
+            "-Wall",
+            "-Wextra",
+            "-Wpedantic",
+            "-Wconversion",
+            "-Wshadow",
+            "-Werror",
+            "-fsanitize=address",
+            "-fno-omit-frame-pointer",
+            "-MD",
+            "-MT",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/red/build/runtime_types.cpp.o",
+            "-MF",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/red/build/runtime_types.cpp.o.d",
+            "-o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/red/build/runtime_types.cpp.o",
+            "-c",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/red/src/runtime_types.cpp"
+          ],
+          "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate",
+          "uid": 1000,
+          "exit_code": 0,
+          "elapsed_seconds": 19.53919809497893,
+          "log_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/red-compile-runtime-types.log",
+          "log_identity": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "outputs_local_only": {
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/red/build/runtime_types.cpp.o": {
+              "sha256": "a41af90f5fc1d6cd01e19da4f6cef2729fb6fe05d17b148e3e2641422f3c0e78",
+              "bytes": 1731528
+            },
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/red/build/runtime_types.cpp.o.d": {
+              "sha256": "0053e7066023f9c59373863fc447b1ffcb24764292ee9aa7ebee4998121fa148",
+              "bytes": 37791
+            }
+          },
+          "manifest_sha256": "7c31f952b58b2be25057745def15b4ff2daa8104dfd5819c0d096c44f68751c1",
+          "input_fingerprint_count": 739,
+          "post_compile_dependency_count": 601,
+          "record_scope": "Actual successful build only. No test execution or compatibility acceptance."
+        },
+        "red-link-event-runtime": {
+          "record_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/red-link-event-runtime.json",
+          "record_identity": {
+            "sha256": "ccb1dd0bd9a9342b4e0e1dc45e7dc4afbdb98936b14d0a6abb8a4643e0534f77",
+            "bytes": 128155
+          },
+          "argv": [
+            "/usr/bin/clang++-18",
+            "-O2",
+            "-g",
+            "-fsanitize=address",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/CMakeFiles/event_runtime_tests.dir/tests/event_runtime_tests.cpp.o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/red/build/runtime_types.cpp.o",
+            "-Wl,-Map,/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/red/build/event_runtime_tests.map",
+            "-o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/red/build/event_runtime_tests",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/libwls_s1.a",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/libwls_kernel.a",
+            "/usr/lib/x86_64-linux-gnu/libsqlite3.so",
+            "/usr/lib/x86_64-linux-gnu/libcrypto.so",
+            "/usr/lib/x86_64-linux-gnu/libcurl.so",
+            "/usr/lib/x86_64-linux-gnu/libyaml.so"
+          ],
+          "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate",
+          "uid": 1000,
+          "exit_code": 0,
+          "elapsed_seconds": 1.5379277779720724,
+          "log_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/red-link-event-runtime.log",
+          "log_identity": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "outputs_local_only": {
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/red/build/event_runtime_tests": {
+              "sha256": "500c90af02c5927a0a321f699650624718122653765d20666bf6a754f1142c78",
+              "bytes": 45666440
+            },
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/red/build/event_runtime_tests.map": {
+              "sha256": "7b5bbdea4710ee0430846230c1206e817d841f1877a03c5c8221f5d30c45d6ae",
+              "bytes": 8368471
+            }
+          },
+          "manifest_sha256": "7c31f952b58b2be25057745def15b4ff2daa8104dfd5819c0d096c44f68751c1",
+          "input_fingerprint_count": 739,
+          "post_compile_dependency_count": 0,
+          "record_scope": "Actual successful build only. No test execution or compatibility acceptance."
+        },
+        "red-link-runtime-types-oracle": {
+          "record_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/red-link-runtime-types-oracle.json",
+          "record_identity": {
+            "sha256": "7cb2542a428c6766df4b13ccd0274acba0848ede17614f1dfa9e1eb6622be151",
+            "bytes": 128162
+          },
+          "argv": [
+            "/usr/bin/clang++-18",
+            "-O2",
+            "-g",
+            "-fsanitize=address",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/common/runtime_types_tests.cpp.o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/red/build/runtime_types.cpp.o",
+            "-Wl,-Map,/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/red/runtime_types_tests.map",
+            "-o",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/red/runtime_types_tests",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/libwls_s1.a",
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/feature/build-asan-clang-opt/libwls_kernel.a",
+            "/usr/lib/x86_64-linux-gnu/libsqlite3.so",
+            "/usr/lib/x86_64-linux-gnu/libcrypto.so",
+            "/usr/lib/x86_64-linux-gnu/libcurl.so",
+            "/usr/lib/x86_64-linux-gnu/libyaml.so"
+          ],
+          "cwd": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate",
+          "uid": 1000,
+          "exit_code": 0,
+          "elapsed_seconds": 0.8489637000020593,
+          "log_local_path": "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/build-records/red-link-runtime-types-oracle.log",
+          "log_identity": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "outputs_local_only": {
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/red/runtime_types_tests": {
+              "sha256": "3c9427e66ba4fbc54c7d61a272970c7cc0cd477b903c6e3f5fbd2b611ae3199f",
+              "bytes": 5859168
+            },
+            "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/oracle-build/red/runtime_types_tests.map": {
+              "sha256": "459d2572c7e019c4e6960f1bb3c0594e5dc73322fc3f1a7600ac3542f2508d6f",
+              "bytes": 2833210
+            }
+          },
+          "manifest_sha256": "6f32ccd49b9c4a4af83af0292aa1ea998fda4b2d466b7ce20567499643a3c600",
+          "input_fingerprint_count": 739,
+          "post_compile_dependency_count": 0,
+          "record_scope": "Actual successful build only. No test execution or compatibility acceptance."
+        }
+      },
+      "scope_note": "Preparation outside feature; no change to the v3 build/run inputs. Large unchanged dependency maps are referenced by exact raw-record digest, not duplicated in the supplement.",
+      "static_disposition_notes": {
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/status.json": {
+          "sha256": "452c6b4e7464fa433e62384f057de5350974a110c12c62d4ef6942441d5bd03b",
+          "bytes": 9852
+        },
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/json-validation-candidate/INDEPENDENT-REVIEW.md": {
+          "sha256": "b832d10914d51dbda1fe2769047ac6b88c0d0a107870cddb34d8f3733b8097f4",
+          "bytes": 4167
+        }
+      }
+    },
+    "config-restore-candidate": {
+      "adoption": "NOT_ADOPTED",
+      "compilation": "NOT_RUN",
+      "tests": "NOT_RUN",
+      "runtime_equivalence": "UNVERIFIED",
+      "completed_test_suite_count": 0,
+      "manifest_local_references": {
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/config-restore-candidate/candidate-manifest.json": {
+          "sha256": "a2f21f0b4709485d2b09003f191b297ea879f29e03f3daa24840c2d6dbaf2fce",
+          "bytes": 143234
+        }
+      },
+      "source_local_references": {
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/config-restore-candidate/green/src/config_loader.cpp": {
+          "sha256": "27d9b696da236288616c6ce861879ca121a31fb7d4b10e523f7904ca6c89b764",
+          "bytes": 73242
+        },
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/config-restore-candidate/green/tests/config_loader_tests.cpp": {
+          "sha256": "c948319279a6dd30b0a5803a612e8d8227ed7bd20c647d975fb80ff7ce79e2fc",
+          "bytes": 35661
+        },
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/config-restore-candidate/red/src/config_loader.cpp": {
+          "sha256": "fc0327a17eaeff6604db0a3b74b7a5ed80a9dcf161482639d6c6127dadac8ca0",
+          "bytes": 73050
+        },
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/config-restore-candidate/red/tests/config_loader_tests.cpp": {
+          "sha256": "d1cc029961d5fc163ca8d4949f8421989d1272861723ec37ebb5b4624733c9a2",
+          "bytes": 31116
+        },
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/config-restore-candidate/green/include/wls/config_loader.hpp": {
+          "sha256": "f0d6f07f66c37f9f188cff7a0f7bcb1091366147249e7df4f5442b5d9ea9f59d",
+          "bytes": 4333
+        },
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/config-restore-candidate/red/include/wls/config_loader.hpp": {
+          "sha256": "77caa28881eeb84d2f9f8173370e2f84c678c433c801b768465cb7ab514d26f5",
+          "bytes": 4027
+        }
+      },
+      "builds": {},
+      "scope_note": "Preparation outside feature; no change to the v3 build/run inputs. Large unchanged dependency maps are referenced by exact raw-record digest, not duplicated in the supplement.",
+      "static_disposition_notes": {
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/config-restore-candidate/status.json": {
+          "sha256": "41f7d6a44a54dd26c0151563a5f4904c460cc63e786defd321f86276cbe31e99",
+          "bytes": 869
+        },
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/config-restore-candidate/REVIEW.md": {
+          "sha256": "8f7c918df6075ad3b9db2e876d43ab1bedc9a3d68415bbd270123533b815b44b",
+          "bytes": 3695
+        }
+      }
+    }
+  },
+  "evidence_integrity_verified": true,
+  "local_validation_complete": true,
+  "publication_status": {
+    "commit_verified": false,
+    "push_complete": false,
+    "remote_ci_complete": false
+  },
+  "publication_scope": "This local validation supplement establishes no commit, push, remote Actions result or final committed-tree snapshot. The parent records those separately after they actually occur.",
+  "counting": "Full native gates have 81 registered tests each; sanitizer gates have 31 affected registered tests each. R2.4 has three logical suites with 26 subcases. WorkerTools has 20 subcases after two additional regressions; subcases are not separate suites.",
+  "limitations": [
+    "The 31 ASan registrations are the original affected-suite selection, not a claim that all 81 registrations were run under ASan locally.",
+    "The completed event probe is one diagnostic execution and does not independently satisfy the 31-item gate.",
+    "Earlier failures, timeouts and interrupted runs remain immutable evidence; a later successful run does not prove they were solely environmental.",
+    "External candidate sources and successful compilation are preparation only; their tests are NOT_RUN and they do not contribute to acceptance."
+  ],
+  "recorded_at": "2026-10-29T18:17:33.574383+00:00"
+}

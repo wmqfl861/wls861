@@ -120,6 +120,11 @@ its actors; preserve all unknown/late/AMEND/wait and post-terminal job fences.
 Populated structural upgrades require explicit all-request init maintenance.
 Read ADR-072 for the integration: corrective commands and exact replay obey the
 same scope guards; owner answers cannot perturb sibling requests or clear fences.
+R2.4 refines OneRequest with ADR-091 and `docs/implementation/R2-demand-driven-recovery.md`:
+decide recovery within the original writer transaction, preserve idle epochs,
+and check the issuing Store session even before exact replay. AllRequests and
+explicit recovery remain forced; ephemeral sessions never enter original actor
+fingerprints. Preserve genuine in-flight, UNKNOWN, cleanup CAS and exit guards.
 
 Read `docs/adr/073-model-amendment-dispositions.md` and
 `docs/implementation/R2-model-amendments.md` for model-produced AMEND decisions.

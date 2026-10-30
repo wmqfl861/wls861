@@ -69,17 +69,19 @@ class RecoveryCli(unittest.TestCase):
         self.assertEqual(self.snapshot(b), before)
         self.assertEqual(self.rows('SELECT status FROM requests WHERE request_id=?', (a,))[0]['status'], 'CANCELLED')
 
-    def test_pump_preserves_sibling_and_later_recovers_its_own_epoch(self):
+    def test_pump_preserves_sibling_and_idle_epoch(self):
         a, b = self.setup_pair(); before = self.snapshot(b)
         self.pump(a)
         self.assertEqual(self.snapshot(b), before)
         old_epoch = self.rows('SELECT dispatcher_epoch FROM requests WHERE request_id=?', (b,))[0]['dispatcher_epoch']
+        recoveries = self.rows("SELECT * FROM events WHERE request_id=? AND type='recover' ORDER BY seq", (b,))
         leads = self.rows("SELECT attempt_id FROM call_attempts WHERE request_id=? AND role='team_lead'", (b,))
         other = self.snapshot(a)
         result = self.pump(b)
         self.assertEqual(len(result['calls']), 1, result)
         self.assertEqual(self.snapshot(a), other)
-        self.assertGreater(self.rows('SELECT dispatcher_epoch FROM requests WHERE request_id=?', (b,))[0]['dispatcher_epoch'], old_epoch)
+        self.assertEqual(self.rows('SELECT dispatcher_epoch FROM requests WHERE request_id=?', (b,))[0]['dispatcher_epoch'], old_epoch)
+        self.assertEqual(self.rows("SELECT * FROM events WHERE request_id=? AND type='recover' ORDER BY seq", (b,)), recoveries)
         self.assertEqual(self.rows("SELECT attempt_id FROM call_attempts WHERE request_id=? AND role='team_lead'", (b,)), leads)
 
     def test_admission_and_idempotent_replay_do_not_recover_existing(self):

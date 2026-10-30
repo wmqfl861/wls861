@@ -20,7 +20,8 @@ struct UsageReconciliation;
 class MigrationRegistry;
 
 // Trusted-host context, never constructed from a model tool argument. A host
-// authenticates first; Store checks its persisted owner and fencing epochs.
+// authenticates first; Store checks its issuing session, persisted owner and
+// fencing epochs. Obtain authority through host_actor on the current Store.
 struct StoreActor {
     Role role{Role::Root};
     std::string principal_id;
@@ -29,6 +30,9 @@ struct StoreActor {
     std::string team_id;
     std::int64_t dispatcher_epoch{};
     std::int64_t execution_epoch{};
+    // Ephemeral authority, deliberately absent from persisted actor facts and
+    // command fingerprints. A different Store must issue its own actor.
+    std::string writer_session{};
 };
 
 struct BudgetLimits {
@@ -88,8 +92,10 @@ public:
     // SQL is a trusted, program-distributed asset. Existing unknown databases
     // fail closed; original M1 Journals are never interpreted or rewritten.
     // The unique writer lease is held for this Store's lifetime. Opening fences
-    // selected live requests before actors can be issued and makes their pending
-    // calls UNKNOWN. OneRequest rejects other-request mutations; AdmissionOnly
+    // selected live requests needing recovery before actors can be issued and
+    // makes their pending calls UNKNOWN. Idle OneRequest opens preserve epochs
+    // and persistent rows; AllRequests retains forced recovery. OneRequest
+    // rejects other-request mutations; AdmissionOnly
     // allows admit/replay only and issues no execution actors. Structural upgrades
     // of populated databases require the explicit all-request maintenance scope.
     Store(const std::filesystem::path& database_path,

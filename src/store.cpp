@@ -712,7 +712,8 @@ public:
             if (mode == StoreOpenMode::Takeover && recovery_scope.kind == Kind::OneRequest) {
                 exec("BEGIN IMMEDIATE");
                 try {
-                    recover_selected_request(request_row(recovery_scope.request_id));
+                    const auto selected = request_row(recovery_scope.request_id);
+                    if (needs_recovery(selected)) recover_selected_request(selected);
                     exec("COMMIT");
                 } catch (...) { rollback(); throw; }
             }
@@ -1134,6 +1135,9 @@ public:
                 "admission-only Store does not issue execution authority");
         require(std::find(roles.begin(), roles.end(), actor.role) != roles.end(), ErrorCode::Unauthorized, "role is not authorized");
         const auto r = request_row(actor.request_id);
+        // Exact command replay may waive current epochs, never the issuing
+        // Store session. Persistent owner IDs alone do not grant new authority.
+        require(actor.writer_session == writer_instance, ErrorCode::Stale, "actor belongs to another Store session");
         if (actor.role == Role::Root || actor.role == Role::Dispatcher) {
             require(actor.task_id.empty() && actor.team_id.empty() && actor.execution_epoch == 0 &&
                     actor.principal_id == str(r, actor.role == Role::Root ? "root_id" : "dispatcher_id"),
@@ -1426,6 +1430,24 @@ public:
             break;
         }
         return order;
+    }
+    bool needs_recovery(const Row& r) const {
+        // Called only while holding the writer lease and BEGIN IMMEDIATE.
+        // Ordinary pending work, waits, AMEND and already fenced UNKNOWN do
+        // not carry an execution lease. Their existing guards still apply.
+        const auto id = str(r, "request_id");
+        if (optional("SELECT op_id FROM ops WHERE request_id=? AND status IN ('PREPARED','RUNNING','CANCEL_REQUESTED') LIMIT 1", {id}) ||
+            optional("SELECT attempt_id FROM call_attempts WHERE request_id=? AND status='PENDING' LIMIT 1", {id})) return true;
+        if (events_schema &&
+            (optional("SELECT claim_id FROM event_actor_claims WHERE request_id=? AND status='ACTIVE' LIMIT 1", {id}) ||
+             optional("SELECT event_seq FROM event_inbox WHERE request_id=? AND status='CLAIMED' LIMIT 1", {id}))) return true;
+        if (acceptance_schema) {
+            if (optional("SELECT experience_id FROM experience_jobs WHERE request_id=? AND status<>'DONE' AND (status IN ('RUNNING','FAILED') OR claimed_by IS NOT NULL) LIMIT 1", {id}) ||
+                optional("SELECT cleanup_id FROM cleanup_jobs WHERE request_id=? AND status<>'DONE' AND (status IN ('RUNNING','FAILED') OR claimed_by IS NOT NULL) LIMIT 1", {id})) return true;
+            if (terminal_request(str(r, "status")) && str(r, "status") != "DELIVERED" &&
+                !optional("SELECT request_id FROM receipts WHERE request_id=?", {id})) return true;
+        }
+        return false;
     }
     void recover_selected_request(const Row& r) {
         const auto id = str(r, "request_id");
@@ -2735,6 +2757,7 @@ StoreActor Store::host_actor(Role role, const std::string& id, const std::string
     const auto r = impl_->request_row(id);
     StoreActor actor;
     actor.role = role; actor.request_id = id; actor.dispatcher_epoch = number(r, "dispatcher_epoch");
+    actor.writer_session = impl_->writer_instance;
     if (role == Role::Root || role == Role::Dispatcher) {
         require(team_id.empty(), ErrorCode::InvalidInput, "manager actor has no team");
         actor.principal_id = str(r, role == Role::Root ? "root_id" : "dispatcher_id");

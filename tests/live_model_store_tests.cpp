@@ -1,4 +1,5 @@
 #include "live_test_support.hpp"
+#include "store_actor_support.hpp"
 
 #include <barrier>
 #include <future>
@@ -328,9 +329,23 @@ void recovery_unobserved_is_atomic_and_never_resends() {
     (void)f.reserve(request); const auto first_claim = f.claim(request);
     error(ErrorCode::NotReady, [&] { (void)f.store->settle_unobserved_live(f.actor(Role::Root), request.attempt_id, 1, "unobserved_after_recovery", "host"); });
     f.reopen(); CHECK(f.store->attempt(request.attempt_id).at("status") == "UNKNOWN");
-    const auto replay = f.store->claim_live_send(original_actor, request.attempt_id, 1,
+    const auto original_attempt = f.store->attempt(request.attempt_id);
+    const auto original_budget = f.store->budget(f.request_id);
+    const auto events = f.store->events(f.request_id);
+    error(ErrorCode::Stale, [&] { (void)f.store->claim_live_send(original_actor, request.attempt_id, 1,
+        encode_responses_request(f.live.provider, request, false), f.live.transport, "claim-" + request.attempt_id); });
+    CHECK(f.store->attempt(request.attempt_id) == original_attempt && f.store->budget(f.request_id) == original_budget);
+    CHECK(f.store->events(f.request_id) == events);
+    const auto replay_dispatcher = test::replay_actor(*f.store, original_actor);
+    const auto replay = f.store->claim_live_send(replay_dispatcher, request.attempt_id, 1,
         encode_responses_request(f.live.provider, request, false), f.live.transport, "claim-" + request.attempt_id);
     CHECK(replay.at("claim_id") == first_claim.at("claim_id")); CHECK(!replay.at("new_send_authority").as_bool());
+    // A different command cannot replace the original unique send claim,
+    // even before the current-epoch check for a not-yet-claimed attempt.
+    error(ErrorCode::Conflict, [&] { (void)f.store->claim_live_send(replay_dispatcher, request.attempt_id, 1,
+        encode_responses_request(f.live.provider, request, false), f.live.transport, "new-send-old-epoch"); });
+    CHECK(f.store->attempt(request.attempt_id) == original_attempt && f.store->budget(f.request_id) == original_budget);
+    CHECK(f.store->events(f.request_id) == events);
     const auto version = number(f.store->attempt(request.attempt_id), "state_version");
     const auto before = f.store->budget(f.request_id);
     fixture::sql(f.path, "CREATE TRIGGER fixture_host_fault BEFORE INSERT ON live_usage_projection BEGIN SELECT RAISE(ABORT,'synthetic host recovery fault'); END;");

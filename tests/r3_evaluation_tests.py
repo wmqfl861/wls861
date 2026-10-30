@@ -261,8 +261,12 @@ class Evaluation(unittest.TestCase):
         # produces the plan/order; the next writes; the third submits/checks/
         # accepts. All original model bindings remain in the real Store.
         self.assertEqual(len(self.execute(request, max_calls=2, worker_calls=2)['calls']), 2)
+        # Completed batches are idle. Force the two genuine epoch transitions
+        # whose original recovery witnesses this compatibility helper tests.
+        self.invoke('init', '--db', self.database)
         self.assertEqual(len(self.execute(request, max_calls=1, worker_calls=1,
             script=continuation({'dispatcher': 1, 'team_lead': 1}))['calls']), 1)
+        self.invoke('init', '--db', self.database)
         self.execute(request, max_calls=12, worker_calls=2,
                      script=continuation({'dispatcher': 1, 'team_lead': 1, 'worker': 1}))
 

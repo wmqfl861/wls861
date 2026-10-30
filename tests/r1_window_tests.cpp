@@ -117,7 +117,10 @@ void tail_capture_excludes_a_later_insert() {
         read_runtime_file(source / "db/migrations/008_acceptance_runtime.sql"),
         read_runtime_file(source / "db/migrations/009_owned_cleanup.sql"));
     interleave.stop_installing();
-    const auto captured = reader.attempt_history_tail(actor, 4);
+    expect(ErrorCode::Stale, [&] { (void)reader.attempt_history_tail(actor, 4); });
+    CHECK(!interleave.fired && appended_id.empty());
+    const auto reader_actor = reader.host_actor(Role::Worker, f.request, actor.team_id);
+    const auto captured = reader.attempt_history_tail(reader_actor, 4);
     if (interleave.failure) std::rethrow_exception(interleave.failure);
     CHECK(interleave.fired && !appended_id.empty());
     CHECK(captured.at("through_sequence") == original.at("through_sequence"));
@@ -127,7 +130,7 @@ void tail_capture_excludes_a_later_insert() {
     // A fresh capture sees the append; the old capture remains internally
     // consistent, and its complete small turn still compiles without truncation.
     CHECK(worker_history_messages(captured, policy).size() == 3);
-    const auto next = reader.attempt_history_tail(actor, 4);
+    const auto next = reader.attempt_history_tail(reader_actor, 4);
     CHECK(next.at("total_count") == 2);
     CHECK(text(next.at("items").as_array().back(), "attempt_id") == appended_id);
     CHECK(num(next, "through_sequence") > num(captured, "through_sequence"));

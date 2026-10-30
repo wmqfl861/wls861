@@ -27,7 +27,9 @@ P-01（端点/模型/认证引用）和P-05（真实预算）只控制真实付�
 
 按[ADR-071](adr/071-request-scoped-recovery.md)限定CLI写者恢复到目标请求，submit只准入；
 保留数据库唯一写者、选中请求的完整代次围栏及旧默认全库维护。终态经验/清理租约同样按请求恢复。
-这不是并发租约，也不取消选中请求的恢复；当前实现和证据统一见STATUS。
+R2.4 按 [ADR-091](adr/091-demand-driven-request-recovery.md) 在相同 Store 写事务中判断是否
+需要恢复，并核验 Actor 的签发会话；空闲打开保持 epoch，真实在途状态仍走原围栏。
+这不是并发租约；当前实现和证据统一见STATUS与[R2.4验证](reports/r2-4-demand-driven-recovery-validation.md)。
 恢复范围与拒绝返工在 R2.2 整合验收：纠正、升级、回答及重开均不得扰动兄弟请求。
 模型AMEND按[ADR-073](adr/073-model-amendment-dispositions.md)接入，当前证据见STATUS；
 R2a.1按[ADR-074](adr/074-bounded-directory-tool.md)接入目录工具；R2a.2按ADR-075接入PREPARED恢复，
@@ -54,7 +56,8 @@ R2.1 按 [ADR-070](adr/070-rejected-task-resolution.md) 接通当前拒绝成果
 先复现否定验收后零调用，再验证新修订/新说明/重新ack/再验收；共享返工额度和UNKNOWN门禁不变。
 R2.2联合接入按请求恢复，R2.3接入模型AMEND：新计划与非空节点决定原子提交，遗漏节点后续
 沿同计划处置，原捕获请求/任务CAS及团队代次在最终事务核对。各自证据独立记录，
-不以Fake流程替代真实模型质量，也不把尚未实现的并发租约/按需代次标为完成。
+R2.4 接入按需代次与执行会话隔离，具体门禁见[契约](implementation/R2-demand-driven-recovery.md)。
+不以Fake流程替代真实模型质量；并发写者租约仍未实现。
 
 ### R2a 增量顺序
 

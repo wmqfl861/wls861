@@ -131,6 +131,8 @@ class StructuredCli(unittest.TestCase):
         lead_count = len(self.rows("SELECT * FROM call_attempts WHERE role='team_lead'"))
         self.work_file('new bytes')
         self.configure('framed-v1')
+        # Retain the cross-epoch frozen-history check with an explicit takeover.
+        self.call('init', '--db', self.db)
         self.pump(request, self.read_script(1), workers=1)
         envelopes = self.envelopes('worker')
         context = envelopes[-1]['context']

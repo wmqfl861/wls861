@@ -312,23 +312,32 @@ void historical_worker_tools_do_not_authorize_a_manager() {
 }
 
 void normal_restart_keeps_one_chain_and_old_bindings() {
-    Fixture f; (void)f.run(); const auto before = f.history();
-    const auto old_id = before.front().at("logical_agent_execution").at("logical_agent_id");
-    f.alpha.reset(); f.beta.reset(); f.store.reset();
-    f.store = assets->open(f.database, StoreRecoveryScope::request(f.id)); f.tools();
-    EventFakeScript script;
-    const auto original = event_fake_script_from_json(fixture("s13_fake_initial.json"));
-    for (const auto* node : {"alpha", "beta"}) {
-        auto read = original.by_node.at(node).back(); read.role_call_index = 1;
-        script.by_node[node] = {read};
+    Fixture f; (void)f.run(); CHECK(f.history().size() == 7);
+    for (const bool force : {false, true}) {
+        const auto before = f.history();
+        const auto old_id = before.front().at("logical_agent_execution").at("logical_agent_id");
+        if (force) f.store->recover_request(f.id, number(f.store->request(f.id), "state_version"));
+        const auto events = f.store->events(f.id);
+        f.alpha.reset(); f.beta.reset(); f.store.reset();
+        f.store = assets->open(f.database, StoreRecoveryScope::request(f.id));
+        CHECK(f.store->events(f.id) == events);
+        f.tools();
+        EventFakeScript script;
+        const auto original = event_fake_script_from_json(fixture("s13_fake_initial.json"));
+        for (const auto* node : {"alpha", "beta"}) {
+            auto read = original.by_node.at(node).back(); read.role_call_index = 1;
+            script.by_node[node] = {read};
+        }
+        EventPumpOptions options; options.max_calls = 16; options.max_worker_calls_per_task = 1;
+        const auto report = f.runtime().pump(f.id, script, options);
+        CHECK(report.at("calls").as_array().size() == 2);
+        const auto after = f.history(); CHECK(after.size() == before.size() + 2);
+        for (std::size_t i = 0; i < before.size(); ++i) CHECK(before[i] == after[i]);
+        CHECK(after.back().at("logical_agent_execution").at("logical_agent_id") == old_id);
+        const bool changed = after.back().at("frozen_binding").at("execution_epoch") !=
+                             before.back().at("frozen_binding").at("execution_epoch");
+        CHECK(changed == force);
     }
-    EventPumpOptions options; options.max_calls = 16; options.max_worker_calls_per_task = 1;
-    const auto report = f.runtime().pump(f.id, script, options);
-    CHECK(report.at("calls").as_array().size() == 2);
-    const auto after = f.history(); CHECK(after.size() == 9);
-    for (std::size_t i = 0; i < before.size(); ++i) CHECK(before[i] == after[i]);
-    CHECK(after.back().at("logical_agent_execution").at("logical_agent_id") == old_id);
-    CHECK(after.back().at("frozen_binding").at("execution_epoch") != before.back().at("frozen_binding").at("execution_epoch"));
 }
 
 void sibling_request_history_is_never_adopted() {

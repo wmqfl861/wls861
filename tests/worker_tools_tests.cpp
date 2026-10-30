@@ -22,13 +22,16 @@
 
 namespace {
 void worker_tool_test_phase(std::string_view key, const wls::s1::Json& prepared);
+void worker_tool_test_before_prepare(std::string_view key);
 }
 
-// Compile the actual implementation in this TU to observe a single private
-// phase. The static linker uses these definitions instead of pulling the
+// Compile the actual implementation in this TU to observe private
+// preparation phases. The static linker uses these definitions instead of pulling the
 // library's worker_tools.o; production builds have no observer at all.
 #define WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE(key, prepared) ::worker_tool_test_phase(key, prepared)
+#define WLS_WORKER_TOOLS_PRIVATE_TEST_BEFORE_PREPARE(key) ::worker_tool_test_before_prepare(key)
 #include "../src/worker_tools.cpp"
+#undef WLS_WORKER_TOOLS_PRIVATE_TEST_BEFORE_PREPARE
 #undef WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE
 
 #ifndef WLS_SOURCE_DIR
@@ -51,6 +54,10 @@ Json constraints;
 constexpr std::string_view original_text = "请在自有临时 workspace 测试文件工具，保留原始需求；不要调用外部服务。";
 
 std::function<void(std::string_view, const Json&)> prepared_phase_observer;
+std::function<void(std::string_view)> before_prepare_observer;
+void worker_tool_test_before_prepare(std::string_view key) {
+    if (before_prepare_observer) before_prepare_observer(key);
+}
 void worker_tool_test_phase(std::string_view key, const Json& prepared) {
     if (prepared_phase_observer) prepared_phase_observer(key, prepared);
 }
@@ -81,6 +88,22 @@ void fixture_sql(const std::filesystem::path& database, const std::string& sql) 
     const std::string message = error ? error : "";
     sqlite3_free(error);
     if (status != SQLITE_OK) throw std::runtime_error("fixture SQL failed: " + message);
+}
+std::int64_t fixture_integer(const std::filesystem::path& database, const char* sql,
+        const std::string& parameter) {
+    sqlite3* raw = nullptr;
+    CHECK(sqlite3_open_v2(database.c_str(), &raw, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+    const std::unique_ptr<sqlite3, int(*)(sqlite3*)> connection(raw, sqlite3_close);
+    CHECK(sqlite3_busy_timeout(connection.get(), 1000) == SQLITE_OK);
+    sqlite3_stmt* statement_raw = nullptr;
+    CHECK(sqlite3_prepare_v2(connection.get(), sql, -1, &statement_raw, nullptr) == SQLITE_OK);
+    const std::unique_ptr<sqlite3_stmt, int(*)(sqlite3_stmt*)> statement(statement_raw, sqlite3_finalize);
+    CHECK(sqlite3_bind_text(statement.get(), 1, parameter.c_str(), -1, SQLITE_TRANSIENT) == SQLITE_OK);
+    CHECK(sqlite3_step(statement.get()) == SQLITE_ROW);
+    CHECK(sqlite3_column_type(statement.get(), 0) == SQLITE_INTEGER);
+    const auto value = sqlite3_column_int64(statement.get(), 0);
+    CHECK(sqlite3_step(statement.get()) == SQLITE_DONE);
+    return value;
 }
 AdmissionInput admission() {
     AdmissionInput result;
@@ -553,6 +576,150 @@ void concurrent_exact_commands_have_one_execution_owner() {
     }
 }
 
+void delayed_prepare_replay_keeps_the_original_dispatch_intent() {
+    Session session;
+    WorkerTools second(*session.store, session.work);
+    second.bind(session.actor());
+    const auto actor = session.actor();
+    const auto binding = session.binding();
+    const auto expected = session.version();
+    const std::string key = "delayed-prepare-replay-key";
+    const std::string command = "delayed-prepare-replay-command";
+    const auto file = session.work / "one-original-effect.txt";
+    const Json args = Object{{"path", file.filename().string()}, {"content", "one original dispatch"}};
+    const auto tool_calls = [&] {
+        return fixture_integer(session.database, "SELECT tool_calls_used FROM teams WHERE team_id=?", actor.team_id);
+    };
+    const auto operations = [&] {
+        return fixture_integer(session.database, "SELECT count(*) FROM ops WHERE request_id=?", session.request_id);
+    };
+    const auto results = [&] {
+        return fixture_integer(session.database,
+            "SELECT count(*) FROM operation_results r JOIN ops o USING(op_id) WHERE o.request_id=?", session.request_id);
+    };
+    const auto attempts = [&] {
+        return fixture_integer(session.database, "SELECT count(*) FROM call_attempts WHERE request_id=?", session.request_id);
+    };
+    CHECK(!std::filesystem::exists(file));
+    CHECK(session.store->operation_for_key(actor, binding, key, "fs_write", args).is_null());
+    const auto before_tool_calls = tool_calls();
+    const auto before_operations = operations();
+    const auto before_results = results();
+    const auto before_attempts = attempts();
+    const auto before_budget = session.store->budget(session.request_id);
+    const auto before_events = session.store->events(session.request_id, 0, 1000);
+    CHECK(before_events.size() < 997);
+
+    struct Gate {
+        std::mutex mutex;
+        std::condition_variable changed;
+        unsigned arrivals{0};
+        bool released{false};
+        void release() {
+            const std::lock_guard lock(mutex);
+            released = true;
+            changed.notify_all();
+        }
+    } gate;
+    CHECK(!before_prepare_observer);
+    before_prepare_observer = [&](std::string_view observed_key) {
+        if (observed_key != key) return;
+        std::unique_lock lock(gate.mutex);
+        ++gate.arrivals;
+        gate.changed.notify_all();
+        // Both calls have observed the key as absent. Only the delayed caller
+        // waits here, so the owner can finish and remove its in-memory claim.
+        if (gate.arrivals == 1 &&
+            !gate.changed.wait_for(lock, std::chrono::seconds(10), [&] { return gate.released; }))
+            throw std::runtime_error("delayed prepare test gate was not released");
+    };
+    struct ResetObserver { ~ResetObserver() { before_prepare_observer = {}; } } reset;
+    Json replay;
+    std::exception_ptr delayed_error;
+    std::jthread delayed([&] {
+        try { replay = second.execute(actor, binding, expected, key, "fs_write", args, command); }
+        catch (...) { delayed_error = std::current_exception(); }
+    });
+    struct ReleaseGate { Gate& gate; ~ReleaseGate() { gate.release(); } } release{gate};
+    {
+        std::unique_lock lock(gate.mutex);
+        CHECK(gate.changed.wait_for(lock, std::chrono::seconds(10), [&] { return gate.arrivals == 1; }));
+    }
+    const auto owner = session.tools->execute(actor, binding, expected, key, "fs_write", args, command);
+    succeeded(owner);
+    CHECK(owner.at("executed_now") == true && owner.at("replayed") == false);
+    CHECK(host_read(file) == "one original dispatch");
+    const auto id = op_id(owner);
+    const auto original_operation = session.store->operation(id);
+    const auto original_result = session.store->operation_result(id);
+    const auto settled_task = session.store->task(session.task_id());
+    const auto settled_request = session.store->request(session.request_id);
+    const auto settled_events = session.store->events(session.request_id, 0, 1000);
+    CHECK(number(original_operation.at("state_version")) == 3);
+    CHECK(number(settled_task.at("state_version")) == expected + 1);
+    CHECK(tool_calls() == before_tool_calls + 1 && operations() == before_operations + 1);
+    CHECK(results() == before_results + 1 && attempts() == before_attempts);
+    CHECK(session.store->budget(session.request_id) == before_budget);
+    CHECK(settled_events.size() == before_events.size() + 3);
+    CHECK(std::equal(before_events.begin(), before_events.end(), settled_events.begin()));
+    CHECK(settled_events[before_events.size()].at("type") == "prepare_op");
+    CHECK(settled_events[before_events.size() + 1].at("type") == "start_tool_op");
+    CHECK(settled_events[before_events.size() + 2].at("type") == "record_op_result");
+    struct stat original_file {};
+    CHECK(::lstat(file.c_str(), &original_file) == 0);
+
+    gate.release();
+    delayed.join();
+    CHECK(gate.arrivals == 2);
+    CHECK(session.store->operation(id) == original_operation);
+    CHECK(session.store->operation_result(id) == original_result);
+    CHECK(session.store->task(session.task_id()) == settled_task);
+    CHECK(session.store->request(session.request_id) == settled_request);
+    CHECK(session.store->events(session.request_id, 0, 1000) == settled_events);
+    CHECK(session.store->budget(session.request_id) == before_budget);
+    CHECK(tool_calls() == before_tool_calls + 1 && operations() == before_operations + 1);
+    CHECK(results() == before_results + 1 && attempts() == before_attempts);
+    struct stat replayed_file {};
+    CHECK(::lstat(file.c_str(), &replayed_file) == 0);
+    CHECK(replayed_file.st_dev == original_file.st_dev && replayed_file.st_ino == original_file.st_ino);
+    CHECK(replayed_file.st_size == original_file.st_size);
+    CHECK(replayed_file.st_mtim.tv_sec == original_file.st_mtim.tv_sec &&
+        replayed_file.st_mtim.tv_nsec == original_file.st_mtim.tv_nsec);
+    CHECK(replayed_file.st_ctim.tv_sec == original_file.st_ctim.tv_sec &&
+        replayed_file.st_ctim.tv_nsec == original_file.st_ctim.tv_nsec);
+    CHECK(host_read(file) == "one original dispatch");
+
+    // Keep the Store's original fingerprint guard: a changed expected version
+    // is still a different start intent, even though wrapper replay is safe.
+    expect(ErrorCode::Conflict, [&] {
+        (void)session.store->start_tool_operation(actor, id,
+            number(original_operation.at("state_version")), command + ":start");
+    });
+    auto changed_args = args;
+    changed_args.as_object()["content"] = "different intent";
+    expect(ErrorCode::Conflict, [&] {
+        (void)session.store->prepare_tool_operation(actor, binding, expected, key,
+            "fs_write", changed_args, command + ":prepare");
+    });
+    expect(ErrorCode::Conflict, [&] {
+        (void)second.execute(actor, binding, expected, key, "fs_write", changed_args, command);
+    });
+    CHECK(session.store->operation(id) == original_operation);
+    CHECK(session.store->operation_result(id) == original_result);
+    CHECK(session.store->task(session.task_id()) == settled_task);
+    CHECK(session.store->events(session.request_id, 0, 1000) == settled_events);
+    CHECK(session.store->budget(session.request_id) == before_budget);
+    CHECK(tool_calls() == before_tool_calls + 1 && operations() == before_operations + 1);
+    CHECK(results() == before_results + 1 && attempts() == before_attempts);
+    CHECK(host_read(file) == "one original dispatch");
+    // On the old wrapper the deterministic late prepare is rejected here;
+    // all preceding persisted-state and original-side-effect checks still run.
+    if (delayed_error) std::rethrow_exception(delayed_error);
+    succeeded(replay);
+    CHECK(replay.at("replayed") == true && replay.at("executed_now") == false);
+    CHECK(operation(replay) == original_operation && execution(replay) == original_result);
+}
+
 void revoked_tool_is_removed_from_new_model_context() {
     Session session;
     host_write(session.work / "allowed.txt", "still allowed");
@@ -591,6 +758,188 @@ void result_commit_failure_blocks_new_business() {
     if (second_returned) CHECK(operation(second).at("status") != "SUCCEEDED");
     CHECK(!std::filesystem::exists(session.work / "must-stay-blocked"));
     CHECK(session.diagnostic("fs_read", Object{{"path", "effect-happened.txt"}}).at("content") == "written before SQLite settlement failed");
+}
+
+void settlement_fault_is_scoped_to_its_writer_session() {
+    for (const bool reconcile_before_reopen : {true, false}) {
+        Session session;
+        const auto old_actor = session.actor();
+        const auto original_binding = session.binding();
+        const auto original_task_version = session.version();
+        const auto original_file = session.work / "effect-before-settlement-failure.txt";
+        const Json original_args = Object{{"path", original_file.filename().string()}, {"content", "original observed file effect"}};
+        const auto original_budget = session.store->budget(session.request_id);
+        const auto attempts = fixture_integer(session.database,
+            "SELECT count(*) FROM call_attempts WHERE request_id=?", session.request_id);
+        fixture_sql(session.database,
+            "CREATE TRIGGER fail_session_definite_result BEFORE INSERT ON events "
+            "WHEN NEW.type='record_op_result' AND json_extract(NEW.result,'$.observed_outcome')<>'UNKNOWN' "
+            "BEGIN SELECT RAISE(ABORT,'injected first definite result failure'); END");
+        CHECK(fixture_integer(session.database,
+            "SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name=?", "fail_session_definite_result") == 1);
+        expect(ErrorCode::Storage, [&] {
+            (void)session.execute("fs_write", original_args, "session-original-key", "session-original-command");
+        });
+        CHECK(host_read(original_file) == "original observed file effect");
+        const auto unknown_operation = session.store->operation_for_key(old_actor, original_binding,
+            "session-original-key", "fs_write", original_args);
+        const auto id = text(unknown_operation.at("op_id"));
+        CHECK(unknown_operation.at("status") == "UNKNOWN");
+        const auto immutable_facts = [&] {
+            auto result = session.store->operation_result(id);
+            result.as_object().erase("operation_status");
+            return result;
+        };
+        const auto original_facts = immutable_facts();
+        CHECK(original_facts.at("observed_outcome") == "UNKNOWN" && original_facts.at("accepted") == 0);
+        CHECK(original_facts.at("result").at("observed_outcome") == "SUCCEEDED");
+        CHECK(original_facts.at("result").at("error") == "execution_result_persistence_failed");
+        CHECK(original_facts.at("evidence").at("kind") == "settlement_failure");
+        fixture_sql(session.database, "DROP TRIGGER fail_session_definite_result");
+        CHECK(fixture_integer(session.database,
+            "SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name=?", "fail_session_definite_result") == 0);
+        const auto original_history = session.store->events(session.request_id, 0, 1000);
+        CHECK(original_history.size() < 995);
+        struct stat original_identity {};
+        CHECK(::lstat(original_file.c_str(), &original_identity) == 0);
+
+        const auto rejected_without_effect = [&](ErrorCode expected_error, const StoreActor& actor, const std::string& label) {
+            const Json args = Object{{"path", label + ".txt"}, {"content", "must not execute"}};
+            const auto task = session.store->task(session.task_id());
+            const auto request = session.store->request(session.request_id);
+            const auto events = session.store->events(session.request_id, 0, 1000);
+            const auto operation_count = fixture_integer(session.database,
+                "SELECT count(*) FROM ops WHERE request_id=?", session.request_id);
+            const auto tool_calls = fixture_integer(session.database,
+                "SELECT tool_calls_used FROM teams WHERE team_id=?", actor.team_id);
+            expect(expected_error, [&] {
+                (void)session.tools->execute(actor, session.binding(), session.version(), label,
+                    "fs_write", args, label + "-command");
+            });
+            CHECK(!std::filesystem::exists(session.work / (label + ".txt")));
+            CHECK(session.store->operation_for_key(session.actor(), session.binding(), label, "fs_write", args).is_null());
+            CHECK(session.store->task(session.task_id()) == task && session.store->request(session.request_id) == request);
+            CHECK(session.store->events(session.request_id, 0, 1000) == events);
+            CHECK(session.store->budget(session.request_id) == original_budget && immutable_facts() == original_facts);
+            CHECK(fixture_integer(session.database, "SELECT count(*) FROM ops WHERE request_id=?", session.request_id) == operation_count);
+            CHECK(fixture_integer(session.database, "SELECT tool_calls_used FROM teams WHERE team_id=?", actor.team_id) == tool_calls);
+            CHECK(host_read(original_file) == "original observed file effect");
+        };
+        std::string reconciliation_evidence;
+        const auto reconcile = [&] {
+            // This is a real file observation, never process-exit or cleanup proof.
+            reconciliation_evidence = "Host read original file bytes; sha256=" + sha256_hex(host_read(original_file));
+            expect(ErrorCode::Unauthorized, [&] {
+                (void)session.store->reconcile_operation(session.actor(), id,
+                    number(unknown_operation.at("state_version")), "SUCCEEDED", reconciliation_evidence, "wrong-role-reconciliation");
+            });
+            const auto result = session.store->reconcile_operation(
+                session.store->host_actor(Role::Root, session.request_id), id,
+                number(unknown_operation.at("state_version")), "SUCCEEDED", reconciliation_evidence, "session-host-reconciliation");
+            CHECK(result.at("status") == "SUCCEEDED");
+            CHECK(number(result.at("state_version")) == number(unknown_operation.at("state_version")) + 1);
+            CHECK(immutable_facts() == original_facts);
+        };
+
+        // Fresh host_actor calls within one Store must retain the failure fence.
+        CHECK(session.actor().writer_session == old_actor.writer_session);
+        rejected_without_effect(ErrorCode::NotReady, session.actor(), "same-session-before-reconciliation");
+        if (reconcile_before_reopen) {
+            reconcile();
+            session.runtime.reset();
+            session.tools.reset();
+            session.tools = std::make_unique<WorkerTools>(*session.store, session.work);
+            const auto fresh_actor = session.actor();
+            session.tools->bind(fresh_actor);
+            CHECK(fresh_actor.writer_session == old_actor.writer_session);
+            rejected_without_effect(ErrorCode::NotReady, fresh_actor, "same-session-after-reconciliation");
+        }
+        const auto before_open_request = session.store->request(session.request_id);
+        const auto before_open_task = session.store->task(session.task_id());
+        const auto before_open_operation = session.store->operation(id);
+        const auto before_open_events = session.store->events(session.request_id, 0, 1000);
+        session.runtime.reset();
+        session.tools.reset();
+        session.store.reset();
+        session.store = std::make_unique<Store>(session.database, base_sql, migration_sql,
+            StoreOpenMode::Takeover, tools_sql, "", "", "", "", StoreRecoveryScope::request(session.request_id));
+        session.tools = std::make_unique<WorkerTools>(*session.store, session.work);
+        const auto current_actor = session.actor();
+        session.tools->bind(current_actor);
+        CHECK(current_actor.writer_session != old_actor.writer_session);
+        CHECK(current_actor.dispatcher_epoch == old_actor.dispatcher_epoch && current_actor.execution_epoch == old_actor.execution_epoch);
+        CHECK(to_json(session.binding()) == to_json(original_binding));
+        CHECK(session.store->request(session.request_id) == before_open_request);
+        CHECK(session.store->task(session.task_id()) == before_open_task);
+        CHECK(session.store->operation(id) == before_open_operation);
+        CHECK(session.store->events(session.request_id, 0, 1000) == before_open_events);
+        CHECK(immutable_facts() == original_facts);
+        rejected_without_effect(ErrorCode::Stale, old_actor, "old-session-after-reopen");
+        const auto before_old_replay_operations = fixture_integer(session.database,
+            "SELECT count(*) FROM ops WHERE request_id=?", session.request_id);
+        const auto before_old_replay_tool_calls = fixture_integer(session.database,
+            "SELECT tool_calls_used FROM teams WHERE team_id=?", current_actor.team_id);
+        // Even the original prepare fingerprint cannot carry authority from
+        // the old Store session into the new Store's exact replay path.
+        expect(ErrorCode::Stale, [&] {
+            (void)session.store->prepare_tool_operation(old_actor, original_binding, original_task_version,
+                "session-original-key", "fs_write", original_args, "session-original-command:prepare");
+        });
+        CHECK(session.store->request(session.request_id) == before_open_request);
+        CHECK(session.store->task(session.task_id()) == before_open_task);
+        CHECK(session.store->operation(id) == before_open_operation);
+        CHECK(session.store->events(session.request_id, 0, 1000) == before_open_events);
+        CHECK(session.store->budget(session.request_id) == original_budget && immutable_facts() == original_facts);
+        CHECK(fixture_integer(session.database, "SELECT count(*) FROM ops WHERE request_id=?", session.request_id) == before_old_replay_operations);
+        CHECK(fixture_integer(session.database, "SELECT tool_calls_used FROM teams WHERE team_id=?", current_actor.team_id) == before_old_replay_tool_calls);
+        CHECK(host_read(original_file) == "original observed file effect");
+        if (!reconcile_before_reopen) {
+            // A fresh session reaches the persisted UNKNOWN guard. It must not
+            // inherit the old NotReady memory fence or gain business authority.
+            rejected_without_effect(ErrorCode::UnknownOutcome, current_actor, "new-session-before-reconciliation");
+            reconcile();
+        }
+        const auto reconciled = session.store->operation(id);
+        CHECK(!reconciliation_evidence.empty());
+        CHECK(text(reconciled.at("evidence_ref")) == "sha256:" + sha256_hex(reconciliation_evidence));
+        auto original_projection = reconciled;
+        for (const auto* field : {"status", "state_version", "ended_at", "evidence_ref"})
+            original_projection.as_object()[field] = unknown_operation.at(field);
+        CHECK(original_projection == unknown_operation);
+        const auto reconciled_history = session.store->events(session.request_id, 0, 1000);
+        CHECK(reconciled_history.size() == original_history.size() + 1);
+        CHECK(std::equal(original_history.begin(), original_history.end(), reconciled_history.begin()));
+        CHECK(reconciled_history.back().at("type") == "reconcile_op");
+        const auto before_new_operations = fixture_integer(session.database,
+            "SELECT count(*) FROM ops WHERE request_id=?", session.request_id);
+        const auto before_new_tool_calls = fixture_integer(session.database,
+            "SELECT tool_calls_used FROM teams WHERE team_id=?", current_actor.team_id);
+        const Json new_args = Object{{"path", "after-reconciliation.txt"}, {"content", "one newly authorized effect"}};
+        const auto fresh = session.execute("fs_write", new_args, "new-session-business-key", "new-session-business-command");
+        succeeded(fresh);
+        CHECK(fresh.at("executed_now") == true && fresh.at("replayed") == false);
+        const auto after_new_events = session.store->events(session.request_id, 0, 1000);
+        CHECK(after_new_events.size() == reconciled_history.size() + 3);
+        CHECK(std::equal(reconciled_history.begin(), reconciled_history.end(), after_new_events.begin()));
+        const auto replay = session.execute("fs_write", new_args, "new-session-business-key", "new-session-business-replay");
+        CHECK(replay.at("replayed") == true && replay.at("executed_now") == false);
+        CHECK(op_id(replay) == op_id(fresh) && execution(replay) == execution(fresh));
+        CHECK(session.store->events(session.request_id, 0, 1000) == after_new_events);
+        CHECK(session.store->operation(id) == reconciled && immutable_facts() == original_facts);
+        CHECK(session.store->budget(session.request_id) == original_budget);
+        CHECK(fixture_integer(session.database, "SELECT count(*) FROM call_attempts WHERE request_id=?", session.request_id) == attempts);
+        CHECK(fixture_integer(session.database, "SELECT count(*) FROM ops WHERE request_id=?", session.request_id) == before_new_operations + 1);
+        CHECK(fixture_integer(session.database, "SELECT tool_calls_used FROM teams WHERE team_id=?", current_actor.team_id) == before_new_tool_calls + 1);
+        CHECK(host_read(session.work / "after-reconciliation.txt") == "one newly authorized effect");
+        CHECK(host_read(original_file) == "original observed file effect");
+        struct stat final_identity {};
+        CHECK(::lstat(original_file.c_str(), &final_identity) == 0);
+        CHECK(final_identity.st_dev == original_identity.st_dev && final_identity.st_ino == original_identity.st_ino);
+        CHECK(final_identity.st_size == original_identity.st_size);
+        CHECK(final_identity.st_mtim.tv_sec == original_identity.st_mtim.tv_sec && final_identity.st_mtim.tv_nsec == original_identity.st_mtim.tv_nsec);
+        CHECK(final_identity.st_ctim.tv_sec == original_identity.st_ctim.tv_sec && final_identity.st_ctim.tv_nsec == original_identity.st_ctim.tv_nsec);
+        rejected_without_effect(ErrorCode::Stale, old_actor, "old-session-after-new-business");
+    }
 }
 
 void prepared_call_cannot_claim_after_another_settlement_fails() {
@@ -727,8 +1076,10 @@ int main() {
         {"Worker call bounds and failed tools stop subsequent model effects", batch_limits_and_failed_tool_stop_further_calls},
         {"payload, path and schema restrictions precede filesystem effects", path_payload_and_schema_limits_precede_effects},
         {"concurrent exact commands have at most one actual execution owner", concurrent_exact_commands_have_one_execution_owner},
+        {"late prepare replay preserves one original dispatch and Store intent guards", delayed_prepare_replay_keeps_the_original_dispatch_intent},
         {"current policy revocation removes tools from new model contexts", revoked_tool_is_removed_from_new_model_context},
         {"SQLite result-event failure after file effect blocks further business", result_commit_failure_blocks_new_business},
+        {"settlement failure fences its writer session while UNKNOWN remains a Store gate", settlement_fault_is_scoped_to_its_writer_session},
         {"prepared concurrent call cannot claim after another result and all fallbacks fail", prepared_call_cannot_claim_after_another_settlement_fails},
         {"exact old ack replay cannot acknowledge a newer instruction", exact_old_ack_replays_without_acknowledging_new_order}
     });

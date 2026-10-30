@@ -3,6 +3,12 @@
 依据 [ADR-071](../adr/071-request-scoped-recovery.md)，整合实现0.8.1-r2.2，目标蓝图v0.4.1。
 当前进度见[STATUS](../STATUS.md)，实际验证见[报告](../reports/r2-integration-validation.md)。
 
+R2.4 后继按 [ADR-091](../adr/091-demand-driven-request-recovery.md) 在原 Store 写事务内
+判断 OneRequest 是否确有恢复需要；空闲打开保留 epoch 与业务行。
+实际接口、会话兼容和本批验证见[按需恢复契约](R2-demand-driven-recovery.md)及
+[R2.4 报告](../reports/r2-4-demand-driven-recovery-validation.md)。下文原 R2.2 的无条件
+选中请求恢复由该后继细化；AllRequests 与显式强制恢复的原语义保留。
+
 ## 接口与作用域
 
 本增量为 `Store` 追加可选参数 `StoreRecoveryScope`，默认值保持既有行为。
@@ -11,7 +17,7 @@
 | 选择 | 启动行为 | 写入权限 |
 | --- | --- | --- |
 | `AllRequests`（默认） | 原全库活动请求和终态待办恢复 | 原可信宿主API规则 |
-| `StoreRecoveryScope::request(id)` | 仅恢复该请求及归属的操作、调用、事件领取、经验/清理租约 | 只允许目标请求；禁止新准入 |
+| `StoreRecoveryScope::request(id)` | 在事务内判定，必要时仅恢复该请求及归属的操作、调用、事件领取、经验/清理租约 | 只允许目标请求；禁止新准入 |
 | `StoreRecoveryScope::admission()` | 不恢复既有请求；空库可正常初始化 | 仅admit及其精确重放；禁止执行身份及所有其他写接口 |
 
 所有写模式都持有**同一个数据库级独占writer-lock**，并保留WAL/FULL与事务CAS。
@@ -20,7 +26,7 @@
 
 ## 恢复与版本
 
-选中活动请求仍执行原恢复事务：提升Dispatcher/team执行代次，取消未派发PREPARED，
+选中活动请求有未围栏操作、PENDING调用、活动事件领取或需回收作业租约时，执行原恢复事务：提升Dispatcher/team执行代次，取消未派发PREPARED，
 将运行中/取消中不确定操作围栏为UNKNOWN，将PENDING模型调用按未知用量保留预留，释放旧事件claim。
 同语义说明只由恢复事件授权投影到新代次，Worker必须重新ack；原说明和反馈不可变，工具额度和预算不清零。
 
@@ -54,6 +60,6 @@ OneRequest要求数据库已存在且受支持：缺文件不创建，空文件�
 
 ## 尚未改变
 
-默认嵌入式Store不传scope仍恢复全库；使用方需显式选择范围。被选中的活动请求每次仍推进执行代次，
-不声称“只有发现未决工作才恢复”。数据库仍只有一个写者；模型判断质量、强沙箱正向部署、
+默认嵌入式Store不传scope仍强制恢复全库；使用方需显式选择范围。OneRequest 的按需判定和
+Actor 签发会话隔离以 ADR-091 为准。数据库仍只有一个写者；模型判断质量、强沙箱正向部署、
 真实供应商及PREPARED分配恢复仍独立验收。拒绝后继已与本范围在 R2.2 联合测试。
