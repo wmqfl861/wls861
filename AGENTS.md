@@ -1,6 +1,85 @@
 # WLS861 development contract
 
-Current implementation: **0.11.1-r3.3c-audit**, blueprint **v0.4.1**, Store **410**.
+Current implementation: **0.11.1-r3.3c-audit**, implementation blueprint baseline **v0.4.1**, Store **410**.
+The next planning revision is [v0.5.0](docs/spec/v0.5.0/README.md), pending
+coordinator review. It does not upgrade the runtime, Store schema, frozen request
+contracts or the completion status of planned capabilities. Preserve every
+published file under `docs/spec/v0.4.1/`.
+
+## Coordination, execution and delivery authority
+
+These are development responsibilities, separate from the runtime's Root,
+Dispatcher, TeamLead and Worker permission scopes.
+
+- The main coordinating Agent owns overall architecture, blueprint decisions,
+  task order and decomposition, independent review, defect adjudication and
+  final acceptance. The local execution Agent implements the assigned scope;
+  it must not approve its own design changes or start later task cards merely
+  because they appear in the roadmap.
+- The local execution Agent owns local source edits, builds, tests, sanitizers,
+  available Linux/Windows machine validation, isolated Git branches, normal
+  commits/pushes and evidence archiving. Routine reversible work already
+  authorized for the current task proceeds without repeated permission requests.
+  A proposed scope change must first be made concrete for coordinator review.
+- An independent engineering reviewer examines actual source, evidence and
+  failure conditions. The executor's own passing tests are execution evidence,
+  not independent review or product acceptance. Another Agent's review records
+  its identity, scope and limitations; it is not automatically a second-model
+  evaluation or the coordinator's formal PR approval.
+- Every important module records its original baseline, deterministic failing
+  counterexample where a defect exists, minimal fix/design, independent code
+  review, complete applicable regression, final full SHA, that SHA's remote CI,
+  and actual publication state. For documentation-only work without a reproduced
+  defect, record the counterexample as not applicable; never manufacture one or
+  relabel a proposed negative test as an executed failure.
+- Keep `IMPLEMENTATION_COMPLETE`, `LOCAL_VALIDATION_COMPLETE`, `PUSH_COMPLETE`,
+  `REMOTE_CI_COMPLETE`, `PR_REVIEW_COMPLETE` and `MERGED` separate. A branch push,
+  green CI or local reviewer finding no blocker does not imply formal PR review
+  or merge. Formal acceptance requires the coordinator's recorded decision for
+  the reviewed SHA; merge additionally requires authorization and actual GitHub
+  merge/target-branch evidence. This task authorizes PR creation, not merging.
+
+Use the project data disk for checkouts, builds, evidence and temporary test
+databases. Check mounts, free space, worktrees, uncommitted changes and running
+jobs before taking over. Set a task-specific `TMPDIR` on that disk for tests.
+Fetch and record exact remote heads before publishing; preserve other worktrees
+and branches. Do not hard-reset/clean away work, force-push or write directly to
+main. Use a separate fix branch if a confirmed production defect is discovered
+during a planning-only task. Stacked documentation PRs must name their base and
+dependency; retarget/rebase only within an explicitly authorized integration.
+
+Published SQL, historical blueprints/reports and original logs are immutable.
+Use new versioned reports for corrections and later results, preserving failed,
+timed-out and interrupted runs. Check input and binary identities, exit codes,
+ordinary-user permissions and complete test termination. Do not commit build
+outputs, temporary databases, real credentials or environment-secret files.
+Reviewed text-only evidence archives may contain original commands/logs and
+manifests, with member/hash and credential checks; never execute archived code
+to inspect its evidence. Committed reports state their time scope; an external
+post-publication receipt may record the final SHA/CI without a self-referential
+follow-up commit.
+
+The v0.5.0 roadmap requires native Windows support without WSL as a cross-stage
+platform workstream. Current Linux behavior and security gates remain the
+reference. Windows capabilities are planned until native build and machine
+evidence exists; Job Objects alone are not a sandbox. Preserve handle identity,
+reparse-point/ACL/SID boundaries, restricted-token/AppContainer and network
+controls, process-tree cancellation, exit proof and owned cleanup. Missing
+capabilities must refuse the affected operation, not silently weaken isolation.
+Do not begin a broad platform refactor under this documentation task.
+
+Concurrent writer leases, real supplier quality/cost acceptance, native Windows
+execution and S2–S5 extensions remain separately authorized task cards. Existing
+SQLite single-writer exclusion and actor sessions do not constitute those leases.
+FakeModel/loopback tests do not authorize real provider calls. A real run needs
+explicit approved endpoint/model, capability and billing provenance, bounded
+budget and call authorization; this task grants no real or paid calls.
+
+Release states, dependency rules and evidence requirements are specified in
+[v0.5.0 governance](docs/spec/v0.5.0/09-release-governance.md).
+
+## Existing implementation contracts
+
 The whole-code review and minimal fixes are specified in ADR-090 and
 `docs/reviews/code-audit-20261027.md`; actual results belong in
 `docs/reports/code-audit-20261027-validation.md`. Preserve inherited writer

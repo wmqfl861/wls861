@@ -1,4 +1,48 @@
-# 当前实现 **0.11.1-r3.3c-audit**，目标蓝图 **v0.4.1**，Store **410**。
+# 当前实现 **0.11.1-r3.3c-audit**，实施基线蓝图 **v0.4.1**，Store **410**。
+
+2026-10-30 接续：新增 [v0.5.0 后续规划](spec/v0.5.0/README.md)，**待主协调 Agent 审核**。
+本轮完成的对象是 R2.4 交付复核、正式 PR 和规划/治理文档；没有升级运行版本、Store 或
+已冻结请求契约。原 `docs/spec/v0.4.1/` 全部保留。Windows 原生支持无需 WSL 是正式
+规划要求，当前生产实现与实机验收均 **NOT_IMPLEMENTED / NOT_RUN**，不能由 Linux
+测试、规划提交或 Job Objects 的存在推导完成。Linux 仍为参考运行平台。
+
+## R2.4 分支交付状态
+
+实际核对的 R2.4 提交为 `55dc989e02f7e3e2cd1806e53d47298dd8742376`，
+分支 `feat/r2-4-demand-driven-recovery`；main 仍为
+`a6b8559018a599d7a806b05942857a56d69a00ce`。下表状态属于该分支提交，**不是 main 已合并状态**。
+
+| 状态 | 实际结论及证据 |
+| --- | --- |
+| `IMPLEMENTATION_COMPLETE` | 完成；按需恢复、Store 会话身份和 WorkerTools 最小修复已实现，独立工程复核未确认生产缺陷 |
+| `LOCAL_VALIDATION_COMPLETE` | 完成；同 312 项冻结输入，Release 两种 umask/Clang 各 81/81，UBSan 和 ASan/LSan 各 31/31；原历史失败仍保留 |
+| `PUSH_COMPLETE` | 完成；远端 R2.4 分支读回完整 SHA 与上述提交一致 |
+| `REMOTE_CI_COMPLETE` | 完成；[六路 CI](https://github.com/wmqfl861/wls861/actions/runs/40930613935)及[源码快照](https://github.com/wmqfl861/wls861/actions/runs/40930613463)均成功，归档与提交树相同 |
+| `PR_REVIEW_COMPLETE` | **PENDING**；[正式 PR #1](https://github.com/wmqfl861/wls861/pull/1) 已创建，工程复核不替代主协调 Agent 的正式接受决定 |
+| `MERGED` | **FALSE**；没有合并、自动合并或向 main 推送 |
+
+本轮重新审查的源路径、安全边界和未覆盖分支见
+[独立代码审核](reviews/r2-4-independent-audit-20261030.md)，原始红绿、失败保留、五门禁、
+远端 CI 与源码身份的核对见[交付证据复核](reports/r2-4-handoff-audit-20261030.md)。
+规划分支从上述 R2.4 提交派生；后续状态按[六状态治理](spec/v0.5.0/09-release-governance.md)
+分别登记，正式 PR 审核与合并仍交主协调 Agent。
+
+## 本轮规划范围与后继任务
+
+| 范围 | 当前状态 | 后继入口 |
+| --- | --- | --- |
+| R2.4 正式验收/合并 | 待协调者 PR 审核和另行授权的合并 | [P0](spec/v0.5.0/08-task-cards.md#p0) |
+| 并发写者租约 | 未实现；现有 SQLite 单写者/Store 生命周期锁继续有效 | [P1 架构与风险设计](spec/v0.5.0/08-task-cards.md#p1) |
+| 真实供应商小任务与同条件对照 | 工程框架已有，真实产品质量/费用未验收；本轮真实/付费调用为 0 | [P2 验收准备](spec/v0.5.0/08-task-cards.md#p2) |
+| Windows 原生构建、文件/进程、强隔离与清理 | 全部为后续实施与原生实机门禁；不关闭 Linux 安全限制换取兼容 | [P3–P6](spec/v0.5.0/04-windows-native.md) |
+| S2–S5 完整独立审核/DAG/并发、记忆、互通与高级治理 | 按原主方向逐项推进，规划不代表已实现 | [五阶段路线](spec/v0.5.0/02-five-stage-roadmap.md)、[P7](spec/v0.5.0/08-task-cards.md#p7) |
+
+新的[模块依赖图](spec/v0.5.0/03-module-dependencies.md)和[任务卡](spec/v0.5.0/08-task-cards.md)
+区分技术前置、可并行准备和批准门禁。Windows 是跨阶段平台工作流，从构建与能力边界开始，
+不只放在 S5。本轮生产代码保持 R2.4 原样；文档检查及实际发布证据另见
+[规划治理验证](reports/blueprint-v0.5.0-governance-validation-20261030.md)。
+
+## R2.4 已实现行为及此前实施证据
 
 R2.4 在此基线上接入[按需请求恢复与执行会话隔离](implementation/R2-demand-driven-recovery.md)：
 OneRequest 在原独占写锁和 SQLite 写事务内判定恢复需要；空闲重复打开保持 epoch 和业务行，
@@ -8,7 +52,7 @@ OneRequest 在原独占写锁和 SQLite 写事务内判定恢复需要；空闲�
 设计见 [ADR-091](adr/091-demand-driven-request-recovery.md)，实际门禁与发布状态见
 [R2.4 验证报告](reports/r2-4-demand-driven-recovery-validation.md)，不从实现状态推断 CI 已通过。
 
-本轮对 `d3da700c9c47db86abe941374bcbdac5e31462d4` 进行全代码工程审核，
+此前 ADR-090 批次对 `d3da700c9c47db86abe941374bcbdac5e31462d4` 进行全代码工程审核，
 覆盖内核/Store、文件与进程、模型协议与计费、上下文/工作流、CLI/配置、评测及构建检查。
 已复现并修复写锁继承、并发账本误报、已核账容量不释放、文件类型/完整读取、取消清理证据、
 路由过晚拒绝、评测调用来源/原输入绑定、小数历史指纹误拒及旧 Schema 目录读取边界问题。
@@ -128,7 +172,8 @@ Dispatcher纠正与TeamLead共享冻结返工计数，新说明必须保留旧�
 ## 阶段
 
 S1 在实施中；近期优先级已调整为真实模型闭环的接口和运行时前置条件。
-S2 独立审核/DAG，S3 记忆，S4 MCP/评测，S5 按证据扩展仍为后续阶段。
+S2 独立审核/DAG/公平并发/双容量预留，S3 版本化多层记忆，S4 MCP 双向/第二适配器/能力组合，
+S5 A2A/服务化/语义检索/高级治理仍为后续阶段；Windows 原生能力按 v0.5.0 跨阶段推进。
 单 Agent 对照框架前移 S1，不再以整套 S2 完成为前提。
 R2a.2已按[ADR-075](adr/075-owned-allocation-recovery.md)实现迁移、创建收据、精确恢复、弃置与清理联动。
 R2a.3、R3.1、R3.2 的上述限定接口已实施；真实强沙箱部署正向验收保持独立。
@@ -138,7 +183,8 @@ R3.3a/b、两项长任务前置及受控event pump/CLI已按限定范围实施�
 在凭据、预算和明确授权具备后进行真实小任务与同条件对照，保留全部失败和未知样本。
 离线codec profile继续固定real_calls_enabled=false；外层宿主live配置另有显式开关和独立执行授权，
 默认关闭，max_paid_retries=0；CLI只有完整宿主授权后的受控入口，本次未使用真实供应商。
-并发租约和选中请求按需提升代次继续开放，不因模型 AMEND 接入而视为完成。
+并发写者租约继续开放；选中请求的按需恢复与执行会话隔离已在 R2.4 分支完成限定实施和
+验证，正式 PR 审核/合并状态见上表，不能与并发租约或整个 S1 产品验收混同。
 
 历史进度保留在 CHANGELOG 与 `docs/reports/`；原 handoff 的51项产品验收记录保持原状。
 本批不新增生产部署、真实模型调用、付费测试或独立第二模型评审。
