@@ -20,6 +20,8 @@ import tempfile
 import time
 import unittest
 
+from transport_test_observation import OBSERVATION
+
 if len(sys.argv) != 3:
     raise SystemExit("usage: test_live_model_store.py DRIVER SOURCE")
 DRIVER, SOURCE = (Path(value).resolve() for value in sys.argv[1:])
@@ -42,6 +44,7 @@ class LiveStore(unittest.TestCase):
         tls.HttpsTransport.tearDownClass.__func__(cls)
 
     def setUp(self):
+        OBSERVATION.record("fixture_start")
         temporary = tempfile.TemporaryDirectory(prefix="wls-live-store-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
@@ -64,9 +67,12 @@ class LiveStore(unittest.TestCase):
 
     def invoke(self, peer=None, **options):
         path, database = self.configuration(peer, **options)
+        OBSERVATION.record("configuration_ready")
         started = time.monotonic()
-        result = subprocess.run([str(DRIVER), str(path), str(SOURCE)], cwd=self.directory,
-                                capture_output=True, text=True, encoding="utf-8", timeout=18, check=False)
+        with OBSERVATION.subprocess(18) as observe_return:
+            result = subprocess.run([str(DRIVER), str(path), str(SOURCE)], cwd=self.directory,
+                                    capture_output=True, text=True, encoding="utf-8", timeout=18, check=False)
+            observe_return(result)
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
         self.assertEqual(result.stderr, "")
         self.assertLess(time.monotonic() - started, 16)
