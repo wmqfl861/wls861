@@ -1,0 +1,52 @@
+name: A4 same-source fairness counterexample
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fairness-red-green:
+    name: A4 same-source fairness (old A3 red, current A4 green)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      A3_BASELINE_SHA: a2dfb46322d217f32eb5cc2516de6107c10db4b8
+    steps:
+      - name: Check out the requested A4 revision and retained A3 history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install the existing Ubuntu C++ development toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes g++-13 libboost1.83-dev libsqlite3-dev libssl-dev libcurl4-openssl-dev libyaml-dev
+      - name: Check strict evidence classification without native execution
+        run: python3 -B tests/test_a4_fairness_gate.py
+      - name: Prepare the exact original A3 checkout
+        run: |
+          test "$(id -u)" -ne 0
+          git cat-file -e "${A3_BASELINE_SHA}^{commit}"
+          git worktree add --detach "$RUNNER_TEMP/a4-fairness-baseline" "$A3_BASELINE_SHA"
+      - name: Build separate versions and run the frozen fairness probe serially
+        env:
+          A4_CANDIDATE_SHA: ${{ github.sha }}
+        run: |
+          python3 -B scripts/run_a4_fairness_red_green.py \
+            --baseline-source "$RUNNER_TEMP/a4-fairness-baseline" \
+            --candidate-source "$GITHUB_WORKSPACE" \
+            --candidate-sha "$A4_CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/a4-fairness-red-green" \
+            --compiler g++-13
+      - name: Retain original red and green evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: a4-fairness-red-green-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/a4-fairness-red-green/evidence/
+          if-no-files-found: warn
+          retention-days: 7
