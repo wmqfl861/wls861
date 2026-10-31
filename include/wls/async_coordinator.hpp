@@ -29,6 +29,8 @@ struct AsyncCoordinatorSnapshot {
     bool settlement_halted{};
     SchedulerSnapshot managers;
     SchedulerSnapshot workers;
+    // Includes resource waiters not yet admitted to either M1 pool. Such calls
+    // retain host business/result capacity and their original Store attempt.
     std::size_t queued{};
     std::size_t awaiting_claim{};
     std::size_t executing{};
