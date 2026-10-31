@@ -76,6 +76,8 @@ public:
         bool permitted{};
         bool replay{};
         bool invoked{};
+        bool enqueued{};
+        bool completion_observed{};
         std::uint64_t admitted_dispatch{};
         std::stop_source stop;
         std::optional<ModelResponse> response;
@@ -174,12 +176,30 @@ public:
             throw;
         }
         if (work_class == WorkClass::Normal) ++normal_;
+        if (!resource_predecessor(job)) enqueue(job);
+        return future;
+    }
+
+    bool resource_predecessor(const std::shared_ptr<Job>& job) const {
+        std::lock_guard lock(mutex_);
+        for (const auto& earlier : jobs_) {
+            if (earlier == job) break;
+            if (earlier->resource == job->resource && earlier->phase != Phase::Done) return true;
+        }
+        return false;
+    }
+
+    // Only the shared resource head enters either M1 pool. A later caller
+    // retains its original reservation/result capacity in jobs_, but cannot
+    // occupy a callback slot while waiting on a predecessor in the other pool.
+    // M1 still selects among eligible request/team/class groups.
+    void enqueue(const std::shared_ptr<Job>& job) {
         try {
             auto& pool = job->captured.request.role == Role::Worker ? workers_ : managers_;
             const auto& binding = job->captured.request.binding;
             job->execution = pool.submit_fair(job->captured.request.attempt_id, job->resource,
                 binding.request_id, binding.team_id.empty() ? binding.request_id : binding.team_id,
-                work_class, [this, job] {
+                job->work_class, [this, job] {
                     try { execute(job); }
                     catch (...) {
                         // No allocation is needed to expose an escaping
@@ -192,11 +212,11 @@ public:
                         changed_.notify_all();
                     }
                 });
+            job->enqueued = true;
         } catch (...) {
             job->failure = std::current_exception();
             job->phase = Phase::Ready;
         }
-        return future;
     }
 
     void execute(const std::shared_ptr<Job>& job) {
@@ -346,12 +366,22 @@ public:
         for (const auto& job : jobs_) {
             Phase phase;
             { std::lock_guard lock(mutex_); phase = job->phase; }
+            if (phase == Phase::Queued && !job->enqueued &&
+                (closed_ || halted_ || job->stop.stop_requested())) {
+                // No callback exists for a resource waiter. Explicitly settle
+                // its original, never-dispatched attempt with unknown usage;
+                // an invalid execution future is not completion evidence.
+                std::lock_guard lock(mutex_);
+                job->phase = phase = Phase::Ready;
+                ++generation_;
+            }
             if (phase != Phase::Ready && phase != Phase::Retained && phase != Phase::Done &&
                 job->execution.valid() && job->execution.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
                 // Also observe the Scheduler's completion channel if a failure
                 // escaped before the callback published Ready/notification.
                 try {
                     job->execution.get();
+                    job->completion_observed = true;
                     // Ready may have raced with the first phase snapshot.
                     std::lock_guard lock(mutex_);
                     phase = job->phase;
@@ -366,16 +396,7 @@ public:
             if (phase == Phase::AwaitingClaim) {
                 // Both M1 pools share this one host resource order. Preserve
                 // FIFO through result commit, including manager/Worker pairs.
-                bool earlier_resource = false;
-                {
-                    std::lock_guard lock(mutex_);
-                    for (const auto& earlier : jobs_) {
-                        if (earlier == job) break;
-                        if (earlier->resource == job->resource && earlier->phase != Phase::Done) {
-                            earlier_resource = true; break;
-                        }
-                    }
-                }
+                const bool earlier_resource = resource_predecessor(job);
                 if (earlier_resource && !halted_ && !closed_) continue;
                 bool permitted = false;
                 if (!closed_ && !halted_ && !job->stop.stop_requested()) {
@@ -399,7 +420,14 @@ public:
                 // Wait for pool bookkeeping to release its execution slot
                 // before releasing this admission/result slot.
                 try {
-                    if (job->execution.valid()) job->execution.get();
+                    if (job->enqueued && !job->completion_observed) {
+                        require(job->execution.valid(), ErrorCode::UnknownOutcome,
+                                "scheduled callback has no completion evidence");
+                        job->execution.get();
+                        job->completion_observed = true;
+                    }
+                    require(job->enqueued || !job->invoked, ErrorCode::UnknownOutcome,
+                            "model invocation has no scheduled callback");
                     if (!job->response)
                         job->response = host_failure(job->captured.request,
                             job->invoked ? "host_adapter_exception" : "host_not_dispatched");
@@ -419,6 +447,15 @@ public:
                 if (job->work_class == WorkClass::Normal) --normal_;
                 return true;
             });
+        }
+        if (!closed_ && !halted_) for (const auto& job : jobs_) {
+            Phase phase;
+            { std::lock_guard lock(mutex_); phase = job->phase; }
+            if (phase == Phase::Queued && !job->enqueued && !job->stop.stop_requested() &&
+                !resource_predecessor(job)) {
+                enqueue(job);
+                ++progressed;
+            }
         }
         return progressed;
     }

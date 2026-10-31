@@ -16,10 +16,31 @@ pool or a second global scheduler.
 
 The S1 coordinator sends each captured binding's request and team keys directly
 to M1; a Dispatcher uses its request as its team key. It retains a shared host
-resource order across management/Worker pools. Store first-claim validation is
-still required after a callback becomes eligible, and original response/usage
+resource order across management/Worker pools. Only the earliest unfinished
+call for a resource enters either M1 pool. Later calls stay in the bounded host
+queue with their original durable reservation and business/result slot, without
+occupying a pool queue or execution slot. M1 still performs every actual
+request/team/class selection; resource eligibility is not another fair scheduler.
+The head retains its key through response Ready, settlement, business application
+and durable feedback, and releases it only at Done. Store first-claim validation
+is still required after a callback becomes eligible, and original response/usage
 settlement precedes final business application. Queue fairness never grants a
 new Actor, updates old CAS values or clears AMEND, waits or UNKNOWN.
+
+The host admits newly eligible heads after each completed poll pass. Waiting
+until after M1 selection to check cross-pool predecessors is insufficient: each
+pool can select a later same-request call and occupy its final normal slot while
+both resource heads wait in the opposite pool. Filtering before either pool
+prevents this cycle without borrowing review capacity or changing M1's rings.
+
+Cancellation, closure and settlement halt explicitly finish never-enqueued
+waiters using the original `host_not_dispatched` interrupted observation and
+unknown usage. They do not invoke the adapter or manufacture a successful
+callback. Scheduled calls still require observed callback completion. A retained
+result permanently halts new business, preserves the original response and its
+slot, and permits only the existing evidence retry. Destruction on a foreign
+thread joins scheduled callbacks without Store access; never-enqueued durable
+attempts remain pending for the ordinary recovery fence.
 
 `AsyncCoordinatorLimits` describes host capacity. Defaults are management 4,
 Worker 8, review reserves 1/1, 64 business/result slots and 16 control slots.
@@ -38,7 +59,10 @@ independent-review business authority. Already admitted results retain their
 own slots and controls have their own independent bounded queue.
 
 Snapshots expose each pool's total, queued, running, ordinary running and
-reserved counts, plus host queued/awaiting/executing/ready/retained counts. Shared
+reserved counts, plus host queued/awaiting/executing/ready/retained counts. Host
+`queued` includes resource waiters not yet submitted to M1, so it can exceed the
+sum of both pool queue counts. Those waiters still count in host `outstanding`;
+neither pool counts them as queued, running or outstanding. Shared
 resource blocking and a coarse `blocked_reason` distinguish resource conflict,
 execution capacity, settlement failure and closure. `dispatches` counts granted
 original permissions; `max_wait_dispatches` is the largest number of such grants
@@ -53,5 +77,12 @@ and explicit host bounds without frozen-byte changes. Existing M1 scheduler
 tests remain the compatibility guard. The narrow fairness counterexample uses
 the same source and business conditions with A3 and A4 libraries, compiled
 against each corresponding header to avoid an ABI mismatch from the new
-diagnostic fields. Executed outcomes, raw commands, exit codes and identities
+diagnostic fields. The cross-pool cycle regression uses valid 2/2 limits and
+requires all four original calls to succeed with persisted envelopes, claims,
+responses and feedback. Additional assertions cover default 4/8 saturation,
+both reserves, a Ready predecessor before host commit, cancellation/AMEND of a
+non-head, Normal/Review/Handoff FIFO with independent sibling progress, close,
+foreign-thread destruction, and settlement/feedback persistence faults.
+These remain cases within the existing suite and keep its original deadlines.
+Executed outcomes, raw commands, exit codes and identities
 belong in the validation report, separate from these implemented contracts.

@@ -36,6 +36,25 @@ Actor, task CAS, epoch, target, tool grant or UNKNOWN condition is refreshed to
 make queued work runnable. Review remains a capacity class, not a business
 review conclusion or a replacement for independently bound reviewer evidence.
 
+R-A4-01 refines that host guard: only the earliest unfinished holder of a key
+may enter `submit_fair`. The already-bounded host job list holds later resource
+waiters, including their original attempt and result capacity. Applying the
+guard after a callback occupies its pool's last ordinary slot can deadlock when
+management and Worker fairness each choose a successor whose predecessor is
+queued in the opposite pool. Checking resource eligibility before either pool
+eliminates this circular slot wait. It does not add another fair rotation,
+change M1 selection, borrow reserves or refresh Store authority.
+
+Ready and Retained predecessors still hold the key. Only completed durable
+settlement/application/feedback releases it at Done. Never-enqueued cancellation,
+halt and close have an explicit interrupted/unknown observation path; an invalid
+future is not evidence of execution completion. Host queued/outstanding counts
+include these waiters, whereas M1 queue/outstanding counts include only calls
+actually admitted to that pool. Foreign-thread destruction still performs no
+Store writes and leaves original pending attempts to recovery. The same-source
+red counterexample and lifecycle validation are recorded separately from this
+decision.
+
 New `AsyncCoordinatorLimits` are explicit host upper bounds, defaulting to 4
 management threads, 8 Worker threads and 1/1 permanent Review/Handoff reserves.
 Construction validates finite positive bounds and reserve relationships.

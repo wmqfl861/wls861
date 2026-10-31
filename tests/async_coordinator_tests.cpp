@@ -438,11 +438,13 @@ void both_s1_pools_keep_their_review_execution_reserve() {
     std::vector<std::future<Json>> futures;
     for (int i = 0; i < 3; ++i) {
         const auto id = f.admit(runtime.store());
-        futures.push_back(runtime.submit(runtime.capture(id, Role::Dispatcher), f.model(gate)));
+        futures.push_back(runtime.submit(runtime.capture(id, Role::Dispatcher), f.model(gate),
+            WorkClass::Normal, i == 0 ? "normal-manager-resource" : ""));
     }
     for (int i = 0; i < 7; ++i) {
         const auto id = f.admit(runtime.store()), task = f.ready(runtime.store(), id);
-        futures.push_back(runtime.submit(runtime.capture(id, Role::Worker, task), f.model(gate)));
+        futures.push_back(runtime.submit(runtime.capture(id, Role::Worker, task), f.model(gate),
+            WorkClass::Normal, i == 0 ? "normal-worker-resource" : ""));
     }
     until(runtime, [&] { return gate->entered == 10; });
     auto management_wait = std::make_shared<Gate>(), worker_wait = std::make_shared<Gate>();
@@ -463,11 +465,31 @@ void both_s1_pools_keep_their_review_execution_reserve() {
     CHECK(snapshot.queued == 2 && snapshot.executing == 12);
     CHECK(snapshot.max_wait_dispatches >= 2 && snapshot.blocked_reason == "execution_capacity");
     CHECK(management_wait->entered == 0 && worker_wait->entered == 0);
+    // Cross-pool resource waiters retain host capacity but do not add work to
+    // either saturated M1 pool or borrow its already-active review reserve.
+    const auto blocked_manager = f.admit(runtime.store()), blocked_worker = f.admit(runtime.store());
+    const auto blocked_task = f.ready(runtime.store(), blocked_worker);
+    const auto manager_call = runtime.capture(blocked_manager, Role::Dispatcher);
+    const auto worker_call = runtime.capture(blocked_worker, Role::Worker, blocked_task);
+    auto manager_model = f.model(), worker_model = f.model();
+    futures.push_back(runtime.submit(manager_call, manager_model, WorkClass::Normal, "normal-worker-resource"));
+    futures.push_back(runtime.submit(worker_call, worker_model, WorkClass::Normal, "normal-manager-resource"));
+    (void)runtime.poll();
+    const auto blocked = runtime.snapshot();
+    CHECK(blocked.queued == 4 && blocked.resource_blocked == 2 && blocked.executing == 12);
+    CHECK(blocked.managers.queued == 1 && blocked.workers.queued == 1);
+    CHECK(blocked.managers.running == 4 && blocked.workers.running == 8);
+    CHECK(blocked.managers.normal_running == 3 && blocked.workers.normal_running == 7);
+    CHECK(manager_model->calls == 0 && worker_model->calls == 0);
     // Durable original reservations/claims are actual S1 state, not M1 counters alone.
     CHECK(count(f.path, "SELECT count(*) FROM events WHERE type='claim_offline_call'") == 12);
     gate->release(); management_wait->release(); worker_wait->release();
     runtime.drain(); for (auto& future : futures) (void)future.get();
     CHECK(runtime.store().request(queued_manager).at("plan_revision") == 1);
+    CHECK(runtime.store().request(blocked_manager).at("plan_revision") == 1);
+    CHECK(manager_model->calls == 1 && worker_model->calls == 1);
+    CHECK(runtime.store().attempt(manager_call.request.attempt_id).at("accepted") == 1);
+    CHECK(runtime.store().tool_feedback(worker_call.request.attempt_id).at("result").at("status") == "SUCCEEDED");
     CHECK(runtime.store().tool_feedback(text(runtime.store().attempt_history(
         runtime.store().host_actor(Role::Worker, queued_worker,
             runtime.store().binding(queued_task).team_id)).back(), "attempt_id")).at("result").at("status") == "SUCCEEDED");
@@ -554,16 +576,30 @@ void same_resource_is_fifo_across_management_and_worker_pools() {
     const auto task = f.ready(runtime.store(), worker);
     auto first_gate = std::make_shared<Gate>(), second_gate = std::make_shared<Gate>();
     Release release_first{first_gate}, release_second{second_gate};
-    auto first = runtime.submit(runtime.capture(manager, Role::Dispatcher), f.model(first_gate),
+    const auto first_call = runtime.capture(manager, Role::Dispatcher);
+    auto first = runtime.submit(first_call, f.model(first_gate),
         WorkClass::Normal, "host-shared-resource");
     auto second = runtime.submit(runtime.capture(worker, Role::Worker, task), f.model(second_gate),
         WorkClass::Review, "host-shared-resource");
-    until(runtime, [&] { return first_gate->entered == 1 && runtime.snapshot().workers.running == 1; });
+    until(runtime, [&] { return first_gate->entered == 1; });
     CHECK(second_gate->entered == 0);
+    CHECK(runtime.snapshot().workers.running == 0 && runtime.snapshot().workers.outstanding == 0);
+    CHECK(runtime.snapshot().queued == 1);
     CHECK(runtime.snapshot().resource_blocked == 1);
     CHECK(runtime.snapshot().blocked_reason == "resource_busy");
     CHECK(count(f.path, "SELECT count(*) FROM events WHERE type='claim_offline_call'") == 1);
     first_gate->release();
+    // Observe a real completed callback without driving the host settlement.
+    // Its resource remains held through Ready, despite the freed M1 slot.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (runtime.snapshot().ready_results != 1 || runtime.snapshot().managers.running != 0) {
+        CHECK(std::chrono::steady_clock::now() < deadline); std::this_thread::yield();
+    }
+    CHECK(!ready(first) && second_gate->entered == 0);
+    CHECK(runtime.snapshot().queued == 1 && runtime.snapshot().workers.outstanding == 0);
+    CHECK(runtime.store().attempt(first_call.request.attempt_id).at("status") == "PENDING");
+    CHECK(runtime.store().tool_feedback(first_call.request.attempt_id).is_null());
+    CHECK(count(f.path, "SELECT count(*) FROM events WHERE type='claim_offline_call'") == 1);
     until(runtime, [&] { return second_gate->entered == 1; });
     CHECK(ready(first)); (void)first.get();
     CHECK(runtime.store().request(manager).at("plan_revision") == 1);
@@ -711,6 +747,8 @@ void logical_question_wait_releases_slot_without_releasing_unknown_budget() {
     CHECK(runtime.store().attempt(captured.request.attempt_id) == original);
     CHECK(runtime.store().tool_feedback(captured.request.attempt_id) == feedback);
 }
+#include "async_resource_fifo_cases.hpp"
+#include "async_resource_lifecycle_cases.hpp"
 } // namespace
 
 int main() {
@@ -739,5 +777,12 @@ int main() {
         {"same resource remains FIFO across both S1 execution pools", same_resource_is_fifo_across_management_and_worker_pools},
         {"host capacities respect original frozen maxima and review reserves", host_limits_are_validated_without_rewriting_frozen_requests},
         {"actual model callbacks cannot admit same-pool child calls", model_callbacks_cannot_submit_same_pool_children},
-        {"logical question wait releases its slot and preserves original unknown budget", logical_question_wait_releases_slot_without_releasing_unknown_budget}});
+        {"logical question wait releases its slot and preserves original unknown budget", logical_question_wait_releases_slot_without_releasing_unknown_budget},
+        {"cross-pool resource heads progress before slot admission", cross_pool_fifo_resource_heads_progress_before_slot_admission},
+        {"cancelling a resource waiter preserves the active predecessor", resource_waiter_cancel_preserves_active_predecessor},
+        {"resource waiters close with original unknown observations", resource_waiter_close_records_original_unknown},
+        {"foreign destruction preserves never-enqueued recovery facts", resource_waiter_foreign_destruction_preserves_pending_attempts},
+        {"resource waiters cannot bypass retained settlement or feedback", resource_waiter_cannot_bypass_persistence_failure},
+        {"resource FIFO spans all classes while independent siblings progress", resource_fifo_spans_normal_review_handoff_and_allows_siblings},
+        {"AMEND of a resource waiter preserves original capture and predecessor", resource_waiter_amend_preserves_original_capture_and_predecessor}});
 }
