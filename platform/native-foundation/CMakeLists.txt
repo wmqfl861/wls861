@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.27)
 project(wls_native_foundation VERSION 0.1.0 LANGUAGES CXX)
 
 # Deliberately separate from the Linux production runtime. Never remove its
@@ -10,8 +10,15 @@ if(WIN32 AND NOT MSVC)
     message(FATAL_ERROR "The initial Windows support set requires MSVC")
 endif()
 if(WIN32)
+    # CMAKE_VS_PLATFORM_TOOLSET_VERSION is an MSBuild .props selector and
+    # CMake may shorten a three-component directory version. Check the
+    # explicitly requested toolset and actual compiler instead.
+    file(TO_CMAKE_PATH "${CMAKE_CXX_COMPILER}" WLS_NATIVE_COMPILER_PATH)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/native-toolchain.txt"
+        "generator=${CMAKE_GENERATOR}\nrequested_toolset=${CMAKE_GENERATOR_TOOLSET}\nprops_toolset=${CMAKE_VS_PLATFORM_TOOLSET_VERSION}\ncompiler=${WLS_NATIVE_COMPILER_PATH}\ncompiler_version=${CMAKE_CXX_COMPILER_VERSION}\nsdk=${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}\npointer_bytes=${CMAKE_SIZEOF_VOID_P}\n")
     if(NOT CMAKE_GENERATOR STREQUAL "Visual Studio 17 2022" OR
-       NOT CMAKE_VS_PLATFORM_TOOLSET_VERSION STREQUAL "14.44.35207" OR
+       NOT CMAKE_GENERATOR_TOOLSET STREQUAL "v143,host=x64,version=14.44.35207" OR
+       NOT WLS_NATIVE_COMPILER_PATH MATCHES "/VC/Tools/MSVC/14\\.44\\.35207/bin/Hostx64/x64/cl\\.exe$" OR
        NOT CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION STREQUAL "10.0.26100.0" OR
        NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
         message(FATAL_ERROR "Initial Windows build set: VS 2022 x64, MSVC 14.44.35207, SDK 10.0.26100.0")

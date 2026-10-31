@@ -30,7 +30,10 @@ The existing top-level Linux entry and its six CI lanes retain their scope.
 
 The initial candidate build set is Windows x64, VS 2022 17.14, preinstalled
 MSVC toolset 14.44.35207, SDK 10.0.26100.0 and static CRT. CMake checks the
-generator, toolset, SDK and pointer width. CI checks the preinstalled source
+generator, explicitly requested toolset, actual compiler directory, SDK and
+pointer width. The MSBuild .props selector may differ from the compiler directory
+version and is recorded separately. CMake 3.27+ pins the SDK through the generator
+platform. CI checks the preinstalled source
 and records actual versions; missing versions fail rather than download or
 substitute. BCrypt SHA-256 and Advapi32 token observation come from that SDK
 and the runner OS. There are no additional vendored or downloaded dependencies.

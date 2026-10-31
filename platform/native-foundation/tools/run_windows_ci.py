@@ -95,11 +95,16 @@ def main():
         record('source-inputs-before.json', before)
         run('cmake-version', ['cmake', '--version'])
         build = work / 'build'
-        run('configure', ['cmake', '-S', source / 'platform/native-foundation', '-B', build,
-            '-G', 'Visual Studio 17 2022', '-A', 'x64', '-T', 'v143,version=14.44.35207',
-            '-DCMAKE_GENERATOR_INSTANCE=' + str(installation),
-            '-DCMAKE_SYSTEM_VERSION=10.0.26100.0', '-DPython3_EXECUTABLE=' + sys.executable], timeout=180)
-        shutil.copyfile(build / 'CMakeCache.txt', evidence / 'CMakeCache.txt')
+        try:
+            run('configure', ['cmake', '-S', source / 'platform/native-foundation', '-B', build,
+                '-G', 'Visual Studio 17 2022', '-A', 'x64,version=10.0.26100.0',
+                '-T', 'v143,host=x64,version=14.44.35207',
+                '-DCMAKE_GENERATOR_INSTANCE=' + str(installation),
+                '-DCMAKE_SYSTEM_VERSION=10.0.26100.0', '-DPython3_EXECUTABLE=' + sys.executable], timeout=180)
+        finally:
+            for name in ('CMakeCache.txt', 'native-toolchain.txt'):
+                if (build / name).is_file():
+                    shutil.copyfile(build / name, evidence / name)
         compiler_configs = sorted((build / 'CMakeFiles').glob('*/CMakeCXXCompiler.cmake'))
         if len(compiler_configs) != 1:
             raise RuntimeError('expected exactly one generated compiler identity')

@@ -14,13 +14,15 @@ The initial Windows build combination selects preinstalled Visual Studio 2022
 17.14, x64 MSVC toolset **14.44.35207**, Windows SDK **10.0.26100.0**, the static
 MSVC CRT and SDK-provided BCrypt/Advapi32. No NuGet, vcpkg, FetchContent, Boost,
 SQLite, YAML, TLS or network download is used by this project. Missing pinned
-tools fail configuration; they are not substituted automatically. Python 3.10+
+tools fail configuration; they are not substituted automatically. CMake 3.27+
+pins the SDK through the generator platform. Python 3.10+
 is build/test tooling only. The workflow records its actual version and the
 runner image, compiler, SDK, OS, token elevation and volume filesystem.
 
 ```powershell
 cmake -S platform/native-foundation -B native-build `
-  -G "Visual Studio 17 2022" -A x64 -T "v143,version=14.44.35207" `
+  -G "Visual Studio 17 2022" -A "x64,version=10.0.26100.0" `
+  -T "v143,host=x64,version=14.44.35207" `
   -DCMAKE_SYSTEM_VERSION=10.0.26100.0
 cmake --build native-build --config Release --parallel 2
 ctest --test-dir native-build -C Release --output-on-failure
