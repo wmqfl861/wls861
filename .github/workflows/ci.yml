@@ -89,7 +89,7 @@ jobs:
       - name: Run shared GCC 13.3 Debug ASan gate
         if: matrix.name == 'ASan'
         run: |
-          .local/test-venv/bin/python scripts/run_gcc_asan.py --compiler g++-13 --python "$GITHUB_WORKSPACE/.local/test-venv/bin/python" --expected-tests 90
+          .local/test-venv/bin/python scripts/run_gcc_asan.py --compiler g++-13 --python "$GITHUB_WORKSPACE/.local/test-venv/bin/python" --expected-tests 92
       - name: Retain GCC ASan evidence including failures
         if: always() && matrix.name == 'ASan'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -1,16 +1,30 @@
 # WLS861 实施路线
 
-现行实施基线为 v0.4.1；新增 [v0.5.0 后续规划](spec/v0.5.0/README.md)，待主协调 Agent 审核。
+现行实施基线为 v0.4.1；[v0.5.0 后续规划](spec/v0.5.0/README.md)按具体任务实施，正式验收与合并分别记录。
 规划号不改变运行版本 0.11.1-r3.3c-audit、Store 410 或原冻结契约，v0.4.1 历史文件不改写。
 此前优先级依据[Claude审核采纳记录](reviews/claude-disposition.md)保留。
 当前能力、实现版本及证据集中在[STATUS](STATUS.md)，历史阶段成果见 CHANGELOG 和 reports。
 第二份审核处置见[10-24记录](reviews/claude-2026-10-24-disposition.md)和[ADR-064–066](adr/064-audit24-recovery.md)。
 
-## 当前交付与后继顺序
+## 2026-10-31 获准执行批次
+
+本批 A0–A5 从精确 PR #4 基线 `772feaee62086ddb0e7f605a7472721d3bc61406` 接手：
+A1 真实本机 GCC 复验与历史失败诊断优先；A2 离线十样本验收包和 A5 原生基础并行；
+A3 单协调写者异步调用按明确方案实施，A4 复用 M1 公平与双审核容量。各模块使用独立
+分支/工作树和准确依赖的 Draft PR，实际状态见 [本轮执行索引](reports/next-cycle-validation-20261031.md)。
+历史 ASan 未闭环不阻塞独立模块准备，但不允许将受影响运行时的集成验收或合并记为通过。
+
+后继 [B0–B6](spec/v0.5.0/10-authorized-cycle-and-followups.md) 仅维护任务卡与接口：
+Linux 强执行/获准真实验收、S2 DAG/版本审核、Windows 文件/进程与强隔离、S3 记忆、
+S4 MCP/第二适配器、S5 服务/A2A/治理。它们没有因列入路线而全部启动。
+Linux 产品链路不等待 Windows 完整移植，Windows 前置也不等待 S5。真实调用、费用、
+公网、生产操作及合并仍无本轮授权。
+
+## 初始 P0–P7 交付与规划范围
 
 R2.4 已推送并完成其本地/远端工程门禁，[正式 PR #1](https://github.com/wmqfl861/wls861/pull/1)
-仍待主协调 Agent 审核，未合并 main。详细六状态见 [STATUS](STATUS.md)。本轮只交付审核、
-PR、蓝图与治理，不启动后续大规模生产实现，也不授权真实模型或付费调用。
+仍待主协调 Agent 审核，未合并 main。详细六状态见 [STATUS](STATUS.md)。以下描述原规划批次的审核、
+PR、蓝图与治理范围；后续获准的 A0–A5 以上节和实际证据为准，不授权真实模型或付费调用。
 
 | 顺序 | 后继任务 | 前置与门禁 |
 | --- | --- | --- |

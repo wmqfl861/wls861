@@ -98,6 +98,16 @@ include(CTest)
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     find_program(WLS_TEST_OPENSSL openssl REQUIRED)
+    add_test(NAME r3_offline_acceptance
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/r3_offline_acceptance_tests.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME r3_offline_acceptance_cli
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/r3_offline_acceptance_cli_tests.py"
+                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(r3_offline_acceptance PROPERTIES TIMEOUT 30)
+    # Ten full original multi/single Store samples plus evidence negatives.
+    # Independent new bound; no existing product deadline changes.
+    set_tests_properties(r3_offline_acceptance_cli PROPERTIES TIMEOUT 600)
     execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import jsonschema"
         RESULT_VARIABLE WLS_CONTRACT_DEPENDENCY_RESULT
         OUTPUT_QUIET ERROR_QUIET)

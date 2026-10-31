@@ -1,0 +1,173 @@
+# v0.4.1 的配置样例，已由 S1 C++ wls 配置加载器读取并冻结。
+# M1 wls861 保留独立 Journal。真实调用、环境检查和清理需后续执行器。
+schema_version: 1
+spec_version: 0.4.1
+
+models:
+  fake:
+    adapter: fake
+    adapter_version: "1"
+    protocol: fake-v1
+    model: scripted
+    capabilities:
+      streaming: unsupported
+      tool_calling: supported
+      parallel_tool_calls: supported
+      reasoning_modes: [provider_default, "off"]
+      context_window: 200000
+      max_output_tokens: 8192
+      cache_mode: none
+  # P-01/P-05 配置且真实适配器完成后，才新增供应商条目。
+  # 仅写凭据引用 api_key_env，不在文件中保存密钥；能力附 source_url/verified_at。
+
+defaults:
+  model_ref: fake
+  reasoning: {mode: provider_default}
+
+model_calls:
+  real_calls_enabled: false
+  max_paid_retries: 0
+  charge_all_attempts: true
+  require_fresh_reservation_for_retry: true
+  unknown_cost_policy: hold_reservation
+
+request_config:
+  freeze_at_request_creation: true
+  inherit_from_frozen_root: true
+  restore_from_request_snapshot: true
+  implicit_active_request_migration: false
+
+limits:
+  max_active_dispatchers: 4
+  max_active_workers: 8
+  reserve_dispatchers_for_review: 1
+  reserve_workers_for_review: 1
+  review_reservation_policy: always
+  release_slots_while_waiting: true
+  max_teams_per_request: 4
+  max_concurrent_model_calls_per_endpoint: 8
+  max_concurrent_ops: 16
+  # Per-checkpoint storage admission windows, frozen with each new request.
+  # Settlement and recovery retain their own guards; this is not a disk quota.
+  store_capacity:
+    business_events: 32768
+    control_events: 32768
+    operations: 4096
+    questions: 128
+    open_questions: 32
+    submissions_per_task: 64
+    submissions: 256
+    acceptances: 256
+    adverse_acceptances: 512
+    deliveries: 64
+    requirement_revisions: 100
+  worker_max_tool_calls_per_order: 200
+  manager_max_tool_calls_per_wake: 12
+  team_internal_rework_max: 1
+  stall_minutes: 10
+  stall_same_error_repeats: 3
+
+amendment:
+  require_explicit_task_disposition: true
+  dispositions: [update, keep, cancel]
+  unhandled_task_policy: remain_paused
+  keep_requires_new_instruction_and_ack: true
+
+control:
+  ordinary_budget_blocks_control: false
+  acknowledge_only_pending_instruction: true
+  acknowledge_allowed_with_unknown_operations: true
+  unknown_blocks_new_business: true
+  diagnostic_tools: [fs_list, fs_read, fs_search, op_status, op_output]
+  max_queries_per_minute: 60
+  # 诊断工具仍限制当前资源、路径和结果大小；run 不是免门禁诊断。
+
+budget_defaults:
+  max_input_tokens: null
+  max_output_tokens: null
+  max_cost_usd: null
+  max_wall_minutes: 5
+  warn_at_fraction: 0.8
+
+storage:
+  engine: sqlite
+  journal_mode: WAL
+  synchronous: FULL
+  foreign_keys: true
+  allow_normal_durability: false
+  # S1 wls 已使用 C++ SQLite Store；M1 Journal 保留且不作隐式迁移。
+
+context:
+  # Explicitly select structured-v2 for a NEW request to use native logical
+  # tool turns. Existing snapshots keep their original format. Windowing is
+  # a separate R1 acceptance; this compatibility example stays framed-v1.
+  request_format: structured-v2
+  compaction_at_fraction: 0.6
+  snapshot_decision_log_entries: 20
+  schema_retry_max: 2  # 上限，不授权付费纠错；每次仍受 model_calls/预算检查。
+  cache_dependencies:
+    - adapter_version
+    - effective_model_and_reasoning
+    - tool_definitions_hash
+    - system_role_function_prompt_hash
+    - function_template_version
+    - environment_card_hash
+    - pinned_memory_revisions
+    - rule_scope_snapshot_hash
+    - project_snapshot_hash
+  policy_updates_use_runtime_gate: true
+
+sandbox:
+  engine: bwrap
+  network_default: none
+  allow_weak_isolation: false
+  require_cgroup_for_strong_isolation: true
+  extra_ro_binds: []
+  run_default_timeout_s: 120
+  run_max_timeout_s: 600
+  team_memory_max: 4G
+  team_pids_max: 512
+
+cleanup:
+  enabled: false  # 显式开启仅允许受控自建 workspace 清理；默认保留，私有数据库行仍不清除。
+  policy: clean_runtime
+  cli_receipt_mode: durable_local
+  api_receipt_mode: explicit_ack
+  receipt_ttl_days: 30
+  require_all_team_experience_jobs: true
+  require_unknown_outcomes_reconciled: true
+  preserve_job_manifest_until_complete: true
+  resume_terminal_jobs: true
+  vacuum_weekly: true
+
+memory:
+  enabled: false
+  governance: personal
+  require_scoped_auto_publish_policy: true
+  auto_merge: false
+  require_versioned_load_bindings: true
+  require_expected_base_revision: true
+  card_exposure_counts_as_use: false
+  score_policy_version: posterior_lower_heuristic_v1
+  source_grouping_policy: provenance_group_v1
+  filter_before_limit: true
+  rules_overflow: block_execution
+  revocation_gate: policy_epoch
+  reindex_grants_approval: false
+  digest_time: "21:00"
+  card_max_per_trigger: 5
+  card_max_tokens: 600
+  recall_max: 10
+  error_trigger_max: 3
+  rules_max_tokens: 2000
+  score_z: 1.0
+  rank_alpha: 0.6
+  warn_min_failures: 2
+  warn_confidence_below: 0.3
+  merge_min_successes: 3
+  merge_min_failures: 3
+  embedding_model_ref: null
+
+paths:
+  data: "~/.local/share/wls"
+  socket: "${XDG_RUNTIME_DIR}/wls.sock"

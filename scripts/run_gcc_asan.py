@@ -18,7 +18,7 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 
-DEFAULT_EXPECTED_TESTS = 90
+DEFAULT_EXPECTED_TESTS = 92
 
 ASAN = "halt_on_error=1:detect_leaks=1"
 UBSAN = "halt_on_error=1:print_stacktrace=1"

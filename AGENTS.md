@@ -1,8 +1,9 @@
 # WLS861 development contract
 
 Current implementation: **0.11.1-r3.3c-audit**, implementation blueprint baseline **v0.4.1**, Store **410**.
-The next planning revision is [v0.5.0](docs/spec/v0.5.0/README.md), pending
-coordinator review. It does not upgrade the runtime, Store schema, frozen request
+The planning revision is [v0.5.0](docs/spec/v0.5.0/README.md). Its assigned
+A0–A5 execution and B0–B6 follow-up boundaries are recorded in
+[the current task dependencies](docs/spec/v0.5.0/10-authorized-cycle-and-followups.md). It does not upgrade the runtime, Store schema, frozen request
 contracts or the completion status of planned capabilities. Preserve every
 published file under `docs/spec/v0.4.1/`.
 
@@ -66,10 +67,11 @@ evidence exists; Job Objects alone are not a sandbox. Preserve handle identity,
 reparse-point/ACL/SID boundaries, restricted-token/AppContainer and network
 controls, process-tree cancellation, exit proof and owned cleanup. Missing
 capabilities must refuse the affected operation, not silently weaken isolation.
-Do not begin a broad platform refactor under this documentation task.
+Keep platform changes within the assigned slice; a native component does not
+constitute a complete Windows runtime port or an accepted ordinary-user sandbox.
 
-Concurrent writer leases, real supplier quality/cost acceptance, native Windows
-execution and S2–S5 extensions remain separately authorized task cards. Existing
+Concurrent writer leases, real supplier quality/cost acceptance, a complete native
+Windows runtime and S2–S5 extensions remain separately assigned task cards. Existing
 SQLite single-writer exclusion and actor sessions do not constitute those leases.
 FakeModel/loopback tests do not authorize real provider calls. A real run needs
 explicit approved endpoint/model, capability and billing provenance, bounded
@@ -77,6 +79,46 @@ budget and call authorization; this task grants no real or paid calls.
 
 Release states, dependency rules and evidence requirements are specified in
 [v0.5.0 governance](docs/spec/v0.5.0/09-release-governance.md).
+
+## Assigned asynchronous, offline and platform slices
+
+A3/ADR-092 keeps one owned Store and its original database lifecycle lock.
+Only the constructing host thread accesses Store; model callbacks run outside
+Store transactions and retain the captured Actor/session/request/task/version/
+epoch. An in-memory queue is never permission: the original reservation and
+transactional `claim_offline_call` must precede the new coordinator callback.
+Replays cannot invoke that callback again. Preserve the synchronous API defaults;
+the call-level offline coordinator is explicitly enabled and does not own an
+automatic inbox pump, live transport or file/process executor.
+
+A4/ADR-093 connects this boundary to M1 request/team fairness. Preserve both
+management and Worker review capacities, bounded control and retained-result
+storage, resource FIFO and original frozen maxima/reserves. Waiting for a user
+can release an execution slot without releasing unknown budget or live resources.
+Review scheduling categories are not independent business review verdicts.
+Results retain original bindings; shutdown/exception paths join callbacks before
+Store release, and evidence retry never reapplies a business effect.
+
+The A2 acceptance package reuses the original R3 v3 ten slots and evaluator;
+failed, unknown, canceled and unexecuted samples remain in the denominator.
+Dry-run cannot resolve credentials, send or admit Store work. Real execution
+requires externally configured user relay endpoint, exact model, protocol,
+billing source, credential reference, budget and explicit call authorization;
+there is no automatic fallback to an official endpoint.
+
+`platform/native-foundation` is an isolated native config/Scheduler/resource
+component. Windows Server hosted CI, Windows 11 ordinary-user NTFS acceptance,
+and the full Store/filesystem/process/sandbox/cleanup runtime are distinct scopes.
+Unsupported operations must keep failing before effects. Its four native tests
+are separate from the Linux product CTest catalog.
+
+Use the existing shared GCC gate and its reviewed test-name/deadline catalog.
+The integrated collection is 92 registrations: original 89 plus the async suite
+and two offline acceptance suites. Never accept a new current count without
+reviewing names and deadlines. Update catalog, default, CI and selfchecks together.
+Runner selfchecks and diagnostic probes are not product sanitizer results. Keep
+historical Clang/live_workflow failures open until their own evidence closes them;
+`historical_clang_asan_failures_closed=false` must not be edited into success.
 
 ## Existing implementation contracts
 
