@@ -4,6 +4,7 @@ import copy
 import hashlib
 import os
 from pathlib import Path
+import runpy
 import socket
 import sqlite3
 import subprocess
@@ -29,6 +30,41 @@ class OfflinePreparation(unittest.TestCase):
     def hashes(self):
         return {str(path.relative_to(self.root)): hashlib.sha256(path.read_bytes()).hexdigest()
                 for path in self.root.rglob('*') if path.is_file()}
+
+    def test_cli_fixture_preserves_real_unittest_dispatch_and_cleanup(self):
+        script = a.SOURCE / 'tests/r3_offline_acceptance_cli_tests.py'
+        binary = self.root / 'must-not-execute-wls'
+        with patch.object(sys, 'argv', [str(script), str(binary), str(a.SOURCE)]), \
+             patch.object(sys, 'path', list(sys.path)):
+            module = runpy.run_path(str(script), run_name='a2_cli_lifecycle_probe')
+        observed = []
+
+        class LifecycleProbe(module['OfflineAcceptanceCLI']):
+            def runTest(probe):
+                observed.append(probe.directory)
+                probe.assertTrue(probe.directory.is_dir())
+
+        # Only replace the expensive workload, not unittest's real class/case
+        # lifecycle. These empty files are harness data, never Store evidence.
+        def no_business_workload(package, selected_binary):
+            self.assertEqual(selected_binary, binary)
+            directory = a.mkdir(package / 'run')
+            a.write_json(directory / 'plan.json', {})
+            a.write_json(directory / 'runs.json', [])
+            return {'harness_probe_only': True}
+
+        self.addCleanup(LifecycleProbe.doClassCleanups)
+        with patch.object(a, 'run_fake', side_effect=no_business_workload) as workload, \
+             patch('subprocess.Popen', side_effect=AssertionError('CLI harness spawned a process')), \
+             patch('sqlite3.connect', side_effect=AssertionError('CLI harness opened a Store')):
+            result = unittest.TestResult()
+            unittest.TestSuite([LifecycleProbe('runTest')]).run(result)
+        workload.assert_called_once()
+        self.assertTrue(result.wasSuccessful(), (result.errors, result.failures))
+        self.assertEqual(result.testsRun, 1)
+        self.assertEqual(len(observed), 1)
+        self.assertFalse(observed[0].exists())
+        self.assertFalse(LifecycleProbe.root.exists())
 
     def test_prepare_freezes_exact_ten_cells_materials_topology_and_private_modes(self):
         result = a.dry_run(self.package)
