@@ -18,7 +18,11 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 
+<<<<<<< HEAD
 DEFAULT_EXPECTED_TESTS = 90
+=======
+DEFAULT_EXPECTED_TESTS = 91
+>>>>>>> feat/offline-acceptance-20261031
 
 ASAN = "halt_on_error=1:detect_leaks=1"
 UBSAN = "halt_on_error=1:print_stacktrace=1"

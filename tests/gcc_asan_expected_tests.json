@@ -358,8 +358,17 @@
       "timeout": 90.0
     },
     {
+<<<<<<< HEAD
       "name": "async_coordinator",
       "timeout": 180
+=======
+      "name": "r3_offline_acceptance",
+      "timeout": 30
+    },
+    {
+      "name": "r3_offline_acceptance_cli",
+      "timeout": 600
+>>>>>>> feat/offline-acceptance-20261031
     }
   ]
 }
