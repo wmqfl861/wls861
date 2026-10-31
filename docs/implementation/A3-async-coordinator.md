@@ -29,8 +29,11 @@ independent of queued/running/retained business calls. Completion futures mean
 the actual Store control transaction ended, not that a process exited or an
 effect was undone. A failed stale control does not refresh its captured values.
 
-The default bounds are 64 outstanding calls, including results, and 16 controls.
-One call position is reserved for Review/Handoff; ordinary work cannot fill it.
+The A3 baseline bounds are 64 outstanding calls, including results, and 16
+controls, with one global Review/Handoff admission position. In the integrated
+[A4 refinement](A4-fair-scheduling.md), ordinary global admission preserves both
+management and Worker reserves (two positions with the default 1/1 reserves).
+The host limits are explicit and validated against each original frozen policy.
 The M1 management/Worker pools have 4/8 threads and 1/1 reserved positions.
 Waiting on users or dependencies is durable workflow state and occupies no new
 call slot until the host explicitly captures and submits another call. Review
