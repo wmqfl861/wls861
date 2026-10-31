@@ -4,6 +4,7 @@
 #include <sqlite3.h>
 
 #include <atomic>
+#include <algorithm>
 #include <condition_variable>
 #include <fstream>
 #include <mutex>
@@ -67,19 +68,30 @@ struct Release {
 class GatedModel final : public ModelAdapter {
 public:
     GatedModel(std::string ref, std::shared_ptr<Gate> gate = {}, bool respect_stop = false,
-               bool throws = false)
-        : fake_(steps(), std::move(ref)), gate_(std::move(gate)), respect_stop_(respect_stop), throws_(throws) {}
+               bool throws = false, bool error_response = false)
+        : fake_([&] {
+            auto script = steps();
+            if (error_response) for (auto& step : script) {
+                step.status = ModelResultStatus::Error;
+                step.error_code = "synthetic_offline_failure";
+                step.error_message = "Original offline model failure for scheduling observation";
+                step.tool_calls.clear();
+            }
+            return script;
+        }(), std::move(ref)), gate_(std::move(gate)), respect_stop_(respect_stop), throws_(throws) {}
     AdapterCapabilities capabilities() const override { return fake_.capabilities(); }
     void validate(const ModelRequest& request) const override { fake_.validate(request); }
     ModelResponse complete(ModelRequest request, std::stop_token stop) const override {
         CHECK(std::this_thread::get_id() != creator_);
         ++calls;
+        if (on_start) on_start();
         if (gate_) gate_->wait(stop, respect_stop_);
         if (throws_) throw std::runtime_error("synthetic offline adapter exception");
         // Deliberately return the original result even after cancellation.
         return fake_.complete(std::move(request));
     }
     mutable std::atomic<int> calls{};
+    std::function<void()> on_start;
 private:
     FakeModel fake_;
     std::shared_ptr<Gate> gate_;
@@ -107,8 +119,8 @@ struct Fixture {
         return text(store.admit(in), "request_id");
     }
     std::shared_ptr<GatedModel> model(std::shared_ptr<Gate> gate = {}, bool stop = false,
-                                    bool throws = false) const {
-        return std::make_shared<GatedModel>(config.resolve(Role::Dispatcher).model, std::move(gate), stop, throws);
+                                    bool throws = false, bool error_response = false) const {
+        return std::make_shared<GatedModel>(config.resolve(Role::Dispatcher).model, std::move(gate), stop, throws, error_response);
     }
     std::string ready(Store& store, const std::string& id) const {
         (void)OfflineRuntime(store, *schemas).run(id, steps());
@@ -184,8 +196,9 @@ void complete_s1_chain_and_unique_replay() {
 
 void full_queue_keeps_control_and_result_reserves() {
     Fixture f;
-    AsyncCoordinator runtime(f.open(), schemas, {3, 1});
+    AsyncCoordinator runtime(f.open(), schemas, {4, 1});
     const auto a = f.admit(runtime.store()), b = f.admit(runtime.store()), c = f.admit(runtime.store());
+    const auto d = f.admit(runtime.store()), task = f.ready(runtime.store(), d);
     auto gate = std::make_shared<Gate>(); Release release{gate};
     auto fa = runtime.submit(runtime.capture(a, Role::Dispatcher), f.model(gate));
     auto fb = runtime.submit(runtime.capture(b, Role::Dispatcher), f.model(gate));
@@ -194,17 +207,18 @@ void full_queue_keeps_control_and_result_reserves() {
     test::throws<Error>([&] { (void)runtime.submit(third, f.model()); });
     CHECK(runtime.store().budget(c).at("attempts") == 0);
     auto review = runtime.submit(third, f.model(gate), WorkClass::Review);
-    until(runtime, [&] { return gate->entered == 3; });
+    auto worker_review = runtime.submit(runtime.capture(d, Role::Worker, task), f.model(gate), WorkClass::Review);
+    until(runtime, [&] { return gate->entered == 4; });
     const auto root = runtime.store().host_actor(Role::Root, a);
     const auto version = number(runtime.store().request(a), "state_version");
     auto control = std::async(std::launch::async, [&] { return runtime.cancel(root, version, new_id("cancel")); }).get();
     test::throws<Error>([&] { (void)runtime.cancel(root, version, new_id("full")); });
     (void)runtime.poll();
     CHECK(control.get().at("status") == "CANCELLED");
-    CHECK(!ready(fa) && runtime.snapshot().outstanding == 3);
+    CHECK(!ready(fa) && runtime.snapshot().outstanding == 4);
     gate->release(); runtime.drain();
     test::throws<Error>([&] { (void)fa.get(); });
-    (void)fb.get(); (void)review.get();
+    (void)fb.get(); (void)review.get(); (void)worker_review.get();
     CHECK(runtime.snapshot().outstanding == 0);
     CHECK(runtime.store().tasks(a).empty());
     CHECK(runtime.store().budget(a).at("spent_input") == 100);
@@ -417,6 +431,286 @@ void failed_feedback_after_committed_effect_fences_without_reexecution() {
     CHECK(model->calls == 1);
     CHECK(runtime.store().tool_feedback(captured.request.attempt_id).at("result").at("observation_complete") == false);
 }
+
+void both_s1_pools_keep_their_review_execution_reserve() {
+    Fixture f; AsyncCoordinator runtime(f.open(), schemas);
+    auto gate = std::make_shared<Gate>(); Release release{gate};
+    std::vector<std::future<Json>> futures;
+    for (int i = 0; i < 3; ++i) {
+        const auto id = f.admit(runtime.store());
+        futures.push_back(runtime.submit(runtime.capture(id, Role::Dispatcher), f.model(gate)));
+    }
+    for (int i = 0; i < 7; ++i) {
+        const auto id = f.admit(runtime.store()), task = f.ready(runtime.store(), id);
+        futures.push_back(runtime.submit(runtime.capture(id, Role::Worker, task), f.model(gate)));
+    }
+    until(runtime, [&] { return gate->entered == 10; });
+    auto management_wait = std::make_shared<Gate>(), worker_wait = std::make_shared<Gate>();
+    Release release_management{management_wait}, release_worker{worker_wait};
+    const auto queued_manager = f.admit(runtime.store()), queued_worker = f.admit(runtime.store());
+    const auto queued_task = f.ready(runtime.store(), queued_worker);
+    futures.push_back(runtime.submit(runtime.capture(queued_manager, Role::Dispatcher), f.model(management_wait)));
+    futures.push_back(runtime.submit(runtime.capture(queued_worker, Role::Worker, queued_task), f.model(worker_wait)));
+    const auto review_manager = f.admit(runtime.store()), review_worker = f.admit(runtime.store());
+    const auto review_task = f.ready(runtime.store(), review_worker);
+    futures.push_back(runtime.submit(runtime.capture(review_manager, Role::Dispatcher), f.model(gate), WorkClass::Review));
+    futures.push_back(runtime.submit(runtime.capture(review_worker, Role::Worker, review_task), f.model(gate), WorkClass::Review));
+    until(runtime, [&] { return gate->entered == 12; });
+    const auto snapshot = runtime.snapshot();
+    CHECK(snapshot.managers.workers == 4 && snapshot.workers.workers == 8);
+    CHECK(snapshot.managers.normal_running == 3 && snapshot.workers.normal_running == 7);
+    CHECK(snapshot.managers.running == 4 && snapshot.workers.running == 8);
+    CHECK(snapshot.queued == 2 && snapshot.executing == 12);
+    CHECK(snapshot.max_wait_dispatches >= 2 && snapshot.blocked_reason == "execution_capacity");
+    CHECK(management_wait->entered == 0 && worker_wait->entered == 0);
+    // Durable original reservations/claims are actual S1 state, not M1 counters alone.
+    CHECK(count(f.path, "SELECT count(*) FROM events WHERE type='claim_offline_call'") == 12);
+    gate->release(); management_wait->release(); worker_wait->release();
+    runtime.drain(); for (auto& future : futures) (void)future.get();
+    CHECK(runtime.store().request(queued_manager).at("plan_revision") == 1);
+    CHECK(runtime.store().tool_feedback(text(runtime.store().attempt_history(
+        runtime.store().host_actor(Role::Worker, queued_worker,
+            runtime.store().binding(queued_task).team_id)).back(), "attempt_id")).at("result").at("status") == "SUCCEEDED");
+}
+
+struct Order {
+    std::mutex mutex;
+    std::vector<std::string> names;
+    void add(const std::string& name) { std::lock_guard lock(mutex); names.push_back(name); }
+    std::vector<std::string> read() { std::lock_guard lock(mutex); return names; }
+};
+
+void queued_s1_requests_and_teams_rotate_without_starvation() {
+    Fixture f; AsyncCoordinator runtime(f.open(), schemas);
+    std::vector<std::shared_ptr<Gate>> blockers;
+    struct ReleaseAll {
+        std::vector<std::shared_ptr<Gate>>& gates;
+        ~ReleaseAll() { for (const auto& gate : gates) gate->release(); }
+    } release{blockers};
+    std::vector<std::future<Json>> held;
+    // Keep all 8 Worker slots occupied, then release exactly one ordinary slot.
+    for (int i = 0; i < 8; ++i) {
+        const auto id = f.admit(runtime.store()), task = f.ready(runtime.store(), id);
+        auto gate = std::make_shared<Gate>(); blockers.push_back(gate);
+        held.push_back(runtime.submit(runtime.capture(id, Role::Worker, task), f.model(gate),
+            i == 7 ? WorkClass::Review : WorkClass::Normal));
+    }
+    until(runtime, [&] { return std::all_of(blockers.begin(), blockers.end(), [](const auto& gate) { return gate->entered == 1; }); });
+    const auto busy = f.admit(runtime.store()), sibling = f.admit(runtime.store());
+    // Build a real two-team independent plan using the existing S1 Store guards.
+    auto script = steps();
+    auto& nodes = script.front().tool_calls.front().arguments.at("nodes").as_array();
+    auto second = nodes.front(); second.as_object()["node_id"] = "second-note"; nodes.push_back(second);
+    OfflineRuntime offline(runtime.store(), *schemas);
+    const FakeModel initial(script, f.config.resolve(Role::Dispatcher).model);
+    const auto plan = offline.reserve_call(initial, busy, Role::Dispatcher);
+    (void)offline.accept_independent_response(plan, initial.complete(plan.request));
+    std::vector<std::string> tasks;
+    for (const auto& item : runtime.store().tasks(busy)) {
+        const auto task = text(item, "task_id"); tasks.push_back(task);
+        const auto order = offline.reserve_call(initial, busy, Role::TeamLead, task);
+        (void)offline.accept_response(order, initial.complete(order.request));
+        const auto binding = runtime.store().binding(task);
+        (void)runtime.store().acknowledge(runtime.store().host_actor(Role::Worker, busy, binding.team_id),
+            binding, number(runtime.store().task(task), "state_version"), new_id("ack"));
+    }
+    const auto sibling_task = f.ready(runtime.store(), sibling);
+    auto sequence = std::make_shared<Order>();
+    std::vector<std::shared_ptr<Gate>> selected;
+    ReleaseAll release_selected{selected};
+    std::vector<std::future<Json>> queued;
+    const std::vector<std::string> labels{"a1-first", "a1-second", "a1-third", "a2", "b1"};
+    for (std::size_t i = 0; i < labels.size(); ++i) {
+        auto gate = std::make_shared<Gate>(); selected.push_back(gate);
+        auto model = f.model(gate, false, false, true);
+        const auto label = labels[i]; model->on_start = [sequence, label] { sequence->add(label); };
+        const auto id = i == 4 ? sibling : busy;
+        const auto task = i == 4 ? sibling_task : tasks.at(i == 3 ? 1 : 0);
+        queued.push_back(runtime.submit(runtime.capture(id, Role::Worker, task), model));
+    }
+    blockers.front()->release();
+    until(runtime, [&] { return sequence->read().size() >= 1; });
+    CHECK(sequence->read() == std::vector<std::string>{"a1-first"});
+    selected[0]->release();
+    until(runtime, [&] { return sequence->read().size() >= 2; });
+    CHECK(sequence->read() == (std::vector<std::string>{"a1-first", "b1"}));
+    selected[4]->release();
+    until(runtime, [&] { return sequence->read().size() >= 3; });
+    CHECK(sequence->read() == (std::vector<std::string>{"a1-first", "b1", "a2"}));
+    for (const auto& gate : selected) gate->release();
+    for (const auto& gate : blockers) gate->release();
+    runtime.drain();
+    for (auto& future : held) (void)future.get();
+    for (auto& future : queued) test::throws<Error>([&] { (void)future.get(); });
+    CHECK(runtime.store().budget(busy).at("attempts") == 7); // Plan + two orders + four observed failed calls.
+    CHECK(runtime.store().budget(sibling).at("attempts") == 4);
+    CHECK(count(f.path, "SELECT count(*) FROM call_attempts WHERE status='ERROR'") == 5);
+    CHECK(runtime.snapshot().outstanding == 0);
+}
+
+void same_resource_is_fifo_across_management_and_worker_pools() {
+    Fixture f; AsyncCoordinator runtime(f.open(), schemas);
+    const auto manager = f.admit(runtime.store()), worker = f.admit(runtime.store());
+    const auto task = f.ready(runtime.store(), worker);
+    auto first_gate = std::make_shared<Gate>(), second_gate = std::make_shared<Gate>();
+    Release release_first{first_gate}, release_second{second_gate};
+    auto first = runtime.submit(runtime.capture(manager, Role::Dispatcher), f.model(first_gate),
+        WorkClass::Normal, "host-shared-resource");
+    auto second = runtime.submit(runtime.capture(worker, Role::Worker, task), f.model(second_gate),
+        WorkClass::Review, "host-shared-resource");
+    until(runtime, [&] { return first_gate->entered == 1 && runtime.snapshot().workers.running == 1; });
+    CHECK(second_gate->entered == 0);
+    CHECK(runtime.snapshot().resource_blocked == 1);
+    CHECK(runtime.snapshot().blocked_reason == "resource_busy");
+    CHECK(count(f.path, "SELECT count(*) FROM events WHERE type='claim_offline_call'") == 1);
+    first_gate->release();
+    until(runtime, [&] { return second_gate->entered == 1; });
+    CHECK(ready(first)); (void)first.get();
+    CHECK(runtime.store().request(manager).at("plan_revision") == 1);
+    second_gate->release(); runtime.drain(); CHECK(second.get().at("status") == "SUCCEEDED");
+    CHECK(count(f.path, "SELECT count(*) FROM events WHERE type='claim_offline_call'") == 2);
+}
+
+void host_limits_are_validated_without_rewriting_frozen_requests() {
+    Fixture invalid;
+    AsyncCoordinatorLimits malformed;
+    malformed.management_reserved = malformed.management_workers;
+    test::throws<Error>([&] { AsyncCoordinator rejected(invalid.open(), schemas, malformed); });
+    Fixture enlarged;
+    AsyncCoordinatorLimits too_large;
+    too_large.management_workers = 5;
+    AsyncCoordinator host(enlarged.open(), schemas, too_large);
+    const auto id = enlarged.admit(host.store());
+    const auto snapshot = host.store().request(id).at("config_snapshot");
+    const auto call = host.capture(id, Role::Dispatcher);
+    test::throws<Error>([&] { (void)host.submit(call, enlarged.model()); });
+    CHECK(host.store().budget(id).at("attempts") == 0);
+    CHECK(host.store().request(id).at("config_snapshot") == snapshot);
+    Fixture reduced;
+    AsyncCoordinatorLimits smaller;
+    smaller.management_workers = 2; smaller.worker_workers = 4;
+    AsyncCoordinator bounded(reduced.open(), schemas, smaller);
+    const auto other = reduced.admit(bounded.store());
+    const auto original = bounded.store().request(other).at("config_snapshot");
+    auto future = bounded.submit(bounded.capture(other, Role::Dispatcher), reduced.model());
+    bounded.drain(); (void)future.get();
+    CHECK(bounded.snapshot().managers.workers == 2 && bounded.snapshot().workers.workers == 4);
+    CHECK(bounded.store().request(other).at("config_snapshot") == original);
+    CHECK(bounded.store().request(other).at("plan_revision") == 1);
+}
+
+void model_callbacks_cannot_submit_same_pool_children() {
+    Fixture f;
+    AsyncCoordinatorLimits limits;
+    limits.management_workers = 2; // One ordinary slot; a child could not run beside its parent.
+    AsyncCoordinator runtime(f.open(), schemas, limits);
+    const auto parent = f.admit(runtime.store()), child = f.admit(runtime.store());
+    const auto child_call = runtime.capture(child, Role::Dispatcher);
+    const auto child_request = runtime.store().request(child);
+    const auto child_budget = runtime.store().budget(child);
+    auto child_model = f.model(), parent_model = f.model();
+    std::atomic<int> denied{};
+    parent_model->on_start = [&] {
+        // These are actual pool callback calls. No child future may be admitted
+        // for the parent to synchronously wait on in this same full normal pool.
+        try { (void)runtime.capture(child, Role::Dispatcher); }
+        catch (const Error& error) { CHECK(error.code() == ErrorCode::Unauthorized); ++denied; }
+        try { (void)runtime.submit(child_call, child_model); }
+        catch (const Error& error) { CHECK(error.code() == ErrorCode::Unauthorized); ++denied; }
+    };
+    auto completed = runtime.submit(runtime.capture(parent, Role::Dispatcher), parent_model);
+    runtime.drain(); (void)completed.get();
+    CHECK(denied == 2 && parent_model->calls == 1 && child_model->calls == 0);
+    CHECK(runtime.store().request(parent).at("plan_revision") == 1);
+    CHECK(runtime.store().request(child) == child_request);
+    CHECK(runtime.store().budget(child) == child_budget);
+    CHECK(runtime.store().budget(child).at("attempts") == 0);
+    CHECK(runtime.store().tasks(child).empty());
+    CHECK(count(f.path, "SELECT count(*) FROM call_attempts") == 1);
+    CHECK(count(f.path, "SELECT count(*) FROM events WHERE type='claim_offline_call'") == 1);
+    CHECK(count(f.path, "SELECT count(*) FROM ops") == 0);
+    CHECK(runtime.snapshot().outstanding == 0 && runtime.snapshot().managers.running == 0);
+}
+
+void logical_question_wait_releases_slot_without_releasing_unknown_budget() {
+    // Record the adapter's original response, then read it only after drain has
+    // joined its sole callback. Store, usage and wait conditions stay real.
+    class RecordedFake final : public ModelAdapter {
+    public:
+        RecordedFake(FakeModelStep step, std::string reference)
+            : fake_({std::move(step)}, std::move(reference)) {}
+        AdapterCapabilities capabilities() const override { return fake_.capabilities(); }
+        void validate(const ModelRequest& request) const override { fake_.validate(request); }
+        ModelResponse complete(ModelRequest request, std::stop_token stop) const override {
+            auto response = fake_.complete(std::move(request), stop);
+            original_response = to_json(response);
+            return response;
+        }
+        mutable Json original_response{nullptr};
+    private:
+        FakeModel fake_;
+    };
+    Fixture f;
+    AsyncCoordinatorLimits limits;
+    limits.worker_workers = 2; // Exactly one ordinary Worker execution slot.
+    AsyncCoordinator runtime(f.open(), schemas, limits);
+    const auto waiting = f.admit(runtime.store()), sibling = f.admit(runtime.store());
+    const auto task = f.ready(runtime.store(), waiting), sibling_task = f.ready(runtime.store(), sibling);
+    const auto before = runtime.store().budget(waiting);
+    FakeModelStep ask;
+    ask.role = Role::Worker;
+    ask.tool_calls.push_back({"a4-question", "ask", Object{
+        {"text", "Which original value should the waiting Worker preserve?"},
+        {"context", "No value has been substituted while awaiting the answer."}, {"blocking", true}}});
+    ask.usage = {std::nullopt, std::nullopt, 0, 0, 0};
+    auto model = std::make_shared<RecordedFake>(ask, f.config.resolve(Role::Worker).model);
+    const auto captured = runtime.capture(waiting, Role::Worker, task);
+    CHECK(captured.request.reserved_input_tokens > 0 && captured.request.reserved_output_tokens > 0);
+    auto asked = runtime.submit(captured, model);
+    runtime.drain();
+    const auto question = asked.get();
+    CHECK(question.at("status") == "OPEN" && question.at("blocking") == 1);
+    CHECK(question.at("body").at("text") == ask.tool_calls.front().arguments.at("text"));
+    const auto wait = runtime.store().worker_wait(task);
+    CHECK(wait.at("status") == "WAITING");
+    CHECK(wait.at("original_binding") == to_json(captured.request.binding));
+    CHECK(text(wait, "reason") == "question:" + text(question, "question_id"));
+    CHECK(runtime.snapshot().outstanding == 0 && runtime.snapshot().workers.running == 0);
+    const auto original = runtime.store().attempt(captured.request.attempt_id);
+    const auto feedback = runtime.store().tool_feedback(captured.request.attempt_id);
+    CHECK(original.at("status") == "COMPLETED" && original.at("accepted") == 1);
+    CHECK(original.at("request_envelope") == to_json(captured.request));
+    CHECK(original.at("response") == model->original_response);
+    CHECK(original.at("usage") == to_json(ask.usage));
+    CHECK(!original.at("settlement_sha256").is_null());
+    CHECK(feedback.at("response") == model->original_response);
+    const auto held = runtime.store().budget(waiting);
+    CHECK(number(held, "attempts") == number(before, "attempts") + 1);
+    CHECK(number(held, "reserved_input") == number(before, "reserved_input") + captured.request.reserved_input_tokens);
+    CHECK(number(held, "reserved_output") == number(before, "reserved_output") + captured.request.reserved_output_tokens);
+    CHECK(number(held, "unknown_input") == number(before, "unknown_input") + captured.request.reserved_input_tokens);
+    CHECK(number(held, "unknown_output") == number(before, "unknown_output") + captured.request.reserved_output_tokens);
+    CHECK(held.at("spent_input") == before.at("spent_input") && held.at("spent_output") == before.at("spent_output"));
+
+    auto gate = std::make_shared<Gate>(); Release release{gate};
+    auto sibling_model = f.model(gate);
+    const auto sibling_budget = runtime.store().budget(sibling);
+    auto advanced = runtime.submit(runtime.capture(sibling, Role::Worker, sibling_task), sibling_model);
+    until(runtime, [&] { return gate->entered == 1; });
+    CHECK(runtime.snapshot().workers.normal_running == 1 && runtime.snapshot().executing == 1);
+    CHECK(runtime.store().question(text(question, "question_id")) == question);
+    CHECK(runtime.store().worker_wait(task) == wait);
+    CHECK(runtime.store().budget(waiting) == held);
+    gate->release(); runtime.drain();
+    CHECK(advanced.get().at("status") == "SUCCEEDED" && sibling_model->calls == 1);
+    CHECK(number(runtime.store().budget(sibling), "attempts") == number(sibling_budget, "attempts") + 1);
+    CHECK(runtime.snapshot().outstanding == 0 && runtime.snapshot().workers.running == 0);
+    CHECK(runtime.store().question(text(question, "question_id")) == question);
+    CHECK(runtime.store().worker_wait(task) == wait);
+    CHECK(runtime.store().budget(waiting) == held);
+    CHECK(runtime.store().attempt(captured.request.attempt_id) == original);
+    CHECK(runtime.store().tool_feedback(captured.request.attempt_id) == feedback);
+}
 } // namespace
 
 int main() {
@@ -439,5 +733,11 @@ int main() {
         {"adapter exceptions thread ownership and long-tool refusal", adapter_exception_and_unsupported_long_tool_are_bounded},
         {"foreign thread destruction releases the claim waiter without Store access", foreign_thread_destruction_cannot_deadlock_a_claim_waiter},
         {"queued Worker wait and UNKNOWN prevent first permission", queued_worker_wait_and_unknown_cannot_acquire_permission},
-        {"feedback persistence failure fences an already committed effect", failed_feedback_after_committed_effect_fences_without_reexecution}});
+        {"feedback persistence failure fences an already committed effect", failed_feedback_after_committed_effect_fences_without_reexecution},
+        {"S1 management and Worker pools both retain Review execution capacity", both_s1_pools_keep_their_review_execution_reserve},
+        {"queued S1 requests and teams rotate under sustained load", queued_s1_requests_and_teams_rotate_without_starvation},
+        {"same resource remains FIFO across both S1 execution pools", same_resource_is_fifo_across_management_and_worker_pools},
+        {"host capacities respect original frozen maxima and review reserves", host_limits_are_validated_without_rewriting_frozen_requests},
+        {"actual model callbacks cannot admit same-pool child calls", model_callbacks_cannot_submit_same_pool_children},
+        {"logical question wait releases its slot and preserves original unknown budget", logical_question_wait_releases_slot_without_releasing_unknown_budget}});
 }
