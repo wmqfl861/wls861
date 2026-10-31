@@ -20,6 +20,24 @@ S4 MCP/第二适配器、S5 服务/A2A/治理。它们没有因列入路线而�
 Linux 产品链路不等待 Windows 完整移植，Windows 前置也不等待 S5。真实调用、费用、
 公网、生产操作及合并仍无本轮授权。
 
+## 99c9063 独立审核后的定向整改顺序
+
+原PR #10 的A3/A4保持 CHANGES_REQUIRED，先完成R-A3-01控制重放无新stop副作用、
+R-A4-01资源资格在占执行槽之前生效的最小修复及同源红绿，再由主协调者复核采纳。
+候选 [Draft PR #11](https://github.com/wmqfl861/wls861/pull/11) 及[实际整改报告](reports/async-review-99c9063-remediation-20261031.md)
+分别记录实现、本机范围、最终SHA远端矩阵与源码身份；子例、工具自检和完整产品套件不混计。
+保持单Store写者、事务外执行和原M1公平/双审核预留，不新增第二调度器或并发写者租约。
+
+正式本机矩阵已经结束，Release0002 owned_capacity、UBSan Async和ASan/LSan Async三个原期限Timeout保留，
+整体LOCAL_VALIDATION_COMPLETE=FALSE；当前根因均UNRESOLVED。有限冻结探针仅记DIAGNOSTIC_NOT_FULL_GATE，
+不替代原完整门禁；三份文本包与9764667远端成功也不关闭这三个本机未通过项。
+四次有限探针3 PASS、1 FAIL，ASan resource原5秒until断言失败另列为UNRESOLVED；后继顺序不以局部绿例越过该证据。
+
+T4只对历史TLS分歧做有界观察，历史GCC/Clang/live_workflow根因仍OPEN；
+T5补完整原生日志，Windows11普通用户验收仍NOT_RUN。A2/A5既有候选成果保留其证据范围。
+两项修复与正式复核先于B1 DAG/独立审核运行器扩张；其他B0–B6仍待具体卡片，
+本轮没有真实模型、付费、生产或合并授权。
+
 ## 初始 P0–P7 交付与规划范围
 
 R2.4 已推送并完成其本地/远端工程门禁，[正式 PR #1](https://github.com/wmqfl861/wls861/pull/1)

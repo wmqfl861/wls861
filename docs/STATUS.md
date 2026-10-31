@@ -1,5 +1,36 @@
 # 当前实现 **0.11.1-r3.3c-audit**，实施基线蓝图 **v0.4.1**，Store **410**。
 
+## 2026-10-31：99c9063 独立审核定向整改
+
+PR #10 精确输入 `99c9063f3e29cd6d69c56fb15815715d499a374a` 的 R-A3-01 控制重放误停新调用、
+R-A4-01 跨池资源FIFO循环已各自形成最小修复和真实红绿；原附件与本地冻结合法业务回归分别保留。
+当前候选为 [Draft PR #11](https://github.com/wmqfl861/wls861/pull/11)，直接依赖原集成分支；
+工程交叉审核不覆盖原 CHANGES_REQUIRED，正式采纳和合并仍待主协调者。
+实际修改、原始失败、同源证据和六状态见[本批整改报告](reports/async-review-99c9063-remediation-20261031.md)。
+
+产品验证输入为 `976466720e5fb17f6dcc67b0660b74d246996426`：本机Release0022为92/92 PASS、exit0，
+0002为91 PASS及1项owned_capacity Timeout90.74秒、exit8；两轮61构建身份和785源码不变，0skip/not-run。
+本机Clang受影响2/2通过；UBSan受影响2项中Scheduler9方法通过、Async原180秒期限Timeout180.18秒且无方法输出，CTestexit8；
+ASan/LSan受影响2项中Scheduler9方法通过、Async原180秒期限Timeout180.59秒且无方法输出，CTestexit8。
+三个正式未通过项（Release0002 owned_capacity、UBSan Async、ASan/LSan Async）均保留，整体 `LOCAL_VALIDATION_COMPLETE=FALSE`；
+各Clang/sanitizer配置本机其余90项NOT_RUN。正式矩阵收据为 `E/local-final-matrix.json`，汇总FAIL_OR_INCOMPLETE。
+三个当前超时根因均UNRESOLVED，未归因为性能或umask；限定冻结探针仅记DIAGNOSTIC_NOT_FULL_GATE。
+4次探针实际3 PASS、1 FAIL（内部5 PASS、1 FAIL）；ASan resource在原5秒until断言失败、run exit1，根因UNRESOLVED，
+与三个正式Timeout分开保留，未重跑，也不证明两P1在该ASan配置通过。
+覆盖审核另有18条重叠要求映射；原18个Async方法15个逐字相同、3个加强，非全部组合证明，详细限制见整改报告。
+四类工具自检分别24/24、4/4、11/11、6/6，不能替代产品门禁。
+该产品输入远端Push/PR六路、同源公平红绿、Windows组件及源码快照共7工作流17job成功；
+最终文档提交的推送和CI在报告冻结时均为PENDING，计划外部回执目录为 `E/final-publication-01/`；
+提交后PR11正文及外部回执登记准确SHA和结果，不从9764667继承CI结论。
+
+T4保留历史GCC48通过/2失败/39超时、Clang29通过/10超时和旧live_workflow根因OPEN；
+原GCC三方法单次诊断通过仅记 `DIAGNOSTIC_NOT_GATE`，`historical_clang_asan_failures_closed=false` 不变。
+T5已补成功/失败/超时完整CTest日志，9764667远端每事件4注册/27方法；实际仍为Server2022/elevated/NTFS组件，
+Windows11普通用户验收NOT_RUN，未扩展Store/VFS/任意run/强隔离/cleanup。
+本批真实模型、付费请求、生产操作、main写入与合并均为0；B0–B6未自动启动。
+
+## 2026-10-31 A0–A5 原批次的历史结果
+
 2026-10-31 A0–A5 接续：从 PR #4 精确提交
 `772feaee62086ddb0e7f605a7472721d3bc61406` 的独立数据盘工作区开始，
 已实现失败即时取证、原 v3 十样本离线验收包、单 Store 写者的显式异步 FakeModel 调用、

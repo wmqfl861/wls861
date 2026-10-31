@@ -1,0 +1,885 @@
+{
+  "classification": "DIAGNOSTIC_NOT_FULL_GATE_AND_EVIDENCE_AUDIT",
+  "members": {
+    "MEMBERS.json": {
+      "bytes": 44431,
+      "sha256": "2e4124e516244bd4cb48227a72a2ec90a3544d95e943bf4f98293e34ea3e0123"
+    },
+    "README.md": {
+      "bytes": 218,
+      "sha256": "843b4b7493444c984a6a787840f74b4493a88ac7b21ce14091868f311951ce86"
+    },
+    "evidence/final-package-execution-01/assembly.json": {
+      "bytes": 357,
+      "sha256": "cc17d707e3d29830f843474749933e08d8448d68df7bd7789ecae008900e406e"
+    },
+    "evidence/final-package-execution-01/assembly.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/final-package-execution-01/assembly.stdout": {
+      "bytes": 405,
+      "sha256": "ebf63e69f8a1cf6c21a213102745db3168f6220f587f9ded33571c8550c724d2"
+    },
+    "evidence/final-package-execution-01/preflight.json": {
+      "bytes": 359,
+      "sha256": "e842525d5e6dc5d7a1e3324bbf64a3cfe26cbda9196218d28912c6269f1687fc"
+    },
+    "evidence/final-package-execution-01/preflight.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/final-package-execution-01/preflight.stdout": {
+      "bytes": 8021,
+      "sha256": "2a7acadc4454406ce2e7ee16bfb1ce6583a5a16be8122d3345b37a724ac21ccc"
+    },
+    "evidence/local-matrix-final-audit-01/check-completion.json": {
+      "bytes": 350,
+      "sha256": "3d1d366dac4e7268a28d9cafe8602426be3a0498dd1d50a071d6cd4287f52adf"
+    },
+    "evidence/local-matrix-final-audit-01/check.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/local-matrix-final-audit-01/check.stdout": {
+      "bytes": 3754,
+      "sha256": "e31ad680e49f140333c3fd9fd86d50deef32db02f37bff670c9d73b62d8aa853"
+    },
+    "evidence/local-matrix-final-audit-01/check_completed_matrix.py": {
+      "bytes": 16507,
+      "sha256": "7e0cf73b07099a2fe15b09a25652efc0fbb03a34bbd2fe62b927e386f8fc476c"
+    },
+    "evidence/local-matrix-final-audit-01/completion-receipt.json": {
+      "bytes": 1925,
+      "sha256": "0e9cd92b670ea45175f4e39db86b6b8f774c9b8ebe8574fac672ed6294942985"
+    },
+    "evidence/local-matrix-final-audit-01/input-identities.json": {
+      "bytes": 252592,
+      "sha256": "48f39dd42f8a0425b5de4a89dda834875074b28e1c31e6b1cc7ce3d8ffa28de9"
+    },
+    "evidence/local-matrix-final-audit-01/matrix-and-package-verification.json": {
+      "bytes": 8576,
+      "sha256": "9dd1ff87441f1f5ce6d3626059c4514d70b25bdd0f622fb82914da2c8c0cdb86"
+    },
+    "evidence/local-matrix-final-audit-01/post-formal-process-classification.json": {
+      "bytes": 1261,
+      "sha256": "3324e7be410430fb3907f68d34fb91278b2f4fcd35bcbefec563b35468d66c3b"
+    },
+    "evidence/local-matrix-final-audit-01/post-formal-process-snapshot.json": {
+      "bytes": 3563,
+      "sha256": "49c7aeb02c43ecf9f587ea753fa670f734013a0657abc958c463f48e8c507e5d"
+    },
+    "evidence/local-matrix-final-audit-01/review.md": {
+      "bytes": 4723,
+      "sha256": "5b83771d296f087f90f4da1e933fc9ff5efef996a1589ad83655ed77c780469d"
+    },
+    "evidence/local-matrix-final-audit-01/supplement-selection-plan.json": {
+      "bytes": 2257,
+      "sha256": "977a1c90438beb8302724694f250f1a9ee717c1d93e21dc789347491aa2de232"
+    },
+    "evidence/local-matrix-verification-01/completion.json": {
+      "bytes": 383,
+      "sha256": "f46308e78db2138ef1293a5d8dd93f92a0d49e5ca201459e7b1e22abde3e6861"
+    },
+    "evidence/local-matrix-verification-01/stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/local-matrix-verification-01/stdout.log": {
+      "bytes": 185,
+      "sha256": "d8118efb23dbf2e2a5a8533de067e9e649333fb79750a45c8f5dabcc5d5fe284"
+    },
+    "evidence/prepublication-inputs-01/diff-check.json": {
+      "bytes": 178,
+      "sha256": "8779c7c8262ab23bd329edb05ab3c3d24e2532379fa25e806e595b54c7a0882b"
+    },
+    "evidence/prepublication-inputs-01/diff-check.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/prepublication-inputs-01/diff-check.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/prepublication-inputs-01/diff-stat.json": {
+      "bytes": 177,
+      "sha256": "a665563d9919f220d19478c1372ae0ca891ad6d589488ae63b94fd647ac243ff"
+    },
+    "evidence/prepublication-inputs-01/diff-stat.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/prepublication-inputs-01/diff-stat.stdout": {
+      "bytes": 1298,
+      "sha256": "47cb21a17174edf39e8b960052b6e29d854802afbe974b9c673dc1a2252d7e62"
+    },
+    "evidence/prepublication-inputs-01/fetch.json": {
+      "bytes": 165,
+      "sha256": "fd26133d48cbf918cf3134ffa81e6c11d4ce9512e57c8947620ff0d7145ef5f1"
+    },
+    "evidence/prepublication-inputs-01/fetch.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/prepublication-inputs-01/fetch.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/prepublication-inputs-01/full-diff.json": {
+      "bytes": 163,
+      "sha256": "e1f414796b69417aeaa6ac51ced21e70aa7a30d6c07a61c07c3ef357469b3560"
+    },
+    "evidence/prepublication-inputs-01/full-diff.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/prepublication-inputs-01/full-diff.stdout": {
+      "bytes": 154687,
+      "sha256": "1b2a82b9bed174dec59075eb79144eee9f4df5f86ad74074fc50fb70e4f578a6"
+    },
+    "evidence/prepublication-inputs-01/head.json": {
+      "bytes": 152,
+      "sha256": "5e00fd99bf43776984590d7168c59cf76bb1c6f77951306bd778002a9972217c"
+    },
+    "evidence/prepublication-inputs-01/head.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/prepublication-inputs-01/head.stdout": {
+      "bytes": 41,
+      "sha256": "45000ac97e6353a2ce78af51a902e902d97a92445872d894eff5722f5f907ce2"
+    },
+    "evidence/prepublication-inputs-01/protected-diff.json": {
+      "bytes": 529,
+      "sha256": "f416e731c0aaa008e948b8f470e3544e06c12fc50b24e9748d444b8cf55a5b44"
+    },
+    "evidence/prepublication-inputs-01/protected-diff.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/prepublication-inputs-01/protected-diff.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/prepublication-inputs-01/receipt.json": {
+      "bytes": 1014,
+      "sha256": "b7a5de69e2ec7f5445a091202b8da47c8ba683f9143bb03140d51638a7d18c55"
+    },
+    "evidence/prepublication-inputs-01/remote-refs.json": {
+      "bytes": 258,
+      "sha256": "926d031d6bd036046ba735165c8dcc8fdebc6950be25240d9969a172adc77487"
+    },
+    "evidence/prepublication-inputs-01/remote-refs.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/prepublication-inputs-01/remote-refs.stdout": {
+      "bytes": 123,
+      "sha256": "81e4a360795c68e23d08622fd0f3eb665897d181fb89d8b4560e5f0ea5bf06c9"
+    },
+    "evidence/prepublication-inputs-01/status.json": {
+      "bytes": 156,
+      "sha256": "98ac8005dbb3a03a266d607f9ce78d9d1be049593e1808872c7febd3d5d0fe1e"
+    },
+    "evidence/prepublication-inputs-01/status.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/prepublication-inputs-01/status.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/prepublication-inputs-01/validated-9764667-inputs.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/FINAL.json": {
+      "bytes": 6807,
+      "sha256": "b6694649675f452fe84a42fea5da5db1d186630148eb96aa1a6adc43c82ececa"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/FINAL.md": {
+      "bytes": 4168,
+      "sha256": "365b9e2a4658b535da6cf46031016968190afa2b8440d862eaee31363b9ef2cf"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/SHA256SUMS": {
+      "bytes": 15058,
+      "sha256": "971d5419c5ecc0e16db3ced6d8530ead21a82341a8bb1ffd720090c44deead04"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/asan-amend-binary-after-compile-before-run.json": {
+      "bytes": 123,
+      "sha256": "2a53d6d4ac69b67a2c12ed205cfd77e04b3dd9e89b93dba0c4c8980e2e804fb0"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/asan-amend-binary-after-run.json": {
+      "bytes": 123,
+      "sha256": "2a53d6d4ac69b67a2c12ed205cfd77e04b3dd9e89b93dba0c4c8980e2e804fb0"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/asan-amend-inputs-after-compile.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/asan-amend-inputs-after-run.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/asan-amend-inputs-before-compile.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/asan-amend-result.json": {
+      "bytes": 3830,
+      "sha256": "c9a78003f265aedbba5e71de9c69b5257605a8f4e54bc52871477cb7778c480b"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/asan-resource-binary-after-compile-before-run.json": {
+      "bytes": 123,
+      "sha256": "41b3ff6e86773bc5b4f4334943cd37f3b90e1d2f8f51a618a94ee702c3775481"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/asan-resource-binary-after-run.json": {
+      "bytes": 123,
+      "sha256": "41b3ff6e86773bc5b4f4334943cd37f3b90e1d2f8f51a618a94ee702c3775481"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/asan-resource-inputs-after-compile.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/asan-resource-inputs-after-run.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/asan-resource-inputs-before-compile.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/asan-resource-result.json": {
+      "bytes": 3767,
+      "sha256": "ff2fd515463fa837bbaeda35d380abab3b5c69d52e8ccb0b0023e6b6c1d65bf1"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/execute_frozen_plan.py": {
+      "bytes": 13158,
+      "sha256": "d141bc1c01aedd37e7ab5b11cc27891825967f0b31d93b9e1846211f843c4ff3"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/execution-receipt.json": {
+      "bytes": 17386,
+      "sha256": "7c3051b900bce94b5bb4ba67b9f5faf28d63e93d9841d11dc67fe788a7b6cfa6"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/formal-local-final-matrix-reference.json": {
+      "bytes": 48406,
+      "sha256": "78d96be5bb7eb4484557ff8b8e400692b79acd43dbdfb41c5293dcbb51bce2b8"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/input-identities-after.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/input-identities-before.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/orchestrator-started.json": {
+      "bytes": 181,
+      "sha256": "4270f43391bdadd3d899f7299e943775f0439bd32fc6e1f2634a4f6fb12b9403"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/orchestrator.stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/orchestrator.stdout.log": {
+      "bytes": 2643,
+      "sha256": "757ac74775ffb90428fa4011507cdedcdcb8e882f4d51351289ecd1bad3d3240"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/preflight.json": {
+      "bytes": 5778,
+      "sha256": "3a2c95004703ef2f42aaf6140f704d88fa42b1791adb56ef4167998fedb3a5ab"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/round-copy-index.json": {
+      "bytes": 21083,
+      "sha256": "56ef88d0dc0c70f9c94f478752fc4e534237d74d8aaa67274066a360e361c7ab"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-compile-01/command.json": {
+      "bytes": 1975,
+      "sha256": "00221e667ec6fab3d1ce6c147fb7bc86343d8698e69f2468416d0f0548f58c06"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-compile-01/completion.json": {
+      "bytes": 1697,
+      "sha256": "c7238a95f039a5c371f5c83bb19cc8cf392e88b938fc83327107c484a090755e"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-compile-01/observations.jsonl": {
+      "bytes": 6143,
+      "sha256": "9b24532e67fac9ad04525e288dddd5b8c6ffcb08caf46d6ea807628a52ea9b9d"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-compile-01/process.json": {
+      "bytes": 67,
+      "sha256": "e2563baff027aa205d8b82e3a7967fb09ee8a2b32ae15dabf50fae7164ebc5c6"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-compile-01/source-after.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-compile-01/source-before.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-compile-01/stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-compile-01/stdout.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-run-01/command.json": {
+      "bytes": 729,
+      "sha256": "9844cb78929ae6ccfbd475de6568bcde85245e58a8a2a82667a44ac3b13965b7"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-run-01/completion.json": {
+      "bytes": 455,
+      "sha256": "39369142de616c1b997ae184802ac3cc537dbf0d087cd7e325aed703804344f1"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-run-01/observations.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-run-01/process.json": {
+      "bytes": 67,
+      "sha256": "1b920cb2797aff682f4473b41f1536448be1fd5d6c47914c6cd84c76b401a507"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-run-01/source-after.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-run-01/source-before.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-run-01/stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-amend-run-01/stdout.log": {
+      "bytes": 141,
+      "sha256": "571079a04d3d04cba5a35605fedbfe074544754f4498767ff533c97c3a2a08ec"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-compile-01/command.json": {
+      "bytes": 1987,
+      "sha256": "f26515e84e297375a810399b8a706e36b2d4f983a41d60428209e66054741c8b"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-compile-01/completion.json": {
+      "bytes": 1705,
+      "sha256": "f9e0b49653cb146c7454d9c2e4963c2501702df92636b0643ada7f313577d6c5"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-compile-01/observations.jsonl": {
+      "bytes": 6153,
+      "sha256": "fd5001026cb1ef84d226119a36e4d6a170f0a36e2fd1e21b958ac00e2da26600"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-compile-01/process.json": {
+      "bytes": 67,
+      "sha256": "f6cf9d3c677c351b3afca3b9cb467d96a8027c2cf31f0c1d8f393733bf719c14"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-compile-01/source-after.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-compile-01/source-before.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-compile-01/stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-compile-01/stdout.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-run-01/command.json": {
+      "bytes": 738,
+      "sha256": "2b3448e3b18f1f7adf981e04a2082645bb0ce129e280011b406651ff664afa87"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-run-01/completion.json": {
+      "bytes": 461,
+      "sha256": "f3f0ea862153261312be10de237828c93b66627f3deed31345abaf228ca7c989"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-run-01/observations.jsonl": {
+      "bytes": 2050,
+      "sha256": "5e14d49fd89332852ea650445f882d98acaaca24277a084f9b82daee309270c9"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-run-01/process.json": {
+      "bytes": 67,
+      "sha256": "6961fb53632f697952385e0b6cc027618030eefe8f2c855b95013c95af6503f7"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-run-01/source-after.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-run-01/source-before.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-run-01/stderr.log": {
+      "bytes": 230,
+      "sha256": "3c69508b58beadee732df614040fec3d075ff62f8ead964859e076a36816c561"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-asan-resource-run-01/stdout.log": {
+      "bytes": 26,
+      "sha256": "3d1225f0541c852c27875ff12703f28536e0b08b42ec662207f47e4961b6e82e"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-compile-01/command.json": {
+      "bytes": 2002,
+      "sha256": "0af4a916e24199913ef371d648be511253622d9a420d44faa5352faa53446219"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-compile-01/completion.json": {
+      "bytes": 1722,
+      "sha256": "65bb83381784cabc7ef4c72ef33182b8107115a5716bdd495fd520c70d017e1e"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-compile-01/observations.jsonl": {
+      "bytes": 8193,
+      "sha256": "e566752adba57c6f1dcff2a6f63500be968e55660224b7f83fe857a6987722d7"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-compile-01/process.json": {
+      "bytes": 67,
+      "sha256": "434e3f230a2db87a62974f46e2dc43baf40bcc3af1e201fed7b69924154a6e32"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-compile-01/source-after.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-compile-01/source-before.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-compile-01/stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-compile-01/stdout.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-run-01/command.json": {
+      "bytes": 731,
+      "sha256": "3ceaa84fdcb120bba49981dae1704a8b30972168052fea6e1077c70af54a067e"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-run-01/completion.json": {
+      "bytes": 455,
+      "sha256": "689451ae4da317cd03b568e04b719b9c9f3e9be824cac98773d77d085d7c082d"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-run-01/observations.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-run-01/process.json": {
+      "bytes": 67,
+      "sha256": "a2da5ba39f6ae1d5e8e0b74d6e4e3ca241f8ec41c00b29ee6da5a0c5d308c268"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-run-01/source-after.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-run-01/source-before.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-run-01/stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-amend-run-01/stdout.log": {
+      "bytes": 141,
+      "sha256": "571079a04d3d04cba5a35605fedbfe074544754f4498767ff533c97c3a2a08ec"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-compile-01/command.json": {
+      "bytes": 2014,
+      "sha256": "6ad9dc84e0d9eff15556f7e27ecfbd8642e6472bb925ea3ec0e69670d12cdd5c"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-compile-01/completion.json": {
+      "bytes": 1731,
+      "sha256": "5bcb513749ed87f8fa2d97d28a871bd2968ae17fd8663f21b622fe33c265e2d4"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-compile-01/observations.jsonl": {
+      "bytes": 8196,
+      "sha256": "40e4c7ffb8a47535d94da218e07506f1ee500881b7c10b83ca8a85728d3ca04c"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-compile-01/process.json": {
+      "bytes": 67,
+      "sha256": "2e16f56c7c742ce5b7dfe410b8e7f0671e2213756f71870ce3d2ba60ac5a023b"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-compile-01/source-after.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-compile-01/source-before.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-compile-01/stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-compile-01/stdout.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-run-01/command.json": {
+      "bytes": 740,
+      "sha256": "9d335da92cac5d4b5d61eebc1e101f7dcbddeeaf37e462f27ad638a9869a47ea"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-run-01/completion.json": {
+      "bytes": 460,
+      "sha256": "b85f78960af5901186260380ac88d9b3348d73a2a943be5b646deb495d8e6e9f"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-run-01/observations.jsonl": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-run-01/process.json": {
+      "bytes": 67,
+      "sha256": "5b0145e6acef46cb7f884592e9a39b4574049ed8e52358752d4932ff6fe02b8c"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-run-01/source-after.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-run-01/source-before.json": {
+      "bytes": 133644,
+      "sha256": "bbc595cd91d5f7c8439cb50d6e184caee26a308e265c8a1e10948bb061d17bf2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-run-01/stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/rounds/sanitizer-targeted-ubsan-resource-run-01/stdout.log": {
+      "bytes": 165,
+      "sha256": "4a13434a9aeb9441d7647ed382960c8b1729fdcd25dd13314221ff6c8f6c27c7"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/runner-static-identity.json": {
+      "bytes": 137,
+      "sha256": "00c32a914b9212139df9eb53d353853c697cc87bea69ce65462fad4b0b4fcfc7"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-asan-amend-compile-01-receipt.json": {
+      "bytes": 2178,
+      "sha256": "f8acbb3651ee099c1d1ea0c9138eca4d0a009ab2f5ea8aeec59550ca9d25f8f9"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-asan-amend-compile-01-recorder.stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-asan-amend-compile-01-recorder.stdout.log": {
+      "bytes": 1687,
+      "sha256": "842d10b719bab94cdcd966d827f2021dac46acd992e9f0135df4d227ceb999a5"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-asan-amend-run-01-receipt.json": {
+      "bytes": 882,
+      "sha256": "235d1e578bf94efe84598ebd7eabc58b029fd69fefe4ed7c5044175eb5941363"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-asan-amend-run-01-recorder.stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-asan-amend-run-01-recorder.stdout.log": {
+      "bytes": 545,
+      "sha256": "90e4876e9fa382e6a182dec185ad3d760281ad1bd04392e8faa93c6828e0ff72"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-asan-resource-compile-01-receipt.json": {
+      "bytes": 2189,
+      "sha256": "623f716bbf25cd8f649e1323178cce74d83db08756762d012d38cae843db3b66"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-asan-resource-compile-01-recorder.stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-asan-resource-compile-01-recorder.stdout.log": {
+      "bytes": 1698,
+      "sha256": "d024a055680772e6e978cd1a9438be3df38c890cabb4790fa66d45dbfb18b444"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-asan-resource-run-01-receipt.json": {
+      "bytes": 892,
+      "sha256": "5bbb80d4c68c5721c165e0b18717dc901c4ecdef2f8099ab5bd245a93bca53d2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-asan-resource-run-01-recorder.stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-asan-resource-run-01-recorder.stdout.log": {
+      "bytes": 554,
+      "sha256": "4d031effd55bd21304ce2089f2e52d321e090ef4a2b714b448022619322cb835"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-ubsan-amend-compile-01-receipt.json": {
+      "bytes": 2206,
+      "sha256": "e8696de2f1abd565179bbeb416f21ba63ef9b062945575cf2b75a1f131064d68"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-ubsan-amend-compile-01-recorder.stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-ubsan-amend-compile-01-recorder.stdout.log": {
+      "bytes": 1709,
+      "sha256": "65e7056b672ec89e8f97546321eac1042715ee6e7da80f2e3baa3d61ac69526e"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-ubsan-amend-run-01-receipt.json": {
+      "bytes": 883,
+      "sha256": "4dd9567fddaedc4c0af9dc013e70b596b1bd500439826f2ac938c21e5a87f4f4"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-ubsan-amend-run-01-recorder.stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-ubsan-amend-run-01-recorder.stdout.log": {
+      "bytes": 546,
+      "sha256": "a167cfb323310ea64a88648a5b1aab62142df7cab6eee8b77f059c010932e9a5"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-ubsan-resource-compile-01-receipt.json": {
+      "bytes": 2218,
+      "sha256": "6e285cd3ee3fef9ddf5a8ca3c3746eef83b33b68e6d595fe76f9c0c00285abd2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-ubsan-resource-compile-01-recorder.stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-ubsan-resource-compile-01-recorder.stdout.log": {
+      "bytes": 1721,
+      "sha256": "652f4f67bda218dc45f81d8068288199b475a35563c456b31f507fa81d8f7ae1"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-ubsan-resource-run-01-receipt.json": {
+      "bytes": 891,
+      "sha256": "d715e253e405ecf347a54922989a130e44d319df61df754e09f794e4f71636a6"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-ubsan-resource-run-01-recorder.stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/sanitizer-targeted-ubsan-resource-run-01-recorder.stdout.log": {
+      "bytes": 554,
+      "sha256": "ce06b3421a6d2c4d504ddda670329dad629855a2b8ffd6d546a2cef1b232210f"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/source-after.json": {
+      "bytes": 144753,
+      "sha256": "79a354500d299d6f514ead7d2ae83ba548da88b372c19269de4bb16ebc8c7782"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/source-before.json": {
+      "bytes": 144753,
+      "sha256": "79a354500d299d6f514ead7d2ae83ba548da88b372c19269de4bb16ebc8c7782"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/ubsan-amend-binary-after-compile-before-run.json": {
+      "bytes": 123,
+      "sha256": "6baacdd33a53eca432a83307e6786c5f67d408084e7c45012e439d9c2a8ac98d"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/ubsan-amend-binary-after-run.json": {
+      "bytes": 123,
+      "sha256": "6baacdd33a53eca432a83307e6786c5f67d408084e7c45012e439d9c2a8ac98d"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/ubsan-amend-inputs-after-compile.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/ubsan-amend-inputs-after-run.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/ubsan-amend-inputs-before-compile.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/ubsan-amend-result.json": {
+      "bytes": 3862,
+      "sha256": "e87db46ac1d606f42071237cb4510ca1625636a5686ef8c196a27582a95fc226"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/ubsan-resource-binary-after-compile-before-run.json": {
+      "bytes": 123,
+      "sha256": "18879c5d9dc40d52fd71f66372f3554d52985fba7b9d4d537b214b00e27d65b7"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/ubsan-resource-binary-after-run.json": {
+      "bytes": 123,
+      "sha256": "18879c5d9dc40d52fd71f66372f3554d52985fba7b9d4d537b214b00e27d65b7"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/ubsan-resource-inputs-after-compile.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/ubsan-resource-inputs-after-run.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/ubsan-resource-inputs-before-compile.json": {
+      "bytes": 6795,
+      "sha256": "48c190052efc2821b61b081d94a1f6c9ddc9ff982ab00c124300360dfce7a163"
+    },
+    "evidence/sanitizer-targeted-diagnostic-execution-01/ubsan-resource-result.json": {
+      "bytes": 3830,
+      "sha256": "2af8ae12a48f34a46a1999994b159614536bdb104f4e0262814d3c66796aa470"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/README.md": {
+      "bytes": 7916,
+      "sha256": "bbcf87956066e112c87e428621a10f6642d9859476f8892ebdc3abf23a386b5e"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/SHA256SUMS": {
+      "bytes": 4832,
+      "sha256": "80288efb52b6411093e0b6fe645b3fa753ae62d8dc264a3fa7f8ee16ecc45de2"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/build-metadata-at-preparation.json": {
+      "bytes": 3945,
+      "sha256": "2a8e042a81a3cc36ba5cf56bdcbf2abb76a49095eee7f55c257bdf6462a777e6"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/combined-source-preparation.json": {
+      "bytes": 144753,
+      "sha256": "79a354500d299d6f514ead7d2ae83ba548da88b372c19269de4bb16ebc8c7782"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/command-plan.json": {
+      "bytes": 13848,
+      "sha256": "8bcd69dba2e234d9eb3a24b70b2fd5a784edfd7ea83875fb7a51b51106394551"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/commands.md": {
+      "bytes": 8414,
+      "sha256": "7e89ba455cf22eaa6c72ba42f6ca73d7a46177556742f4bc37ce6ac1d1554d56"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/completion-receipt.json": {
+      "bytes": 1166,
+      "sha256": "f03b3657553bae905bf7901edb3a9a541008ece66ea7f00127574f58f7ef05f5"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/frozen-probe-inputs.json": {
+      "bytes": 1231,
+      "sha256": "21e09562ace74a43aabba05517826e81396fd2f8b3af4a56cd2c15d4313f61af"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/future-receipt-contract.json": {
+      "bytes": 1982,
+      "sha256": "356ccd2c6cd21a91a35adb52e0c667c7c6be0e71b951dd65af1f530077447142"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/reference-index.json": {
+      "bytes": 8775,
+      "sha256": "7369f006d17310366a84aa75c9724c050a6585fee93a0dd277e4167218f17da9"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/asan-flags.make": {
+      "bytes": 745,
+      "sha256": "d06f4e11988eaf4e1c28c4505da13d29bc2be1c2922cb7b5d95a21c580e336b5"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/asan-link.txt": {
+      "bytes": 323,
+      "sha256": "4148144328273f15a9bd16110e88272e8a23798ea36a448e400b7e34232a9d38"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__amend-red-run-01__completion.json": {
+      "bytes": 470,
+      "sha256": "64d3b9ba76e85808a8357f3f94d73af3d3b7f826a76d4d20f99df2ed1d4d97f7"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__amend-red-run-01__stderr.log": {
+      "bytes": 324,
+      "sha256": "0a0e5128493840cd6e48ad75b87ae48ae277cdcf587b635e502d00f82e158d4d"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__amend-red-run-01__stdout.log": {
+      "bytes": 26,
+      "sha256": "e15842ff72e0ec989e070bf5e99562c5438804124934f8826a545915dfbc0167"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__final-ubsan-01-ctest-0002__command.json": {
+      "bytes": 925,
+      "sha256": "100c8a46b3f4820171ad60bd6023fd0f14e265824b64ff1e3a67fdeba2ac94fa"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__final-ubsan-01-ctest-0002__completion.json": {
+      "bytes": 660,
+      "sha256": "08205823560b5a1fcd8ef95ac1f2467add72e1014269899d15b4478faf6d3f7a"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__final-ubsan-01__binaries-after.json": {
+      "bytes": 639,
+      "sha256": "b40d6437b180314c590a0ab42b7e16896db436703eab832e4562215f49d63b70"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__final-ubsan-01__binaries-before.json": {
+      "bytes": 639,
+      "sha256": "b40d6437b180314c590a0ab42b7e16896db436703eab832e4562215f49d63b70"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__final-ubsan-01__ctest-0002-original-logs__LastTest.log": {
+      "bytes": 1921,
+      "sha256": "b687150684f10b1f0c88890b78acccc9223fce13ed6c81b34b8fb5bd2811188e"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__final-ubsan-01__junit-0002.xml": {
+      "bytes": 1063,
+      "sha256": "ddcb491e665627544a4790d85a1a7e6dc830e0aa522b8925ec90745611e435e9"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__final-ubsan-01__result.json": {
+      "bytes": 757,
+      "sha256": "0e109500ac0fa9afc8ba046daea59115d1e9517948afc9e8f51d769f9c64d5c0"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__frozen-amend-green-compile-01__command.json": {
+      "bytes": 1315,
+      "sha256": "d418c2889f0ed8922fdc382cddf1eb05df61659a65d50209d4d992b7891d2965"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__frozen-amend-green-run-01__command.json": {
+      "bytes": 692,
+      "sha256": "34c4e93bff49d8b81cc7c7ada466447937ea5f9ffee11c470c6637b22a847b4f"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__frozen-amend-green-run-01__completion.json": {
+      "bytes": 432,
+      "sha256": "17c73f956bce5bdcd06e1c91ffdcc7cbc5de0f9e5c0bf3b060cf86cb2b435a71"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__frozen-amend-green-run-01__stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__frozen-amend-green-run-01__stdout.log": {
+      "bytes": 141,
+      "sha256": "571079a04d3d04cba5a35605fedbfe074544754f4498767ff533c97c3a2a08ec"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__frozen-green-amend__receipt.json": {
+      "bytes": 107,
+      "sha256": "23260fde021a4538921d80bf4bff9694fac25530c7452f4352a9f4dce1e17839"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__frozen-green-resource__receipt.json": {
+      "bytes": 107,
+      "sha256": "23260fde021a4538921d80bf4bff9694fac25530c7452f4352a9f4dce1e17839"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__frozen-local-repros__baseline-red-receipt.json": {
+      "bytes": 1809,
+      "sha256": "c7d1d91f219d76f3a5c6269219d48a7bab0baa701d2912f1e009055eea70baf9"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__frozen-resource-green-compile-01__command.json": {
+      "bytes": 1450,
+      "sha256": "73fddba465a5ddd55259db38156d813d335b7175c3615ac4b2c84b9ceb6c28b6"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__frozen-resource-green-run-01__command.json": {
+      "bytes": 701,
+      "sha256": "fb70684bb1db55710ce7290aa2e92d123c2d5eee320de859aa92dc496e641482"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__frozen-resource-green-run-01__completion.json": {
+      "bytes": 435,
+      "sha256": "2708799d5beb1a7d161f159ab671726efe28226d78c00fc869d4104b523f3849"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__frozen-resource-green-run-01__stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__frozen-resource-green-run-01__stdout.log": {
+      "bytes": 165,
+      "sha256": "4a13434a9aeb9441d7647ed382960c8b1729fdcd25dd13314221ff6c8f6c27c7"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__red-green-index-v1.json": {
+      "bytes": 4724,
+      "sha256": "00bee0657a8fc0b4630ed26c537c12118dad167ae865364cdf3cc3b41297194f"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__resource-red-run-01__completion.json": {
+      "bytes": 473,
+      "sha256": "442d76a9599b92d962cf42f660807d0c346c89d71043adedfd7e495f6f0edb7c"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__resource-red-run-01__stderr.log": {
+      "bytes": 148,
+      "sha256": "037ec92587f5948a9948f013c983029ed3c6a0f3a3deb42e09c0ba131417d094"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/evidence__resource-red-run-01__stdout.log": {
+      "bytes": 170,
+      "sha256": "d091acb47a57ffb145a3d116fafd6ca84351d3922548364bd7bf25eea58a3360"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/ubsan-flags.make": {
+      "bytes": 779,
+      "sha256": "738c61d659116d0f6c17f8fbf4bb35a0cc2ff68f48630d4485e8b4b973adf90d"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/references/ubsan-link.txt": {
+      "bytes": 325,
+      "sha256": "5f9d4e35fc29d9dae939be01d69b8fa8febff4a9057231affcd4845c722f504d"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/tool-identities.json": {
+      "bytes": 1238,
+      "sha256": "44b5b21c1f4d0f8b86b98723148b87df230241dcba0ef4f99e1a13162084f7df"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/ubsan-completed-build-identities.json": {
+      "bytes": 1820,
+      "sha256": "2cb172293e445fff7530eb363b665b14764f54acf64c74824093c35a17e6fa20"
+    },
+    "evidence/sanitizer-targeted-diagnostic-preparation-01/ubsan-timeout-observation.json": {
+      "bytes": 1234,
+      "sha256": "dec41261a05de82e8e40e17c7aa54176a1f740a079298b22b50c35015f04adb2"
+    }
+  }
+}
