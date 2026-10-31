@@ -598,6 +598,119 @@ void host_limits_are_validated_without_rewriting_frozen_requests() {
     CHECK(bounded.store().request(other).at("config_snapshot") == original);
     CHECK(bounded.store().request(other).at("plan_revision") == 1);
 }
+
+void model_callbacks_cannot_submit_same_pool_children() {
+    Fixture f;
+    AsyncCoordinatorLimits limits;
+    limits.management_workers = 2; // One ordinary slot; a child could not run beside its parent.
+    AsyncCoordinator runtime(f.open(), schemas, limits);
+    const auto parent = f.admit(runtime.store()), child = f.admit(runtime.store());
+    const auto child_call = runtime.capture(child, Role::Dispatcher);
+    const auto child_request = runtime.store().request(child);
+    const auto child_budget = runtime.store().budget(child);
+    auto child_model = f.model(), parent_model = f.model();
+    std::atomic<int> denied{};
+    parent_model->on_start = [&] {
+        // These are actual pool callback calls. No child future may be admitted
+        // for the parent to synchronously wait on in this same full normal pool.
+        try { (void)runtime.capture(child, Role::Dispatcher); }
+        catch (const Error& error) { CHECK(error.code() == ErrorCode::Unauthorized); ++denied; }
+        try { (void)runtime.submit(child_call, child_model); }
+        catch (const Error& error) { CHECK(error.code() == ErrorCode::Unauthorized); ++denied; }
+    };
+    auto completed = runtime.submit(runtime.capture(parent, Role::Dispatcher), parent_model);
+    runtime.drain(); (void)completed.get();
+    CHECK(denied == 2 && parent_model->calls == 1 && child_model->calls == 0);
+    CHECK(runtime.store().request(parent).at("plan_revision") == 1);
+    CHECK(runtime.store().request(child) == child_request);
+    CHECK(runtime.store().budget(child) == child_budget);
+    CHECK(runtime.store().budget(child).at("attempts") == 0);
+    CHECK(runtime.store().tasks(child).empty());
+    CHECK(count(f.path, "SELECT count(*) FROM call_attempts") == 1);
+    CHECK(count(f.path, "SELECT count(*) FROM events WHERE type='claim_offline_call'") == 1);
+    CHECK(count(f.path, "SELECT count(*) FROM ops") == 0);
+    CHECK(runtime.snapshot().outstanding == 0 && runtime.snapshot().managers.running == 0);
+}
+
+void logical_question_wait_releases_slot_without_releasing_unknown_budget() {
+    // Record the adapter's original response, then read it only after drain has
+    // joined its sole callback. Store, usage and wait conditions stay real.
+    class RecordedFake final : public ModelAdapter {
+    public:
+        RecordedFake(FakeModelStep step, std::string reference)
+            : fake_({std::move(step)}, std::move(reference)) {}
+        AdapterCapabilities capabilities() const override { return fake_.capabilities(); }
+        void validate(const ModelRequest& request) const override { fake_.validate(request); }
+        ModelResponse complete(ModelRequest request, std::stop_token stop) const override {
+            auto response = fake_.complete(std::move(request), stop);
+            original_response = to_json(response);
+            return response;
+        }
+        mutable Json original_response{nullptr};
+    private:
+        FakeModel fake_;
+    };
+    Fixture f;
+    AsyncCoordinatorLimits limits;
+    limits.worker_workers = 2; // Exactly one ordinary Worker execution slot.
+    AsyncCoordinator runtime(f.open(), schemas, limits);
+    const auto waiting = f.admit(runtime.store()), sibling = f.admit(runtime.store());
+    const auto task = f.ready(runtime.store(), waiting), sibling_task = f.ready(runtime.store(), sibling);
+    const auto before = runtime.store().budget(waiting);
+    FakeModelStep ask;
+    ask.role = Role::Worker;
+    ask.tool_calls.push_back({"a4-question", "ask", Object{
+        {"text", "Which original value should the waiting Worker preserve?"},
+        {"context", "No value has been substituted while awaiting the answer."}, {"blocking", true}}});
+    ask.usage = {std::nullopt, std::nullopt, 0, 0, 0};
+    auto model = std::make_shared<RecordedFake>(ask, f.config.resolve(Role::Worker).model);
+    const auto captured = runtime.capture(waiting, Role::Worker, task);
+    CHECK(captured.request.reserved_input_tokens > 0 && captured.request.reserved_output_tokens > 0);
+    auto asked = runtime.submit(captured, model);
+    runtime.drain();
+    const auto question = asked.get();
+    CHECK(question.at("status") == "OPEN" && question.at("blocking") == 1);
+    CHECK(question.at("body").at("text") == ask.tool_calls.front().arguments.at("text"));
+    const auto wait = runtime.store().worker_wait(task);
+    CHECK(wait.at("status") == "WAITING");
+    CHECK(wait.at("original_binding") == to_json(captured.request.binding));
+    CHECK(text(wait, "reason") == "question:" + text(question, "question_id"));
+    CHECK(runtime.snapshot().outstanding == 0 && runtime.snapshot().workers.running == 0);
+    const auto original = runtime.store().attempt(captured.request.attempt_id);
+    const auto feedback = runtime.store().tool_feedback(captured.request.attempt_id);
+    CHECK(original.at("status") == "COMPLETED" && original.at("accepted") == 1);
+    CHECK(original.at("request_envelope") == to_json(captured.request));
+    CHECK(original.at("response") == model->original_response);
+    CHECK(original.at("usage") == to_json(ask.usage));
+    CHECK(!original.at("settlement_sha256").is_null());
+    CHECK(feedback.at("response") == model->original_response);
+    const auto held = runtime.store().budget(waiting);
+    CHECK(number(held, "attempts") == number(before, "attempts") + 1);
+    CHECK(number(held, "reserved_input") == number(before, "reserved_input") + captured.request.reserved_input_tokens);
+    CHECK(number(held, "reserved_output") == number(before, "reserved_output") + captured.request.reserved_output_tokens);
+    CHECK(number(held, "unknown_input") == number(before, "unknown_input") + captured.request.reserved_input_tokens);
+    CHECK(number(held, "unknown_output") == number(before, "unknown_output") + captured.request.reserved_output_tokens);
+    CHECK(held.at("spent_input") == before.at("spent_input") && held.at("spent_output") == before.at("spent_output"));
+
+    auto gate = std::make_shared<Gate>(); Release release{gate};
+    auto sibling_model = f.model(gate);
+    const auto sibling_budget = runtime.store().budget(sibling);
+    auto advanced = runtime.submit(runtime.capture(sibling, Role::Worker, sibling_task), sibling_model);
+    until(runtime, [&] { return gate->entered == 1; });
+    CHECK(runtime.snapshot().workers.normal_running == 1 && runtime.snapshot().executing == 1);
+    CHECK(runtime.store().question(text(question, "question_id")) == question);
+    CHECK(runtime.store().worker_wait(task) == wait);
+    CHECK(runtime.store().budget(waiting) == held);
+    gate->release(); runtime.drain();
+    CHECK(advanced.get().at("status") == "SUCCEEDED" && sibling_model->calls == 1);
+    CHECK(number(runtime.store().budget(sibling), "attempts") == number(sibling_budget, "attempts") + 1);
+    CHECK(runtime.snapshot().outstanding == 0 && runtime.snapshot().workers.running == 0);
+    CHECK(runtime.store().question(text(question, "question_id")) == question);
+    CHECK(runtime.store().worker_wait(task) == wait);
+    CHECK(runtime.store().budget(waiting) == held);
+    CHECK(runtime.store().attempt(captured.request.attempt_id) == original);
+    CHECK(runtime.store().tool_feedback(captured.request.attempt_id) == feedback);
+}
 } // namespace
 
 int main() {
@@ -624,5 +737,7 @@ int main() {
         {"S1 management and Worker pools both retain Review execution capacity", both_s1_pools_keep_their_review_execution_reserve},
         {"queued S1 requests and teams rotate under sustained load", queued_s1_requests_and_teams_rotate_without_starvation},
         {"same resource remains FIFO across both S1 execution pools", same_resource_is_fifo_across_management_and_worker_pools},
-        {"host capacities respect original frozen maxima and review reserves", host_limits_are_validated_without_rewriting_frozen_requests}});
+        {"host capacities respect original frozen maxima and review reserves", host_limits_are_validated_without_rewriting_frozen_requests},
+        {"actual model callbacks cannot admit same-pool child calls", model_callbacks_cannot_submit_same_pool_children},
+        {"logical question wait releases its slot and preserves original unknown budget", logical_question_wait_releases_slot_without_releasing_unknown_budget}});
 }
