@@ -164,6 +164,8 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_
 	$(PYTHON) tests/test_doctor_diagnostics_cli.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/test_protocol_replay_cli.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/r3_evaluation_tests.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
+	$(PYTHON) tests/r3_offline_acceptance_tests.py "$(abspath .)"
+	$(PYTHON) tests/r3_offline_acceptance_cli_tests.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/test_https_transport.py "$(abspath $(HTTPS_TEST_DRIVER))" "$(abspath .)"
 	$(PYTHON) tests/test_live_model_store.py "$(abspath $(LIVE_TEST_DRIVER))" "$(abspath .)"
 	$(PYTHON) tests/test_live_workflow.py "$(abspath $(WORKFLOW_TEST_DRIVER))" "$(abspath .)"
