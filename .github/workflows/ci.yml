@@ -83,6 +83,9 @@ jobs:
       - name: Check shared GCC ASan runner contracts
         if: matrix.name == 'strict' || matrix.name == 'ASan'
         run: .local/test-venv/bin/python tests/test_run_gcc_asan.py
+      - name: Check immediate failure diagnostics survive suite interruption
+        if: matrix.name == 'strict' || matrix.name == 'ASan'
+        run: .local/test-venv/bin/python -B tests/test_immediate_unittest.py
       - name: Run shared GCC 13.3 Debug ASan gate
         if: matrix.name == 'ASan'
         run: |
