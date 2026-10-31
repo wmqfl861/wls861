@@ -136,3 +136,7 @@ tests check this design. Actual environments, commands, exit codes, input/binary
 identities and NOT_RUN boundaries belong in the versioned validation report.
 Windows 11, W-FS, W-PROC, W-SBX, W-CLEAN and W-PARITY stay unaccepted until their
 own evidence exists. Local Linux tests cannot mark remote native CI complete.
+
+The executed hosted Windows Server CI and original configuration failures are
+recorded in [native CI validation revision 2](../reports/windows-native-foundation-native-ci-20261031-r2.md),
+with exact source, command, test, artifact and binary identities.
