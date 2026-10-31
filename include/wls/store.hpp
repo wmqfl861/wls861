@@ -572,6 +572,11 @@ public:
     Json reserve_attempt(const StoreActor& actor,
                          const ExecutionBinding& frozen_binding,
                          const AttemptReservation& reservation);
+    // Opt-in offline coordinator's durable first-execution claim. Reservation
+    // replay is not execution authority. Only the original pending Fake call
+    // may be claimed; exact claim replay always returns dispatch_claimed=false.
+    // The existing synchronous API and all live send claims remain separate.
+    Json claim_offline_call(const StoreActor& actor, const std::string& attempt_id);
     // Host-only recording of the original adapter response and usage. A stale
     // result is persisted for accounting, returned as accepted=false, and never
     // applied to a task. Usage fields may be null; their reservations remain.

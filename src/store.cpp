@@ -3640,6 +3640,81 @@ Json Store::cancel_request(const StoreActor& root, std::int64_t expected, const 
     tx.commit(); return result;
 }
 
+Json Store::claim_offline_call(const StoreActor& actor, const std::string& attempt_id) {
+    const std::lock_guard lock(impl_->mutex);
+    text_field(attempt_id, "offline attempt_id");
+    impl_->require_workflow_schema();
+    Impl::Transaction tx(*impl_);
+    (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker}, false);
+    const auto original = impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {attempt_id});
+    impl_->check_request_scope(str(original, "request_id"));
+    require(str(original, "request_id") == actor.request_id && str(original, "role") == role_name(actor.role) &&
+            str(original, "principal_id") == actor.principal_id, ErrorCode::Unauthorized,
+            "offline execution belongs to the original actor");
+    const auto request = model_request_from_json(parse_json_strict(str(original, "request_envelope"), 4U * 1024U * 1024U));
+    impl_->actor_binding(actor, request.binding);
+    const auto current = impl_->request_row(actor.request_id);
+    const auto frozen = FrozenRequestConfig::restore(str(current, "config_snapshot"), str(current, "config_snapshot_sha256"));
+    require(frozen.model_profile(actor.role).at("adapter").as_string() == "fake" &&
+            request.model == frozen.resolve(actor.role), ErrorCode::Unauthorized,
+            "offline execution requires the original frozen Fake profile");
+    const auto command = payload(actor, "claim_offline_call", Row{{"attempt_id", attempt_id},
+        {"reservation_sha256", original.at("reservation_sha256")}, {"binding", to_json(request.binding)}});
+    const auto command_id = "offline-dispatch:" + attempt_id;
+    if (const auto old = impl_->replay(actor.request_id, command_id, command)) {
+        auto result = old->as_object();
+        result["dispatch_claimed"] = false;
+        tx.commit(); return result;
+    }
+    (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
+    impl_->matches(request.binding);
+    const auto contract = model_contract(request);
+    const auto subject = actor.task_id.empty() ? current : impl_->task_row(actor.task_id);
+    require(contract.is_object() && contract.as_object().contains("captured_state_version") &&
+            number(contract.as_object(), "captured_state_version") == number(subject, "state_version"),
+            ErrorCode::Stale, "offline execution requires the original captured state CAS");
+    require(str(original, "status") == "PENDING" && original.at("settlement_sha256").is_null() &&
+            number(original, "state_version") == 1, ErrorCode::Conflict,
+            "offline execution requires the original unmodified pending attempt");
+    bool experience = false;
+    if (impl_->acceptance_schema) if (const auto job = impl_->optional(
+            "SELECT * FROM experience_attempts WHERE attempt_id=?", {attempt_id})) {
+        (void)impl_->validate_experience_target(actor, request.binding, str(*job, "experience_id"),
+            number(*job, "job_version"), str(*job, "source_sha256"));
+        experience = true;
+    }
+    require(experience || !terminal_request(str(current, "status")), ErrorCode::NotReady,
+            "offline execution cannot restart terminated business");
+    if (actor.role == Role::Worker) {
+        impl_->ready(actor, request.binding);
+        for (const auto& tool : request.context.tool_names) {
+            if (tool == "history_page" || tool == "history_read") {
+                const auto denied = parse_json_strict(str(impl_->one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
+                require(!frozen.worker_history_policy().is_null() && !contains(denied, tool),
+                        ErrorCode::Unauthorized, "offline history control was revoked");
+            } else impl_->ready(actor, request.binding, tool, &frozen);
+        }
+    } else if (!experience && actor.role == Role::TeamLead) {
+        const auto task = impl_->task_row(actor.task_id);
+        require(!terminal_task(str(task, "status")) &&
+                number(task, "based_on_requirements_revision") == number(current, "requirements_revision") &&
+                number(task, "plan_revision") == number(current, "plan_revision"), ErrorCode::NotReady,
+                "offline TeamLead execution requires the current task disposition");
+    }
+    if (!experience && actor.role != Role::Worker && !frozen.management_history_policy().is_null()) {
+        const auto denied = parse_json_strict(str(impl_->one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
+        require(!contains(denied, "management_history_page") && !contains(denied, "management_history_read"),
+                ErrorCode::Unauthorized, "offline management history control was revoked");
+    }
+    const Row recorded{{"attempt_id", attempt_id}, {"binding", to_json(request.binding)},
+        {"original_attempt_version", original.at("state_version")}};
+    // A new admission consumes the existing business event pool. It cannot use
+    // reserved cancellation/settlement capacity or silently enlarge old limits.
+    impl_->event(actor.request_id, command_id, command, recorded, role_name(actor.role));
+    tx.commit();
+    auto result = recorded; result["dispatch_claimed"] = true; return result;
+}
+
 Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& frozen,
                             const AttemptReservation& reservation) {
     const std::lock_guard lock(impl_->mutex);

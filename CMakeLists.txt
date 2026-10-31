@@ -74,6 +74,7 @@ add_library(wls_s1 STATIC
     src/worker_history.cpp
     src/schema.cpp
     src/offline_runtime.cpp
+    src/async_coordinator.cpp
     src/event_runtime.cpp
     src/workspace_posix.cpp
     src/sandbox_posix.cpp
@@ -129,6 +130,13 @@ if(BUILD_TESTING)
     endforeach()
     set_tests_properties(owned_capacity_runtime PROPERTIES TIMEOUT 180)
     set_tests_properties(r1_management PROPERTIES TIMEOUT 300)
+    add_executable(async_coordinator_tests tests/async_coordinator_tests.cpp)
+    target_link_libraries(async_coordinator_tests PRIVATE wls_s1)
+    target_include_directories(async_coordinator_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_compile_definitions(async_coordinator_tests PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME async_coordinator COMMAND async_coordinator_tests)
+    # New multi-request vertical suite; existing 89 test deadlines are unchanged.
+    set_tests_properties(async_coordinator PROPERTIES TIMEOUT 180)
     # Supplemental R2.4 families keep the existing 90-second S1 deadline.
     # Capacity exhaustion is process-global, so its two cases use separate
     # processes; all bounded recovery/concurrency groups are registered.

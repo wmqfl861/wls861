@@ -62,6 +62,11 @@ public:
                                   std::int64_t role_call_index = 1,
                                   const std::vector<Json>& tool_feedback = {},
                                   bool model_amendment = false);
+    // Reserve exactly this host-captured call. Never refresh its Actor, binding,
+    // state CAS or workflow target while it waits in a host queue. Reservation
+    // replay alone is not a first-execution claim.
+    void reserve_captured_call(const ModelAdapter& adapter,
+                              const CapturedModelCall& captured);
     // Record usage and the raw response first. Invalid/stale responses never
     // authorize a tool; their consumed or unknown budget is still retained.
     Json accept_response(const CapturedModelCall& call,
