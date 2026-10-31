@@ -21,6 +21,8 @@ import sys
 import tempfile
 import unittest
 
+from immediate_unittest import ImmediateTextRunner
+
 if len(sys.argv) != 3:
     raise SystemExit('usage: test_live_workflow.py DRIVER SOURCE')
 DRIVER, SOURCE = (Path(value).resolve() for value in sys.argv[1:])
@@ -526,4 +528,4 @@ class LiveWorkflow(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main(verbosity=2)
+    unittest.main(verbosity=2, testRunner=ImmediateTextRunner)
