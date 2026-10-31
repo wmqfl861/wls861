@@ -85,6 +85,36 @@ class GateContracts(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             gate.check_junit(path, ["a", "b", "c"])
 
+    def test_reviewed_names_reject_same_count_substitution(self):
+        manifest = self.json_file("expected.json", {"schema_version": 1,
+            "tests": [{"name": "original", "timeout": 90}]})
+        plan = self.json_file("plan.json", {"tests": [{"name": "replacement",
+            "properties": [{"name": "TIMEOUT", "value": 90}]}]})
+        with self.assertRaisesRegex(RuntimeError, "CTest names"):
+            gate.registered_tests(plan, 1, manifest)
+
+    def test_reviewed_deadline_must_match_and_original_is_accepted(self):
+        manifest = self.json_file("expected.json", {"schema_version": 1,
+            "tests": [{"name": "original", "timeout": 90}]})
+        for deadline in (None, 89, 91):
+            plan = self.json_file("plan.json", {"tests": [{"name": "original",
+                "properties": [{"name": "TIMEOUT", "value": deadline}]}]})
+            with self.subTest(deadline=deadline), self.assertRaisesRegex(RuntimeError, "deadline"):
+                gate.registered_tests(plan, 1, manifest)
+        plan = self.json_file("plan.json", {"tests": [{"name": "original",
+            "properties": [{"name": "TIMEOUT", "value": 90.0}]}]})
+        self.assertEqual(gate.registered_tests(plan, 1, manifest), ["original"])
+
+    def test_manifest_missing_duplicate_and_count_change_are_refused(self):
+        plan = self.json_file("plan.json", {"tests": [{"name": "a"}]})
+        with self.assertRaises(FileNotFoundError):
+            gate.registered_tests(plan, 1, self.root / "absent")
+        for items in ([], [{"name": "a", "timeout": 90}, {"name": "a", "timeout": 90}],
+                      [{"name": "a", "timeout": 0}], [{"name": "a", "timeout": True}]):
+            manifest = self.json_file("expected.json", {"schema_version": 1, "tests": items})
+            with self.subTest(items=items), self.assertRaises(RuntimeError):
+                gate.registered_tests(plan, 1, manifest)
+
     def test_junit_rejects_skips_failures_errors_and_notrun(self):
         path = self.root / "test.xml"
         for content in ('<failure/>', '<error/>', '<skipped/>'):
@@ -157,7 +187,10 @@ class GateContracts(unittest.TestCase):
         # This is deliberately a mocked command flow, not a C++/ASan run.
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         (self.root / ".gitignore").write_text("/build*/\n")
-        subprocess.run(["git", "add", ".gitignore"], cwd=self.root, check=True)
+        (self.root / "tests").mkdir()
+        (self.root / "tests/gcc_asan_expected_tests.json").write_text(json.dumps(
+            {"schema_version": 1, "tests": [{"name": "one", "timeout": 90}]}))
+        subprocess.run(["git", "add", ".gitignore", "tests/gcc_asan_expected_tests.json"], cwd=self.root, check=True)
         subprocess.run(["git", "-c", "user.name=Runner Test", "-c", "user.email=test@example.invalid",
                         "commit", "-qm", "fixture"], cwd=self.root, check=True)
         observed = []
@@ -177,7 +210,8 @@ class GateContracts(unittest.TestCase):
                 (build / "compile_commands.json").write_text(json.dumps([{"arguments": [compiler,
                     "-g", "-Werror", "-fsanitize=address", "-fno-omit-frame-pointer"]}]))
             if name == "test-plan":
-                path.write_text(json.dumps({"tests": [{"name": "one"}]}))
+                path.write_text(json.dumps({"tests": [{"name": "one",
+                    "properties": [{"name": "TIMEOUT", "value": 90}]}]}))
             if name == "ctest":
                 (recorder.directory / "ctest.xml").write_text('<testsuite><testcase name="one" status="run"/></testsuite>')
                 if mutate_binary:
