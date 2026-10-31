@@ -1,4 +1,5 @@
 #include "wls/async_coordinator.hpp"
+#include "wls/worker_tools.hpp"
 #include "test_support.hpp"
 
 #include <sqlite3.h>
@@ -18,6 +19,7 @@ namespace {
 using namespace wls;
 using namespace wls::s1;
 using Object = boost::json::object;
+using Array = boost::json::array;
 const std::filesystem::path source(WLS_SOURCE_DIR);
 std::shared_ptr<SchemaRegistry> schemas;
 std::string base_sql, store_sql, tools_sql, events_sql, workflow_sql, acceptance_sql;
@@ -26,6 +28,16 @@ std::string text(const Json& value, std::string_view key) { return std::string(v
 std::int64_t number(const Json& value, std::string_view key) { return value.at(key).as_int64(); }
 Json fixture(const char* name) { return parse_json_strict(read_runtime_file(source / "tests/fixtures" / name)); }
 std::vector<FakeModelStep> steps() { return fake_model_steps_from_json(fixture("s1_fake_initial.json")); }
+
+template<class Function>
+void expect(ErrorCode code, Function action) {
+    bool caught = false;
+    try { action(); } catch (const Error& error) {
+        CHECK(error.code() == code);
+        caught = true;
+    }
+    CHECK(caught);
+}
 
 void sql(const std::filesystem::path& path, const char* statement) {
     sqlite3* db{};
@@ -68,35 +80,45 @@ struct Release {
 class GatedModel final : public ModelAdapter {
 public:
     GatedModel(std::string ref, std::shared_ptr<Gate> gate = {}, bool respect_stop = false,
-               bool throws = false, bool error_response = false)
+               bool throws = false, bool error_response = false,
+               std::vector<FakeModelStep> script = steps())
         : fake_([&] {
-            auto script = steps();
             if (error_response) for (auto& step : script) {
                 step.status = ModelResultStatus::Error;
                 step.error_code = "synthetic_offline_failure";
                 step.error_message = "Original offline model failure for scheduling observation";
                 step.tool_calls.clear();
             }
-            return script;
+            return std::move(script);
         }(), std::move(ref)), gate_(std::move(gate)), respect_stop_(respect_stop), throws_(throws) {}
     AdapterCapabilities capabilities() const override { return fake_.capabilities(); }
     void validate(const ModelRequest& request) const override { fake_.validate(request); }
     ModelResponse complete(ModelRequest request, std::stop_token stop) const override {
         CHECK(std::this_thread::get_id() != creator_);
+        std::stop_callback observe(stop, [this] { observed_stop = true; });
         ++calls;
         if (on_start) on_start();
         if (gate_) gate_->wait(stop, respect_stop_);
         if (throws_) throw std::runtime_error("synthetic offline adapter exception");
         // Deliberately return the original result even after cancellation.
-        return fake_.complete(std::move(request));
+        auto response = fake_.complete(std::move(request));
+        { std::lock_guard lock(response_mutex_); original_response_ = to_json(response); }
+        return response;
+    }
+    Json original_response() const {
+        std::lock_guard lock(response_mutex_);
+        return original_response_;
     }
     mutable std::atomic<int> calls{};
+    mutable std::atomic<bool> observed_stop{};
     std::function<void()> on_start;
 private:
     FakeModel fake_;
     std::shared_ptr<Gate> gate_;
     bool respect_stop_, throws_;
     const std::thread::id creator_{std::this_thread::get_id()};
+    mutable std::mutex response_mutex_;
+    mutable Json original_response_{nullptr};
 };
 
 struct Fixture {
@@ -138,6 +160,131 @@ void until(AsyncCoordinator& runtime, Predicate predicate) {
     }
 }
 bool ready(std::future<Json>& future) { return future.wait_for(std::chrono::seconds(0)) == std::future_status::ready; }
+
+std::shared_ptr<GatedModel> amended_model(const Fixture& fixture, const std::shared_ptr<Gate>& gate) {
+    auto script = steps();
+    auto& brief = script.front().tool_calls.front().arguments.at("nodes").as_array().front().at("brief");
+    brief.at("constraints_verbatim").as_array().emplace_back("改为中文");
+    brief.at("constraint_refs").as_array().emplace_back("c3");
+    return std::make_shared<GatedModel>(fixture.config.resolve(Role::Dispatcher).model, gate,
+        false, false, false, std::move(script));
+}
+
+void amend_replay_does_not_stop_new_dispatcher(bool queued) {
+    Fixture f;
+    AsyncCoordinatorLimits limits;
+    limits.management_workers = 2; // One ordinary slot; the other stays reserved for review.
+    AsyncCoordinator runtime(f.open(), schemas, limits);
+    const auto id = f.admit(runtime.store());
+    const auto root = runtime.store().host_actor(Role::Root, id);
+    const auto version = number(runtime.store().request(id), "state_version");
+    const auto command = new_id("amend");
+    const auto original_text = read_runtime_file(source / "tests/fixtures/s1_amendment.txt");
+    const auto constraints = fixture("s1_amended_constraints.json");
+    auto first = runtime.amend(root, version, original_text, constraints, command);
+    (void)runtime.poll(); const auto first_result = first.get();
+    CHECK(first_result.at("requirements_revision") == 2);
+
+    auto blocker_gate = std::make_shared<Gate>(); Release release_blocker{blocker_gate};
+    auto blocker_model = f.model(blocker_gate);
+    std::future<Json> blocker;
+    if (queued) {
+        const auto sibling = f.admit(runtime.store());
+        blocker = runtime.submit(runtime.capture(sibling, Role::Dispatcher), blocker_model);
+        until(runtime, [&] { return blocker_gate->entered == 1; });
+    }
+    auto gate = std::make_shared<Gate>(); Release release{gate};
+    auto model = amended_model(f, gate);
+    const auto captured = runtime.capture(id, Role::Dispatcher);
+    CHECK(captured.request.binding.requirements_revision == 2);
+    auto future = runtime.submit(captured, model);
+    if (queued) {
+        CHECK(runtime.snapshot().queued == 1 && model->calls == 0);
+    } else until(runtime, [&] { return gate->entered == 1; });
+    const auto before = runtime.store().request(id);
+    const auto budget = runtime.store().budget(id);
+    const auto attempt = runtime.store().attempt(captured.request.attempt_id);
+    const auto original = runtime.store().request_snapshot(id);
+    const auto history = runtime.store().events(id, 0, 1000);
+    const auto events = count(f.path, "SELECT count(*) FROM events");
+    const auto texts = count(f.path, "SELECT count(*) FROM request_texts");
+    for (int repeat = 0; repeat != 2; ++repeat) {
+        auto replay = runtime.amend(root, version, original_text, constraints, command);
+        (void)runtime.poll();
+        CHECK(replay.get() == first_result);
+        CHECK(runtime.store().request(id) == before);
+        CHECK(runtime.store().budget(id) == budget);
+        CHECK(runtime.store().attempt(captured.request.attempt_id) == attempt);
+        CHECK(runtime.store().request_snapshot(id) == original);
+        CHECK(runtime.store().events(id, 0, 1000) == history);
+        CHECK(count(f.path, "SELECT count(*) FROM events") == events);
+        CHECK(count(f.path, "SELECT count(*) FROM request_texts") == texts);
+        CHECK(!model->observed_stop.load());
+    }
+    // The same durable key cannot smuggle a new AMEND or a different CAS.
+    auto changed = runtime.amend(root, version, original_text + "different", constraints, command);
+    (void)runtime.poll(); expect(ErrorCode::Conflict, [&] { (void)changed.get(); });
+    auto changed_cas = runtime.amend(root, version + 1, original_text, constraints, command);
+    (void)runtime.poll(); expect(ErrorCode::Conflict, [&] { (void)changed_cas.get(); });
+    auto changed_catalog = constraints;
+    changed_catalog.as_array().front().at("text").as_string().append("different");
+    auto catalog = runtime.amend(root, version, original_text, changed_catalog, command);
+    (void)runtime.poll(); expect(ErrorCode::Conflict, [&] { (void)catalog.get(); });
+    auto other_owner = root;
+    other_owner.principal_id += "-other";
+    auto unauthorized = runtime.amend(other_owner, version, original_text, constraints, command);
+    (void)runtime.poll(); expect(ErrorCode::Unauthorized, [&] { (void)unauthorized.get(); });
+    auto other_session = root;
+    other_session.writer_session += "-old";
+    auto stale_session = runtime.amend(other_session, version, original_text, constraints, command);
+    (void)runtime.poll(); expect(ErrorCode::Stale, [&] { (void)stale_session.get(); });
+    auto stale_cas = runtime.amend(root, version, original_text, constraints, new_id("stalecas"));
+    (void)runtime.poll(); expect(ErrorCode::Conflict, [&] { (void)stale_cas.get(); });
+    CHECK(runtime.store().request(id) == before && runtime.store().budget(id) == budget);
+    CHECK(runtime.store().attempt(captured.request.attempt_id) == attempt);
+    CHECK(runtime.store().request_snapshot(id) == original);
+    CHECK(runtime.store().events(id, 0, 1000) == history);
+    CHECK(!model->observed_stop.load());
+    if (queued) {
+        CHECK(model->calls == 0);
+        blocker_gate->release();
+        gate->release(); runtime.drain(); (void)blocker.get();
+        CHECK(model->calls == 1 && !model->observed_stop.load());
+        (void)future.get();
+    } else {
+        CHECK(model->calls == 1 && !model->observed_stop.load());
+        gate->release(); runtime.drain(); (void)future.get();
+    }
+    CHECK(model->calls == 1 && !model->observed_stop.load());
+    CHECK(runtime.store().request(id).at("requirements_revision") == 2);
+    CHECK(runtime.store().request(id).at("plan_revision") == 1);
+    CHECK(runtime.store().tasks(id).size() == 1);
+    const auto settled = runtime.store().attempt(captured.request.attempt_id);
+    const auto feedback = runtime.store().tool_feedback(captured.request.attempt_id);
+    CHECK(settled.at("status") == "COMPLETED" && settled.at("accepted") == 1);
+    CHECK(settled.at("request_envelope") == to_json(captured.request));
+    CHECK(settled.at("response") == model->original_response());
+    CHECK(feedback.at("response") == model->original_response());
+    const auto completed = runtime.store().request(id);
+    const auto completed_budget = runtime.store().budget(id);
+    const auto completed_events = count(f.path, "SELECT count(*) FROM events");
+    const auto completed_history = runtime.store().events(id, 0, 1000);
+    // A late replay after the new result committed is equally read-only.
+    auto late = runtime.amend(root, version, original_text, constraints, command);
+    (void)runtime.poll(); CHECK(late.get() == first_result);
+    CHECK(runtime.store().request(id) == completed && runtime.store().budget(id) == completed_budget);
+    CHECK(runtime.store().attempt(captured.request.attempt_id) == settled);
+    CHECK(runtime.store().tool_feedback(captured.request.attempt_id) == feedback);
+    CHECK(count(f.path, "SELECT count(*) FROM events") == completed_events);
+    CHECK(runtime.store().request_snapshot(id) == original);
+    CHECK(runtime.store().events(id, 0, 1000) == completed_history);
+    CHECK(count(f.path, "SELECT count(*) FROM ops") == 0);
+    CHECK(count(f.path, "SELECT count(*) FROM request_texts") == texts);
+    CHECK(runtime.snapshot().outstanding == 0);
+}
+
+void amend_replay_preserves_queued_new_dispatcher() { amend_replay_does_not_stop_new_dispatcher(true); }
+void amend_replay_preserves_inflight_new_dispatcher() { amend_replay_does_not_stop_new_dispatcher(false); }
 
 void genuine_overlap_and_sibling_commit() {
     Fixture f;
@@ -230,13 +377,15 @@ void amend_retains_late_original_without_business() {
     const auto id = f.admit(runtime.store()); const auto task = f.ready(runtime.store(), id);
     auto gate = std::make_shared<Gate>(); Release release{gate};
     const auto old = runtime.capture(id, Role::Worker, task);
-    auto future = runtime.submit(old, f.model(gate));
+    auto model = f.model(gate);
+    auto future = runtime.submit(old, model);
     until(runtime, [&] { return gate->entered == 1; });
     auto amended = runtime.amend(runtime.store().host_actor(Role::Root, id),
         number(runtime.store().request(id), "state_version"),
         read_runtime_file(source / "tests/fixtures/s1_amendment.txt"),
         fixture("s1_amended_constraints.json"), new_id("amend"));
     (void)runtime.poll(); (void)amended.get();
+    CHECK(model->observed_stop.load());
     const auto after = runtime.store().task(task);
     gate->release(); runtime.drain(); test::throws<Error>([&] { (void)future.get(); });
     CHECK(runtime.store().task(task) == after);
@@ -244,9 +393,10 @@ void amend_retains_late_original_without_business() {
     const auto attempt = runtime.store().attempt(old.request.attempt_id);
     CHECK(attempt.at("status") == "STALE" && attempt.at("accepted") == 0);
     CHECK(attempt.at("request_envelope") == to_json(old.request));
+    CHECK(attempt.at("response") == model->original_response());
     CHECK(attempt.at("response").at("binding") == to_json(old.request.binding));
     CHECK(runtime.store().budget(id).at("spent_input") == 400);
-    CHECK(!runtime.store().tool_feedback(old.request.attempt_id).is_null());
+    CHECK(runtime.store().tool_feedback(old.request.attempt_id).at("response") == model->original_response());
     auto replay_model = f.model();
     auto replay = runtime.submit(old, replay_model); runtime.drain();
     test::throws<Error>([&] { (void)replay.get(); });
@@ -266,6 +416,183 @@ void queued_cancel_never_enters_model() {
     CHECK(runtime.store().tasks(id).empty());
     CHECK(count(f.path, "SELECT count(*) FROM events WHERE type='claim_offline_call'") == 0);
     CHECK(runtime.store().attempt(call.request.attempt_id).at("usage").at("input_tokens").is_null());
+}
+
+void actual_cancel_stops_old_call_and_keeps_late_original() {
+    Fixture f; AsyncCoordinator runtime(f.open(), schemas);
+    const auto id = f.admit(runtime.store());
+    const auto root = runtime.store().host_actor(Role::Root, id);
+    const auto original = runtime.store().request_snapshot(id);
+    auto gate = std::make_shared<Gate>(); Release release{gate};
+    auto model = f.model(gate);
+    const auto call = runtime.capture(id, Role::Dispatcher);
+    auto future = runtime.submit(call, model);
+    until(runtime, [&] { return gate->entered == 1; });
+    auto cancelled = runtime.cancel(root, number(runtime.store().request(id), "state_version"), new_id("cancel"));
+    (void)runtime.poll(); const auto terminal = cancelled.get();
+    CHECK(terminal.at("status") == "CANCELLED");
+    CHECK(number(terminal, "dispatcher_epoch") == call.request.binding.dispatcher_epoch + 1);
+    CHECK(model->observed_stop.load() && model->calls == 1);
+    const auto unknown = runtime.store().attempt(call.request.attempt_id);
+    const auto held = runtime.store().budget(id);
+    CHECK(unknown.at("status") == "UNKNOWN" && unknown.at("settlement_sha256").is_null());
+    CHECK(unknown.at("response").is_null() && unknown.at("usage").is_null());
+    CHECK(held.at("unknown_input") == unknown.at("reserved_input"));
+    CHECK(number(held, "unknown_input") > 0 && !ready(future));
+    gate->release(); runtime.drain(); expect(ErrorCode::Stale, [&] { (void)future.get(); });
+    const auto attempt = runtime.store().attempt(call.request.attempt_id);
+    CHECK(attempt.at("status") == "STALE" && attempt.at("accepted") == 0);
+    CHECK(attempt.at("request_envelope") == to_json(call.request));
+    CHECK(attempt.at("response") == model->original_response());
+    CHECK(runtime.store().tool_feedback(call.request.attempt_id).at("response") == model->original_response());
+    CHECK(runtime.store().request(id) == terminal && runtime.store().request_snapshot(id) == original);
+    CHECK(runtime.store().tasks(id).empty() && count(f.path, "SELECT count(*) FROM ops") == 0);
+    CHECK(runtime.store().budget(id).at("spent_input") == 100);
+    CHECK(runtime.store().budget(id).at("unknown_input") == 0);
+    CHECK(runtime.store().closeout(id).at("cleanup_complete") == false);
+    CHECK(runtime.store().closeout(id).at("deletion_performed") == false);
+}
+
+void control_replays_preserve_current_terminal_experience() {
+    Fixture f; AsyncCoordinator runtime(f.open(), schemas);
+    const auto id = f.admit(runtime.store()), task = f.ready(runtime.store(), id);
+    const auto workspace = f.directory.path / "accepted-work";
+    CHECK(std::filesystem::create_directory(workspace));
+    const std::string original_bytes = "Offline accepted result preserved for experience.\n";
+    { std::ofstream file(workspace / "result.txt", std::ios::binary);
+      file << original_bytes; CHECK(static_cast<bool>(file)); }
+    WorkerTools tools(runtime.store(), workspace);
+    const auto binding = runtime.store().binding(task);
+    tools.bind(runtime.store().host_actor(Role::Worker, id, binding.team_id));
+    // Build the accepted job using the real submission snapshot and Store
+    // checks. No experience row or acceptance witness is injected into SQLite.
+    FakeModelStep submit;
+    submit.role = Role::Worker; submit.role_call_index = 2;
+    submit.tool_calls.push_back({"submit-original", "submit",
+        fixture("s14_fake_submit.json").at("nodes").at("alpha").at(2).at("tool_calls").at(0).at("arguments")});
+    submit.usage = {100, 20, 0, 0, 0};
+    const FakeModel submit_model({submit}, f.config.resolve(Role::Worker).model);
+    OfflineRuntime synchronous(runtime.store(), *schemas, &tools);
+    const auto submit_call = synchronous.reserve_call(submit_model, id, Role::Worker, task, 2);
+    const auto submitted = synchronous.accept_response(submit_call, submit_model.complete(submit_call.request));
+    const auto submission_id = text(submitted, "submission_id");
+    const Json check = Object{{"passed", true}, {"notes", "Checked the complete original file snapshot."},
+        {"criteria_results", Array{Object{{"criterion_id", "ac1"}, {"met", "yes"}}}}};
+    (void)runtime.store().check_submission(runtime.store().host_actor(Role::TeamLead, id, binding.team_id),
+        runtime.store().binding(task), number(runtime.store().task(task), "state_version"),
+        submission_id, number(runtime.store().submission(submission_id), "state_version"), check, nullptr, new_id("check"));
+    auto acceptance = check;
+    acceptance.at("criteria_results").as_array().front().as_object()["evidence"] =
+        "The immutable file records the offline result and its original execution binding.";
+    const auto accepted = runtime.store().accept_candidate(runtime.store().host_actor(Role::Dispatcher, id),
+        runtime.store().request_binding(id), number(runtime.store().task(task), "state_version"),
+        submission_id, number(runtime.store().submission(submission_id), "state_version"), acceptance, new_id("accept"));
+    const auto accepted_submission = runtime.store().submission(submission_id);
+    const auto jobs = runtime.store().experience_jobs(id);
+    CHECK(jobs.size() == 1);
+    const auto job = jobs.front();
+    const auto job_id = text(job, "experience_id");
+    auto source_submission = accepted;
+    source_submission.as_object()["experience_id"] = nullptr;
+    CHECK(job.at("source_snapshot").at("submission") == source_submission);
+    const auto amend_root = runtime.store().host_actor(Role::Root, id);
+    const auto amend_version = number(runtime.store().request(id), "state_version");
+    const auto amend_key = new_id("amend");
+    const auto amendment = read_runtime_file(source / "tests/fixtures/s1_amendment.txt");
+    const auto catalog = fixture("s1_amended_constraints.json");
+    auto amended = runtime.amend(amend_root, amend_version, amendment, catalog, amend_key);
+    (void)runtime.poll(); const auto amend_result = amended.get();
+    const auto cancel_root = runtime.store().host_actor(Role::Root, id);
+    const auto cancel_version = number(runtime.store().request(id), "state_version");
+    const auto cancel_key = new_id("cancel");
+    auto cancelled = runtime.cancel(cancel_root, cancel_version, cancel_key);
+    (void)runtime.poll(); const auto cancel_result = cancelled.get();
+    CHECK(cancel_result.at("status") == "CANCELLED");
+    CHECK(runtime.store().experience_job(job_id) == job);
+    // Current acceptance is a projection. The original submission facts and
+    // the job's accepted source remain immutable after the real controls.
+    const auto submission = runtime.store().submission(submission_id);
+    CHECK(submission.at("business_accepted") == false);
+    for (const auto* field : {"body", "original_binding", "artifact_snapshot", "record_sha256", "created_at", "checks"})
+        CHECK(submission.at(field) == accepted_submission.at(field));
+
+    const auto call = runtime.capture(id, Role::TeamLead, task);
+    CHECK(call.workflow_action.at("kind") == "experience");
+    CHECK(call.workflow_action.at("target") == job);
+    CHECK(call.request.context.tool_names == std::vector<std::string>{"report_experience"});
+    CHECK(call.request.binding.requirements_revision == 2);
+    CHECK(call.request.binding.dispatcher_epoch == call.actor.dispatcher_epoch);
+    CHECK(job.at("source_snapshot").at("submission").at("original_binding").at("requirements_revision") == 1);
+    FakeModelStep report;
+    report.role = Role::TeamLead; report.role_call_index = 1;
+    report.tool_calls.push_back({"report-original", "report_experience",
+        Object{{"no_new_experience", true}, {"entries", Array{}}, {"memory_assessments", Array{}}}});
+    report.usage = {100, 20, 0, 0, 0};
+    auto gate = std::make_shared<Gate>(); Release release{gate};
+    auto model = std::make_shared<GatedModel>(f.config.resolve(Role::TeamLead).model, gate,
+        false, false, false, std::vector<FakeModelStep>{report});
+    const auto before_reserve = runtime.store().budget(id);
+    const auto attempt_count = count(f.path, "SELECT count(*) FROM call_attempts");
+    auto forged = call;
+    forged.workflow_action.at("target").as_object()["source_sha256"] = std::string(64, '0');
+    expect(ErrorCode::Conflict, [&] { (void)runtime.submit(forged, model); });
+    forged = call;
+    forged.workflow_action.at("target").as_object()["state_version"] = number(job, "state_version") + 1;
+    expect(ErrorCode::Conflict, [&] { (void)runtime.submit(forged, model); });
+    CHECK(runtime.store().budget(id) == before_reserve && model->calls == 0);
+    CHECK(count(f.path, "SELECT count(*) FROM call_attempts") == attempt_count);
+    CHECK(runtime.store().experience_job(job_id) == job);
+
+    auto future = runtime.submit(call, model);
+    until(runtime, [&] { return gate->entered == 1; });
+    const auto before = runtime.store().request(id);
+    const auto texts = runtime.store().request_snapshot(id);
+    const auto budget = runtime.store().budget(id);
+    const auto attempt = runtime.store().attempt(call.request.attempt_id);
+    const auto history = runtime.store().events(id, 0, 1000);
+    const auto closeout = runtime.store().closeout(id);
+    for (int repeat = 0; repeat != 2; ++repeat) {
+        auto amend_replay = runtime.amend(amend_root, amend_version, amendment, catalog, amend_key);
+        auto cancel_replay = runtime.cancel(cancel_root, cancel_version, cancel_key);
+        (void)runtime.poll();
+        CHECK(amend_replay.get() == amend_result && cancel_replay.get() == cancel_result);
+        CHECK(!model->observed_stop.load() && model->calls == 1);
+        CHECK(runtime.store().request(id) == before && runtime.store().request_snapshot(id) == texts);
+        CHECK(runtime.store().budget(id) == budget && runtime.store().attempt(call.request.attempt_id) == attempt);
+        CHECK(runtime.store().events(id, 0, 1000) == history);
+        CHECK(runtime.store().experience_job(job_id) == job && runtime.store().submission(submission_id) == submission);
+        CHECK(runtime.store().closeout(id) == closeout);
+    }
+    const auto current_root = runtime.store().host_actor(Role::Root, id);
+    auto new_amend = runtime.amend(current_root, number(before, "state_version"), amendment, catalog, new_id("termamend"));
+    auto new_cancel = runtime.cancel(current_root, number(before, "state_version"), new_id("termcancel"));
+    (void)runtime.poll();
+    expect(ErrorCode::NotReady, [&] { (void)new_amend.get(); });
+    expect(ErrorCode::NotReady, [&] { (void)new_cancel.get(); });
+    for (const auto role : {Role::Dispatcher, Role::Worker}) {
+        expect(ErrorCode::NotReady, [&] {
+            (void)runtime.submit(runtime.capture(id, role, role == Role::Worker ? task : ""), f.model());
+        });
+    }
+    CHECK(!model->observed_stop.load() && runtime.store().budget(id) == budget);
+    CHECK(runtime.store().events(id, 0, 1000) == history && runtime.store().closeout(id) == closeout);
+    gate->release(); runtime.drain(); (void)future.get();
+    const auto completed = runtime.store().experience_job(job_id);
+    CHECK(completed.at("status") == "DONE");
+    CHECK(completed.at("source_snapshot") == job.at("source_snapshot") && completed.at("source_sha256") == job.at("source_sha256"));
+    const auto settled = runtime.store().attempt(call.request.attempt_id);
+    CHECK(settled.at("status") == "COMPLETED" && settled.at("accepted") == 1);
+    CHECK(settled.at("request_envelope") == to_json(call.request));
+    CHECK(settled.at("response") == model->original_response());
+    CHECK(runtime.store().tool_feedback(call.request.attempt_id).at("response") == model->original_response());
+    CHECK(runtime.store().submission(submission_id) == submission && runtime.store().request_snapshot(id) == texts);
+    CHECK(runtime.store().request(id) == before && model->calls == 1 && !model->observed_stop.load());
+    CHECK(runtime.store().closeout(id).at("receipt") == closeout.at("receipt"));
+    CHECK(runtime.store().closeout(id).at("cleanup_job") == closeout.at("cleanup_job"));
+    CHECK(runtime.store().closeout(id).at("deletion_performed") == false);
+    CHECK(read_runtime_file(workspace / "result.txt") == original_bytes);
+    CHECK(count(f.path, "SELECT count(*) FROM ops") == 1);
+    CHECK(runtime.snapshot().outstanding == 0);
 }
 
 void store_session_and_first_claim_remain_authoritative() {
@@ -726,7 +1053,11 @@ int main() {
         {"S1 plan order ack note and original claim forbid duplicate execution", complete_s1_chain_and_unique_replay},
         {"full business queue retains control and result capacity", full_queue_keeps_control_and_result_reserves},
         {"AMEND rejects late business and preserves original response usage", amend_retains_late_original_without_business},
+        {"AMEND replay preserves a queued current Dispatcher", amend_replay_preserves_queued_new_dispatcher},
+        {"AMEND replay preserves an inflight current Dispatcher", amend_replay_preserves_inflight_new_dispatcher},
         {"queued cancellation prevents any model execution", queued_cancel_never_enters_model},
+        {"actual cancellation stops the old call and keeps late original evidence", actual_cancel_stops_old_call_and_keeps_late_original},
+        {"control replays preserve current terminal experience and its original source", control_replays_preserve_current_terminal_experience},
         {"Store session and transaction claim guards cannot be bypassed", store_session_and_first_claim_remain_authoritative},
         {"failed settlement retains response and retries evidence only", persistence_failure_retains_result_and_only_retries_evidence},
         {"shutdown joins before Store destruction and restart keeps UNKNOWN", shutdown_joins_and_restart_preserves_unknown},
