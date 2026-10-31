@@ -5,6 +5,7 @@ Mutations affect SQLite backups in separate disposable fixtures only. Every
 positive cell is produced by the actual Store/runtime, never by fabricated rows.
 """
 from contextlib import closing
+import base64
 import copy
 import hashlib
 import json
@@ -114,16 +115,38 @@ class OfflineAcceptanceCLI(unittest.TestCase):
                                  {'holder': 'user', 'status': 'OPEN'})
             delivery = self.cell('delivery_receipt', condition)
             with e.database(self.run_directory / delivery['database']) as db:
-                self.assertEqual(e.one(db, 'SELECT status FROM delivery_runtime', ())['status'], 'CONFIRMED')
+                stored = e.one(db, 'SELECT delivery_id,status,manifest_sha256,frozen_plan FROM delivery_runtime', ())
+                self.assertEqual(stored['status'], 'CONFIRMED')
                 self.assertEqual(len(e.rows(db, 'SELECT * FROM delivery_receipts')), 1)
-                frozen = e.strict_json(e.one(db, 'SELECT frozen_plan FROM delivery_runtime', ())['frozen_plan'])
+                frozen = e.strict_json(stored['frozen_plan'])
                 self.assertTrue(frozen['files'])
+                package = (self.run_directory / delivery['database']).parent / 'deliveries' / stored['delivery_id']
+                manifest_bytes = a.read_bytes(package / 'manifest.json')
+                self.assertEqual(hashlib.sha256(manifest_bytes).hexdigest(), stored['manifest_sha256'])
+                self.assertEqual(stored['manifest_sha256'], frozen['manifest_sha256'])
+                self.assertEqual(e.strict_json(manifest_bytes), frozen['manifest'])
+                self.assertEqual(frozen['manifest']['files'], [
+                    {key: item[key] for key in ('name', 'sha256', 'size_bytes')} for item in frozen['files']])
+                contents = {}
                 for item in frozen['files']:
-                    import base64
                     content = base64.b64decode(item['content_base64'], validate=True)
                     self.assertEqual(len(content), item['size_bytes'])
                     self.assertEqual(hashlib.sha256(content).hexdigest(), item['sha256'])
-                    self.assertEqual(content, b'alpha candidate version 1\n')
+                    self.assertEqual(a.read_bytes(package / item['name']), content)
+                    self.assertNotIn(item['name'], contents)
+                    contents[item['name']] = content
+                self.assertEqual({path.name for path in package.iterdir()}, {'manifest.json', *contents})
+                self.assertTrue({'requirements.json', 'plan.json', 'usage.json', 'questions.json',
+                                 'acceptance.json', 'experience.json', 'side-effects.json', 'delivery.txt'} <= contents.keys())
+                # Original evidence files carry their own bytes. Only the
+                # manifest's accepted artifact is the candidate payload.
+                artifacts = frozen['manifest']['artifacts']
+                self.assertEqual(len(artifacts), 1)
+                artifact = artifacts[0]
+                self.assertEqual(artifact['source_path'], 'result.txt')
+                self.assertEqual(contents[artifact['name']], b'alpha candidate version 1\n')
+                self.assertEqual(hashlib.sha256(contents[artifact['name']]).hexdigest(), artifact['sha256'])
+                self.assertEqual(len(contents[artifact['name']]), artifact['size_bytes'])
 
     def test_04_reporting_and_failed_rerun_do_not_modify_original_evidence(self):
         before = {str(path.relative_to(self.run_directory)): a.file_hash(path) for path in self.run_directory.rglob('store.sqlite')}
