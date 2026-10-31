@@ -86,6 +86,9 @@ jobs:
       - name: Check immediate failure diagnostics survive suite interruption
         if: matrix.name == 'strict' || matrix.name == 'ASan'
         run: .local/test-venv/bin/python -B tests/test_immediate_unittest.py
+      - name: Check opt-in transport observations preserve original behavior
+        if: matrix.name == 'strict' || matrix.name == 'ASan'
+        run: .local/test-venv/bin/python -B tests/test_transport_test_observation.py
       - name: Run shared GCC 13.3 Debug ASan gate
         if: matrix.name == 'ASan'
         run: |
