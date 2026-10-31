@@ -18,6 +18,8 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 
+DEFAULT_EXPECTED_TESTS = 90
+
 ASAN = "halt_on_error=1:detect_leaks=1"
 UBSAN = "halt_on_error=1:print_stacktrace=1"
 
@@ -174,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--python", required=True, help="existing venv Python with requirements-test.txt installed")
     parser.add_argument("--compiler", default="g++-13")
-    parser.add_argument("--expected-tests", type=int, default=89,
+    parser.add_argument("--expected-tests", type=int, default=DEFAULT_EXPECTED_TESTS,
                         help="reviewed count, also checked against tests/gcc_asan_expected_tests.json")
     parser.add_argument("--data-root", type=Path, help="on the user's server, require checkout under this mounted data disk")
     args = parser.parse_args(argv)
