@@ -1,0 +1,38 @@
+name: Windows native foundation slice
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-foundation:
+    name: Windows native x64 build and format slice
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Preserve exact published resource bytes
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - name: Check out the requested revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: source
+          persist-credentials: false
+      - name: Build and verify the isolated native slice with pinned preinstalled tools
+        shell: pwsh
+        run: python source/platform/native-foundation/tools/run_windows_ci.py --source-root source --work-root native-work
+      - name: Retain original native evidence including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-native-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: native-work/evidence/
+          if-no-files-found: warn
+          retention-days: 7
