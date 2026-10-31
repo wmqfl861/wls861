@@ -356,6 +356,10 @@
     {
       "name": "workspace",
       "timeout": 90.0
+    },
+    {
+      "name": "async_coordinator",
+      "timeout": 180
     }
   ]
 }
