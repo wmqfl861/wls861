@@ -20,6 +20,8 @@ import threading
 import time
 import unittest
 
+from transport_test_observation import OBSERVATION
+
 if len(sys.argv) != 3:
     raise SystemExit("usage: test_https_transport.py DRIVER SOURCE")
 DRIVER, SOURCE = (Path(value).resolve() for value in sys.argv[1:])
@@ -87,6 +89,7 @@ class Peer:
         self.port = self.listener.getsockname()[1]
         self.listener.listen(8)
         self.listener.settimeout(0.05)
+        OBSERVATION.record("peer_listening")
         self.thread = threading.Thread(target=self._listen, name="wls-fixture-listener")
         self.thread.start()
 
@@ -101,6 +104,7 @@ class Peer:
             with self.lock:
                 self.accepted += 1
                 self.sockets.append(connection)
+                OBSERVATION.record("peer_accepted", accepted=self.accepted)
             worker = threading.Thread(target=self._serve, args=(connection,), name="wls-fixture-peer")
             self.workers.append(worker)
             worker.start()
@@ -113,25 +117,34 @@ class Peer:
                 return
             if self.handshake_delay:
                 self.stop.wait(self.handshake_delay)
+            OBSERVATION.record("tls_start")
             stream = self.context.wrap_socket(connection, server_side=True)
+            OBSERVATION.record("tls_ready")
             with self.lock:
                 self.sockets.append(stream)
             with stream:
+                OBSERVATION.record("handler_start")
                 self.handler(self, stream)
-        except (ssl.SSLError, ConnectionError, socket.timeout, OSError):
+                OBSERVATION.record("handler_complete")
+        except (ssl.SSLError, ConnectionError, socket.timeout, OSError) as error:
             # Expected for certificate refusal, cancellation, deadlines and
             # deliberately truncated replies. Assertions still check results.
-            pass
+            OBSERVATION.exception("peer_expected_exception", error)
         except BaseException as error:
+            OBSERVATION.exception("peer_unexpected_exception", error)
             self.errors.append(repr(error))
         finally:
             with contextlib.suppress(OSError):
                 connection.close()
+            OBSERVATION.record("peer_connection_closed")
 
     def request(self, connection):
+        OBSERVATION.record("request_receive_start")
         received = bytearray()
         while b"\r\n\r\n" not in received:
             chunk = connection.recv(4096)
+            if not received:
+                OBSERVATION.record("request_first_chunk", chunk_bytes=len(chunk))
             if not chunk:
                 raise ConnectionError("request headers interrupted")
             received.extend(chunk)
@@ -153,9 +166,11 @@ class Peer:
             body += chunk
         observation = {"line": lines[0], "headers": headers, "body": body}
         self.requests.append(observation)
+        OBSERVATION.record("request_received", header_bytes=len(head) + 4, body_bytes=len(body))
         return observation
 
     def close(self):
+        OBSERVATION.record("peer_close_start")
         self.stop.set()
         self.listener.close()
         # First stop admission so no newly accepted descriptor can appear
@@ -169,6 +184,9 @@ class Peer:
                     connection.close()
         for worker in self.workers:
             worker.join(2)
+        OBSERVATION.record("peer_closed", accepted=self.accepted, requests=len(self.requests),
+                           prefixes=len(self.prefixes), errors=len(self.errors),
+                           live_threads=int(self.thread.is_alive()) + sum(worker.is_alive() for worker in self.workers))
         if self.thread.is_alive() or any(worker.is_alive() for worker in self.workers):
             raise AssertionError("fixture leaked a connection thread")
         if self.errors:
@@ -193,13 +211,16 @@ def headers(length=None, *, status=200, content_type="application/json", extra=b
 def fixed_response(body, **options):
     def handler(peer, connection):
         peer.request(connection)
+        OBSERVATION.record("response_send_start", body_bytes=len(body))
         connection.sendall(headers(len(body), **options) + body)
+        OBSERVATION.record("response_send_complete", body_bytes=len(body))
     return handler
 
 
 class HttpsTransport(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        OBSERVATION.record("certificates_start")
         if os.getuid() == 0:
             raise AssertionError("HTTPS integration must run as an ordinary user")
         cls.certificate_directory = tempfile.TemporaryDirectory(prefix="wls-tls-certificates-")
@@ -235,12 +256,14 @@ class HttpsTransport(unittest.TestCase):
             context.minimum_version = ssl.TLSVersion.TLSv1_2
             context.load_cert_chain(cls.certificates / f"{stem}.pem", cls.certificates / f"{stem}.key")
             cls.contexts[stem] = context
+        OBSERVATION.record("certificates_ready")
 
     @classmethod
     def tearDownClass(cls):
         cls.certificate_directory.cleanup()
 
     def setUp(self):
+        OBSERVATION.record("fixture_start")
         self.temporary = tempfile.TemporaryDirectory(prefix="wls-https-fixture-")
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
@@ -257,10 +280,13 @@ class HttpsTransport(unittest.TestCase):
         path = self.directory / f"call-{self.invocations}.json"
         path.write_text(json.dumps(config))
         path.chmod(0o600)
+        OBSERVATION.record("configuration_ready")
         started = time.monotonic()
-        process = subprocess.run([str(DRIVER), str(path)], cwd=self.directory,
-                                 capture_output=True, text=True, encoding="utf-8", timeout=15,
-                                 check=False, env=environment)
+        with OBSERVATION.subprocess(15) as observe_return:
+            process = subprocess.run([str(DRIVER), str(path)], cwd=self.directory,
+                                     capture_output=True, text=True, encoding="utf-8", timeout=15,
+                                     check=False, env=environment)
+            observe_return(process)
         self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
         self.assertEqual(process.stderr, "")
         result = json.loads(process.stdout)
@@ -696,12 +722,19 @@ class HttpsTransport(unittest.TestCase):
     def test_partial_request_upload_deadline_is_not_free_retry_authority(self):
         def serve(peer, connection):
             prefix = bytearray()
-            while len(prefix) < 4096:
-                chunk = connection.recv(4096 - len(prefix))
-                if not chunk:
-                    raise ConnectionError("fixture upload ended before prefix")
-                prefix.extend(chunk)
-            peer.prefixes.append(bytes(prefix))
+            OBSERVATION.record("prefix_receive_start", prefix_bytes=0)
+            try:
+                while len(prefix) < 4096:
+                    chunk = connection.recv(4096 - len(prefix))
+                    if not prefix:
+                        OBSERVATION.record("prefix_first_chunk", chunk_bytes=len(chunk))
+                    if not chunk:
+                        raise ConnectionError("fixture upload ended before prefix")
+                    prefix.extend(chunk)
+                peer.prefixes.append(bytes(prefix))
+                OBSERVATION.record("prefix_saved", prefix_bytes=len(prefix))
+            finally:
+                OBSERVATION.record("prefix_receive_end", prefix_bytes=len(prefix))
             peer.stop.wait(8)
 
         with self.peer(serve, receive_buffer=2048) as peer:
