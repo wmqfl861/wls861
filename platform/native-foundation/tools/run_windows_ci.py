@@ -15,6 +15,8 @@ import subprocess
 import sys
 import time
 
+from ctest_evidence import retain_logs, verify_methods
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -110,8 +112,12 @@ def main():
             raise RuntimeError('expected exactly one generated compiler identity')
         shutil.copyfile(compiler_configs[0], evidence / 'CMakeCXXCompiler.cmake')
         run('build', ['cmake', '--build', build, '--config', 'Release', '--parallel', '2'], timeout=600)
-        run('ctest', ['ctest', '--test-dir', build, '-C', 'Release', '--output-on-failure',
-            '--output-junit', evidence / 'ctest.xml'], timeout=300)
+        try:
+            run('ctest', ['ctest', '--test-dir', build, '-C', 'Release', '--output-on-failure',
+                '--output-junit', evidence / 'ctest.xml'], timeout=300)
+        finally:
+            retain_logs(build, evidence)
+        methods = verify_methods(source, evidence)
         binary_inputs = {str(path.relative_to(build)): hashlib.sha256(path.read_bytes()).hexdigest()
                          for path in sorted((build / 'Release').glob('*.exe'))}
         record('binary-inputs.json', binary_inputs)
@@ -137,6 +143,8 @@ def main():
             raise RuntimeError('source input bytes changed during verification')
         record('result.json', dict(status='PASSED', scope='native build/format slice on this hosted runner',
             source_inputs_unchanged=True, original_source_path_absence_verified=True,
+            native_suites=methods['suite_count'], native_methods=methods['method_count'],
+            complete_original_method_logs_verified=True,
             windows_11_machine_acceptance='NOT_RUN', full_native_runtime='NOT_IMPLEMENTED',
             ordinary_user_security_acceptance='NOT_RUN', remote_ci_acceptance='requires actual workflow conclusion'))
     except BaseException as error:
