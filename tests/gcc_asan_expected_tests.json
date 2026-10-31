@@ -356,6 +356,14 @@
     {
       "name": "workspace",
       "timeout": 90.0
+    },
+    {
+      "name": "r3_offline_acceptance",
+      "timeout": 30
+    },
+    {
+      "name": "r3_offline_acceptance_cli",
+      "timeout": 600
     }
   ]
 }
