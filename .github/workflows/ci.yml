@@ -83,10 +83,13 @@ jobs:
       - name: Check shared GCC ASan runner contracts
         if: matrix.name == 'strict' || matrix.name == 'ASan'
         run: .local/test-venv/bin/python tests/test_run_gcc_asan.py
+      - name: Check immediate failure diagnostics survive suite interruption
+        if: matrix.name == 'strict' || matrix.name == 'ASan'
+        run: .local/test-venv/bin/python -B tests/test_immediate_unittest.py
       - name: Run shared GCC 13.3 Debug ASan gate
         if: matrix.name == 'ASan'
         run: |
-          .local/test-venv/bin/python scripts/run_gcc_asan.py --compiler g++-13 --python "$GITHUB_WORKSPACE/.local/test-venv/bin/python" --expected-tests 89
+          .local/test-venv/bin/python scripts/run_gcc_asan.py --compiler g++-13 --python "$GITHUB_WORKSPACE/.local/test-venv/bin/python" --expected-tests 90
       - name: Retain GCC ASan evidence including failures
         if: always() && matrix.name == 'ASan'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

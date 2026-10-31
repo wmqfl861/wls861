@@ -18,6 +18,8 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 
+DEFAULT_EXPECTED_TESTS = 90
+
 ASAN = "halt_on_error=1:detect_leaks=1"
 UBSAN = "halt_on_error=1:print_stacktrace=1"
 
@@ -73,7 +75,7 @@ def check_compile_commands(path: Path, compiler: str) -> None:
                 "optimization, NDEBUG or sanitizer disabling flag in Debug gate")
 
 
-def registered_tests(path: Path, expected: int) -> list[str]:
+def registered_tests(path: Path, expected: int, manifest: Path | None = None) -> list[str]:
     tests = json.loads(path.read_text(encoding="utf-8"))["tests"]
     names = [t["name"] for t in tests]
     require(expected > 0 and len(names) == expected and len(set(names)) == expected,
@@ -81,6 +83,23 @@ def registered_tests(path: Path, expected: int) -> list[str]:
     for test in tests:
         props = {p["name"]: p["value"] for p in test.get("properties", [])}
         require(not props.get("DISABLED", False), "disabled test in full gate")
+    if manifest is not None:
+        approved = json.loads(manifest.read_text(encoding="utf-8"))
+        require(approved.get("schema_version") == 1 and isinstance(approved.get("tests"), list),
+                "invalid reviewed test manifest")
+        entries = approved["tests"]
+        require(len(entries) == expected and all(
+            isinstance(t.get("name"), str) and t["name"] and
+            type(t.get("timeout")) in (int, float) and t["timeout"] > 0 for t in entries),
+            "reviewed test manifest has an invalid count, name or timeout")
+        approved_names = [t["name"] for t in entries]
+        require(len(set(approved_names)) == expected and sorted(names) == sorted(approved_names),
+                "CTest names differ from the reviewed test manifest")
+        deadlines = {t["name"]: t["timeout"] for t in entries}
+        for test in tests:
+            props = {p["name"]: p["value"] for p in test.get("properties", [])}
+            require(props.get("TIMEOUT") == deadlines[test["name"]],
+                    "CTest deadline differs from the reviewed test manifest")
     return sorted(names)
 
 
@@ -157,7 +176,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--python", required=True, help="existing venv Python with requirements-test.txt installed")
     parser.add_argument("--compiler", default="g++-13")
-    parser.add_argument("--expected-tests", type=int, default=89)
+    parser.add_argument("--expected-tests", type=int, default=DEFAULT_EXPECTED_TESTS,
+                        help="reviewed count, also checked against tests/gcc_asan_expected_tests.json")
     parser.add_argument("--data-root", type=Path, help="on the user's server, require checkout under this mounted data disk")
     args = parser.parse_args(argv)
     require(platform.system() == "Linux" and os.geteuid() != 0, "run on Linux as an ordinary user, not root")
@@ -204,7 +224,11 @@ def main(argv: list[str] | None = None) -> int:
         recorder.run("build", ["cmake", "--build", str(build), "--parallel", "2"])
         check_compile_commands(build / "compile_commands.json", compiler)
         listing = recorder.run("test-plan", ["ctest", "--test-dir", str(build), "--show-only=json-v1"], json_output=True)
-        names = registered_tests(listing, args.expected_tests)
+        manifest = source / "tests" / "gcc_asan_expected_tests.json"
+        names = registered_tests(listing, args.expected_tests, manifest)
+        shutil.copy2(manifest, evidence / "expected-tests.json")
+        summary["expected_tests_sha256"] = digest(manifest)
+        summary["registered_tests"] = len(names)
         for name in ("CMakeCache.txt", "compile_commands.json", "CTestTestfile.cmake"):
             shutil.copy2(build / name, evidence / name)
         binaries = build_snapshot(build)
