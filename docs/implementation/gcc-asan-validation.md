@@ -15,11 +15,7 @@ python3 scripts/run_gcc_asan.py \
   --data-root /mnt/d \
   --compiler g++-13 \
   --python /mnt/d/codex-workspace/wls861-r2-4-20261029/test-venv/bin/python \
-<<<<<<< HEAD
-  --expected-tests 90
-=======
-  --expected-tests 91
->>>>>>> feat/offline-acceptance-20261031
+  --expected-tests 92
 ```
 
 `--python` 指向实际已安装 `requirements-test.txt` 的解释器；保留 venv 的符号链接路径，
@@ -68,8 +64,4 @@ JUnit 逐项与注册名匹配且没有 failure/error/skipped/notrun，以及输
 CI 仅将原 CMake ASan 矩阵项接到此入口；另外五路与原 Make-ASan CPPFLAGS 目标保持。
 这是共享验证配置，而不是已经证明了某个生产缺陷的修复。
 
-<<<<<<< HEAD
-本模块新增 1 项注册：`async_coordinator` (180s)。当前完整集合 90 项，runner 自检 24 项；原 89 项期限保持不变。
-=======
-本模块新增 2 项注册：`r3_offline_acceptance` (30s), `r3_offline_acceptance_cli` (600s)。当前完整集合 91 项，runner 自检 24 项；原 89 项期限保持不变。
->>>>>>> feat/offline-acceptance-20261031
+本批整合新增 3 项注册：`async_coordinator` (180s)、`r3_offline_acceptance` (30s)、`r3_offline_acceptance_cli` (600s)。当前完整集合 92 项，runner 自检 24 项；原 89 项期限保持不变。
