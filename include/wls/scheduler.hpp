@@ -65,6 +65,13 @@ public:
     std::future<void> submit(std::string job_id, std::string resource_key,
                              WorkClass work_class, std::function<void()> work);
 
+    // Opt-in round robin by request, then team, within each work class.
+    // Resource FIFO and permanent Review/Handoff reserves remain unchanged.
+    // Newly admitted groups join the tail; blocked groups consume no turn.
+    std::future<void> submit_fair(std::string job_id, std::string resource_key,
+                                std::string request_key, std::string team_key,
+                                WorkClass work_class, std::function<void()> work);
+
     // Stop admission and join all threads. drain=false cancels queued jobs
     // through their futures; already running callbacks still finish. drain=true
     // runs all accepted jobs. The first concurrent close call chooses the mode.

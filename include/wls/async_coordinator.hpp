@@ -12,9 +12,13 @@ namespace wls::s1 {
 
 struct AsyncCoordinatorLimits {
     // All accepted calls, including results awaiting persistence, occupy one
-    // slot. One admission slot is reserved for Review/Handoff work.
+    // slot. Ordinary admission preserves both pools' Review/Handoff reserves.
     std::size_t business_capacity{64};
     std::size_t control_capacity{16};
+    std::size_t management_workers{4};
+    std::size_t worker_workers{8};
+    std::size_t management_reserved{1};
+    std::size_t worker_reserved{1};
 };
 
 struct AsyncCoordinatorSnapshot {
@@ -25,6 +29,14 @@ struct AsyncCoordinatorSnapshot {
     bool settlement_halted{};
     SchedulerSnapshot managers;
     SchedulerSnapshot workers;
+    std::size_t queued{};
+    std::size_t awaiting_claim{};
+    std::size_t executing{};
+    std::size_t ready_results{};
+    std::size_t resource_blocked{};
+    std::uint64_t dispatches{};
+    std::uint64_t max_wait_dispatches{};
+    std::string blocked_reason;
 };
 
 // Opt-in, offline S1 call coordinator. The constructing host thread owns all

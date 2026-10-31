@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <deque>
 #include <exception>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <stop_token>
@@ -42,6 +43,25 @@ const char* outcome(const ModelResponse& response) {
     }
     throw Error(ErrorCode::InvalidInput, "invalid model response status");
 }
+
+AsyncCoordinatorLimits checked_limits(AsyncCoordinatorLimits limits) {
+    require(limits.business_capacity >= 3 && limits.business_capacity <= 1024 &&
+            limits.control_capacity > 0 && limits.control_capacity <= 256 &&
+            limits.management_workers > 1 && limits.management_workers <= 64 &&
+            limits.worker_workers > 1 && limits.worker_workers <= 256 &&
+            limits.management_reserved > 0 && limits.management_reserved < limits.management_workers &&
+            limits.worker_reserved > 0 && limits.worker_reserved < limits.worker_workers &&
+            limits.management_reserved + limits.worker_reserved < limits.business_capacity,
+            ErrorCode::InvalidInput, "invalid bounded coordinator capacities or review reserves");
+    return limits;
+}
+
+std::size_t frozen_limit(const Json& limits, std::string_view field) {
+    const auto& value = limits.at(field);
+    const auto number = value.is_int64() ? value.as_int64() : static_cast<std::int64_t>(value.as_uint64());
+    require(number > 0, ErrorCode::Corrupt, "invalid frozen scheduler limit");
+    return static_cast<std::size_t>(number);
+}
 } // namespace
 
 class AsyncCoordinator::Impl {
@@ -56,6 +76,7 @@ public:
         bool permitted{};
         bool replay{};
         bool invoked{};
+        std::uint64_t admitted_dispatch{};
         std::stop_source stop;
         std::optional<ModelResponse> response;
         std::exception_ptr failure;
@@ -73,13 +94,10 @@ public:
 
     Impl(std::unique_ptr<Store> value, std::shared_ptr<const SchemaRegistry> registry,
          AsyncCoordinatorLimits bounds)
-        : store_(std::move(value)), schemas_(std::move(registry)), limits_(bounds),
-          owner_(std::this_thread::get_id()), managers_(4, bounds.business_capacity, 1),
-          workers_(8, bounds.business_capacity, 1) {
+        : store_(std::move(value)), schemas_(std::move(registry)), limits_(checked_limits(bounds)),
+          owner_(std::this_thread::get_id()), managers_(limits_.management_workers, limits_.business_capacity, limits_.management_reserved),
+          workers_(limits_.worker_workers, limits_.business_capacity, limits_.worker_reserved) {
         require(store_ && schemas_, ErrorCode::InvalidInput, "coordinator needs an owned Store and schemas");
-        require(bounds.business_capacity >= 2 && bounds.business_capacity <= 1024 &&
-                bounds.control_capacity > 0 && bounds.control_capacity <= 256,
-                ErrorCode::InvalidInput, "invalid bounded coordinator capacity");
         require(store_->workflow_runtime_enabled(), ErrorCode::Unsupported,
                 "async coordinator requires durable S1 feedback and captured workflow CAS");
         jobs_.reserve(bounds.business_capacity);
@@ -117,8 +135,16 @@ public:
         require(work_class == WorkClass::Normal || work_class == WorkClass::Review ||
                 work_class == WorkClass::Handoff, ErrorCode::InvalidInput, "unknown work class");
         require(jobs_.size() < limits_.business_capacity &&
-                (work_class != WorkClass::Normal || normal_ < limits_.business_capacity - 1),
+                (work_class != WorkClass::Normal || normal_ < limits_.business_capacity -
+                    limits_.management_reserved - limits_.worker_reserved),
                 ErrorCode::Quota, "business queue is full or its remaining admission is reserved");
+        const auto frozen = restore_request_config(store_->request(captured.request.binding.request_id));
+        const auto& configured = frozen.json().at("system").at("limits");
+        require(limits_.management_workers <= frozen_limit(configured, "max_active_dispatchers") &&
+                limits_.worker_workers <= frozen_limit(configured, "max_active_workers") &&
+                limits_.management_reserved >= frozen_limit(configured, "reserve_dispatchers_for_review") &&
+                limits_.worker_reserved >= frozen_limit(configured, "reserve_workers_for_review"),
+                ErrorCode::Unauthorized, "host scheduling bounds exceed the original frozen limits or reduce review reserves");
         for (const auto& job : jobs_)
             require(job->captured.request.attempt_id != captured.request.attempt_id,
                     ErrorCode::Conflict, "attempt is already owned by this coordinator");
@@ -136,6 +162,7 @@ public:
         job->adapter = std::move(adapter);
         job->work_class = work_class;
         job->resource = std::move(resource);
+        job->admitted_dispatch = dispatches_;
         auto future = job->result.get_future();
         // All memory/bookkeeping required to retain one result is owned before
         // reservation. A later scheduler rejection retains the original attempt.
@@ -149,7 +176,9 @@ public:
         if (work_class == WorkClass::Normal) ++normal_;
         try {
             auto& pool = job->captured.request.role == Role::Worker ? workers_ : managers_;
-            job->execution = pool.submit(job->captured.request.attempt_id, job->resource,
+            const auto& binding = job->captured.request.binding;
+            job->execution = pool.submit_fair(job->captured.request.attempt_id, job->resource,
+                binding.request_id, binding.team_id.empty() ? binding.request_id : binding.team_id,
                 work_class, [this, job] {
                     try { execute(job); }
                     catch (...) {
@@ -356,6 +385,7 @@ public:
                         permitted = claim.at("dispatch_claimed").as_bool();
                         job->replay = !permitted;
                         require(permitted, ErrorCode::Conflict, "original attempt has already been dispatched");
+                        if (dispatches_ != std::numeric_limits<std::uint64_t>::max()) ++dispatches_;
                     } catch (...) { job->failure = std::current_exception(); }
                 }
                 {
@@ -415,8 +445,24 @@ public:
         std::lock_guard lock(mutex_);
         const auto retained = static_cast<std::size_t>(std::count_if(jobs_.begin(), jobs_.end(),
             [](const auto& job) { return job->phase == Phase::Retained; }));
-        return {jobs_.size(), retained, control_count_, !closed_ && !halted_, halted_,
-            managers_.snapshot(), workers_.snapshot()};
+        AsyncCoordinatorSnapshot result{jobs_.size(), retained, control_count_, !closed_ && !halted_, halted_,
+            managers_.snapshot(), workers_.snapshot(), 0, 0, 0, 0, 0, dispatches_, 0, {}};
+        for (auto it = jobs_.begin(); it != jobs_.end(); ++it) {
+            const auto& job = *it;
+            if (job->phase == Phase::Queued) ++result.queued;
+            if (job->phase == Phase::AwaitingClaim) ++result.awaiting_claim;
+            if (job->phase == Phase::Executing && job->permitted) ++result.executing;
+            if (job->phase == Phase::Ready) ++result.ready_results;
+            if (job->phase == Phase::Queued || job->phase == Phase::AwaitingClaim) {
+                result.max_wait_dispatches = std::max(result.max_wait_dispatches, dispatches_ - job->admitted_dispatch);
+                if (std::any_of(jobs_.begin(), it, [&](const auto& earlier) {
+                    return earlier->phase != Phase::Done && earlier->resource == job->resource;
+                })) ++result.resource_blocked;
+            }
+        }
+        result.blocked_reason = halted_ ? "result_persistence" : closed_ ? "closed" :
+            result.resource_blocked > 0 ? "resource_busy" : result.queued > 0 ? "execution_capacity" : "none";
+        return result;
     }
 
     Json retained_results() const {
@@ -479,6 +525,7 @@ public:
     std::vector<std::shared_ptr<Job>> jobs_;
     std::size_t normal_{};
     std::size_t control_count_{};
+    std::uint64_t dispatches_{};
     bool closed_{};
     bool closing_{};
     bool halted_{};
