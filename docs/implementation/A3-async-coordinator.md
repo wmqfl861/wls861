@@ -28,6 +28,15 @@ captured Root identity, original CAS and command ID. Their bounded capacity is
 independent of queued/running/retained business calls. Completion futures mean
 the actual Store control transaction ended, not that a process exited or an
 effect was undone. A failed stale control does not refresh its captured values.
+The host still sends every exact replay through the original Store authorization,
+command fingerprint and transaction. Only a control that advances the current
+request state version requests callback stop: AMEND stops captured calls from
+older requirement revisions, and cancellation stops captured calls from older
+Dispatcher epochs. A historical control result has no new stop effect on queued
+or executing calls captured under the later binding. This includes a legitimate
+terminal experience report, whose current control binding remains distinct from
+its immutable accepted source. Store session, job/source CAS and terminal
+business guards remain authoritative.
 
 The A3 baseline bounds are 64 outstanding calls, including results, and 16
 controls, with one global Review/Handoff admission position. In the integrated
@@ -71,8 +80,11 @@ in this API authorizes a real supplier request or proves process exit/cleanup.
 `async_coordinator_tests` is one native suite with deterministic gates and real
 temporary SQLite state. It observes simultaneous waits and a third committed S1
 request; a complete plan/order/ack/note chain; unique model execution and operation
-counts; full queues with control and result capacity; AMEND/cancellation and raw
-usage; Store sessions, waits, UNKNOWN and first-claim rollback; failed original
+counts; full queues with control and result capacity; actual AMEND/cancellation
+stop with late original usage; exact AMEND replay before and during a later
+Dispatcher call; AMEND/cancel replay during a current terminal experience report;
+changed intent/CAS/catalog, foreign owner/session and forged job/source rejection;
+Store sessions, waits, UNKNOWN and first-claim rollback; failed original
 settlement and failed feedback after a committed effect; adapter exceptions;
 safe close/foreign-thread destruction; and restart preserving UNKNOWN. Actual
 commands, exits and binary/source identities belong in the task validation

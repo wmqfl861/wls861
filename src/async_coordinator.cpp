@@ -257,11 +257,22 @@ public:
 
     void process_control(Control& item) {
         try {
+            // Store is accessed only by this owner thread. A historical replay
+            // cannot advance the version observed immediately before its call.
+            const auto before = store_->request(item.root.request_id).at("state_version").as_int64();
             auto result = item.amendment
                 ? store_->amend(item.root, item.version, *item.amendment, item.constraints, item.command)
                 : store_->cancel_request(item.root, item.version, item.command);
-            for (const auto& job : jobs_)
-                if (job->captured.actor.request_id == item.root.request_id) job->stop.request_stop();
+            if (result.at("state_version").as_int64() > before) {
+                for (const auto& job : jobs_) {
+                    const auto& binding = job->captured.request.binding;
+                    if (binding.request_id != item.root.request_id) continue;
+                    const bool superseded = item.amendment
+                        ? binding.requirements_revision < result.at("requirements_revision").as_int64()
+                        : binding.dispatcher_epoch < result.at("dispatcher_epoch").as_int64();
+                    if (superseded) job->stop.request_stop();
+                }
+            }
             item.result.set_value(std::move(result));
         } catch (...) { item.result.set_exception(std::current_exception()); }
     }
