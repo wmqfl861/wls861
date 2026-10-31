@@ -29,6 +29,13 @@ class GateContracts(unittest.TestCase):
         path.write_text(json.dumps(value), encoding="utf-8")
         return path
 
+    def test_shipped_catalog_and_default_count_stay_in_sync(self):
+        catalog = json.loads((Path(gate.__file__).resolve().parents[1] /
+                              "tests/gcc_asan_expected_tests.json").read_text())
+        self.assertEqual(len(catalog["tests"]), gate.DEFAULT_EXPECTED_TESTS)
+        self.assertEqual(len({entry["name"] for entry in catalog["tests"]}),
+                         gate.DEFAULT_EXPECTED_TESTS)
+
     def test_environment_has_no_provider_secrets_or_inherited_flags(self):
         inherited = {k: "untrusted" for k in ("CXXFLAGS", "CPPFLAGS", "LDFLAGS", "LSAN_OPTIONS",
                      "LD_PRELOAD", "LD_LIBRARY_PATH", "CMAKE_TOOLCHAIN_FILE", "CMAKE_GENERATOR",
