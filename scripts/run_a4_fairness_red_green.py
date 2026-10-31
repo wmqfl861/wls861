@@ -24,6 +24,7 @@ ORDER_EXPRESSIONS = (
     'sequence->read() == (std::vector<std::string>{"a1-first", "b1", "a2"})',
 )
 WATCHDOG_SECONDS = 180
+CONTROLLED_PATH = "/usr/bin:/bin"
 
 
 def require(condition: bool, message: str) -> None:
@@ -46,6 +47,18 @@ def write_json(path: Path, value: object) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     temporary.replace(path)
+
+
+def resolve_programs() -> dict[str, str]:
+    # Hosted CMake may live outside /usr/bin. Resolve it before narrowing the
+    # child environment; all other host tools must exist in the controlled PATH.
+    programs = {}
+    for name in ("cmake", "git", "findmnt", "df", "file", "readelf", "ldd", "make", "timeout"):
+        path = os.environ.get("PATH", os.defpath) if name == "cmake" else CONTROLLED_PATH
+        found = shutil.which(name, path=path)
+        require(found is not None, f"required tool {name} is missing from its approved PATH")
+        programs[name] = os.path.abspath(found)
+    return programs
 
 
 def classify(role: str, code: int, stdout: str, stderr: str, probe: Path) -> str:
@@ -88,8 +101,10 @@ class Recorder:
     def __init__(self, evidence: Path, env: dict[str, str]):
         self.evidence, self.env = evidence, env
         self.steps: list[dict[str, object]] = []
+        self.programs: dict[str, str] = {}
 
     def run(self, name: str, argv: list[str], cwd: Path, *, umask: int = 0o022) -> dict[str, object]:
+        argv = [self.programs.get(argv[0], argv[0]), *argv[1:]]
         output, error = self.evidence / f"{name}.stdout.log", self.evidence / f"{name}.stderr.log"
         record: dict[str, object] = {"name": name, "argv": argv, "cwd": str(cwd),
                                      "environment": self.env.copy(), "umask": f"{umask:04o}",
@@ -222,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     evidence.mkdir(mode=0o700)
     compiler = shutil.which(args.compiler)
     require(compiler is not None, "GCC 13 must be provisioned; no automatic compiler substitution")
-    env = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
+    env = {"PATH": CONTROLLED_PATH, "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
            "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1"}
     recorder = Recorder(evidence, env)
     summary: dict[str, object] = {"classification": "A4_SAME_SOURCE_RED_GREEN", "started_at": utc(),
@@ -240,6 +255,10 @@ def main(argv: list[str] | None = None) -> int:
     expected = {"baseline": BASELINE, "candidate": args.candidate_sha}
     probe = evidence / "same-source.cpp"
     try:
+        recorder.programs = resolve_programs()
+        summary["resolved_programs"] = recorder.programs.copy()
+        cmake_binary = Path(recorder.programs["cmake"]).resolve(strict=True)
+        summary["cmake_identity_before"] = {"path": str(cmake_binary), **identity(cmake_binary)}
         original = sources["candidate"] / "tests/repros/a4_fairness_same_source.cpp"
         require(identity(original)["sha256"] == PROBE_SHA256, "frozen probe bytes changed")
         shutil.copyfile(original, probe)
@@ -295,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
             build = output / role / "build"
             env["TMPDIR"] = str(output / role / "tmp")
             require(identity(probe)["sha256"] == PROBE_SHA256, "same-source input changed before execution")
-            record = recorder.run(f"{role}-probe", ["/usr/bin/timeout", "--signal=TERM", "--kill-after=5",
+            record = recorder.run(f"{role}-probe", ["timeout", "--signal=TERM", "--kill-after=5",
                                   str(WATCHDOG_SECONDS), str(build / "a4_fairness_probe")], output, umask=0o002)
             stdout = (evidence / f"{role}-probe.stdout.log").read_text(encoding="utf-8")
             stderr = (evidence / f"{role}-probe.stderr.log").read_text(encoding="utf-8")
@@ -318,6 +337,9 @@ def main(argv: list[str] | None = None) -> int:
                 require(before == after, f"{role}: binary/build identity changed")
             require(identity(probe)["sha256"] == PROBE_SHA256, "probe input changed")
             require(identity(Path(__file__).resolve()) == summary["runner"], "runner input changed")
+            if "cmake_identity_before" in summary:
+                summary["cmake_identity_after"] = {"path": str(cmake_binary), **identity(cmake_binary)}
+                require(summary["cmake_identity_before"] == summary["cmake_identity_after"], "CMake identity changed")
             summary["identities_unchanged"] = True
         except Exception as error:
             summary["identity_error"] = f"{type(error).__name__}: {error}"

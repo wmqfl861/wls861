@@ -32,6 +32,13 @@ either probe starts; the two probes run serially under the original 180-second
 outer limit and independent private TMPDIRs. This Release diagnostic does not
 replace any sanitizer or full regression gate.
 
+CMake is resolved from the configured host PATH before the child environment is
+narrowed; its absolute executable, version and before/after identity are recorded.
+The remaining host tools (including make) must be present in `/usr/bin:/bin`.
+A missing tool stops preflight with retained evidence, without substituting a
+different build configuration. The lightweight lookup regression launches only
+a synthetic shell marker and never invokes a compiler or business probe.
+
 An old-version red result requires exit 1, exactly one original request/team
 order assertion (`a1-first,b1` or `a1-first,b1,a2`), and the exact original
 `RESULT 0 passed, 1 failed` accounting. Compile failures, other assertions,

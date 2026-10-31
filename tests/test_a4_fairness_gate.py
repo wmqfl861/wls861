@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Lightweight output-classification checks; never execute a native probe."""
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
+import tempfile
 import unittest
+from unittest.mock import patch
 
 SOURCE = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("fairness_gate", SOURCE / "scripts/run_a4_fairness_red_green.py")
@@ -62,6 +66,32 @@ class FairnessEvidenceClassification(unittest.TestCase):
         self.assertEqual(body(PROBE.read_text()), body((SOURCE / "tests/async_coordinator_tests.cpp").read_text()))
         self.assertIn("std::chrono::seconds(5)", PROBE.read_text())
         self.assertEqual(gate.WATCHDOG_SECONDS, 180)
+
+    def test_configured_cmake_outside_controlled_path_uses_absolute_executable(self):
+        with tempfile.TemporaryDirectory(prefix="wls-cmake-lookup-") as temporary:
+            directory = Path(temporary)
+            configured, controlled = directory / "configured", directory / "controlled"
+            configured.mkdir(); controlled.mkdir()
+            executable = configured / "cmake"
+            executable.write_text('#!/bin/sh\nprintf "synthetic configured cmake\\n"\n')
+            executable.chmod(0o700)
+            child_env = {"PATH": str(controlled), "LC_ALL": "C.UTF-8"}
+            # Real process lookup reproduces the preflight failure; no compiler is invoked.
+            with self.assertRaises(FileNotFoundError):
+                subprocess.run(["cmake", "--version"], env=child_env, capture_output=True, check=False)
+            with patch.dict(os.environ, {"PATH": str(configured)}):
+                programs = gate.resolve_programs()
+            self.assertEqual(programs["cmake"], str(executable))
+            for name, path in programs.items():
+                self.assertTrue(Path(path).is_absolute() and os.access(path, os.X_OK), name)
+            evidence = directory / "evidence"; evidence.mkdir()
+            recorder = gate.Recorder(evidence, child_env)
+            recorder.programs = programs
+            result = recorder.run("cmake-lookup", ["cmake", "--version"], directory)
+            self.assertEqual(result["argv"], [str(executable), "--version"])
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual((evidence / "cmake-lookup.stdout.log").read_text(), "synthetic configured cmake\n")
+            self.assertEqual((evidence / "cmake-lookup.stderr.log").read_text(), "")
 
 
 if __name__ == "__main__":
