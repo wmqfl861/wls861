@@ -73,19 +73,37 @@ jobs:
           if [ "${{ matrix.compiler }}" = clang++-18 ]; then
             sudo apt-get install --yes clang-18
           fi
+          if [ "${{ matrix.name }}" = ASan ]; then
+            sudo apt-get install --yes g++-13
+          fi
       - name: Prepare contract-test environment
         run: |
           python3 -m venv .local/test-venv
           .local/test-venv/bin/python -m pip install -r requirements-test.txt
+      - name: Check shared GCC ASan runner contracts
+        if: matrix.name == 'strict' || matrix.name == 'ASan'
+        run: .local/test-venv/bin/python tests/test_run_gcc_asan.py
+      - name: Run shared GCC 13.3 Debug ASan gate
+        if: matrix.name == 'ASan'
+        run: |
+          .local/test-venv/bin/python scripts/run_gcc_asan.py --compiler g++-13 --python "$GITHUB_WORKSPACE/.local/test-venv/bin/python" --expected-tests 89
+      - name: Retain GCC ASan evidence including failures
+        if: always() && matrix.name == 'ASan'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gcc-asan-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build-gcc-asan-*/evidence/
+          if-no-files-found: warn
+          retention-days: 7
       - name: Configure CMake
-        if: matrix.name != 'Make-ASan'
+        if: matrix.name != 'Make-ASan' && matrix.name != 'ASan'
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }} -DWLS_ENABLE_ASAN=${{ matrix.asan }} -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
       - name: Build with warnings as errors
-        if: matrix.name != 'Make-ASan'
+        if: matrix.name != 'Make-ASan' && matrix.name != 'ASan'
         run: cmake --build build --parallel 2
       - name: Run complete CTest as an ordinary user
-        if: matrix.name != 'Make-ASan'
+        if: matrix.name != 'Make-ASan' && matrix.name != 'ASan'
         run: |
           test "$(id -u)" -ne 0
           umask "${{ matrix.test_umask }}"
