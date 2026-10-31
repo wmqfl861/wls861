@@ -1,0 +1,361 @@
+{
+  "schema_version": 1,
+  "tests": [
+    {
+      "name": "acceptance_runtime",
+      "timeout": 90.0
+    },
+    {
+      "name": "acceptance_store",
+      "timeout": 90.0
+    },
+    {
+      "name": "allocation_recovery",
+      "timeout": 90.0
+    },
+    {
+      "name": "allocation_recovery_cli",
+      "timeout": 180.0
+    },
+    {
+      "name": "audit24_capacity",
+      "timeout": 90.0
+    },
+    {
+      "name": "audit24_capacity_cli_smoke",
+      "timeout": 180.0
+    },
+    {
+      "name": "audit24_capacity_repro",
+      "timeout": 300.0
+    },
+    {
+      "name": "audit24_reconcile",
+      "timeout": 90.0
+    },
+    {
+      "name": "audit24_reconcile_cli_smoke",
+      "timeout": 120.0
+    },
+    {
+      "name": "audit24_reopen",
+      "timeout": 90.0
+    },
+    {
+      "name": "audit24_reopen_cli_smoke",
+      "timeout": 120.0
+    },
+    {
+      "name": "billing",
+      "timeout": 90.0
+    },
+    {
+      "name": "billing_baseline_e2e",
+      "timeout": 900.0
+    },
+    {
+      "name": "cleanup",
+      "timeout": 90.0
+    },
+    {
+      "name": "cleanup_runtime",
+      "timeout": 180.0
+    },
+    {
+      "name": "config",
+      "timeout": 90.0
+    },
+    {
+      "name": "config_loader",
+      "timeout": 90.0
+    },
+    {
+      "name": "delivery",
+      "timeout": 90.0
+    },
+    {
+      "name": "demo_smoke",
+      "timeout": 60.0
+    },
+    {
+      "name": "doctor_diagnostics",
+      "timeout": 90.0
+    },
+    {
+      "name": "doctor_diagnostics_cli",
+      "timeout": 90.0
+    },
+    {
+      "name": "event_runtime",
+      "timeout": 90.0
+    },
+    {
+      "name": "event_store",
+      "timeout": 90.0
+    },
+    {
+      "name": "handoff_integrity",
+      "timeout": 60.0
+    },
+    {
+      "name": "https_transport",
+      "timeout": 180.0
+    },
+    {
+      "name": "journal",
+      "timeout": 90.0
+    },
+    {
+      "name": "live_model_store",
+      "timeout": 90.0
+    },
+    {
+      "name": "live_model_store_tls",
+      "timeout": 180.0
+    },
+    {
+      "name": "live_workflow",
+      "timeout": 300.0
+    },
+    {
+      "name": "live_workflow_cli",
+      "timeout": 180.0
+    },
+    {
+      "name": "model",
+      "timeout": 90.0
+    },
+    {
+      "name": "offline_runtime",
+      "timeout": 90.0
+    },
+    {
+      "name": "owned_capacity",
+      "timeout": 90.0
+    },
+    {
+      "name": "owned_capacity_runtime",
+      "timeout": 180.0
+    },
+    {
+      "name": "process_evidence",
+      "timeout": 90.0
+    },
+    {
+      "name": "protocol_codec",
+      "timeout": 90.0
+    },
+    {
+      "name": "protocol_replay_cli",
+      "timeout": 90.0
+    },
+    {
+      "name": "r1_history",
+      "timeout": 90.0
+    },
+    {
+      "name": "r1_history_cli_smoke",
+      "timeout": 120.0
+    },
+    {
+      "name": "r1_management",
+      "timeout": 300.0
+    },
+    {
+      "name": "r1_structured",
+      "timeout": 90.0
+    },
+    {
+      "name": "r1_structured_cli_smoke",
+      "timeout": 120.0
+    },
+    {
+      "name": "r1_window",
+      "timeout": 90.0
+    },
+    {
+      "name": "r1_window_cli_smoke",
+      "timeout": 180.0
+    },
+    {
+      "name": "r24_cleanup_recovery",
+      "timeout": 90.0
+    },
+    {
+      "name": "r24_concurrency_cleanup",
+      "timeout": 90.0
+    },
+    {
+      "name": "r24_concurrency_phases",
+      "timeout": 90.0
+    },
+    {
+      "name": "r24_concurrency_replay",
+      "timeout": 90.0
+    },
+    {
+      "name": "r24_concurrency_settlement",
+      "timeout": 90.0
+    },
+    {
+      "name": "r24_recovery",
+      "timeout": 90.0
+    },
+    {
+      "name": "r24_recovery_cli_smoke",
+      "timeout": 120.0
+    },
+    {
+      "name": "r24_recovery_predicates_active",
+      "timeout": 90.0
+    },
+    {
+      "name": "r24_recovery_predicates_terminal",
+      "timeout": 90.0
+    },
+    {
+      "name": "r24_settlement_allocation_failure",
+      "timeout": 90.0
+    },
+    {
+      "name": "r24_settlement_capacity",
+      "timeout": 90.0
+    },
+    {
+      "name": "r2_amend",
+      "timeout": 90.0
+    },
+    {
+      "name": "r2_amend_cli_smoke",
+      "timeout": 120.0
+    },
+    {
+      "name": "r2_integration_cli_smoke",
+      "timeout": 120.0
+    },
+    {
+      "name": "r2_recovery",
+      "timeout": 90.0
+    },
+    {
+      "name": "r2_recovery_cli_smoke",
+      "timeout": 120.0
+    },
+    {
+      "name": "r2_rework",
+      "timeout": 90.0
+    },
+    {
+      "name": "r2_rework_cli_smoke",
+      "timeout": 120.0
+    },
+    {
+      "name": "r2a_mkdir",
+      "timeout": 90.0
+    },
+    {
+      "name": "r2a_mkdir_cli_smoke",
+      "timeout": 120.0
+    },
+    {
+      "name": "r3_evaluation",
+      "timeout": 180.0
+    },
+    {
+      "name": "review_cli_smoke",
+      "timeout": 120.0
+    },
+    {
+      "name": "review_source_integrity",
+      "timeout": 60.0
+    },
+    {
+      "name": "runtime_resources",
+      "timeout": 90.0
+    },
+    {
+      "name": "runtime_resources_cli",
+      "timeout": 120.0
+    },
+    {
+      "name": "runtime_types",
+      "timeout": 90.0
+    },
+    {
+      "name": "s12_cli_smoke",
+      "timeout": 90.0
+    },
+    {
+      "name": "s13_cli_smoke",
+      "timeout": 90.0
+    },
+    {
+      "name": "s14_cli_smoke",
+      "timeout": 90.0
+    },
+    {
+      "name": "s15_cli_smoke",
+      "timeout": 120.0
+    },
+    {
+      "name": "s16_cli_smoke",
+      "timeout": 120.0
+    },
+    {
+      "name": "s1_cli_smoke",
+      "timeout": 90.0
+    },
+    {
+      "name": "sandbox",
+      "timeout": 90.0
+    },
+    {
+      "name": "scheduler",
+      "timeout": 90.0
+    },
+    {
+      "name": "schema",
+      "timeout": 90.0
+    },
+    {
+      "name": "single_agent",
+      "timeout": 90.0
+    },
+    {
+      "name": "single_agent_runtime",
+      "timeout": 90.0
+    },
+    {
+      "name": "specification_contracts",
+      "timeout": 60.0
+    },
+    {
+      "name": "sse_replay",
+      "timeout": 90.0
+    },
+    {
+      "name": "store",
+      "timeout": 90.0
+    },
+    {
+      "name": "task_engine",
+      "timeout": 90.0
+    },
+    {
+      "name": "worker_tools",
+      "timeout": 90.0
+    },
+    {
+      "name": "workflow_runtime",
+      "timeout": 90.0
+    },
+    {
+      "name": "workflow_store",
+      "timeout": 90.0
+    },
+    {
+      "name": "workspace",
+      "timeout": 90.0
+    }
+  ]
+}

@@ -45,6 +45,17 @@ JUnit 逐项与注册名匹配且没有 failure/error/skipped/notrun，以及输
 没有 `-R/-E`、重复直到成功、期限放宽或 `--rerun-failed`。原 89 项及其 TIMEOUT 不改。
 新增 Python runner 自检不计入这 89 项 C++/Python 产品测试，也不算产品 ASan 证据。
 
+后续版本还将注册名称和每项 TIMEOUT 与受版本控制的
+`tests/gcc_asan_expected_tests.json` 比较。同样数量的测试替换、漏项、重复和期限变化
+均不能仅凭计数通过。新增产品测试时，必须审阅 CMake 注册差异后，同时更新该清单、
+`--expected-tests`、默认值及 CI 参数；不能从当前 CTest 输出自动接受一个新集合。
+本次清单固定原 89 项；新增守卫自检共 23 项，与产品测试分开计数。
+
+`test_live_workflow.py` 的命令行 runner 在原失败/错误登记后立即输出并 flush 原 traceback。
+这不改变异常、断言、测试顺序、failfast 或期限。`tests/test_immediate_unittest.py`
+用确定性信号中止一个已失败而仍在执行下个用例的子进程，验证原因在中止前已经落入日志；
+其 4 项工具自检也不计入产品 CTest 数量。旧 Clang 历史失败仍必须单独诊断。
+
 `summary.json` 的 PASSED 只表示**该次 GCC gate**通过。字段
 `historical_clang_asan_failures_closed=false` 始终保留：用户原服务器的 Clang 29/39、
 十项超时和整组内 FAIL 不能由另一机器、另一编译器或单项重跑改写。
