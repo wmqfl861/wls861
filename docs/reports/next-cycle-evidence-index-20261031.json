@@ -1,0 +1,2165 @@
+{
+  "schema": "wls861-next-cycle-evidence-index-draft-v1",
+  "created_at_utc": "2026-10-31T11:38:30.457724+00:00",
+  "author": "/root/concurrency_fix",
+  "document_status": "PRE_PUBLICATION_COMPLETION_RECORD_FOR_12D_INPUT",
+  "scope": "Compact public-safe metadata index of frozen A1-A5 receipts and exact integrated test input; no raw model payload, database, executable or large log content copied.",
+  "project": {
+    "name": "wls861",
+    "repository": "https://github.com/wmqfl861/wls861",
+    "main_branch": "main",
+    "original_main_baseline_sha": "a6b8559018a599d7a806b05942857a56d69a00ce",
+    "observed_remote_main_sha": "a6b8559018a599d7a806b05942857a56d69a00ce",
+    "next_cycle_baseline_sha": "772feaee62086ddb0e7f605a7472721d3bc61406",
+    "next_cycle_baseline_branch": "fix/r2-4-gcc-asan-alignment",
+    "next_cycle_baseline_pr": 4,
+    "baseline_observation_ref": "pr_dependencies"
+  },
+  "local_environment": {
+    "workspace_root": "/mnt/d/codex-workspace/wls861-next-20261031-065247",
+    "data_mount": "/mnt/d",
+    "filesystem": "ext4",
+    "os": "Ubuntu 24.04.1 LTS",
+    "kernel": "6.8.0-147-generic",
+    "uid": 1000,
+    "gid": 1000,
+    "ordinary_user": true,
+    "index_task_actions": "Read existing files, compute hashes, query mount metadata and create this JSON only; no compilation or product tests."
+  },
+  "counting_rules": {
+    "linux_configurations": [
+      "strict Release / umask 0022",
+      "strict Release / umask 0002",
+      "Clang-18 strict Release",
+      "UBSan",
+      "GCC ASan/LSan",
+      "Make-ASan original target"
+    ],
+    "make_target_is_not_ctest": true,
+    "push_pr_repetitions_are_not_additional_suites": true,
+    "async_case_counts_are_inside_one_suite": true,
+    "native_components_are_separate_from_product_ctest_catalog": true,
+    "source_snapshot_identity": "Archive commit/tree are explicit; actual checkout is present only when recorded in the cited receipt."
+  },
+  "modules": [
+    {
+      "module": "A1",
+      "scope": "Immediate diagnostics and GCC ASan catalog/evidence tooling; no claim that historical failures are fixed.",
+      "head_sha": "1c279f6770f5f4440adcf6b8ee2f51e2401d9a74",
+      "tree_sha": "625733687fc0f9fa127b49987c6d7888a14e5f1b",
+      "branch": "fix/sanitizer-followup-20261031",
+      "pr": {
+        "number": 6,
+        "url": "https://github.com/wmqfl861/wls861/pull/6",
+        "state": "OPEN",
+        "draft": true,
+        "head_sha": "1c279f6770f5f4440adcf6b8ee2f51e2401d9a74",
+        "direct_base_branch": "fix/r2-4-gcc-asan-alignment",
+        "direct_base_sha": "772feaee62086ddb0e7f605a7472721d3bc61406",
+        "direct_base_pr": 4,
+        "observation_ref": "pr_dependencies"
+      },
+      "product_ctest_registration_count": 89,
+      "six_states": {
+        "IMPLEMENTATION_COMPLETE": {
+          "complete": true,
+          "scope": "Immediate diagnostics and GCC ASan catalog/evidence tooling; no claim that historical failures are fixed.",
+          "formal_acceptance": false
+        },
+        "LOCAL_VALIDATION_COMPLETE": {
+          "complete": false,
+          "scope": "Full required local validation and unresolved historical gates; partial component results are recorded separately."
+        },
+        "PUSH_COMPLETE": {
+          "complete": true,
+          "scope": "The exact recorded branch head only; no final report commit inferred."
+        },
+        "REMOTE_CI_COMPLETE": {
+          "complete": true,
+          "scope": "This exact module head and the workflows listed below."
+        },
+        "PR_REVIEW_COMPLETE": {
+          "complete": false,
+          "status": "PENDING_COORDINATOR_INDEPENDENT_ACCEPTANCE"
+        },
+        "MERGED": {
+          "complete": false,
+          "status": "OPEN_DRAFT"
+        }
+      },
+      "receipt_refs": [
+        "A1_remote",
+        "A1_local_failure",
+        "A1_clang_diagnostic",
+        "A1_comparison"
+      ],
+      "source_input_count": 718,
+      "linux_ci": [
+        {
+          "run_id": 41182062900,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41182062900",
+          "event": "push",
+          "head_sha": "1c279f6770f5f4440adcf6b8ee2f51e2401d9a74",
+          "actual_checkout_sha": "1c279f6770f5f4440adcf6b8ee2f51e2401d9a74",
+          "checkout_tree_sha": "625733687fc0f9fa127b49987c6d7888a14e5f1b",
+          "checkout_tree_matches_head": true,
+          "conclusion": "success",
+          "successful_configurations": 6,
+          "product_ctest_registration_count": 89,
+          "gcc_asan_registered_executed_and_passed": 89,
+          "receipt_ref": "A1_remote",
+          "source_pointer": "/linux_workflows/0"
+        },
+        {
+          "run_id": 41182174152,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41182174152",
+          "event": "pull_request",
+          "head_sha": "1c279f6770f5f4440adcf6b8ee2f51e2401d9a74",
+          "actual_checkout_sha": "9150ffd5fedf640c1279ffd2004faf7335666ee6",
+          "checkout_tree_sha": "625733687fc0f9fa127b49987c6d7888a14e5f1b",
+          "checkout_tree_matches_head": true,
+          "conclusion": "success",
+          "successful_configurations": 6,
+          "product_ctest_registration_count": 89,
+          "gcc_asan_registered_executed_and_passed": 89,
+          "receipt_ref": "A1_remote",
+          "source_pointer": "/linux_workflows/1"
+        }
+      ],
+      "source_snapshot": {
+        "run_id": 41182062897,
+        "url": "https://github.com/wmqfl861/wls861/actions/runs/41182062897",
+        "commit_sha": "1c279f6770f5f4440adcf6b8ee2f51e2401d9a74",
+        "tree_sha": "625733687fc0f9fa127b49987c6d7888a14e5f1b",
+        "files": 718,
+        "source_tar_gz_sha256": "e9b7b26206969ee1d5f814ae92b9505c150b7e99d2c51c0b83bcedc29a9cbe49",
+        "verified": true,
+        "receipt_ref": "A1_remote",
+        "source_pointer": "/source_snapshot"
+      },
+      "local_baseline_failure": {
+        "head_sha": "772feaee62086ddb0e7f605a7472721d3bc61406",
+        "registered": 89,
+        "counts": {
+          "passed": 48,
+          "failed": 2,
+          "timeout": 39,
+          "skipped": 0,
+          "notrun": 0
+        },
+        "ctest_exit": 8,
+        "runner_exit": 1,
+        "seconds": 7482.3407253050245,
+        "input_identities_unchanged": true,
+        "receipt_ref": "A1_local_failure"
+      },
+      "limits": [
+        "Hosted success does not close local GCC or historical Clang failures.",
+        "Root cause remains unresolved; timing or machine differences do not establish causality."
+      ]
+    },
+    {
+      "module": "A2",
+      "scope": "Offline prepare/dry-run/run-fake/report package and persistent FakeModel accounting slice.",
+      "head_sha": "e8a861f32e29e191645f788d20eee8e5ad0e8533",
+      "tree_sha": "b72c1b528dc71cf21aa51952f4c6c9218e290023",
+      "branch": "feat/offline-acceptance-20261031",
+      "pr": {
+        "number": 7,
+        "url": "https://github.com/wmqfl861/wls861/pull/7",
+        "state": "OPEN",
+        "draft": true,
+        "head_sha": "e8a861f32e29e191645f788d20eee8e5ad0e8533",
+        "direct_base_branch": "fix/sanitizer-followup-20261031",
+        "direct_base_sha": "1c279f6770f5f4440adcf6b8ee2f51e2401d9a74",
+        "direct_base_pr": 6,
+        "observation_ref": "pr_dependencies"
+      },
+      "product_ctest_registration_count": 91,
+      "six_states": {
+        "IMPLEMENTATION_COMPLETE": {
+          "complete": true,
+          "scope": "Offline prepare/dry-run/run-fake/report package and persistent FakeModel accounting slice.",
+          "formal_acceptance": false
+        },
+        "LOCAL_VALIDATION_COMPLETE": {
+          "complete": false,
+          "scope": "Full required local validation and unresolved historical gates; partial component results are recorded separately."
+        },
+        "PUSH_COMPLETE": {
+          "complete": true,
+          "scope": "The exact recorded branch head only; no final report commit inferred."
+        },
+        "REMOTE_CI_COMPLETE": {
+          "complete": true,
+          "scope": "This exact module head and the workflows listed below."
+        },
+        "PR_REVIEW_COMPLETE": {
+          "complete": false,
+          "status": "PENDING_COORDINATOR_INDEPENDENT_ACCEPTANCE"
+        },
+        "MERGED": {
+          "complete": false,
+          "status": "OPEN_DRAFT"
+        }
+      },
+      "receipt_refs": [
+        "A2_remote",
+        "A2_local_persistent",
+        "A2_snapshot"
+      ],
+      "source_input_count": 733,
+      "linux_ci": [
+        {
+          "run_id": 41191265250,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41191265250",
+          "event": "push",
+          "head_sha": "e8a861f32e29e191645f788d20eee8e5ad0e8533",
+          "actual_checkout_sha": "e8a861f32e29e191645f788d20eee8e5ad0e8533",
+          "checkout_tree_sha": "b72c1b528dc71cf21aa51952f4c6c9218e290023",
+          "checkout_tree_matches_head": true,
+          "conclusion": "success",
+          "successful_configurations": 6,
+          "ctest_jobs": 5,
+          "passed_per_ctest_job": 91,
+          "make_ctest_count": null,
+          "make_ctest_count_reason": "Original Make target; not counted as CTest execution.",
+          "receipt_ref": "A2_remote",
+          "source_pointer": "/runs/0; /jobs filtered by run_id"
+        },
+        {
+          "run_id": 41191268852,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41191268852",
+          "event": "pull_request",
+          "head_sha": "e8a861f32e29e191645f788d20eee8e5ad0e8533",
+          "actual_checkout_sha": "8da2d846fa5b3a8deb54142532b478681f888f48",
+          "checkout_tree_sha": "b72c1b528dc71cf21aa51952f4c6c9218e290023",
+          "checkout_tree_matches_head": true,
+          "conclusion": "success",
+          "successful_configurations": 6,
+          "ctest_jobs": 5,
+          "passed_per_ctest_job": 91,
+          "make_ctest_count": null,
+          "make_ctest_count_reason": "Original Make target; not counted as CTest execution.",
+          "receipt_ref": "A2_remote",
+          "source_pointer": "/runs/1; /jobs filtered by run_id"
+        }
+      ],
+      "local_component": {
+        "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+        "status": "PASSED",
+        "persistent_cells": 10,
+        "original_cli_commands": 39,
+        "original_attempts": 118,
+        "original_feedback": 118,
+        "executed_integration_count": 1,
+        "independent_acceptance": false,
+        "receipt_ref": "A2_local_persistent"
+      },
+      "source_snapshot": {
+        "run_id": 41191265253,
+        "url": "https://github.com/wmqfl861/wls861/actions/runs/41191265253",
+        "commit_sha": "e8a861f32e29e191645f788d20eee8e5ad0e8533",
+        "tree_sha": "b72c1b528dc71cf21aa51952f4c6c9218e290023",
+        "files": 733,
+        "source_tar_gz_sha256": "5b569e25522df126caacb71b1911bdd9ee42640a2e176c86fe845fa795c0126b",
+        "verified": true,
+        "receipt_ref": "A2_snapshot"
+      },
+      "limits": [
+        "Real execution, provider quality/cost and semantic review NOT_RUN.",
+        "Ten cells are one persistent integration execution, not ten independent suites.",
+        "CI does not export all ten cell databases."
+      ]
+    },
+    {
+      "module": "A3",
+      "scope": "Opt-in offline single-Store-writer asynchronous plan/order/ack/note call coordinator.",
+      "head_sha": "e78791ca1420204b6205301ec9f22a2e1595fa96",
+      "tree_sha": "6cdc1728e8b4889149370d8c28f21e0a540d5031",
+      "branch": "feat/coordinator-async-20261031",
+      "pr": {
+        "number": 8,
+        "url": "https://github.com/wmqfl861/wls861/pull/8",
+        "state": "OPEN",
+        "draft": true,
+        "head_sha": "e78791ca1420204b6205301ec9f22a2e1595fa96",
+        "direct_base_branch": "fix/sanitizer-followup-20261031",
+        "direct_base_sha": "1c279f6770f5f4440adcf6b8ee2f51e2401d9a74",
+        "direct_base_pr": 6,
+        "observation_ref": "pr_dependencies"
+      },
+      "product_ctest_registration_count": 90,
+      "six_states": {
+        "IMPLEMENTATION_COMPLETE": {
+          "complete": true,
+          "scope": "Opt-in offline single-Store-writer asynchronous plan/order/ack/note call coordinator.",
+          "formal_acceptance": false
+        },
+        "LOCAL_VALIDATION_COMPLETE": {
+          "complete": false,
+          "scope": "Full required local validation and unresolved historical gates; partial component results are recorded separately."
+        },
+        "PUSH_COMPLETE": {
+          "complete": true,
+          "scope": "The exact recorded branch head only; no final report commit inferred."
+        },
+        "REMOTE_CI_COMPLETE": {
+          "complete": true,
+          "scope": "This exact module head and the workflows listed below."
+        },
+        "PR_REVIEW_COMPLETE": {
+          "complete": false,
+          "status": "PENDING_COORDINATOR_INDEPENDENT_ACCEPTANCE"
+        },
+        "MERGED": {
+          "complete": false,
+          "status": "OPEN_DRAFT"
+        }
+      },
+      "receipt_refs": [
+        "A3_remote",
+        "A3_A4_scope_review"
+      ],
+      "source_input_count": 724,
+      "linux_ci": [
+        {
+          "run_id": 41183498558,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41183498558",
+          "event": "push",
+          "head_sha": "e78791ca1420204b6205301ec9f22a2e1595fa96",
+          "actual_checkout_sha": "e78791ca1420204b6205301ec9f22a2e1595fa96",
+          "checkout_tree_sha": "6cdc1728e8b4889149370d8c28f21e0a540d5031",
+          "checkout_tree_matches_head": true,
+          "conclusion": "success",
+          "successful_configurations": 6,
+          "product_ctest_registration_count": 90,
+          "gcc_asan_registered_executed_and_passed": 90,
+          "receipt_ref": "A3_remote",
+          "source_pointer": "/linux_workflows/0"
+        },
+        {
+          "run_id": 41183591861,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41183591861",
+          "event": "pull_request",
+          "head_sha": "e78791ca1420204b6205301ec9f22a2e1595fa96",
+          "actual_checkout_sha": "8971cfa6e8c32e66599f727579d4ba77e806f3e7",
+          "checkout_tree_sha": "6cdc1728e8b4889149370d8c28f21e0a540d5031",
+          "checkout_tree_matches_head": true,
+          "conclusion": "success",
+          "successful_configurations": 6,
+          "product_ctest_registration_count": 90,
+          "gcc_asan_registered_executed_and_passed": 90,
+          "receipt_ref": "A3_remote",
+          "source_pointer": "/linux_workflows/1"
+        }
+      ],
+      "source_snapshot": {
+        "run_id": 41183498624,
+        "url": "https://github.com/wmqfl861/wls861/actions/runs/41183498624",
+        "commit_sha": "e78791ca1420204b6205301ec9f22a2e1595fa96",
+        "tree_sha": "6cdc1728e8b4889149370d8c28f21e0a540d5031",
+        "files": 724,
+        "source_tar_gz_sha256": "df9392c34030c393080252e46602591126f0bad68fd1d633b81e9bb4a3733d66",
+        "verified": true,
+        "receipt_ref": "A3_remote",
+        "source_pointer": "/source_snapshot",
+        "actual_checkout_sha": "e78791ca1420204b6205301ec9f22a2e1595fa96"
+      },
+      "async_suite": {
+        "registered_suites": 1,
+        "cases": 12,
+        "timeout_seconds": 180
+      },
+      "original_business_author_agent": "NOT_CONFIRMED",
+      "authorship_and_bounded_review_ref": "A3_A4_scope_review",
+      "limits": [
+        "No automatic inbox pump, live adapters, file/process/submit executor or independent business review runner in this slice.",
+        "Bounded source review is separate from coordinator acceptance."
+      ]
+    },
+    {
+      "module": "A4",
+      "scope": "Request/team scheduling fairness and review reserves within the A3 offline call slice, plus real same-source diagnostic.",
+      "head_sha": "86b82f8f63a3c60c7659c9cd8f9b8e7d7252870b",
+      "tree_sha": "06d99783e5e1abc8f5c9300b7f927dbd8a53334a",
+      "branch": "feat/fair-scheduling-20261031",
+      "pr": {
+        "number": 9,
+        "url": "https://github.com/wmqfl861/wls861/pull/9",
+        "state": "OPEN",
+        "draft": true,
+        "head_sha": "86b82f8f63a3c60c7659c9cd8f9b8e7d7252870b",
+        "direct_base_branch": "feat/coordinator-async-20261031",
+        "direct_base_sha": "e78791ca1420204b6205301ec9f22a2e1595fa96",
+        "direct_base_pr": 8,
+        "observation_ref": "pr_dependencies"
+      },
+      "product_ctest_registration_count": 90,
+      "six_states": {
+        "IMPLEMENTATION_COMPLETE": {
+          "complete": true,
+          "scope": "Request/team scheduling fairness and review reserves within the A3 offline call slice, plus real same-source diagnostic.",
+          "formal_acceptance": false
+        },
+        "LOCAL_VALIDATION_COMPLETE": {
+          "complete": false,
+          "scope": "Full required local validation and unresolved historical gates; partial component results are recorded separately."
+        },
+        "PUSH_COMPLETE": {
+          "complete": true,
+          "scope": "The exact recorded branch head only; no final report commit inferred."
+        },
+        "REMOTE_CI_COMPLETE": {
+          "complete": true,
+          "scope": "This exact module head and the workflows listed below."
+        },
+        "PR_REVIEW_COMPLETE": {
+          "complete": false,
+          "status": "PENDING_COORDINATOR_INDEPENDENT_ACCEPTANCE"
+        },
+        "MERGED": {
+          "complete": false,
+          "status": "OPEN_DRAFT"
+        }
+      },
+      "receipt_refs": [
+        "A4_remote",
+        "A3_A4_scope_review",
+        "A4_red_green",
+        "A4_snapshot",
+        "A4_tool_review",
+        "A4_cmake_review"
+      ],
+      "source_input_count": 732,
+      "linux_ci": [
+        {
+          "run_id": 41193639740,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41193639740",
+          "event": "push",
+          "head_sha": "86b82f8f63a3c60c7659c9cd8f9b8e7d7252870b",
+          "actual_checkout_sha": "86b82f8f63a3c60c7659c9cd8f9b8e7d7252870b",
+          "checkout_tree_sha": "06d99783e5e1abc8f5c9300b7f927dbd8a53334a",
+          "checkout_tree_matches_head": true,
+          "conclusion": "success",
+          "successful_configurations": 6,
+          "product_ctest_registration_count": 90,
+          "gcc_asan_registered_executed_and_passed": 90,
+          "receipt_ref": "A4_remote",
+          "source_pointer": "/linux_workflows/0"
+        },
+        {
+          "run_id": 41193642931,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41193642931",
+          "event": "pull_request",
+          "head_sha": "86b82f8f63a3c60c7659c9cd8f9b8e7d7252870b",
+          "actual_checkout_sha": "d3a1747de4bfd4c50b3cc1d50afb49d8cf13ab90",
+          "checkout_tree_sha": "06d99783e5e1abc8f5c9300b7f927dbd8a53334a",
+          "checkout_tree_matches_head": true,
+          "conclusion": "success",
+          "successful_configurations": 6,
+          "product_ctest_registration_count": 90,
+          "gcc_asan_registered_executed_and_passed": 90,
+          "receipt_ref": "A4_remote",
+          "source_pointer": "/linux_workflows/1"
+        }
+      ],
+      "source_snapshot": {
+        "run_id": 41193639717,
+        "url": "https://github.com/wmqfl861/wls861/actions/runs/41193639717",
+        "commit_sha": "86b82f8f63a3c60c7659c9cd8f9b8e7d7252870b",
+        "tree_sha": "06d99783e5e1abc8f5c9300b7f927dbd8a53334a",
+        "files": 732,
+        "source_tar_gz_sha256": "9a66a912e19b3ffb4ea90ec532b084f1cc6e0bc81465fe5ab7b67f0b8587d9ca",
+        "verified": true,
+        "receipt_ref": "A4_snapshot"
+      },
+      "async_suite": {
+        "registered_suites": 1,
+        "cases": 18,
+        "timeout_seconds": 180
+      },
+      "original_business_author_agent": "NOT_CONFIRMED",
+      "authorship_and_bounded_review_ref": "A3_A4_scope_review",
+      "limits": [
+        "No automatic inbox pump, live adapters, file/process/submit executor or independent business review runner in this slice.",
+        "Bounded source review is separate from coordinator acceptance.",
+        "ASan successful JUnit output truncates at 1024 bytes; full 18/0 async accounting is verified from both original Make-ASan logs.",
+        "Old local baseline remains CONFIGURED / NOT_RUN.",
+        "Initial e0 CMake lookup failures occurred before either build/probe and do not count as business red."
+      ],
+      "same_source_diagnostic": {
+        "baseline_sha": "a2dfb46322d217f32eb5cc2516de6107c10db4b8",
+        "probe_sha256": "48ae8f4db3d29835403bc41daba2554d51a2c05d5a7c3901ee901193fd25aad6",
+        "diagnostic_count": 1,
+        "versions_per_run": 2,
+        "barrier_seconds": 5,
+        "outer_timeout_seconds": 180,
+        "product_ctest_executed_by_diagnostic": false,
+        "runs": [
+          {
+            "run_id": 41193639764,
+            "url": "https://github.com/wmqfl861/wls861/actions/runs/41193639764",
+            "event": "push",
+            "head_sha": "86b82f8f63a3c60c7659c9cd8f9b8e7d7252870b",
+            "actual_checkout_sha": "86b82f8f63a3c60c7659c9cd8f9b8e7d7252870b",
+            "checkout_tree_sha": "06d99783e5e1abc8f5c9300b7f927dbd8a53334a",
+            "baseline_exit": 1,
+            "candidate_exit": 0,
+            "original_order_assertion_verified": true
+          },
+          {
+            "run_id": 41193642909,
+            "url": "https://github.com/wmqfl861/wls861/actions/runs/41193642909",
+            "event": "pull_request",
+            "head_sha": "86b82f8f63a3c60c7659c9cd8f9b8e7d7252870b",
+            "actual_checkout_sha": "d3a1747de4bfd4c50b3cc1d50afb49d8cf13ab90",
+            "checkout_tree_sha": "06d99783e5e1abc8f5c9300b7f927dbd8a53334a",
+            "baseline_exit": 1,
+            "candidate_exit": 0,
+            "original_order_assertion_verified": true
+          }
+        ],
+        "receipt_ref": "A4_red_green"
+      },
+      "preserved_tool_failures": [
+        {
+          "run_id": 41192533176,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41192533176",
+          "head_sha": "e0faf09d146d7eab4c63488211709ceb2e1b17bf",
+          "classification": "CMAKE_LOOKUP_PREFLIGHT_FAILURE",
+          "business_red": false
+        },
+        {
+          "run_id": 41192537286,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41192537286",
+          "head_sha": "e0faf09d146d7eab4c63488211709ceb2e1b17bf",
+          "classification": "CMAKE_LOOKUP_PREFLIGHT_FAILURE",
+          "business_red": false
+        }
+      ]
+    },
+    {
+      "module": "A5",
+      "scope": "Isolated native foundation components only; full native runtime and Windows 11 security acceptance excluded.",
+      "head_sha": "21f5308271505706594f1a03941ec6ab4a804d50",
+      "tree_sha": "1ac91dbc312d89cd631d3750f398c3e86d361887",
+      "branch": "feat/windows-native-foundation-20261031",
+      "pr": {
+        "number": 5,
+        "url": "https://github.com/wmqfl861/wls861/pull/5",
+        "state": "OPEN",
+        "draft": true,
+        "head_sha": "21f5308271505706594f1a03941ec6ab4a804d50",
+        "direct_base_branch": "fix/r2-4-gcc-asan-alignment",
+        "direct_base_sha": "772feaee62086ddb0e7f605a7472721d3bc61406",
+        "direct_base_pr": 4,
+        "observation_ref": "pr_dependencies"
+      },
+      "product_ctest_registration_count": 89,
+      "six_states": {
+        "IMPLEMENTATION_COMPLETE": {
+          "complete": true,
+          "scope": "Isolated native foundation components only; full native runtime and Windows 11 security acceptance excluded.",
+          "formal_acceptance": false
+        },
+        "LOCAL_VALIDATION_COMPLETE": {
+          "complete": false,
+          "scope": "Full required local validation and unresolved historical gates; partial component results are recorded separately."
+        },
+        "PUSH_COMPLETE": {
+          "complete": true,
+          "scope": "The exact recorded branch head only; no final report commit inferred."
+        },
+        "REMOTE_CI_COMPLETE": {
+          "complete": true,
+          "scope": "This exact module head and the workflows listed below."
+        },
+        "PR_REVIEW_COMPLETE": {
+          "complete": false,
+          "status": "PENDING_COORDINATOR_INDEPENDENT_ACCEPTANCE"
+        },
+        "MERGED": {
+          "complete": false,
+          "status": "OPEN_DRAFT"
+        }
+      },
+      "receipt_refs": [
+        "A5_remote",
+        "A5_local_b8"
+      ],
+      "source_input_count": 738,
+      "linux_ci": [
+        {
+          "run_id": 41183805436,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41183805436",
+          "event": "push",
+          "head_sha": "21f5308271505706594f1a03941ec6ab4a804d50",
+          "actual_checkout_sha": "21f5308271505706594f1a03941ec6ab4a804d50",
+          "checkout_tree_sha": "1ac91dbc312d89cd631d3750f398c3e86d361887",
+          "checkout_tree_matches_head": true,
+          "conclusion": "success",
+          "successful_configurations": 6,
+          "product_ctest_registration_count": 89,
+          "gcc_asan_registered_executed_and_passed": 89,
+          "receipt_ref": "A5_remote",
+          "source_pointer": "/linux_workflows/0"
+        },
+        {
+          "run_id": 41183808771,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41183808771",
+          "event": "pull_request",
+          "head_sha": "21f5308271505706594f1a03941ec6ab4a804d50",
+          "actual_checkout_sha": "27f64d933f9aac27a4f92770d676efe8608bcee2",
+          "checkout_tree_sha": "1ac91dbc312d89cd631d3750f398c3e86d361887",
+          "checkout_tree_matches_head": true,
+          "conclusion": "success",
+          "successful_configurations": 6,
+          "product_ctest_registration_count": 89,
+          "gcc_asan_registered_executed_and_passed": 89,
+          "receipt_ref": "A5_remote",
+          "source_pointer": "/linux_workflows/1"
+        }
+      ],
+      "source_snapshot": {
+        "run_id": 41183805396,
+        "url": "https://github.com/wmqfl861/wls861/actions/runs/41183805396",
+        "commit_sha": "21f5308271505706594f1a03941ec6ab4a804d50",
+        "tree_sha": "1ac91dbc312d89cd631d3750f398c3e86d361887",
+        "files": 738,
+        "source_tar_gz_sha256": "71905ec2ab0a7c5d724cdf606f434bc8e1f754991dc36b35644acebde3eaed62",
+        "verified": true,
+        "receipt_ref": "A5_remote",
+        "source_pointer": "/source_snapshot"
+      },
+      "native_component_registration_count": 4,
+      "native_ci": [
+        {
+          "run_id": 41183805412,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41183805412",
+          "event": "push",
+          "head_sha": "21f5308271505706594f1a03941ec6ab4a804d50",
+          "actual_checkout_sha": "21f5308271505706594f1a03941ec6ab4a804d50",
+          "checkout_tree_sha": "1ac91dbc312d89cd631d3750f398c3e86d361887",
+          "conclusion": "success",
+          "components_passed": 4,
+          "components_failed": 0,
+          "receipt_ref": "A5_remote",
+          "source_pointer": "/native_workflows/0"
+        },
+        {
+          "run_id": 41183808777,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41183808777",
+          "event": "pull_request",
+          "head_sha": "21f5308271505706594f1a03941ec6ab4a804d50",
+          "actual_checkout_sha": "27f64d933f9aac27a4f92770d676efe8608bcee2",
+          "checkout_tree_sha": "1ac91dbc312d89cd631d3750f398c3e86d361887",
+          "conclusion": "success",
+          "components_passed": 4,
+          "components_failed": 0,
+          "receipt_ref": "A5_remote",
+          "source_pointer": "/native_workflows/1"
+        }
+      ],
+      "local_component": {
+        "head_sha": "b8a5d7d8edec483e7923ed1eba4aa5e9656040ae",
+        "tree_sha": "61f0f6b06cdb457a4e604bdea75d776ccf20a82c",
+        "status": "PASSED",
+        "component_processes": 4,
+        "host": "Linux only",
+        "receipt_ref": "A5_local_b8",
+        "is_12d_retest": false,
+        "establishes_windows_support": false
+      },
+      "limits": [
+        "Windows Server 2022 elevated-token component CI does not establish Windows 11 ordinary-user acceptance.",
+        "Store, Workspace, process supervision, cleanup and sandbox are outside the native foundation slice."
+      ]
+    }
+  ],
+  "integrated_test_input": {
+    "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+    "tree_sha": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+    "branch": "work/next-cycle-integration-20261031",
+    "pr": {
+      "number": 10,
+      "url": "https://github.com/wmqfl861/wls861/pull/10",
+      "state": "OPEN",
+      "draft": true,
+      "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+      "direct_base_branch": "feat/fair-scheduling-20261031",
+      "direct_base_sha": "86b82f8f63a3c60c7659c9cd8f9b8e7d7252870b",
+      "direct_base_pr": 9,
+      "observation_ref": "pr_dependencies"
+    },
+    "source_input_count": 773,
+    "source_bytes": 27582257,
+    "canonical_source_manifest_sha256": "474932f037dbb0931f8d0a3ca04aafe0d9ead4cb656248534ac022d68dc2bebf",
+    "product_ctest_registration_count": 92,
+    "six_states": {
+      "IMPLEMENTATION_COMPLETE": {
+        "complete": true,
+        "scope": "Integrated A1-A5 limited implementations at the recorded test input.",
+        "formal_acceptance": false
+      },
+      "LOCAL_VALIDATION_COMPLETE": {
+        "complete": false,
+        "scope": "Full required local validation and unresolved historical gates; partial component results are recorded separately."
+      },
+      "PUSH_COMPLETE": {
+        "complete": true,
+        "scope": "The exact recorded branch head only; no final report commit inferred."
+      },
+      "REMOTE_CI_COMPLETE": {
+        "complete": true,
+        "scope": "Exact12d input:Linux Push/PR six configurations, native component, same-source fairness and source snapshot verified. Not a final documentation commit result."
+      },
+      "PR_REVIEW_COMPLETE": {
+        "complete": false,
+        "status": "PENDING_COORDINATOR_INDEPENDENT_ACCEPTANCE"
+      },
+      "MERGED": {
+        "complete": false,
+        "status": "OPEN_DRAFT"
+      }
+    },
+    "release_0022": {
+      "status": "PASSED",
+      "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+      "exit_code": 0,
+      "seconds": 2366.3961553210393,
+      "counts": {
+        "total": 92,
+        "passed": 92,
+        "failed": 0,
+        "timeout": 0,
+        "skipped": 0,
+        "notrun": 0
+      },
+      "uid": 1000,
+      "source_unchanged": true,
+      "build_identities_unchanged": true,
+      "source_count": 773,
+      "build_identity_count": 61,
+      "surviving_test_processes": [],
+      "receipt_ref": "integration_release_0022"
+    },
+    "release_0002": {
+      "status": "PASSED",
+      "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+      "exit_code": 0,
+      "seconds": 2330.494831395801,
+      "counts": {
+        "total": 92,
+        "passed": 92,
+        "failed": 0,
+        "timeout": 0,
+        "skipped": 0,
+        "notrun": 0
+      },
+      "uid": 1000,
+      "source_unchanged": true,
+      "build_identities_unchanged": true,
+      "source_count": 773,
+      "build_identity_count": 61,
+      "same_source_and_build_as_0022": true,
+      "surviving_test_processes": [],
+      "receipt_ref": "integration_release_0002"
+    },
+    "linux_ci": {
+      "verification_status": "VERIFIED_COMPLETE_FOR_TEST_INPUT",
+      "completion_receipt_ref": "integration_linux",
+      "runs": [
+        {
+          "id": 41193660570,
+          "event": "push",
+          "status": "completed",
+          "conclusion": "success",
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193660570",
+          "run_attempt": 1,
+          "created_at": "2026-10-31T10:39:47Z",
+          "updated_at": "2026-10-31T11:32:07Z"
+        },
+        {
+          "id": 41193665523,
+          "event": "pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193665523",
+          "run_attempt": 1,
+          "created_at": "2026-10-31T10:39:51Z",
+          "updated_at": "2026-10-31T11:36:54Z"
+        }
+      ],
+      "checkout_identities": {
+        "time_utc": "2026-10-31T11:00:58.141513+00:00",
+        "head": "12d0f94db4645ca187d47e94a472d952b7489d04",
+        "tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+        "actual_checkout": {
+          "push": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "pr": "489143c029f1a423d3cace9b65853fc7dfb032ab"
+        },
+        "pr_parents": [
+          "86b82f8f63a3c60c7659c9cd8f9b8e7d7252870b",
+          "12d0f94db4645ca187d47e94a472d952b7489d04"
+        ],
+        "pr_merge_tree_equals_source_tree": true,
+        "source_manifest_file_count": 773
+      },
+      "all_twelve_jobs_success": true,
+      "ctest_jobs": 10,
+      "ctest_registered_each": 92,
+      "ctest_passed_each": 92,
+      "make_jobs": 2,
+      "make_scope": "Each original target completed:57 native+33 Python test invocations and2 source checks; not92 CTest registrations",
+      "selfchecks_separate": true,
+      "jobs": [
+        {
+          "id": 124515388936,
+          "name": "Linux C++20 (Clang-18)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-31T10:47:36Z",
+          "completed_at": "2026-10-31T10:56:42Z",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193660570/job/124515388936",
+          "event": "push",
+          "run_id": 41193660570,
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "checkout_tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "raw_log": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/push-clang-log.stdout",
+          "raw_log_sha256": "6b93aca1adbab784c0cff2d1ac5c1e99d36cb866888affc10b52f67fbd1a9364",
+          "runner_selfchecks": [],
+          "ctest_step": {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11,
+            "started_at": "2026-10-31T10:51:41Z",
+            "completed_at": "2026-10-31T10:56:38Z"
+          },
+          "product_ctest_total": 92,
+          "product_ctest_passed": 92,
+          "ctest_summary_lines": [
+            "2026-10-31T10:56:38.5078132Z 100% tests passed, 0 tests failed out of 92",
+            "2026-10-31T10:56:38.5078743Z Total Test time (real) = 295.74 sec"
+          ],
+          "registered_names_match_frozen_manifest": true,
+          "parsed_evidence": {
+            "path": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/push-clang-parsed.json",
+            "sha256": "7bb8d8ff5ba25290a52cc997bc906fc7809599e107262356b61a530b1ec2e130"
+          },
+          "deadline_evidence_scope": "Actual CTest test-plan deadlines exported and verified by the same-tree GCC ASan jobs; this job exports complete result names only."
+        },
+        {
+          "id": 124515389042,
+          "name": "Linux C++20 (strict-umask-0002)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-31T10:44:42Z",
+          "completed_at": "2026-10-31T10:54:17Z",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193660570/job/124515389042",
+          "event": "push",
+          "run_id": 41193660570,
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "checkout_tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "raw_log": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/push-umask0002-log.stdout",
+          "raw_log_sha256": "f7273e8f970e35ba7dea67c2fc5c30079035aece6ecfd0b0fc22b2139a8b8238",
+          "runner_selfchecks": [],
+          "ctest_step": {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11,
+            "started_at": "2026-10-31T10:49:06Z",
+            "completed_at": "2026-10-31T10:54:15Z"
+          },
+          "product_ctest_total": 92,
+          "product_ctest_passed": 92,
+          "ctest_summary_lines": [
+            "2026-10-31T10:54:15.1123224Z 100% tests passed, 0 tests failed out of 92",
+            "2026-10-31T10:54:15.1123597Z Total Test time (real) = 308.36 sec"
+          ],
+          "registered_names_match_frozen_manifest": true,
+          "parsed_evidence": {
+            "path": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/push-umask0002-parsed-v2.json",
+            "sha256": "861a72e806b7ebe657465a0571a360259f748c5b506bb2d87d8f5985f3406da6"
+          },
+          "deadline_evidence_scope": "Actual CTest test-plan deadlines exported and verified by the same-tree GCC ASan jobs; this job exports complete result names only."
+        },
+        {
+          "id": 124515389048,
+          "name": "Linux C++20 (strict)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-31T10:48:01Z",
+          "completed_at": "2026-10-31T10:55:02Z",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193660570/job/124515389048",
+          "event": "push",
+          "run_id": 41193660570,
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "checkout_tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "raw_log": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/push-strict-log.stdout",
+          "raw_log_sha256": "7e32e60f4aacda332c6722110cf1600931b2a40b4453089b3480e364148dfcf4",
+          "runner_selfchecks": [
+            {
+              "suite": "test_run_gcc_asan.py",
+              "case_count": 24,
+              "expected_case_count": 24,
+              "summary": "2026-10-31T10:48:20.2503450Z Ran 24 tests in 0.111s",
+              "ok": true,
+              "counted_as_product_ctest": false
+            },
+            {
+              "suite": "test_immediate_unittest.py",
+              "case_count": 4,
+              "expected_case_count": 4,
+              "summary": "2026-10-31T10:48:20.3362015Z Ran 4 tests in 0.028s",
+              "ok": true,
+              "counted_as_product_ctest": false
+            }
+          ],
+          "ctest_step": {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11,
+            "started_at": "2026-10-31T10:51:09Z",
+            "completed_at": "2026-10-31T10:55:00Z"
+          },
+          "product_ctest_total": 92,
+          "product_ctest_passed": 92,
+          "ctest_summary_lines": [
+            "2026-10-31T10:55:00.6685112Z 100% tests passed, 0 tests failed out of 92",
+            "2026-10-31T10:55:00.6685456Z Total Test time (real) = 229.69 sec"
+          ],
+          "registered_names_match_frozen_manifest": true,
+          "parsed_evidence": {
+            "path": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/push-strict-parsed-v2.json",
+            "sha256": "b518e11169c0e111d30e2e9da03e0feffc81b8b4b005b9d4e86999d540b4e504"
+          },
+          "deadline_evidence_scope": "Actual CTest test-plan deadlines exported and verified by the same-tree GCC ASan jobs; this job exports complete result names only."
+        },
+        {
+          "id": 124515389052,
+          "name": "Linux C++20 (Make-ASan)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-31T10:47:44Z",
+          "completed_at": "2026-10-31T11:30:48Z",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193660570/job/124515389052",
+          "event": "push",
+          "run_id": 41193660570,
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "checkout_tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "raw_log": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/push-make-asan-log.stdout",
+          "raw_log_sha256": "56ae1c0982e4241a0465d6f3b0acd62d285da9d84fd3d60da80498fd8a4fcc95",
+          "runner_selfchecks": [],
+          "make_target_step": {
+            "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 12,
+            "started_at": "2026-10-31T10:48:07Z",
+            "completed_at": "2026-10-31T11:30:47Z"
+          },
+          "make_evidence_receipt": {
+            "path": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/push-make-a2-verification-v2.json",
+            "sha256": "dd09a8130b8e1fc3c15e2a4a14fd169c68f0189bd0f4c879366b347d00b7c171"
+          },
+          "observed_make_test_invocation_count": 90,
+          "native_test_invocation_count": 57,
+          "python_test_invocation_count": 33,
+          "source_verifier_invocation_count": 2,
+          "invocation_count_scope": "Original Make stdout command echoes: native build-make-asan binaries and tests/*.py scripts; excludes compiler/linker commands, nested internal executions, and source verifiers (listed separately). Quoting parsed with shlex; no command executed.",
+          "ctest_suite_count": "NOT_APPLICABLE",
+          "total_internal_case_count": "NOT_INFERRED",
+          "a2": [
+            {
+              "suite": "r3_offline_acceptance_tests.py",
+              "method_count": 9,
+              "methods": [
+                {
+                  "name": "test_cli_fixture_preserves_real_unittest_dispatch_and_cleanup",
+                  "result": "ok",
+                  "line": 1724
+                },
+                {
+                  "name": "test_dry_run_cannot_open_store_resolve_credentials_spawn_or_connect",
+                  "result": "ok",
+                  "line": 1725
+                },
+                {
+                  "name": "test_existing_output_and_symlink_inputs_refuse_without_overwrite",
+                  "result": "ok",
+                  "line": 1726
+                },
+                {
+                  "name": "test_fifo_and_duplicate_json_refuse",
+                  "result": "ok",
+                  "line": 1727
+                },
+                {
+                  "name": "test_fixed_phases_have_no_host_dispositions_or_external_tool_calls",
+                  "result": "ok",
+                  "line": 1728
+                },
+                {
+                  "name": "test_human_form_preserves_denominator_and_does_not_preapprove_semantics",
+                  "result": "ok",
+                  "line": 1729
+                },
+                {
+                  "name": "test_material_and_rehashed_fake_config_mutation_refuse_before_execution",
+                  "result": "ok",
+                  "line": 1730
+                },
+                {
+                  "name": "test_prepare_freezes_exact_ten_cells_materials_topology_and_private_modes",
+                  "result": "ok",
+                  "line": 1731
+                },
+                {
+                  "name": "test_real_prerequisites_missing_never_imply_authority_or_default_money",
+                  "result": "ok",
+                  "line": 1732
+                }
+              ],
+              "command": "2026-10-31T11:18:56.2660802Z /home/runner/work/wls861/wls861/.local/test-venv/bin/python tests/r3_offline_acceptance_tests.py \"/home/runner/work/wls861/wls861\"",
+              "summary": "2026-10-31T11:18:56.4710743Z Ran 9 tests in 0.131s",
+              "raw_line_start": 1723,
+              "raw_line_end": 1737
+            },
+            {
+              "suite": "r3_offline_acceptance_cli_tests.py",
+              "method_count": 10,
+              "methods": [
+                {
+                  "name": "test_01_all_ten_real_store_cells_preserve_original_source_identity_and_accounting",
+                  "result": "ok",
+                  "line": 1739
+                },
+                {
+                  "name": "test_02_partial_amend_omitted_subject_stays_paused_until_model_keep",
+                  "result": "ok",
+                  "line": 1740
+                },
+                {
+                  "name": "test_03_rework_exhaustion_and_exact_delivery_keep_original_bytes",
+                  "result": "ok",
+                  "line": 1741
+                },
+                {
+                  "name": "test_04_reporting_and_failed_rerun_do_not_modify_original_evidence",
+                  "result": "ok",
+                  "line": 1742
+                },
+                {
+                  "name": "test_05_missing_or_changed_original_feedback_cannot_be_host_filled",
+                  "result": "ok",
+                  "line": 1743
+                },
+                {
+                  "name": "test_06_accounting_conflict_cannot_be_completed_or_hidden_by_duplicate_cells",
+                  "result": "ok",
+                  "line": 1744
+                },
+                {
+                  "name": "test_07_rehashed_logical_label_cannot_replace_native_history",
+                  "result": "ok",
+                  "line": 1745
+                },
+                {
+                  "name": "test_08_synthetic_source_cannot_be_relabelled_provider",
+                  "result": "ok",
+                  "line": 1746
+                },
+                {
+                  "name": "test_09_original_unknown_cost_retains_nullable_ledger_and_failed_cell",
+                  "result": "ok",
+                  "line": 1747
+                },
+                {
+                  "name": "test_10_v1_v2_historical_single_worker_meaning_remains_unchanged",
+                  "result": "ok",
+                  "line": 1748
+                }
+              ],
+              "command": "2026-10-31T11:18:56.4833582Z /home/runner/work/wls861/wls861/.local/test-venv/bin/python tests/r3_offline_acceptance_cli_tests.py \"/home/runner/work/wls861/wls861/build-make-asan/wls\" \"/home/runner/work/wls861/wls861\"",
+              "summary": "2026-10-31T11:20:29.9118733Z Ran 10 tests in 93.378s",
+              "raw_line_start": 1738,
+              "raw_line_end": 1753
+            }
+          ],
+          "asan_lsan_enabled": true,
+          "user_cppflags_present": true
+        },
+        {
+          "id": 124515389070,
+          "name": "Linux C++20 (UBSan)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-31T10:48:01Z",
+          "completed_at": "2026-10-31T11:10:40Z",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193660570/job/124515389070",
+          "event": "push",
+          "run_id": 41193660570,
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "checkout_tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "raw_log": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/push-ubsan-log.stdout",
+          "raw_log_sha256": "6591a2badc0b997aefb94363fa68bf228c2c599542c6b1405df242b763a692f7",
+          "runner_selfchecks": [],
+          "ctest_step": {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11,
+            "started_at": "2026-10-31T10:51:36Z",
+            "completed_at": "2026-10-31T11:10:38Z"
+          },
+          "product_ctest_total": 92,
+          "product_ctest_passed": 92,
+          "ctest_summary_lines": [
+            "2026-10-31T11:10:38.0073527Z 100% tests passed, 0 tests failed out of 92",
+            "2026-10-31T11:10:38.0074012Z Total Test time (real) = 1140.94 sec"
+          ],
+          "registered_names_match_frozen_manifest": true,
+          "parsed_evidence": {
+            "path": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/push-ubsan-parsed.json",
+            "sha256": "a55b912e8b57af27b481678efb5c10fe9c43a58f773033ef795f8a502c25f025"
+          },
+          "deadline_evidence_scope": "Actual CTest test-plan deadlines exported and verified by the same-tree GCC ASan jobs; this job exports complete result names only."
+        },
+        {
+          "id": 124515389072,
+          "name": "Linux C++20 (ASan)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-31T10:48:33Z",
+          "completed_at": "2026-10-31T11:32:06Z",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193660570/job/124515389072",
+          "event": "push",
+          "run_id": 41193660570,
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "checkout_tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "raw_log": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/push-asan-log.stdout",
+          "raw_log_sha256": "aecfeb5c5dc9784ab490a7cab9485de67b60d1e7e134d0d8f8cbda6222e6221a",
+          "runner_selfchecks": [
+            {
+              "suite": "test_run_gcc_asan.py",
+              "case_count": 24,
+              "expected_case_count": 24,
+              "summary": "2026-10-31T10:48:53.7036462Z Ran 24 tests in 0.160s",
+              "ok": true,
+              "counted_as_product_ctest": false
+            },
+            {
+              "suite": "test_immediate_unittest.py",
+              "case_count": 4,
+              "expected_case_count": 4,
+              "summary": "2026-10-31T10:48:53.8143001Z Ran 4 tests in 0.038s",
+              "ok": true,
+              "counted_as_product_ctest": false
+            }
+          ],
+          "artifact_receipt": {
+            "path": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/push-asan-artifact-verification.json",
+            "sha256": "42704d1c93fcb5cf079bdb3debd93fd3b5de9cb7636cf9d8a033aaf6fc6101ad"
+          },
+          "product_ctest_total": 92,
+          "product_ctest_passed": 92,
+          "ctest_exit_code": 0,
+          "ctest_seconds": 2387.279264803,
+          "registered_names_and_deadlines_exact": true,
+          "source_file_count": 773,
+          "source_inputs_match_git_tree": true,
+          "binary_identity_count": 61,
+          "binary_identities_unchanged": true,
+          "recorded_wls_sha256": "79da67115a2fadcc45e178f7c851d3f8274ae08927989c5bcd0a6c11aa57ae64",
+          "compile_command_count": 92,
+          "debug_strict_asan_flags_checked": true,
+          "a2": [
+            {
+              "name": "r3_offline_acceptance",
+              "status": "passed",
+              "seconds": "0.303856",
+              "method_count": 6,
+              "methods": [
+                {
+                  "name": "test_cli_fixture_preserves_real_unittest_dispatch_and_cleanup",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_dry_run_cannot_open_store_resolve_credentials_spawn_or_connect",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_existing_output_and_symlink_inputs_refuse_without_overwrite",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_fifo_and_duplicate_json_refuse",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_fixed_phases_have_no_host_dispositions_or_external_tool_calls",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_human_form_preserves_denominator_and_does_not_preapprove_semantics",
+                  "result": "ok"
+                }
+              ],
+              "expected_method_count_from_exact_source": 9,
+              "emitted_complete_method_count": 6,
+              "output_truncated_by_ctest": true,
+              "output_threshold_bytes": 1024,
+              "full_per_method_log_available": false,
+              "full_suite_status_from_junit": "passed"
+            },
+            {
+              "name": "r3_offline_acceptance_cli",
+              "status": "passed",
+              "seconds": "95.6239",
+              "method_count": 5,
+              "methods": [
+                {
+                  "name": "test_01_all_ten_real_store_cells_preserve_original_source_identity_and_accounting",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_02_partial_amend_omitted_subject_stays_paused_until_model_keep",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_03_rework_exhaustion_and_exact_delivery_keep_original_bytes",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_04_reporting_and_failed_rerun_do_not_modify_original_evidence",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_05_missing_or_changed_original_feedback_cannot_be_host_filled",
+                  "result": "ok"
+                }
+              ],
+              "expected_method_count_from_exact_source": 10,
+              "emitted_complete_method_count": 5,
+              "output_truncated_by_ctest": true,
+              "output_threshold_bytes": 1024,
+              "full_per_method_log_available": false,
+              "full_suite_status_from_junit": "passed",
+              "ten_cell_test01_explicit_ok": true
+            }
+          ]
+        },
+        {
+          "id": 124515403255,
+          "name": "Linux C++20 (UBSan)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-31T10:48:24Z",
+          "completed_at": "2026-10-31T11:01:37Z",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193665523/job/124515403255",
+          "event": "pr",
+          "run_id": 41193665523,
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout": "489143c029f1a423d3cace9b65853fc7dfb032ab",
+          "checkout_tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "raw_log": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/pr-ubsan-log.stdout",
+          "raw_log_sha256": "17ccd8a68df04cda47226f7d4d5600f87b244c7b3a8a014dc19227b30325fa05",
+          "runner_selfchecks": [],
+          "ctest_step": {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11,
+            "started_at": "2026-10-31T10:50:47Z",
+            "completed_at": "2026-10-31T11:01:35Z"
+          },
+          "product_ctest_total": 92,
+          "product_ctest_passed": 92,
+          "ctest_summary_lines": [
+            "2026-10-31T11:01:35.8867833Z 100% tests passed, 0 tests failed out of 92",
+            "2026-10-31T11:01:35.8868139Z Total Test time (real) = 648.19 sec"
+          ],
+          "registered_names_match_frozen_manifest": true,
+          "parsed_evidence": {
+            "path": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/pr-ubsan-parsed.json",
+            "sha256": "82f6022e75377ca064722365c073e6b8b91f39ba3376ae101f15544c88433469"
+          },
+          "deadline_evidence_scope": "Actual CTest test-plan deadlines exported and verified by the same-tree GCC ASan jobs; this job exports complete result names only."
+        },
+        {
+          "id": 124515403428,
+          "name": "Linux C++20 (ASan)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-31T10:48:46Z",
+          "completed_at": "2026-10-31T11:32:56Z",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193665523/job/124515403428",
+          "event": "pr",
+          "run_id": 41193665523,
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout": "489143c029f1a423d3cace9b65853fc7dfb032ab",
+          "checkout_tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "raw_log": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/pr-asan-log.stdout",
+          "raw_log_sha256": "98e621ceafba03d4b799293343af13a05c6bf905171099929621f473343de278",
+          "runner_selfchecks": [
+            {
+              "suite": "test_run_gcc_asan.py",
+              "case_count": 24,
+              "expected_case_count": 24,
+              "summary": "2026-10-31T10:49:06.2934342Z Ran 24 tests in 0.153s",
+              "ok": true,
+              "counted_as_product_ctest": false
+            },
+            {
+              "suite": "test_immediate_unittest.py",
+              "case_count": 4,
+              "expected_case_count": 4,
+              "summary": "2026-10-31T10:49:06.4041259Z Ran 4 tests in 0.039s",
+              "ok": true,
+              "counted_as_product_ctest": false
+            }
+          ],
+          "artifact_receipt": {
+            "path": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/pr-asan-artifact-verification.json",
+            "sha256": "b022b52edbcdef22826479132bd7a3296dc538b9e76a8eb053efb1a13a1979b4"
+          },
+          "product_ctest_total": 92,
+          "product_ctest_passed": 92,
+          "ctest_exit_code": 0,
+          "ctest_seconds": 2434.3747089490003,
+          "registered_names_and_deadlines_exact": true,
+          "source_file_count": 773,
+          "source_inputs_match_git_tree": true,
+          "binary_identity_count": 61,
+          "binary_identities_unchanged": true,
+          "recorded_wls_sha256": "94aaff62d350cfce9ead9489efd36380e2aedd8272a2275593298fb61d44e85e",
+          "compile_command_count": 92,
+          "debug_strict_asan_flags_checked": true,
+          "a2": [
+            {
+              "name": "r3_offline_acceptance",
+              "status": "passed",
+              "seconds": "0.279657",
+              "method_count": 6,
+              "methods": [
+                {
+                  "name": "test_cli_fixture_preserves_real_unittest_dispatch_and_cleanup",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_dry_run_cannot_open_store_resolve_credentials_spawn_or_connect",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_existing_output_and_symlink_inputs_refuse_without_overwrite",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_fifo_and_duplicate_json_refuse",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_fixed_phases_have_no_host_dispositions_or_external_tool_calls",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_human_form_preserves_denominator_and_does_not_preapprove_semantics",
+                  "result": "ok"
+                }
+              ],
+              "expected_method_count_from_exact_source": 9,
+              "emitted_complete_method_count": 6,
+              "output_truncated_by_ctest": true,
+              "output_threshold_bytes": 1024,
+              "full_per_method_log_available": false,
+              "full_suite_status_from_junit": "passed"
+            },
+            {
+              "name": "r3_offline_acceptance_cli",
+              "status": "passed",
+              "seconds": "94.6824",
+              "method_count": 5,
+              "methods": [
+                {
+                  "name": "test_01_all_ten_real_store_cells_preserve_original_source_identity_and_accounting",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_02_partial_amend_omitted_subject_stays_paused_until_model_keep",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_03_rework_exhaustion_and_exact_delivery_keep_original_bytes",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_04_reporting_and_failed_rerun_do_not_modify_original_evidence",
+                  "result": "ok"
+                },
+                {
+                  "name": "test_05_missing_or_changed_original_feedback_cannot_be_host_filled",
+                  "result": "ok"
+                }
+              ],
+              "expected_method_count_from_exact_source": 10,
+              "emitted_complete_method_count": 5,
+              "output_truncated_by_ctest": true,
+              "output_threshold_bytes": 1024,
+              "full_per_method_log_available": false,
+              "full_suite_status_from_junit": "passed",
+              "ten_cell_test01_explicit_ok": true
+            }
+          ]
+        },
+        {
+          "id": 124515403444,
+          "name": "Linux C++20 (strict)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-31T10:48:37Z",
+          "completed_at": "2026-10-31T10:58:04Z",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193665523/job/124515403444",
+          "event": "pr",
+          "run_id": 41193665523,
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout": "489143c029f1a423d3cace9b65853fc7dfb032ab",
+          "checkout_tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "raw_log": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/pr-strict-log.stdout",
+          "raw_log_sha256": "d8c6d441c49636b48ff28258ba1e58f72e24396d26e8265d377a43b5d45ca777",
+          "runner_selfchecks": [
+            {
+              "suite": "test_run_gcc_asan.py",
+              "case_count": 24,
+              "expected_case_count": 24,
+              "summary": "2026-10-31T10:49:02.9184187Z Ran 24 tests in 0.159s",
+              "ok": true,
+              "counted_as_product_ctest": false
+            },
+            {
+              "suite": "test_immediate_unittest.py",
+              "case_count": 4,
+              "expected_case_count": 4,
+              "summary": "2026-10-31T10:49:03.0345252Z Ran 4 tests in 0.041s",
+              "ok": true,
+              "counted_as_product_ctest": false
+            }
+          ],
+          "ctest_step": {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11,
+            "started_at": "2026-10-31T10:53:02Z",
+            "completed_at": "2026-10-31T10:58:03Z"
+          },
+          "product_ctest_total": 92,
+          "product_ctest_passed": 92,
+          "ctest_summary_lines": [
+            "2026-10-31T10:58:03.1438580Z 100% tests passed, 0 tests failed out of 92",
+            "2026-10-31T10:58:03.1439183Z Total Test time (real) = 300.07 sec"
+          ],
+          "registered_names_match_frozen_manifest": true,
+          "parsed_evidence": {
+            "path": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/pr-strict-parsed.json",
+            "sha256": "ac046eaaad7302e2663694db2d758a1b6f969166ad7b0502e9f280cdd982502b"
+          },
+          "deadline_evidence_scope": "Actual CTest test-plan deadlines exported and verified by the same-tree GCC ASan jobs; this job exports complete result names only."
+        },
+        {
+          "id": 124515403466,
+          "name": "Linux C++20 (Make-ASan)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-31T10:53:33Z",
+          "completed_at": "2026-10-31T11:36:53Z",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193665523/job/124515403466",
+          "event": "pr",
+          "run_id": 41193665523,
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout": "489143c029f1a423d3cace9b65853fc7dfb032ab",
+          "checkout_tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "raw_log": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/pr-make-asan-log.stdout",
+          "raw_log_sha256": "9fc1a7923d3965a4a778f9a8a0a642ab93a1f1397420774075cf16abbd5961e2",
+          "runner_selfchecks": [],
+          "make_target_step": {
+            "name": "Verify the original GCC ASan Make target and user CPPFLAGS",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 12,
+            "started_at": "2026-10-31T10:53:55Z",
+            "completed_at": "2026-10-31T11:36:50Z"
+          },
+          "make_evidence_receipt": {
+            "path": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/pr-make-a2-verification-v2.json",
+            "sha256": "f92419f8cf71927dc1ebcb2ef9126f93b31ec32943049f1526e7c2ae64d26a39"
+          },
+          "observed_make_test_invocation_count": 90,
+          "native_test_invocation_count": 57,
+          "python_test_invocation_count": 33,
+          "source_verifier_invocation_count": 2,
+          "invocation_count_scope": "Original Make stdout command echoes: native build-make-asan binaries and tests/*.py scripts; excludes compiler/linker commands, nested internal executions, and source verifiers (listed separately). Quoting parsed with shlex; no command executed.",
+          "ctest_suite_count": "NOT_APPLICABLE",
+          "total_internal_case_count": "NOT_INFERRED",
+          "a2": [
+            {
+              "suite": "r3_offline_acceptance_tests.py",
+              "method_count": 9,
+              "methods": [
+                {
+                  "name": "test_cli_fixture_preserves_real_unittest_dispatch_and_cleanup",
+                  "result": "ok",
+                  "line": 1740
+                },
+                {
+                  "name": "test_dry_run_cannot_open_store_resolve_credentials_spawn_or_connect",
+                  "result": "ok",
+                  "line": 1741
+                },
+                {
+                  "name": "test_existing_output_and_symlink_inputs_refuse_without_overwrite",
+                  "result": "ok",
+                  "line": 1742
+                },
+                {
+                  "name": "test_fifo_and_duplicate_json_refuse",
+                  "result": "ok",
+                  "line": 1743
+                },
+                {
+                  "name": "test_fixed_phases_have_no_host_dispositions_or_external_tool_calls",
+                  "result": "ok",
+                  "line": 1744
+                },
+                {
+                  "name": "test_human_form_preserves_denominator_and_does_not_preapprove_semantics",
+                  "result": "ok",
+                  "line": 1745
+                },
+                {
+                  "name": "test_material_and_rehashed_fake_config_mutation_refuse_before_execution",
+                  "result": "ok",
+                  "line": 1746
+                },
+                {
+                  "name": "test_prepare_freezes_exact_ten_cells_materials_topology_and_private_modes",
+                  "result": "ok",
+                  "line": 1747
+                },
+                {
+                  "name": "test_real_prerequisites_missing_never_imply_authority_or_default_money",
+                  "result": "ok",
+                  "line": 1748
+                }
+              ],
+              "command": "2026-10-31T11:24:49.6327822Z /home/runner/work/wls861/wls861/.local/test-venv/bin/python tests/r3_offline_acceptance_tests.py \"/home/runner/work/wls861/wls861\"",
+              "summary": "2026-10-31T11:24:49.8518472Z Ran 9 tests in 0.136s",
+              "raw_line_start": 1739,
+              "raw_line_end": 1753
+            },
+            {
+              "suite": "r3_offline_acceptance_cli_tests.py",
+              "method_count": 10,
+              "methods": [
+                {
+                  "name": "test_01_all_ten_real_store_cells_preserve_original_source_identity_and_accounting",
+                  "result": "ok",
+                  "line": 1755
+                },
+                {
+                  "name": "test_02_partial_amend_omitted_subject_stays_paused_until_model_keep",
+                  "result": "ok",
+                  "line": 1756
+                },
+                {
+                  "name": "test_03_rework_exhaustion_and_exact_delivery_keep_original_bytes",
+                  "result": "ok",
+                  "line": 1757
+                },
+                {
+                  "name": "test_04_reporting_and_failed_rerun_do_not_modify_original_evidence",
+                  "result": "ok",
+                  "line": 1758
+                },
+                {
+                  "name": "test_05_missing_or_changed_original_feedback_cannot_be_host_filled",
+                  "result": "ok",
+                  "line": 1759
+                },
+                {
+                  "name": "test_06_accounting_conflict_cannot_be_completed_or_hidden_by_duplicate_cells",
+                  "result": "ok",
+                  "line": 1760
+                },
+                {
+                  "name": "test_07_rehashed_logical_label_cannot_replace_native_history",
+                  "result": "ok",
+                  "line": 1761
+                },
+                {
+                  "name": "test_08_synthetic_source_cannot_be_relabelled_provider",
+                  "result": "ok",
+                  "line": 1762
+                },
+                {
+                  "name": "test_09_original_unknown_cost_retains_nullable_ledger_and_failed_cell",
+                  "result": "ok",
+                  "line": 1763
+                },
+                {
+                  "name": "test_10_v1_v2_historical_single_worker_meaning_remains_unchanged",
+                  "result": "ok",
+                  "line": 1764
+                }
+              ],
+              "command": "2026-10-31T11:24:49.8656578Z /home/runner/work/wls861/wls861/.local/test-venv/bin/python tests/r3_offline_acceptance_cli_tests.py \"/home/runner/work/wls861/wls861/build-make-asan/wls\" \"/home/runner/work/wls861/wls861\"",
+              "summary": "2026-10-31T11:26:27.0598629Z Ran 10 tests in 97.129s",
+              "raw_line_start": 1754,
+              "raw_line_end": 1769
+            }
+          ],
+          "asan_lsan_enabled": true,
+          "user_cppflags_present": true
+        },
+        {
+          "id": 124515403476,
+          "name": "Linux C++20 (Clang-18)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-31T10:55:04Z",
+          "completed_at": "2026-10-31T11:01:53Z",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193665523/job/124515403476",
+          "event": "pr",
+          "run_id": 41193665523,
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout": "489143c029f1a423d3cace9b65853fc7dfb032ab",
+          "checkout_tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "raw_log": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/pr-clang-log.stdout",
+          "raw_log_sha256": "acbd383294c7f7686472918e306f21ea0217d60d8a3c88eba78b85efa0796344",
+          "runner_selfchecks": [],
+          "ctest_step": {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11,
+            "started_at": "2026-10-31T10:57:52Z",
+            "completed_at": "2026-10-31T11:01:51Z"
+          },
+          "product_ctest_total": 92,
+          "product_ctest_passed": 92,
+          "ctest_summary_lines": [
+            "2026-10-31T11:01:51.6062604Z 100% tests passed, 0 tests failed out of 92",
+            "2026-10-31T11:01:51.6063161Z Total Test time (real) = 238.30 sec"
+          ],
+          "registered_names_match_frozen_manifest": true,
+          "parsed_evidence": {
+            "path": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/pr-clang-parsed.json",
+            "sha256": "77928d03926a13d9fb9648755aa607dae554bfb252993ecfc732a7c006a591b9"
+          },
+          "deadline_evidence_scope": "Actual CTest test-plan deadlines exported and verified by the same-tree GCC ASan jobs; this job exports complete result names only."
+        },
+        {
+          "id": 124515403484,
+          "name": "Linux C++20 (strict-umask-0002)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-31T10:54:19Z",
+          "completed_at": "2026-10-31T11:00:26Z",
+          "html_url": "https://github.com/wmqfl861/wls861/actions/runs/41193665523/job/124515403484",
+          "event": "pr",
+          "run_id": 41193665523,
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout": "489143c029f1a423d3cace9b65853fc7dfb032ab",
+          "checkout_tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "raw_log": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/pr-umask0002-log.stdout",
+          "raw_log_sha256": "ee6e1aa4e10eede89b08c0981535834164703423faffec891825caba7c681a8c",
+          "runner_selfchecks": [],
+          "ctest_step": {
+            "name": "Run complete CTest as an ordinary user",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11,
+            "started_at": "2026-10-31T10:57:06Z",
+            "completed_at": "2026-10-31T11:00:24Z"
+          },
+          "product_ctest_total": 92,
+          "product_ctest_passed": 92,
+          "ctest_summary_lines": [
+            "2026-10-31T11:00:24.6225289Z 100% tests passed, 0 tests failed out of 92",
+            "2026-10-31T11:00:24.6225553Z Total Test time (real) = 197.88 sec"
+          ],
+          "registered_names_match_frozen_manifest": true,
+          "parsed_evidence": {
+            "path": "/mnt/d/codex-workspace/wls861-next-20261031-065247/evidence/integration-linux-12d0f94d-20261031/pr-umask0002-parsed.json",
+            "sha256": "ce99469e23c22a34ee3e4bf7f15a66c485bf752964c1ea950004d40fb4cb2764"
+          },
+          "deadline_evidence_scope": "Actual CTest test-plan deadlines exported and verified by the same-tree GCC ASan jobs; this job exports complete result names only."
+        }
+      ]
+    },
+    "native_ci": [
+      {
+        "run_id": 41193660590,
+        "url": "https://github.com/wmqfl861/wls861/actions/runs/41193660590",
+        "event": "push",
+        "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+        "actual_checkout_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+        "checkout_tree_sha": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+        "conclusion": "success",
+        "components_passed": 4,
+        "components_failed": 0,
+        "receipt_ref": "integration_native_source",
+        "source_pointer": "/native_workflows/0"
+      },
+      {
+        "run_id": 41193665487,
+        "url": "https://github.com/wmqfl861/wls861/actions/runs/41193665487",
+        "event": "pull_request",
+        "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+        "actual_checkout_sha": "489143c029f1a423d3cace9b65853fc7dfb032ab",
+        "checkout_tree_sha": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+        "conclusion": "success",
+        "components_passed": 4,
+        "components_failed": 0,
+        "receipt_ref": "integration_native_source",
+        "source_pointer": "/native_workflows/1"
+      }
+    ],
+    "same_source_diagnostic": {
+      "status": "VERIFIED",
+      "baseline_sha": "a2dfb46322d217f32eb5cc2516de6107c10db4b8",
+      "probe_sha256": "48ae8f4db3d29835403bc41daba2554d51a2c05d5a7c3901ee901193fd25aad6",
+      "diagnostic_count": 1,
+      "versions_per_run": 2,
+      "product_ctest_executed": false,
+      "companion_product_catalog_count": 92,
+      "runs": [
+        {
+          "run_id": 41193660582,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41193660582",
+          "event": "push",
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "checkout_tree_sha": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "baseline_exit": 1,
+          "candidate_exit": 0,
+          "baseline_seconds": 0.8519195370000148,
+          "candidate_seconds": 0.9372813379999911
+        },
+        {
+          "run_id": 41193665647,
+          "url": "https://github.com/wmqfl861/wls861/actions/runs/41193665647",
+          "event": "pull_request",
+          "head_sha": "12d0f94db4645ca187d47e94a472d952b7489d04",
+          "actual_checkout_sha": "489143c029f1a423d3cace9b65853fc7dfb032ab",
+          "checkout_tree_sha": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+          "baseline_exit": 1,
+          "candidate_exit": 0,
+          "baseline_seconds": 0.8103845980000131,
+          "candidate_seconds": 0.8656799120000187
+        }
+      ],
+      "receipt_ref": "integration_red_green"
+    },
+    "source_snapshot": {
+      "run": 41193660568,
+      "head": "12d0f94db4645ca187d47e94a472d952b7489d04",
+      "tree": "79a8f3240791360c9699e6be35f01ceec9ec9941",
+      "event": "push",
+      "url": "https://github.com/wmqfl861/wls861/actions/runs/41193660568",
+      "workflow_conclusion": "success",
+      "actual_checkout": "12d0f94db4645ca187d47e94a472d952b7489d04",
+      "source_tar_gz_sha256": "c95de97c3d628f81071cc969e9f7a0852619a4494d296678f8dc142a9566ee30",
+      "files": 773,
+      "bytes": 27582257,
+      "all_archived_bytes_match_committed_tree": true,
+      "git_executable_bits_match": true,
+      "receipt_ref": "integration_native_source"
+    },
+    "receipt_refs": [
+      "integration_native_source",
+      "integration_red_green",
+      "integration_release_0022",
+      "test_input_identity",
+      "executed_source_manifest",
+      "integration_linux",
+      "integration_release_0022_independent_review",
+      "integration_release_0002"
+    ],
+    "additional_local_sanitizer_and_clang_gates": {
+      "status": "NOT_RUN_FOR_FINAL_12D_INPUT",
+      "completion_receipt": null,
+      "scope": "Original baseline GCC gate and historicalClang diagnosis have actual separate results; exact12d configurations run inCI and are not relabeled local."
+    }
+  },
+  "authorship_and_review": {
+    "receipt_ref": "A3_A4_scope_review",
+    "initial_business_commits": [
+      {
+        "module": "A3",
+        "commit_sha": "a2dfb46322d217f32eb5cc2516de6107c10db4b8",
+        "initial_business_author_agent": "NOT_CONFIRMED"
+      },
+      {
+        "module": "A4",
+        "commit_sha": "2652cf9829e7af9e924f150dacc248020a48890b",
+        "initial_business_author_agent": "NOT_CONFIRMED"
+      }
+    ],
+    "known_agent_roles": [
+      {
+        "agent": "/root",
+        "role": "Co-authored A3 Store primitive; coordinator reports this role, so not claimed to be non-author for that primitive"
+      },
+      {
+        "agent": "/root/evidence_audit",
+        "role": "Authored two additional A4 cases; earlier non-author business source review is distinct from authorship of those tests"
+      },
+      {
+        "agent": "/root/concurrency_fix",
+        "role": "Authored A4 red-green diagnostic runner/classifier/tool-lookup tests/CMake lookup fix; corresponding new workflow actually applied by root"
+      }
+    ],
+    "reviewer": {
+      "agent": "/root/independent_recovery_review",
+      "role": "Non-author bounded engineering source review against coordinator-forwarded original user minima",
+      "same_model_review": true,
+      "different_model_review": false,
+      "coordinator_approval": false,
+      "formal_pr_approval": false
+    },
+    "no_agent_inferred_from_shared_git_identity": true,
+    "A5_evidence_audit_role": "Execution evidence verification for A5, whose initial native code was authored by this Agent; this is not independent product acceptance"
+  },
+  "limitations": {
+    "A1_local_GCC": {
+      "status": "FAILED_UNRESOLVED",
+      "failed_non_timeout_tests": [
+        "https_transport",
+        "live_model_store_tls"
+      ],
+      "timeout_suites_can_contain_prior_inner_failures": true,
+      "root_cause_established": false,
+      "receipt_refs": [
+        "A1_local_failure",
+        "A1_comparison"
+      ]
+    },
+    "historical_Clang": {
+      "status": "UNRESOLVED",
+      "historical_clang_asan_failures_closed": false,
+      "current_full_workflow_diagnostic": {
+        "registered_suites": 1,
+        "method_observations": {
+          "registered": 18,
+          "observed_ok": 5,
+          "observed_error": 1,
+          "observed_fail": 0,
+          "started_without_result": 1,
+          "not_started": 11
+        },
+        "watchdog_exit_code": 124,
+        "runner_exit_code": 1,
+        "original_failure_target": "test_model_exhaustion_escalates_original_rejected_submission",
+        "original_target_observation": "NOT_REACHED",
+        "historical_issue_status": "UNRESOLVED / NOT_REPRODUCED",
+        "current_traceback_scope": "cross_task_host_submission subprocess.TimeoutExpired after original 240-second child deadline",
+        "children_cleaned": true
+      },
+      "receipt_ref": "A1_clang_diagnostic"
+    },
+    "Windows": {
+      "observed_host": "Windows-2022Server-10.0.20348-SP0",
+      "machine": "AMD64",
+      "filesystem": "NTFS",
+      "token_elevation": "elevated",
+      "MSVC": "19.44.35229.0",
+      "toolset": "14.44.35207",
+      "sdk": "10.0.26100.0",
+      "WINDOWS_11_ACCEPTANCE": "NOT_RUN",
+      "ORDINARY_USER_WINDOWS_SECURITY": "NOT_RUN",
+      "FULL_NATIVE_RUNTIME": "NOT_IMPLEMENTED",
+      "unsupported_or_unaccepted": [
+        "native Store/VFS",
+        "business Workspace/ACL",
+        "process supervision and exit evidence",
+        "owned cleanup",
+        "restricted token/AppContainer",
+        "network and filesystem isolation"
+      ]
+    },
+    "real_models_and_production": {
+      "real_provider_calls": 0,
+      "paid_api_requests": 0,
+      "production_data_or_services_access": 0,
+      "real_execution": "NOT_RUN",
+      "provider_quality": "NOT_RUN",
+      "actual_provider_cost": "NOT_RUN",
+      "semantic_review": "NOT_RUN",
+      "authorization_inferred": false,
+      "offline_test_scope": "FakeModel, temporary stores and loopback TLS with synthetic credentials only."
+    },
+    "B0_B6": {
+      "status": "NOT_AUTHORIZED_OR_STARTED_BY_THIS_BATCH",
+      "coordinator_next_task_decision": "PENDING"
+    },
+    "acceptance": {
+      "same_model_engineering_review_is_formal_coordinator_acceptance": false,
+      "formal_coordinator_acceptance": "PENDING",
+      "main_merge_or_deployment_performed": false
+    }
+  },
+  "publication": {
+    "existing_whitelist": {
+      "path": "publication/final-drafts/selected-evidence-draft.json",
+      "sha256": "98e593fc34ea2397f58c1ab28f4ab7d9d4f4d49b2c491a5b85ca2a15f5b9ab1d",
+      "entry_count": 31,
+      "modified_by_index_task": false
+    },
+    "this_index_added_to_whitelist": false,
+    "final_report": {
+      "status": "FINAL_SHA_RECORDED_BY_EXTERNAL_POST_PUBLICATION_RECEIPT",
+      "commit_sha": null,
+      "tree_sha": null,
+      "source_snapshot_receipt": null,
+      "post_report_source_comparison": "PENDING",
+      "tested_input_reference": "12d0f94db4645ca187d47e94a472d952b7489d04",
+      "new_report_commit_claimed_fully_tested": false,
+      "self_reference_policy": "This record binds tested12d input; final documentation commit/source snapshot and CI are verified after normal publication and recorded externally and inPR10. No self-referential commit is manufactured."
+    },
+    "root_updates_required": [
+      "Record final report commit/tree/source snapshot and compare to the tested 12d input.",
+      "Make coordinator acceptance and later-task decisions independently."
+    ],
+    "text_evidence_archive": {
+      "repository_path": "docs/reports/next-cycle-evidence-20261031.tar.gz",
+      "archive_sha256": "4df6d94135f85cc6cc29f20d861257dc47f89d7feb249b895680b87e8a4b1eca",
+      "compressed_bytes": 637647,
+      "original_text_file_count": 74,
+      "original_text_bytes": 2597859,
+      "internal_manifest_sha256": "7b4e3ae654b8a6d2a2c4e83167761239ac8f035a5ea7929107c2d6fbb8ff9ca9",
+      "all_original_member_hashes_verified": true,
+      "archive_code_executed": false
+    },
+    "source_manifest_repository_path": "docs/reports/next-cycle-executed-inputs-20261031.sha256",
+    "report_repository_path": "docs/reports/next-cycle-completion-20261031.md"
+  },
+  "receipt_references": {
+    "A1_local_failure": {
+      "path": "evidence/a1-baseline-01/completion-receipt.json",
+      "sha256": "22f267f446e1b9020c98174578b46f6bc5bf8c4657e37984c46feb52b778add5",
+      "bytes": 14761,
+      "matched_existing_frozen_reference": true
+    },
+    "A1_clang_diagnostic": {
+      "path": "evidence/a1-clang-workflow-full-diagnostic-v1/handoff.json",
+      "sha256": "248a37fa9921e3038e30f3f15484a0622c9db1048912af790b2de443304d8a10",
+      "bytes": 1374,
+      "matched_existing_frozen_reference": true
+    },
+    "A1_comparison": {
+      "path": "evidence/a1-gcc-local-remote-comparison-v1/comparison.json",
+      "sha256": "728308b7bc143461fa03f4492c715a19fc82d7651b0c17236518bdb168626178",
+      "bytes": 23142,
+      "matched_existing_frozen_reference": true
+    },
+    "A1_remote": {
+      "path": "evidence/a1-final-remote-20261031/remote-completion-receipt.json",
+      "sha256": "1d7ab70eaa1a730d36b9e04e2875fc45c7bfd70ed5a222ed5317d35f829d759c",
+      "bytes": 10849,
+      "matched_existing_frozen_reference": true
+    },
+    "A2_local_persistent": {
+      "path": "evidence/a2-local-execution-20261031/local-persistent-completion-receipt.json",
+      "sha256": "f1a2329610c2c8b233f8ed4139c709458492c7596cd7a01feef39e988936f2aa",
+      "bytes": 105339,
+      "matched_existing_frozen_reference": true
+    },
+    "A2_remote": {
+      "path": "evidence/a2-source-path-20261031/remote-completion-receipt.json",
+      "sha256": "796c57443dbf3218c1c314022235499f11d1e0b2e0d423eb4d677c3ad0b4a816",
+      "bytes": 36931,
+      "matched_existing_frozen_reference": true
+    },
+    "A2_snapshot": {
+      "path": "evidence/a2-source-path-20261031/source-snapshot-verification.json",
+      "sha256": "869dbeeae2a5b1b82698e2d92ecb3a5931a0bb447b44a697f8955093f0d54455",
+      "bytes": 1051,
+      "matched_existing_frozen_reference": false
+    },
+    "A3_remote": {
+      "path": "evidence/a3-a4-final-remote-20261031/a3/remote-completion-receipt.json",
+      "sha256": "8a6c280b10e7ed0b69efd72b68be3369b3439c13d221d575353e305b5f27ee8e",
+      "bytes": 11942,
+      "matched_existing_frozen_reference": true
+    },
+    "A3_A4_scope_review": {
+      "path": "evidence/a3-a4-original-scope-review-20261031/review-receipt.json",
+      "sha256": "c4bd7b064a434cc3487294d32a8ea342d0bf67a10c17434f398ecff7fef74481",
+      "bytes": 16793,
+      "matched_existing_frozen_reference": true
+    },
+    "A4_remote": {
+      "path": "evidence/a4-linux-86b82f8-20261031/a4/remote-completion-receipt.json",
+      "sha256": "41936486dbf3dc0324a121ba7c0165d2fc8b02971f8b89cb5ab016d2423596b3",
+      "bytes": 12768,
+      "matched_existing_frozen_reference": true
+    },
+    "A4_red_green": {
+      "path": "evidence/a4-fairness-ci-86b82f8/red-green-verification.json",
+      "sha256": "797a5f135c146638459a4329c49b7406c7a7690395d9f073f177bbd3a26c4395",
+      "bytes": 7660,
+      "matched_existing_frozen_reference": true
+    },
+    "A4_snapshot": {
+      "path": "evidence/a4-fairness-ci-86b82f8/41193639717/source-tree-verification.json",
+      "sha256": "e94ae27b51fa3a7c2d8e4e447ad34f05993410716423bccfd5487ea55081bd55",
+      "bytes": 179588,
+      "matched_existing_frozen_reference": false
+    },
+    "A4_tool_review": {
+      "path": "evidence/a4-fairness-tool-nonauthor-review-20261031T101603Z/review-receipt.json",
+      "sha256": "6e14499572dbb7e7d8cccdb3a516d5eb270192829ee75613be379e52a554f23a",
+      "bytes": 6911,
+      "matched_existing_frozen_reference": false
+    },
+    "A4_cmake_review": {
+      "path": "evidence/a4-cmake-lookup-fix-nonauthor-review-20261031/review-receipt.json",
+      "sha256": "d7e5d0c6711ee520813ae2ed5d6af4f07ee303ed106e5cc6350924178cbef351",
+      "bytes": 5548,
+      "matched_existing_frozen_reference": false
+    },
+    "A5_remote": {
+      "path": "evidence/a5-final-linux-remote-20261031/remote-completion-receipt.json",
+      "sha256": "67f7978acb9a3bf080cc5ce74146f055931a63de57a639536c7c7ebc190d8cbe",
+      "bytes": 21907,
+      "matched_existing_frozen_reference": true
+    },
+    "A5_local_b8": {
+      "path": "evidence/combined-native-b8a5d7d8-local-02/local-native-completion-receipt.json",
+      "sha256": "5ee5fbb038d6c6109718b4b724810fa717356a29f4478d79897736615e4d89cf",
+      "bytes": 8582,
+      "matched_existing_frozen_reference": true
+    },
+    "integration_native_source": {
+      "path": "evidence/integration-native-12d0f94d-20261031/native-source-completion-receipt.json",
+      "sha256": "996b926877fd6eba8934ab7aec335562ed7f4c9a75fef5f8d3e97035d14858c7",
+      "bytes": 26095,
+      "matched_existing_frozen_reference": true
+    },
+    "integration_red_green": {
+      "path": "evidence/a4-fairness-ci-integration-12d/red-green-completion-receipt.json",
+      "sha256": "30f0e74771c84fb45fe05d822a0da1f6fec25b5e67322015f5a9b86c0e0e62b1",
+      "bytes": 3588,
+      "matched_existing_frozen_reference": true
+    },
+    "integration_release_0022": {
+      "path": "evidence/integrated-release-0022-01/completion-receipt.json",
+      "sha256": "033fd2221285fb8e41639ab3505d3aa3e15f2745618d62396db8b6275afcc22e",
+      "bytes": 1174,
+      "matched_existing_frozen_reference": false
+    },
+    "test_input_identity": {
+      "path": "evidence/integrated-release-build-02-final-input/final-execution-input.json",
+      "sha256": "50f19c5408f59c539908794ab39ed783af07297bf8a8cd0e00e7c33dc34555d0",
+      "bytes": 402,
+      "matched_existing_frozen_reference": true
+    },
+    "executed_source_manifest": {
+      "path": "publication/final-drafts/next-cycle-executed-inputs-20261031.sha256",
+      "sha256": "c1ae3adc267de7c70cb4dc27ae98babbff992c28af398ed86b8d0e2efb2a92f4",
+      "bytes": 82764,
+      "matched_existing_frozen_reference": true
+    },
+    "pr_dependencies": {
+      "path": "evidence/final-prepublication-01/index.json",
+      "sha256": "51d496b36d5ff5b121c6c4d5604d52e1b144b4d68ec0b21d8eebdd4d655438a0",
+      "bytes": 4430,
+      "matched_existing_frozen_reference": true
+    },
+    "publication_whitelist_review": {
+      "path": "evidence/selected-evidence-publication-review-20261031/review-receipt.json",
+      "sha256": "090a3b08dbce0b31d4421be847c3a428e3367ea803d46bbc7e5cad1bf4ddf958",
+      "bytes": 31909,
+      "matched_existing_frozen_reference": true
+    },
+    "PR8_body_update": {
+      "path": "evidence/a3-pr8-final-body-update-20261031/receipt.json",
+      "sha256": "3c718a6d8a62793b009adf5b8a6482aadf4d3e493b22d2c9927e9d7601c6bf14",
+      "bytes": 339,
+      "matched_existing_frozen_reference": false
+    },
+    "PR9_body_update": {
+      "path": "evidence/a4-pr9-final-body-update-20261031/receipt.json",
+      "sha256": "93f70475deb367ce56ec032f3b8e8242a1db1edfa353a9b1b25f1ae6a9647b2d",
+      "bytes": 347,
+      "matched_existing_frozen_reference": false
+    },
+    "integration_linux": {
+      "path": "evidence/integration-linux-12d0f94d-20261031/linux-remote-completion-receipt.json",
+      "sha256": "bec739a76d2fea0d8dbf498cc43fbb5e8b77fb2fabb46882621118b41b68c723",
+      "bytes": 41024,
+      "original_bytes_unchanged": true
+    },
+    "integration_linux_manifest": {
+      "path": "evidence/integration-linux-12d0f94d-20261031/evidence-manifest.json",
+      "sha256": "8e880fecfa7cf23eac6af3c774845e18160bfc00afcb935639c5f5dae6730e21",
+      "bytes": 88051,
+      "original_bytes_unchanged": true
+    },
+    "integration_release_0022_independent_review": {
+      "path": "evidence/integrated-release-0022-independent-review-20261031/review-receipt.json",
+      "sha256": "c699e15fea4995207b168483cc417bdbd833580189c1e240a9d41bd7046d915e",
+      "bytes": 17944,
+      "original_bytes_unchanged": true
+    },
+    "integration_release_0022_publication_review": {
+      "path": "evidence/integrated-release-0022-publication-supplement-20261031/review-receipt.json",
+      "sha256": "538a1f12d72989e7f620ab700db2256bba09e70e881ebf37f7310a8fe0a56b73",
+      "bytes": 14312,
+      "original_bytes_unchanged": true
+    },
+    "integration_release_0002": {
+      "path": "evidence/integrated-release-0002-01/completion-receipt.json",
+      "sha256": "b78713ce89fd248e4d0361a783653fb9c41c939764dd11bae4717eb9c6bc12d0",
+      "bytes": 1214,
+      "original_bytes_unchanged": true
+    },
+    "integration_release_0002_independent_review": {
+      "path": "evidence/integrated-release-0002-independent-review-20261031/review-receipt.json",
+      "sha256": "1f4dfb7435b49450b88d3cdac8c23e209e8afc407c5b16c6a7713ebfb98c2a98",
+      "bytes": 18312,
+      "original_bytes_unchanged": true
+    },
+    "integration_release_0002_publication_review": {
+      "path": "evidence/integrated-release-0002-publication-supplement-20261031/review-receipt.json",
+      "sha256": "eba01657bf2c60fe07f340f70aa54164d1f7027dadb2b4b1de048de0e1cdb6bf",
+      "bytes": 14573,
+      "original_bytes_unchanged": true
+    },
+    "completion_report_index_review": {
+      "path": "evidence/completion-candidate-index-review-20261031/review-receipt.json",
+      "sha256": "d76fb74f23aad9a38154d949d59b6fb883372e27334930b64d80642633428d70",
+      "bytes": 44362,
+      "original_bytes_unchanged": true
+    }
+  },
+  "provenance_rules": [
+    "SHA-256 values identify files read for this draft; matched_existing_frozen_reference means comparison against a pre-existing recorded digest.",
+    "Pending fields intentionally have no invented commit, exit, checkout, tree or receipt.",
+    "No source snapshot, run or component result is transferred to a different input head.",
+    "Only metadata and evidence references are copied; raw request/model/feedback payloads remain in their original local evidence."
+  ],
+  "updated_at_utc": "2026-10-31T12:10:19.235010+00:00"
+}

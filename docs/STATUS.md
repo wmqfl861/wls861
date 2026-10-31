@@ -2,26 +2,35 @@
 
 2026-10-31 A0–A5 接续：从 PR #4 精确提交
 `772feaee62086ddb0e7f605a7472721d3bc61406` 的独立数据盘工作区开始，
-按主协调者派发实施失败即时取证、原 v3 十样本离线验收包、单 Store 写者的异步
-FakeModel 调用、请求/团队公平及双审核预留、Windows 原生配置/调度/公共资源切片。
-各模块实现与执行证据分别登记于[本轮索引](reports/next-cycle-validation-20261031.md)。
-当前分支不是 main；PR #1–#9 均未由本地执行 Agent 合并。工具自检、某一 CI 成功和
-同模型交叉源码复核不替代主协调者正式采纳。
+已实现失败即时取证、原 v3 十样本离线验收包、单 Store 写者的显式异步 FakeModel 调用、
+请求/团队公平及双审核预留、Windows 原生 config/Scheduler/公共资源切片。
+[首次执行索引](reports/next-cycle-validation-20261031.md)保留其时间范围；
+完整结果、原始失败、机器索引和证据包见[本轮收尾报告](reports/next-cycle-completion-20261031.md)。
+当前分支不是 main；PR #1–#10 均未由本地执行 Agent 合并，#5–#10 仍为 Draft。
+工程交叉复核与 CI 通过不替代主协调 Agent 的正式采纳。
 
-本机原 GCC 13.3 Debug `-g` 完整门禁和历史 Clang 18 `Debug -O2 -g` 结果分别保存。
-本机已有原套件超时、断言失败和错误，不能由远端 GCC 成功推断历史原因已关闭。
-`historical_clang_asan_failures_closed=false` 保持。受影响运行时的正式集成验收与合并
-仍未通过；A3/A4 属于待审实验分支。完整集成注册集合为原 89 项加 3 项新测试，共 92 项，
-原期限不变，实际通过/失败/超时/未运行数以本轮索引及其后续精确 SHA 收据为准。
+实际完整测试输入 `12d0f94db4645ca187d47e94a472d952b7489d04` 在本机普通用户下，
+Release 的 umask 0022、0002 均 **92/92 通过**，无失败、超时、跳过、未运行或遗留测试进程；
+两轮 773 个源码输入和 61 项构建/二进制身份保持一致。该输入的 Linux Push/PR 各六路均成功，
+原生组件、同源公平性红绿及源码快照也已核验。新增报告提交与其 CI、源码快照另按精确 SHA 记录。
+原 89 项加 3 项新注册构成完整 92 项目录，原期限不变；子例与运行器自检另计。
 
-A5 已在 Windows Server 2022 / NTFS 的原生 MSVC CI 实际通过四项组件测试，包含
-原源码移开后资源定位、Unicode 路径及不支持能力拒绝。该 runner 使用提升令牌；
-**Windows 11 x64 普通用户验收仍为 NOT_RUN**。Windows Store、业务文件与进程安全、
-强沙箱及 cleanup 尚未实现，不能把组件编译/测试成功称为完整 Windows 运行支持。
-Linux 文件任务、强执行环境和 Windows 各能力分别验收。真实供应商/付费调用为 0。
+本机原 PR #4 GCC 13.3 Debug `-g` ASan/LSan 完整门禁为 **48 通过、39 超时、2 失败**；
+历史 Clang 18 `Debug -O2 -g` 仍为 **29/39、10 超时**。原二进制 workflow 诊断保留
+当前 cross-task 的原 240 秒超时，未到达历史 model_exhaustion 方法，根因仍未闭合。
+`historical_clang_asan_failures_closed=false` 保持；成功 Release 和远端 sanitizer 不关闭历史失败。
+最终输入的本机 Clang/UBSan/ASan 矩阵为 NOT_RUN，其对应配置有真实远端结果。
+A3/A4 的受影响运行时正式集成采纳与合并仍待主协调者裁决，不能标为全本机门禁通过。
 
-原 P0–P7 卡片和以下历史批次记录保留其时间范围。当前获准边界及后继 B0–B6 依赖见
-[本批与后继任务](spec/v0.5.0/10-authorized-cycle-and-followups.md)；B0–B6 未自动启动。
+A2 的固定五任务 × multi/single 十槽已通过本机持久离线执行及原来源/账本核验。
+真实供应商质量、实际费用、语义评审均为 NOT_RUN；本轮真实模型和付费调用为 0。
+A5 在 Windows Server 2022 / NTFS / 提升令牌的原生 MSVC CI 实际通过四项组件测试，包含
+原源码路径缺席后定位、Unicode 及不支持能力拒绝；**Windows 11 x64 普通用户验收仍 NOT_RUN**。
+Windows Store、业务文件/进程安全、强沙箱、退出见证和 cleanup 未实现或未验收，
+组件成功不等于完整 Windows 运行支持。Linux 文件任务与强执行环境的正向验收分别登记。
+
+原 P0–P7 及以下历史批次记录保持其时间范围。当前获准边界和 B0–B6 后继依赖见
+[本批与后继任务](spec/v0.5.0/10-authorized-cycle-and-followups.md)；B0–B6 未自动开展生产实现。
 
 ## 2026-10-30 历史批次状态
 
