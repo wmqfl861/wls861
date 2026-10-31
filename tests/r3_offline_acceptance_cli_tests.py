@@ -143,7 +143,8 @@ class OfflineAcceptanceCLI(unittest.TestCase):
                 artifacts = frozen['manifest']['artifacts']
                 self.assertEqual(len(artifacts), 1)
                 artifact = artifacts[0]
-                self.assertEqual(artifact['source_path'], 'result.txt')
+                declared = a.read_json(self.package / 'fixtures/model-arguments.json')['submit']['deliverables']
+                self.assertEqual([artifact['source_path']], [item['path'] for item in declared])
                 self.assertEqual(contents[artifact['name']], b'alpha candidate version 1\n')
                 self.assertEqual(hashlib.sha256(contents[artifact['name']]).hexdigest(), artifact['sha256'])
                 self.assertEqual(len(contents[artifact['name']]), artifact['size_bytes'])
