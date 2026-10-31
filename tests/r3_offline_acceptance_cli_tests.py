@@ -33,11 +33,11 @@ class OfflineAcceptanceCLI(unittest.TestCase):
         cls.package = cls.root / 'package'
         a.prepare(cls.package)
         cls.result = a.run_fake(cls.package, BINARY)
-        cls.run = cls.package / 'run'
-        cls.plan = a.read_json(cls.run / 'plan.json')
-        cls.index = a.read_json(cls.run / 'runs.json')
-        cls.original_hashes = {str(path.relative_to(cls.run)): a.file_hash(path)
-                               for path in cls.run.rglob('store.sqlite')}
+        cls.run_directory = cls.package / 'run'
+        cls.plan = a.read_json(cls.run_directory / 'plan.json')
+        cls.index = a.read_json(cls.run_directory / 'runs.json')
+        cls.original_hashes = {str(path.relative_to(cls.run_directory)): a.file_hash(path)
+                               for path in cls.run_directory.rglob('store.sqlite')}
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='negative-', dir=self.root)
@@ -51,13 +51,13 @@ class OfflineAcceptanceCLI(unittest.TestCase):
     def backup(self, task='delivery_receipt', condition='multi_agent'):
         entry = self.cell(task, condition)
         target = self.directory / 'negative.sqlite'
-        with e.database(self.run / entry['database']) as original, closing(sqlite3.connect(target)) as output:
+        with e.database(self.run_directory / entry['database']) as original, closing(sqlite3.connect(target)) as output:
             original.backup(output)
         entry['database'] = str(target)
         return target, entry
 
     def inspect(self, entry, plan=None):
-        result = e.build_report(plan or self.plan, [entry], self.run)
+        result = e.build_report(plan or self.plan, [entry], self.run_directory)
         self.assertEqual(len(result['rows']), 10)
         self.assertEqual(result['counts']['not_executed'], 9)
         return next(row for row in result['rows']
@@ -86,14 +86,14 @@ class OfflineAcceptanceCLI(unittest.TestCase):
     def test_02_partial_amend_omitted_subject_stays_paused_until_model_keep(self):
         for condition in e.CONDITIONS:
             entry = self.cell('partial_amend', condition)
-            cell = (self.run / entry['database']).parent
+            cell = (self.run_directory / entry['database']).parent
             update = a.read_json(cell / 'update.result.json')
             keep = a.read_json(cell / 'keep.result.json')
             self.assertFalse(any(call['node_id'] == 'beta' and call['role'] == 'worker'
                                  for call in update['calls']))
             self.assertTrue(any(call['node_id'] == 'beta' and call['role'] == 'worker'
                                 for call in keep['calls']))
-            with e.database(self.run / entry['database']) as db:
+            with e.database(self.run_directory / entry['database']) as db:
                 decisions = e.rows(db, 'SELECT disposition FROM amend_dispositions ORDER BY rowid')
                 self.assertEqual(decisions, [{'disposition': 'update'}, {'disposition': 'keep'}])
                 self.assertEqual({row['status'] for row in e.rows(db, 'SELECT status FROM tasks')}, {'ACCEPTED'})
@@ -102,18 +102,18 @@ class OfflineAcceptanceCLI(unittest.TestCase):
     def test_03_rework_exhaustion_and_exact_delivery_keep_original_bytes(self):
         for condition in e.CONDITIONS:
             rework = self.cell('rejected_rework', condition)
-            with e.database(self.run / rework['database']) as db:
+            with e.database(self.run_directory / rework['database']) as db:
                 self.assertEqual([row['status'] for row in e.rows(db, 'SELECT status FROM candidate_acceptances ORDER BY rowid')],
                                  ['REJECTED', 'ACCEPTED'])
                 self.assertEqual(len(e.rows(db, 'SELECT * FROM workflow_submissions')), 2)
                 self.assertEqual(e.one(db, 'SELECT rework_count FROM team_workflow_state', ())['rework_count'], 1)
             exhausted = self.cell('exhausted_rework', condition)
-            with e.database(self.run / exhausted['database']) as db:
+            with e.database(self.run_directory / exhausted['database']) as db:
                 self.assertEqual(e.one(db, 'SELECT rework_count FROM team_workflow_state', ())['rework_count'], 1)
                 self.assertEqual(e.one(db, 'SELECT q.holder,r.status FROM questions q JOIN question_runtime r USING(question_id)', ()),
                                  {'holder': 'user', 'status': 'OPEN'})
             delivery = self.cell('delivery_receipt', condition)
-            with e.database(self.run / delivery['database']) as db:
+            with e.database(self.run_directory / delivery['database']) as db:
                 self.assertEqual(e.one(db, 'SELECT status FROM delivery_runtime', ())['status'], 'CONFIRMED')
                 self.assertEqual(len(e.rows(db, 'SELECT * FROM delivery_receipts')), 1)
                 frozen = e.strict_json(e.one(db, 'SELECT frozen_plan FROM delivery_runtime', ())['frozen_plan'])
@@ -126,11 +126,11 @@ class OfflineAcceptanceCLI(unittest.TestCase):
                     self.assertEqual(content, b'alpha candidate version 1\n')
 
     def test_04_reporting_and_failed_rerun_do_not_modify_original_evidence(self):
-        before = {str(path.relative_to(self.run)): a.file_hash(path) for path in self.run.rglob('store.sqlite')}
+        before = {str(path.relative_to(self.run_directory)): a.file_hash(path) for path in self.run_directory.rglob('store.sqlite')}
         self.assertEqual(a.report(self.package), self.result)
         with self.assertRaises(FileExistsError):
             a.run_fake(self.package, BINARY)
-        after = {str(path.relative_to(self.run)): a.file_hash(path) for path in self.run.rglob('store.sqlite')}
+        after = {str(path.relative_to(self.run_directory)): a.file_hash(path) for path in self.run_directory.rglob('store.sqlite')}
         self.assertEqual(before, after)
         self.assertEqual(self.original_hashes, after)
         public = a.encoded(self.result).decode()
@@ -153,12 +153,12 @@ class OfflineAcceptanceCLI(unittest.TestCase):
         self.assertEqual(row['status'], 'invalid_evidence')
         self.assertIn('reconstruct budget', row['reason'])
         with self.assertRaisesRegex(e.InvalidEvidence, 'duplicate run cell'):
-            e.build_report(self.plan, [entry, entry], self.run)
+            e.build_report(self.plan, [entry, entry], self.run_directory)
         alias = self.directory / 'same-evidence.sqlite'
         os.link(target, alias)
         relabel = dict(entry, condition='single_agent', database=str(alias))
         with self.assertRaisesRegex(e.InvalidEvidence, 'cannot be reused'):
-            e.build_report(self.plan, [entry, relabel], self.run)
+            e.build_report(self.plan, [entry, relabel], self.run_directory)
 
     def test_07_rehashed_logical_label_cannot_replace_native_history(self):
         target, entry = self.backup(condition='single_agent')
@@ -208,7 +208,7 @@ class OfflineAcceptanceCLI(unittest.TestCase):
             self.assertIsNone(e.one(db, 'SELECT cost_micro_usd FROM call_attempts', ())['cost_micro_usd'])
 
     def test_10_v1_v2_historical_single_worker_meaning_remains_unchanged(self):
-        with e.database(self.run / 'plan-seed/store.sqlite') as db:
+        with e.database(self.run_directory / 'plan-seed/store.sqlite') as db:
             request = e.one(db, 'SELECT request_id FROM requests', ())['request_id']
             legacy = [e.make_plan(db, request, decision_evidence=contract)
                       for contract in (None, 'model-origin-v1')]
