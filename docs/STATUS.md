@@ -1,5 +1,30 @@
 # 当前实现 **0.11.1-r3.3c-audit**，实施基线蓝图 **v0.4.1**，Store **410**。
 
+## 2026-11-01：ZCode 整改后的分配置复验
+
+本轮使用本机 ZCode CLI 编写测试即时诊断及 Store 事件规范字节复用，随后由非作者工程复核；
+原两项 P1 的修复与真实红绿属于上一批 PR #11，不归为本轮新成果。
+生产验证输入固定为 `08dad7e815b9c3c84d3bd2393818b2030a6e0cde`，
+[Draft PR #12](https://github.com/wmqfl861/wls861/pull/12) 依赖 PR #11；
+计费测试入口诊断另在 `ceaa9b3e18618c592345001dfc597bdaf579cf81`、
+[Draft PR #13](https://github.com/wmqfl861/wls861/pull/13)，未混入 code08 的正式本机矩阵。
+两种 umask 的完整 Release 各 92/92 通过；本机共享 GCC ASan/LSan 为
+48 通过、42 超时、2 失败，原失败和完整日志均保留，`LOCAL_VALIDATION_COMPLETE=FALSE`。
+完整 UBSan 为64通过、2失败、26超时；Clang18严格 Release 为92/92通过，各精确 SHA 的远端结果在
+[本轮补充报告](reports/zcode-independent-final-validation-20261101.md) 分别登记，不能相互代填。
+原[诊断报告](reports/zcode-native-diagnostics-followup-20261101.md)与
+[事件字节报告](reports/store-event-command-bytes-validation-20261101.md)保留其原截点和原字节。
+
+历史 GCC/Clang/live_workflow 根因继续 OPEN；本轮未从 Release 或远端绿色推断历史问题关闭。
+Windows Server 原生组件、Windows 11 普通用户验收和完整 Windows runtime 分开：
+后两者仍为 NOT_RUN、NOT_IMPLEMENTED；runner image 两份身份冲突仍 UNRESOLVED。
+PR #10 审核正文的 CHANGES_REQUIRED 结论未被本地工程复核或后继 CI 自动撤销，正式采纳由主协调者决定；
+本轮没有 main 写入或 PR 合并。WLS 真实供应商调用与付费执行未启动；
+已获明确授权的 ZCode 编码会话另行记录，不将其工具使用声称为零。
+
+公开证据另经准确成品审阅，首版包因主机doctor对象跨日志副本残留被拒绝，原失败包保留在数据盘。
+本次仅发布明确命名的安全修订版与精确索引；归档整改不改变上述产品门禁和历史根因结论。
+
 ## 2026-10-31：99c9063 独立审核定向整改
 
 PR #10 精确输入 `99c9063f3e29cd6d69c56fb15815715d499a374a` 的 R-A3-01 控制重放误停新调用、

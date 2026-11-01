@@ -1,0 +1,324 @@
+{
+  "schema": "wls861-final-validation-public-evidence-index-v2",
+  "created_at_utc": "2026-11-01T11:08:26.501410+00:00",
+  "scope": "Evidence-only documentation delivery directly based on code08; sibling of billing PR13. This index does not grant coordinator approval or close failed local gates.",
+  "formal_product_input": {
+    "commit": "08dad7e815b9c3c84d3bd2393818b2030a6e0cde",
+    "tree": "149bca333bce2460ba940ace3c76cc1111dfdd83",
+    "pr": "https://github.com/wmqfl861/wls861/pull/12",
+    "linux_ctest_registrations": 92,
+    "source_files": 794,
+    "binary_and_control_entities": 61
+  },
+  "separate_billing_input_not_included_in_this_branch": {
+    "commit": "ceaa9b3e18618c592345001dfc597bdaf579cf81",
+    "tree": "a068734b3c44c3cdef428b7dd5f6376b6be8bf32",
+    "pr": "https://github.com/wmqfl861/wls861/pull/13",
+    "local_tool_methods": 5,
+    "local_full_product_matrix": "NOT_RUN"
+  },
+  "publication_identity_rule": "The Git commit containing this index is the documentation input. Its full SHA, tree, actual Draft PR, remote branch readback and own-SHA CI belong to non-self-referential post-publication receipts; no future SHA or CI success is claimed here.",
+  "files_excluding_this_index": {
+    "docs/STATUS.md": {
+      "bytes": 30733,
+      "sha256": "c49989b72671731e326ac6c5bf0455c5c7c28a56212df4d8f5e98eedec5cad94"
+    },
+    "docs/ROADMAP.md": {
+      "bytes": 26980,
+      "sha256": "fbacf958fdca9b29edf0681f96d1be542c59e2d5712f7a7dbfb63dfd25b794e5"
+    },
+    "docs/reports/zcode-independent-final-validation-20261101.md": {
+      "bytes": 26117,
+      "sha256": "cf5f932de63b68f1d91d2af6c548482c433b634cce192faa244398da24f1c93a"
+    },
+    "docs/reports/zcode-native-diagnostics-followup-20261101.md": {
+      "bytes": 18017,
+      "sha256": "884f85ad1cef8f3e4c2dfc1fecad1cff16c21cbbea23f545822e70d27b9f68c1"
+    },
+    "docs/reports/store-event-command-bytes-validation-20261101.md": {
+      "bytes": 31850,
+      "sha256": "b29aef5290199c86f0af91bcf4166461f8a7d683d2ecaea379dc9125d5177d7c"
+    },
+    "docs/reports/zcode-native-diagnostics-receipts-20261101.zip": {
+      "bytes": 223575,
+      "sha256": "2da6c77fe735808aa3071cb478ddceeaee43ef77c73dc49ae2c12351c2d7a822"
+    },
+    "docs/reports/store-event-command-bytes-receipts-20261101-public-v2.zip": {
+      "bytes": 233927,
+      "sha256": "5a868b458673833c8716f8c731ccfddeaee99093d32517152bd2e3ef4cf4cc52"
+    },
+    "docs/reports/zcode-final-validation-evidence-20261101-v2.zip": {
+      "bytes": 3174340,
+      "sha256": "d8b2dd067fc0d48d2b230051ffdf6e77af6a210e2a8910320a568aeb6a39ee82"
+    }
+  },
+  "archives": {
+    "docs/reports/zcode-native-diagnostics-receipts-20261101.zip": {
+      "bytes": 223575,
+      "sha256": "2da6c77fe735808aa3071cb478ddceeaee43ef77c73dc49ae2c12351c2d7a822",
+      "members": 174,
+      "uncompressed_bytes": 659411
+    },
+    "docs/reports/store-event-command-bytes-receipts-20261101-public-v2.zip": {
+      "bytes": 233927,
+      "sha256": "5a868b458673833c8716f8c731ccfddeaee99093d32517152bd2e3ef4cf4cc52",
+      "members": 93,
+      "uncompressed_bytes": 1018943
+    },
+    "docs/reports/zcode-final-validation-evidence-20261101-v2.zip": {
+      "bytes": 3174340,
+      "sha256": "d8b2dd067fc0d48d2b230051ffdf6e77af6a210e2a8910320a568aeb6a39ee82",
+      "members": 572,
+      "uncompressed_bytes": 12773042
+    }
+  },
+  "final_main_archive_review": {
+    "reviewer": "/root/independent_recovery_review",
+    "reviewer_is_archive_or_report_author": false,
+    "reviewer_authored_supporting_audit_artifacts": true,
+    "verdict": "NO_BLOCKER_IN_EXACT_FINAL_V2_PACKAGE_REVIEW",
+    "completed_at": "2026-11-01T11:05:49.209660+00:00",
+    "review_record": {
+      "evidence_relative_path": "final-delivery-review-01/package-review.json",
+      "bytes": 9241,
+      "sha256": "1144676b7c983dc1842738096127d1a01814cb12be9d02152d50805f4d5943d7"
+    },
+    "review_receipt": {
+      "evidence_relative_path": "final-delivery-review-01/package-review.receipt.json",
+      "bytes": 1146,
+      "sha256": "2b48633da8a6305bd3a7b27cda817b6a9023e7a60407b56661f6cebd22c6ebed"
+    },
+    "member_verification": {
+      "all_member_bytes_read_CRC_UTF8_regular0644": 572,
+      "payload": 567,
+      "MEMBERS_exactly_verified": 570,
+      "SHA256SUMS_exactly_verified": 571,
+      "uncompressed_bytes": 12773042,
+      "unsafe_paths_or_metadata": 0
+    },
+    "source_mappings_verified": 567,
+    "projection_members_independently_rebuilt": 48,
+    "original_prepared_members_exact": 304,
+    "explicit_baseline_replacements": 3,
+    "explicit_additions": 260,
+    "private_whole_object_or_original_prefix_findings": 0,
+    "same_unchanged_privacy_guard": {
+      "sha256": "df9b3be5a5fceaf9a84aa0b39a7a72aab0bf07016cf5d3ab7f339237cf4c874c",
+      "original_package_exit": 1,
+      "final_main_exit": 0,
+      "public_event_exit": 0
+    },
+    "finite_review_is_not_absolute_privacy_proof": true
+  },
+  "frozen_body_review": {
+    "freeze": "final-report-freeze-02",
+    "files": {
+      "docs/STATUS.md": {
+        "bytes": 30733,
+        "sha256": "c49989b72671731e326ac6c5bf0455c5c7c28a56212df4d8f5e98eedec5cad94"
+      },
+      "docs/ROADMAP.md": {
+        "bytes": 26980,
+        "sha256": "fbacf958fdca9b29edf0681f96d1be542c59e2d5712f7a7dbfb63dfd25b794e5"
+      },
+      "docs/reports/zcode-independent-final-validation-20261101.md": {
+        "bytes": 26117,
+        "sha256": "cf5f932de63b68f1d91d2af6c548482c433b634cce192faa244398da24f1c93a"
+      }
+    },
+    "review_record": {
+      "evidence_relative_path": "final-delivery-review-01/body-review-v2.json",
+      "bytes": 5268,
+      "sha256": "27dab69ef642cd867a9fc86dfb516186387776b220aa9be175062b7ee8547119"
+    },
+    "historical_freeze01_retained": true
+  },
+  "event_public_revision": {
+    "original_filename": "store-event-command-bytes-receipts-20261101.zip",
+    "original_sha256": "2d4d9cffbc5720775fa5b427433cd14c9993fdbcafeb3640d42ffc440efb1af7",
+    "original_bytes": 231407,
+    "original_status": "WITHHELD_FROM_GIT_RETAINED_PRIVATELY_UNCHANGED",
+    "published_filename": "store-event-command-bytes-receipts-20261101-public-v2.zip",
+    "review_record": {
+      "evidence_relative_path": "final-delivery-review-01/event-public-v2-review.json",
+      "bytes": 3867,
+      "sha256": "7f42e9a208a6f510672900bf1e3fbdb269f03235120d3ac709404fe07138f124"
+    },
+    "unchanged_evidence_members": 87,
+    "independently_rebuilt_projection_members": 1,
+    "rebuilt_controls": 4,
+    "new_revision_control": 1,
+    "original_report_unchanged": true,
+    "historical_report_old_archive_link": "Historical identity only; use this index for the current public asset."
+  },
+  "rejected_package_history": {
+    "filename": "zcode-final-validation-evidence-20261101.zip",
+    "bytes": 3022267,
+    "sha256": "4040aef760317176109a997d2b571b86c42bee962ed66fb777cf30cab872fdfe",
+    "members": 523,
+    "status": "REJECTED_NOT_PUBLISHED_ORIGINAL_PRESERVED",
+    "complete_private_doctor_objects_in_rejected_main": 4,
+    "complete_private_doctor_objects_in_old_event": 1,
+    "native_archive_targeted_findings": 0,
+    "failure_records_preserved": true,
+    "replacement_scope": "Release0002 LastTest and two remote logs in original307 mappings; exact ranges and restricted LOG_C0_ESCAPE then BYTE_RANGE recipes are recorded. Added GCC LastTest uses two original ranges. All outside-range bytes, JUnit outcomes and original deadlines are preserved."
+  },
+  "formal_local_results": {
+    "count_order": [
+      "passed",
+      "failed",
+      "timeout",
+      "skipped",
+      "notrun"
+    ],
+    "release_umask0022": {
+      "counts": [
+        92,
+        0,
+        0,
+        0,
+        0
+      ],
+      "exit": 0
+    },
+    "release_umask0002": {
+      "counts": [
+        92,
+        0,
+        0,
+        0,
+        0
+      ],
+      "exit": 0
+    },
+    "clang18_strict_release": {
+      "counts": [
+        92,
+        0,
+        0,
+        0,
+        0
+      ],
+      "exit": 0,
+      "sanitizers": "OFF"
+    },
+    "gcc13_debug_asan_lsan": {
+      "counts": [
+        48,
+        2,
+        42,
+        0,
+        0
+      ],
+      "ctest_exit": 8,
+      "runner_exit": 1,
+      "original_inner_status": "NOT_COMPLETE",
+      "outer_timeout": false
+    },
+    "gcc13_debug_ubsan": {
+      "counts": [
+        64,
+        2,
+        26,
+        0,
+        0
+      ],
+      "ctest_exit": 8,
+      "outer_timeout": false
+    },
+    "make_asan": "NOT_RUN_LOCALLY",
+    "gcc_runner_selfchecks": {
+      "tool_methods": 24,
+      "exit": 0,
+      "product_tests": false
+    },
+    "whole_sequential_driver_actual_exit": 1,
+    "whole_driver_receipt": {
+      "evidence_relative_path": "full-driver-root-terminal-01/receipt.json",
+      "bytes": 2901,
+      "sha256": "630e3061ff982f87825733c6c27e454367d9c2d3098d4e986fa57d23130a9b4f"
+    },
+    "whole_driver_receipt_is_root_observation_not_original_driver_completion": true
+  },
+  "remote_prior_input_results": {
+    "code08": {
+      "workflows_successful": 7,
+      "jobs_successful": 17,
+      "actual_checkout_logs": 17,
+      "artifacts_verified": 7,
+      "push_linux": "https://github.com/wmqfl861/wls861/actions/runs/41271460248",
+      "pr_linux": "https://github.com/wmqfl861/wls861/actions/runs/41271462706",
+      "pr_checkout": "47534906df0402b20651b1971ac642c98aa1af9a"
+    },
+    "ceaa": {
+      "workflows_successful": 7,
+      "jobs_successful": 17,
+      "actual_checkout_logs": 17,
+      "artifacts_verified": 7,
+      "push_linux": "https://github.com/wmqfl861/wls861/actions/runs/41282664727",
+      "pr_linux": "https://github.com/wmqfl861/wls861/actions/runs/41282669494",
+      "pr_checkout": "e50c7f70b97d3c91a74d484e0c8d02f4e41c015b"
+    },
+    "success_is_not_inherited_by_documentation_commit": true,
+    "remote_binary_payloads_available_for_independent_rehash": false
+  },
+  "post_report_phase_observation": {
+    "included_in_frozen_archive_or_report": false,
+    "classification": "TEST_DRIVER_OBSERVATION_OVERLAY_DIAGNOSTIC_NOT_GATE",
+    "run_count": 1,
+    "method_exit": 0,
+    "method_result": "OK",
+    "method_seconds": 4.948,
+    "phase_rows": 23,
+    "phase_continuity": "1..23",
+    "transport_status": "deadline",
+    "transport_phase": "request_write",
+    "prefix_bytes": 4096,
+    "peer_accepted": 1,
+    "peer_live_threads_at_end": 0,
+    "first_encode_seconds": 0.94095267,
+    "perform_coarse_seconds": 3.508633756,
+    "main_to_exit_marker_seconds": 4.667599459,
+    "derived_ELF_differs_from_original_ELF": true,
+    "production_and_original_source_binary_inputs_unchanged": true,
+    "original_ELF_one_shot_result": "ERROR: inner15s TimeoutExpired before original prefix assertion; launcher leader returncode=1; wrapper_exit_code=1; no normal original product exit inferred; not retried",
+    "historical_or_formal_gate_closed": false,
+    "review_record": {
+      "evidence_relative_path": "phase-observation-terminal-review-01/receipt.json",
+      "bytes": 26625,
+      "sha256": "00e4c80e827e23d5508b09b064eb0e6e500cda167ebb7f3c915faa73a854f576"
+    },
+    "safe_summary_record": {
+      "evidence_relative_path": "phase-observation-terminal-review-01/safe-summary.json",
+      "bytes": 8859,
+      "sha256": "1db32799584251da3af246e950ec24734e13541ddfe01608c535fb9222c60ff3"
+    },
+    "limitation": "Different diagnostic input and added observer overhead. This is not a completed transport result, original-ELF green, same-assertion reproduction,92-case gate or proven timeout root cause."
+  },
+  "open_items": [
+    "Current local GCC ASan/LSan and UBSan failures/timeouts remain open.",
+    "Historical GCC772, Clang29/39+10timeouts and live_workflow roots remain open; historical_clang_asan_failures_closed remains false.",
+    "No deadlock or specific stuck phase is inferred from UBSan Async START/PASS marker absence.",
+    "Windows11 ordinary-user NTFS real-machine acceptance NOT_RUN.",
+    "Windows full Store/filesystem/process/sandbox/cleanup runtime NOT_IMPLEMENTED.",
+    "Prior Windows Server2022 elevated component image-header/artifact identity conflict UNRESOLVED."
+  ],
+  "states_at_index_freeze": {
+    "code08_IMPLEMENTATION_COMPLETE": true,
+    "code08_LOCAL_VALIDATION_COMPLETE": false,
+    "code08_PUSH_COMPLETE": true,
+    "code08_REMOTE_CI_COMPLETE": true,
+    "documentation_PUBLIC_INDEX_REVIEW_COMPLETE": "PENDING_EXACT_NONAUTHOR_REVIEW",
+    "documentation_PUSH_COMPLETE": false,
+    "documentation_REMOTE_CI_COMPLETE": false,
+    "PR_REVIEW_COMPLETE": false,
+    "MERGED": false
+  },
+  "authorization_and_usage": {
+    "WLS_real_provider_runtime_calls": false,
+    "WLS_paid_runtime_calls": false,
+    "user_authorized_ZCode_coding_sessions_occurred": true,
+    "ZCode_usage_or_cost_claimed_zero": false,
+    "main_write_force_push_merge_or_formal_approval": false
+  }
+}
