@@ -25,6 +25,8 @@ import threading
 import time
 import unittest
 
+from immediate_unittest import ImmediateTextRunner
+
 if len(sys.argv) < 3:
     raise SystemExit('usage: test_billing_baseline_e2e.py WLS SOURCE [unittest options]')
 BINARY, SOURCE = (Path(value).resolve() for value in sys.argv[1:3])
@@ -755,4 +757,4 @@ class BillingBaselineIntegration(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main(verbosity=2)
+    unittest.main(verbosity=2, testRunner=ImmediateTextRunner)

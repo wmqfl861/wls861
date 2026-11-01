@@ -139,6 +139,81 @@ raise SystemExit(not result.wasSuccessful())
         self.assertEqual(len(result.skipped), 1)
         self.assertNotIn("[immediate-", stream.getvalue())
 
+    def test_billing_script_main_entrypoint_emits_subtest_failure_before_termination(self):
+        # The real billing E2E __main__ entry must select the immediate runner:
+        # a failed subTest that continues into slow fixture work loses its stored
+        # traceback when the process is terminated. The child replaces unittest's
+        # loader with one synthetic case, so no billing fixture, CLI, Store,
+        # model or transport operation runs; BINARY argv is path data only.
+        source = Path(__file__).resolve().parent.parent
+        marker = "BILLING_WIRING_SUBTEST_REGISTERED tests=1 failures=1 errors=0\n"
+        child = r'''
+from pathlib import Path
+import runpy
+import sys
+import unittest
+
+source = Path(sys.argv[1]).resolve()
+entry = source / "tests/test_billing_baseline_e2e.py"
+sys.path.insert(0, str(entry.parent))
+
+def prohibit_effects(event, arguments):
+    if event in {"subprocess.Popen", "os.system", "socket.connect", "socket.bind"}:
+        raise AssertionError("BILLING_WIRING_EFFECT_FORBIDDEN: " + event)
+sys.addaudithook(prohibit_effects)
+
+class BillingEntrypointWiring(unittest.TestCase):
+    def test_subtest_registered_before_wait(self):
+        with self.subTest(synthetic=True):
+            self.fail("BILLING_WIRING_ORIGINAL_ASSERTION_WITNESS")
+        result = self._outcome.result
+        if (result.testsRun, len(result.failures), len(result.errors)) != (1, 1, 0):
+            raise AssertionError("SYNTHETIC_SUBTEST_NOT_REGISTERED")
+        print("BILLING_WIRING_SUBTEST_REGISTERED tests=1 failures=1 errors=0", flush=True)
+        sys.stdin.readline()
+
+def select_wiring_case(module, *args, **kwargs):
+    if Path(module.__file__).resolve() != entry:
+        raise AssertionError("WRONG_BILLING_ENTRYPOINT")
+    return unittest.defaultTestLoader.loadTestsFromTestCase(BillingEntrypointWiring)
+
+unittest.defaultTestLoader.loadTestsFromModule = select_wiring_case
+sys.argv = [str(entry), sys.executable, str(source)]
+runpy.run_path(str(entry), run_name="__main__")
+'''
+        with tempfile.TemporaryDirectory(prefix="wls-billing-wiring-") as temp:
+            log = Path(temp) / "stderr.log"
+            with log.open("wb") as stderr:
+                process = subprocess.Popen(
+                    [sys.executable, "-B", "-c", child, str(source)],
+                    cwd=Path(__file__).resolve().parent, stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE, stderr=stderr, text=True,
+                    env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+                ready = queue.Queue()
+                reader = threading.Thread(target=lambda: ready.put(process.stdout.readline()), daemon=True)
+                reader.start()
+                try:
+                    self.assertEqual(ready.get(timeout=30), marker)
+                    # The synthetic case is parked on stdin after its subTest
+                    # failure was registered, not on a timing-based sleep.
+                    self.assertIsNone(process.poll())
+                    before_termination = log.read_text()
+                    self.assertIn("Traceback (most recent call last):", before_termination)
+                    self.assertIn("BILLING_WIRING_ORIGINAL_ASSERTION_WITNESS", before_termination)
+                    self.assertIn("AssertionError:", before_termination)
+                    process.terminate()
+                    self.assertNotEqual(process.wait(timeout=10), 0)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait(timeout=10)
+                    process.stdin.close()
+                    process.stdout.close()
+                    reader.join(timeout=10)
+                after_termination = log.read_text()
+            self.assertEqual(after_termination, before_termination)
+            self.assertNotIn("Ran 1 test", after_termination)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
