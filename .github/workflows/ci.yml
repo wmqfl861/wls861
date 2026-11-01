@@ -89,6 +89,9 @@ jobs:
       - name: Check opt-in transport observations preserve original behavior
         if: matrix.name == 'strict' || matrix.name == 'ASan'
         run: .local/test-venv/bin/python -B tests/test_transport_test_observation.py
+      - name: Check native test observations survive a killed run
+        if: matrix.name == 'strict' || matrix.name == 'ASan'
+        run: CXX=${{ matrix.compiler }} .local/test-venv/bin/python -B tests/test_native_test_observation.py
       - name: Run shared GCC 13.3 Debug ASan gate
         if: matrix.name == 'ASan'
         run: |

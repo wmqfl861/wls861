@@ -43,13 +43,16 @@ inline int run(const std::vector<Case>& cases) {
     const auto original_umask = ::umask(0077);
     int failed = 0;
     for (const auto& [name, function] : cases) {
-        try { function(); std::cout << "PASS " << name << '\n'; }
+        // A timeout kill cannot flush at exit; each method line is flushed
+        // when written so earlier observations survive it.
+        std::cout << "START " << name << std::endl;
+        try { function(); std::cout << "PASS " << name << std::endl; }
         catch (const std::exception& error) {
-            ++failed; std::cerr << "FAIL " << name << ": " << error.what() << '\n';
+            ++failed; std::cerr << "FAIL " << name << ": " << error.what() << std::endl;
         }
     }
     std::cout << "RESULT " << cases.size() - static_cast<std::size_t>(failed)
-              << " passed, " << failed << " failed\n";
+              << " passed, " << failed << " failed" << std::endl;
     ::umask(original_umask);
     return failed ? 1 : 0;
 }

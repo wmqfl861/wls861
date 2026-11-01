@@ -58,6 +58,52 @@ class FairnessEvidenceClassification(unittest.TestCase):
             with self.subTest(code=code, out=out, err=err):
                 self.assertNotEqual(gate.classify("candidate", code, out, err, PROBE), "EXPECTED_GREEN")
 
+    def test_one_leading_start_line_for_the_same_case_is_accepted_in_both_roles(self):
+        started_green = f"START {gate.CASE}\nPASS {gate.CASE}\nRESULT 1 passed, 0 failed\n"
+        self.assertEqual(gate.classify("candidate", 0, started_green, "", PROBE), "EXPECTED_GREEN")
+        for expression in gate.ORDER_EXPRESSIONS:
+            with self.subTest(expression=expression):
+                started_red = f"START {gate.CASE}\nRESULT 0 passed, 1 failed\n"
+                self.assertEqual(gate.classify("baseline", 1, started_red,
+                                               self.red_error(expression), PROBE),
+                                 "EXPECTED_BUSINESS_ORDER_RED")
+
+    def test_malformed_start_variants_cannot_manufacture_green(self):
+        green = f"PASS {gate.CASE}\nRESULT 1 passed, 0 failed\n"
+        started_green = f"START {gate.CASE}\n{green}"
+        failures = [
+            (0, f"START {gate.CASE}\nSTART {gate.CASE}\n{green}", ""),
+            (0, f"START a different case label\n{green}", ""),
+            (0, started_green + "extra noise\n", ""),
+            (0, f"PASS {gate.CASE}\nSTART {gate.CASE}\nRESULT 1 passed, 0 failed\n", ""),
+            (0, f"START {gate.CASE}\nPASS {gate.CASE}\n", ""),
+            (0, f"START {gate.CASE}\n", ""),
+            (0, started_green, "warning\n"),
+            (1, started_green, ""),
+            (0, f"START {gate.CASE}\nRESULT 0 passed, 1 failed\n", ""),
+        ]
+        for code, out, err in failures:
+            with self.subTest(code=code, out=out, err=err):
+                self.assertNotEqual(gate.classify("candidate", code, out, err, PROBE),
+                                    "EXPECTED_GREEN")
+
+    def test_malformed_start_variants_cannot_manufacture_red(self):
+        red = "RESULT 0 passed, 1 failed\n"
+        started_red = f"START {gate.CASE}\n{red}"
+        failures = [
+            (f"START {gate.CASE}\nSTART {gate.CASE}\n{red}", self.red_error()),
+            (f"START a different case label\n{red}", self.red_error()),
+            (started_red + "ignored failure\n", self.red_error()),
+            (f"RESULT 0 passed, 1 failed\nSTART {gate.CASE}\n", self.red_error()),
+            (f"START {gate.CASE}\n", self.red_error()),
+            (f"START {gate.CASE}\nPASS {gate.CASE}\n{red}", self.red_error()),
+            (started_red, "compilation terminated\n"),
+            (started_red, self.red_error().replace(str(PROBE), "/different/source.cpp")),
+        ]
+        for out, err in failures:
+            with self.subTest(out=out, err=err):
+                self.assertEqual(gate.classify("baseline", 1, out, err, PROBE), "NOT_TARGET_RED")
+
     def test_probe_is_original_bytes_and_matches_current_business_case(self):
         self.assertEqual(gate.identity(PROBE)["sha256"], gate.PROBE_SHA256)
         def body(text):

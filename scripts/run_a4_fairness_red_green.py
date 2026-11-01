@@ -62,14 +62,20 @@ def resolve_programs() -> dict[str, str]:
 
 
 def classify(role: str, code: int, stdout: str, stderr: str, probe: Path) -> str:
-    """A red result requires the exact original order assertion, never any exit 1."""
+    """A red result requires the exact original order assertion, never any exit 1.
+
+    Each role accepts exactly two byte-exact shapes: the original output, or
+    the same output preceded by one START line naming the same case. A wrong
+    label, duplicate or reordered START, missing RESULT, trailing noise or
+    warning stderr never matches either shape."""
     if code in (124, 137):
         return "WATCHDOG_OR_SIGNAL_FAILURE"
     if code < 0 or code >= 128:
         return "SIGNAL_FAILURE"
     if role == "candidate":
-        expected = f"PASS {CASE}\nRESULT 1 passed, 0 failed\n"
-        return "EXPECTED_GREEN" if code == 0 and stdout == expected and not stderr else "NOT_GREEN"
+        green = f"PASS {CASE}\nRESULT 1 passed, 0 failed\n"
+        accepted = (green, f"START {CASE}\n{green}")
+        return "EXPECTED_GREEN" if code == 0 and stdout in accepted and not stderr else "NOT_GREEN"
     require(role == "baseline", "unknown comparison role")
     errors = []
     for number, line in enumerate(probe.read_text(encoding="utf-8").splitlines(), 1):
@@ -77,7 +83,9 @@ def classify(role: str, code: int, stdout: str, stderr: str, probe: Path) -> str
             if line.strip() == f"CHECK({expression});":
                 errors.append(f"FAIL {CASE}: {probe}:{number}: {expression}\n")
     require(len(errors) == 2, "original business order assertions are missing")
-    if code == 1 and stdout == "RESULT 0 passed, 1 failed\n" and stderr in errors:
+    red = "RESULT 0 passed, 1 failed\n"
+    accepted = (red, f"START {CASE}\n{red}")
+    if code == 1 and stdout in accepted and stderr in errors:
         return "EXPECTED_BUSINESS_ORDER_RED"
     return "NOT_TARGET_RED"
 

@@ -9,6 +9,7 @@
 #include <condition_variable>
 #include <fstream>
 #include <mutex>
+#include <source_location>
 #include <thread>
 
 #ifndef WLS_SOURCE_DIR
@@ -151,11 +152,24 @@ struct Fixture {
 };
 
 template<class Predicate>
-void until(AsyncCoordinator& runtime, Predicate predicate) {
+void until(AsyncCoordinator& runtime, Predicate predicate,
+    std::source_location at = std::source_location::current()) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (!predicate()) {
         (void)runtime.poll();
-        CHECK(std::chrono::steady_clock::now() < deadline);
+        // One clock sample feeds both the observation and the deadline CHECK,
+        // so a failure always carries its caller location; the predicate is
+        // never re-evaluated to rescue an expired sample.
+        const auto checked_at = std::chrono::steady_clock::now();
+        if (!(checked_at < deadline)) {
+            // Observation only, emitted before the original deadline CHECK
+            // throws: name the waiting caller; never dump request or Store
+            // content. cerr is unit-buffered, so this survives a later kill.
+            std::cerr << "UNTIL-DEADLINE " << at.file_name() << ":" << at.line()
+                      << " in " << at.function_name()
+                      << " exceeded its original 5s wait" << std::endl;
+        }
+        CHECK(checked_at < deadline);
         std::this_thread::yield();
     }
 }
