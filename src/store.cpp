@@ -1262,8 +1262,12 @@ public:
         text_field(command_id, "command_id");
         const auto type = str(command, "type");
         guard_capacity_event(request_id, command);
+        // One fully validated canonical encoding of the immutable command is
+        // reused for both the fingerprint and the stored payload.
+        const auto event_id = new_id("evt");
+        const auto encoded_command = json_text(command, payload_limit);
         execute("INSERT INTO events(event_id,request_id,type,actor,command_id,command_sha256,payload,result,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            {new_id("evt"), request_id, type, actor, command_id, sha256_hex(canonical_json(command)), json_text(command, payload_limit), json_text(result, 16 * 1024 * 1024), stamp()});
+            {event_id, request_id, type, actor, command_id, sha256_hex(encoded_command), encoded_command, json_text(result, 16 * 1024 * 1024), stamp()});
         capacity_event_inserted(request_id, command);
         if (events_schema) route_event(request_id, type, command, result, sqlite3_last_insert_rowid(db));
         observe_capacity(request_id);
