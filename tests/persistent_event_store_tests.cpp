@@ -347,7 +347,7 @@ void recovery_never_reissues_or_applies_old_links() {
     }
 }
 void t1_t2_t3_failure_rolls_back_both_sides() {
-    wls::test::persistent_events::StorageFault fault;
+    ::test::persistent_events::StorageFault fault;
     Fixture f; auto value = f.capture(Role::Dispatcher); const auto budget = f.store->budget(f.id);
     sql(f.path, "CREATE TRIGGER fail_link BEFORE INSERT ON n5_event_links BEGIN SELECT n5_test_storage_fault(); END");
     expect(ErrorCode::Storage, [&] { f.reserve(value); });
@@ -364,7 +364,7 @@ void t1_t2_t3_failure_rolls_back_both_sides() {
     sql(f.path, "DROP TRIGGER fail_settlement"); f.store->settle_event_observation(text(value.link, "link_id"), response);
 }
 void t4_faults_never_commit_note_without_feedback_and_proof() {
-    wls::test::persistent_events::StorageFault fault;
+    ::test::persistent_events::StorageFault fault;
     for (const auto* trigger : {
             "CREATE TRIGGER fail_tail BEFORE INSERT ON events WHEN NEW.type='start_op' BEGIN SELECT n5_test_storage_fault(); END",
             "CREATE TRIGGER fail_tail BEFORE INSERT ON model_tool_feedback BEGIN SELECT n5_test_storage_fault(); END",

@@ -4,7 +4,7 @@
 
 #include <sqlite3.h>
 
-namespace wls::test::persistent_events {
+namespace test::persistent_events {
 
 // Register before opening the fixture's Store connection. RAISE(ABORT) is a
 // constraint failure; this function instead exercises Store's real I/O-error
@@ -29,4 +29,4 @@ public:
     StorageFault& operator=(const StorageFault&) = delete;
 };
 
-} // namespace wls::test::persistent_events
+} // namespace test::persistent_events
