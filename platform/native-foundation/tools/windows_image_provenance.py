@@ -34,21 +34,102 @@ def timestamp(value):
     return result
 
 
+def windows_identity(*, path=None, fd=None):
+    """Comparable native observations; Python path/fd ctime sources can differ."""
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    class BasicInfo(ctypes.Structure):
+        _fields_ = [('CreationTime', ctypes.c_int64), ('LastAccessTime', ctypes.c_int64),
+                    ('LastWriteTime', ctypes.c_int64), ('ChangeTime', ctypes.c_int64),
+                    ('FileAttributes', wintypes.DWORD)]
+
+    class IdentityInfo(ctypes.Structure):
+        _fields_ = [('VolumeSerialNumber', ctypes.c_uint64), ('FileId', ctypes.c_ubyte * 16)]
+
+    class StandardInfo(ctypes.Structure):
+        _fields_ = [('AllocationSize', ctypes.c_int64), ('EndOfFile', ctypes.c_int64),
+                    ('NumberOfLinks', wintypes.DWORD), ('DeletePending', ctypes.c_ubyte),
+                    ('Directory', ctypes.c_ubyte)]
+
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                  wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    kernel.GetFileType.argtypes = [wintypes.HANDLE]
+    kernel.GetFileType.restype = wintypes.DWORD
+    kernel.GetFileInformationByHandleEx.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+    kernel.GetFileInformationByHandleEx.restype = wintypes.BOOL
+    require((path is None) != (fd is None), 'exactly one native identity source is required')
+    owned = fd is None
+    if owned:
+        # Metadata only; observe the path object itself, including reparse points.
+        # Share writes/deletes so a concurrent change is observed and rejected,
+        # rather than turning this offline comparison into a writer lease.
+        handle = kernel.CreateFileW(str(path), 0x80, 7, None, 3, 0x00200000 | 0x02000000, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+    else:
+        handle = msvcrt.get_osfhandle(fd)
+    try:
+        require(kernel.GetFileType(handle) == 1, 'native evidence input is not a disk file')
+        basic, identity, standard = BasicInfo(), IdentityInfo(), StandardInfo()
+        for information_class, value in ((0, basic), (18, identity), (1, standard)):
+            if not kernel.GetFileInformationByHandleEx(handle, information_class, ctypes.byref(value), ctypes.sizeof(value)):
+                raise ctypes.WinError(ctypes.get_last_error())
+        require(not basic.FileAttributes & (0x10 | 0x400) and not standard.Directory and
+                not standard.DeletePending and standard.NumberOfLinks == 1,
+                'native evidence input must be a regular single-link non-reparse file')
+        # LastAccessTime is intentionally excluded: the read itself can update it.
+        # ChangeTime is compared across path and descriptor observations, including
+        # the pre-open window in which size and LastWriteTime can be restored.
+        return (identity.VolumeSerialNumber, bytes(identity.FileId), standard.EndOfFile,
+                basic.CreationTime, basic.LastWriteTime, basic.ChangeTime,
+                basic.FileAttributes, standard.NumberOfLinks)
+    finally:
+        if owned:
+            kernel.CloseHandle(handle)
+
+
 def read_file(path, maximum=32 * 1024 * 1024):
     path = Path(path)
     before = path.lstat()
     require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1 and before.st_size <= maximum,
             'evidence input must be a bounded regular single-link file')
+    native_before = None
+    if os.name == 'nt':
+        native_before = windows_identity(path=path)
+        # The initial lstat is a type-before-open preflight. Start the bound
+        # Python observation after native ChangeTime/ID have been captured.
+        before = path.lstat()
+        require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1 and before.st_size <= maximum,
+                'evidence input must be a bounded regular single-link file')
     flags = os.O_RDONLY | getattr(os, 'O_BINARY', 0) | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
+    comparable = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns,
+                                value.st_mode, value.st_nlink)
     with os.fdopen(os.open(path, flags), 'rb') as stream:
         opened = os.fstat(stream.fileno())
-        require(stat.S_ISREG(opened.st_mode) and opened.st_size <= maximum,
+        require(stat.S_ISREG(opened.st_mode) and opened.st_nlink == 1 and opened.st_size <= maximum,
                 'opened evidence input is not a bounded regular file')
+        native_opened = windows_identity(fd=stream.fileno()) if native_before is not None else None
+        if native_before is not None:
+            require(native_before == native_opened and comparable(before) == comparable(opened),
+                    'evidence input changed while reading')
         raw = stream.read(maximum + 1)
         after = os.fstat(stream.fileno())
-    identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
-    require(identity(before) == identity(opened) == identity(after) == identity(path.lstat()) and
-            len(raw) == before.st_size, 'evidence input changed while reading')
+        native_after = windows_identity(fd=stream.fileno()) if native_before is not None else None
+    final = path.lstat()
+    identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns,
+                              value.st_ctime_ns, value.st_mode, value.st_nlink)
+    stable = identity(before) == identity(opened) == identity(after) == identity(final)
+    if native_before is not None:
+        stable = (identity(before) == identity(final) and identity(opened) == identity(after) and
+                  comparable(before) == comparable(opened) and
+                  native_before == native_opened == native_after == windows_identity(path=path))
+    require(stable and len(raw) == before.st_size, 'evidence input changed while reading')
     return raw, dict(path=str(path.absolute()), bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
 
 

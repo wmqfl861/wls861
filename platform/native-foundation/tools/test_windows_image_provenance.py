@@ -1,16 +1,173 @@
 #!/usr/bin/env python3
 """Synthetic source-binding tests; not Windows execution or product CTest."""
 import copy
+import contextlib
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
 import tempfile
+import time
 import unittest
+from unittest import mock
 import zipfile
 
 import windows_image_provenance as audit
+
+
+class EvidenceFileIdentity(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix='windows-file-identity-selfcheck-')
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.path = self.root / 'evidence.bin'
+        self.raw = b'original-evidence-bytes\x00\xff\n'
+        self.path.write_bytes(self.raw)
+        os.utime(self.path, ns=(1700000000123456700, 1700000000123456700))
+
+    def set_windows_basic_time(self, name, value):
+        # Change a real temporary file's metadata. No stat result is fabricated.
+        import ctypes
+        from ctypes import wintypes
+
+        class BasicInfo(ctypes.Structure):
+            _fields_ = [('CreationTime', ctypes.c_int64), ('LastAccessTime', ctypes.c_int64),
+                        ('LastWriteTime', ctypes.c_int64), ('ChangeTime', ctypes.c_int64),
+                        ('FileAttributes', wintypes.DWORD)]
+
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                      wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle.restype = wintypes.BOOL
+        for function in (kernel.GetFileInformationByHandleEx, kernel.SetFileInformationByHandle):
+            function.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+            function.restype = wintypes.BOOL
+        handle = kernel.CreateFileW(str(self.path), 0x80 | 0x100, 7, None, 3, 0x00200000, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            basic = BasicInfo()
+            if not kernel.GetFileInformationByHandleEx(handle, 0, ctypes.byref(basic), ctypes.sizeof(basic)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            setattr(basic, name, value)
+            if not kernel.SetFileInformationByHandle(handle, 0, ctypes.byref(basic), ctypes.sizeof(basic)):
+                raise ctypes.WinError(ctypes.get_last_error())
+        finally:
+            kernel.CloseHandle(handle)
+
+    def rewrite_preserving_size_and_mtime(self):
+        before = self.path.stat()
+        native_before = audit.windows_identity(path=self.path) if os.name == 'nt' else None
+        if native_before is None:
+            # ext4 ctime can use the same coarse kernel tick for adjacent writes.
+            # Cross that fixture tick before injecting; still prove the real
+            # ctime changed below. No reader/CI timeout or assertion is changed.
+            time.sleep(0.02)
+        self.path.write_bytes(b'x' * len(self.raw))
+        os.utime(self.path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        if native_before is not None:
+            self.set_windows_basic_time('ChangeTime', native_before[5] - 10000000)
+            native_after = audit.windows_identity(path=self.path)
+            self.assertEqual(native_before[:5], native_after[:5])
+            self.assertNotEqual(native_before[5], native_after[5])
+        else:
+            self.assertNotEqual(before.st_ctime_ns, self.path.stat().st_ctime_ns)
+        after = self.path.stat()
+        self.assertEqual((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns),
+                         (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns))
+        self.assertEqual(self.path.read_bytes(), b'x' * len(self.raw))
+
+    @contextlib.contextmanager
+    def observe_reader_calls(self):
+        original_fdopen = os.fdopen
+        reads = []
+
+        @contextlib.contextmanager
+        def observed_fdopen(*args, **kwargs):
+            with original_fdopen(*args, **kwargs) as stream:
+                class ObservedStream:
+                    def fileno(self):
+                        return stream.fileno()
+
+                    def read(self, *read_args):
+                        reads.append(True)
+                        return stream.read(*read_args)
+
+                yield ObservedStream()
+
+        with mock.patch.object(audit.os, 'fdopen', side_effect=observed_fdopen):
+            yield reads
+
+    def test_stable_explicit_creation_and_write_times_preserve_original_bytes(self):
+        if os.name == 'nt':
+            self.set_windows_basic_time('CreationTime', 133444736000000000)
+            self.set_windows_basic_time('ChangeTime', 133444736010000000)
+            native = audit.windows_identity(path=self.path)
+            self.assertEqual(native[3], 133444736000000000)
+            self.assertEqual(native[5], 133444736010000000)
+        raw, identity = audit.read_file(self.path)
+        self.assertEqual(raw, self.raw)
+        self.assertEqual(identity['bytes'], len(self.raw))
+        self.assertEqual(identity['sha256'], hashlib.sha256(self.raw).hexdigest())
+
+    def test_rewrite_after_path_observation_before_open_with_restored_mtime_rejects(self):
+        original_open = os.open
+        injected = []
+
+        def open_after_change(path, flags, *args, **kwargs):
+            if Path(path) == self.path and not injected:
+                injected.append(True)
+                self.rewrite_preserving_size_and_mtime()
+            return original_open(path, flags, *args, **kwargs)
+
+        # This hook chooses a real filesystem interleaving; it returns the real fd.
+        with self.observe_reader_calls() as reads, mock.patch.object(audit.os, 'open', side_effect=open_after_change):
+            with self.assertRaisesRegex(ValueError, 'changed while reading'):
+                audit.read_file(self.path)
+        self.assertEqual(injected, [True])
+        if os.name == 'nt':
+            self.assertEqual(reads, [])
+
+    def test_rewrite_after_open_with_restored_mtime_rejects(self):
+        original_fstat = os.fstat
+        injected = []
+
+        def observe_then_change(fd):
+            observation = original_fstat(fd)
+            if not injected:
+                injected.append(True)
+                self.rewrite_preserving_size_and_mtime()
+            return observation
+
+        with self.observe_reader_calls() as reads, mock.patch.object(audit.os, 'fstat', side_effect=observe_then_change):
+            with self.assertRaisesRegex(ValueError, 'changed while reading'):
+                audit.read_file(self.path)
+        self.assertEqual(injected, [True])
+        if os.name == 'nt':
+            self.assertEqual(reads, [])
+
+    def test_same_bytes_path_replacement_after_descriptor_close_rejects(self):
+        replacement = self.root / 'replacement.bin'
+        replacement.write_bytes(self.raw)
+        before = self.path.stat()
+        os.utime(replacement, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertNotEqual(before.st_ino, replacement.stat().st_ino)
+        original_fdopen = os.fdopen
+
+        @contextlib.contextmanager
+        def replace_after_close(*args, **kwargs):
+            with original_fdopen(*args, **kwargs) as stream:
+                yield stream
+            os.replace(replacement, self.path)
+
+        with mock.patch.object(audit.os, 'fdopen', side_effect=replace_after_close):
+            with self.assertRaisesRegex(ValueError, 'changed while reading'):
+                audit.read_file(self.path)
+        self.assertEqual(self.path.read_bytes(), self.raw)
+        self.assertNotEqual(before.st_ino, self.path.stat().st_ino)
 
 
 class SourceComparison(unittest.TestCase):
