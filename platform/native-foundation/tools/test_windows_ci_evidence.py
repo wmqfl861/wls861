@@ -32,6 +32,7 @@ SPEC = importlib.util.spec_from_file_location('windows_ci_under_test', ARGS.runn
 RUNNER = importlib.util.module_from_spec(SPEC)
 sys.path.insert(0, str(ARGS.runner.resolve().parent))
 SPEC.loader.exec_module(RUNNER)
+import windows_host
 SOURCE = ARGS.source_root.resolve()
 SUITES = {
     'native_modules': ('modules_tests.cpp', 30),
@@ -117,7 +118,7 @@ else:
                                  'set_tests_properties(' + suite + ' PROPERTIES TIMEOUT ' + str(timeout) + ')\n')
         (build / 'CTestTestfile.cmake').write_text(''.join(registrations), encoding='utf-8')
 
-    def invoke(self, mode='success'):
+    def invoke(self, mode='success', *, windows11=False, changed_image=False, host=None):
         real_run = subprocess.run
 
         def run(command, **kwargs):
@@ -126,7 +127,7 @@ else:
             if command[0].endswith('vswhere.exe'):
                 output = json.dumps([{'installationPath': str(self.installation)}]).encode()
             elif command[0] == 'git' and 'rev-parse' in command:
-                output = b'synthetic-selfcheck-head\n'
+                output = b'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n'
             elif command[0] == 'cmake' and '-S' in command:
                 self.configure_fixture(mode)
             elif command[0] == 'cmake' and '--build' in command:
@@ -151,9 +152,13 @@ else:
                 directory = self.work / 'installed/bin'
                 directory.mkdir(parents=True)
                 (directory / 'wls-native-foundation.exe').write_bytes(b'not executable\n')
+            elif command[-1] == 'capabilities':
+                output = b'{"token_elevation":"not_elevated","filesystem":"NTFS"}\n'
             return subprocess.CompletedProcess(command, 0, output, b'')
 
-        environment = dict(os.environ, GITHUB_ACTIONS='true')
+        environment = dict(os.environ, GITHUB_ACTIONS='true', GITHUB_SHA='a' * 40,
+                           GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='1', GITHUB_JOB='native-foundation',
+                           ImageOS='synthetic-win22', ImageVersion='synthetic-image')
         environment['ProgramFiles(x86)'] = str(self.programs)
         fake_os = SimpleNamespace(name='nt', environ=environment, fspath=os.fspath)
         listing = b'\0'.join(str(path.relative_to(self.source)).replace('\\', '/').encode()
@@ -166,7 +171,17 @@ else:
              patch.object(sys, 'argv', ['run_windows_ci.py', '--source-root', str(self.source), '--work-root', str(self.work)]), \
              patch.object(sys, 'stdout', SimpleNamespace(buffer=io.BytesIO())), \
              patch.object(sys, 'stderr', SimpleNamespace(buffer=io.BytesIO())):
-            RUNNER.main()
+            if windows11:
+                with patch.object(windows_host, 'observe_host', return_value=host or ordinary_windows11()):
+                    RUNNER.run_native(self.source, self.work, windows11=True)
+            else:
+                snapshot = self.root / 'image-environment.json'
+                capture = RUNNER.image_environment('a' * 40)
+                if changed_image:
+                    capture['image_environment']['ImageVersion'] = 'earlier-different-image'
+                snapshot.write_text(json.dumps(capture), encoding='utf-8')
+                with patch.object(sys, 'argv', [*sys.argv, '--image-environment-snapshot', str(snapshot)]):
+                    RUNNER.main()
 
     def test_success_retains_original_full_lasttest_beyond_junit_truncation(self):
         self.invoke()
@@ -183,6 +198,10 @@ else:
         result = json.loads((evidence / 'result.json').read_text())
         self.assertEqual(result['windows_11_machine_acceptance'], 'NOT_RUN')
         self.assertEqual(result['ordinary_user_security_acceptance'], 'NOT_RUN')
+        self.assertEqual(result['exact_runner_image_identity'], 'UNRESOLVED_REQUIRES_JOB_HEADER_COMPARISON')
+        provenance = json.loads((evidence / 'image-provenance.json').read_text())
+        self.assertEqual(provenance['process_environment_consistency'], 'UNCHANGED')
+        self.assertIn('same-job Runner Image', provenance['job_header_comparison'])
 
     def test_failure_retains_original_lasttest_and_failed_index(self):
         with self.assertRaisesRegex(RuntimeError, 'ctest failed with exit'):
@@ -213,6 +232,123 @@ else:
     def test_skipped_method_remains_incomplete(self):
         with self.assertRaisesRegex(RuntimeError, 'method evidence'):
             self.invoke('skipped')
+
+    def test_changed_image_environment_stops_before_toolchain_or_build(self):
+        with self.assertRaisesRegex(RuntimeError, 'environment or run/checkout binding changed'):
+            self.invoke(changed_image=True)
+        evidence = self.work / 'evidence'
+        receipt = json.loads((evidence / 'image-provenance.json').read_text())
+        self.assertEqual(receipt['changed_fields'], ['image_environment'])
+        self.assertEqual(receipt['process_environment_consistency'], 'CHANGED')
+        self.assertFalse((evidence / 'vswhere.command.json').exists())
+        self.assertFalse((evidence / 'result.json').exists())
+
+    def test_windows11_entry_retains_four_suites_without_claiming_security_acceptance(self):
+        self.invoke(windows11=True)
+        evidence = self.work / 'evidence'
+        result = json.loads((evidence / 'result.json').read_text())
+        self.assertEqual(result['native_suites'], 4)
+        self.assertEqual(result['native_methods'], 27)
+        self.assertEqual(result['windows_11_component_validation'], 'PASSED')
+        self.assertEqual(result['windows_11_machine_acceptance'], 'NOT_RUN')
+        self.assertEqual(result['ordinary_user_security_acceptance'], 'NOT_RUN')
+        self.assertEqual(result['full_native_runtime'], 'NOT_IMPLEMENTED')
+        self.assertTrue((evidence / 'windows11-host.json').is_file())
+        self.assertEqual((evidence / 'ctest-logs/LastTest.log').read_bytes(), self.original_last_test)
+
+    def test_server_cannot_start_the_windows11_toolchain_or_tests(self):
+        host = dict(ordinary_windows11(), os_product_type=3)
+        with self.assertRaisesRegex(RuntimeError, 'Server does not qualify'):
+            self.invoke(windows11=True, host=host)
+        evidence = self.work / 'evidence'
+        self.assertTrue((evidence / 'windows11-host.json').is_file())
+        self.assertFalse((evidence / 'vswhere.command.json').exists())
+        self.assertFalse((evidence / 'configure.command.json').exists())
+        self.assertFalse((evidence / 'result.json').exists())
+
+
+def ordinary_windows11():
+    return dict(os_major=10, os_build=26100, os_product_type=1, native_machine=0x8664,
+        process_machine=0, python_pointer_bytes=8, token_elevated=0, token_elevation_type=1,
+        effective_administrators_member=False,
+        volumes={key: dict(filesystem='NTFS', drive_type=3) for key in ('source', 'work')})
+
+
+class ProvenanceAndHostGuards(unittest.TestCase):
+    def test_capture_entry_only_reads_checkout_and_writes_one_fresh_snapshot(self):
+        with tempfile.TemporaryDirectory(prefix='native-image-capture-selfcheck-') as temporary:
+            source = Path(temporary) / 'source'
+            source.mkdir()
+            destination = Path(temporary) / 'capture.json'
+            fake_os = SimpleNamespace(name='nt', environ={'GITHUB_ACTIONS': 'true',
+                'ImageOS': 'win22', 'ImageVersion': '20261026.347.1', 'MODEL_API_KEY': 'synthetic-secret'})
+            with patch.object(RUNNER, 'os', fake_os), \
+                 patch.object(RUNNER.subprocess, 'check_output', return_value=b'a' * 40 + b'\n') as git_head, \
+                 patch.object(RUNNER.subprocess, 'run', side_effect=AssertionError('no build or product')), \
+                 patch.object(sys, 'stdout', io.StringIO()), \
+                 patch.object(sys, 'argv', ['run_windows_ci.py', '--source-root', str(source),
+                                           '--capture-image-environment', str(destination)]):
+                RUNNER.main()
+                git_head.assert_called_once_with(['git', '-C', str(source), 'rev-parse', 'HEAD'], timeout=30)
+            captured = json.loads(destination.read_text())
+            self.assertEqual(captured['actual_checkout_sha'], 'a' * 40)
+            self.assertEqual(captured['image_environment']['ImageVersion'], '20261026.347.1')
+            self.assertNotIn('synthetic-secret', destination.read_text())
+
+    def test_image_snapshot_is_allowlisted_and_never_claims_job_header_identity(self):
+        with patch.dict(os.environ, {'ImageOS': 'win22', 'ImageVersion': '20261026.347.1',
+                                    'MODEL_API_KEY': 'synthetic-must-not-copy'}):
+            capture = RUNNER.image_environment('a' * 40)
+        self.assertNotIn('MODEL_API_KEY', json.dumps(capture))
+        self.assertIn('captured_at_utc', capture)
+        provenance = RUNNER.image_provenance(capture, capture)
+        self.assertEqual(provenance['process_environment_consistency'], 'UNCHANGED')
+        self.assertEqual(provenance['exact_runner_image_identity'], 'UNRESOLVED_REQUIRES_JOB_HEADER_COMPARISON')
+        self.assertEqual(set(capture['image_environment']), {'ImageOS', 'ImageVersion'})
+
+    def test_different_run_attempt_job_and_checkout_are_distinct_from_image_consistency(self):
+        capture = RUNNER.image_environment('a' * 40)
+        for key in ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_JOB', 'GITHUB_SHA'):
+            with self.subTest(key=key):
+                other = json.loads(json.dumps(capture))
+                other['github_context'][key] = 'different'
+                self.assertEqual(RUNNER.image_provenance(capture, other)['changed_fields'], ['github_context'])
+        other = dict(capture, actual_checkout_sha='b' * 40)
+        self.assertEqual(RUNNER.image_provenance(capture, other)['changed_fields'], ['actual_checkout_sha'])
+
+    def test_missing_image_version_cannot_be_reported_complete(self):
+        capture = RUNNER.image_environment('a' * 40)
+        capture['image_environment']['ImageVersion'] = None
+        result = RUNNER.image_provenance(capture, capture)
+        self.assertFalse(result['image_environment_fields_complete'])
+        self.assertEqual(result['exact_runner_image_identity'], 'UNRESOLVED_REQUIRES_JOB_HEADER_COMPARISON')
+
+    def test_workstation_normal_token_fixed_ntfs_is_the_supported_host_selection(self):
+        windows_host.require_windows11(ordinary_windows11())
+
+    def test_server_old_os_arm_emulation_admin_and_non_ntfs_are_rejected(self):
+        variants = [('os_product_type', 3), ('os_build', 20348), ('native_machine', 0xAA64),
+                    ('process_machine', 0x014C), ('python_pointer_bytes', 4), ('token_elevated', 1),
+                    ('token_elevation_type', 3), ('effective_administrators_member', True)]
+        for key, value in variants:
+            with self.subTest(key=key):
+                facts = ordinary_windows11()
+                facts[key] = value
+                with self.assertRaises(RuntimeError):
+                    windows_host.require_windows11(facts)
+        for key, value in (('filesystem', 'ReFS'), ('drive_type', 4)):
+            with self.subTest(volume_key=key):
+                facts = ordinary_windows11()
+                facts['volumes']['work'][key] = value
+                with self.assertRaises(RuntimeError):
+                    windows_host.require_windows11(facts)
+
+    def test_original_actions_entry_does_not_allow_local_windows_or_linux(self):
+        for name, actions in (('posix', 'true'), ('nt', 'false')):
+            with self.subTest(name=name, actions=actions):
+                with patch.object(RUNNER, 'os', SimpleNamespace(name=name, environ={'GITHUB_ACTIONS': actions})):
+                    with self.assertRaisesRegex(RuntimeError, 'ephemeral native Windows Actions'):
+                        RUNNER.require_actions()
 
 
 if __name__ == '__main__':

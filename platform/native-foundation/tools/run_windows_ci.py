@@ -5,6 +5,7 @@ This checks W-BUILD slice mechanics only. It does not accept Windows 11,
 ordinary-user ACLs, Workspace, Store, process supervision or sandbox security.
 """
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -18,14 +19,52 @@ import time
 from ctest_evidence import retain_logs, verify_methods
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--source-root', type=Path, required=True)
-    parser.add_argument('--work-root', type=Path, required=True)
-    args = parser.parse_args()
+IMAGE_KEYS = ('ImageOS', 'ImageVersion')
+CONTEXT_KEYS = ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_JOB', 'GITHUB_SHA',
+                'GITHUB_EVENT_NAME', 'GITHUB_WORKFLOW_REF', 'GITHUB_WORKFLOW_SHA',
+                'RUNNER_OS', 'RUNNER_ARCH', 'RUNNER_NAME')
+
+
+def require_actions():
     if os.name != 'nt' or os.environ.get('GITHUB_ACTIONS') != 'true':
         raise RuntimeError('this runner script requires an ephemeral native Windows Actions job')
-    source, work = args.source_root.resolve(strict=True), args.work_root.absolute()
+
+
+def image_environment(checkout_sha):
+    """Observe named process variables; these are not the Runner Image log header."""
+    return dict(schema='wls-native-image-environment-v1',
+        captured_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        source='inherited process environment; no job-header or image-release inference',
+        image_environment={key: os.environ.get(key) for key in IMAGE_KEYS},
+        github_context={key: os.environ.get(key) for key in CONTEXT_KEYS},
+        github_job_meaning='workflow job key, not the numeric Actions API job ID',
+        actual_checkout_sha=checkout_sha)
+
+
+def image_provenance(earlier, current):
+    if earlier.get('schema') != 'wls-native-image-environment-v1':
+        raise RuntimeError('unrecognized workflow image environment snapshot')
+    changed = [key for key in ('image_environment', 'github_context', 'actual_checkout_sha')
+               if earlier.get(key) != current[key]]
+    values = current['image_environment']
+    return dict(schema='wls-native-image-provenance-v1', workflow_capture=earlier,
+        runner_entry=current, changed_fields=changed,
+        process_environment_consistency='CHANGED' if changed else 'UNCHANGED',
+        image_environment_fields_complete=all(isinstance(values[key], str) and values[key]
+                                               for key in IMAGE_KEYS),
+        job_header_comparison='NOT_COLLECTED; compare the original same-job Runner Image group externally',
+        exact_runner_image_identity='UNRESOLVED_REQUIRES_JOB_HEADER_COMPARISON')
+
+
+def run_native(source_root, work_root, *, image_snapshot=None, windows11=False):
+    if windows11:
+        if os.name != 'nt':
+            raise RuntimeError('Windows 11 component validation requires native Windows')
+    else:
+        require_actions()
+    source, work = source_root.resolve(strict=True), work_root.absolute()
+    if source == work or source in work.parents or work in source.parents:
+        raise RuntimeError('source and fresh work directories must be separate')
     work.mkdir(parents=True, exist_ok=False)
     evidence = work / 'evidence'
     evidence.mkdir()
@@ -70,13 +109,39 @@ def main():
             result[relative] = dict(sha256=hashlib.sha256(data).hexdigest(), size_bytes=len(data))
         return result
 
-    record('environment.json', dict(platform=platform.platform(), windows_version=list(sys.getwindowsversion()),
-        machine=platform.machine(), python=sys.version, python_executable=sys.executable,
-        image_os=os.environ.get('ImageOS'), image_version=os.environ.get('ImageVersion'),
-        github_sha=os.environ.get('GITHUB_SHA'), toolset='14.44.35207', sdk='10.0.26100.0',
-        windows_11_machine_acceptance='NOT_RUN', ordinary_user_security_acceptance='NOT_RUN',
-        full_native_runtime='NOT_IMPLEMENTED'))
     try:
+        if windows11:
+            from windows_host import observe_host, require_windows11
+            host = observe_host(source, work)
+            record('windows11-host.json', host)
+            require_windows11(host)
+        checkout = run('git-head', ['git', '-C', source, 'rev-parse', 'HEAD']).decode('ascii').strip()
+        if len(checkout) != 40 or any(value not in '0123456789abcdef' for value in checkout):
+            raise RuntimeError('expected one full checkout SHA')
+        current = image_environment(checkout)
+        record('environment.json', dict(platform=platform.platform(), windows_version=list(sys.getwindowsversion()),
+            machine=platform.machine(), python=sys.version, python_executable=sys.executable,
+            image_os=current['image_environment']['ImageOS'],
+            image_version=current['image_environment']['ImageVersion'],
+            image_fields_source=current['source'], captured_at_utc=current['captured_at_utc'],
+            github_sha=os.environ.get('GITHUB_SHA'), github_context=current['github_context'],
+            actual_checkout_sha=checkout, execution_scope='windows11-ordinary-user-component' if windows11 else 'hosted-actions-component',
+            toolset='14.44.35207', sdk='10.0.26100.0', windows_11_machine_acceptance='NOT_RUN',
+            ordinary_user_security_acceptance='NOT_RUN', full_native_runtime='NOT_IMPLEMENTED'))
+        if not windows11:
+            if image_snapshot is None:
+                raise RuntimeError('an earlier workflow image environment snapshot is required')
+            with image_snapshot.open('rb') as stream:
+                raw = stream.read(65537)
+            if len(raw) > 65536:
+                raise RuntimeError('image environment snapshot exceeds its bound')
+            (evidence / 'image-environment-workflow.json').write_bytes(raw)
+            provenance = image_provenance(json.loads(raw), current)
+            record('image-provenance.json', provenance)
+            if provenance['changed_fields']:
+                raise RuntimeError('workflow image environment or run/checkout binding changed')
+            if checkout != os.environ.get('GITHUB_SHA'):
+                raise RuntimeError('actual checkout differs from the Actions SHA')
         vswhere = Path(os.environ['ProgramFiles(x86)']) / 'Microsoft Visual Studio/Installer/vswhere.exe'
         installations = json.loads(run('vswhere', [vswhere, '-products', '*', '-version', '[17.14,17.15)',
             '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-format', 'json', '-utf8']))
@@ -89,7 +154,6 @@ def main():
             raise RuntimeError('pinned preinstalled MSVC/SDK is unavailable; no substitute/download is permitted')
         record('pinned-tool-inputs.json', {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
                                          for path in (compiler, sdk)})
-        run('git-head', ['git', '-C', source, 'rev-parse', 'HEAD'])
         status = run('git-status', ['git', '-C', source, 'status', '--porcelain'])
         if status.strip():
             raise RuntimeError('checkout is not clean')
@@ -126,7 +190,11 @@ def main():
         relocated = work / 'relocated \u65e0\u91cf\u5c71 \U0001f3d4'
         installed.rename(relocated)
         binary = relocated / 'bin/wls-native-foundation.exe'
-        run('host-capabilities', [binary, 'capabilities'])
+        capabilities = run('host-capabilities', [binary, 'capabilities'])
+        if windows11:
+            observed = json.loads(capabilities)
+            if observed.get('token_elevation') != 'not_elevated' or observed.get('filesystem') != 'NTFS':
+                raise RuntimeError('installed component did not confirm a non-elevated NTFS host')
         shutil.copyfile(source / 'platform/native-foundation/tools/verify_detached.py', work / 'verify_detached.py')
         moved = source.with_name(source.name + '-offline-for-native-proof')
         if moved.exists():
@@ -141,15 +209,44 @@ def main():
         record('source-inputs-after.json', after)
         if before != after:
             raise RuntimeError('source input bytes changed during verification')
-        record('result.json', dict(status='PASSED', scope='native build/format slice on this hosted runner',
+        record('result.json', dict(status='PASSED', scope='native build/format slice on Windows 11 ordinary user' if windows11 else 'native build/format slice on this hosted runner',
             source_inputs_unchanged=True, original_source_path_absence_verified=True,
             native_suites=methods['suite_count'], native_methods=methods['method_count'],
             complete_original_method_logs_verified=True,
             windows_11_machine_acceptance='NOT_RUN', full_native_runtime='NOT_IMPLEMENTED',
-            ordinary_user_security_acceptance='NOT_RUN', remote_ci_acceptance='requires actual workflow conclusion'))
+            windows_11_component_validation='PASSED' if windows11 else 'NOT_RUN',
+            ordinary_user_security_acceptance='NOT_RUN',
+            exact_runner_image_identity='NOT_APPLICABLE_LOCAL_MACHINE' if windows11 else provenance['exact_runner_image_identity'],
+            remote_ci_acceptance='NOT_APPLICABLE_LOCAL_MACHINE' if windows11 else 'requires actual workflow conclusion'))
     except BaseException as error:
         record('failure.json', dict(status='FAILED', type=type(error).__name__, reason=str(error)[:2048]))
         raise
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source-root', type=Path, required=True)
+    parser.add_argument('--work-root', type=Path)
+    parser.add_argument('--capture-image-environment', type=Path)
+    parser.add_argument('--image-environment-snapshot', type=Path)
+    args = parser.parse_args()
+    require_actions()
+    if args.capture_image_environment is not None:
+        if args.work_root is not None or args.image_environment_snapshot is not None:
+            parser.error('environment capture does not build or accept execution options')
+        source = args.source_root.resolve(strict=True)
+        target = args.capture_image_environment.absolute()
+        if source == target or source in target.parents:
+            parser.error('capture outside the clean source checkout')
+        checkout = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], timeout=30).decode('ascii').strip()
+        observation = image_environment(checkout)
+        with target.open('x', encoding='utf-8') as stream:
+            stream.write(json.dumps(observation, indent=2) + '\n')
+        print(json.dumps(observation, sort_keys=True))
+        return
+    if args.work_root is None:
+        parser.error('--work-root is required for execution')
+    run_native(args.source_root, args.work_root, image_snapshot=args.image_environment_snapshot)
 
 
 if __name__ == '__main__':

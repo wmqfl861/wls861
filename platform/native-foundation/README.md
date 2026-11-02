@@ -58,3 +58,65 @@ native-install/bin/wls-native-foundation capabilities
 error with exit code 2; `call-model` returns `denied` with exit code 2. Grant
 calculation does not create an execution capability. Unknown/duplicate options,
 invalid encodings and bad public resources also fail with exit code 2.
+
+## Hosted image provenance
+
+`run_windows_ci.py` keeps its native Windows Actions guard. Immediately after
+checkout, capture the inherited image variables before running the synthetic
+selfcheck, then pass that original file to the build entry:
+
+```powershell
+python source/platform/native-foundation/tools/run_windows_ci.py `
+  --source-root source --capture-image-environment native-image-environment.json
+python source/platform/native-foundation/tools/test_windows_ci_evidence.py
+python source/platform/native-foundation/tools/run_windows_ci.py `
+  --source-root source --work-root native-work `
+  --image-environment-snapshot native-image-environment.json
+```
+
+Capture writes a fresh file outside the clean checkout and performs no build or
+product execution. Its allowlist contains only `ImageOS`/`ImageVersion`, named
+GitHub run/attempt/job/event/SHA/runner fields, the actual checkout SHA and a UTC
+capture time. `GITHUB_JOB` is a workflow job key, not the numeric API job ID.
+The build entry retains the original capture, records its own observation and
+refuses changes to the environment/context/checkout before toolchain discovery.
+Upload both `native-image-environment.json` and `native-work/evidence/`, including
+failures. The existing complete CTest LastTest and method checks remain required.
+
+These observations describe process environment values. Exact image identity
+stays unresolved until an external review binds the same run, numeric job,
+attempt, checkout and artifact to the original job log's **Runner Image** group
+and compares its Version. Matching two environment captures alone cannot prove
+that comparison. Keep the Runner Image Provisioner version separate as well.
+In the original PR14 Push and PR jobs, that group records `20261025.346.1` while
+the artifacts record inherited `ImageVersion=20261026.347.1`. Their artifact IDs,
+upload logs and checkout identities match; the earlier variable assignment and
+capture time were not retained. Both original values remain evidence, and the
+historical exact-image discrepancy remains unresolved.
+
+## Windows 11 ordinary-user component entry
+
+On an authorized Windows 11 x64 machine, provision the same pinned preinstalled
+VS/MSVC/SDK/CMake/Python set through the machine owner's normal process, then use
+a clean checkout and a new, separate work directory on fixed local NTFS volumes:
+
+```powershell
+python platform/native-foundation/tools/run_windows11.py `
+  --source-root C:\work\wls861 --work-root C:\work\native-win11-01
+```
+
+Run this from an ordinary non-administrator account without elevation. The entry
+reads actual workstation product type/build (22000+), native x64/Python bitness,
+token elevation/type/admin membership and the source/work volume filesystems.
+Server, ARM/emulation, elevated or split administrator tokens, non-NTFS volumes
+and unavailable observations refuse before configure/build/tests. The entry
+does not create accounts or change UAC, ACLs, execution policy or privileges.
+It shares the pinned build, the original four CTest registrations and deadlines,
+full method logs, resource refusal tests and relocated/detached verification.
+It additionally checks the installed component's non-elevated NTFS observation.
+
+Results distinguish `windows_11_component_validation=PASSED` for an actual
+successful execution from full machine/security acceptance, which stays
+`NOT_RUN`; the full native runtime remains `NOT_IMPLEMENTED`. Hosted Server
+results and synthetic selfchecks cannot fill in a Windows 11 machine run. No
+Windows 11 execution is claimed by adding this entry.
