@@ -113,7 +113,7 @@ there is no automatic fallback to an official endpoint.
 `platform/native-foundation` is an isolated native config/Scheduler/resource
 component. Windows Server hosted CI, Windows 11 ordinary-user NTFS acceptance,
 and the full Store/filesystem/process/sandbox/cleanup runtime are distinct scopes.
-Unsupported operations must keep failing before effects. Its four native tests
+Unsupported operations must keep failing before effects. Its five native suites
 are separate from the Linux product CTest catalog.
 
 Use the existing shared GCC gate and its reviewed test-name/deadline catalog.

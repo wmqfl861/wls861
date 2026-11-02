@@ -1,4 +1,38 @@
-# 当前实现 **0.11.1-r3.3c-audit**，实施基线蓝图 **v0.4.1**，Store **410**。
+# 当前实现 **0.11.1-r3.3c-audit**，实施基线蓝图 **v0.4.1**；本开发候选 Store **411**，历史 main 为 **410**。
+
+## 2026-11-02：N5 开发候选与验证边界
+
+本轮从 PR #15 的 `aa2c592b8aed6509189710cc6f6d69e0959098a8` 接手。
+主协调者已明确采纳 [PR #16](https://github.com/wmqfl861/wls861/pull/16)
+方案 B 的完整事务、容量和兼容契约，允许新增 013／411；此授权不包含后续 014／412。
+当前候选以普通本地 merge 汇集下列模块，main 和现有 PR 未被合并或改写：
+
+- [N5-0／PR #18](https://github.com/wmqfl861/wls861/pull/18)：规范 JSON 连续段追加优化及私有证据工具。
+  完整原失败、有限单因素诊断和各精确 SHA 远端结果见
+  [N5-0 执行报告](reports/n5-0-execution-validation-v2-20261102.md)。
+  该报告输入的本机两种 umask Release 均为 90 通过、2 失败；后继同 ELF 布局对照通过，
+  不能改写为原完整门禁通过。历史 sanitizer/live_workflow 根因继续 OPEN，
+  hosted 私有完整原件持久化仍缺获准的权限、保留和读取方案。
+- [N5-1 Store／PR #19](https://github.com/wmqfl861/wls861/pull/19) 与
+  [异步运行时／PR #20](https://github.com/wmqfl861/wls861/pull/20)：
+  已实现显式 opt-in 的持久事件关联、原 inbox/claim、预约与唯一派发、结算、业务效果、
+  feedback 和逐 ID 完成凭据。后者与业务效果在原写事务中提交，只有 owner 线程访问唯一 Store。
+  原同步默认行为保留；旧请求不能补开新功能，410→411 填充库仍须原全请求维护门禁。
+  22 个 Store 方法（含 21 个真实进程崩溃场景）和 13 个 runtime 方法已经定向通过；
+  本统一候选的完整矩阵与精确提交远端门禁尚待执行，不能从父分支绿色继承。
+  相关边界见[采纳与实现说明](implementation/n5-persistent-events-20261102/adoption-and-implementation-20261102.md)。
+- N5-2 仅有最小 DAG／独立审核持久化方案提案及非作者文档复核。
+  后续存储选择仍待主协调者采纳；未实施 DAG、独立审核票据或 ReviewPair 生产能力。
+- [N5-3／PR #17](https://github.com/wmqfl861/wls861/pull/17)：
+  原生只读公共资源捕获已接入受控 HANDLE、对象身份和权限检查，
+  Server 2022／elevated／NTFS 的 5 套、34 方法组件验证通过。
+  Windows 11 x64／普通非提升用户／NTFS 仍为 NOT_RUN，部署受信主体策略为 POLICY_PENDING。
+  历史 runner image 双来源冲突仍为 UNRESOLVED；未开放任意文件、Store、进程、强沙箱或 cleanup。
+
+本开发候选共 94 个 Linux CTest 注册项：原 92 名称及期限不变，新增 Store 和 runtime 各一项；
+方法、崩溃场景、工具自检与注册项分开统计。原 SQL、已发布蓝图、历史失败与报告原字节不改。
+上述实现、完整本机验证、推送、精确 SHA 远端 CI、正式 PR 审核和合并分别登记；
+当前整体仍为 VALIDATION_BLOCKED，无真实 WLS 模型／付费调用、生产操作或合并。
 
 ## 2026-11-01：ZCode 整改后的分配置复验
 

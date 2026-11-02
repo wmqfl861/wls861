@@ -1,10 +1,40 @@
 # WLS861 实施路线
 
 现行实施基线为 v0.4.1；[v0.5.0 后续规划](spec/v0.5.0/README.md)按具体任务实施，正式验收与合并分别记录。
-规划号不改变运行版本 0.11.1-r3.3c-audit、Store 410 或原冻结契约，v0.4.1 历史文件不改写。
+规划号不改变运行版本 0.11.1-r3.3c-audit 或原冻结契约，v0.4.1 历史文件不改写。
+本开发候选的 Store 411 来自明确获准的 013 迁移，与规划版本号无关；历史 main 仍为 410。
 此前优先级依据[Claude审核采纳记录](reviews/claude-disposition.md)保留。
 当前能力、实现版本及证据集中在[STATUS](STATUS.md)，历史阶段成果见 CHANGELOG 和 reports。
 第二份审核处置见[10-24记录](reviews/claude-2026-10-24-disposition.md)和[ADR-064–066](adr/064-audit24-recovery.md)。
+
+## 2026-11-02 N5 的实施依赖与剩余门禁
+
+N5-0 继续优先关闭精确输入的本机失败及证据缺口。
+已获得 JSON 热点和同 ELF 资源布局的定向证据，但历史 sanitizer/live_workflow 仍 OPEN；
+hosted 私有原件持久化缺获准目的地和访问／保留契约，不能用公开投影代替。
+新统一候选须重新完成本机 Release 两种 umask、Clang、UBSan、共享 GCC ASan/LSan
+及原 Make-ASan，结果各自登记；远端绿色不豁免本机门禁。
+
+N5-1 已按主协调者采纳的方案 B 实施 013／411 和显式持久 inbox 异步闭环：
+两个请求、每个两个独立节点通过原 Store、EventRuntime 和 AsyncCoordinator，
+保留原捕获身份、唯一派发、UNKNOWN、逐 ID 证明和关闭回收。
+[PR #19](https://github.com/wmqfl861/wls861/pull/19) 依赖设计
+[PR #16](https://github.com/wmqfl861/wls861/pull/16)，
+[PR #20](https://github.com/wmqfl861/wls861/pull/20) 依赖 #19。
+已通过的定向测试不能代替本统一输入的完整回归和主协调者独立复核。
+
+N5-2 的 DAG a→c←b、不可变 ACCEPTED 证明、固定候选独立审核及双边预算仍为具体设计提案。
+014／412 与后继 ReviewPair 迁移均未获本轮 013／411 授权；
+必须先采纳存储方案并稳定 N5-1，再按原先后顺序实施，不能把调度审核类别当业务审核通过。
+
+N5-3 的原生只读公共资源切片独立推进；Server/elevated 组件证据与 Windows 11
+普通用户目标验收分开。目标机器与受信主体策略缺失时保持 NOT_RUN／POLICY_PENDING。
+原 runner image 冲突继续保留双来源，不能因 reader 修正或新一轮绿色宣告根因关闭。
+未支持的 Windows Store、业务文件、进程、强隔离和 cleanup 入口继续拒绝。
+
+实际范围与证据索引见 [STATUS](STATUS.md) 及各新增 N5 报告。
+没有真实 WLS 模型、付费调用、生产操作、main 写入或 PR 合并授权；
+后续 DAG、记忆、MCP 与服务化依赖主协调者的具体采纳和派发。
 
 ## 2026-11-01 整改复核与剩余门禁
 
