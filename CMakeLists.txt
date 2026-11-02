@@ -75,6 +75,8 @@ add_library(wls_s1 STATIC
     src/schema.cpp
     src/offline_runtime.cpp
     src/async_coordinator.cpp
+    src/persistent_event_selection.cpp
+    src/persistent_event_runtime.cpp
     src/event_runtime.cpp
     src/workspace_posix.cpp
     src/sandbox_posix.cpp
@@ -154,6 +156,13 @@ if(BUILD_TESTING)
     add_test(NAME persistent_event_store COMMAND persistent_event_store_tests)
     # New Store 411 transaction/identity suite; the original 92 bounds stay fixed.
     set_tests_properties(persistent_event_store PROPERTIES TIMEOUT 120)
+    add_executable(persistent_event_runtime_tests tests/persistent_event_runtime_tests.cpp)
+    target_link_libraries(persistent_event_runtime_tests PRIVATE wls_s1)
+    target_include_directories(persistent_event_runtime_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_compile_definitions(persistent_event_runtime_tests PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME persistent_event_runtime COMMAND persistent_event_runtime_tests)
+    # Explicit new vertical suite; existing registration deadlines are unchanged.
+    set_tests_properties(persistent_event_runtime PROPERTIES TIMEOUT 180)
     # Supplemental R2.4 families keep the existing 90-second S1 deadline.
     # Capacity exhaustion is process-global, so its two cases use separate
     # processes; all bounded recovery/concurrency groups are registered.

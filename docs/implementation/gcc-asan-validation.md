@@ -15,7 +15,7 @@ python3 scripts/run_gcc_asan.py \
   --data-root /mnt/d \
   --compiler g++-13 \
   --python /mnt/d/codex-workspace/wls861-r2-4-20261029/test-venv/bin/python \
-  --expected-tests 92
+  --expected-tests 94
 ```
 
 `--python` 指向实际已安装 `requirements-test.txt` 的解释器；保留 venv 的符号链接路径，
@@ -110,6 +110,8 @@ JUnit 逐项与注册名匹配且没有 failure/error/skipped/notrun，以及输
 CI 仅将原 CMake ASan 矩阵项接到此入口；另外五路与原 Make-ASan CPPFLAGS 目标保持。
 这是共享验证配置，而不是已经证明了某个生产缺陷的修复。
 
-本批整合新增 3 项注册：`async_coordinator` (180s)、`r3_offline_acceptance` (30s)、`r3_offline_acceptance_cli` (600s)。当前完整集合 92 项；原 89 项期限保持不变。
+此前整合新增 3 项注册：`async_coordinator` (180s)、`r3_offline_acceptance` (30s)、`r3_offline_acceptance_cli` (600s)，形成 92 项集合。
+N5-1 显式新增 `persistent_event_store` (120s) 和 `persistent_event_runtime` (180s)，
+当前候选完整集合为 94 项；原 92 项名称和期限保持不变。新增套件的内部方法不另计注册数。
 N2 增加原 LastTest 保留/缺失拒绝、实际轻量 CTest 成功/失败/中断/启动失败、
 主流程前后身份、公开投影及隐私拒绝自检。实际方法数与命令结果见本批报告；工具方法不增加产品注册数。

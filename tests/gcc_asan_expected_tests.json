@@ -372,6 +372,10 @@
     {
       "name": "persistent_event_store",
       "timeout": 120
+    },
+    {
+      "name": "persistent_event_runtime",
+      "timeout": 180
     }
   ]
 }

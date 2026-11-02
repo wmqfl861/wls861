@@ -1,6 +1,10 @@
 # WLS861 development contract
 
-Current implementation: **0.11.1-r3.3c-audit**, implementation blueprint baseline **v0.4.1**, Store **410**.
+Current implementation: **0.11.1-r3.3c-audit**, implementation blueprint baseline **v0.4.1**.
+This development candidate adds Store **411** through the explicitly approved
+013 migration and opt-in persistent-event contract. Existing request snapshots
+and the published 410 SQL remain unchanged; populated upgrades require the
+original explicit all-request maintenance gate.
 The planning revision is [v0.5.0](docs/spec/v0.5.0/README.md). Its assigned
 A0–A5 execution and B0–B6 follow-up boundaries are recorded in
 [the current task dependencies](docs/spec/v0.5.0/10-authorized-cycle-and-followups.md). It does not upgrade the runtime, Store schema, frozen request
@@ -113,8 +117,8 @@ Unsupported operations must keep failing before effects. Its four native tests
 are separate from the Linux product CTest catalog.
 
 Use the existing shared GCC gate and its reviewed test-name/deadline catalog.
-This branch registers 93 suites: the original 92 (89 plus the async suite and
-two offline acceptance suites), plus the Store 411 persistent-event suite.
+This branch registers 94 suites: the original 92 (89 plus the async suite and
+two offline acceptance suites), plus the Store 411 and persistent-event runtime suites.
 Subcases remain distinct from registrations. Never accept a new current count without
 reviewing names and deadlines. Update catalog, default, CI and selfchecks together.
 Runner selfchecks and diagnostic probes are not product sanitizer results. Keep
