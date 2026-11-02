@@ -694,6 +694,83 @@ class Evaluation(unittest.TestCase):
         e.build_report(plan, [self.run_entry(plan, request)])
         self.assertEqual(dump(), before)
 
+    def test_current_store_411_keeps_original_evidence_and_readonly_guards(self):
+        request = self.seed(key='store-411-reader')
+        # The real current CLI creates 411 and its migration witness. This is
+        # not an older fixture relabelled by changing PRAGMA user_version.
+        self.assertEqual(self.rows('PRAGMA user_version'), [{'user_version': 411}])
+        metadata = self.rows('SELECT * FROM event_association_metadata')
+        self.assertEqual(len(metadata), 1)
+        self.assertEqual(metadata[0]['store_version'], 13)
+        self.assertEqual(metadata[0]['migration_sha256'], hashlib.sha256(
+            (h.SOURCE / 'db/migrations/013_event_call_association.sql').read_bytes()).hexdigest())
+        for table in ('n5_event_requests', 'n5_event_links', 'n5_event_receipts'):
+            self.assertEqual(self.rows('SELECT * FROM ' + table), [])
+        before, original_bytes = self.snapshot(), self.database.read_bytes()
+        with e.database(self.database) as db:
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 411)
+            self.assertEqual(db.execute('PRAGMA query_only').fetchone()[0], 1)
+            for decision, version in ((None, 1), ('model-origin-v1', 2)):
+                plan = e.make_plan(db, request, decision_evidence=decision)
+                self.assertEqual(plan['schema_version'], version)
+                e.validate_plan(plan)
+                report = e.build_report(plan, [])
+                self.assertEqual(report['counts'], {'not_executed': 10})
+                self.assertFalse(report['provider_quality_acceptance_established'])
+            with self.assertRaisesRegex(sqlite3.OperationalError, 'readonly'):
+                db.execute('DELETE FROM requests')
+            # Even a caller changing its connection-local query_only flag
+            # cannot override the evaluator's read-only file open.
+            db.execute('PRAGMA query_only=OFF')
+            with self.assertRaisesRegex(sqlite3.OperationalError, 'readonly'):
+                db.execute('DELETE FROM requests')
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.database.read_bytes(), original_bytes)
+        self.assertEqual(self.rows('SELECT COUNT(*) AS count FROM call_attempts'), [{'count': 0}])
+
+    def test_unknown_store_412_refuses_before_reader_body_without_writes(self):
+        self.seed(key='future-version-source')
+        self.assertEqual(self.rows('PRAGMA user_version'), [{'user_version': 411}])
+        before, original_bytes = self.snapshot(), self.database.read_bytes()
+        future = self.directory / 'unsupported-412.sqlite'
+        with closing(sqlite3.connect(self.database.as_uri() + '?mode=ro', uri=True)) as source, \
+                closing(sqlite3.connect(future)) as target:
+            source.backup(target)
+            # A disposable unsupported marker, not a claim to implement 412.
+            target.execute('PRAGMA user_version=412')
+            self.assertEqual(target.execute('PRAGMA user_version').fetchone()[0], 412)
+        future_bytes = future.read_bytes()
+        entered = False
+        with self.assertRaisesRegex(e.InvalidEvidence, '^unsupported Store version$'):
+            with e.database(future):
+                entered = True
+        self.assertFalse(entered)
+        self.assertEqual(future.read_bytes(), future_bytes)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.database.read_bytes(), original_bytes)
+
+    def test_historical_408_to_410_schema_reader_contract_stays_readonly(self):
+        # Exercise published historical DDL, without fabricating successful
+        # requests/attempts or downgrading a current database's version label.
+        for version, last_migration in ((408, 10), (409, 11), (410, 12)):
+            with self.subTest(store_version=version):
+                path = self.directory / ('historical-' + str(version) + '.sqlite')
+                migrations = sorted((h.SOURCE / 'db/migrations').glob('*.sql'))
+                with closing(sqlite3.connect(path)) as db:
+                    db.executescript((h.SOURCE / 'db/schema.sql').read_text())
+                    for migration in migrations:
+                        if 4 <= int(migration.name[:3]) <= last_migration:
+                            db.executescript(migration.read_text())
+                    self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], version)
+                    self.assertIsNone(db.execute("SELECT name FROM sqlite_schema WHERE name='n5_event_links'").fetchone())
+                original_bytes = path.read_bytes()
+                with e.database(path) as db:
+                    self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], version)
+                    self.assertEqual(db.execute('SELECT COUNT(*) FROM requests').fetchone()[0], 0)
+                    with self.assertRaisesRegex(sqlite3.OperationalError, 'readonly'):
+                        db.execute('DELETE FROM schema_migrations')
+                self.assertEqual(path.read_bytes(), original_bytes)
+
     def test_nonregular_and_duplicate_json_inputs_refuse(self):
         fifo = self.directory / 'input.fifo'
         os.mkfifo(fifo, 0o600)

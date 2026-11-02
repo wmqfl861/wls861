@@ -173,7 +173,7 @@ def database(path):
         deadline = time.monotonic() + 10
         db.set_progress_handler(lambda: int(time.monotonic() >= deadline), 10000)
         db.execute('BEGIN')
-        require(db.execute('PRAGMA user_version').fetchone()[0] in (408, 409, 410), 'unsupported Store version')
+        require(db.execute('PRAGMA user_version').fetchone()[0] in (408, 409, 410, 411), 'unsupported Store version')
         require(db.execute('PRAGMA quick_check(1)').fetchone()[0] == 'ok', 'database integrity check failed')
         yield db
 
