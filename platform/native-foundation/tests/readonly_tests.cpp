@@ -54,9 +54,10 @@ void duplicate_policy_rejects(const std::filesystem::path& root) {
 }
 void historical_capture_compatible(const std::filesystem::path& root) {
     const auto captured = PublicResources::from_bundle(root);
-    CHECK(captured.count() == 35);
-    CHECK(captured.total_bytes() == 160549);
-    CHECK(captured.manifest_digest() == "b9f5468c6858ebd467fb4e6905d2ef4b8bd51a006e4fd2a636f8e4db1fde55cf");
+    // Exact approved Store 411 bundle, including migration 013.
+    CHECK(captured.count() == 36);
+    CHECK(captured.total_bytes() == 166684);
+    CHECK(captured.manifest_digest() == "f03bce7bb55b02f7740c81473c12301ecc437b35d980d629fb2d896196d4dc30");
 #ifndef _WIN32
     rejects_code(ErrorCode::Unsupported, [&] { (void)ReadOnlyRoot::open(root, synthetic_policy()); });
 #endif
