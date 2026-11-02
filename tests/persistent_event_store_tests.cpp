@@ -6,6 +6,7 @@
 #include "wls/schema.hpp"
 #include "wls/store.hpp"
 #include "test_support.hpp"
+#include "persistent_event_faults.hpp"
 
 #include <sqlite3.h>
 
@@ -346,26 +347,28 @@ void recovery_never_reissues_or_applies_old_links() {
     }
 }
 void t1_t2_t3_failure_rolls_back_both_sides() {
+    wls::test::persistent_events::StorageFault fault;
     Fixture f; auto value = f.capture(Role::Dispatcher); const auto budget = f.store->budget(f.id);
-    sql(f.path, "CREATE TRIGGER fail_link BEFORE INSERT ON n5_event_links BEGIN SELECT RAISE(ABORT,'T1 fault'); END");
+    sql(f.path, "CREATE TRIGGER fail_link BEFORE INSERT ON n5_event_links BEGIN SELECT n5_test_storage_fault(); END");
     expect(ErrorCode::Storage, [&] { f.reserve(value); });
     CHECK(f.store->budget(f.id) == budget); CHECK(scalar(f.path, "SELECT COUNT(*) FROM call_attempts") == 0);
     sql(f.path, "DROP TRIGGER fail_link"); f.reserve(value);
-    sql(f.path, "CREATE TRIGGER fail_dispatch BEFORE INSERT ON n5_event_receipts WHEN NEW.kind='DISPATCH' BEGIN SELECT RAISE(ABORT,'T2 fault'); END");
+    sql(f.path, "CREATE TRIGGER fail_dispatch BEFORE INSERT ON n5_event_receipts WHEN NEW.kind='DISPATCH' BEGIN SELECT n5_test_storage_fault(); END");
     expect(ErrorCode::Storage, [&] { f.store->claim_event_dispatch(value.captured.actor, text(value.link, "link_id")); });
     CHECK(scalar(f.path, "SELECT COUNT(*) FROM events WHERE type='claim_offline_call'") == 0);
     sql(f.path, "DROP TRIGGER fail_dispatch"); const auto response = f.observe(value, "submit_plan", plan_body());
-    sql(f.path, "CREATE TRIGGER fail_settlement BEFORE INSERT ON n5_event_receipts WHEN NEW.kind='SETTLEMENT' BEGIN SELECT RAISE(ABORT,'T3 fault'); END");
+    sql(f.path, "CREATE TRIGGER fail_settlement BEFORE INSERT ON n5_event_receipts WHEN NEW.kind='SETTLEMENT' BEGIN SELECT n5_test_storage_fault(); END");
     expect(ErrorCode::Storage, [&] { f.store->settle_event_observation(text(value.link, "link_id"), response); });
     CHECK(f.store->attempt(value.reservation.attempt_id).at("settlement_sha256").is_null());
     CHECK(scalar(f.path, "SELECT COUNT(*) FROM events WHERE type='settle_attempt'") == 0);
     sql(f.path, "DROP TRIGGER fail_settlement"); f.store->settle_event_observation(text(value.link, "link_id"), response);
 }
 void t4_faults_never_commit_note_without_feedback_and_proof() {
+    wls::test::persistent_events::StorageFault fault;
     for (const auto* trigger : {
-            "CREATE TRIGGER fail_tail BEFORE INSERT ON events WHEN NEW.type='start_op' BEGIN SELECT RAISE(ABORT,'W11'); END",
-            "CREATE TRIGGER fail_tail BEFORE INSERT ON model_tool_feedback BEGIN SELECT RAISE(ABORT,'W12'); END",
-            "CREATE TRIGGER fail_tail BEFORE INSERT ON n5_event_receipts WHEN NEW.kind='CLOSE' BEGIN SELECT RAISE(ABORT,'W14'); END"}) {
+            "CREATE TRIGGER fail_tail BEFORE INSERT ON events WHEN NEW.type='start_op' BEGIN SELECT n5_test_storage_fault(); END",
+            "CREATE TRIGGER fail_tail BEFORE INSERT ON model_tool_feedback BEGIN SELECT n5_test_storage_fault(); END",
+            "CREATE TRIGGER fail_tail BEFORE INSERT ON n5_event_receipts WHEN NEW.kind='CLOSE' BEGIN SELECT n5_test_storage_fault(); END"}) {
         Fixture f; f.plan(); f.ready(); auto value = f.capture(Role::Worker); f.reserve(value);
         const auto response = f.observe(value, "note", Object{{"text", "must roll back atomically"}});
         f.store->settle_event_observation(text(value.link, "link_id"), response);
@@ -543,7 +546,7 @@ void structural_410_upgrade_retains_history_and_requires_maintenance() {
         CHECK(upgraded.request(id).at("config_snapshot") == original.at("config_snapshot"));
         CHECK(upgraded.request_snapshot(id).at("texts") == snapshot.at("texts"));
         CHECK(upgraded.request_event_links(id).empty()); CHECK(upgraded.event_runtime_enabled());
-        expect(ErrorCode::NotReady, [&] { upgraded.enable_event_driver(upgraded.host_actor(Role::Root, id), {}, new_id("enable-old")); });
+        expect(ErrorCode::NotReady, [&] { upgraded.enable_event_driver(upgraded.host_actor(Role::Root, id), {}, new_id("enable")); });
     }
     expect(ErrorCode::Unsupported, [&] { Store legacy(path, MigrationRegistry(resources(), 410), StoreOpenMode::ReadOnly); });
     CHECK(scalar(path, "PRAGMA user_version") == 411);
