@@ -96,12 +96,12 @@ jobs:
         if: matrix.name == 'ASan'
         run: |
           .local/test-venv/bin/python scripts/run_gcc_asan.py --compiler g++-13 --python "$GITHUB_WORKSPACE/.local/test-venv/bin/python" --expected-tests 92
-      - name: Retain GCC ASan evidence including failures
+      - name: Retain approved GCC ASan public projections including failures
         if: always() && matrix.name == 'ASan'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: gcc-asan-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: build-gcc-asan-*/evidence/
+          path: build-gcc-asan-*/public-evidence/
           if-no-files-found: warn
           retention-days: 7
       - name: Configure CMake
