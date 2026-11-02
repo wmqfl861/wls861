@@ -277,9 +277,14 @@ def ordinary_windows11():
 class ProvenanceAndHostGuards(unittest.TestCase):
     def test_capture_entry_only_reads_checkout_and_writes_one_fresh_snapshot(self):
         with tempfile.TemporaryDirectory(prefix='native-image-capture-selfcheck-') as temporary:
-            source = Path(temporary) / 'source'
+            root = Path(temporary)
+            (root / 'path-spelling').mkdir()
+            source = root / 'path-spelling' / '..' / 'source'
             source.mkdir()
-            destination = Path(temporary) / 'capture.json'
+            resolved_source = source.resolve(strict=True)
+            self.assertNotEqual(str(source), str(resolved_source))
+            destination = root / 'capture.json'
+            original_entries = {path.name for path in root.iterdir()}
             fake_os = SimpleNamespace(name='nt', environ={'GITHUB_ACTIONS': 'true',
                 'ImageOS': 'win22', 'ImageVersion': '20261026.347.1', 'MODEL_API_KEY': 'synthetic-secret'})
             with patch.object(RUNNER, 'os', fake_os), \
@@ -289,11 +294,13 @@ class ProvenanceAndHostGuards(unittest.TestCase):
                  patch.object(sys, 'argv', ['run_windows_ci.py', '--source-root', str(source),
                                            '--capture-image-environment', str(destination)]):
                 RUNNER.main()
-                git_head.assert_called_once_with(['git', '-C', str(source), 'rev-parse', 'HEAD'], timeout=30)
+                git_head.assert_called_once_with(['git', '-C', str(resolved_source), 'rev-parse', 'HEAD'], timeout=30)
             captured = json.loads(destination.read_text())
             self.assertEqual(captured['actual_checkout_sha'], 'a' * 40)
             self.assertEqual(captured['image_environment']['ImageVersion'], '20261026.347.1')
             self.assertNotIn('synthetic-secret', destination.read_text())
+            self.assertEqual({path.name for path in root.iterdir()}, original_entries | {destination.name})
+            self.assertEqual(list(resolved_source.iterdir()), [])
 
     def test_image_snapshot_is_allowlisted_and_never_claims_job_header_identity(self):
         with patch.dict(os.environ, {'ImageOS': 'win22', 'ImageVersion': '20261026.347.1',
