@@ -1,4 +1,5 @@
 #include "wls/async_coordinator.hpp"
+#include "wls/persistent_event_selection.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -69,6 +70,9 @@ public:
     enum class Phase { Queued, AwaitingClaim, Executing, Ready, Retained, Done };
     struct Job {
         CapturedModelCall captured;
+        bool event_mode{};
+        std::string event_link_id;
+        Json event_claim = nullptr;
         std::shared_ptr<const ModelAdapter> adapter;
         WorkClass work_class;
         std::string resource;
@@ -129,7 +133,10 @@ public:
 
     std::future<Json> submit(CapturedModelCall captured,
                             std::shared_ptr<const ModelAdapter> adapter,
-                            WorkClass work_class, std::string resource) {
+                            WorkClass work_class, std::string resource,
+                            bool event_mode = false,
+                            std::int64_t max_claim_items = 64,
+                            std::string* event_link_id = nullptr) {
         owner();
         require(!closed_ && !halted_, ErrorCode::NotReady, "coordinator is closed or settlement-fenced");
         require(adapter && !adapter->capabilities().real_calls, ErrorCode::Unsupported,
@@ -159,7 +166,19 @@ public:
             ? captured.request.binding.request_id : captured.request.binding.team_id;
         require(resource.size() <= 256 && resource.find('\0') == std::string::npos,
                 ErrorCode::InvalidInput, "invalid scheduler resource key");
+        std::optional<AttemptReservation> event_reservation;
+        if (event_mode) {
+            require(event_link_id && max_claim_items > 0 && max_claim_items <= 64,
+                    ErrorCode::InvalidInput, "invalid persistent event claim bound");
+            require(limits_.business_capacity <= 64 && limits_.control_capacity <= 16 &&
+                    limits_.management_workers <= 4 && limits_.worker_workers <= 8,
+                    ErrorCode::Unauthorized, "persistent event scheduling exceeds protocol ceilings");
+            require(store_->persistent_events_enabled(captured.actor.request_id),
+                    ErrorCode::Unsupported, "persistent event mode was not explicitly enabled");
+            event_reservation = make_offline_reservation(*adapter, captured);
+        }
         auto job = std::make_shared<Job>();
+        job->event_mode = event_mode;
         job->captured = std::move(captured);
         job->adapter = std::move(adapter);
         job->work_class = work_class;
@@ -169,11 +188,52 @@ public:
         // All memory/bookkeeping required to retain one result is owned before
         // reservation. A later scheduler rejection retains the original attempt.
         jobs_.push_back(job);
+        bool associated = false;
         try {
-            OfflineRuntime(*store_, *schemas_).reserve_captured_call(*job->adapter, job->captured);
+            if (event_mode) {
+                job->event_claim = store_->claim_event_batch(job->captured.actor, max_claim_items);
+                EventCallAssociation association;
+                association.selected_ids = select_persistent_event_ids(job->captured, job->event_claim);
+                require(!association.selected_ids.empty(), ErrorCode::NotReady,
+                        "actual event claim contains no supported target IDs");
+                association.claim_id = std::string(job->event_claim.at("claim_id").as_string());
+                association.generation = job->event_claim.at("generation").as_int64();
+                association.expected_state_version = job->captured.expected_state_version;
+                association.workflow_action = job->captured.workflow_action;
+                const auto link = store_->reserve_event_call(job->captured.actor,
+                    job->captured.request.binding, *event_reservation, association);
+                // From here onward, even allocation/decoding failures retain the
+                // Job and all original capacity; a durable link is never released
+                // by treating a host exception as a rolled-back reservation.
+                associated = true;
+                job->event_link_id = std::string(link.at("link_id").as_string());
+                *event_link_id = job->event_link_id;
+            } else {
+                OfflineRuntime(*store_, *schemas_).reserve_captured_call(*job->adapter, job->captured);
+            }
         } catch (...) {
-            jobs_.pop_back();
-            throw;
+            const auto original = std::current_exception();
+            bool preserve = associated;
+            if (!associated && !job->event_claim.is_null()) {
+                try {
+                    const auto claim_id = std::string(job->event_claim.at("claim_id").as_string());
+                    if (!claim_id.empty())
+                        (void)store_->release_event_batch(job->captured.actor, claim_id,
+                            job->event_claim.at("generation").as_int64());
+                } catch (...) {
+                    // A T1 throw may follow a durable commit. Only successful
+                    // typed release proves the claim was unassociated. A failed
+                    // release keeps the original slot, snapshot and global fence.
+                    preserve = true;
+                }
+            }
+            if (preserve) {
+                if (work_class == WorkClass::Normal) ++normal_;
+                retain(*job, original);
+            } else {
+                jobs_.pop_back();
+            }
+            std::rethrow_exception(original);
         }
         if (work_class == WorkClass::Normal) ++normal_;
         if (!resource_predecessor(job)) enqueue(job);
@@ -304,6 +364,14 @@ public:
                 "no original response was retained; pending attempt requires recovery");
         const auto& call = job.captured;
         const auto& response = *job.response;
+        if (job.event_mode) {
+            require(!job.event_link_id.empty(), ErrorCode::UnknownOutcome,
+                    "original event association needs explicit recovery before observation replay");
+            // Close/flush can persist the original observation only. A missing
+            // T4 remains a durable HOLD; it never grants another application.
+            (void)store_->settle_event_observation(job.event_link_id, response);
+            return;
+        }
         require(response.call_id == call.request.call_id && response.attempt_id == call.request.attempt_id,
                 ErrorCode::Conflict, "returned response changed its original attempt identity");
         (void)store_->settle_attempt(call.request.attempt_id, response.binding,
@@ -329,6 +397,9 @@ public:
                 evidence_only(job);
                 if (!job.failure) job.failure = std::make_exception_ptr(
                     Error(ErrorCode::NotReady, "response retained without business application"));
+            } else if (job.event_mode) {
+                (void)store_->settle_event_observation(job.event_link_id, *job.response);
+                result = store_->commit_event_action_and_finish(job.captured.actor, job.event_link_id, *schemas_);
             } else {
                 result = OfflineRuntime(*store_, *schemas_).accept_independent_response(job.captured, *job.response);
             }
@@ -336,7 +407,8 @@ public:
             else job.result.set_value(std::move(result));
             job.phase = Phase::Done;
         } catch (const Error& error) {
-            if (error.code() == ErrorCode::Storage || error.code() == ErrorCode::Corrupt || only_evidence) {
+            if (error.code() == ErrorCode::Storage || error.code() == ErrorCode::Corrupt || only_evidence ||
+                    (job.event_mode && error.code() == ErrorCode::UnknownOutcome)) {
                 retain(job, std::current_exception());
             } else {
                 // A rejected envelope may never have reached settlement.
@@ -412,8 +484,9 @@ public:
                 bool permitted = false;
                 if (!closed_ && !halted_ && !job->stop.stop_requested()) {
                     try {
-                        const auto claim = store_->claim_offline_call(job->captured.actor,
-                            job->captured.request.attempt_id);
+                        const auto claim = !job->event_mode
+                            ? store_->claim_offline_call(job->captured.actor, job->captured.request.attempt_id)
+                            : store_->claim_event_dispatch(job->captured.actor, job->event_link_id);
                         permitted = claim.at("dispatch_claimed").as_bool();
                         job->replay = !permitted;
                         require(permitted, ErrorCode::Conflict, "original attempt has already been dispatched");
@@ -520,7 +593,9 @@ public:
         for (const auto& job : jobs_) if (job->phase == Phase::Retained)
             result.push_back(Object{{"request", to_json(job->captured.request)},
                 {"response", job->response ? to_json(*job->response) : Json(nullptr)},
-                {"observation_complete", job->response.has_value()}, {"business_retry_allowed", false}});
+                {"observation_complete", job->response.has_value()}, {"business_retry_allowed", false},
+                {"persistent_events", job->event_mode}, {"event_link_id", job->event_link_id},
+                {"event_claim", job->event_claim}});
         return result;
     }
 
@@ -589,6 +664,15 @@ CapturedModelCall AsyncCoordinator::capture(const std::string& id, Role role, co
 std::future<Json> AsyncCoordinator::submit(CapturedModelCall call,
         std::shared_ptr<const ModelAdapter> adapter, WorkClass work_class, std::string resource) {
     return impl_->submit(std::move(call), std::move(adapter), work_class, std::move(resource));
+}
+EventCallSubmission AsyncCoordinator::submit_event(CapturedModelCall call,
+        std::shared_ptr<const ModelAdapter> adapter,
+        std::int64_t max_claim_items, WorkClass work_class, std::string resource) {
+    EventCallSubmission result;
+    result.attempt_id = call.request.attempt_id;
+    result.completion = impl_->submit(std::move(call), std::move(adapter), work_class,
+        std::move(resource), true, max_claim_items, &result.link_id);
+    return result;
 }
 std::future<Json> AsyncCoordinator::cancel(StoreActor root, std::int64_t version, std::string command) {
     return impl_->control(std::move(root), version, std::move(command), std::nullopt, nullptr);

@@ -1,4 +1,5 @@
 #include "wls/event_runtime.hpp"
+#include "wls/persistent_event_selection.hpp"
 #include "wls/worker_tools.hpp"
 #include "wls/management_context.hpp"
 #include "runtime_config_internal.hpp"
@@ -509,36 +510,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             type == "recover_experience";
     };
     const auto action_in_claim = [&](const Json& action, const Json& claim) {
-        const auto kind = text(action, "kind");
-        if (kind == "amendment") {
-            const auto& target = action.at("target");
-            const auto& pending = target.at("pending_node_ids").as_array();
-            return std::any_of(claim.at("items").as_array().begin(), claim.at("items").as_array().end(),
-                [&](const auto& item) {
-                    if (text(item, "type") != "amend" && !recovery_item(item)) return false;
-                    const auto subject = text(item, "subject_task_id");
-                    if (subject.empty()) return true;
-                    return std::any_of(target.at("tasks").as_array().begin(), target.at("tasks").as_array().end(),
-                        [&](const auto& task) {
-                            return text(task, "task_id") == subject &&
-                                std::any_of(pending.begin(), pending.end(), [&](const auto& node) {
-                                    return node == task.at("node_id");
-                                });
-                        });
-                });
-        }
-        const auto field = kind == "question" ? "question_id" : kind == "experience" ? "experience_id" : "submission_id";
-        const auto target_id = text(action.at("target"), field);
-        const auto target_task = text(action.at("target"), "task_id");
-        return std::any_of(claim.at("items").as_array().begin(), claim.at("items").as_array().end(),
-            [&](const auto& item) {
-                const auto* escalation = action.at("target").as_object().if_contains("escalation");
-                const bool answered_rejection = kind == "rejection" && escalation && !escalation->is_null() &&
-                    text(item, "type") == "answer_question" &&
-                    event_object_id(item, "question_id") == text(*escalation, "question_id");
-                return event_object_id(item, field) == target_id || answered_rejection ||
-                    (recovery_item(item) && text(item, "subject_task_id") == target_task);
-            });
+        return event_claim_contains_workflow_action(action, claim);
     };
     const auto question_done = [&](const Json& item, Role role) {
         const auto question_id = event_object_id(item, "question_id");

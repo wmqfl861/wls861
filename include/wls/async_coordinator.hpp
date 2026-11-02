@@ -41,14 +41,20 @@ struct AsyncCoordinatorSnapshot {
     std::string blocked_reason;
 };
 
+struct EventCallSubmission {
+    std::string link_id;
+    std::string attempt_id;
+    std::future<Json> completion;
+};
+
 // Opt-in, offline S1 call coordinator. The constructing host thread owns all
 // Store access and drives poll/drain. Scheduler callbacks only wait on/execute
 // offline models; they never access the Store. The owned Store and schemas
 // outlive every callback, including cancellation and exception unwinding.
 //
-// This is a bounded call-level API, not a daemon or an automatic event pump.
-// It never consumes inbox IDs. Existing EventRuntime claim/ack behavior remains
-// authoritative. No WorkerTools are attached: long run and filesystem actions
+// The default submit remains call-level. Explicit submit_event uses the Store
+// 411 T0-T4 protocol; only Store proves individual inbox IDs complete. The host
+// may drive it with PersistentEventRuntime; there is no background inbox pump. No WorkerTools are attached: long run and filesystem actions
 // are unavailable. Review is only a scheduling class, not a review verdict.
 class AsyncCoordinator final {
 public:
@@ -69,6 +75,15 @@ public:
                               bool model_amendment = false);
     std::future<Json> submit(CapturedModelCall captured,
                             std::shared_ptr<const ModelAdapter> adapter,
+                            WorkClass work_class = WorkClass::Normal,
+                            std::string resource_key = {});
+
+    // Explicit Store 411 event mode. Own the original result slot before T0,
+    // then reserve the captured claim/link/attempt in T1. Only Store T4 may
+    // prove individual IDs complete; readiness of this future is not proof.
+    EventCallSubmission submit_event(CapturedModelCall captured,
+                            std::shared_ptr<const ModelAdapter> adapter,
+                            std::int64_t max_claim_items = 64,
                             WorkClass work_class = WorkClass::Normal,
                             std::string resource_key = {});
 

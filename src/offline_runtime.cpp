@@ -684,8 +684,8 @@ CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
     return captured;
 }
 
-void OfflineRuntime::reserve_captured_call(const ModelAdapter& adapter,
-                                          const CapturedModelCall& captured) {
+AttemptReservation make_offline_reservation(const ModelAdapter& adapter,
+                                            const CapturedModelCall& captured) {
     require(!adapter.capabilities().real_calls, ErrorCode::Unsupported, "offline runner refuses real adapters");
     const auto& request = captured.request;
     adapter.validate(request);
@@ -703,7 +703,13 @@ void OfflineRuntime::reserve_captured_call(const ModelAdapter& adapter,
         reservation.experience_job_version = integer_at(job, "state_version");
         reservation.experience_source_sha256 = string_at(job, "source_sha256");
     }
-    static_cast<void>(store_.reserve_attempt(captured.actor, request.binding, reservation));
+    return reservation;
+}
+
+void OfflineRuntime::reserve_captured_call(const ModelAdapter& adapter,
+                                          const CapturedModelCall& captured) {
+    const auto reservation = make_offline_reservation(adapter, captured);
+    static_cast<void>(store_.reserve_attempt(captured.actor, captured.request.binding, reservation));
 }
 
 Json OfflineRuntime::accept_response(const CapturedModelCall& call, const ModelResponse& response,

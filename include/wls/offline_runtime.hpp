@@ -106,6 +106,11 @@ private:
     WorkerTools* worker_tools_;
 };
 
+// Build the original offline reservation without writing Store. The persistent
+// event host uses the same adapter/envelope checks before its T0/T1 transactions.
+AttemptReservation make_offline_reservation(const ModelAdapter& adapter,
+                                            const CapturedModelCall& captured);
+
 // Bounded regular-file read for explicit CLI inputs and trusted SQL assets.
 // No tilde/env expansion, command execution, symlink or special-file reads.
 std::string read_runtime_file(const std::filesystem::path& path,
