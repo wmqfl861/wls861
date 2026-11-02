@@ -1,0 +1,919 @@
+{
+  "schema": "wls861-n0-n4-final-delivery-v4",
+  "status": "PREPUBLICATION_RECORD_COMPLETE_VALIDATION_BLOCKED",
+  "prepared_at_utc": "2026-11-02T08:45:05.635919+00:00",
+  "prepared_by": "/root/delivery_report",
+  "private_locator_base": "/mnt/d/codex-workspace/wls861-n0-n4-20261102-0k9_2wlf",
+  "overall_acceptance": "VALIDATION_BLOCKED",
+  "privacy": "Selected identifiers, counts, dispositions and locator/hash references only; no raw job, doctor/config, environment, credentials, request or model bodies.",
+  "identity": {
+    "matrix_input_commit": "7bf3a16d9683ed6a8de65d88023bae9687abd20d",
+    "matrix_input_tree": "02e78d39f96473e81801ad4eb884e7e01bdfe534",
+    "branch": "work/coordinator-n0-n4-20261102-0k9",
+    "pr_url": "https://github.com/wmqfl861/wls861/pull/15",
+    "pr_base_commit": "4289589384d75f29d42233cbaad256ceb711e9bf",
+    "pr_base_branch": "docs/zcode-final-validation-20261101",
+    "original_main": "a6b8559018a599d7a806b05942857a56d69a00ce",
+    "integration_commit": "f3fc9bfaf345030ee994097d2a2443e3c290e9fc",
+    "integration_parents": [
+      "4289589384d75f29d42233cbaad256ceb711e9bf",
+      "ceaa9b3e18618c592345001dfc597bdaf579cf81"
+    ],
+    "final_implementation_commit": "b58f7b0e63ad68f67f124eddd303825ade817791",
+    "final_implementation_tree": "346035869fb99edf548d9c9b4be6522de43f5095",
+    "publication_commit": null,
+    "publication_self_sha_and_following_ci": "EXTERNAL_RECEIPT_AFTER_NORMAL_PUBLICATION",
+    "old_matrix_may_be_relabelled_as_final_publication_run": false,
+    "refs": [
+      "resume_01",
+      "resume_02",
+      "resume_03"
+    ]
+  },
+  "cards": {
+    "N0": {
+      "state": "NORMAL_INTEGRATION_AND_PROVENANCE_RECORDED",
+      "main_or_pr_merge_by_this_task": false,
+      "future_final_publication": "PENDING_ACTUAL_PUBLISH_READBACK"
+    },
+    "N1": {
+      "state": "SCOPED_SSE_CHANGE_RECORDED_VALIDATION_BLOCKED",
+      "historical_root_causes": "OPEN",
+      "src_include_change": [
+        "src/sse_replay.cpp"
+      ],
+      "new_asan_suite_green_is_causal_fix_proof": false,
+      "ref": "n1_report"
+    },
+    "N2": {
+      "state": "PERMANENT_REGRESSIONS_AND_RUNNER_CORRECTIONS_IMPLEMENTED",
+      "new_product_ctest_registrations": 0,
+      "four_new_async_store_methods_ubsan": "DIRECT_PASS",
+      "new_sse_method_ubsan": "NOT_STARTED",
+      "full_local_gate_passed": false,
+      "refs": [
+        "n2_permanent",
+        "n2_failed_status",
+        "ubsan_author_records",
+        "ubsan_nonauthor_methods"
+      ],
+      "four_new_async_store_methods_asan": "DIRECT_PASS",
+      "new_sse_method_asan": "NOT_STARTED"
+    },
+    "N3": {
+      "state": "PROVENANCE_GUARDED_ENTRY_AND_E23_FIXTURE_INTEGRATED",
+      "windows_7bf3_ci": "FAILED_BEFORE_NATIVE_BUILD",
+      "actual_win11": "NOT_RUN",
+      "full_windows_runtime_acceptance": "NOT_ESTABLISHED",
+      "e23_review_ref": "e23_review",
+      "successor_linux_tool_check": "16_OF_16_EXIT_ZERO_NOT_NATIVE_WINDOWS"
+    },
+    "N4": {
+      "state": "DESIGN_PROPOSED",
+      "implementation": "NOT_STARTED",
+      "acceptance_cases": "PLANNED_NOT_RUN",
+      "coordinator_adoption": "NOT_ESTABLISHED",
+      "ref": "n4_cards"
+    }
+  },
+  "counting": {
+    "product_ctest_registrations_per_full_lane": 92,
+    "internal_methods_in_existing_cases": {
+      "async_coordinator": 31,
+      "store": 34,
+      "sse_replay": 32
+    },
+    "methods_and_tool_cases_are_extra_ctest_suites": false
+  },
+  "local_matrix": {
+    "input_commit": "7bf3a16d9683ed6a8de65d88023bae9687abd20d",
+    "status": "ENDED_FAILED_COLLECTION_COMPLETE",
+    "outer_session": 81230,
+    "outer_actual_exit": 1,
+    "outer_reaped": true,
+    "release_completed": [
+      {
+        "compiler": "GCC 13.3",
+        "umask": "0022",
+        "passed": 92,
+        "total": 92,
+        "exit_code": 0,
+        "ctest_seconds": 876.491067
+      },
+      {
+        "compiler": "GCC 13.3",
+        "umask": "0002",
+        "passed": 92,
+        "total": 92,
+        "exit_code": 0,
+        "ctest_seconds": 763.984141
+      },
+      {
+        "compiler": "Clang 18.1.3",
+        "umask": "0002",
+        "passed": 92,
+        "total": 92,
+        "exit_code": 0,
+        "ctest_seconds": 2145.512584
+      }
+    ],
+    "release_ref": "release_records",
+    "ubsan": {
+      "status": "ENDED_FAILED",
+      "total": 92,
+      "passed": 66,
+      "ordinary_failed": 2,
+      "timeout": 24,
+      "skipped": 0,
+      "notrun": 0,
+      "ctest_exit": 8,
+      "wrapper_exit": 1,
+      "wrapper_reaped": true,
+      "ctest_seconds": 6175.301555,
+      "ctest_started_at_utc": "2026-11-02T04:06:19.647439+00:00",
+      "ctest_ended_at_utc": "2026-11-02T05:49:14.948866+00:00",
+      "wrapper_ended_at_utc": "2026-11-02T05:50:26.647683+00:00",
+      "source_entries": 820,
+      "binary_build_entries": 61,
+      "recorded_before_after_manifests_equal": true,
+      "method_records": {
+        "store": {
+          "start": 34,
+          "pass": 34,
+          "result_present": true,
+          "new_methods_7_8": "PASS"
+        },
+        "async_coordinator": {
+          "start": 30,
+          "pass": 29,
+          "result_present": false,
+          "new_methods_14_15": "PASS",
+          "method_30": "STARTED_NOT_COMPLETED",
+          "method_31": "NOT_STARTED"
+        },
+        "sse_replay": {
+          "start": 1,
+          "pass": 0,
+          "result_present": false,
+          "new_method_20": "NOT_STARTED"
+        }
+      },
+      "explicit_failures": [
+        {
+          "suite": "https_transport",
+          "outcome": "FAILED",
+          "seconds": 19.07,
+          "predicate": "len(peer.prefixes)",
+          "actual": 0,
+          "expected": 1
+        },
+        {
+          "suite": "r1_structured_cli_smoke",
+          "outcome": "FAILED",
+          "seconds": 91.91,
+          "inner_error": "subprocess.TimeoutExpired",
+          "original_inner_timeout_seconds": 50,
+          "original_outer_timeout_seconds": 120
+        },
+        {
+          "suite": "live_workflow",
+          "outcome": "TIMEOUT",
+          "seconds": 300.03,
+          "earlier_immediate_assertion": "manager_limit predicate False",
+          "original_outer_timeout_seconds": 300
+        }
+      ],
+      "refs": [
+        "ubsan_author_records",
+        "ubsan_nonauthor_methods"
+      ]
+    },
+    "asan": {
+      "status": "ENDED_FAILED",
+      "shared_build": "candidate/build-gcc-asan-20261102T055028Z-dad5f2cb",
+      "wrapper_phase": "evidence/gcc-asan-20261102T055026Z-a686d2e51cd64d749f4f1342b96afa5e/phase/",
+      "runner_started_at_utc": "2026-11-02T05:50:28.564305+00:00",
+      "build": {
+        "exit_code": 0,
+        "seconds": 1748.0829021860845,
+        "ended_at_utc": "2026-11-02T06:19:48.735825+00:00",
+        "ref": "asan_build_step"
+      },
+      "final_ctest_exit": 8,
+      "final_wrapper_exit": 1,
+      "final_counts": {
+        "passed": 56,
+        "ordinary_failed": 0,
+        "timeout": 36,
+        "skipped": 0,
+        "notrun": 0,
+        "total": 92
+      },
+      "final_method_markers": {
+        "store": {
+          "declared": 34,
+          "start": 27,
+          "pass": 26,
+          "result_present": false,
+          "new_methods_7_8": "PASS",
+          "method_27": "STARTED_UNCOMPLETED",
+          "methods_28_to_34": "NOT_STARTED",
+          "suite": "TIMEOUT",
+          "seconds": 90.3
+        },
+        "sse_replay": {
+          "declared": 32,
+          "start": 1,
+          "pass": 0,
+          "result_present": false,
+          "new_method_20": "NOT_STARTED",
+          "suite": "TIMEOUT",
+          "seconds": 90.39
+        },
+        "async_coordinator": {
+          "declared": 31,
+          "start": 31,
+          "pass": 31,
+          "result_present": true,
+          "new_methods_14_15": "PASS",
+          "suite": "PASSED",
+          "seconds": 154.35
+        },
+        "https_transport": {
+          "declared": 42,
+          "ok": 42,
+          "complete_unittest_summary": true,
+          "suite": "PASSED",
+          "seconds": 17.67,
+          "partial_upload_exact_method": "OK"
+        },
+        "live_model_store_tls": {
+          "declared": 10,
+          "ok": 10,
+          "complete_unittest_summary": true,
+          "suite": "PASSED",
+          "seconds": 35.65,
+          "capacity_method_line_2255": "OK",
+          "large_method_line_2257": "OK"
+        },
+        "r1_structured_cli_smoke": {
+          "declared": 6,
+          "ok": 6,
+          "complete_unittest_summary": true,
+          "suite": "PASSED"
+        },
+        "live_workflow": {
+          "declared": 18,
+          "ok": 10,
+          "complete_unittest_summary": false,
+          "other_methods_state": "UNKNOWN",
+          "other_methods_count": 8,
+          "exhaustion_line_2289": "OK",
+          "observed_immediate_failure_or_traceback": false,
+          "suite": "TIMEOUT",
+          "seconds": 300.1
+        }
+      },
+      "final_source_binary_identity_review": "SAVED_MANIFESTS_AND_TERMINAL_RECEIPTS_NO_FRESH_ELF_SCAN",
+      "shared_runner_exit": 1,
+      "ctest_seconds": 7233.214669747045,
+      "ctest_started_at_utc": "2026-11-02T06:20:14.434863+00:00",
+      "ctest_ended_at_utc": "2026-11-02T08:20:47.649469+00:00",
+      "shared_summary_ended_at_utc": "2026-11-02T08:21:17.980038+00:00",
+      "outer_phase_end_at_utc": "2026-11-02T08:21:34.859287+00:00",
+      "source_entries": 820,
+      "binary_build_entries": 61,
+      "recorded_before_after_manifests_equal": true,
+      "original_artifact_hashes_checked": 11,
+      "full_original_suite_sets_equal": true,
+      "selected_terminal_outcomes": {
+        "billing_baseline_e2e": {
+          "status": "TIMEOUT",
+          "seconds": 900.02,
+          "original_timeout_seconds": 900
+        },
+        "allocation_recovery_cli": {
+          "status": "PASSED",
+          "seconds": 161.1,
+          "original_timeout_seconds": 180
+        },
+        "audit24_capacity_cli_smoke": {
+          "status": "PASSED",
+          "seconds": 58.31
+        }
+      },
+      "refs": [
+        "asan_author_records",
+        "asan_author_audit",
+        "asan_nonauthor_methods",
+        "asan_nonauthor_audit",
+        "final_collector",
+        "outer_actual_exit"
+      ]
+    },
+    "outer_pid": 2986991,
+    "outer_pid_exists_at_receipt": false,
+    "collection_complete": true,
+    "gate_passed": false,
+    "collector_ref": "final_collector",
+    "outer_exit_ref": "outer_actual_exit",
+    "additional_configurations_not_run_this_cycle": {
+      "Make-ASan": "NOT_RUN",
+      "Clang ASan": "NOT_RUN",
+      "do_not_substitute_remote_make_or_clang_release": true
+    }
+  },
+  "tool_results": {
+    "integrated_input": "7bf3a16d9683ed6a8de65d88023bae9687abd20d",
+    "receipt_ref": "integrated_tools",
+    "runner_methods_passed": 57,
+    "immediate_methods_passed": 5,
+    "transport_methods_passed": 11,
+    "windows_evidence_methods_passed": 16,
+    "native_observer_scripts_exit_zero": 1,
+    "runner_unittest_seconds": 4.754,
+    "earlier_different_input": "3ce1e218731742d2a88fb5f08b77bb20f1aad835",
+    "earlier_runner_methods": 51,
+    "first_runner_retention_red_vs_final38": "DIFFERENT_FULL_TEST_BYTES_MATCHING_COUNTEREXAMPLE_AND_FIXTURE_AST",
+    "later_tool_pairs": "SAME_FINAL_TEST_BYTES_WITHIN_EACH_PAIR",
+    "successor": {
+      "input": "b58f7b0e63ad68f67f124eddd303825ade817791",
+      "tool": "Windows evidence selfchecks on Linux",
+      "methods": 16,
+      "exit_code": 0,
+      "seconds": 11.492969003971666,
+      "reaped": true,
+      "source_entries": 821,
+      "identities_unchanged": true,
+      "native_windows_execution": false,
+      "product_ctest_registrations": 0,
+      "ref": "successor_tools"
+    }
+  },
+  "review_scopes": {
+    "writer": {
+      "agent": "/root/delivery_report",
+      "scope": "READ_FINAL_RECEIPTS_AND_FROZEN_REPORTS_PREPARE_DELIVERY_AND_DATA_ONLY_AUDIT_TOOLS",
+      "product_or_build_execution": false,
+      "independent_review_of_own_report": false
+    },
+    "ubsan_full_record_arithmetic": {
+      "agent": "/root/concurrency_fix",
+      "author_of_N2_tools_and_collector": true,
+      "scope": "ORIGINAL_RECORD_AND_ARITHMETIC_CHECK_NOT_INDEPENDENT_IMPLEMENTATION_APPROVAL"
+    },
+    "ubsan_method_cross_review": {
+      "agent": "/root/phase_observation_review",
+      "author_of_N2_changes": false,
+      "scope": "FOUR_NEW_METHODS_NEW_SSE_NOT_STARTED_AND_THREE_FAILURE_LABELS",
+      "independent_full_matrix_rerun": false
+    },
+    "implementation_static_reviews": "SEPARATE_FROZEN_N2_8ead_6f20_AND_E23_RECEIPTS_REFERENCED_BY_REPORT",
+    "coordinator_formal_acceptance": false,
+    "asan_full_record_arithmetic": {
+      "agent": "/root/concurrency_fix",
+      "author_of_N2_tools_and_collector": true,
+      "scope": "FULL_92_ORIGINAL_RECORD_ARITHMETIC_AND_SAVED_IDENTITY_CHECK_NOT_NONAUTHOR_APPROVAL",
+      "fresh_ELF_scan": false
+    },
+    "asan_method_cross_review": {
+      "agent": "/root/phase_observation_review",
+      "author_of_N2_changes": false,
+      "scope": "SIX_SUITE_METHOD_MARKERS_USING_11_FIXED_7BF3_SOURCE_BLOBS_AND_COMPLETE_LASTTEST",
+      "full_92_configuration_or_binary_audit": false,
+      "independent_product_rerun": false
+    }
+  },
+  "bounded_observations": {
+    "resource": {
+      "ref": "resource_review",
+      "cutoff_utc": "2026-11-02T05:27:33+00:00",
+      "rows": 2628,
+      "covers_full_ubsan_or_asan": false,
+      "causal_conclusion": null
+    },
+    "dependencies": {
+      "ref": "dependency_review",
+      "local_boost_json_compiled_in_project_with_asan": true,
+      "seven_named_package_records_match": true,
+      "remote_effective_compile_include_link": "NOT_OBSERVED",
+      "effective_dependency_difference_proven": false,
+      "effective_dependency_equality_proven": false,
+      "causal_conclusion": null
+    }
+  },
+  "historical_open": {
+    "root_causes": "OPEN",
+    "historical_clang_asan_failures_closed": false,
+    "new_asan_https_pass_closes_ubsan_prefix_assertion": false,
+    "new_asan_async_pass_closes_ubsan_async_timeout": false,
+    "live_tls_suite_green": "CURRENT_FULL_SUITE_GREEN_WITH_DIRECT_CAPACITY_AND_LARGE_METHOD_OK",
+    "old_capacity_or_large_failure_causes_closed": false,
+    "environment_or_dependency_cause_established": false,
+    "workflow_diagnostic_root_cause": "OPEN_BOUNDED_FIRST_REPORT_DEADLINE_OBSERVATION_ONLY"
+  },
+  "e23_and_post_formal_work": {
+    "reviewed_e23_commit": "e23f5d13385b3512d857be34b6003a782965979e",
+    "reviewed_scope": "WINDOWS_CANONICAL_PATH_TEST_FIXTURE_AND_NEW_REPORT_ONLY",
+    "integrated_into_7bf3": false,
+    "actual_successor_commit": "b58f7b0e63ad68f67f124eddd303825ade817791",
+    "actual_successor_delta_verified": true,
+    "normal_integration_requires": "SATISFIED_FORMAL_PARENT_TERMINAL_AND_SINGLE_DIAGNOSTIC_ENDED_BEFORE_CHERRY_PICK_X",
+    "single_original_workflow_diagnostic": "EXECUTED_ONCE_EXIT_1_OBSERVATION_INCOMPLETE",
+    "isolated_diagnostic_pass_can_erase_formal_failure": false,
+    "affected_16_method_integrated_tool_check": "16_OF_16_EXIT_0_ON_LINUX",
+    "ref": "e23_review",
+    "no_new_binary_build": true,
+    "production_build_catalog_blobs_compared": 122,
+    "production_build_catalog_blobs_unchanged": true,
+    "after_matrix_changed_paths": [
+      "docs/reports/n3-capture-path-validation-20261102.md",
+      "platform/native-foundation/tools/test_windows_ci_evidence.py"
+    ]
+  },
+  "remote": {
+    "audited_input": "7bf3a16d9683ed6a8de65d88023bae9687abd20d",
+    "audit_cutoff_utc": "2026-11-02T02:36:08.950435+00:00",
+    "linux_push_and_pr_six_lanes_each": "SUCCESS",
+    "windows_push_and_pr": "FAILED_TOOL_STAGE_NATIVE_BUILD_SKIPPED",
+    "pr_actual_checkout": "914a5de2331c6dc79a87d909f62105e43ea6e083",
+    "pr_checkout_tree_equals_head_tree": true,
+    "source_snapshot_files": 820,
+    "source_snapshot_status": "EXACT_7BF3_TREE_VERIFIED",
+    "hosted_private_complete_originals": "NOT_PRESERVED_DURABLY",
+    "public_projection_and_hash_reconstruct_complete_originals": false,
+    "final_publication_sha_ci": "EXTERNAL_PENDING_ACTUAL_PUBLICATION_NOT_ASSESSED",
+    "new_queries_by_this_writer": 0,
+    "refs": [
+      "remote_7bf3",
+      "remote_7bf3_summary",
+      "remote_durability"
+    ],
+    "prepublication_refs": {
+      "origin/main": "a6b8559018a599d7a806b05942857a56d69a00ce",
+      "origin/fix/billing-subtest-diagnostics-20261101": "ceaa9b3e18618c592345001dfc597bdaf579cf81",
+      "origin/docs/zcode-final-validation-20261101": "4289589384d75f29d42233cbaad256ceb711e9bf",
+      "origin/work/coordinator-n0-n4-20261102-0k9": "7bf3a16d9683ed6a8de65d88023bae9687abd20d"
+    }
+  },
+  "usage": {
+    "wls_product_real_provider_calls": 0,
+    "coding_tool_total_requests": null,
+    "coding_tool_second_session_requests": 4,
+    "coding_tool_second_session_total_tokens": 92728,
+    "coding_tool_total_monetary_cost": null
+  },
+  "states": {
+    "IMPLEMENTATION_COMPLETE": {
+      "value": true,
+      "scope": "N0_N3_ASSIGNED_SLICE_AND_N4_DESIGN_ARTIFACTS_IMPLEMENTATION_b58f7b0e63ad68f67f124eddd303825ade817791",
+      "product_acceptance": false
+    },
+    "LOCAL_VALIDATION_COMPLETE": {
+      "value": false,
+      "scope": "7bf3a16d9683ed6a8de65d88023bae9687abd20d",
+      "reason": "COMPLETE_LOCAL_MATRIX_FAILED_UBSAN_66_2_24_ASAN_56_0_36"
+    },
+    "PUSH_COMPLETE": {
+      "value": true,
+      "scope": "7bf3a16d9683ed6a8de65d88023bae9687abd20d",
+      "final_publication_value": null,
+      "final_publication_scope": "EXTERNAL_RECEIPT_PENDING_ACTUAL_PUBLISH",
+      "implementation_publication_status": "PENDING_AT_REPORT_CUTOFF"
+    },
+    "REMOTE_CI_COMPLETE": {
+      "value": false,
+      "scope": "7bf3a16d9683ed6a8de65d88023bae9687abd20d",
+      "reason": "WINDOWS_FAILED",
+      "final_publication_value": null,
+      "final_publication_scope": "EXTERNAL_RECEIPT_PENDING_NEW_SHA_RUNS"
+    },
+    "PR_REVIEW_COMPLETE": {
+      "value": false,
+      "scope": "FORMAL_COORDINATOR_OR_PR_ACCEPTANCE"
+    },
+    "MERGED": {
+      "value": false,
+      "scope": "PR15"
+    }
+  },
+  "pending_final_fields": {
+    "publication_commit_and_remote_readback": null,
+    "final_actions_all_jobs_and_checkout_identity": null,
+    "final_source_snapshot_tree_verification": null,
+    "formal_coordinator_decision": null
+  },
+  "references": {
+    "resume_01": {
+      "path_from_workspace_root": "evidence/EXECUTION-RESUME-STATE-01.md",
+      "bytes": 13494,
+      "sha256": "47db0d2a2285da780d9b504638060c83843106a06d290c0e2d25e72aaa2a6815"
+    },
+    "resume_02": {
+      "path_from_workspace_root": "evidence/EXECUTION-RESUME-STATE-02.md",
+      "bytes": 6832,
+      "sha256": "b181caa5b790024de56532751ba21b550e27ff2cf41bfb0612c88507ffdb1ed9"
+    },
+    "resume_03": {
+      "path_from_workspace_root": "evidence/EXECUTION-RESUME-STATE-03.md",
+      "bytes": 6058,
+      "sha256": "a08a597761186566bb97f2ff62edfc7182eaa7128dd06bb64bbdb17d167513e6"
+    },
+    "release_records": {
+      "path_from_workspace_root": "evidence/review-three-local-complete-01/receipt.md",
+      "bytes": 4904,
+      "sha256": "2880e3d2e6ef74e9342eaca3c249c6205d8370a95b77bbbf254e626959f40e0a"
+    },
+    "ubsan_author_records": {
+      "path_from_workspace_root": "evidence/review-ubsan-complete-01/receipt.md",
+      "bytes": 7243,
+      "sha256": "c3b290924e28035c8048b29203eebbee17381ff524b2ced204a869054086d21d"
+    },
+    "ubsan_nonauthor_methods": {
+      "path_from_workspace_root": "evidence/review-ubsan-methods-nonauthor-01/receipt.md",
+      "bytes": 5546,
+      "sha256": "d52adb18b79b29e27a079e69815873ebdcd2bba02d953cead8c4a5b9a019c738"
+    },
+    "asan_store_snapshot": {
+      "path_from_workspace_root": "evidence/n1-asan-store-stage-observation-01/receipt.md",
+      "bytes": 3522,
+      "sha256": "64db8988871313d8b1c5ce40a0b0d20239040276b380704168a14fb5805c4338"
+    },
+    "asan_build_step": {
+      "path_from_workspace_root": "candidate/build-gcc-asan-20261102T055028Z-dad5f2cb/private-evidence/build.step.json",
+      "bytes": 627,
+      "sha256": "df321a9dbaf4480ea4da9d4fee4b6c9135d0f54dd2b158bf746e17cf4497c42f"
+    },
+    "resource_review": {
+      "path_from_workspace_root": "evidence/resource-observation-review-01/receipt.md",
+      "bytes": 7195,
+      "sha256": "4be32cab9efaa861216fcbaa858c38651607415e33982ffd4ca3098b34db47a6"
+    },
+    "dependency_review": {
+      "path_from_workspace_root": "evidence/dependency-observation-review-01/receipt.md",
+      "bytes": 4968,
+      "sha256": "1b91860a2f3c314a4c9a1f05ef0827eb8c3f30c0ee37f56cc87d893fa4a9963d"
+    },
+    "e23_review": {
+      "path_from_workspace_root": "evidence/review-n3-capture-canonical-path-e23f/receipt.md",
+      "bytes": 2209,
+      "sha256": "3acded3c3b251dd2a2ccfee6aec68d2184af6f653b8ef68365ed6e69b4ccb0f6"
+    },
+    "integrated_tools": {
+      "path_from_workspace_root": "evidence/integrated-selfchecks-02/summary.json",
+      "bytes": 4902,
+      "sha256": "79854ddfd5227ae220fe0b9a5dbff35bfffc87767c65d3027f5da57aea128585"
+    },
+    "remote_7bf3": {
+      "path_from_workspace_root": "evidence/remote-final-audit-01/PRODUCT7BF-FINAL-AUDIT.json",
+      "bytes": 27370,
+      "sha256": "bb592866d8c7c44e003ee0d9971871483c1004b2e57dc862f1896927a817644e"
+    },
+    "remote_7bf3_summary": {
+      "path_from_workspace_root": "evidence/remote-final-audit-01/REPORT-REMOTE-SECTION-7BF3-INDEX-v1.json",
+      "bytes": 11535,
+      "sha256": "d5b789e49cfefd7a922e2541c3a3420da1749cacb64fff1e568a1c87e791ecf0"
+    },
+    "remote_durability": {
+      "path_from_workspace_root": "evidence/remote-final-audit-01/PRODUCT7BF-PRIVATE-LOG-DURABILITY-CLARIFICATION-v1.md",
+      "bytes": 1731,
+      "sha256": "56c2309eb7ab5bff3de931df09794c533a90751a365d4a80e0869d12973c60ad"
+    },
+    "n1_report": {
+      "path_from_workspace_root": "candidate/docs/reports/n1-focused-diagnostics-20261102.md",
+      "bytes": 16153,
+      "sha256": "19bf216b3e9598c915278ca27efe74766f66e1094a11c64fd57065c3c38d347f"
+    },
+    "n2_permanent": {
+      "path_from_workspace_root": "candidate/docs/reports/n2-permanent-regressions-20261102.md",
+      "bytes": 4102,
+      "sha256": "f4dbca76a84b697d7caa0e0b015f958ca176a28c1a69f316cc7b997334433f14"
+    },
+    "n2_failed_status": {
+      "path_from_workspace_root": "candidate/docs/reports/n2-ctest-failed-status-validation-20261102.md",
+      "bytes": 3306,
+      "sha256": "bbfdc75e5378bc2c34c9dc3bbe9e085536e4b3167446d5d34e9670324c38076d"
+    },
+    "n4_cards": {
+      "path_from_workspace_root": "candidate/docs/implementation/next-cycle-20261102/README.md",
+      "bytes": 5727,
+      "sha256": "fd5df50a51ed96a4df3538e28402d46001152082987c908680e38eda68ff866d"
+    },
+    "prior_report_v3": {
+      "path_from_workspace_root": "evidence/remote-final-audit-01/N0-N4-PUBLIC-REPORT-DRAFT-v3.md",
+      "bytes": 19049,
+      "sha256": "f7e4b8be5d2ef4fe892faa6ce568677720993dbea3382f36391de629ba2593f7"
+    },
+    "prior_pr_body_v3": {
+      "path_from_workspace_root": "evidence/remote-final-audit-01/PR15-BODY-DRAFT-v3.md",
+      "bytes": 8037,
+      "sha256": "825d8ccfba44d959600a06fdf5fc3bc76d1475b3373d4949e2c050a4fdc51457"
+    },
+    "report_v4": {
+      "path_from_workspace_root": "evidence/delivery-final-v4-01/N0-N4-PUBLIC-REPORT-v4.md",
+      "bytes": 26822,
+      "sha256": "0b5617c784609ed65bcde72d35ffe45a870757ff9dc577e67af15e3b80e925d7"
+    },
+    "pr_body_v4": {
+      "path_from_workspace_root": "evidence/delivery-final-v4-01/PR15-BODY-v4.md",
+      "bytes": 8064,
+      "sha256": "ae43bcb0f5a9f5b909cdef83f431ca4a6b46f3be5e7dc059799582f67e60bc4e"
+    },
+    "asan_author_records": {
+      "path_from_workspace_root": "evidence/review-asan-complete-01/receipt.md",
+      "bytes": 7044,
+      "sha256": "8ad2f8829b0ad5c9fafc042e348f6d508a7989b167fbff2fa51608bc38e45897"
+    },
+    "asan_author_audit": {
+      "path_from_workspace_root": "evidence/review-asan-complete-01/audit.json",
+      "bytes": 113179,
+      "sha256": "215fb0c5ad0f248ec12f71b6a6e05ff44e814d712db939704eb1c24f1b3de9d7"
+    },
+    "asan_nonauthor_methods": {
+      "path_from_workspace_root": "evidence/review-asan-methods-nonauthor-01/receipt.md",
+      "bytes": 6240,
+      "sha256": "d4373ca445aa20e58de30f8c69180d86c01af6db9713c96c9c2e4e162202cc3b"
+    },
+    "asan_nonauthor_audit": {
+      "path_from_workspace_root": "evidence/review-asan-methods-nonauthor-01/audit.json",
+      "bytes": 54103,
+      "sha256": "fb89516458e058c4a75d9927478f5d28541fdc5c315726d207f828b034cdfeff"
+    },
+    "final_collector": {
+      "path_from_workspace_root": "evidence/matrix-index-final-01.json",
+      "bytes": 288618,
+      "sha256": "c37e5be139160d96bcef9578b2d8ee102f0902b9740ebca3e5c1cff461c16f28"
+    },
+    "outer_actual_exit": {
+      "path_from_workspace_root": "evidence/final-matrix-parent-exit-01/observed-tool-result.json",
+      "bytes": 591,
+      "sha256": "4cd62ef9a612b34a495927439352748ff87ba11fed35e1c85456eeffbb1b36c5"
+    },
+    "workflow_single_execution": {
+      "path_from_workspace_root": "evidence/n1-current-workflow-probe-plan-01/runs/ubsan-exhaustion-one/execution.json",
+      "bytes": 2585,
+      "sha256": "72ec8b929328bd80f6a009d13f46e674990e5b8358e85ff9c3741f0527843d35"
+    },
+    "workflow_bounded_interpretation": {
+      "path_from_workspace_root": "evidence/n1-current-workflow-probe-plan-01/post-run-interpretation-01.json",
+      "bytes": 2351,
+      "sha256": "798360e616714eddbe86f7385a092e5f216cd56a9d63d4567672dc3ef7b42990"
+    },
+    "successor_tools": {
+      "path_from_workspace_root": "evidence/integrated-windows-fixture-01/summary.json",
+      "bytes": 1332,
+      "sha256": "e001adafea62cde2c4826676420c1fff67b67fdc80f7c6b6ca895953868e306b"
+    },
+    "successor_scope": {
+      "path_from_workspace_root": "evidence/publication-final-01/successor-scope-verification.json",
+      "bytes": 597,
+      "sha256": "1cb39f68f046153278df3f8bae8b6b9cf5e00692a15b19d13f8509634153d9eb"
+    },
+    "prepublication_implementation": {
+      "path_from_workspace_root": "evidence/publication-final-01/implementation-prepublication-review.json",
+      "bytes": 6821,
+      "sha256": "cea50727fb8870b6ec546f7d32218b0756d24f6b2ce1a32ff1b5d5d9d3bddc4d"
+    },
+    "prepublication_refs": {
+      "path_from_workspace_root": "evidence/publication-final-01/prepublication-remote-refs.json",
+      "bytes": 346,
+      "sha256": "fc836a8978cdb4f1bfcf896b508e77abc9cf4f065c80a8fd071452bd5a56cbd0"
+    },
+    "remote_audit_preparation": {
+      "path_from_workspace_root": "evidence/remote-publication-final-01/PREPARATION-SHA256SUMS.json",
+      "bytes": 2406,
+      "sha256": "4b25c104723213592f76c24b0742edafab4bbd1adfdecd5c9b83a80c223a12f7"
+    }
+  },
+  "post_formal_diagnostic": {
+    "input": "7bf3a16d9683ed6a8de65d88023bae9687abd20d",
+    "count": 1,
+    "child_exit_code": 1,
+    "tool_exit_code": 1,
+    "seconds": 114.78289,
+    "method": {
+      "elapsed_monotonic_us": 113633927,
+      "errors": 0,
+      "failures": 1,
+      "invoke_entered": 1,
+      "invoke_returned": 1,
+      "method_successful": false,
+      "observation_complete": false,
+      "observer_errors": 0,
+      "projection_errors": 1,
+      "skipped": 0,
+      "tests_run": 1
+    },
+    "first_report": {
+      "blocked_code_counts": {
+        "cancelled": 1
+      },
+      "blocked_count": 1,
+      "calls_count": 15,
+      "elapsed_ms": 60812,
+      "manager_calls": 10,
+      "network_started_calls": 15,
+      "provider_calls": 0,
+      "report_index": 0,
+      "reported_tool_call_count": null,
+      "stop_reason": "deadline",
+      "unrecognized_blocked_codes": 0,
+      "workflow_actions_captured": 6
+    },
+    "manager_cap_original": 12,
+    "child_reaped": true,
+    "identity_unchanged": true,
+    "outer_timeout": false,
+    "diagnostic_complete": false,
+    "second_report_unrecognized_blocked_codes": 1,
+    "allowlist_widened": false,
+    "retry_performed": false,
+    "bounded_interpretation": {
+      "H1_supported_in_this_isolated_observation": true,
+      "bounded_claim": "first batch stopped at its original deadline before manager cap; downstream assertion saw no manager_limit",
+      "performance_or_blocking_internal_root_cause": "OPEN",
+      "full_observation_complete": false,
+      "limitation": "second returned report contains one blocked code outside prepared allowlist; redacted identity cannot be recovered from scalar projection",
+      "historical_or_formal_failures_closed": false,
+      "further_run_performed": false
+    },
+    "refs": [
+      "workflow_single_execution",
+      "workflow_bounded_interpretation"
+    ]
+  },
+  "implementation_scope": {
+    "from": "f3fc9bfaf345030ee994097d2a2443e3c290e9fc",
+    "to": "b58f7b0e63ad68f67f124eddd303825ade817791",
+    "matrix_input_changed_path_count": 30,
+    "implementation_changed_path_count": 31,
+    "implementation_changed_paths": [
+      {
+        "status": "M",
+        "path": ".github/workflows/ci.yml"
+      },
+      {
+        "status": "M",
+        "path": ".github/workflows/windows-native.yml"
+      },
+      {
+        "status": "M",
+        "path": "docs/implementation/gcc-asan-validation.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/implementation/next-cycle-20261102/01-async-inbox-driver.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/implementation/next-cycle-20261102/02-dag-review-tickets.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/implementation/next-cycle-20261102/03-windows-readonly-identity.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/implementation/next-cycle-20261102/README.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/reports/n0-n4-directed-work-20261102.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/reports/n1-focused-diagnostics-20261102-index.json"
+      },
+      {
+        "status": "A",
+        "path": "docs/reports/n1-focused-diagnostics-20261102.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/reports/n2-ctest-evidence-validation-20261102.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/reports/n2-ctest-failed-status-validation-20261102.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/reports/n2-permanent-regressions-20261102.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/reports/n2-public-parser-validation-20261102.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/reports/n2-quarantine-failure-validation-20261102.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/reports/n2-release-targeted-validation-20261102.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/reports/n2-runner-finalization-validation-20261102.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/reports/n3-capture-path-validation-20261102.md"
+      },
+      {
+        "status": "M",
+        "path": "platform/native-foundation/README.md"
+      },
+      {
+        "status": "A",
+        "path": "platform/native-foundation/tools/run_windows11.py"
+      },
+      {
+        "status": "M",
+        "path": "platform/native-foundation/tools/run_windows_ci.py"
+      },
+      {
+        "status": "M",
+        "path": "platform/native-foundation/tools/test_windows_ci_evidence.py"
+      },
+      {
+        "status": "A",
+        "path": "platform/native-foundation/tools/windows_host.py"
+      },
+      {
+        "status": "M",
+        "path": "scripts/run_gcc_asan.py"
+      },
+      {
+        "status": "M",
+        "path": "src/sse_replay.cpp"
+      },
+      {
+        "status": "M",
+        "path": "tests/async_coordinator_tests.cpp"
+      },
+      {
+        "status": "M",
+        "path": "tests/async_resource_lifecycle_cases.hpp"
+      },
+      {
+        "status": "M",
+        "path": "tests/sse_replay_tests.cpp"
+      },
+      {
+        "status": "A",
+        "path": "tests/store_event_compatibility_cases.hpp"
+      },
+      {
+        "status": "M",
+        "path": "tests/store_tests.cpp"
+      },
+      {
+        "status": "M",
+        "path": "tests/test_run_gcc_asan.py"
+      }
+    ],
+    "protected_historical_deltas": [],
+    "production_deltas": [
+      {
+        "status": "M",
+        "path": "src/sse_replay.cpp"
+      }
+    ],
+    "commands_exit_zero": true,
+    "publication_document_paths_are_additional": true,
+    "refs": [
+      "prepublication_implementation",
+      "successor_scope"
+    ]
+  },
+  "completed_final_fields": {
+    "asan_terminal_and_method_audit": [
+      "asan_author_records",
+      "asan_nonauthor_methods"
+    ],
+    "outer_actual_exit_receipt": "outer_actual_exit",
+    "post_formal_workflow_diagnostic_receipt": "workflow_single_execution",
+    "final_collector_index": "final_collector",
+    "e23_integration_and_tool_receipt": "successor_tools",
+    "actual_successor_source_delta": "successor_scope"
+  },
+  "publication_copy_provenance": {
+    "source_template_report": {
+      "path": "evidence/delivery-final-v4-01/N0-N4-PUBLIC-REPORT-v4.md",
+      "sha256": "0b5617c784609ed65bcde72d35ffe45a870757ff9dc577e67af15e3b80e925d7"
+    },
+    "source_template_index": {
+      "path": "evidence/delivery-final-v4-01/N0-N4-FINAL-DELIVERY-INDEX-v4.json",
+      "sha256": "0c4282d3efaea7e583375c59988c65d6dd822f4082c6c48c8d5cf6505a96a29e"
+    },
+    "published_report_path": "docs/reports/n0-n4-final-validation-20261102.md",
+    "published_report_sha256": "0d7fc5eb337df5a839f29405fd5cc16a830c5e7a26d512f90b0c28d8059316b7",
+    "local_executor_edits": [
+      "adds explicit local Make-ASan and Clang ASan NOT_RUN scope",
+      "adds relative link to companion machine index",
+      "adds this provenance and corresponding NOT_RUN fields"
+    ],
+    "test_results_changed": false
+  }
+}
