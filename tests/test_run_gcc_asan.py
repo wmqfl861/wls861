@@ -193,7 +193,8 @@ class GateContracts(unittest.TestCase):
 
 
     def exercise_main(self, failing_step=None, mutate_binary=False, compiler_version="13.3.0",
-                      missing_log=False, interrupt=False, launch_error=False, private_output=None):
+                      missing_log=False, interrupt=False, launch_error=False, private_output=None,
+                      identity_fault=None):
         # This is deliberately a mocked command flow, not a C++/ASan run.
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         (self.root / ".gitignore").write_text("/build*/\n")
@@ -241,6 +242,14 @@ class GateContracts(unittest.TestCase):
                     record["exit_code"] = None if launch_error else -signal.SIGTERM
                 if mutate_binary:
                     (build / "wls").write_text("modified")
+                if identity_fault == "source":
+                    with (self.root / "tests/fixture.cpp").open("a") as fixture:
+                        fixture.write("// source changed during the synthetic command\n")
+                elif identity_fault == "head":
+                    subprocess.run(["git", "-c", "user.name=Runner Test", "-c", "user.email=test@example.invalid",
+                                    "commit", "--allow-empty", "-qm", "changed head"], cwd=self.root, check=True)
+                elif identity_fault == "dirty":
+                    (self.root / "late-untracked.txt").write_text("synthetic untracked input\n")
             gate.write_json(recorder.directory / (name + ".step.json"), record)
             if name == "ctest" and interrupt:
                 raise KeyboardInterrupt("injected recoverable interruption")
@@ -503,6 +512,102 @@ class GateContracts(unittest.TestCase):
             gate.write_json(public / "public-index.json", manifest)
             with self.subTest(kind=sample.split(":", 1)[0]), self.assertRaisesRegex(RuntimeError, "JUnit root text"):
                 gate.check_public_package(public, names, {"one"})
+
+    def test_publication_interrupt_cannot_leave_a_passed_private_summary(self):
+        with patch.object(gate, "publish_public_evidence", side_effect=KeyboardInterrupt("publication barrier")):
+            try:
+                result, summary, _, private = self.exercise_main()
+            except KeyboardInterrupt:
+                # Read the original persisted receipt even when the old runner
+                # lets the interruption escape its publication finally block.
+                result = 1
+                paths = list(self.root.glob("build-gcc-asan-*/private-evidence/summary.json"))
+                self.assertEqual(len(paths), 1)
+                private = paths[0].parent
+                summary = json.loads(paths[0].read_text())
+        self.assertEqual(result, 1)
+        self.assertEqual(summary["status"], "NOT_COMPLETE")
+        self.assertIn("ended_at", summary)
+        self.assertTrue((private / "binaries-after.json").is_file())
+        self.assertFalse((private.parent / "public-evidence").exists())
+
+    def test_publication_interrupt_after_rename_quarantines_public_directory(self):
+        original, published_bytes = gate.publish_public_evidence, None
+
+        def publish_then_interrupt(source, build, private, summary):
+            nonlocal published_bytes
+            public = original(source, build, private, summary)
+            published_bytes = {path.name: path.read_bytes() for path in public.iterdir()}
+            raise KeyboardInterrupt("after publication rename")
+
+        with patch.object(gate, "publish_public_evidence", side_effect=publish_then_interrupt):
+            try:
+                result, summary, _, private = self.exercise_main()
+            except KeyboardInterrupt:
+                result = 1
+                paths = list(self.root.glob("build-gcc-asan-*/private-evidence/summary.json"))
+                self.assertEqual(len(paths), 1)
+                private = paths[0].parent
+                summary = json.loads(paths[0].read_text())
+        self.assertIsNotNone(published_bytes, "the injection must follow an actual completed rename")
+        self.assertFalse((private.parent / "public-evidence").exists(),
+                         "failed publication left an uploadable public directory")
+        self.assertEqual(result, 1)
+        self.assertEqual(summary["status"], "NOT_COMPLETE")
+        quarantined = list(private.parent.glob("public-evidence-incomplete-*"))
+        self.assertEqual(len(quarantined), 1)
+        self.assertEqual({path.name: path.read_bytes() for path in quarantined[0].iterdir()}, published_bytes)
+        self.assertTrue((private / "ctest-logs/LastTest.log").is_file())
+        index = json.loads(published_bytes["public-index.json"])
+        entry = index["artifacts"]["summary.projection.json"]
+        self.assertEqual(entry["source"], "summary-publication-input.json")
+        self.assertEqual(entry["source_sha256"], gate.digest(private / entry["source"]))
+        self.assertEqual(json.loads((private / entry["source"]).read_text())["status"], "PASSED")
+
+    def test_private_summary_stays_incomplete_until_publication_returns(self):
+        original, status_at_publication = gate.publish_public_evidence, None
+
+        def observe_then_publish(source, build, private, summary):
+            nonlocal status_at_publication
+            status_at_publication = json.loads((private / "summary.json").read_text())["status"]
+            return original(source, build, private, summary)
+
+        with patch.object(gate, "publish_public_evidence", side_effect=observe_then_publish):
+            result, summary, _, private = self.exercise_main()
+        self.assertEqual(status_at_publication, "NOT_COMPLETE")
+        self.assertEqual(result, 0)
+        self.assertEqual(summary["status"], "PASSED")
+        self.assertEqual((private / "summary-publication-input.json").read_bytes(),
+                         (private / "summary.json").read_bytes())
+
+    def check_identity_failure_keeps_binary_after(self, fault):
+        result, summary, _, private = self.exercise_main(identity_fault=fault)
+        self.assertEqual(result, 1)
+        self.assertEqual(summary["status"], "NOT_COMPLETE")
+        self.assertTrue((private / "binaries-after.json").is_file(),
+                        "source/HEAD/dirty failure skipped the final binary snapshot")
+        self.assertEqual((private / "binaries-before.json").read_bytes(), (private / "binaries-after.json").read_bytes())
+        self.assertTrue((private / "ctest-logs/LastTest.log").is_file())
+
+    def test_source_change_still_captures_binary_after(self):
+        self.check_identity_failure_keeps_binary_after("source")
+
+    def test_head_change_still_captures_binary_after(self):
+        self.check_identity_failure_keeps_binary_after("head")
+
+    def test_dirty_checkout_still_captures_binary_after(self):
+        self.check_identity_failure_keeps_binary_after("dirty")
+
+    def test_source_snapshot_error_still_captures_binary_after(self):
+        original, calls = gate.tracked_snapshot, 0
+        def snapshot(source, env):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("synthetic final source read failure")
+            return original(source, env)
+        with patch.object(gate, "tracked_snapshot", side_effect=snapshot):
+            self.check_identity_failure_keeps_binary_after(None)
 
     def test_binary_change_rejects_apparent_ctest_success(self):
         result, summary, _, _ = self.exercise_main(mutate_binary=True)

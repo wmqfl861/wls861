@@ -300,6 +300,11 @@ def check_public_log(raw: bytes, names: tuple[set[str], set[str], set[str]], tes
 def publish_public_evidence(source: Path, build: Path, private: Path,
                             summary: dict[str, object]) -> Path:
     """Publish only a checked allowlist projection; raw evidence stays private."""
+    # This immutable input is a proposed publication status, not the final
+    # process receipt. summary.json stays NOT_COMPLETE until this returns.
+    summary_input = private / "summary-publication-input.json"
+    with summary_input.open("x", encoding="utf-8") as destination:
+        destination.write(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
     staging = build / "public-evidence-pending"
     staging.mkdir(mode=0o700)
     names = public_method_names(source)
@@ -339,7 +344,7 @@ def publish_public_evidence(source: Path, build: Path, private: Path,
     safe_summary["registered_tests"] = summary.get("registered_tests")
     safe_summary["steps"] = [{key: record[key] for key in ("name", "started_at", "ended_at", "seconds", "exit_code") if key in record}
                              for record in summary["steps"]]
-    for public, original, value in (("summary.projection.json", private / "summary.json", safe_summary),
+    for public, original, value in (("summary.projection.json", summary_input, safe_summary),
                                     ("expected-tests.json", source / "tests/gcc_asan_expected_tests.json", catalog)):
         if public == "expected-tests.json":
             # Source catalog may be needed even when setup failed before CTest.
@@ -387,7 +392,7 @@ def check_public_package(directory: Path, names: tuple[set[str], set[str], set[s
         originals = {stem + suffix for stem in STEP_NAMES for suffix in (".log", ".stderr.log")}
         originals.update({"ctest-logs/" + n for n in ("LastTest.log", "LastTestsFailed.log", "LastTest.log.tmp", "LastTestsFailed.log.tmp")})
         originals.update({"source-before.json", "source-after.json", "binaries-before.json", "binaries-after.json",
-                          "summary.json", "public-catalog-source.json", "ctest.xml"})
+                          "summary-publication-input.json", "public-catalog-source.json", "ctest.xml"})
         require(source_name in originals, "unapproved private source name")
         require(all(re.fullmatch(r"[a-f0-9]{64}", entry[key]) for key in ("source_sha256", "public_sha256")),
                 "invalid public provenance hash")
@@ -443,7 +448,7 @@ def check_public_package(directory: Path, names: tuple[set[str], set[str], set[s
                             and not (child.tail or "").strip(), "unexpected public JUnit diagnostic")
         elif entry["kind"] == "structured-projection":
             value = json.loads(path.read_text())
-            if name == "summary.projection.json" and source_name == "summary.json":
+            if name == "summary.projection.json" and source_name == "summary-publication-input.json":
                 require(set(value) == {"head", "status", "started_at", "ended_at", "uid", "gid", "build_umask", "test_umask",
                     "sanitizer_environment", "historical_clang_asan_failures_closed", "identities_unchanged",
                     "ctest_evidence_complete", "registered_tests", "steps"}, "unexpected public summary fields")
@@ -586,24 +591,35 @@ def main(argv: list[str] | None = None) -> int:
     except (Exception, KeyboardInterrupt) as error:
         summary["error"] = str(error) or type(error).__name__
     finally:
-        # Even a failed CTest must retain both identities. A verification error
-        # cannot turn an earlier failure into success or discard its log.
+        # Collect each identity independently: source/HEAD/checkout errors must
+        # not suppress the final build snapshot or erase the original failure.
+        identity_errors = []
         try:
             after = tracked_snapshot(source, env)
             write_json(evidence / "source-after.json", after)
             require(before is not None and after == before, "source changed during validation")
+        except (Exception, KeyboardInterrupt) as error:
+            identity_errors.append("source: " + (str(error) or type(error).__name__))
+        try:
             current_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, env=env, text=True).strip()
             require(current_head == head, "HEAD changed during validation")
+        except (Exception, KeyboardInterrupt) as error:
+            identity_errors.append("HEAD: " + (str(error) or type(error).__name__))
+        try:
             require(not subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=normal"],
                                                cwd=source, env=env), "checkout changed during validation")
-            if binaries is not None:
-                after_binaries = build_snapshot(build)
-                write_json(evidence / "binaries-after.json", after_binaries)
-                require(after_binaries == binaries, "build identity changed during testing")
-            summary["identities_unchanged"] = True
-        except Exception as error:
+        except (Exception, KeyboardInterrupt) as error:
+            identity_errors.append("checkout: " + (str(error) or type(error).__name__))
+        try:
+            after_binaries = build_snapshot(build)
+            write_json(evidence / "binaries-after.json", after_binaries)
+            require(binaries is not None and after_binaries == binaries, "build identity changed or unavailable during testing")
+        except (Exception, KeyboardInterrupt) as error:
+            identity_errors.append("build: " + (str(error) or type(error).__name__))
+        summary["identities_unchanged"] = not identity_errors
+        if identity_errors:
             summary["status"] = "NOT_COMPLETE"
-            summary["identity_error"] = str(error)
+            summary["identity_error"] = "; ".join(identity_errors)
         if "error" in summary:
             summary["status"] = "NOT_COMPLETE"
         try:
@@ -614,16 +630,23 @@ def main(argv: list[str] | None = None) -> int:
             }
             if not retained["complete"]:
                 summary["status"] = "NOT_COMPLETE"
-        except Exception as error:
+        except (Exception, KeyboardInterrupt) as error:
             summary["status"] = "NOT_COMPLETE"
-            summary["ctest_evidence_error"] = str(error)
+            summary["ctest_evidence_error"] = str(error) or type(error).__name__
         summary["ended_at"] = utc()
-        write_json(evidence / "summary.json", summary)
+        checkpoint = dict(summary, status="NOT_COMPLETE")
+        write_json(evidence / "summary.json", checkpoint)
         try:
             publish_public_evidence(source, build, evidence, summary)
-        except Exception as error:
+            write_json(evidence / "summary.json", summary)
+        except (Exception, KeyboardInterrupt) as error:
             summary["status"] = "NOT_COMPLETE"
-            summary["public_evidence_error"] = str(error)
+            summary["public_evidence_error"] = str(error) or type(error).__name__
+            # A catchable interruption can arrive after the publisher's rename.
+            # Preserve those bytes outside the exact CI upload directory.
+            public = build / "public-evidence"
+            if public.exists():
+                public.rename(build / ("public-evidence-incomplete-" + uuid.uuid4().hex))
             write_json(evidence / "summary.json", summary)
         os.umask(old_mask)
         print(f"{summary['status']}: {evidence / 'summary.json'}", flush=True)
@@ -631,7 +654,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    # SIGKILL cannot be caught; the prewritten NOT_COMPLETE receipt remains.
+    # SIGKILL cannot be finalized. External exit/CI records remain necessary;
+    # a publication input or an artifact alone never proves process exit 0.
     def stop(_signal: int, _frame: object) -> None:
         raise KeyboardInterrupt("validation interrupted")
     signal.signal(signal.SIGTERM, stop)

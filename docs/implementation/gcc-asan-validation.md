@@ -38,7 +38,8 @@ LSAN_OPTIONS 或其他 sanitizer 覆盖。`ASAN_OPTIONS=halt_on_error=1:detect_l
 完整原件保存在新构建目录的 `private-evidence/`，不得将该目录配置为公开 CI artifact。
 配置、构建、测试各自记录 argv、cwd、起止时间、真实退出码、stdout/stderr 原字节及 SHA-256。
 运行前后保存全部 tracked 源文件的字节/模式、HEAD、实际二进制/静态库和关键构建文件身份。
-非零 CTest 同样执行末尾身份核验；SIGKILL 等不可捕获终止只留下未完成回执，不能算通过。
+非零 CTest 同样执行末尾身份核验。源码快照、HEAD、工作区清洁度和构建身份分别尝试采集，
+一项失败不会跳过其他项的末尾证据；任何不完整或变化都不能得到通过状态。
 
 成功、失败以及能够收尾的中断均复制原 `Testing/Temporary/LastTest.log`，并复制存在的
 `LastTestsFailed.log`；中断遗留 `.tmp` 独立保留，不能改称完整日志。原 JUnit 不改写，
@@ -50,6 +51,14 @@ LSAN_OPTIONS 或其他 sanitizer 覆盖。`ASAN_OPTIONS=halt_on_error=1:detect_l
 `public-evidence-pending/` 内生成、通过隐私 guard 后才命名发布；CI 必须精确选择前者，
 不能上传构建目录、私有目录或 pending 目录。没有可收尾结果时允许无公开 artifact，
 不得从 artifact 缺失或之前的绿色推导本次通过。
+
+`private-evidence/summary.json` 在公开投影返回前保持 NOT_COMPLETE。公开摘要来源为
+排他创建后不再改写的 `summary-publication-input.json`，其状态是拟发布结果，不是最终
+进程退出回执；公开索引指向该原件的实际字节/hash。只有发布成功返回后才写入最终摘要。
+能够收尾的异常/中断会使最终摘要为 NOT_COMPLETE，并将本次已命名的公开目录移到
+`public-evidence-incomplete-<随机值>/`，保留原字节但不匹配正常上传路径。
+SIGKILL 等不可捕获终止无法保证任何时刻都完成这些收尾动作，必须结合真实进程退出码及
+外部 CI 结论判断；发布输入、单个摘要或 artifact 本身均不单独证明进程 exit 0。
 
 本机原件可持久保存在数据盘；hosted runner 的私有原件仅存在于该 job 文件系统。
 没有已授权的外部私有存储时，远端 job 销毁后的原件可获取性为
