@@ -72,6 +72,17 @@ def run_native(source_root, work_root, *, image_snapshot=None, windows11=False):
     temporary.mkdir()
     environment = os.environ.copy()
     environment.update(TEMP=str(temporary), TMP=str(temporary), PYTHONUTF8='1', PYTHONDONTWRITEBYTECODE='1')
+    build = work / 'build'
+    before = binary_before = None
+    build_completed = False
+    capture_errors = []
+
+    def remember_capture_error(name, error):
+        capture_errors.append((name, error))
+
+    def capture_error_records():
+        return [dict(evidence=name, type=type(error).__name__, reason=str(error)[:2048])
+                for name, error in capture_errors]
 
     def record(name, value):
         (evidence / name).write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
@@ -79,23 +90,42 @@ def run_native(source_root, work_root, *, image_snapshot=None, windows11=False):
     def run(name, command, timeout=120):
         command = [os.fspath(value) for value in command]
         started = time.time()
+
+        def retain_output(stdout, stderr, details, *, emit_output):
+            observations = [
+                (name + '.stdout', lambda: (evidence / (name + '.stdout')).write_bytes(stdout)),
+                (name + '.stderr', lambda: (evidence / (name + '.stderr')).write_bytes(stderr)),
+                (name + '.command.json', lambda: record(name + '.command.json', dict(
+                    argv=command, cwd=str(work), started_unix=started, ended_unix=time.time(), **details))),
+            ]
+            if emit_output:
+                observations.extend(((name + '.terminal-stdout', lambda: sys.stdout.buffer.write(stdout)),
+                                     (name + '.terminal-stderr', lambda: sys.stderr.buffer.write(stderr))))
+            first_error = None
+            for label, observe in observations:
+                try:
+                    observe()
+                except BaseException as error:
+                    remember_capture_error(label, error)
+                    if first_error is None:
+                        first_error = error
+            return first_error
+
         try:
             result = subprocess.run(command, cwd=work, env=environment,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
-        except subprocess.TimeoutExpired as error:
-            (evidence / (name + '.stdout')).write_bytes(error.stdout or b'')
-            (evidence / (name + '.stderr')).write_bytes(error.stderr or b'')
-            record(name + '.command.json', dict(argv=command, cwd=str(work), started_unix=started,
-                   ended_unix=time.time(), exit_code=None, status='TIMEOUT'))
+        except BaseException as error:
+            status = ('TIMEOUT' if isinstance(error, subprocess.TimeoutExpired) else
+                      'INTERRUPTED' if isinstance(error, (KeyboardInterrupt, SystemExit)) else 'LAUNCH_ERROR')
+            retain_output(getattr(error, 'stdout', None) or b'', getattr(error, 'stderr', None) or b'',
+                dict(exit_code=None, status=status, output_status='PARTIAL_OR_UNAVAILABLE'), emit_output=False)
             raise
-        (evidence / (name + '.stdout')).write_bytes(result.stdout)
-        (evidence / (name + '.stderr')).write_bytes(result.stderr)
-        record(name + '.command.json', dict(argv=command, cwd=str(work), started_unix=started,
-               ended_unix=time.time(), exit_code=result.returncode))
-        sys.stdout.buffer.write(result.stdout)
-        sys.stderr.buffer.write(result.stderr)
-        if result.returncode:
-            raise RuntimeError(f'{name} failed with exit {result.returncode}')
+        execution_failure = RuntimeError(f'{name} failed with exit {result.returncode}') if result.returncode else None
+        capture_failure = retain_output(result.stdout, result.stderr, dict(exit_code=result.returncode), emit_output=True)
+        if execution_failure is not None:
+            raise execution_failure
+        if capture_failure is not None:
+            raise capture_failure
         return result.stdout
 
     def source_snapshot():
@@ -107,9 +137,63 @@ def run_native(source_root, work_root, *, image_snapshot=None, windows11=False):
             relative = item.decode('utf-8')
             data = (source / relative).read_bytes()
             result[relative] = dict(sha256=hashlib.sha256(data).hexdigest(), size_bytes=len(data))
+        if not result:
+            raise RuntimeError('source input snapshot is empty')
         return result
 
-    try:
+    def binary_snapshot():
+        result = {str(path.relative_to(build)): hashlib.sha256(path.read_bytes()).hexdigest()
+                  for path in sorted((build / 'Release').glob('*.exe'))}
+        if not result:
+            raise RuntimeError('native binary input snapshot is empty')
+        return result
+
+    def snapshot_record(name, snapshot):
+        value = snapshot()
+        record(name, value)
+        return value
+
+    def finalize_identities(original_error):
+        # Collect both sides independently; one failed read must not prevent the
+        # other available identity from being retained or mask an original error.
+        after = binary_after = None
+        try:
+            after = snapshot_record('source-inputs-after.json', source_snapshot)
+        except BaseException as error:
+            remember_capture_error('source-inputs-after.json', error)
+        if build_completed:
+            try:
+                binary_after = snapshot_record('binary-inputs-after.json', binary_snapshot)
+            except BaseException as error:
+                remember_capture_error('binary-inputs-after.json', error)
+        source_pair = before is not None and after is not None
+        binary_pair = binary_before is not None and binary_after is not None
+        source_unchanged = before == after if source_pair else None
+        binary_unchanged = binary_before == binary_after if binary_pair else None
+        identities_complete = source_pair and binary_pair and not capture_errors
+        try:
+            record('identity-finalization.json', dict(
+                scope='retained source and executable identities; not a product pass result',
+                captured_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                original_execution_error=type(original_error).__name__ if original_error else None,
+                build_completed=build_completed, source_pair_complete=source_pair,
+                binary_pair_complete=binary_pair, identities_complete=identities_complete,
+                source_inputs_unchanged=source_unchanged, binary_inputs_unchanged=binary_unchanged,
+                capture_errors=capture_error_records()))
+        except BaseException as error:
+            remember_capture_error('identity-finalization.json', error)
+        if original_error is None:
+            if capture_errors:
+                raise capture_errors[0][1]
+            if not identities_complete:
+                raise RuntimeError('complete source and binary input identities are unavailable')
+            if not source_unchanged:
+                raise RuntimeError('source input bytes changed during verification')
+            if not binary_unchanged:
+                raise RuntimeError('binary input bytes changed during verification')
+
+    def execute():
+        nonlocal before, binary_before, build_completed
         if windows11:
             from windows_host import observe_host, require_windows11
             host = observe_host(source, work)
@@ -157,10 +241,8 @@ def run_native(source_root, work_root, *, image_snapshot=None, windows11=False):
         status = run('git-status', ['git', '-C', source, 'status', '--porcelain'])
         if status.strip():
             raise RuntimeError('checkout is not clean')
-        before = source_snapshot()
-        record('source-inputs-before.json', before)
+        before = snapshot_record('source-inputs-before.json', source_snapshot)
         run('cmake-version', ['cmake', '--version'])
-        build = work / 'build'
         try:
             run('configure', ['cmake', '-S', source / 'platform/native-foundation', '-B', build,
                 '-G', 'Visual Studio 17 2022', '-A', 'x64,version=10.0.26100.0',
@@ -176,15 +258,25 @@ def run_native(source_root, work_root, *, image_snapshot=None, windows11=False):
             raise RuntimeError('expected exactly one generated compiler identity')
         shutil.copyfile(compiler_configs[0], evidence / 'CMakeCXXCompiler.cmake')
         run('build', ['cmake', '--build', build, '--config', 'Release', '--parallel', '2'], timeout=600)
+        build_completed = True
+        binary_before = snapshot_record('binary-inputs-before.json', binary_snapshot)
+        ctest_error = None
         try:
             run('ctest', ['ctest', '--test-dir', build, '-C', 'Release', '--output-on-failure',
                 '--output-junit', evidence / 'ctest.xml'], timeout=300)
+        except BaseException as error:
+            ctest_error = error
+            raise
         finally:
-            retain_logs(build, evidence)
+            try:
+                retain_logs(build, evidence)
+            except BaseException as error:
+                remember_capture_error('ctest-log-files.json', error)
+                if ctest_error is None:
+                    raise
         methods = verify_methods(source, evidence)
-        binary_inputs = {str(path.relative_to(build)): hashlib.sha256(path.read_bytes()).hexdigest()
-                         for path in sorted((build / 'Release').glob('*.exe'))}
-        record('binary-inputs.json', binary_inputs)
+        # Preserve the original successful-method-verification compatibility file.
+        snapshot_record('binary-inputs.json', binary_snapshot)
         installed = work / 'installed'
         run('install', ['cmake', '--install', build, '--config', 'Release', '--prefix', installed])
         relocated = work / 'relocated \u65e0\u91cf\u5c71 \U0001f3d4'
@@ -205,21 +297,41 @@ def run_native(source_root, work_root, *, image_snapshot=None, windows11=False):
                 '--original-source-root', source])
         finally:
             moved.rename(source)
-        after = source_snapshot()
-        record('source-inputs-after.json', after)
-        if before != after:
-            raise RuntimeError('source input bytes changed during verification')
-        record('result.json', dict(status='PASSED', scope='native build/format slice on Windows 11 ordinary user' if windows11 else 'native build/format slice on this hosted runner',
+        return dict(status='PASSED', scope='native build/format slice on Windows 11 ordinary user' if windows11 else 'native build/format slice on this hosted runner',
             source_inputs_unchanged=True, original_source_path_absence_verified=True,
+            binary_inputs_unchanged=True, complete_input_identities_verified=True,
             native_suites=methods['suite_count'], native_methods=methods['method_count'],
             complete_original_method_logs_verified=True,
             windows_11_machine_acceptance='NOT_RUN', full_native_runtime='NOT_IMPLEMENTED',
             windows_11_component_validation='PASSED' if windows11 else 'NOT_RUN',
             ordinary_user_security_acceptance='NOT_RUN',
             exact_runner_image_identity='NOT_APPLICABLE_LOCAL_MACHINE' if windows11 else provenance['exact_runner_image_identity'],
-            remote_ci_acceptance='NOT_APPLICABLE_LOCAL_MACHINE' if windows11 else 'requires actual workflow conclusion'))
+            remote_ci_acceptance='NOT_APPLICABLE_LOCAL_MACHINE' if windows11 else 'requires actual workflow conclusion')
+
+    execution_error = None
+    try:
+        try:
+            result = execute()
+        except BaseException as error:
+            execution_error = error
+            raise
+        finally:
+            finalize_identities(execution_error)
+        record('result.json', result)
     except BaseException as error:
-        record('failure.json', dict(status='FAILED', type=type(error).__name__, reason=str(error)[:2048]))
+        try:
+            record('failure.json', dict(status='FAILED', type=type(error).__name__, reason=str(error)[:2048],
+                termination='TIMEOUT' if isinstance(error, subprocess.TimeoutExpired) else
+                            'INTERRUPTED' if isinstance(error, (KeyboardInterrupt, SystemExit)) else 'FAILED',
+                capture_errors=capture_error_records()))
+        except BaseException as capture_error:
+            # An unwritable evidence destination cannot replace the original
+            # command, timeout, interrupt or identity failure.
+            try:
+                sys.stderr.buffer.write(('failure evidence could not be recorded: ' +
+                    type(capture_error).__name__ + ': ' + str(capture_error)[:2048] + '\n').encode('utf-8'))
+            except BaseException:
+                pass
         raise
 
 

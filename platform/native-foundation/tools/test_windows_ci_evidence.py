@@ -55,6 +55,7 @@ class WindowsEvidence(unittest.TestCase):
         self.methods = {}
         self.original_ctest_stdout = None
         self.original_last_test = None
+        self.binary_before_at_ctest_entry = None
         for suite, (name, _) in SUITES.items():
             relative = Path('platform/native-foundation/tests') / name
             destination = self.source / relative
@@ -130,24 +131,37 @@ else:
             elif command[0] == 'git' and 'rev-parse' in command:
                 output = b'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n'
             elif command[0] == 'cmake' and '-S' in command:
-                self.configure_fixture(mode)
+                self.configure_fixture('failure' if mode == 'failure-source-missing' else mode)
             elif command[0] == 'cmake' and '--build' in command:
                 directory = self.work / 'build/Release'
                 directory.mkdir()
-                (directory / 'synthetic.exe').write_bytes(b'not executable\n')
+                if mode != 'empty-binaries':
+                    (directory / 'synthetic.exe').write_bytes(b'not executable\n')
             elif command[0] == 'ctest':
                 self.assertEqual(command, ['ctest', '--test-dir', str(self.work / 'build'), '-C', 'Release',
                     '--output-on-failure', '--output-junit', str(self.work / 'evidence/ctest.xml')])
                 self.assertEqual(kwargs['timeout'], 300)
-                if mode == 'timeout':
+                # Identities must already exist before the original CTest starts.
+                identity_path = self.work / 'evidence/binary-inputs-before.json'
+                self.binary_before_at_ctest_entry = identity_path.read_bytes() if identity_path.is_file() else None
+                if mode in ('timeout', 'interrupt'):
                     temporary = self.work / 'build/Testing/Temporary'
                     temporary.mkdir(parents=True)
                     self.original_last_test = b'original partial CTest output\r\n'
                     (temporary / 'LastTest.log.tmp').write_bytes(self.original_last_test)
+                    if mode == 'interrupt':
+                        raise KeyboardInterrupt('synthetic original CTest interruption')
                     raise subprocess.TimeoutExpired(command, 300, output=b'partial stdout\r\n', stderr=b'partial stderr\r\n')
                 result = real_run(command, **kwargs)
                 self.original_ctest_stdout = result.stdout
                 self.original_last_test = (self.work / 'build/Testing/Temporary/LastTest.log').read_bytes()
+                if mode == 'source-change':
+                    with (self.source / 'platform/native-foundation/tools/verify_detached.py').open('ab') as stream:
+                        stream.write(b'# changed during the synthetic CTest\n')
+                elif mode == 'binary-change':
+                    (self.work / 'build/Release/synthetic.exe').write_bytes(b'changed synthetic bytes\n')
+                elif mode == 'failure-source-missing':
+                    (self.source / 'platform/native-foundation/tools/verify_detached.py').unlink()
                 return result
             elif command[0] == 'cmake' and '--install' in command:
                 directory = self.work / 'installed/bin'
@@ -203,6 +217,26 @@ else:
         provenance = json.loads((evidence / 'image-provenance.json').read_text())
         self.assertEqual(provenance['process_environment_consistency'], 'UNCHANGED')
         self.assertIn('same-job Runner Image', provenance['job_header_comparison'])
+        self.assert_complete_identity_pairs()
+        self.assertTrue(result['complete_input_identities_verified'])
+        self.assertEqual((evidence / 'binary-inputs.json').read_bytes(),
+                         (evidence / 'binary-inputs-before.json').read_bytes())
+
+    def assert_complete_identity_pairs(self):
+        evidence = self.work / 'evidence'
+        self.assertIsNotNone(self.binary_before_at_ctest_entry)
+        self.assertEqual(self.binary_before_at_ctest_entry,
+                         (evidence / 'binary-inputs-before.json').read_bytes())
+        for prefix in ('source', 'binary'):
+            before = json.loads((evidence / (prefix + '-inputs-before.json')).read_text())
+            after = json.loads((evidence / (prefix + '-inputs-after.json')).read_text())
+            self.assertTrue(before)
+            self.assertEqual(before, after)
+        identity = json.loads((evidence / 'identity-finalization.json').read_text())
+        self.assertTrue(identity['identities_complete'])
+        self.assertTrue(identity['source_inputs_unchanged'])
+        self.assertTrue(identity['binary_inputs_unchanged'])
+        self.assertEqual(identity['capture_errors'], [])
 
     def test_failure_retains_original_lasttest_and_failed_index(self):
         with self.assertRaisesRegex(RuntimeError, 'ctest failed with exit'):
@@ -211,6 +245,11 @@ else:
         self.assertEqual((evidence / 'ctest-logs/LastTest.log').read_bytes(), self.original_last_test)
         self.assertIn(b'native_cli', (evidence / 'ctest-logs/LastTestsFailed.log').read_bytes())
         self.assertFalse((evidence / 'result.json').exists())
+        self.assert_complete_identity_pairs()
+        self.assertFalse((evidence / 'binary-inputs.json').exists())
+        failure = json.loads((evidence / 'failure.json').read_text())
+        self.assertEqual((failure['type'], failure['termination']), ('RuntimeError', 'FAILED'))
+        self.assertEqual(json.loads((evidence / 'ctest.command.json').read_text())['exit_code'], 8)
 
     def test_timeout_retains_original_partial_log_and_stdout(self):
         with self.assertRaises(subprocess.TimeoutExpired):
@@ -219,6 +258,102 @@ else:
         self.assertEqual((evidence / 'ctest-logs/LastTest.log.tmp').read_bytes(), self.original_last_test)
         self.assertEqual((evidence / 'ctest.stdout').read_bytes(), b'partial stdout\r\n')
         self.assertEqual(json.loads((evidence / 'ctest.command.json').read_text())['status'], 'TIMEOUT')
+        self.assertFalse((evidence / 'result.json').exists())
+        self.assert_complete_identity_pairs()
+        failure = json.loads((evidence / 'failure.json').read_text())
+        self.assertEqual((failure['type'], failure['termination']), ('TimeoutExpired', 'TIMEOUT'))
+
+    def test_interrupt_retains_identities_and_original_exception(self):
+        with self.assertRaisesRegex(KeyboardInterrupt, 'synthetic original CTest interruption'):
+            self.invoke('interrupt')
+        evidence = self.work / 'evidence'
+        self.assert_complete_identity_pairs()
+        self.assertEqual((evidence / 'ctest-logs/LastTest.log.tmp').read_bytes(), self.original_last_test)
+        self.assertEqual(json.loads((evidence / 'ctest.command.json').read_text())['status'], 'INTERRUPTED')
+        failure = json.loads((evidence / 'failure.json').read_text())
+        self.assertEqual((failure['type'], failure['termination']), ('KeyboardInterrupt', 'INTERRUPTED'))
+        self.assertFalse((evidence / 'result.json').exists())
+
+    def test_source_and_binary_changes_reject_apparently_successful_execution(self):
+        for mode, prefix in (('source-change', 'source'), ('binary-change', 'binary')):
+            with self.subTest(mode=mode):
+                self.work = self.root / mode
+                with self.assertRaisesRegex(RuntimeError, prefix + ' input bytes changed'):
+                    self.invoke(mode)
+                evidence = self.work / 'evidence'
+                before = json.loads((evidence / (prefix + '-inputs-before.json')).read_text())
+                after = json.loads((evidence / (prefix + '-inputs-after.json')).read_text())
+                self.assertTrue(before)
+                self.assertTrue(after)
+                self.assertNotEqual(before, after)
+                identity = json.loads((evidence / 'identity-finalization.json').read_text())
+                self.assertFalse(identity[prefix + '_inputs_unchanged'])
+                self.assertFalse((evidence / 'result.json').exists())
+
+    def test_failed_source_capture_preserves_original_ctest_failure_and_binary_identity(self):
+        with self.assertRaisesRegex(RuntimeError, '^ctest failed with exit 8$'):
+            self.invoke('failure-source-missing')
+        evidence = self.work / 'evidence'
+        self.assertEqual((evidence / 'binary-inputs-before.json').read_bytes(),
+                         (evidence / 'binary-inputs-after.json').read_bytes())
+        identity = json.loads((evidence / 'identity-finalization.json').read_text())
+        self.assertFalse(identity['identities_complete'])
+        self.assertIsNone(identity['source_inputs_unchanged'])
+        self.assertTrue(identity['binary_inputs_unchanged'])
+        self.assertEqual([(item['evidence'], item['type']) for item in identity['capture_errors']],
+                         [('source-inputs-after.json', 'FileNotFoundError')])
+        failure = json.loads((evidence / 'failure.json').read_text())
+        self.assertEqual((failure['type'], failure['reason']), ('RuntimeError', 'ctest failed with exit 8'))
+        self.assertEqual(failure['capture_errors'], identity['capture_errors'])
+        self.assertFalse((evidence / 'result.json').exists())
+
+    def test_failed_log_capture_does_not_mask_original_ctest_failure(self):
+        with patch.object(RUNNER, 'retain_logs', side_effect=OSError('synthetic log capture error')):
+            with self.assertRaisesRegex(RuntimeError, '^ctest failed with exit 8$'):
+                self.invoke('failure')
+        evidence = self.work / 'evidence'
+        self.assertEqual((evidence / 'source-inputs-before.json').read_bytes(),
+                         (evidence / 'source-inputs-after.json').read_bytes())
+        self.assertEqual((evidence / 'binary-inputs-before.json').read_bytes(),
+                         (evidence / 'binary-inputs-after.json').read_bytes())
+        failure = json.loads((evidence / 'failure.json').read_text())
+        self.assertEqual((failure['type'], failure['reason']), ('RuntimeError', 'ctest failed with exit 8'))
+        self.assertEqual([(item['evidence'], item['type']) for item in failure['capture_errors']],
+                         [('ctest-log-files.json', 'OSError')])
+        self.assertFalse((evidence / 'result.json').exists())
+
+    def test_empty_binary_capture_refuses_before_ctest(self):
+        with self.assertRaisesRegex(RuntimeError, '^native binary input snapshot is empty$'):
+            self.invoke('empty-binaries')
+        evidence = self.work / 'evidence'
+        identity = json.loads((evidence / 'identity-finalization.json').read_text())
+        self.assertFalse(identity['identities_complete'])
+        self.assertFalse(identity['binary_pair_complete'])
+        self.assertIsNone(identity['binary_inputs_unchanged'])
+        self.assertFalse((evidence / 'ctest.command.json').exists())
+        self.assertFalse((evidence / 'result.json').exists())
+
+    def test_failed_command_output_capture_keeps_original_exit_and_other_records(self):
+        original_write = Path.write_bytes
+        def fail_ctest_stdout(path, data):
+            if path == self.work / 'evidence/ctest.stdout':
+                raise OSError('synthetic CTest output capture failure')
+            return original_write(path, data)
+        with patch.object(Path, 'write_bytes', fail_ctest_stdout):
+            with self.assertRaisesRegex(RuntimeError, '^ctest failed with exit 8$'):
+                self.invoke('failure')
+        evidence = self.work / 'evidence'
+        self.assertEqual(json.loads((evidence / 'ctest.command.json').read_text())['exit_code'], 8)
+        self.assertTrue((evidence / 'ctest.stderr').is_file())
+        self.assertEqual((evidence / 'ctest-logs/LastTest.log').read_bytes(), self.original_last_test)
+        failure = json.loads((evidence / 'failure.json').read_text())
+        self.assertEqual((failure['type'], failure['reason']), ('RuntimeError', 'ctest failed with exit 8'))
+        self.assertEqual([(item['evidence'], item['type']) for item in failure['capture_errors']],
+                         [('ctest.stdout', 'OSError')])
+        identity = json.loads((evidence / 'identity-finalization.json').read_text())
+        self.assertFalse(identity['identities_complete'])
+        self.assertTrue(identity['source_pair_complete'])
+        self.assertTrue(identity['binary_pair_complete'])
         self.assertFalse((evidence / 'result.json').exists())
 
     def test_missing_method_cannot_be_inferred_from_five_green_suites(self):
