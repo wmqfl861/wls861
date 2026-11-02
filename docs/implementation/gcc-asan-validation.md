@@ -78,6 +78,12 @@ headers/凭据存在性和 traceback 动态值不会被复制进公开日志或�
 不匹配 hash、非连续范围、动态日志和额外 JUnit 输出。工具自检用已知的合成
 Doctor/config/body/header 拒绝样本作红例，精确生成的包作绿例；这不宣称无限范围秘密扫描。
 
+公开 JSON 在索引、身份及结构投影的每一层拒绝重复键、NaN/Infinity/-Infinity 和解析后
+溢出为无限值的浮点数，不能让默认解析器忽略前面的隐藏值。公开 JUnit 除字段/text 检查
+外，还要求原始字节与本入口生成器的精确 XML 序列化一致；注释、处理指令、DTD 等被
+默认 DOM 解析丢弃的语法不能混入待上传原文。guard 失败保留 pending 与 private 原件，
+不生成正式 public 目录，也不降级上传 raw。
+
 通过需要完整注册数与 `--expected-tests` 相符、没有 disabled 项、CTest exit 0，
 JUnit 逐项与注册名匹配且没有 failure/error/skipped/notrun，以及输入和构建身份保持。
 没有 `-R/-E`、重复直到成功、期限放宽或 `--rerun-failed`。原 89 项及其 TIMEOUT 不改。
