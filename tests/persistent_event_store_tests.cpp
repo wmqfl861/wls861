@@ -13,6 +13,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <source_location>
 #include <string>
 
 using namespace wls::s1;
@@ -32,8 +33,15 @@ const RuntimeResources& resources() {
 }
 std::string text(const Json& value, std::string_view key) { return std::string(value.at(key).as_string()); }
 std::int64_t number(const Json& value, std::string_view key) { return value.at(key).as_int64(); }
-void expect(ErrorCode code, const std::function<void()>& action) {
-    try { action(); } catch (const Error& failure) { CHECK(failure.code() == code); return; }
+void expect(ErrorCode code, const std::function<void()>& action,
+            const std::source_location location = std::source_location::current()) {
+    try { action(); } catch (const Error& failure) {
+        if (failure.code() != code)
+            std::cerr << location.file_name() << ':' << location.line() << ": expected "
+                      << error_name(code) << ", actual " << error_name(failure.code())
+                      << ": " << failure.what() << std::endl;
+        CHECK(failure.code() == code); return;
+    }
     throw std::runtime_error("expected Store error");
 }
 void reject(const std::function<void()>& action) {
