@@ -3,6 +3,7 @@
 #include "wls/migrations.hpp"
 #include "wls/runtime_resources.hpp"
 #include "test_support.hpp"
+#include "persistent_event_faults.hpp"
 
 #include <sqlite3.h>
 
@@ -479,6 +480,7 @@ void reserved_and_dispatched_restarts_keep_original_actor_hold() {
 }
 
 void post_t1_storage_failure_retains_slot_and_flush_never_reapplies_t4() {
+    wls::test::persistent_events::StorageFault fault;
     Fixture f; AsyncCoordinator runtime(f.open(), schemas());
     const auto id = f.admit(runtime.store());
     const auto captured = runtime.capture(id, Role::Dispatcher);
@@ -486,7 +488,7 @@ void post_t1_storage_failure_retains_slot_and_flush_never_reapplies_t4() {
     auto model = std::make_shared<GatedModel>(captured, script().default_steps, gate);
     auto submitted = runtime.submit_event(captured, model);
     CHECK(runtime.store().event_link_status(submitted.link_id).at("state") == "RESERVED");
-    sql(f.path, "CREATE TRIGGER n5_test_close_failure BEFORE INSERT ON n5_event_receipts WHEN NEW.kind='CLOSE' BEGIN SELECT RAISE(FAIL,'synthetic close persistence failure'); END;");
+    sql(f.path, "CREATE TRIGGER n5_test_close_failure BEFORE INSERT ON n5_event_receipts WHEN NEW.kind='CLOSE' BEGIN SELECT n5_test_storage_fault(); END;");
     until(runtime, [&] { return gate->entered == 1; });
     gate->release(); until(runtime, [&] { return runtime.snapshot().settlement_halted; });
     CHECK(runtime.snapshot().outstanding == 1 && runtime.snapshot().retained_results == 1);
