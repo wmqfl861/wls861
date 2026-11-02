@@ -2,6 +2,17 @@
 
 ## 2026-11-02：N5 开发候选与验证边界
 
+后继候选 `work/n5-final-candidate-20261102-csj777e9` 汇集 PR #22、#23、#24 的准确输入，
+并加入两个有限的验证复用提交：`752e37e06460c3aa8500e76eacd723be02d7af37`、
+`2637d415246e2b1b93c3710ea3f3e3f9fb922bc8`。原分支引用未移动、PR 未合并。
+完整 JSON 校验及 Store 事务内重复解码的范围和守卫见
+[局部验证候选说明](implementation/n5-persistent-events-20261102/transaction-local-validation-candidate-20261102.md)。
+三轮有界 GCC ASan 定向实验均未关闭失败：最近一轮 runtime 为 9 通过／4 失败，
+Store 套件仍在原 120 秒期限超时；新增三项正确守卫覆盖在原库和候选库各 3/3 通过，
+不构成历史漏洞红例或完整套件通过。原 79654ca 输入的 Release 双 umask 各 94/94 通过，
+不能代填这个新候选。新单一提交的适用完整矩阵及远端 CI 需分别执行和记录。
+以下模块汇总保留前一集成截点的事实；整体继续 **VALIDATION_BLOCKED**。
+
 本轮从 PR #15 的 `aa2c592b8aed6509189710cc6f6d69e0959098a8` 接手。
 主协调者已明确采纳 [PR #16](https://github.com/wmqfl861/wls861/pull/16)
 方案 B 的完整事务、容量和兼容契约，允许新增 013／411；此授权不包含后续 014／412。
