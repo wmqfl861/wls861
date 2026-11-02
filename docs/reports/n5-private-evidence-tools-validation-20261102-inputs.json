@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "scope": "N5-0 offline private evidence tools only",
+  "base": "aa2c592b8aed6509189710cc6f6d69e0959098a8",
+  "branch": "fix/n5-0-private-evidence-20261102-csj777e9",
+  "inputs": {
+    "scripts/private_evidence.py": "e2e82ebfda89a2519ea6124fc2defa4e234eea8b72f72946efb5618f5be12e1a",
+    "tests/test_private_evidence.py": "83b30e0992679845eeea76aac587cd521ad10cadb429ca8e31b1890359f872a5",
+    "scripts/run_gcc_asan.py": "8973416f725020cbd283e58310517820c75f40f59a1db9d99ffb7dc55e4717ac",
+    "tests/test_run_gcc_asan.py": "7c351fce2cc19ed249a219274e7fafc81270ad05a4764c5b105c93ff17151103",
+    "docs/implementation/N5-private-evidence-tools.md": "39f55cb231a7d613d4182fdc442af6fea5ee5d34fdd6672e175efe1db2c7e7dc"
+  },
+  "runs": [
+    {
+      "name": "private-tools-red-01",
+      "argv": [
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/test-venv/bin/python",
+        "-B",
+        "tests/test_private_evidence.py",
+        "EvidenceContracts.test_successful_job_originals_survive_ephemeral_job_deletion"
+      ],
+      "cwd": "/mnt/d/codex-workspace/wls861-n5-20261102-csj777e9/evidence-tools",
+      "expected_exit_code": 1,
+      "actual_exit_code": 1,
+      "unittest_methods": 1,
+      "started_at": "2026-11-02T11:47:07.059961+00:00",
+      "ended_at": "2026-11-02T11:47:11.937933+00:00",
+      "seconds": 4.8777686869725585,
+      "receipt_sha256": "cb0f1891721ee8b45350987d24a5c533e86a24f3aadbe127b64263ac43efe8f6",
+      "log_sha256": {
+        "stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr.log": "1cd34d4bda6a25980b4cb0aef89187d3889710b6ec24d7744eb0795d0df8d997"
+      },
+      "identities_unchanged": true
+    },
+    {
+      "name": "private-tools-green-01",
+      "argv": [
+        "/mnt/d/codex-workspace/wls861-r2-4-20261029/test-venv/bin/python",
+        "-B",
+        "tests/test_private_evidence.py"
+      ],
+      "cwd": "/mnt/d/codex-workspace/wls861-n5-20261102-csj777e9/evidence-tools",
+      "expected_exit_code": 0,
+      "actual_exit_code": 0,
+      "unittest_methods": 16,
+      "started_at": "2026-11-02T11:47:58.647601+00:00",
+      "ended_at": "2026-11-02T11:48:19.831355+00:00",
+      "seconds": 21.183597680181265,
+      "receipt_sha256": "386b2b2f43486835a84b682661c12e15f2daeefc47c781140bd1ce7629276449",
+      "log_sha256": {
+        "stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr.log": "3b9cf9dc3f2fe041a7adfe6aaae2f85cc17e5043f81a66532b1f344479c6d64d"
+      },
+      "identities_unchanged": true
+    }
+  ],
+  "hosted_persistence": "BLOCKED",
+  "product_validation_executed_by_this_task": false,
+  "remote_ci_executed": false,
+  "uploaded_private_evidence": false
+}
