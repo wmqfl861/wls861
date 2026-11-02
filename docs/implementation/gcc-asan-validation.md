@@ -51,6 +51,11 @@ LSAN_OPTIONS 或其他 sanitizer 覆盖。`ASAN_OPTIONS=halt_on_error=1:detect_l
 不能上传构建目录、私有目录或 pending 目录。没有可收尾结果时允许无公开 artifact，
 不得从 artifact 缺失或之前的绿色推导本次通过。
 
+本机原件可持久保存在数据盘；hosted runner 的私有原件仅存在于该 job 文件系统。
+没有已授权的外部私有存储时，远端 job 销毁后的原件可获取性为
+**`NOT_PRESERVED_DURABLY`**。公开 artifact 是投影及原 hash，不能称为可下载的完整原
+LastTest/JUnit/命令日志，也不能仅凭 hash 声称仍能取得原件；本入口不新建存储或上传 raw。
+
 公开投影使用当前冻结测试源码中的静态 native 方法名称、Python unittest 方法/类名、
 已审阅 CTest 目录名称及数值结果/期限白名单。匹配的安全方法行原字节保留，FAIL 的静态
 方法名保留而动态异常尾部隐藏；其他输出整段隐藏。Doctor 对象、配置全对象、原始正文、
