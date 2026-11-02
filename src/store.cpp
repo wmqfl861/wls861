@@ -6,6 +6,7 @@
 #include "wls/model.hpp"
 #include "wls/live_model.hpp"
 #include "wls/owned_capacity.hpp"
+#include "wls/schema.hpp"
 
 #include <sqlite3.h>
 
@@ -434,7 +435,7 @@ public:
          std::string_view workflow_migration_sql, std::string_view acceptance_migration_sql,
          std::string_view cleanup_migration_sql, StoreRecoveryScope selected_scope,
          std::string_view allocation_migration_sql, std::string_view live_migration_sql,
-         std::string_view reconciliation_migration_sql)
+         std::string_view reconciliation_migration_sql, std::string_view event_association_migration_sql)
         : mode(selected_mode), recovery_scope(std::move(selected_scope)) {
         using Kind = StoreRecoveryScope::Kind;
         require(recovery_scope.kind == Kind::AllRequests || recovery_scope.kind == Kind::OneRequest ||
@@ -457,6 +458,8 @@ public:
                 "live model migration requires the owned allocation asset");
         require(reconciliation_migration_sql.empty() || !live_migration_sql.empty(), ErrorCode::InvalidInput,
                 "usage reconciliation migration requires the live model asset");
+        require(event_association_migration_sql.empty() || !reconciliation_migration_sql.empty(), ErrorCode::InvalidInput,
+                "event association migration requires the complete accounting prefix");
         require(database_path != ":memory:", ErrorCode::InvalidInput, "Store requires a durable file path");
         const auto absolute = std::filesystem::absolute(database_path).lexically_normal();
         const auto path = (std::filesystem::canonical(absolute.parent_path()) / absolute.filename()).string();
@@ -500,11 +503,11 @@ public:
                 exec(base_sql);
                 version = number(one("PRAGMA user_version"), "user_version");
             }
-            require(version >= 401 && version <= 410, ErrorCode::Unsupported, "unknown database version; explicit migration required");
+            require(version >= 401 && version <= 411, ErrorCode::Unsupported, "unknown database version; explicit migration required");
             require(str(one("SELECT schema_version FROM contract_metadata WHERE singleton=1"), "schema_version") == "0.4.1",
                     ErrorCode::Unsupported, "unsupported base contract metadata");
             if (recovery_scope.kind != Kind::AllRequests) {
-                const auto target = !reconciliation_migration_sql.empty() ? 410 : !live_migration_sql.empty() ? 409 :
+                const auto target = !event_association_migration_sql.empty() ? 411 : !reconciliation_migration_sql.empty() ? 410 : !live_migration_sql.empty() ? 409 :
                     !allocation_migration_sql.empty() ? 408 : !cleanup_migration_sql.empty() ? 407 : !acceptance_migration_sql.empty() ? 406 :
                     !workflow_migration_sql.empty() ? 405 : !events_migration_sql.empty() ? 404 :
                     !tools_migration_sql.empty() ? 403 : 402;
@@ -581,6 +584,12 @@ public:
                 const auto info = one("SELECT * FROM usage_reconciliation_metadata WHERE singleton=1");
                 require(number(info, "store_version") == 12 && str(info, "migration_sha256") == sha256_hex(reconciliation_migration_sql),
                         ErrorCode::Corrupt, "usage reconciliation migration fingerprint mismatch");
+            }
+            if (version >= 411) {
+                require(!event_association_migration_sql.empty(), ErrorCode::Unsupported, "411 database requires the event association asset");
+                const auto info = one("SELECT * FROM event_association_metadata WHERE singleton=1");
+                require(number(info, "store_version") == 13 && str(info, "migration_sha256") == sha256_hex(event_association_migration_sql),
+                        ErrorCode::Corrupt, "event association migration fingerprint mismatch");
             }
             // Validate ownership/version before any persistent journal-mode
             // change; rejecting an unrelated database preserves its bytes.
@@ -707,6 +716,18 @@ public:
                 } catch (...) { rollback(); throw; }
             }
             reconciliation_schema = version >= 410;
+            if (version == 410 && !event_association_migration_sql.empty() && mode == StoreOpenMode::Takeover) {
+                exec("BEGIN IMMEDIATE");
+                try {
+                    exec(event_association_migration_sql);
+                    execute("INSERT INTO event_association_metadata VALUES (1,13,?,?)", {sha256_hex(event_association_migration_sql),
+                        one("SELECT COALESCE(MAX(seq),0) AS n FROM events").at("n")});
+                    require(number(one("PRAGMA user_version"), "user_version") == 411,
+                            ErrorCode::Corrupt, "event association migration did not produce 411");
+                    exec("COMMIT"); version = 411;
+                } catch (...) { rollback(); throw; }
+            }
+            event_association_schema = version >= 411;
             require(str(one("PRAGMA quick_check"), "quick_check") == "ok", ErrorCode::Corrupt, "SQLite quick_check failed");
             require(!optional("PRAGMA foreign_key_check"), ErrorCode::Corrupt, "SQLite foreign key check failed");
             if (mode == StoreOpenMode::Takeover && recovery_scope.kind == Kind::OneRequest) {
@@ -1261,7 +1282,9 @@ public:
         check_request_scope(request_id);
         text_field(command_id, "command_id");
         const auto type = str(command, "type");
-        guard_capacity_event(request_id, command);
+        guard_event_protocol(request_id, command_id, command);
+        if (!event_protocol_continuation(request_id, command_id, command)) guard_capacity_event(request_id, command);
+        guard_event_tail_capacity(request_id, command_id, &command);
         // One fully validated canonical encoding of the immutable command is
         // reused for both the fingerprint and the stored payload.
         const auto event_id = new_id("evt");
@@ -1703,6 +1726,33 @@ public:
                            const std::string& side_effect, const std::string& command_id,
                            bool registered);
 
+    Json claim_events_in_transaction(const StoreActor& actor, std::int64_t max_items);
+    Json finish_events_in_transaction(const StoreActor& actor, const std::string& claim_id, std::int64_t generation,
+                         const std::vector<std::int64_t>& completed_ids);
+    Json record_tool_feedback_in_transaction(const std::string& attempt_id, const ExecutionBinding& original,
+                                const Json& response, const Json& result);
+    Json apply_independent_plan_in_transaction(const StoreActor& actor, std::int64_t expected,
+                                  std::int64_t requirements, const Json& body,
+                                  const Json& dispositions, const std::string& command_id,
+                                  const Json& captured_tasks);
+    Json apply_independent_dispositions_in_transaction(const StoreActor& actor, std::int64_t expected,
+                                          std::int64_t requirements, std::int64_t revision,
+                                          const Json& dispositions, const std::string& command_id,
+                                          const Json& captured_tasks);
+    Json issue_instruction_in_transaction(const StoreActor& actor, const ExecutionBinding& frozen,
+        std::int64_t expected, const Json& body, const std::string& command_id);
+    Json start_operation_in_transaction(const StoreActor& actor, const std::string& id,
+                            std::int64_t expected, const std::string& command_id);
+    Json finish_operation_in_transaction(const StoreActor& actor, const std::string& id,
+        const ExecutionBinding& frozen, std::int64_t expected, const std::string& outcome,
+        const std::string& evidence, const std::string& command_id);
+    Json claim_offline_call_in_transaction(const StoreActor& actor, const std::string& attempt_id);
+    Json reserve_attempt_in_transaction(const StoreActor& actor, const ExecutionBinding& frozen,
+                            const AttemptReservation& reservation);
+    Json prepare_operation_in_transaction(const StoreActor& actor, const ExecutionBinding& frozen,
+        std::int64_t expected, const std::string& business_key, const std::string& tool_id,
+        const Json& arguments, const std::string& side_effect, const std::string& command_id, bool registered);
+
     sqlite3* db{};
     int lease_fd{-1};
     StoreOpenMode mode;
@@ -1715,6 +1765,47 @@ public:
     bool allocation_schema{false};
     bool live_schema{false};
     bool reconciliation_schema{false};
+    bool event_association_schema{false};
+    // An owner-only protocol step may consume its own finite reservation.
+    // The flag never escapes this Store or grants callback authority.
+    std::string event_protocol_link;
+    std::int64_t event_admission_business{};
+    std::int64_t event_admission_control{};
+    std::set<std::string> event_application_started;
+    bool event_application_halted{false};
+    class EventProtocolScope {
+    public:
+        EventProtocolScope(Impl& owner, std::string link, std::int64_t business = 0, std::int64_t control = 0)
+            : owner_(owner) {
+            require(owner_.event_protocol_link.empty(), ErrorCode::Corrupt, "nested event protocol step");
+            owner_.event_protocol_link = std::move(link);
+            owner_.event_admission_business = business; owner_.event_admission_control = control;
+        }
+        ~EventProtocolScope() {
+            owner_.event_protocol_link.clear(); owner_.event_admission_business = 0; owner_.event_admission_control = 0;
+        }
+    private:
+        Impl& owner_;
+    };
+    bool event_driver_enabled(const std::string& request_id) const;
+    void require_legacy_event_path(const std::string& request_id) const;
+    Json event_fact(const Row& row, std::size_t maximum = 2 * 1024 * 1024) const;
+    Row event_source(std::int64_t inbox_id) const;
+    Row event_claim_snapshot(const std::string& claim_id) const;
+    void event_claim_current(const StoreActor& actor, const Row& snapshot) const;
+    Row event_link_row(const std::string& link_id) const;
+    void verify_event_link(const Row& link) const;
+    void event_link_current(const StoreActor& actor, const Row& link) const;
+    Json event_receipt(const std::string& link_id, const std::string& kind) const;
+    void append_event_receipt(const Row& link, const std::string& kind, const Json& fact);
+    std::int64_t event_metadata_bytes(const std::string& request_id) const;
+    void guard_event_metadata(const std::string& request_id, std::int64_t extra = 0) const;
+    void guard_event_protocol(const std::string& request_id, const std::string& command_id, const Row& command) const;
+    bool event_protocol_continuation(const std::string& request_id, const std::string& command_id, const Row& command) const;
+    void guard_event_tail_capacity(const std::string& request_id, const std::string& command_id = {}, const Row* command = nullptr) const;
+    bool event_item_targets(const Row& source, const Json& fact) const;
+    void event_amendment_targets_current(const Json& fact) const;
+    Json event_link_info(const Row& link) const;
     bool has_unsettled_model(const std::string& id, const std::string& team_id = {}) const;
     void live_accounting_ready(const std::string& request_id, const std::string& excluding = {}) const;
     void initialize_usage_projection(const Row& original);
@@ -1740,17 +1831,19 @@ Store::Store(const std::filesystem::path& path, std::string_view base, std::stri
              std::string_view tools_migration, std::string_view events_migration,
              std::string_view workflow_migration, std::string_view acceptance_migration, std::string_view cleanup_migration,
              StoreRecoveryScope recovery_scope, std::string_view allocation_migration,
-             std::string_view live_migration, std::string_view reconciliation_migration)
+             std::string_view live_migration, std::string_view reconciliation_migration,
+             std::string_view event_association_migration)
     : impl_(std::make_unique<Impl>(path, base, migration, mode, tools_migration, events_migration, workflow_migration,
                                  acceptance_migration, cleanup_migration, std::move(recovery_scope), allocation_migration,
-                                 live_migration, reconciliation_migration)) {}
+                                 live_migration, reconciliation_migration, event_association_migration)) {}
 
 Store::Store(const std::filesystem::path& path, const MigrationRegistry& migrations,
              StoreOpenMode mode, StoreRecoveryScope recovery_scope)
     : Store(path, migrations.base_schema_sql(), migrations.migration_sql(402), mode,
             migrations.migration_sql(403), migrations.migration_sql(404), migrations.migration_sql(405),
             migrations.migration_sql(406), migrations.migration_sql(407), std::move(recovery_scope),
-            migrations.migration_sql(408), migrations.migration_sql(409), migrations.migration_sql(410)) {}
+            migrations.migration_sql(408), migrations.migration_sql(409), migrations.migration_sql(410),
+            migrations.migration_sql(411)) {}
 Store::~Store() = default;
 
 Json Store::diagnostics() const {
@@ -1871,34 +1964,40 @@ std::vector<Json> Store::request_inbox(const std::string& request_id, std::int64
 
 Json Store::claim_events(const StoreActor& actor, std::int64_t max_items) {
     const std::lock_guard lock(impl_->mutex);
-    impl_->require_events_schema();
-    require(max_items > 0 && max_items <= 256, ErrorCode::InvalidInput, "event claim limit must be 1..256");
     Impl::Transaction tx(*impl_);
-    const auto request = impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
+    impl_->require_legacy_event_path(actor.request_id);
+    auto value = impl_->claim_events_in_transaction(actor, max_items);
+    tx.commit(); return value;
+}
+
+Json Store::Impl::claim_events_in_transaction(const StoreActor& actor, std::int64_t max_items) {
+    require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
+    require_events_schema();
+    require(max_items > 0 && max_items <= 256, ErrorCode::InvalidInput, "event claim limit must be 1..256");
+    const auto request = authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
     const auto revision = number(request, "requirements_revision");
     const Array scope{actor.request_id, role_name(actor.role), actor.task_id};
-    const auto old = impl_->optional("SELECT * FROM event_actor_claims WHERE request_id=? AND role=? AND actor_task_id=?", scope);
+    const auto old = optional("SELECT * FROM event_actor_claims WHERE request_id=? AND role=? AND actor_task_id=?", scope);
     const auto generation = old ? next(number(*old, "generation")) : 1;
     if (old && str(*old, "status") == "ACTIVE") {
         require(number(*old, "requirements_revision") != revision || number(*old, "dispatcher_epoch") != actor.dispatcher_epoch ||
                 number(*old, "execution_epoch") != actor.execution_epoch, ErrorCode::Conflict, "actor already has an active event claim");
-        impl_->execute("UPDATE event_inbox SET status='PENDING',claim_id=NULL WHERE claim_id=? AND status='CLAIMED'", {str(*old, "claim_id")});
-        impl_->execute("UPDATE event_actor_claims SET status='RELEASED',updated_at=? WHERE claim_id=?", {stamp(), str(*old, "claim_id")});
+        execute("UPDATE event_inbox SET status='PENDING',claim_id=NULL WHERE claim_id=? AND status='CLAIMED'", {str(*old, "claim_id")});
+        execute("UPDATE event_actor_claims SET status='RELEASED',updated_at=? WHERE claim_id=?", {stamp(), str(*old, "claim_id")});
     }
-    const auto pending = impl_->all("SELECT i.*,e.event_id,e.type,e.payload,e.result,e.created_at FROM event_inbox i JOIN events e ON e.seq=i.event_seq WHERE i.request_id=? AND i.role=? AND i.actor_task_id=? AND i.status='PENDING' ORDER BY i.inbox_id LIMIT ?",
+    const auto pending = all(std::string("SELECT i.*,e.event_id,e.type,e.payload,e.result,e.created_at FROM event_inbox i JOIN events e ON e.seq=i.event_seq WHERE i.request_id=? AND i.role=? AND i.actor_task_id=? AND i.status='PENDING'") + (event_driver_enabled(actor.request_id) ? " AND NOT EXISTS(SELECT 1 FROM n5_event_open_items o WHERE o.inbox_id=i.inbox_id)" : "") + " ORDER BY i.inbox_id LIMIT ?",
         {actor.request_id, role_name(actor.role), actor.task_id, max_items});
-    if (pending.empty()) { tx.commit(); return Row{{"claim_id", ""}, {"generation", 0}, {"items", Array{}}}; }
+    if (pending.empty()) { return Row{{"claim_id", ""}, {"generation", 0}, {"items", Array{}}}; }
     const auto claim_id = new_id("claim");
     Array ids; Array items;
     for (auto row : pending) {
         const auto id = number(row, "inbox_id"); ids.emplace_back(id);
-        impl_->cas("UPDATE event_inbox SET status='CLAIMED',claim_id=? WHERE inbox_id=? AND status='PENDING'", {claim_id, id});
+        cas("UPDATE event_inbox SET status='CLAIMED',claim_id=? WHERE inbox_id=? AND status='PENDING'", {claim_id, id});
         row["status"] = "CLAIMED"; row["claim_id"] = claim_id; items.emplace_back(exposed(std::move(row)));
     }
-    impl_->execute("INSERT INTO event_actor_claims(request_id,role,actor_task_id,principal_id,team_id,generation,claim_id,status,requirements_revision,dispatcher_epoch,execution_epoch,captured_ids,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'ACTIVE',?,?,?,?,?,?) ON CONFLICT(request_id,role,actor_task_id) DO UPDATE SET principal_id=excluded.principal_id,team_id=excluded.team_id,generation=excluded.generation,claim_id=excluded.claim_id,status=excluded.status,requirements_revision=excluded.requirements_revision,dispatcher_epoch=excluded.dispatcher_epoch,execution_epoch=excluded.execution_epoch,captured_ids=excluded.captured_ids,created_at=excluded.created_at,updated_at=excluded.updated_at",
+    execute("INSERT INTO event_actor_claims(request_id,role,actor_task_id,principal_id,team_id,generation,claim_id,status,requirements_revision,dispatcher_epoch,execution_epoch,captured_ids,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'ACTIVE',?,?,?,?,?,?) ON CONFLICT(request_id,role,actor_task_id) DO UPDATE SET principal_id=excluded.principal_id,team_id=excluded.team_id,generation=excluded.generation,claim_id=excluded.claim_id,status=excluded.status,requirements_revision=excluded.requirements_revision,dispatcher_epoch=excluded.dispatcher_epoch,execution_epoch=excluded.execution_epoch,captured_ids=excluded.captured_ids,created_at=excluded.created_at,updated_at=excluded.updated_at",
         {actor.request_id, role_name(actor.role), actor.task_id, actor.principal_id, actor.team_id, generation, claim_id, revision,
          actor.dispatcher_epoch, actor.execution_epoch, canonical_json(ids), stamp(), stamp()});
-    tx.commit();
     return Row{{"claim_id", claim_id}, {"generation", generation}, {"requirements_revision", revision},
         {"dispatcher_epoch", actor.dispatcher_epoch}, {"execution_epoch", actor.execution_epoch}, {"items", items}};
 }
@@ -1906,11 +2005,19 @@ Json Store::claim_events(const StoreActor& actor, std::int64_t max_items) {
 Json Store::finish_events(const StoreActor& actor, const std::string& claim_id, std::int64_t generation,
                          const std::vector<std::int64_t>& completed_ids) {
     const std::lock_guard lock(impl_->mutex);
-    impl_->require_events_schema(); text_field(claim_id, "event claim id");
-    require(generation > 0 && completed_ids.size() <= 256, ErrorCode::InvalidInput, "invalid event claim completion");
     Impl::Transaction tx(*impl_);
-    const auto request = impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
-    const auto claim = impl_->optional("SELECT * FROM event_actor_claims WHERE request_id=? AND role=? AND actor_task_id=?", {actor.request_id, role_name(actor.role), actor.task_id});
+    impl_->require_legacy_event_path(actor.request_id);
+    auto value = impl_->finish_events_in_transaction(actor, claim_id, generation, completed_ids);
+    tx.commit(); return value;
+}
+
+Json Store::Impl::finish_events_in_transaction(const StoreActor& actor, const std::string& claim_id, std::int64_t generation,
+                         const std::vector<std::int64_t>& completed_ids) {
+    require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
+    require_events_schema(); text_field(claim_id, "event claim id");
+    require(generation > 0 && completed_ids.size() <= 256, ErrorCode::InvalidInput, "invalid event claim completion");
+    const auto request = authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
+    const auto claim = optional("SELECT * FROM event_actor_claims WHERE request_id=? AND role=? AND actor_task_id=?", {actor.request_id, role_name(actor.role), actor.task_id});
     require(claim && str(*claim, "claim_id") == claim_id && number(*claim, "generation") == generation &&
         str(*claim, "principal_id") == actor.principal_id && str(*claim, "team_id") == actor.team_id &&
         number(*claim, "requirements_revision") == number(request, "requirements_revision") &&
@@ -1928,14 +2035,13 @@ Json Store::finish_events(const StoreActor& actor, const std::string& claim_id, 
     for (const auto& value : captured) {
         const auto id = value.as_int64(); const bool finish = completed.contains(id);
         if (replay) {
-            const auto row = impl_->one("SELECT status FROM event_inbox WHERE inbox_id=?", {id});
+            const auto row = one("SELECT status FROM event_inbox WHERE inbox_id=?", {id});
             require((str(row, "status") == "DONE") == finish, ErrorCode::Conflict, "closed event claim completion changed");
-        } else impl_->cas("UPDATE event_inbox SET status=?,claim_id=NULL,completed_at=? WHERE inbox_id=? AND claim_id=? AND status='CLAIMED'",
+        } else cas("UPDATE event_inbox SET status=?,claim_id=NULL,completed_at=? WHERE inbox_id=? AND claim_id=? AND status='CLAIMED'",
             {finish ? "DONE" : "PENDING", finish ? Json(stamp()) : Json(nullptr), id, claim_id});
         (finish ? done : released).emplace_back(id);
     }
-    if (!replay) impl_->cas("UPDATE event_actor_claims SET status='CLOSED',updated_at=? WHERE claim_id=? AND status='ACTIVE'", {stamp(), claim_id});
-    tx.commit();
+    if (!replay) cas("UPDATE event_actor_claims SET status='CLOSED',updated_at=? WHERE claim_id=? AND status='ACTIVE'", {stamp(), claim_id});
     return Row{{"claim_id", claim_id}, {"generation", generation}, {"completed_ids", done}, {"released_ids", released}};
 }
 
@@ -2002,28 +2108,36 @@ Json Store::wake_worker(const StoreActor& actor, const ExecutionBinding& binding
 Json Store::record_tool_feedback(const std::string& attempt_id, const ExecutionBinding& original,
                                 const Json& response, const Json& result) {
     const std::lock_guard lock(impl_->mutex);
-    impl_->require_events_schema(); text_field(attempt_id, "feedback attempt id");
+    Impl::Transaction tx(*impl_);
+    impl_->require_legacy_event_path(str(impl_->one("SELECT request_id FROM call_attempts WHERE attempt_id=?", {attempt_id}), "request_id"));
+    auto value = impl_->record_tool_feedback_in_transaction(attempt_id, original, response, result);
+    tx.commit(); return value;
+}
+
+Json Store::Impl::record_tool_feedback_in_transaction(const std::string& attempt_id, const ExecutionBinding& original,
+                                const Json& response, const Json& result) {
+    require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
+    require_events_schema(); text_field(attempt_id, "feedback attempt id");
     const Row fact{{"attempt_id", attempt_id}, {"original_binding", to_json(original)}, {"response", response}, {"result", result}};
     const auto hash = sha256_hex(json_text(fact, 8 * 1024 * 1024));
     const auto response_text = json_text(response, 4 * 1024 * 1024);
     const auto result_text = json_text(result, 4 * 1024 * 1024);
-    Impl::Transaction tx(*impl_);
-    const auto attempt = impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {attempt_id});
-    impl_->check_request_scope(str(attempt, "request_id"));
+    const auto attempt = one("SELECT * FROM call_attempts WHERE attempt_id=?", {attempt_id});
+    check_request_scope(str(attempt, "request_id"));
     require(execution_binding_from_json(parse_json_strict(str(attempt, "frozen_binding"))) == original, ErrorCode::Conflict, "feedback changed the original attempt binding");
     require(!attempt.at("settlement_sha256").is_null() && !attempt.at("response").is_null(), ErrorCode::NotReady, "feedback requires a durably settled original response");
     require(str(attempt, "response") == response_text, ErrorCode::Conflict, "feedback response differs from the settled original response");
-    if (const auto old = impl_->optional("SELECT record_sha256 FROM model_tool_feedback WHERE attempt_id=?", {attempt_id})) {
+    if (const auto old = optional("SELECT record_sha256 FROM model_tool_feedback WHERE attempt_id=?", {attempt_id})) {
         require(str(*old, "record_sha256") == hash, ErrorCode::Conflict, "attempt feedback already records different original facts");
-        const auto value = impl_->feedback_info(attempt_id); tx.commit(); return value;
+        const auto value = feedback_info(attempt_id); return value;
     }
-    impl_->execute("INSERT INTO model_tool_feedback VALUES (?,?,?,?,?,?)", {attempt_id, canonical_json(to_json(original)), response_text, result_text, hash, stamp()});
-    const auto value = impl_->feedback_info(attempt_id);
+    execute("INSERT INTO model_tool_feedback VALUES (?,?,?,?,?,?)", {attempt_id, canonical_json(to_json(original)), response_text, result_text, hash, stamp()});
+    const auto value = feedback_info(attempt_id);
     // The event contains a reference/hash, not another copy of compiled context.
-    impl_->event(str(attempt, "request_id"), "feedback:" + attempt_id,
+    event(str(attempt, "request_id"), "feedback:" + attempt_id,
         Row{{"type", "tool_feedback"}, {"attempt_id", attempt_id}, {"binding", to_json(original)}, {"record_sha256", hash}},
         Row{{"attempt_id", attempt_id}, {"record_sha256", hash}});
-    tx.commit(); return value;
+    return value;
 }
 
 Json Store::tool_feedback(const std::string& attempt_id) const {
@@ -2932,35 +3046,45 @@ Json Store::apply_independent_plan(const StoreActor& actor, std::int64_t expecte
                                   const Json& dispositions, const std::string& command_id,
                                   const Json& captured_tasks) {
     const std::lock_guard lock(impl_->mutex);
-    impl_->require_events_schema();
+    Impl::Transaction tx(*impl_);
+    impl_->require_legacy_event_path(actor.request_id);
+    auto value = impl_->apply_independent_plan_in_transaction(actor, expected, requirements, body, dispositions, command_id, captured_tasks);
+    tx.commit(); return value;
+}
+
+Json Store::Impl::apply_independent_plan_in_transaction(const StoreActor& actor, std::int64_t expected,
+                                  std::int64_t requirements, const Json& body,
+                                  const Json& dispositions, const std::string& command_id,
+                                  const Json& captured_tasks) {
+    require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
+    require_events_schema();
     auto command = payload(actor, "independent_plan", Row{{"expected_request_version", expected},
         {"based_on_requirements_revision", requirements}, {"body", body}, {"dispositions", dispositions}});
     if (!captured_tasks.is_null()) command["captured_tasks"] = captured_tasks;
-    Impl::Transaction tx(*impl_);
-    (void)impl_->authorize(actor, {Role::Dispatcher}, false);
-    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
-    const auto request = impl_->authorize(actor, {Role::Dispatcher});
+    (void)authorize(actor, {Role::Dispatcher}, false);
+    if (auto old = replay(actor.request_id, command_id, command)) { return *old; }
+    const auto request = authorize(actor, {Role::Dispatcher});
     require(!terminal_request(str(request, "status")) && number(request, "requirements_revision") == requirements,
             ErrorCode::Stale, "independent plan does not address current live requirements");
     const auto revision = next(number(request, "plan_revision"));
-    const auto nodes = impl_->independent_nodes(request, body);
+    const auto nodes = independent_nodes(request, body);
     for (const auto& target : {std::pair<std::string, std::int64_t>{"plan_revision", revision}, {"based_on_requirements_revision", requirements}})
         if (body.as_object().contains(target.first)) require(number(body.as_object(), target.first) == target.second, ErrorCode::Stale, "plan body changed its authoritative revision");
-    impl_->check_dispositions(dispositions, nodes);
-    const auto existing = impl_->all("SELECT * FROM tasks WHERE request_id=? ORDER BY node_id", {actor.request_id});
-    impl_->check_independent_identities(existing, nodes);
-    impl_->check_captured_amendment_tasks(request, existing, captured_tasks, dispositions, true);
+    check_dispositions(dispositions, nodes);
+    const auto existing = all("SELECT * FROM tasks WHERE request_id=? ORDER BY node_id", {actor.request_id});
+    check_independent_identities(existing, nodes);
+    check_captured_amendment_tasks(request, existing, captured_tasks, dispositions, true);
     if (existing.empty()) require(dispositions.as_object().empty(), ErrorCode::InvalidInput, "initial task allocation has no AMEND dispositions");
     // Plan, all initial identities, per-task transitions, audit and inbox routes
     // commit together. A failing later node leaves no partial allocation.
-    impl_->cas("UPDATE requests SET plan_revision=?,status='RUNNING',delivery_status='NONE',state_version=state_version+1,updated_at=? WHERE request_id=? AND state_version=?",
+    cas("UPDATE requests SET plan_revision=?,status='RUNNING',delivery_status='NONE',state_version=state_version+1,updated_at=? WHERE request_id=? AND state_version=?",
         {revision, stamp(), actor.request_id, expected});
-    impl_->execute("INSERT INTO plans VALUES (?,?,?,?,NULL,?)", {actor.request_id, revision, requirements, json_text(body), stamp()});
-    impl_->execute("UPDATE teams SET paused_for_change=1,state_version=state_version+1,updated_at=? WHERE request_id=? AND status IN ('STARTING','ACTIVE','DRAINING')", {stamp(), actor.request_id});
-    impl_->fence_ops(actor.request_id);
+    execute("INSERT INTO plans VALUES (?,?,?,?,NULL,?)", {actor.request_id, revision, requirements, json_text(body), stamp()});
+    execute("UPDATE teams SET paused_for_change=1,state_version=state_version+1,updated_at=? WHERE request_id=? AND status IN ('STARTING','ACTIVE','DRAINING')", {stamp(), actor.request_id});
+    fence_ops(actor.request_id);
     Array changed; Array pending;
     if (existing.empty()) {
-        for (const auto& [node_id, node] : nodes) changed.emplace_back(impl_->allocate_independent(request, revision, node_id, node));
+        for (const auto& [node_id, node] : nodes) changed.emplace_back(allocate_independent(request, revision, node_id, node));
     } else for (const auto& task : existing) {
         const auto node_id = str(task, "node_id");
         const auto* decision = dispositions.as_object().if_contains(node_id);
@@ -2972,12 +3096,12 @@ Json Store::apply_independent_plan(const StoreActor& actor, std::int64_t expecte
             pending.emplace_back(Row{{"node_id", node_id}, {"task_id", str(task, "task_id")}, {"reason", "amend_disposition_required"}});
             continue;
         }
-        changed.emplace_back(impl_->apply_independent_task(request, task, revision, nodes.at(node_id), decision ? *decision : Json(nullptr)));
+        changed.emplace_back(apply_independent_task(request, task, revision, nodes.at(node_id), decision ? *decision : Json(nullptr)));
     }
     const Json result = Row{{"plan_revision", revision}, {"based_on_requirements_revision", requirements},
         {"state_version", next(expected)}, {"tasks", changed}, {"pending_tasks", pending}};
-    impl_->event(actor.request_id, command_id, command, result, "dispatcher");
-    tx.commit(); return result;
+    event(actor.request_id, command_id, command, result, "dispatcher");
+    return result;
 }
 
 Json Store::apply_independent_dispositions(const StoreActor& actor, std::int64_t expected,
@@ -2985,41 +3109,51 @@ Json Store::apply_independent_dispositions(const StoreActor& actor, std::int64_t
                                           const Json& dispositions, const std::string& command_id,
                                           const Json& captured_tasks) {
     const std::lock_guard lock(impl_->mutex);
-    impl_->require_events_schema();
+    Impl::Transaction tx(*impl_);
+    impl_->require_legacy_event_path(actor.request_id);
+    auto value = impl_->apply_independent_dispositions_in_transaction(actor, expected, requirements, revision, dispositions, command_id, captured_tasks);
+    tx.commit(); return value;
+}
+
+Json Store::Impl::apply_independent_dispositions_in_transaction(const StoreActor& actor, std::int64_t expected,
+                                          std::int64_t requirements, std::int64_t revision,
+                                          const Json& dispositions, const std::string& command_id,
+                                          const Json& captured_tasks) {
+    require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
+    require_events_schema();
     auto command = payload(actor, "independent_dispositions", Row{{"expected_request_version", expected},
         {"based_on_requirements_revision", requirements}, {"target_plan_revision", revision}, {"dispositions", dispositions}});
     if (!captured_tasks.is_null()) command["captured_tasks"] = captured_tasks;
-    Impl::Transaction tx(*impl_);
-    (void)impl_->authorize(actor, {Role::Dispatcher}, false);
-    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
-    const auto request = impl_->authorize(actor, {Role::Dispatcher});
+    (void)authorize(actor, {Role::Dispatcher}, false);
+    if (auto old = replay(actor.request_id, command_id, command)) { return *old; }
+    const auto request = authorize(actor, {Role::Dispatcher});
     require(!terminal_request(str(request, "status")) && requirements >= 2 && number(request, "requirements_revision") == requirements &&
         revision > 0 && number(request, "plan_revision") == revision, ErrorCode::Stale, "dispositions require the current AMEND plan");
-    const auto plan = impl_->one("SELECT * FROM plans WHERE request_id=? AND plan_revision=?", {actor.request_id, revision});
+    const auto plan = one("SELECT * FROM plans WHERE request_id=? AND plan_revision=?", {actor.request_id, revision});
     require(number(plan, "based_on_requirements_revision") == requirements, ErrorCode::Stale, "current plan has obsolete requirements");
-    const auto nodes = impl_->independent_nodes(request, parse_json_strict(str(plan, "body")));
-    impl_->check_dispositions(dispositions, nodes);
+    const auto nodes = independent_nodes(request, parse_json_strict(str(plan, "body")));
+    check_dispositions(dispositions, nodes);
     require(!dispositions.as_object().empty(), ErrorCode::InvalidInput, "explicit dispositions are empty");
-    const auto existing = impl_->all("SELECT * FROM tasks WHERE request_id=? ORDER BY node_id", {actor.request_id});
+    const auto existing = all("SELECT * FROM tasks WHERE request_id=? ORDER BY node_id", {actor.request_id});
     require(!existing.empty(), ErrorCode::NotReady, "there are no independent tasks to amend");
-    impl_->check_independent_identities(existing, nodes);
-    impl_->check_captured_amendment_tasks(request, existing, captured_tasks, dispositions, false);
-    impl_->cas("UPDATE requests SET state_version=state_version+1,updated_at=? WHERE request_id=? AND state_version=?", {stamp(), actor.request_id, expected});
+    check_independent_identities(existing, nodes);
+    check_captured_amendment_tasks(request, existing, captured_tasks, dispositions, false);
+    cas("UPDATE requests SET state_version=state_version+1,updated_at=? WHERE request_id=? AND state_version=?", {stamp(), actor.request_id, expected});
     Array changed; Array pending;
     for (const auto& task : existing) {
         const auto node_id = str(task, "node_id");
         const auto* decision = dispositions.as_object().if_contains(node_id);
         if (decision) {
             require(number(task, "based_on_requirements_revision") < requirements, ErrorCode::Conflict, "task already has a current AMEND disposition");
-            changed.emplace_back(impl_->apply_independent_task(request, task, revision, nodes.at(node_id), *decision));
+            changed.emplace_back(apply_independent_task(request, task, revision, nodes.at(node_id), *decision));
         } else if (number(task, "based_on_requirements_revision") < requirements &&
                 str(task, "status") != "CANCELLED" && str(task, "status") != "SKIPPED" && str(task, "status") != "SUPERSEDED")
             pending.emplace_back(Row{{"node_id", node_id}, {"task_id", str(task, "task_id")}, {"reason", "amend_disposition_required"}});
     }
     const Json result = Row{{"plan_revision", revision}, {"based_on_requirements_revision", requirements},
         {"state_version", next(expected)}, {"tasks", changed}, {"pending_tasks", pending}};
-    impl_->event(actor.request_id, command_id, command, result, "dispatcher");
-    tx.commit(); return result;
+    event(actor.request_id, command_id, command, result, "dispatcher");
+    return result;
 }
 
 Json Store::amend(const StoreActor& root, std::int64_t expected, const std::string& text,
@@ -3097,26 +3231,34 @@ Json Store::rebind_task(const StoreActor& actor, const std::string& task_id, std
 Json Store::issue_instruction(const StoreActor& actor, const ExecutionBinding& frozen,
         std::int64_t expected, const Json& body, const std::string& command_id) {
     const std::lock_guard lock(impl_->mutex);
-    const auto command = payload(actor, "instruction", Row{{"binding", to_json(frozen)}, {"expected_task_version", expected}, {"body", body}});
     Impl::Transaction tx(*impl_);
-    (void)impl_->authorize(actor, {Role::TeamLead}, false);
-    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
-    const auto r = impl_->authorize(actor, {Role::TeamLead}); impl_->actor_binding(actor, frozen); impl_->matches(frozen, false);
-    const auto t = impl_->task_row(actor.task_id);
+    impl_->require_legacy_event_path(actor.request_id);
+    auto value = impl_->issue_instruction_in_transaction(actor, frozen, expected, body, command_id);
+    tx.commit(); return value;
+}
+
+Json Store::Impl::issue_instruction_in_transaction(const StoreActor& actor, const ExecutionBinding& frozen,
+        std::int64_t expected, const Json& body, const std::string& command_id) {
+    require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
+    const auto command = payload(actor, "instruction", Row{{"binding", to_json(frozen)}, {"expected_task_version", expected}, {"body", body}});
+    (void)authorize(actor, {Role::TeamLead}, false);
+    if (auto old = replay(actor.request_id, command_id, command)) { return *old; }
+    const auto r = authorize(actor, {Role::TeamLead}); actor_binding(actor, frozen); matches(frozen, false);
+    const auto t = task_row(actor.task_id);
     require(!terminal_request(str(r, "status")) && !terminal_task(str(t, "status")) && number(t, "based_on_requirements_revision") == number(r, "requirements_revision") && number(t, "plan_revision") == number(r, "plan_revision"), ErrorCode::NotReady, "current disposition and plan required before instructions");
-    if (impl_->workflow_schema) require(!impl_->has_blocking_question(actor.task_id) &&
+    if (workflow_schema) require(!has_blocking_question(actor.task_id) &&
             str(t, "status") != "SUBMITTED" && str(t, "status") != "REVIEWING" && str(t, "status") != "BLOCKED",
             ErrorCode::NotReady, "pending question/submission must be handled before new instructions");
-    impl_->brief_constraints(r, body);
+    brief_constraints(r, body);
     // R2 corrective revision is not an AMEND. Preserve both TaskBrief and the
     // producer's last instruction constraints before accepting a fresh order.
     // The immutable correction event binds this rule only to its exact semantic
     // target; ordinary AMEND/new-plan behavior is unchanged.
-    if (impl_->acceptance_schema && impl_->optional(
+    if (acceptance_schema && optional(
             "SELECT 1 FROM events WHERE request_id=? AND type='change_task' AND json_extract(result,'$.task_id')=? AND json_extract(result,'$.target_binding.requirements_revision')=? AND json_extract(result,'$.target_binding.plan_revision')=? AND json_extract(result,'$.target_binding.task_revision')=? LIMIT 1",
             {actor.request_id, actor.task_id, number(r, "requirements_revision"), number(t, "plan_revision"), number(t, "task_revision")})) {
         const auto brief = parse_json_strict(str(t, "brief"));
-        const auto prior = impl_->one("SELECT body FROM instructions WHERE task_id=? AND instruction_revision=?", {actor.task_id, number(t, "instruction_revision")});
+        const auto prior = one("SELECT body FROM instructions WHERE task_id=? AND instruction_revision=?", {actor.task_id, number(t, "instruction_revision")});
         const auto old_order = parse_json_strict(str(prior, "body"));
         for (const auto* original : {&brief, &old_order})
             for (const auto& excerpt : original->at("constraints_verbatim").as_array())
@@ -3124,13 +3266,13 @@ Json Store::issue_instruction(const StoreActor& actor, const ExecutionBinding& f
                         "corrective instruction drops an existing task or instruction constraint");
     }
     const auto revision = next(number(t, "instruction_revision"));
-    impl_->cas("UPDATE tasks SET instruction_revision=?,state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?", {revision, stamp(), actor.task_id, expected});
-    impl_->execute("UPDATE teams SET paused_for_change=1,tool_calls_used=0,work_order=?,state_version=state_version+1,updated_at=? WHERE team_id=?", {json_text(body), stamp(), actor.team_id});
-    impl_->fence_ops(actor.request_id, actor.team_id);
-    impl_->execute("INSERT INTO instructions VALUES (?,?,?,?,?,?,?,?,?,?,?)", {actor.request_id, actor.task_id, actor.team_id, revision, number(r, "requirements_revision"), number(t, "plan_revision"), number(t, "task_revision"), actor.dispatcher_epoch, actor.execution_epoch, json_text(body), stamp()});
-    const Json result = Row{{"binding", to_json(impl_->binding(actor.task_id))}, {"state_version", next(expected)}};
-    impl_->event(actor.request_id, command_id, command, result, "team_lead");
-    tx.commit(); return result;
+    cas("UPDATE tasks SET instruction_revision=?,state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?", {revision, stamp(), actor.task_id, expected});
+    execute("UPDATE teams SET paused_for_change=1,tool_calls_used=0,work_order=?,state_version=state_version+1,updated_at=? WHERE team_id=?", {json_text(body), stamp(), actor.team_id});
+    fence_ops(actor.request_id, actor.team_id);
+    execute("INSERT INTO instructions VALUES (?,?,?,?,?,?,?,?,?,?,?)", {actor.request_id, actor.task_id, actor.team_id, revision, number(r, "requirements_revision"), number(t, "plan_revision"), number(t, "task_revision"), actor.dispatcher_epoch, actor.execution_epoch, json_text(body), stamp()});
+    const Json result = Row{{"binding", to_json(binding(actor.task_id))}, {"state_version", next(expected)}};
+    event(actor.request_id, command_id, command, result, "team_lead");
+    return result;
 }
 
 Json Store::acknowledge(const StoreActor& actor, const ExecutionBinding& frozen,
@@ -3161,6 +3303,16 @@ Json Store::acknowledge(const StoreActor& actor, const ExecutionBinding& frozen,
 Json Store::Impl::prepare_operation(const StoreActor& actor, const ExecutionBinding& frozen,
         std::int64_t expected, const std::string& business_key, const std::string& tool_id,
         const Json& arguments, const std::string& side_effect, const std::string& command_id, bool registered) {
+    Transaction tx(*this);
+    require_legacy_event_path(actor.request_id);
+    auto value = prepare_operation_in_transaction(actor, frozen, expected, business_key, tool_id, arguments, side_effect, command_id, registered);
+    tx.commit(); return value;
+}
+
+Json Store::Impl::prepare_operation_in_transaction(const StoreActor& actor, const ExecutionBinding& frozen,
+        std::int64_t expected, const std::string& business_key, const std::string& tool_id,
+        const Json& arguments, const std::string& side_effect, const std::string& command_id, bool registered) {
+    require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
     text_field(business_key, "business idempotency key"); text_field(tool_id, "tool id");
     require(side_effect == "none" || side_effect == "workspace" || side_effect == "external", ErrorCode::InvalidInput, "invalid side-effect class");
     require(arguments.is_object(), ErrorCode::InvalidInput, "tool arguments must be an object");
@@ -3168,7 +3320,6 @@ Json Store::Impl::prepare_operation(const StoreActor& actor, const ExecutionBind
     const auto args_hash = sha256_hex(encoded_arguments);
     const auto command = payload(actor, "prepare_op", Row{{"binding", to_json(frozen)}, {"expected_task_version", expected},
         {"business_key", business_key}, {"tool_id", tool_id}, {"arguments_sha256", args_hash}, {"side_effect", side_effect}});
-    Transaction tx(*this);
     (void)authorize(actor, {Role::Worker}, false); actor_binding(actor, frozen);
     if (registered) {
         require_tools_schema();
@@ -3177,7 +3328,7 @@ Json Store::Impl::prepare_operation(const StoreActor& actor, const ExecutionBind
     }
     if (auto old = replay(actor.request_id, command_id, command)) {
         const auto result = registered ? exposed(op_row(str(old->as_object(), "op_id"))) : *old;
-        tx.commit(); return result;
+        return result;
     }
     const auto existing = optional("SELECT * FROM ops WHERE request_id=? AND task_id=? AND business_idempotency_key=?", {actor.request_id, actor.task_id, business_key});
     if (existing) {
@@ -3185,7 +3336,7 @@ Json Store::Impl::prepare_operation(const StoreActor& actor, const ExecutionBind
             str(*existing, "side_effect") == side_effect, ErrorCode::Conflict, "business key reused with different intent");
         const auto frozen_document = to_json(frozen);
         if (!registered) for (const auto& field : frozen_document.as_object()) require(existing->at(field.key()) == field.value(), ErrorCode::Conflict, "business key reused with different execution binding");
-        const auto result = exposed(op_row(str(*existing, "op_id"))); tx.commit(); return result;
+        const auto result = exposed(op_row(str(*existing, "op_id"))); return result;
     }
     ready(actor, frozen, tool_id);
     if (registered && side_effect == "workspace")
@@ -3203,7 +3354,7 @@ Json Store::Impl::prepare_operation(const StoreActor& actor, const ExecutionBind
     execute("UPDATE teams SET tool_calls_used=tool_calls_used+1,state_version=state_version+1,updated_at=? WHERE team_id=?", {stamp(), actor.team_id});
     const auto result = exposed(op_row(id));
     event(actor.request_id, command_id, command, result, "worker");
-    tx.commit(); return result;
+    return result;
 }
 
 Json Store::prepare_operation(const StoreActor& actor, const ExecutionBinding& frozen,
@@ -3225,21 +3376,29 @@ Json Store::prepare_tool_operation(const StoreActor& actor, const ExecutionBindi
 Json Store::start_operation(const StoreActor& actor, const std::string& id,
                             std::int64_t expected, const std::string& command_id) {
     const std::lock_guard lock(impl_->mutex);
-    const auto command = payload(actor, "start_op", Row{{"op_id", id}, {"expected_op_version", expected}});
     Impl::Transaction tx(*impl_);
-    (void)impl_->authorize(actor, {Role::Worker}, false);
-    const auto op = impl_->op_row(id);
+    impl_->require_legacy_event_path(actor.request_id);
+    auto value = impl_->start_operation_in_transaction(actor, id, expected, command_id);
+    tx.commit(); return value;
+}
+
+Json Store::Impl::start_operation_in_transaction(const StoreActor& actor, const std::string& id,
+                            std::int64_t expected, const std::string& command_id) {
+    require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
+    const auto command = payload(actor, "start_op", Row{{"op_id", id}, {"expected_op_version", expected}});
+    (void)authorize(actor, {Role::Worker}, false);
+    const auto op = op_row(id);
     require(str(op, "request_id") == actor.request_id && str(op, "task_id") == actor.task_id && str(op, "team_id") == actor.team_id, ErrorCode::Unauthorized, "operation owner mismatch");
-    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    if (auto old = replay(actor.request_id, command_id, command)) { return *old; }
     Row binding_fields;
-    const auto current_document = to_json(impl_->binding(actor.task_id));
+    const auto current_document = to_json(binding(actor.task_id));
     for (const auto& field : current_document.as_object()) binding_fields[field.key()] = op.at(field.key());
-    impl_->ready(actor, execution_binding_from_json(binding_fields), str(op, "tool_id"));
+    ready(actor, execution_binding_from_json(binding_fields), str(op, "tool_id"));
     require(str(op, "status") == "PREPARED", ErrorCode::NotReady, "only a PREPARED operation may dispatch");
-    impl_->cas("UPDATE ops SET status='RUNNING',state_version=state_version+1,started_at=? WHERE op_id=? AND state_version=?", {stamp(), id, expected});
-    const auto result = exposed(impl_->op_row(id));
-    impl_->event(actor.request_id, command_id, command, result, "worker");
-    tx.commit(); return result;
+    cas("UPDATE ops SET status='RUNNING',state_version=state_version+1,started_at=? WHERE op_id=? AND state_version=?", {stamp(), id, expected});
+    const auto result = exposed(op_row(id));
+    event(actor.request_id, command_id, command, result, "worker");
+    return result;
 }
 
 Json Store::start_tool_operation(const StoreActor& actor, const std::string& id,
@@ -3280,23 +3439,32 @@ Json Store::finish_operation(const StoreActor& actor, const std::string& id,
         const ExecutionBinding& frozen, std::int64_t expected, const std::string& outcome,
         const std::string& evidence, const std::string& command_id) {
     const std::lock_guard lock(impl_->mutex);
+    Impl::Transaction tx(*impl_);
+    impl_->require_legacy_event_path(actor.request_id);
+    auto value = impl_->finish_operation_in_transaction(actor, id, frozen, expected, outcome, evidence, command_id);
+    tx.commit(); return value;
+}
+
+Json Store::Impl::finish_operation_in_transaction(const StoreActor& actor, const std::string& id,
+        const ExecutionBinding& frozen, std::int64_t expected, const std::string& outcome,
+        const std::string& evidence, const std::string& command_id) {
+    require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
     require(outcome == "SUCCEEDED" || outcome == "FAILED" || outcome == "UNKNOWN", ErrorCode::InvalidInput, "invalid execution outcome");
     text_field(evidence, "operation evidence", 512);
     const auto command = payload(actor, "finish_op", Row{{"op_id", id}, {"binding", to_json(frozen)}, {"expected_op_version", expected}, {"outcome", outcome}, {"evidence_ref", evidence}});
-    Impl::Transaction tx(*impl_);
-    (void)impl_->authorize(actor, {Role::Worker}, false);
-    const auto op = impl_->op_row(id);
+    (void)authorize(actor, {Role::Worker}, false);
+    const auto op = op_row(id);
     require(str(op, "request_id") == actor.request_id && str(op, "team_id") == actor.team_id && str(op, "task_id") == actor.task_id, ErrorCode::Unauthorized, "operation owner mismatch");
-    if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
-    (void)impl_->authorize(actor, {Role::Worker}); impl_->actor_binding(actor, frozen); impl_->matches(frozen);
+    if (auto old = replay(actor.request_id, command_id, command)) { return *old; }
+    (void)authorize(actor, {Role::Worker}); actor_binding(actor, frozen); matches(frozen);
     const auto frozen_document = to_json(frozen);
     for (const auto& field : frozen_document.as_object()) require(op.at(field.key()) == field.value(), ErrorCode::Stale, "result does not match original operation context");
     require(str(op, "status") == "RUNNING", ErrorCode::NotReady, "only RUNNING operation can complete directly");
-    impl_->cas("UPDATE ops SET status=?,state_version=state_version+1,ended_at=? WHERE op_id=? AND state_version=?", {outcome, stamp(), id, expected});
-    impl_->execute("UPDATE operation_intents SET evidence_ref=?,state_version=state_version+1 WHERE op_id=?", {evidence, id});
-    const auto result = exposed(impl_->op_row(id));
-    impl_->event(actor.request_id, command_id, command, result, "worker");
-    tx.commit(); return result;
+    cas("UPDATE ops SET status=?,state_version=state_version+1,ended_at=? WHERE op_id=? AND state_version=?", {outcome, stamp(), id, expected});
+    execute("UPDATE operation_intents SET evidence_ref=?,state_version=state_version+1 WHERE op_id=?", {evidence, id});
+    const auto result = exposed(op_row(id));
+    event(actor.request_id, command_id, command, result, "worker");
+    return result;
 }
 
 Json Store::cancel_operation(const StoreActor& actor, const std::string& id,
@@ -3646,18 +3814,25 @@ Json Store::cancel_request(const StoreActor& root, std::int64_t expected, const 
 
 Json Store::claim_offline_call(const StoreActor& actor, const std::string& attempt_id) {
     const std::lock_guard lock(impl_->mutex);
-    text_field(attempt_id, "offline attempt_id");
-    impl_->require_workflow_schema();
     Impl::Transaction tx(*impl_);
-    (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker}, false);
-    const auto original = impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {attempt_id});
-    impl_->check_request_scope(str(original, "request_id"));
+    impl_->require_legacy_event_path(actor.request_id);
+    auto value = impl_->claim_offline_call_in_transaction(actor, attempt_id);
+    tx.commit(); return value;
+}
+
+Json Store::Impl::claim_offline_call_in_transaction(const StoreActor& actor, const std::string& attempt_id) {
+    require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
+    text_field(attempt_id, "offline attempt_id");
+    require_workflow_schema();
+    (void)authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker}, false);
+    const auto original = one("SELECT * FROM call_attempts WHERE attempt_id=?", {attempt_id});
+    check_request_scope(str(original, "request_id"));
     require(str(original, "request_id") == actor.request_id && str(original, "role") == role_name(actor.role) &&
             str(original, "principal_id") == actor.principal_id, ErrorCode::Unauthorized,
             "offline execution belongs to the original actor");
     const auto request = model_request_from_json(parse_json_strict(str(original, "request_envelope"), 4U * 1024U * 1024U));
-    impl_->actor_binding(actor, request.binding);
-    const auto current = impl_->request_row(actor.request_id);
+    actor_binding(actor, request.binding);
+    const auto current = request_row(actor.request_id);
     const auto frozen = FrozenRequestConfig::restore(str(current, "config_snapshot"), str(current, "config_snapshot_sha256"));
     require(frozen.model_profile(actor.role).at("adapter").as_string() == "fake" &&
             request.model == frozen.resolve(actor.role), ErrorCode::Unauthorized,
@@ -3665,15 +3840,15 @@ Json Store::claim_offline_call(const StoreActor& actor, const std::string& attem
     const auto command = payload(actor, "claim_offline_call", Row{{"attempt_id", attempt_id},
         {"reservation_sha256", original.at("reservation_sha256")}, {"binding", to_json(request.binding)}});
     const auto command_id = "offline-dispatch:" + attempt_id;
-    if (const auto old = impl_->replay(actor.request_id, command_id, command)) {
+    if (const auto old = replay(actor.request_id, command_id, command)) {
         auto result = old->as_object();
         result["dispatch_claimed"] = false;
-        tx.commit(); return result;
+        return result;
     }
-    (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
-    impl_->matches(request.binding);
+    (void)authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
+    matches(request.binding);
     const auto contract = model_contract(request);
-    const auto subject = actor.task_id.empty() ? current : impl_->task_row(actor.task_id);
+    const auto subject = actor.task_id.empty() ? current : task_row(actor.task_id);
     require(contract.is_object() && contract.as_object().contains("captured_state_version") &&
             number(contract.as_object(), "captured_state_version") == number(subject, "state_version"),
             ErrorCode::Stale, "offline execution requires the original captured state CAS");
@@ -3681,32 +3856,32 @@ Json Store::claim_offline_call(const StoreActor& actor, const std::string& attem
             number(original, "state_version") == 1, ErrorCode::Conflict,
             "offline execution requires the original unmodified pending attempt");
     bool experience = false;
-    if (impl_->acceptance_schema) if (const auto job = impl_->optional(
+    if (acceptance_schema) if (const auto job = optional(
             "SELECT * FROM experience_attempts WHERE attempt_id=?", {attempt_id})) {
-        (void)impl_->validate_experience_target(actor, request.binding, str(*job, "experience_id"),
+        (void)validate_experience_target(actor, request.binding, str(*job, "experience_id"),
             number(*job, "job_version"), str(*job, "source_sha256"));
         experience = true;
     }
     require(experience || !terminal_request(str(current, "status")), ErrorCode::NotReady,
             "offline execution cannot restart terminated business");
     if (actor.role == Role::Worker) {
-        impl_->ready(actor, request.binding);
+        ready(actor, request.binding);
         for (const auto& tool : request.context.tool_names) {
             if (tool == "history_page" || tool == "history_read") {
-                const auto denied = parse_json_strict(str(impl_->one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
+                const auto denied = parse_json_strict(str(one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
                 require(!frozen.worker_history_policy().is_null() && !contains(denied, tool),
                         ErrorCode::Unauthorized, "offline history control was revoked");
-            } else impl_->ready(actor, request.binding, tool, &frozen);
+            } else ready(actor, request.binding, tool, &frozen);
         }
     } else if (!experience && actor.role == Role::TeamLead) {
-        const auto task = impl_->task_row(actor.task_id);
+        const auto task = task_row(actor.task_id);
         require(!terminal_task(str(task, "status")) &&
                 number(task, "based_on_requirements_revision") == number(current, "requirements_revision") &&
                 number(task, "plan_revision") == number(current, "plan_revision"), ErrorCode::NotReady,
                 "offline TeamLead execution requires the current task disposition");
     }
     if (!experience && actor.role != Role::Worker && !frozen.management_history_policy().is_null()) {
-        const auto denied = parse_json_strict(str(impl_->one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
+        const auto denied = parse_json_strict(str(one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
         require(!contains(denied, "management_history_page") && !contains(denied, "management_history_read"),
                 ErrorCode::Unauthorized, "offline management history control was revoked");
     }
@@ -3714,20 +3889,28 @@ Json Store::claim_offline_call(const StoreActor& actor, const std::string& attem
         {"original_attempt_version", original.at("state_version")}};
     // A new admission consumes the existing business event pool. It cannot use
     // reserved cancellation/settlement capacity or silently enlarge old limits.
-    impl_->event(actor.request_id, command_id, command, recorded, role_name(actor.role));
-    tx.commit();
+    event(actor.request_id, command_id, command, recorded, role_name(actor.role));
     auto result = recorded; result["dispatch_claimed"] = true; return result;
 }
 
 Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& frozen,
                             const AttemptReservation& reservation) {
     const std::lock_guard lock(impl_->mutex);
+    Impl::Transaction tx(*impl_);
+    impl_->require_legacy_event_path(actor.request_id);
+    auto value = impl_->reserve_attempt_in_transaction(actor, frozen, reservation);
+    tx.commit(); return value;
+}
+
+Json Store::Impl::reserve_attempt_in_transaction(const StoreActor& actor, const ExecutionBinding& frozen,
+                            const AttemptReservation& reservation) {
+    require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
     text_field(reservation.call_id, "call_id"); text_field(reservation.attempt_id, "attempt_id");
     text_field(reservation.model_ref, "model_ref");
     require(reservation.adapter_kind == "fake" || reservation.adapter_kind == "openai-responses",
             ErrorCode::Unsupported, "unsupported Store model adapter");
     const bool live = reservation.adapter_kind == "openai-responses";
-    if (live) require(impl_->live_schema && impl_->reconciliation_schema, ErrorCode::Unsupported,
+    if (live) require(live_schema && reconciliation_schema, ErrorCode::Unsupported,
                       "live admission requires the complete 410 accounting schema");
     require(reservation.reserved_input_tokens >= 0 && reservation.reserved_output_tokens >= 0 &&
         reservation.reserved_cost_micro_usd >= 0 && reservation.max_output_tokens > 0 &&
@@ -3740,7 +3923,7 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         {"reserved_cost_micro_usd", reservation.reserved_cost_micro_usd}, {"max_output_tokens", reservation.max_output_tokens}, {"request_envelope", reservation.request_envelope}});
     const bool experience = !reservation.experience_job_id.empty();
     if (experience) {
-        impl_->require_acceptance_schema();
+        require_acceptance_schema();
         command["experience_job_id"] = reservation.experience_job_id;
         command["experience_job_version"] = reservation.experience_job_version;
         command["experience_source_sha256"] = reservation.experience_source_sha256;
@@ -3760,18 +3943,17 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
             ErrorCode::Conflict, "model request envelope changed the reserved model");
     }
     const auto fingerprint = sha256_hex(canonical_json(command));
-    Impl::Transaction tx(*impl_);
-    (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker}, false);
-    impl_->actor_binding(actor, frozen);
-    const auto existing = impl_->optional("SELECT * FROM call_attempts WHERE attempt_id=? OR call_id=?", {reservation.attempt_id, reservation.call_id});
+    (void)authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker}, false);
+    actor_binding(actor, frozen);
+    const auto existing = optional("SELECT * FROM call_attempts WHERE attempt_id=? OR call_id=?", {reservation.attempt_id, reservation.call_id});
     if (existing) {
         require(str(*existing, "attempt_id") == reservation.attempt_id && str(*existing, "call_id") == reservation.call_id &&
             str(*existing, "reservation_sha256") == fingerprint, ErrorCode::Conflict, "call/attempt ID reused or unpaid retry is not authorized");
-        const auto result = exposed(*existing); tx.commit(); return result;
+        const auto result = exposed(*existing); return result;
     }
-    const auto r = impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
+    const auto r = authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
     require(experience || !terminal_request(str(r, "status")), ErrorCode::NotReady, "business model attempt after request termination");
-    impl_->matches(frozen);
+    matches(frozen);
     require(str(r, "config_snapshot_sha256") == reservation.config_snapshot_sha256, ErrorCode::Stale, "model attempt changed the frozen request configuration");
     const auto frozen_config = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256"));
     require(original_model_request.context.structured() ==
@@ -3785,7 +3967,7 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         original_model_request.context.protocol_version == std::string(profile.at("protocol").as_string()),
         ErrorCode::Unauthorized, "compiled model context differs from frozen role/profile settings");
     if (!frozen_config.logical_agent_policy().is_null()) {
-        const auto history = single_agent_original_history(*impl_, actor.request_id, frozen_config);
+        const auto history = single_agent_original_history(*this, actor.request_id, frozen_config);
         require(history.size() < static_cast<std::size_t>(number(frozen_config.logical_agent_policy().as_object(), "max_attempts")),
             ErrorCode::Quota, "single-Agent frozen attempt capacity exhausted");
         const auto transcript = single_agent_transcript(actor.request_id, frozen_config, history);
@@ -3809,14 +3991,14 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
                 "live admission requires explicit positive token and cost reservations");
         live_settings = live_model_settings_from_json(profile, reservation.model_ref);
         live_encoded = encode_responses_request(live_settings->provider, original_model_request, live_settings->stream);
-        impl_->live_accounting_ready(actor.request_id);
+        live_accounting_ready(actor.request_id);
     }
     require(reservation.max_output_tokens <= number(profile.at("capabilities").as_object(), "max_output_tokens"), ErrorCode::Quota, "attempt output exceeds frozen model capability");
     if (actor.role == Role::Worker) {
-        impl_->ready(actor, frozen);
+        ready(actor, frozen);
         const auto history_policy = frozen_config.worker_history_policy();
         if (!history_policy.is_null()) {
-            impl_->require_events_schema();
+            require_events_schema();
             const auto contract = parse_json_strict(compiled_task_contract(original_model_request.context));
             const auto* declared = contract.as_object().if_contains("worker_history_policy");
             require(declared && *declared == history_policy, ErrorCode::Unauthorized,
@@ -3824,10 +4006,10 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         }
         for (const auto& tool : original_model_request.context.tool_names) {
             if (tool == "history_page" || tool == "history_read") {
-                const auto denied = parse_json_strict(str(impl_->one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
+                const auto denied = parse_json_strict(str(one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
                 require(!history_policy.is_null() && !contains(denied, tool), ErrorCode::Unauthorized,
                     "history control is absent from frozen/current policy");
-            } else impl_->ready(actor, frozen, tool, &frozen_config);
+            } else ready(actor, frozen, tool, &frozen_config);
         }
     }
     if ((actor.role == Role::Dispatcher || actor.role == Role::TeamLead) && !experience) {
@@ -3837,20 +4019,20 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
                 original_model_request.context.tool_names.end(), tool) != original_model_request.context.tool_names.end();
         };
         if (!history_policy.is_null()) {
-            impl_->require_events_schema(); impl_->require_workflow_schema();
+            require_events_schema(); require_workflow_schema();
             const auto contract = parse_json_strict(compiled_task_contract(original_model_request.context));
             const auto* policy = contract.as_object().if_contains("management_history_policy");
             require(policy && *policy == history_policy && declared("management_history_page") &&
                     declared("management_history_read"), ErrorCode::Unauthorized,
                     "management window or controls differ from frozen history policy");
-            const auto denied = parse_json_strict(str(impl_->one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
+            const auto denied = parse_json_strict(str(one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
             require(!contains(denied, "management_history_page") && !contains(denied, "management_history_read"),
                     ErrorCode::Unauthorized, "management history control was revoked by current policy");
         } else require(!declared("management_history_page") && !declared("management_history_read"),
                        ErrorCode::Unauthorized, "management history controls lack a frozen policy");
     }
     if (experience) {
-        const auto job = impl_->validate_experience_target(actor, frozen, reservation.experience_job_id,
+        const auto job = validate_experience_target(actor, frozen, reservation.experience_job_id,
             reservation.experience_job_version, reservation.experience_source_sha256);
         require(original_model_request.context.tool_names.size() == 1 && original_model_request.context.tool_names.front() == "report_experience",
                 ErrorCode::Unauthorized, "experience attempt may declare only report_experience");
@@ -3863,45 +4045,46 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
                 action.at("target").at("source_sha256") == job.at("source_sha256") &&
                 action.at("target").at("source_snapshot") == job.at("source_snapshot"),
                 ErrorCode::Conflict, "experience model context changed the captured source");
-        require(!impl_->optional("SELECT e.attempt_id FROM experience_attempts e JOIN call_attempts c USING(attempt_id) WHERE e.experience_id=? AND c.status='PENDING' LIMIT 1", {reservation.experience_job_id}),
+        require(!optional("SELECT e.attempt_id FROM experience_attempts e JOIN call_attempts c USING(attempt_id) WHERE e.experience_id=? AND c.status='PENDING' LIMIT 1", {reservation.experience_job_id}),
                 ErrorCode::Conflict, "experience job already has an in-flight attempt");
     } else if (actor.role == Role::TeamLead) {
-        const auto t = impl_->task_row(actor.task_id);
+        const auto t = task_row(actor.task_id);
         require(!terminal_task(str(t, "status")) && number(t, "based_on_requirements_revision") == number(r, "requirements_revision") &&
             number(t, "plan_revision") == number(r, "plan_revision"), ErrorCode::NotReady, "TeamLead model attempt requires current task disposition");
     }
-    const auto budget_row = impl_->one("SELECT * FROM request_budgets WHERE request_id=?", {actor.request_id});
+    const auto budget_row = one("SELECT * FROM request_budgets WHERE request_id=?", {actor.request_id});
     require(number(budget_row, "attempts") < number(budget_row, "max_attempts"), ErrorCode::Quota, "model attempt count exhausted");
     for (const auto& dimensions : {std::pair<std::string, std::int64_t>{"input", reservation.reserved_input_tokens},
              {"output", reservation.reserved_output_tokens}, {"cost", reservation.reserved_cost_micro_usd}}) {
         const auto committed = add(number(budget_row, "spent_" + dimensions.first), number(budget_row, "reserved_" + dimensions.first));
         require(add(committed, dimensions.second) <= number(budget_row, dimensions.first + "_limit"), ErrorCode::Quota, "model " + dimensions.first + " budget exhausted");
     }
-    impl_->cas("UPDATE request_budgets SET attempts=attempts+1,reserved_input=reserved_input+?,reserved_output=reserved_output+?,reserved_cost=reserved_cost+?,state_version=state_version+1 WHERE request_id=? AND state_version=?",
+    cas("UPDATE request_budgets SET attempts=attempts+1,reserved_input=reserved_input+?,reserved_output=reserved_output+?,reserved_cost=reserved_cost+?,state_version=state_version+1 WHERE request_id=? AND state_version=?",
         {reservation.reserved_input_tokens, reservation.reserved_output_tokens, reservation.reserved_cost_micro_usd, actor.request_id, number(budget_row, "state_version")});
-    impl_->execute("INSERT INTO call_attempts(attempt_id,call_id,request_id,task_id,team_id,role,principal_id,config_snapshot_sha256,model_ref,frozen_binding,request_envelope,reservation_sha256,reserved_input,reserved_output,reserved_cost,max_output_tokens,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'PENDING',?)",
+    execute("INSERT INTO call_attempts(attempt_id,call_id,request_id,task_id,team_id,role,principal_id,config_snapshot_sha256,model_ref,frozen_binding,request_envelope,reservation_sha256,reserved_input,reserved_output,reserved_cost,max_output_tokens,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'PENDING',?)",
         {reservation.attempt_id, reservation.call_id, actor.request_id, actor.task_id.empty() ? Json(nullptr) : Json(actor.task_id),
          actor.team_id.empty() ? Json(nullptr) : Json(actor.team_id), role_name(actor.role), actor.principal_id,
          reservation.config_snapshot_sha256, reservation.model_ref, canonical_json(to_json(frozen)), json_text(reservation.request_envelope, 4 * 1024 * 1024), fingerprint,
          reservation.reserved_input_tokens, reservation.reserved_output_tokens, reservation.reserved_cost_micro_usd, reservation.max_output_tokens, stamp()});
     if (live) {
         const auto settings_bytes = json_text(live_model_settings_json(*live_settings), 2U * 1024U * 1024U);
-        impl_->execute("INSERT INTO live_attempt_execution VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        execute("INSERT INTO live_attempt_execution VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             {reservation.attempt_id, live_settings->execution_kind, settings_bytes, sha256_hex(settings_bytes),
              live_encoded->profile_sha256, live_transport_options_sha256(live_settings->transport),
-             live_encoded->record_sha256, live_encoded->body_sha256, live_encoded->logical_request_sha256, impl_->writer_instance, stamp()});
+             live_encoded->record_sha256, live_encoded->body_sha256, live_encoded->logical_request_sha256, writer_instance, stamp()});
     }
-    if (experience) impl_->execute("INSERT INTO experience_attempts VALUES (?,?,?,?)",
+    if (experience) execute("INSERT INTO experience_attempts VALUES (?,?,?,?)",
         {reservation.attempt_id, reservation.experience_job_id, reservation.experience_job_version, reservation.experience_source_sha256});
-    const auto result = exposed(impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {reservation.attempt_id}));
-    impl_->event(actor.request_id, "reserve:" + reservation.attempt_id, command, result, role_name(actor.role));
-    tx.commit(); return result;
+    const auto result = exposed(one("SELECT * FROM call_attempts WHERE attempt_id=?", {reservation.attempt_id}));
+    event(actor.request_id, "reserve:" + reservation.attempt_id, command, result, role_name(actor.role));
+    return result;
 }
 
 Json Store::settle_attempt(const std::string& attempt_id, const ExecutionBinding& frozen,
         const std::string& config_hash, const std::string& outcome, const Json& usage,
         const Json& response) {
     const std::lock_guard lock(impl_->mutex);
+    impl_->require_legacy_event_path(str(impl_->one("SELECT request_id FROM call_attempts WHERE attempt_id=?", {attempt_id}), "request_id"));
     return impl_->settle_model_attempt(attempt_id, frozen, config_hash, outcome, usage, response);
 }
 
@@ -4005,5 +4188,6 @@ Json Store::Impl::settle_model_attempt(const std::string& attempt_id, const Exec
 
 #include "store_live.inc"
 #include "store_cleanup.inc"
+#include "store_event_association.inc"
 
 } // namespace wls::s1

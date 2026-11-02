@@ -18,6 +18,8 @@ struct HttpsTransportOptions;
 class VerifiedUsageEvidence;
 struct UsageReconciliation;
 class MigrationRegistry;
+class SchemaRegistry;
+struct ModelResponse;
 
 // Trusted-host context, never constructed from a model tool argument. A host
 // authenticates first; Store checks its issuing session, persisted owner and
@@ -75,6 +77,25 @@ struct AttemptReservation {
     std::string experience_source_sha256;
 };
 
+// Explicit, immutable opt-in for the persistent event-call protocol. These are
+// lifetime ceilings, independent of capacity windows and reopening the Store.
+struct EventDriverLimits {
+    std::int64_t max_links{64};
+    std::int64_t max_claim_snapshots{128};
+    std::int64_t max_metadata_bytes{16 * 1024 * 1024};
+};
+
+// Host-captured association, never supplied by model arguments. The Store
+// loads the complete original claim and the exact persisted request envelope;
+// selected_ids must be a nonempty subset of that immutable captured set.
+struct EventCallAssociation {
+    std::string claim_id;
+    std::int64_t generation{};
+    std::vector<std::int64_t> selected_ids;
+    std::int64_t expected_state_version{};
+    Json workflow_action = nullptr;
+};
+
 enum class StoreOpenMode { Takeover, ReadOnly };
 
 // Trusted-host selection, not a model grant or a concurrent writer lease.
@@ -109,7 +130,8 @@ public:
           StoreRecoveryScope recovery_scope = {},
           std::string_view allocation_migration_sql = {},
           std::string_view live_migration_sql = {},
-          std::string_view reconciliation_migration_sql = {});
+          std::string_view reconciliation_migration_sql = {},
+          std::string_view event_association_migration_sql = {});
     // Compiled-approved contiguous resource registry. This keeps the same
     // writer lease, per-step migration transactions and recovery semantics as
     // the original trusted-SQL overload above.
@@ -222,6 +244,33 @@ public:
     Json finish_events(const StoreActor& actor, const std::string& claim_id,
                        std::int64_t generation,
                        const std::vector<std::int64_t>& completed_ids);
+
+    // N5/411 is explicit per request and preserves the legacy defaults. Only
+    // new requests with no prior attempts/operations may opt in. Old reserve,
+    // dispatch, business and finish entry points refuse enabled requests.
+    Json enable_event_driver(const StoreActor& root, const EventDriverLimits& limits,
+                             const std::string& command_id);
+    bool persistent_events_enabled(const std::string& request_id) const;
+    Json claim_event_batch(const StoreActor& actor, std::int64_t max_items = 64);
+    // T0 rejection cleanup: only an unassociated original claim may be
+    // released, with an empty completion set. Its historical snapshot stays.
+    Json release_event_batch(const StoreActor& actor, const std::string& claim_id,
+                             std::int64_t generation);
+    Json reserve_event_call(const StoreActor& actor, const ExecutionBinding& binding,
+                            const AttemptReservation& reservation,
+                            const EventCallAssociation& association);
+    // Only the first true dispatch_claimed result grants callback permission.
+    Json claim_event_dispatch(const StoreActor& original_actor, const std::string& link_id);
+    // Observation only; safe for close/flush. This never applies business or
+    // manufactures completion proof, and retains nullable/UNKNOWN accounting.
+    Json settle_event_observation(const std::string& link_id, const ModelResponse& response);
+    // Applies the saved original response, immutable feedback, individual ID
+    // proof and original finish subset atomically. No host success flag/IDs.
+    Json commit_event_action_and_finish(const StoreActor& original_actor,
+                                       const std::string& link_id,
+                                       const SchemaRegistry& schemas);
+    Json event_link_status(const std::string& link_id) const;
+    std::vector<Json> request_event_links(const std::string& request_id) const;
 
     Json worker_wait(const std::string& task_id) const;
     Json wait_worker(const StoreActor& actor, const ExecutionBinding& binding,

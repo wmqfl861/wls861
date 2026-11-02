@@ -113,8 +113,9 @@ Unsupported operations must keep failing before effects. Its four native tests
 are separate from the Linux product CTest catalog.
 
 Use the existing shared GCC gate and its reviewed test-name/deadline catalog.
-The integrated collection is 92 registrations: original 89 plus the async suite
-and two offline acceptance suites. Never accept a new current count without
+This branch registers 93 suites: the original 92 (89 plus the async suite and
+two offline acceptance suites), plus the Store 411 persistent-event suite.
+Subcases remain distinct from registrations. Never accept a new current count without
 reviewing names and deadlines. Update catalog, default, CI and selfchecks together.
 Runner selfchecks and diagnostic probes are not product sanitizer results. Keep
 historical Clang/live_workflow failures open until their own evidence closes them;

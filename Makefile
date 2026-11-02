@@ -30,6 +30,7 @@ S1_OBJECTS := $(S1_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 S1_TEST_NAMES := runtime_types_tests runtime_resources_tests store_tests event_store_tests workflow_store_tests acceptance_store_tests config_loader_tests model_tests schema_tests offline_runtime_tests event_runtime_tests workflow_runtime_tests acceptance_runtime_tests workspace_tests sandbox_tests worker_tools_tests delivery_tests cleanup_tests cleanup_runtime_tests audit24_reopen_tests process_evidence_tests audit24_reconcile_tests audit24_capacity_tests audit24_capacity_repro_tests r1_history_tests r1_structured_tests r1_window_tests r2_rework_tests r2_recovery_tests r24_recovery_tests r24_cleanup_recovery_tests r2_amend_tests r2a_mkdir_tests allocation_recovery_tests doctor_diagnostics_tests protocol_codec_tests sse_replay_tests r1_management_tests owned_capacity_tests owned_capacity_runtime_tests live_model_store_tests billing_tests single_agent_tests
 S1_TEST_NAMES += r24_settlement_capacity_tests r24_recovery_predicates_tests r24_concurrency_tests
 S1_TEST_NAMES += async_coordinator_tests
+S1_TEST_NAMES += persistent_event_store_tests
 S1_TEST_OBJECTS := $(addprefix $(BUILD_DIR)/tests/,$(addsuffix .o,$(S1_TEST_NAMES))) $(BUILD_DIR)/tests/https_transport_driver.o $(BUILD_DIR)/tests/live_model_store_driver.o $(BUILD_DIR)/tests/live_workflow_driver.o
 S1_TEST_BINARIES := $(addprefix $(BUILD_DIR)/,$(S1_TEST_NAMES))
 HTTPS_TEST_DRIVER := $(BUILD_DIR)/https_transport_driver
@@ -101,6 +102,7 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_
 	"$(BUILD_DIR)/schema_tests"
 	"$(BUILD_DIR)/offline_runtime_tests"
 	"$(BUILD_DIR)/async_coordinator_tests"
+	"$(BUILD_DIR)/persistent_event_store_tests"
 	"$(BUILD_DIR)/event_runtime_tests"
 	"$(BUILD_DIR)/workflow_runtime_tests"
 	"$(BUILD_DIR)/acceptance_runtime_tests"

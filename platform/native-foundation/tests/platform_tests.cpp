@@ -34,10 +34,10 @@ void refuses_business() {
 
 void original_public_resources(const std::filesystem::path& root) {
     const auto captured = PublicResources::from_bundle(root);
-    CHECK(captured.count() == 35);
-    CHECK(captured.total_bytes() == 160549);
+    CHECK(captured.count() == 36);
+    CHECK(captured.total_bytes() == 166684);
     CHECK(captured.bytes("prompts/worker.md").size() == 1502);
-    CHECK(captured.manifest_digest() == "b9f5468c6858ebd467fb4e6905d2ef4b8bd51a006e4fd2a636f8e4db1fde55cf");
+    CHECK(captured.manifest_digest() == "f03bce7bb55b02f7740c81473c12301ecc437b35d980d629fb2d896196d4dc30");
     rejects<Error>([&] { (void)captured.bytes("../../secret"); });
     rejects<Error>([] { (void)PublicResources::from_bundle("relative"); });
 }
@@ -57,7 +57,7 @@ void captured_bytes_survive_removal(const std::filesystem::path& root) {
     const auto original = captured.bytes("prompts/worker.md");
     CHECK(std::filesystem::remove_all(fixture / "bundle") > 0);
     CHECK(captured.bytes("prompts/worker.md") == original);
-    CHECK(captured.count() == 35);
+    CHECK(captured.count() == 36);
 }
 } // namespace
 

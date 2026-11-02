@@ -118,7 +118,7 @@ def capture(source, manifest_path):
     require(isinstance(manifest, dict) and set(manifest) == {'format', 'store_version', 'assets'},
             'unexpected runtime manifest fields')
     require(manifest['format'] == 'wls-runtime-resources-v1' and
-            type(manifest['store_version']) is int and manifest['store_version'] == 410,
+            type(manifest['store_version']) is int and manifest['store_version'] == 411,
             'unsupported runtime bundle version')
     require(isinstance(manifest['assets'], list) and 1 <= len(manifest['assets']) <= 128,
             'invalid runtime asset count')

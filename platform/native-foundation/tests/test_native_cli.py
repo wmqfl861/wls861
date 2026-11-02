@@ -93,7 +93,7 @@ class NativeCLI(unittest.TestCase):
 
     def test_all_original_resources_are_captured_from_executable_location(self):
         result = self.invoke('resources')
-        self.assertEqual((result['asset_count'], result['asset_bytes']), (35, 160549))
+        self.assertEqual((result['asset_count'], result['asset_bytes']), (36, 166684))
         self.assertEqual(result['manifest_sha256'], MANIFEST_SHA256)
         self.assertEqual(self.invoke('resources', '--resource-root', str(self.resources)), result)
 
@@ -102,7 +102,7 @@ class NativeCLI(unittest.TestCase):
         self.install.rename(relocated)
         result = self.invoke('resources', binary=relocated / 'bin' / EXE.name)
         self.assertEqual(result['manifest_sha256'], MANIFEST_SHA256)
-        self.assertEqual(result['asset_count'], 35)
+        self.assertEqual(result['asset_count'], 36)
 
     def test_no_cwd_or_environment_fallback(self):
         decoy = self.cwd / 'share/wls861'

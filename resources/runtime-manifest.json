@@ -1,6 +1,6 @@
 {
   "format": "wls-runtime-resources-v1",
-  "store_version": 410,
+  "store_version": 411,
   "assets": [
     {
       "path": "db/migrations/004_s1_store.sql",
@@ -55,6 +55,12 @@
       "kind": "sql",
       "sha256": "6967e936d2466ec62479bb18ea0c8790eee876599cc9384db6da8b8f3293cb37",
       "size_bytes": 3454
+    },
+    {
+      "path": "db/migrations/013_event_call_association.sql",
+      "kind": "sql",
+      "sha256": "141d80fe5bbdf67e91081d88a8405e2cf4a306fcef1d3fe1a029eaa9c183ac18",
+      "size_bytes": 6135
     },
     {
       "path": "db/schema.sql",

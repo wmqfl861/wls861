@@ -147,6 +147,13 @@ if(BUILD_TESTING)
     add_test(NAME async_coordinator COMMAND async_coordinator_tests)
     # New multi-request vertical suite; existing 89 test deadlines are unchanged.
     set_tests_properties(async_coordinator PROPERTIES TIMEOUT 180)
+    add_executable(persistent_event_store_tests tests/persistent_event_store_tests.cpp)
+    target_link_libraries(persistent_event_store_tests PRIVATE wls_s1)
+    target_include_directories(persistent_event_store_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_compile_definitions(persistent_event_store_tests PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME persistent_event_store COMMAND persistent_event_store_tests)
+    # New Store 411 transaction/identity suite; the original 92 bounds stay fixed.
+    set_tests_properties(persistent_event_store PROPERTIES TIMEOUT 120)
     # Supplemental R2.4 families keep the existing 90-second S1 deadline.
     # Capacity exhaustion is process-global, so its two cases use separate
     # processes; all bounded recovery/concurrency groups are registered.

@@ -54,7 +54,7 @@ def capture(source, expected):
     manifest = json.loads(raw)
     require(set(manifest) == {'format', 'store_version', 'assets'} and
             manifest['format'] == 'wls-runtime-resources-v1' and
-            type(manifest['store_version']) is int and manifest['store_version'] == 410,
+            type(manifest['store_version']) is int and manifest['store_version'] == 411,
             'unsupported public manifest')
     catalog = read_regular(source / 'src/runtime_resource_catalog.inc', 65536).decode('utf-8')
     registered = []
@@ -71,7 +71,7 @@ def capture(source, expected):
         entry = re.fullmatch(r'\{"([^"\\]+)", "(sql|schema|prompt)", "([0-9a-f]{64})", ([0-9]+)U\},', line)
         require(entry is not None, 'invalid public resource catalog')
         registered.append(dict(path=entry[1], kind=entry[2], sha256=entry[3], size_bytes=int(entry[4])))
-    require(declared == len(registered) == 35 and manifest['assets'] == registered,
+    require(declared == len(registered) == 36 and manifest['assets'] == registered,
             'manifest and original compiled catalog differ')
     captured = []
     total = 0

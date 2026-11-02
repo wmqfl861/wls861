@@ -2,7 +2,9 @@
 
 This separate C++20 project compiles the original `src/config.cpp` and
 `src/scheduler.cpp`. It implements a bounded offline command boundary, strict
-UTF-8/UTF-16 conversion and capture of the existing 35 public runtime resources.
+UTF-8/UTF-16 conversion and capture of the 36 compiled public runtime resources.
+The bundle includes the registered Store 411 assets; this does not implement a
+native Windows Store or enable its filesystem, process or sandbox capabilities.
 It is not the native Store, Workspace, process runner or sandbox.
 
 The implementation contract and POSIX inventory are in

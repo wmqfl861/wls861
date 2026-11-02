@@ -26,7 +26,7 @@ std::span<const RegisteredMigration> registered_store_migrations() noexcept;
 
 class MigrationRegistry final {
 public:
-    static constexpr std::int64_t latest_version = 410;
+    static constexpr std::int64_t latest_version = 411;
     explicit MigrationRegistry(const RuntimeResources& resources,
                                std::int64_t target_version = latest_version);
     const std::string& base_schema_sql() const noexcept { return base_schema_; }
