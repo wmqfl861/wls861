@@ -152,15 +152,28 @@ new_effective_attempts <= parent_original_max_attempts
 ```
 
 原 reserved 已包含 unknown 部分，不再加一次 unknown，避免双计；UNKNOWN 为零预留时也
-仍有未明状态门禁，不因数值为零放行。cache_read/cache_write 的可空性继续参与原完整
-结算门禁，不重复加到 input/output 金额。所有整数运算须沿用防溢出验证。
+仍有未明状态门禁，不因数值为零放行。所有整数运算须沿用防溢出验证。
+
+当前事实需区分适配路径：451b232 基线 `src/store_live.inc` 的 has_unsettled_model 对
+Fake／无 live_attempt_execution 的调用，检查 PENDING/UNKNOWN 及 input/output/cost 三个
+unknown 标志；**不因仅 cache_read_tokens/cache_write_tokens 为 null 而判未结算**。
+live projection 分支才另外要求五个 usage 维度都已知，且 projection 存在、未 disputed。
+这不是当前 Fake 已具备五维完整性门禁的证据。
+
+本提案推荐为**明确启用的新 review 协议新增**五维完整性守卫：即使 input/output/cost 已知，
+只要 cache_read 或 cache_write 为 null，父子审核组仍 HOLD，拒绝新业务／最终验收和提前收尾。
+已知的 0 与 null 必须区分，已知 cache=0 本身不触发该 HOLD；其他原门禁仍须满足。
+cache-only-null 不虚构 cache 金额预留，也不重复加到 input/output：三个账本维度按原事实
+正常结算，完整性状态单独阻断。此新守卫只约束新 review 模式，不改变未启用该模式的原
+Fake 兼容语义；不能追改历史 nullable usage，不能把 null 补成 0 使审核继续。
 
 parent 的每个普通 reserve 同样检查 group 聚合；否则 child 与 parent 交错可以各自通过。
 唯一 owned Store 的同一事务更新原本地账本及关联投影，按 parent/child ID 的固定顺序读写；
 本设计不增加第二 writer。两个 child grant 也不能复制父额度，首片一个 pair 仍测试重复建对拒绝。
 
-T3 按原 settlement 逐维投影：已知值释放对应 reservation 并记实际 spent；未知继续保留
-原 reservation/unknown 标志，父子都 HOLD。真实已知超预留时记录完整超额，停止后续业务；
+T3 对 input/output/cost 三个账本维度按原 settlement 投影：已知值释放对应 reservation 并记
+实际 spent；未知继续保留原 reservation/unknown 标志。新 review 协议再按上述五维完整性
+守卫判定父子 HOLD。真实已知超预留时记录完整超额，停止后续业务；
 不可截断实际费用适配预算。原 attempt 计数永久消耗，不因取消、未派发、失败或 replay 退还。
 late response、恢复、cancel、close 只能记录原 debit 的事实；不能重新送审、改变 parent，
 也不能为释放额度把 null 改成零。首片 offline 不授权 live reconciliation；未来接入需将其

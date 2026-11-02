@@ -85,7 +85,7 @@ WAL 处理方式、文件权限、全部资源输入和 SHA；不要只复制仍
 | R04 | pass，逐项必需host checks缺失/fail/not_run；model自报pass | 只有独立host checks全部满足后当前Dispatcher才能原子接受；旧accept入口仍拒绝必需review |
 | R05 | changes_requested、inconclusive、最后一轮、同键精确replay | 原findings留存；新task/instruction/ack；两个额度分别约束且不归零；replay零增量，耗尽明确升级 |
 | B01 | 父普通reserve与child审核reserve在同剩余额度交错；不同调用同时借记 | 同一父聚合额度只有可容纳者成功；每个child attempt恰好一个debit，无parent假attempt；本地和聚合verifier一致 |
-| B02 | child usage局部null、全null、零预留但unknown、超预留、迟到、结算故障 | 原所有usage维度不改写；unknown占用不双计，父子均HOLD；超额全量保存；原attempt计数不退还；精确重放零费用增量 |
+| B02 | child usage局部null、全null、input/output/cost已知但仅cache_read或cache_write为null；对照已知cache=0；零预留但unknown、超预留、迟到、结算故障；未启用新review的原Fake对照 | 新review的cache-only-null也使父子HOLD，已知0本身不触发该HOLD；三维原账本正常投影、未知三维保留原预留，不虚构cache预留或双计input/output；原Fake三维unknown门禁兼容不变；所有原usage不改写，超额全量保存、attempt计数不退还、精确重放零费用增量 |
 | B03 | ticket准备后崩溃、T1未dispatch崩溃、DISPATCH后无结果、T4 commit失败 | 逐边故障表全部满足；无重复claim/callback、无无证DONE；新恢复ID不能绕开原未结算call |
 | S01 | 双池普通满载，审核Dispatcher/Worker各入队，同资源FIFO | 两种原review reserve仍有效；producer等待不占活跃槽、不释放UNKNOWN／保留结果／冲突资源；无同步父等子死锁 |
 | C01 | 旧411 ELF开412、412原未启用请求、真实历史库、迁移断点 | 旧程序明确拒绝；旧协议原字节保持；原子metadata/资产hash；无静默upgrade/新模式回退 |
