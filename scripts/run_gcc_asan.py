@@ -361,7 +361,7 @@ def publish_public_evidence(source: Path, build: Path, private: Path,
             for case in ET.parse(junit).getroot().findall(".//testcase"):
                 require(case.get("name") in tests, "unknown public JUnit test name")
                 status, elapsed = case.get("status", "run"), case.get("time", "0")
-                require(status in ("run", "notrun") and re.fullmatch(r"[0-9.eE+-]+", elapsed) is not None,
+                require(status in ("run", "fail", "notrun") and re.fullmatch(r"[0-9.eE+-]+", elapsed) is not None,
                         "unknown public JUnit status/time")
                 projected = ET.SubElement(root, "testcase", name=case.get("name"), status=status, time=elapsed)
                 for tag in ("failure", "error", "skipped"):
@@ -407,6 +407,7 @@ def check_public_package(directory: Path, names: tuple[set[str], set[str], set[s
             and manifest["private_directory"] == "private-evidence", "invalid public index")
     expected = set(manifest["artifacts"]) | {"public-index.json"}
     require({path.name for path in directory.iterdir()} == expected, "unexpected public artifact")
+    summary_status, junit_all_passed = None, False
     for name, entry in manifest["artifacts"].items():
         require(set(entry) == {"source", "source_bytes", "source_sha256", "public_bytes", "public_sha256", "kind", "ranges"},
                 "unexpected public provenance fields")
@@ -466,13 +467,17 @@ def check_public_package(directory: Path, names: tuple[set[str], set[str], set[s
             require(not (root.text or "").strip() and not (root.tail or "").strip(), "unexpected public JUnit root text")
             for case in root:
                 require(case.tag == "testcase" and set(case.attrib) == {"name", "status", "time"} and
-                        case.get("name") in tests and case.get("status") in ("run", "notrun") and
+                        case.get("name") in tests and case.get("status") in ("run", "fail", "notrun") and
                         re.fullmatch(r"[0-9.eE+-]+", case.get("time", "")), "invalid public JUnit case")
                 require(not (case.text or "").strip() and not (case.tail or "").strip(), "unexpected public JUnit output")
                 for child in case:
                     require(child.tag in ("failure", "error", "skipped") and not child.attrib and not list(child)
                             and child.text == "Original diagnostic is retained privately."
                             and not (child.tail or "").strip(), "unexpected public JUnit diagnostic")
+                require(case.get("status") != "fail" or any(case.find(tag) is not None for tag in ("failure", "error")),
+                        "failed public JUnit case lacks failure evidence")
+            junit_all_passed = (sorted(case.get("name") for case in root) == sorted(tests) and
+                all(case.get("status") == "run" and not list(case) for case in root))
         elif entry["kind"] == "structured-projection":
             value = read_public_json(path)
             if name == "summary.projection.json" and source_name == "summary-publication-input.json":
@@ -481,6 +486,7 @@ def check_public_package(directory: Path, names: tuple[set[str], set[str], set[s
                     "ctest_evidence_complete", "registered_tests", "steps"}, "unexpected public summary fields")
                 require(re.fullmatch(r"[a-f0-9]{40}", value["head"]) and value["status"] in ("PASSED", "NOT_COMPLETE"),
                         "invalid public summary identity/status")
+                summary_status = value["status"]
                 require(value["sanitizer_environment"] == {"ASAN_OPTIONS": ASAN, "UBSAN_OPTIONS": UBSAN, "LSAN_OPTIONS": None}
                         and value["build_umask"] == "0022" and value["test_umask"] == "0002", "invalid public gate options")
                 require(value["historical_clang_asan_failures_closed"] is False and
@@ -507,6 +513,8 @@ def check_public_package(directory: Path, names: tuple[set[str], set[str], set[s
                         value == {"status": "MALFORMED_OR_INCOMPLETE_JUNIT"}, "unapproved public JSON artifact")
         else:
             raise RuntimeError("unapproved public artifact kind")
+    require(summary_status != "PASSED" or junit_all_passed,
+            "passing public summary requires complete passing JUnit")
 
 
 class Recorder:

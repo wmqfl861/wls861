@@ -194,7 +194,7 @@ class GateContracts(unittest.TestCase):
 
     def exercise_main(self, failing_step=None, mutate_binary=False, compiler_version="13.3.0",
                       missing_log=False, interrupt=False, launch_error=False, private_output=None,
-                      identity_fault=None):
+                      identity_fault=None, ctest_junit=None):
         # This is deliberately a mocked command flow, not a C++/ASan run.
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         (self.root / ".gitignore").write_text("/build*/\n")
@@ -230,7 +230,8 @@ class GateContracts(unittest.TestCase):
                 path.write_text(json.dumps({"tests": [{"name": "one",
                     "properties": [{"name": "TIMEOUT", "value": 90}]}]}))
             if name == "ctest":
-                (recorder.directory / "ctest.xml").write_text('<testsuite><testcase name="one" status="run"/></testsuite>')
+                (recorder.directory / "ctest.xml").write_text(ctest_junit if ctest_junit is not None else
+                    '<testsuite><testcase name="one" status="run"/></testsuite>')
                 logs = build / "Testing/Temporary"
                 logs.mkdir(parents=True)
                 if not missing_log:
@@ -524,6 +525,82 @@ class GateContracts(unittest.TestCase):
             entry["ranges"] = [{"kind": "verbatim", "source_bytes": [0, entry["source_bytes"]],
                                 "public_bytes": [0, len(data)]}]
         gate.write_json(public / "public-index.json", manifest)
+
+    def check_failed_junit_projection(self, category, failing_step="ctest"):
+        original = ('<testsuite><testcase name="one" status="fail" time="1.25">'
+                    f'<failure message="{category}">SYNTHETIC_PRIVATE_DIAGNOSTIC</failure>'
+                    '</testcase></testsuite>')
+        result, summary, _, private = self.exercise_main(failing_step=failing_step, ctest_junit=original)
+        self.assertEqual(result, 1)
+        self.assertEqual(summary["status"], "NOT_COMPLETE")
+        self.assertEqual((private / "ctest.xml").read_bytes(), original.encode())
+        public = private.parent / "public-evidence"
+        path = public / "ctest.projection.xml"
+        self.assertTrue(path.is_file(), "legal CTest status=fail prevented checked failure publication")
+        case = gate.ET.parse(path).getroot().find("testcase")
+        self.assertEqual(case.get("status"), "fail")
+        failure = case.find("failure")
+        self.assertIsNotNone(failure)
+        self.assertEqual(failure.attrib, {})
+        self.assertEqual(failure.text, "Original diagnostic is retained privately.")
+        self.assertNotIn(b"SYNTHETIC_PRIVATE_DIAGNOSTIC", path.read_bytes())
+        self.assertEqual(json.loads((public / "summary.projection.json").read_text())["status"], "NOT_COMPLETE")
+        entry = json.loads((public / "public-index.json").read_text())["artifacts"][path.name]
+        self.assertEqual(entry["source_sha256"], gate.digest(private / "ctest.xml"))
+        gate.check_public_package(public, gate.public_method_names(self.root), {"one"})
+        with self.assertRaises(RuntimeError):
+            gate.check_junit(path, ["one"])
+
+    def test_failed_ctest_junit_retains_legal_fail_projection(self):
+        self.check_failed_junit_projection("Failed")
+
+    def test_timed_out_ctest_junit_retains_legal_fail_projection(self):
+        self.check_failed_junit_projection("Timeout")
+
+    def test_failed_junit_cannot_pass_even_after_ctest_exit_zero(self):
+        self.check_failed_junit_projection("Failed", failing_step=None)
+
+    def test_public_guard_accepts_clean_failed_projection(self):
+        _, _, _, private = self.exercise_main(failing_step="ctest")
+        public = private.parent / "public-evidence"
+        root = gate.ET.parse(public / "ctest.projection.xml").getroot()
+        case = root.find("testcase")
+        case.set("status", "fail")
+        gate.ET.SubElement(case, "failure").text = "Original diagnostic is retained privately."
+        self.rewrite_public_artifact(public, "ctest.projection.xml",
+                                     gate.ET.tostring(root, encoding="utf-8", xml_declaration=True))
+        error = None
+        try:
+            gate.check_public_package(public, gate.public_method_names(self.root), {"one"})
+        except RuntimeError as caught:
+            error = str(caught)
+        self.assertIsNone(error, "a checked failure projection must accept CTest status=fail")
+
+    def test_public_guard_rejects_passed_summary_with_nonpass_junit(self):
+        _, _, _, private = self.exercise_main()
+        public = private.parent / "public-evidence"
+        original = (public / "ctest.projection.xml").read_bytes()
+        for status, tag in (("run", "failure"), ("run", "error"), ("run", "skipped"),
+                            ("notrun", None), ("fail", "failure")):
+            root = gate.ET.fromstring(original)
+            case = root.find("testcase")
+            case.set("status", status)
+            if tag:
+                gate.ET.SubElement(case, tag).text = "Original diagnostic is retained privately."
+            self.rewrite_public_artifact(public, "ctest.projection.xml",
+                                         gate.ET.tostring(root, encoding="utf-8", xml_declaration=True))
+            with self.subTest(status=status, tag=tag), self.assertRaises(RuntimeError):
+                gate.check_public_package(public, gate.public_method_names(self.root), {"one"})
+
+    def test_public_guard_rejects_failed_status_without_failure_marker(self):
+        _, _, _, private = self.exercise_main(failing_step="ctest")
+        public = private.parent / "public-evidence"
+        root = gate.ET.parse(public / "ctest.projection.xml").getroot()
+        root.find("testcase").set("status", "fail")
+        self.rewrite_public_artifact(public, "ctest.projection.xml",
+                                     gate.ET.tostring(root, encoding="utf-8", xml_declaration=True))
+        with self.assertRaises(RuntimeError):
+            gate.check_public_package(public, gate.public_method_names(self.root), {"one"})
 
     def test_public_package_guard_rejects_duplicate_index_key(self):
         _, _, _, private = self.exercise_main()
