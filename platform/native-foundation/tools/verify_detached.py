@@ -31,7 +31,7 @@ def main():
                 raise ValueError(f'detached command failed: {arguments!r}: {result!r}')
             return json.loads(result.stdout if expected == 0 else result.stderr)
         resources = invoke(['resources'])
-        if resources['asset_count'] != 35 or resources['asset_bytes'] != 160549:
+        if resources['asset_count'] != 36 or resources['asset_bytes'] != 166684:
             raise ValueError('detached public resource set differs')
         config = invoke(['resolve-config', '--root-model', 'detached', '--root-reasoning', 'effort:high',
                          '--capability', 'detached=effort:high'])

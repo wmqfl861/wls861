@@ -107,8 +107,8 @@ class RuntimeResourceInstallation(unittest.TestCase):
         self.assertEqual(observed['resources']['layout'], 'installed-bundle')
         self.assertEqual(observed['resources']['root'], str(self.bundle))
         self.assertEqual(observed['resources']['asset_count'], len(self.manifest['assets']))
-        self.assertEqual(observed['migrations']['target_version'], 410)
-        self.assertEqual([x['to_version'] for x in observed['migrations']['migrations']], list(range(402, 411)))
+        self.assertEqual(observed['migrations']['target_version'], 411)
+        self.assertEqual([x['to_version'] for x in observed['migrations']['migrations']], list(range(402, 412)))
         self.assertFalse((self.bundle / 'config').exists())
         self.assertFalse((self.bundle / 'tests').exists())
         for entry in self.manifest['assets']:
@@ -117,7 +117,7 @@ class RuntimeResourceInstallation(unittest.TestCase):
             self.assertEqual(path.stat().st_size, entry['size_bytes'])
             self.assertEqual(stat.S_IMODE(path.stat().st_mode) & 0o222, 0)
         database = self.directory / 'state.sqlite'
-        self.assertEqual(self.invoke('init', '--db', database)['user_version'], 410)
+        self.assertEqual(self.invoke('init', '--db', database)['user_version'], 411)
 
     def test_relocated_executable_ignores_cwd_and_environment_resource_poison(self):
         (self.cwd / 'resources').mkdir()
@@ -135,7 +135,7 @@ class RuntimeResourceInstallation(unittest.TestCase):
         observed = self.invoke('resources', environment=environment)
         self.assertEqual(observed['resources']['root'], str(self.bundle))
         self.assertEqual(self.invoke('init', '--db', self.directory / 'relocated.sqlite',
-                                     environment=environment)['user_version'], 410)
+                                     environment=environment)['user_version'], 411)
 
     def test_explicit_roots_and_schema_inputs_keep_legacy_compatibility(self):
         installed = self.invoke('resources')
@@ -260,7 +260,7 @@ class RuntimeResourceInstallation(unittest.TestCase):
         observed = self.invoke('resources')
         self.assertEqual(observed['resources']['root'], str(self.bundle))
         self.assertEqual(observed['resources']['layout'], 'installed-bundle')
-        self.assertEqual(self.invoke('init', '--db', self.directory / 'without-source.sqlite')['user_version'], 410)
+        self.assertEqual(self.invoke('init', '--db', self.directory / 'without-source.sqlite')['user_version'], 411)
         self.assertTrue(self.invoke('config', 'check', *self.config_arguments())['valid'])
 
     def test_installer_validates_all_source_bytes_before_destination_effects(self):

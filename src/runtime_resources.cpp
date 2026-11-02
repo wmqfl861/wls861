@@ -154,7 +154,7 @@ Json expected_manifest() {
     for (const auto& asset : resource_assets)
         assets.push_back(Object{{"path", asset.path}, {"kind", asset.kind}, {"sha256", asset.sha256},
             {"size_bytes", static_cast<std::int64_t>(asset.size)}});
-    return Object{{"format", bundle_format}, {"store_version", 410}, {"assets", std::move(assets)}};
+    return Object{{"format", bundle_format}, {"store_version", 411}, {"assets", std::move(assets)}};
 }
 
 bool manifest_present(const std::filesystem::path& path) {
@@ -278,7 +278,7 @@ Json RuntimeResources::diagnostics() const {
     std::size_t total = 0;
     for (const auto& [path, content] : assets_) { (void)path; total += content.size(); }
     return Object{{"format", bundle_format}, {"layout", source_tree_ ? "source-tree" : "installed-bundle"},
-        {"root", root_.string()}, {"store_version", 410}, {"bundle_sha256", bundle_sha256_},
+        {"root", root_.string()}, {"store_version", 411}, {"bundle_sha256", bundle_sha256_},
         {"manifest_file_sha256", manifest_file_sha256_}, {"asset_count", assets_.size()},
         {"total_bytes", total}, {"complete", true}};
 }

@@ -368,6 +368,10 @@
     {
       "name": "r3_offline_acceptance_cli",
       "timeout": 600
+    },
+    {
+      "name": "persistent_event_store",
+      "timeout": 120
     }
   ]
 }

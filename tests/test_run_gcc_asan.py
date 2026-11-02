@@ -37,6 +37,8 @@ class GateContracts(unittest.TestCase):
         self.assertEqual(len(catalog["tests"]), gate.DEFAULT_EXPECTED_TESTS)
         self.assertEqual(len({entry["name"] for entry in catalog["tests"]}),
                          gate.DEFAULT_EXPECTED_TESTS)
+        additions = {entry["name"]: entry["timeout"] for entry in catalog["tests"]}
+        self.assertEqual(additions["persistent_event_store"], 120)
 
     def test_environment_has_no_provider_secrets_or_inherited_flags(self):
         inherited = {k: "untrusted" for k in ("CXXFLAGS", "CPPFLAGS", "LDFLAGS", "LSAN_OPTIONS",

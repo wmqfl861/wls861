@@ -1,5 +1,5 @@
 // Compiled program resource identities. Update deliberately with the bundle manifest.
-constexpr std::array<ResourceAsset, 35> resource_assets{{
+constexpr std::array<ResourceAsset, 36> resource_assets{{
     {"db/migrations/004_s1_store.sql", "sql", "f23563e7776499fd1a592662c2efc50b0d2b2a9c872fa401f233427fb4bfd34a", 5284U},
     {"db/migrations/005_worker_tools.sql", "sql", "0cfe29dcf094ec65ba0b2e4365889db198fae75107664c26bfc9b476c3903490", 2968U},
     {"db/migrations/006_event_runtime.sql", "sql", "d143e51f263703b2b01fe26f1645eb619a8814f1aed2077f8f71820a50951055", 3730U},
@@ -9,6 +9,7 @@ constexpr std::array<ResourceAsset, 35> resource_assets{{
     {"db/migrations/010_owned_allocation_recovery.sql", "sql", "fe0746733099e53e619e0ddab32172912dbf01f9379d1c21a8eaa914061ca5ce", 3327U},
     {"db/migrations/011_live_model.sql", "sql", "1e5f15ce0ce21a2759d2f9a76900e28e5aa0a9b498094f327eddea7386202ef6", 4212U},
     {"db/migrations/012_usage_reconciliation.sql", "sql", "6967e936d2466ec62479bb18ea0c8790eee876599cc9384db6da8b8f3293cb37", 3454U},
+    {"db/migrations/013_event_call_association.sql", "sql", "141d80fe5bbdf67e91081d88a8405e2cf4a306fcef1d3fe1a029eaa9c183ac18", 6135U},
     {"db/schema.sql", "sql", "111dbfe406492521c4c72a9ca49c14ff1cd89db48c115a9ea169f511de34f9e8", 31148U},
     {"prompts/common.md", "prompt", "22bfd72e987944a75a7395478447a0c1e75fc1a209bca7a42d2f359a27b9feae", 1334U},
     {"prompts/dispatcher.md", "prompt", "02ccc4d925941ed63ad6db2c43ab07a90ea90ab6f8b0790480e3ab4b73b26ed3", 2137U},

@@ -9,7 +9,7 @@ namespace wls::s1 {
 namespace {
 
 constexpr std::string_view base_schema_sha256 = "111dbfe406492521c4c72a9ca49c14ff1cd89db48c115a9ea169f511de34f9e8";
-constexpr std::array<RegisteredMigration, 9> registrations{{
+constexpr std::array<RegisteredMigration, 10> registrations{{
     {401, 402, "db/migrations/004_s1_store.sql", "f23563e7776499fd1a592662c2efc50b0d2b2a9c872fa401f233427fb4bfd34a", "store_runtime_metadata", 4},
     {402, 403, "db/migrations/005_worker_tools.sql", "0cfe29dcf094ec65ba0b2e4365889db198fae75107664c26bfc9b476c3903490", "worker_tools_metadata", 5},
     {403, 404, "db/migrations/006_event_runtime.sql", "d143e51f263703b2b01fe26f1645eb619a8814f1aed2077f8f71820a50951055", "event_runtime_metadata", 6},
@@ -18,7 +18,8 @@ constexpr std::array<RegisteredMigration, 9> registrations{{
     {406, 407, "db/migrations/009_owned_cleanup.sql", "25fbcccfe4fa85049350a224bb716a6ef4b6a99cda59c659a7f1d935dda15c15", "owned_cleanup_metadata", 9},
     {407, 408, "db/migrations/010_owned_allocation_recovery.sql", "fe0746733099e53e619e0ddab32172912dbf01f9379d1c21a8eaa914061ca5ce", "owned_allocation_metadata", 10},
     {408, 409, "db/migrations/011_live_model.sql", "1e5f15ce0ce21a2759d2f9a76900e28e5aa0a9b498094f327eddea7386202ef6", "live_model_metadata", 11},
-    {409, 410, "db/migrations/012_usage_reconciliation.sql", "6967e936d2466ec62479bb18ea0c8790eee876599cc9384db6da8b8f3293cb37", "usage_reconciliation_metadata", 12}
+    {409, 410, "db/migrations/012_usage_reconciliation.sql", "6967e936d2466ec62479bb18ea0c8790eee876599cc9384db6da8b8f3293cb37", "usage_reconciliation_metadata", 12},
+    {410, 411, "db/migrations/013_event_call_association.sql", "141d80fe5bbdf67e91081d88a8405e2cf4a306fcef1d3fe1a029eaa9c183ac18", "event_association_metadata", 13}
 }};
 
 void require(bool valid, ErrorCode code, const std::string& message) {

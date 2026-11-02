@@ -44,7 +44,7 @@ class BundleCapture(unittest.TestCase):
 
     def test_original_bytes_and_full_catalog(self):
         result = json.loads(self.capture(True).stdout)
-        self.assertEqual((result['asset_count'], result['asset_bytes']), (35, 160549))
+        self.assertEqual((result['asset_count'], result['asset_bytes']), (36, 166684))
         for item in MANIFEST['assets']:
             captured = (self.destination / item['path']).read_bytes()
             self.assertEqual(len(captured), item['size_bytes'])

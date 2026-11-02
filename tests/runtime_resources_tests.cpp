@@ -191,7 +191,7 @@ void captured_bytes_survive_later_filesystem_changes() {
     CHECK(from_bytes.full_schema("plan") == legacy.full_schema("plan"));
     const MigrationRegistry migrations(captured);
     Store created(copy.directory.path / "captured.sqlite", migrations);
-    CHECK(created.diagnostics().at("user_version") == 410);
+    CHECK(created.diagnostics().at("user_version") == 411);
 }
 
 void schema_bytes_keep_original_shape_and_reference_guards() {
@@ -266,7 +266,7 @@ void registered_prefixes_preserve_old_versions_and_metadata() {
         CHECK(reader.diagnostics().at("user_version") == item.to_version);
     }
     expect(ErrorCode::Unsupported, [&] { MigrationRegistry refused(resources(), 401); });
-    expect(ErrorCode::Unsupported, [&] { MigrationRegistry refused(resources(), 411); });
+    expect(ErrorCode::Unsupported, [&] { MigrationRegistry refused(resources(), 412); });
 }
 
 void populated_upgrades_need_explicit_all_request_maintenance() {
@@ -293,7 +293,7 @@ void populated_upgrades_need_explicit_all_request_maintenance() {
     }
     {
         Store upgraded(path, latest);
-        CHECK(upgraded.diagnostics().at("user_version") == 410);
+        CHECK(upgraded.diagnostics().at("user_version") == 411);
         CHECK(upgraded.request(request_id).at("config_snapshot") == original.at("config_snapshot"));
         CHECK(upgraded.request_snapshot(request_id).at("texts") == original_snapshot.at("texts"));
     }
@@ -314,7 +314,7 @@ void legacy_failure_rolls_back_then_registered_upgrade_succeeds() {
     CHECK(sql_number(path, "PRAGMA user_version") == 402);
     CHECK(sql_number(path, "SELECT COUNT(*) FROM sqlite_master WHERE name='worker_tools_metadata'") == 0);
     Store completed(path, MigrationRegistry(resources()));
-    CHECK(completed.diagnostics().at("user_version") == 410);
+    CHECK(completed.diagnostics().at("user_version") == 411);
 }
 
 void new_entry_keeps_writer_lock_and_unknown_version_guards() {
