@@ -25,17 +25,22 @@ jobs:
         with:
           path: source
           persist-credentials: false
+      - name: Capture inherited image environment before selfchecks
+        shell: pwsh
+        run: python source/platform/native-foundation/tools/run_windows_ci.py --source-root source --capture-image-environment native-image-environment.json
       - name: Check complete native evidence collection with synthetic CTest processes
         shell: pwsh
         run: python source/platform/native-foundation/tools/test_windows_ci_evidence.py
       - name: Build and verify the isolated native slice with pinned preinstalled tools
         shell: pwsh
-        run: python source/platform/native-foundation/tools/run_windows_ci.py --source-root source --work-root native-work
+        run: python source/platform/native-foundation/tools/run_windows_ci.py --source-root source --work-root native-work --image-environment-snapshot native-image-environment.json
       - name: Retain original native evidence including failures
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: windows-native-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: native-work/evidence/
+          path: |
+            native-image-environment.json
+            native-work/evidence/
           if-no-files-found: warn
           retention-days: 7
