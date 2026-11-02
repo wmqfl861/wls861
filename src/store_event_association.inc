@@ -39,7 +39,7 @@ Json Store::Impl::event_fact(const Row& row, std::size_t maximum) const {
 }
 Row Store::Impl::event_source(std::int64_t id) const {
     const auto row = one("SELECT i.*,e.event_id,e.type,e.payload,e.result,e.command_sha256 FROM event_inbox i JOIN events e ON e.seq=i.event_seq WHERE i.inbox_id=?", {id});
-    require(sha256_hex(str(row, "payload")) == row.at("command_sha256"), ErrorCode::Corrupt, "event source command bytes changed");
+    require(Json(sha256_hex(str(row, "payload"))) == row.at("command_sha256"), ErrorCode::Corrupt, "event source command bytes changed");
     return Row{{"inbox_id", id}, {"event_seq", row.at("event_seq")}, {"event_id", row.at("event_id")},
         {"type", row.at("type")}, {"request_id", row.at("request_id")}, {"role", row.at("role")},
         {"actor_task_id", row.at("actor_task_id")}, {"subject_task_id", row.at("subject_task_id")},
@@ -74,8 +74,8 @@ void Store::Impl::event_claim_current(const StoreActor& actor, const Row& snapsh
     const auto current = one("SELECT * FROM event_actor_claims WHERE request_id=? AND role=? AND actor_task_id=?",
         {actor.request_id, role_name(actor.role), actor.task_id});
     require(current.at("claim_id") == snapshot.at("claim_id") && current.at("generation") == snapshot.at("generation") &&
-            str(current, "status") == "ACTIVE" && current.at("principal_id") == actor.principal_id &&
-            current.at("team_id") == actor.team_id && number(current, "dispatcher_epoch") == actor.dispatcher_epoch &&
+            str(current, "status") == "ACTIVE" && current.at("principal_id") == Json(actor.principal_id) &&
+            current.at("team_id") == Json(actor.team_id) && number(current, "dispatcher_epoch") == actor.dispatcher_epoch &&
             number(current, "execution_epoch") == actor.execution_epoch &&
             number(current, "requirements_revision") == number(fact.as_object(), "requirements_revision"),
             ErrorCode::Stale, "persistent original claim is no longer active");
@@ -98,13 +98,13 @@ Json Store::Impl::event_receipt(const std::string& id, const std::string& kind) 
     const auto row = optional("SELECT * FROM n5_event_receipts WHERE link_id=? AND kind=?", {id, kind});
     if (!row) return nullptr;
     const auto value = event_fact(*row, 65536);
-    require(value.at("link_id") == id && value.at("kind") == kind, ErrorCode::Corrupt, "event receipt identity mismatch");
+    require(value.at("link_id") == Json(id) && value.at("kind") == Json(kind), ErrorCode::Corrupt, "event receipt identity mismatch");
     return value;
 }
 void Store::Impl::verify_event_link(const Row& link) const {
     const auto fact = event_fact(link);
     const auto id = str(link, "link_id");
-    require(event_driver_enabled(str(link, "request_id")) && fact.at("link_id") == id && fact.at("request_id") == link.at("request_id") &&
+    require(event_driver_enabled(str(link, "request_id")) && fact.at("link_id") == Json(id) && fact.at("request_id") == link.at("request_id") &&
             fact.at("claim_id") == link.at("claim_id") && fact.at("attempt_id") == link.at("attempt_id") &&
             fact.at("call_id") == link.at("call_id") && fact.at("action") == link.at("action"), ErrorCode::Corrupt, "event link identity mismatch");
     const auto claim = event_claim_snapshot(str(link, "claim_id"));
@@ -115,22 +115,22 @@ void Store::Impl::verify_event_link(const Row& link) const {
     const auto envelope = str(attempt, "request_envelope");
     const auto request = model_request_from_json(parse_json_strict(envelope, 4U * 1024U * 1024U));
     require(attempt.at("request_id") == link.at("request_id") && attempt.at("call_id") == link.at("call_id") &&
-            fact.at("envelope_sha256") == sha256_hex(envelope) && fact.at("binding") == to_json(request.binding) &&
+            fact.at("envelope_sha256") == Json(sha256_hex(envelope)) && fact.at("binding") == to_json(request.binding) &&
             fact.at("reservation_sha256") == attempt.at("reservation_sha256") && fact.at("role_call_index") == request.role_call_index &&
             fact.at("config_snapshot_sha256") == attempt.at("config_snapshot_sha256") && fact.at("model_ref") == attempt.at("model_ref") &&
             fact.at("actor").at("role") == attempt.at("role") && fact.at("actor").at("principal_id") == attempt.at("principal_id") &&
             parse_json_strict(str(attempt, "frozen_binding")) == fact.at("binding") &&
-            ((request.binding.task_id.empty() && attempt.at("task_id").is_null()) || attempt.at("task_id") == request.binding.task_id) &&
-            ((request.binding.team_id.empty() && attempt.at("team_id").is_null()) || attempt.at("team_id") == request.binding.team_id),
+            ((request.binding.task_id.empty() && attempt.at("task_id").is_null()) || attempt.at("task_id") == Json(request.binding.task_id)) &&
+            ((request.binding.team_id.empty() && attempt.at("team_id").is_null()) || attempt.at("team_id") == Json(request.binding.team_id)),
             ErrorCode::Corrupt, "event association differs from original attempt bytes");
     const auto original_request = request_row(str(link, "request_id"));
     const auto frozen = FrozenRequestConfig::restore(str(original_request, "config_snapshot"), str(original_request, "config_snapshot_sha256"));
     require(fact.at("profile") == frozen.model_profile(request.role), ErrorCode::Corrupt, "event frozen model profile changed");
     const auto reserve_event = one("SELECT payload,command_sha256 FROM events WHERE request_id=? AND command_id=?",
         {link.at("request_id"), "reserve:" + str(link, "attempt_id")});
-    require(sha256_hex(str(reserve_event, "payload")) == attempt.at("reservation_sha256") &&
+    require(Json(sha256_hex(str(reserve_event, "payload"))) == attempt.at("reservation_sha256") &&
             reserve_event.at("command_sha256") == attempt.at("reservation_sha256"), ErrorCode::Corrupt, "event original reservation fingerprint changed");
-    require(sha256_hex(canonical_json(fact.at("target"))) == fact.at("target_sha256"), ErrorCode::Corrupt, "event target fingerprint mismatch");
+    require(Json(sha256_hex(canonical_json(fact.at("target")))) == fact.at("target_sha256"), ErrorCode::Corrupt, "event target fingerprint mismatch");
     const auto contract = model_contract(request);
     const auto* action = contract.as_object().if_contains("workflow_action");
     require(fact.at("target").at("workflow_action") == (action ? *action : Json(nullptr)) &&
@@ -143,15 +143,15 @@ void Store::Impl::verify_event_link(const Row& link) const {
     for (std::size_t index = 0; index < members.size(); ++index) {
         const auto& member = members[index]; const auto source = event_fact(member, 65536);
         const auto inbox_id = number(member, "inbox_id");
-        require(fact.at("selected_ids").as_array()[index] == inbox_id && source.at("link_id") == id &&
+        require(fact.at("selected_ids").as_array()[index] == inbox_id && source.at("link_id") == Json(id) &&
                 source.at("source") == event_source(inbox_id), ErrorCode::Corrupt, "event member source changed");
         const auto original = std::find_if(captured.at("items").as_array().begin(), captured.at("items").as_array().end(),
             [inbox_id](const Json& item) { return item.at("inbox_id") == inbox_id; });
         require(original != captured.at("items").as_array().end() && *original == source.at("source"),
                 ErrorCode::Corrupt, "event selected ID escaped its original capture");
         const auto open = optional("SELECT link_id FROM n5_event_open_items WHERE inbox_id=?", {inbox_id});
-        if (!closed) require(open && open->at("link_id") == id, ErrorCode::Corrupt, "unresolved event ownership projection is missing");
-        else require(!open || open->at("link_id") != id, ErrorCode::Corrupt, "closed event retained an open projection");
+        if (!closed) require(open && open->at("link_id") == Json(id), ErrorCode::Corrupt, "unresolved event ownership projection is missing");
+        else require(!open || open->at("link_id") != Json(id), ErrorCode::Corrupt, "closed event retained an open projection");
     }
     const auto reserved = event_receipt(id, "RESERVED");
     require(!reserved.is_null() && reserved.at("body").at("link_sha256") == link.at("fact_sha256") &&
@@ -164,13 +164,13 @@ void Store::Impl::verify_event_link(const Row& link) const {
     require(dispatch.is_null() == !dispatch_event.has_value(), ErrorCode::Corrupt, "event dispatch receipt and original authority disagree");
     if (!dispatch.is_null()) require(dispatch.at("body").at("event_seq") == dispatch_event->at("seq") &&
         dispatch.at("body").at("event_id") == dispatch_event->at("event_id") &&
-        dispatch.at("body").at("payload_sha256") == sha256_hex(str(*dispatch_event, "payload")) &&
-        dispatch.at("body").at("result_sha256") == sha256_hex(str(*dispatch_event, "result")), ErrorCode::Corrupt, "event dispatch source changed");
+        dispatch.at("body").at("payload_sha256") == Json(sha256_hex(str(*dispatch_event, "payload"))) &&
+        dispatch.at("body").at("result_sha256") == Json(sha256_hex(str(*dispatch_event, "result"))), ErrorCode::Corrupt, "event dispatch source changed");
     const auto settlement = event_receipt(id, "SETTLEMENT");
     require(settlement.is_null() == attempt.at("settlement_sha256").is_null(), ErrorCode::Corrupt, "event settlement and receipt disagree");
     if (!settlement.is_null()) require(settlement.at("body").at("settlement_sha256") == attempt.at("settlement_sha256") &&
-        settlement.at("body").at("response_sha256") == sha256_hex(str(attempt, "response")) &&
-        settlement.at("body").at("usage_sha256") == sha256_hex(str(attempt, "usage")), ErrorCode::Corrupt, "event original observation bytes changed");
+        settlement.at("body").at("response_sha256") == Json(sha256_hex(str(attempt, "response"))) &&
+        settlement.at("body").at("usage_sha256") == Json(sha256_hex(str(attempt, "usage"))), ErrorCode::Corrupt, "event original observation bytes changed");
     const auto close = event_receipt(id, "CLOSE"); const auto error = event_receipt(id, "ERROR");
     require(close.is_null() || error.is_null(), ErrorCode::Corrupt, "event has conflicting close and error facts");
     if (!close.is_null() || !error.is_null()) {
@@ -188,7 +188,7 @@ void Store::Impl::verify_event_link(const Row& link) const {
         Array completed;
         for (std::size_t index = 0; index < captured.at("items").as_array().size(); ++index) {
             const auto& source = captured.at("items").as_array()[index]; const auto& proof = body.at("dispositions").as_array()[index];
-            require(proof.at("inbox_id") == source.at("inbox_id") && proof.at("source_sha256") == sha256_hex(canonical_json(source)),
+            require(proof.at("inbox_id") == source.at("inbox_id") && proof.at("source_sha256") == Json(sha256_hex(canonical_json(source))),
                 ErrorCode::Corrupt, "event close individual source changed");
             const auto disposition = str(proof.as_object(), "disposition");
             require(disposition == "HANDLED" || disposition == "NOT_SELECTED" || disposition == "DEFERRED_NO_EFFECT", ErrorCode::Corrupt,
@@ -202,7 +202,7 @@ void Store::Impl::verify_event_link(const Row& link) const {
                     const auto changed = std::find_if(body.at("result").at("tasks").as_array().begin(), body.at("result").at("tasks").as_array().end(),
                         [&](const Json& task) { return task.at("task_id") == source.at("subject_task_id"); });
                     require(changed != body.at("result").at("tasks").as_array().end() && proof.at("task_id") == source.at("subject_task_id") &&
-                        proof.at("node_id") == changed->at("node_id") && proof.at("transition_sha256") == sha256_hex(canonical_json(*changed)),
+                        proof.at("node_id") == changed->at("node_id") && proof.at("transition_sha256") == Json(sha256_hex(canonical_json(*changed))),
                         ErrorCode::Corrupt, "AMEND close lacks its individual original transition");
                 }
             }
@@ -212,8 +212,8 @@ void Store::Impl::verify_event_link(const Row& link) const {
             const auto event = one("SELECT event_id,type,command_id,payload,result FROM events WHERE request_id=? AND seq=?",
                 {link.at("request_id"), effect.at("event_seq")});
             require(event.at("event_id") == effect.at("event_id") && event.at("command_id") == effect.at("command_id") &&
-                event.at("type") == effect.at("type") && sha256_hex(str(event, "payload")) == effect.at("payload_sha256") &&
-                sha256_hex(str(event, "result")) == effect.at("result_sha256"), ErrorCode::Corrupt, "event original effect source changed");
+                event.at("type") == effect.at("type") && Json(sha256_hex(str(event, "payload"))) == effect.at("payload_sha256") &&
+                Json(sha256_hex(str(event, "result"))) == effect.at("result_sha256"), ErrorCode::Corrupt, "event original effect source changed");
         }
     }
 }
@@ -228,7 +228,7 @@ void Store::Impl::event_link_current(const StoreActor& actor, const Row& link) c
     require(!terminal_request(str(request, "status")), ErrorCode::NotReady, "persistent event request has terminated");
     const auto subject = actor.task_id.empty() ? request : task_row(actor.task_id);
     require(number(subject, "state_version") == number(fact.at("target").as_object(), "expected_state_version") &&
-            sha256_hex(canonical_json(subject)) == fact.at("target").at("subject_sha256"), ErrorCode::Stale,
+            Json(sha256_hex(canonical_json(subject))) == fact.at("target").at("subject_sha256"), ErrorCode::Stale,
             "persistent event original target CAS or source changed");
 }
 void Store::Impl::event_amendment_targets_current(const Json& fact) const {
@@ -246,7 +246,7 @@ void Store::Impl::event_amendment_targets_current(const Json& fact) const {
         require(seen_tasks.insert(task_id).second && seen_nodes.insert(node_id).second, ErrorCode::InvalidInput,
                 "event AMEND original task targets are duplicated");
         const auto current = task_row(task_id);
-        require(current.at("request_id") == fact.at("request_id") && current.at("node_id") == node_id,
+        require(current.at("request_id") == fact.at("request_id") && current.at("node_id") == Json(node_id),
                 ErrorCode::Unauthorized, "event AMEND target task identity or request ownership changed");
         require(number(current, "state_version") == number(target, "state_version"), ErrorCode::Conflict,
                 "event AMEND original task CAS changed before reservation or dispatch");
@@ -359,7 +359,7 @@ bool Store::Impl::event_item_targets(const Row& source, const Json& fact) const 
         const auto& target = fact.at("target").at("workflow_action").at("target");
         const auto& tasks = target.at("tasks").as_array();
         return std::any_of(tasks.begin(), tasks.end(), [&](const Json& task) {
-            return task.at("task_id") == subject && contains(target.at("pending_node_ids"), str(task.as_object(), "node_id"));
+            return task.at("task_id") == Json(subject) && contains(target.at("pending_node_ids"), str(task.as_object(), "node_id"));
         });
     }
     if (subject != binding.task_id) return false;
@@ -373,7 +373,7 @@ bool Store::Impl::event_item_targets(const Row& source, const Json& fact) const 
     const auto payload = parse_json_strict(str(event, "payload"));
     const Json* tuple = nullptr;
     if (const auto* value = result.as_object().if_contains("binding")) tuple = value;
-    else if (const auto* value = payload.as_object().if_contains("binding")) tuple = value;
+    else if (const auto* payload_binding = payload.as_object().if_contains("binding")) tuple = payload_binding;
     return tuple && *tuple == to_json(binding);
 }
 
@@ -389,7 +389,7 @@ Json Store::enable_event_driver(const StoreActor& root, const EventDriverLimits&
     const Row requested{{"max_links", limits.max_links}, {"max_claim_snapshots", limits.max_claim_snapshots}, {"max_metadata_bytes", limits.max_metadata_bytes}};
     if (const auto old = impl_->optional("SELECT * FROM n5_event_requests WHERE request_id=?", {root.request_id})) {
         const auto fact = impl_->event_fact(*old);
-        require(old->at("command_id") == command_id && fact.at("requested_limits") == requested, ErrorCode::Conflict,
+        require(old->at("command_id") == Json(command_id) && fact.at("requested_limits") == requested, ErrorCode::Conflict,
                 "persistent event policy is already frozen with a different command or limits");
         tx.commit(); return fact;
     }
@@ -461,7 +461,7 @@ Json Store::release_event_batch(const StoreActor& actor, const std::string& id, 
     const std::lock_guard lock(impl_->mutex);
     Impl::Transaction tx(*impl_);
     const auto snapshot = impl_->event_claim_snapshot(id);
-    require(snapshot.at("request_id") == actor.request_id && number(snapshot, "generation") == generation,
+    require(snapshot.at("request_id") == Json(actor.request_id) && number(snapshot, "generation") == generation,
             ErrorCode::Unauthorized, "event release does not name the original claim");
     require(!impl_->optional("SELECT link_id FROM n5_event_links WHERE claim_id=?", {id}), ErrorCode::NotReady,
             "an associated claim requires its original completion proof");
@@ -495,14 +495,14 @@ Json Store::reserve_event_call(const StoreActor& actor, const ExecutionBinding& 
     Impl::Transaction tx(*impl_);
     (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker}, false);
     const auto snapshot = impl_->event_claim_snapshot(association.claim_id);
-    require(snapshot.at("request_id") == actor.request_id && number(snapshot, "generation") == association.generation &&
+    require(snapshot.at("request_id") == Json(actor.request_id) && number(snapshot, "generation") == association.generation &&
             impl_->event_fact(snapshot).at("actor") == actor_json(actor), ErrorCode::Unauthorized, "persistent event original claim tuple changed");
     if (const auto old = impl_->optional("SELECT * FROM n5_event_links WHERE attempt_id=? OR call_id=? OR claim_id=?",
             {reservation.attempt_id, reservation.call_id, association.claim_id})) {
         const auto fact = impl_->event_fact(*old);
-        require(old->at("attempt_id") == reservation.attempt_id && old->at("call_id") == reservation.call_id &&
-                old->at("claim_id") == association.claim_id && fact.at("generation") == association.generation && fact.at("selected_ids") == selected &&
-                fact.at("binding") == to_json(binding) && fact.at("actor") == actor_json(actor) && fact.at("action") == action &&
+        require(old->at("attempt_id") == Json(reservation.attempt_id) && old->at("call_id") == Json(reservation.call_id) &&
+                old->at("claim_id") == Json(association.claim_id) && fact.at("generation") == association.generation && fact.at("selected_ids") == selected &&
+                fact.at("binding") == to_json(binding) && fact.at("actor") == actor_json(actor) && fact.at("action") == Json(action) &&
                 fact.at("target").at("expected_state_version") == association.expected_state_version &&
                 fact.at("target").at("workflow_action") == association.workflow_action, ErrorCode::Conflict,
                 "persistent event replay changed its immutable association");
@@ -710,8 +710,8 @@ Json Store::commit_event_action_and_finish(const StoreActor& actor, const std::s
             result = impl_->finish_operation_in_transaction(actor, op_id, request.binding, number(started.as_object(), "state_version"),
                 "SUCCEEDED", "sqlite:operation_intents/" + op_id + "#sha256=" + sha256_hex(canonical_json(tool.arguments)), command + ":finish");
             const auto op = impl_->op_row(op_id);
-            require(str(op, "status") == "SUCCEEDED" && op.at("business_idempotency_key") == request.attempt_id &&
-                    op.at("args_sha256") == sha256_hex(canonical_json(tool.arguments)), ErrorCode::Corrupt, "note lacks its original successful operation proof");
+            require(str(op, "status") == "SUCCEEDED" && op.at("business_idempotency_key") == Json(request.attempt_id) &&
+                    op.at("args_sha256") == Json(sha256_hex(canonical_json(tool.arguments))), ErrorCode::Corrupt, "note lacks its original successful operation proof");
         }
         const auto feedback = impl_->record_tool_feedback_in_transaction(request.attempt_id, request.binding, raw_response, result);
         Array effects;
@@ -737,14 +737,14 @@ Json Store::commit_event_action_and_finish(const StoreActor& actor, const std::s
                         const auto after = impl_->task_row(subject);
                         require(after == before && number(after, "based_on_requirements_revision") < request.binding.requirements_revision &&
                             std::any_of(result.at("pending_tasks").as_array().begin(), result.at("pending_tasks").as_array().end(),
-                                [&](const Json& item) { return item.at("task_id") == subject; }), ErrorCode::Corrupt,
+                                [&](const Json& item) { return item.at("task_id") == Json(subject); }), ErrorCode::Corrupt,
                             "omitted AMEND target lacks an atomic unchanged pending proof");
                         disposition = "DEFERRED_NO_EFFECT"; proof["unchanged_task_sha256"] = sha256_hex(canonical_json(before));
                         proof["node_id"] = node; proof["decisions_sha256"] = sha256_hex(canonical_json(decisions));
                     } else {
                         const auto changed = std::find_if(result.at("tasks").as_array().begin(), result.at("tasks").as_array().end(),
-                            [&](const Json& item) { return item.at("task_id") == subject; });
-                        require(changed != result.at("tasks").as_array().end() && changed->at("node_id") == node, ErrorCode::Corrupt,
+                            [&](const Json& item) { return item.at("task_id") == Json(subject); });
+                        require(changed != result.at("tasks").as_array().end() && changed->at("node_id") == Json(node), ErrorCode::Corrupt,
                             "AMEND subject has no individual committed transition");
                         proof["task_id"] = subject; proof["node_id"] = node;
                         proof["transition_sha256"] = sha256_hex(canonical_json(*changed));
@@ -819,7 +819,7 @@ Json Store::Impl::event_link_info(const Row& link) const {
         const auto inbox_id = source.at("inbox_id"); captured_ids.push_back(inbox_id);
         auto item = one("SELECT inbox_id,status,claim_id FROM event_inbox WHERE inbox_id=?", {inbox_id});
         const auto open = optional("SELECT link_id FROM n5_event_open_items WHERE inbox_id=?", {inbox_id});
-        item["open"] = open && open->at("link_id") == id; item["selected"] = n5_has_id(fact.at("selected_ids"), inbox_id.as_int64());
+        item["open"] = open && open->at("link_id") == Json(id); item["selected"] = n5_has_id(fact.at("selected_ids"), inbox_id.as_int64());
         items.emplace_back(std::move(item));
     }
     for (const auto& receipt : all("SELECT * FROM n5_event_receipts WHERE link_id=? ORDER BY ordinal", {id})) receipts.emplace_back(event_fact(receipt, 65536));
