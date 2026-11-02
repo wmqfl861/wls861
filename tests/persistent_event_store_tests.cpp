@@ -373,11 +373,18 @@ void t4_faults_never_commit_note_without_feedback_and_proof() {
         const auto response = f.observe(value, "note", Object{{"text", "must roll back atomically"}});
         f.store->settle_event_observation(text(value.link, "link_id"), response);
         const auto budget = f.store->budget(f.id); const auto task = f.task(); const auto feedbacks = scalar(f.path, "SELECT COUNT(*) FROM model_tool_feedback");
+        const auto raw_task = f.store->task(text(task, "task_id"));
+        Array joined_only, raw_only;
+        for (const auto& field : task.as_object()) if (!raw_task.as_object().contains(field.key())) joined_only.emplace_back(field.key());
+        for (const auto& field : raw_task.as_object()) if (!task.as_object().contains(field.key())) raw_only.emplace_back(field.key());
+        std::cout << "FIXTURE T4 task views joined_only=" << canonical_json(joined_only)
+                  << " raw_only=" << canonical_json(raw_only) << std::endl;
         sql(f.path, trigger);
         expect(ErrorCode::Storage, [&] { f.store->commit_event_action_and_finish(value.captured.actor, text(value.link, "link_id"), f.schemas); });
         CHECK(scalar(f.path, "SELECT COUNT(*) FROM ops") == 0);
         CHECK(scalar(f.path, "SELECT COUNT(*) FROM model_tool_feedback") == feedbacks);
-        CHECK(f.store->task(text(task, "task_id")) == task); CHECK(f.store->budget(f.id) == budget);
+        CHECK(f.store->task(text(task, "task_id")) == raw_task); CHECK(f.task() == task);
+        CHECK(f.store->budget(f.id) == budget);
         CHECK(scalar(f.path, "SELECT COUNT(*) FROM n5_event_open_items") == 2);
         sql(f.path, "DROP TRIGGER fail_tail");
         f.store->settle_event_observation(text(value.link, "link_id"), response); // evidence-only flush
