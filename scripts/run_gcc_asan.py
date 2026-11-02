@@ -672,8 +672,14 @@ def main(argv: list[str] | None = None) -> int:
             # A catchable interruption can arrive after the publisher's rename.
             # Preserve those bytes outside the exact CI upload directory.
             public = build / "public-evidence"
-            if public.exists():
-                public.rename(build / ("public-evidence-incomplete-" + uuid.uuid4().hex))
+            try:
+                if public.exists():
+                    public.rename(build / ("public-evidence-incomplete-" + uuid.uuid4().hex))
+            except (Exception, KeyboardInterrupt) as quarantine_error:
+                # Failure to quarantine must not suppress the final failure
+                # receipt. A surviving candidate cannot establish CI success.
+                summary["public_quarantine_error"] = str(quarantine_error) or type(quarantine_error).__name__
+                summary["failed_ci_required"] = True
             write_json(evidence / "summary.json", summary)
         os.umask(old_mask)
         print(f"{summary['status']}: {evidence / 'summary.json'}", flush=True)

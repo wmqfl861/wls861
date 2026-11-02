@@ -55,8 +55,10 @@ LSAN_OPTIONS 或其他 sanitizer 覆盖。`ASAN_OPTIONS=halt_on_error=1:detect_l
 `private-evidence/summary.json` 在公开投影返回前保持 NOT_COMPLETE。公开摘要来源为
 排他创建后不再改写的 `summary-publication-input.json`，其状态是拟发布结果，不是最终
 进程退出回执；公开索引指向该原件的实际字节/hash。只有发布成功返回后才写入最终摘要。
-能够收尾的异常/中断会使最终摘要为 NOT_COMPLETE，并将本次已命名的公开目录移到
-`public-evidence-incomplete-<随机值>/`，保留原字节但不匹配正常上传路径。
+能够收尾的异常/中断会使最终摘要为 NOT_COMPLETE，并尝试将本次已命名的公开目录移到
+`public-evidence-incomplete-<随机值>/`，保留原字节但不匹配正常上传路径。若隔离本身失败，
+仍独立写入最终 NOT_COMPLETE、`public_quarantine_error` 和 `failed_ci_required=true`，
+进程返回 1；此时可能残留已检查的候选公开目录，不能从其内容推导进程或 CI 成功。
 SIGKILL 等不可捕获终止无法保证任何时刻都完成这些收尾动作，必须结合真实进程退出码及
 外部 CI 结论判断；发布输入、单个摘要或 artifact 本身均不单独证明进程 exit 0。
 
