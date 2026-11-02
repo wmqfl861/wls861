@@ -454,7 +454,7 @@ void long_comment_preserves_raw_bytes_and_exact_line_boundary() {
     CHECK(result.response.status == ModelResultStatus::Completed);
     CHECK(result.response.text == "bounded comment 中😀");
     CHECK(result.raw_stream == bytes);
-    CHECK(result.evidence.at("raw_stream_sha256") == sha256_hex(bytes));
+    CHECK(std::string(result.evidence.at("raw_stream_sha256").as_string()) == sha256_hex(bytes));
     CHECK(result.evidence.at("parsed_stream_bytes") == bytes.size());
     CHECK(result.evidence.at("comment_lines") == 1);
     CHECK(result.evidence.at("events") == events.size());
@@ -473,7 +473,7 @@ void long_comment_preserves_raw_bytes_and_exact_line_boundary() {
     CHECK(rejected.response.binding == request.binding);
     CHECK(!rejected.response.usage.cost_micro_usd);
     CHECK(rejected.raw_stream == oversized);
-    CHECK(rejected.evidence.at("raw_stream_sha256") == sha256_hex(oversized));
+    CHECK(std::string(rejected.evidence.at("raw_stream_sha256").as_string()) == sha256_hex(oversized));
     CHECK(rejected.evidence.at("parsed_stream_bytes") == line.size() + 1);
     CHECK(!rejected.evidence.at("stream_complete").as_bool());
     CHECK(!rejected.evidence.at("response_usable").as_bool());
