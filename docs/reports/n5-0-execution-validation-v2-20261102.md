@@ -1,10 +1,10 @@
-# N5-0 执行验证 v2（主协调者待补齐草稿）
+# N5-0 执行验证 v2（本地执行 Agent 待补充草稿）
 
 本草稿记录已提交代码 `77cf51265211d9f766926dfb5e6aad59c1604d94` 的实际执行证据，
 不把该提交、单例绿侧或远端绿色等同于 N5-0 整批完成。首次正式本地 Release
 两种 `umask 0022 / 0002` 均已结束：**每轮 90 pass / 2 fail / 0 timeout / 0 skipped /
 0 notrun，各 CTest exit 8；matrix launcher exit 1**。PR18 两事件各六路远端工作流已
-完成并全部 success，但不关闭这两轮本地失败。主协调者须补入最终候选的后续完整矩阵。
+完成并全部 success，但不关闭这两轮本地失败。本地执行 Agent 须补入最终候选的后续完整矩阵。
 hosted 私有原件
 持久化仍为 **BLOCKED**。原 sanitizer 失败和历史报告保持原有状态。
 
@@ -93,7 +93,7 @@ UTF-8、深度、有限数、字节预算或既有业务权限检查。非作者
 GDB 包装器的返回码与目标 ELF 的退出码需要分别解释；超时后不得推定目标成功或失败。
 这些有重叠与缺尾证据限制的观察不用于受控因果比较。
 
-主协调者保留原件后修正私有 sampler，另建 v2；去除 GDB 是明确改变的诊断因素，
+本地执行 Agent 保留原件后修正私有 sampler，另建 v2；去除 GDB 是明确改变的诊断因素，
 不是事先采纳的根因。以下三个原单方法按受控顺序各执行一次，没有并行、重编译、
 放宽期限或重复直到变绿：
 
@@ -149,7 +149,7 @@ GCC 13、Release、`--parallel 2` 构建，并按已审查 92 注册清单串行
 | configure / build | exit 0 / 0；完整 build 2125.833 s |
 | Release `umask 0022` | **92 registrations；90 pass / 2 fail；CTest exit 8**；1948.131 s；源码和二进制前后身份相同 |
 | Release `umask 0002` | **92 registrations；90 pass / 2 fail；CTest exit 8**；751.213 s；源码和二进制前后身份相同 |
-| 最终 clean GCC ASan/LSan、UBSan、Clang 与集成矩阵 | **本草稿未取得本地完整完成回执；待主协调者补齐** |
+| 最终 clean GCC ASan/LSan、UBSan、Clang 与集成矩阵 | **本草稿未取得本地完整完成回执；待本地执行 Agent 补齐** |
 
 0022 完整 `LastTest.log` 为 252792 字节，SHA-256
 `237febde9607eb7807e574fd4218cd9ea375425e3b9e98589060b470b5e64c1c`；JUnit 105985 字节，
@@ -183,7 +183,7 @@ TASK/resources/runtime-manifest.json
 真正的 `TASK/n5-0/resources/runtime-manifest.json` 存在；build 中的
 `wls-runtime-manifest.json` 只是 configure 复制件，不是完整资源树，也不在候选路径。
 CMake 的完整 bundle 仅由 install 规则生成。单纯安装 bundle 仍不能满足 doctor 原例
-要求返回 root 等于 `SOURCE` 的断言。主协调者已决定下一正式构建采用共享 GCC runner/
+要求返回 root 等于 `SOURCE` 的断言。本地执行 Agent 已决定下一正式构建采用共享 GCC runner/
 CI 一致的 `SOURCE/build-*` 布局；不得在进行中旧 attempt 上移动 ELF、补资源或改断言。
 
 该结论由 `doctor-matrix-layout-diagnostic-01` 和
@@ -239,7 +239,7 @@ hosted 私有持久化仍缺已采纳的受限目的地、授权审阅者 ACL、
 身份与实际远端读回。当前本地 0700、仓库写权限、公开日志/源快照不替代这些前提。
 没有上传私有 bundle 或改名为“私有”的公开 artifact。
 
-## 当前状态与主协调者待补项
+## 当前状态与本地执行 Agent 待补项
 
 以下状态针对 N5-0 整批及代码提交 `77cf512`，不针对本报告草稿的发布：
 
@@ -252,7 +252,7 @@ hosted 私有持久化仍缺已采纳的受限目的地、授权审阅者 ACL、
 | PR_REVIEW_COMPLETE | false，Draft PR；源代码非作者阅读不等于正式批准 |
 | MERGED | false |
 
-主协调者后续应在新证据上补入：布局正确的最终候选完整矩阵、原 sanitizer/历史兼容
-及计费 E2E 边界、最终整合提交的源码/ELF/CI 清单，以及正式审阅/持久化政策决策。
+本地执行 Agent 后续应在新证据上补入：布局正确的最终候选完整矩阵、原 sanitizer/历史兼容
+及计费 E2E 边界、最终整合提交的源码/ELF/CI 清单。正式审阅与持久化政策决策仍由主协调者负责。
 保留本稿引用的全部原失败、超时和诊断限制。
 不从这批结果推断真实模型或付费调用授权。
