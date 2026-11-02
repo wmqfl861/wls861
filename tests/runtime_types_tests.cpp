@@ -7,6 +7,7 @@
 #include <mutex>
 #include <set>
 #include <thread>
+#include <vector>
 
 namespace {
 using namespace wls::s1;
@@ -35,6 +36,37 @@ void canonical_and_digest() {
     CHECK(sha256_hex(std::string("a\0b", 3)) != sha256_hex("a"));
     test::throws<Error>([] { (void)canonical_json(Json(std::numeric_limits<double>::infinity())); });
     test::throws<Error>([] { (void)canonical_json(Json(std::string(1, static_cast<char>(0xff)))); });
+}
+
+void canonical_strings_keep_original_boost_bytes_and_utf8_guards() {
+    std::string ascii;
+    for (unsigned int byte = 0; byte < 128; ++byte) ascii.push_back(static_cast<char>(byte));
+    const std::vector<std::string> strings{
+        "", ascii, "\"\\\b\f\n\r\t/", "中文😀\x7f\xc2\x80\xdf\xbf\xe0\xa0\x80\xef\xbf\xbf\xf0\x90\x80\x80\xf4\x8f\xbf\xbf",
+        "early\n" + std::string(900000, 'p'), std::string(32768, '\x01'),
+        std::string(32768, '\\') + "\nend", std::string("nul\0tail", 8)};
+    for (const auto& text : strings) {
+        const Json value(text);
+        const auto expected = boost::json::serialize(value);
+        CHECK(canonical_json(value) == expected);
+        CHECK(parse_json_strict(canonical_json(value)) == value);
+        // A one-key object also compares the key spelling with the original
+        // library, including embedded NUL, all controls and Unicode boundaries.
+        const Json object = boost::json::object{{text, value}};
+        CHECK(canonical_json(object) == boost::json::serialize(object));
+        CHECK(parse_json_strict(canonical_json(object), 8U * 1024U * 1024U) == object);
+    }
+    const std::vector<std::string> invalid{
+        "\x80", "\xc0\xaf", "\xc2", "\xe0\x80\x80", "\xed\xa0\x80",
+        "\xf0\x80\x80\x80", "\xf4\x90\x80\x80", "\xf5\x80\x80\x80", "\xff"};
+    for (const auto& text : invalid) {
+        for (const auto& prefix : {std::string{}, std::string("escaped\n")}) {
+            test::throws<Error>([&] { (void)canonical_json(Json(prefix + text)); });
+            test::throws<Error>([&] {
+                (void)canonical_json(boost::json::object{{prefix + text, "value"}});
+            });
+        }
+    }
 }
 
 void decimal_money_limits_do_not_lose_microdollars() {
@@ -139,6 +171,7 @@ int main() {
     return test::run({
         {"strict JSON rejects duplicates, bad UTF-8 and non-finite input", strict_json},
         {"canonical bytes and SHA-256 preserve content identity", canonical_and_digest},
+        {"canonical string spans preserve Boost bytes and UTF-8 rejection", canonical_strings_keep_original_boost_bytes_and_utf8_guards},
         {"decimal money limits preserve every cent and round down sub-micro amounts", decimal_money_limits_do_not_lose_microdollars},
         {"catalog input shape rejects missing keys and wrong types as invalid input", catalog_shape_errors_are_user_errors},
         {"typed ULIDs are monotonic and unique across threads", typed_ulids},

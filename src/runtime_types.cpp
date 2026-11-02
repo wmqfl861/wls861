@@ -65,6 +65,38 @@ struct UniqueKeys {
     bool on_comment(View, ParseError&) { return true; }
 };
 
+void append_quoted(View text, std::string& out) {
+    // Keep the default Boost.JSON spelling, but append ordinary spans together.
+    // Its resumable serializer stays in the character-at-a-time escape path
+    // after an early newline, including a large otherwise unescaped tail.
+    // canonical_json still validates the complete result with Boost.JSON below.
+    constexpr char hex[] = "0123456789abcdef";
+    out.push_back('"');
+    std::size_t first = 0;
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        const auto byte = static_cast<unsigned char>(text[index]);
+        if (byte >= 0x20U && byte != '"' && byte != '\\') continue;
+        out.append(text.data() + first, index - first);
+        switch (byte) {
+        case '"': out += "\\\""; break;
+        case '\\': out += "\\\\"; break;
+        case '\b': out += "\\b"; break;
+        case '\f': out += "\\f"; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default:
+            out += "\\u00";
+            out.push_back(hex[byte >> 4U]);
+            out.push_back(hex[byte & 15U]);
+            break;
+        }
+        first = index + 1;
+    }
+    if (first < text.size()) out.append(text.data() + first, text.size() - first);
+    out.push_back('"');
+}
+
 void append_canonical(const Json& value, std::string& out, std::size_t depth) {
     if (depth > 128) throw Error(ErrorCode::InvalidInput, "JSON exceeds canonical depth limit");
     if (value.is_object()) {
@@ -78,7 +110,7 @@ void append_canonical(const Json& value, std::string& out, std::size_t depth) {
         for (const auto* member : entries) {
             if (!first) out.push_back(',');
             first = false;
-            out += boost::json::serialize(member->key());
+            append_quoted(member->key(), out);
             out.push_back(':');
             append_canonical(member->value(), out, depth + 1);
         }
@@ -92,6 +124,8 @@ void append_canonical(const Json& value, std::string& out, std::size_t depth) {
             append_canonical(element, out, depth + 1);
         }
         out.push_back(']');
+    } else if (value.is_string()) {
+        append_quoted(value.as_string(), out);
     } else {
         if (value.is_double() && !std::isfinite(value.as_double()))
             throw Error(ErrorCode::InvalidInput, "non-finite JSON number");
