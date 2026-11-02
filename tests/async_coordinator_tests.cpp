@@ -1114,6 +1114,8 @@ int main() {
         {"failed settlement retains response and retries evidence only", persistence_failure_retains_result_and_only_retries_evidence},
         {"shutdown joins before Store destruction and restart keeps UNKNOWN", shutdown_joins_and_restart_preserves_unknown},
         {"adapter exceptions thread ownership and long-tool refusal", adapter_exception_and_unsupported_long_tool_are_bounded},
+        {"adapter exception preserves original evidence before cross-pool FIFO release", adapter_exception_releases_resource_only_after_original_evidence},
+        {"adapter exception persistence failure fences its cross-pool successor", adapter_exception_persistence_failure_keeps_cross_pool_successor_fenced},
         {"foreign thread destruction releases the claim waiter without Store access", foreign_thread_destruction_cannot_deadlock_a_claim_waiter},
         {"queued Worker wait and UNKNOWN prevent first permission", queued_worker_wait_and_unknown_cannot_acquire_permission},
         {"feedback persistence failure fences an already committed effect", failed_feedback_after_committed_effect_fences_without_reexecution},
