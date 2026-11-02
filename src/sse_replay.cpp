@@ -30,8 +30,8 @@ void require(bool condition, const std::string& message) {
     if (!condition) throw ReplayFailure("invalid_sse", message);
 }
 
-void within(bool condition, const std::string& message) {
-    if (!condition) throw ReplayFailure("stream_limit", message);
+void within(bool condition, std::string_view message) {
+    if (!condition) throw ReplayFailure("stream_limit", std::string(message));
 }
 
 const Object& object(const Json& value) {
