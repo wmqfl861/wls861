@@ -1,0 +1,150 @@
+{
+  "schema": "wls861-coordinator-audit-evidence-v1",
+  "reviewed_commit": "4289589384d75f29d42233cbaad256ceb711e9bf",
+  "environment": {"location": "isolated ChatGPT Debian Linux container, NOT user Ubuntu server", "uid": 1000, "compiler": "GNU 14.2.0", "build_type": "Debug -O0 -g0", "sanitizers": "OFF"},
+  "source_verification": {"tree": "75c8c9f703ca6560d5f9b0095095dacb80d0642b", "files": 801, "bytes": 38607330, "source_artifact_id": 13081626278, "source_zip_sha256": "9d60a5359cb7884e6eacd53a18cb63c85419b27fdf39428b1ce75f4df3810bba"},
+  "source_after": {"expected_files": 801, "changed_paths": [], "all_original_source_bytes_and_modes_unchanged": true},
+  "remote_asan": {
+    "head": "4289589384d75f29d42233cbaad256ceb711e9bf",
+    "run_id": 41301131765,
+    "artifact_id": 13082461326,
+    "zip_sha256": "efa93e89255f1f3da355901cd7300e486dcf07b02d0cd5b5cbd22ac4aed9450c",
+    "source_files_checked": 801,
+    "build_manifest_entries_equal": 61,
+    "remote_executable_payloads_available": false,
+    "junit_pass": 92,
+    "step_exit_codes": [0,0,0,0,0,0,0,0,0],
+    "original_log_hashes_checked": true,
+    "reviewed_names_and_timeouts_match": true,
+    "catalog": "tests/gcc_asan_expected_tests.json",
+    "full_LastTest_exported": false
+  },
+  "published_evidence": {
+    "index_file_identities_checked": 8,
+    "archives": [
+      {"path": "docs/reports/zcode-native-diagnostics-receipts-20261101.zip", "members": 174, "safe_paths_and_utf8": true, "members_total_bytes": 659411},
+      {"path": "docs/reports/store-event-command-bytes-receipts-20261101-public-v2.zip", "members": 93, "safe_paths_and_utf8": true, "members_total_bytes": 1018943},
+      {"path": "docs/reports/zcode-final-validation-evidence-20261101-v2.zip", "members": 572, "safe_paths_and_utf8": true, "members_total_bytes": 12773042}
+    ],
+    "scope": "Published bytes, index identities, safe member paths and UTF-8 only; original private source projections not independently verified.",
+    "parsed_local_junit": {"ASan": {"passed":48,"failed":2,"timeout":42,"skipped":0,"notrun":0}, "UBSan": {"passed":64,"failed":2,"timeout":26,"skipped":0,"notrun":0}}
+  },
+  "runs": [
+    {
+      "name": "configure",
+      "argv": ["cmake","-S","/mnt/data/wls861_audit_20261101/current","-B","/mnt/data/wls861_audit_20261101/build-current","-DCMAKE_BUILD_TYPE=Debug","-DCMAKE_CXX_FLAGS_DEBUG=-O0 -g0","-DCMAKE_CXX_COMPILER=/usr/bin/g++","-DWLS_ENABLE_ASAN=OFF","-DWLS_ENABLE_UBSAN=OFF","-DCURL_LIBRARY=/usr/lib/x86_64-linux-gnu/libcurl.so","-DCURL_INCLUDE_DIR=/usr/include/x86_64-linux-gnu","-DPython3_EXECUTABLE=/opt/pyvenv/bin/python3"],
+      "cwd": "/mnt/data/wls861_audit_20261101/current", "uid":1000,
+      "started_at":"2026-11-01T23:55:17.343080+00:00", "ended_at":"2026-11-01T23:55:27.407344+00:00",
+      "exit_code":0, "seconds":10.064299821999981,
+      "log_sha256":"cbac0629c534629ba13901188f131461576db097d00de89df7e3c1d08cdcdcb3"
+    },
+    {
+      "name":"build",
+      "argv":["cmake","--build","/mnt/data/wls861_audit_20261101/build-current","--parallel","2","--target","async_coordinator_tests","scheduler_tests","store_tests","event_store_tests","runtime_types_tests","r24_recovery_tests"],
+      "cwd":"/mnt/data/wls861_audit_20261101/current", "uid":1000,
+      "started_at":"2026-11-01T23:55:27.408184+00:00", "ended_at":"2026-11-01T23:57:05.466483+00:00",
+      "exit_code":0, "seconds":98.05826137200003,
+      "log_sha256":"dc5169ecac41cc702a3d7fd40f32ce62caec07baf52d066181a3592c5b892052"
+    },
+    {
+      "name":"existing-ctest",
+      "argv":["ctest","--test-dir","/mnt/data/wls861_audit_20261101/build-current","--output-on-failure","--parallel","1","--no-tests=error","--output-junit","/mnt/data/wls861_audit_20261101/execution/ctest.xml","-R","^(scheduler|async_coordinator|store|event_store|runtime_types|r24_recovery)$"],
+      "cwd":"/mnt/data/wls861_audit_20261101/current", "uid":1000,
+      "started_at":"2026-11-01T23:57:05.467025+00:00", "ended_at":"2026-11-01T23:57:39.590852+00:00",
+      "exit_code":0, "seconds":34.123759585000016,
+      "log_sha256":"028aa52590d637e40ac2c2bf5b3c0b75a17a0089d849f7eec1ae23de93023e23",
+      "original_log_text":"Internal ctest changing into directory: /mnt/data/wls861_audit_20261101/build-current\nTest project /mnt/data/wls861_audit_20261101/build-current\n    Start  5: scheduler\n1/6 Test  #5: scheduler ........................   Passed    0.02 sec\n    Start  7: runtime_types\n2/6 Test  #7: runtime_types ....................   Passed    0.10 sec\n    Start  9: store\n3/6 Test  #9: store ............................   Passed    4.99 sec\n    Start 10: event_store\n4/6 Test #10: event_store ......................   Passed    2.01 sec\n    Start 36: r24_recovery\n5/6 Test #36: r24_recovery .....................   Passed    8.48 sec\n    Start 51: async_coordinator\n6/6 Test #51: async_coordinator ................   Passed   18.46 sec\n\n100% tests passed, 0 tests failed out of 6\n\nTotal Test time (real) =  34.07 sec\n",
+      "internal_methods":{"scheduler":9,"runtime_types":6,"store":32,"event_store":15,"r24_recovery":17,"async_coordinator":29}
+    },
+    {
+      "name":"old-probe-build",
+      "argv":["/usr/bin/g++","-std=c++20","-O0","-g0","-pthread","-Wall","-Wextra","-Wpedantic","-Wconversion","-Wshadow","-Werror","-DWLS_SOURCE_DIR=\"/mnt/data/wls861_audit_20261101/current\"","-I/mnt/data/wls861_audit_20261101/current/include","-I/mnt/data/wls861_audit_20261101/current/tests","/mnt/data/wls861_audit_20261101/old_review_evidence/independent_async_repros.cpp","/mnt/data/wls861_audit_20261101/build-current/libwls_s1.a","/mnt/data/wls861_audit_20261101/build-current/libwls_kernel.a","-lsqlite3","-lcrypto","/usr/lib/x86_64-linux-gnu/libcurl.so","-l:libyaml-0.so.2","-o","/mnt/data/wls861_audit_20261101/execution/old-probe"],
+      "cwd":"/mnt/data/wls861_audit_20261101/current", "uid":1000,
+      "started_at":"2026-11-01T23:57:39.591554+00:00", "ended_at":"2026-11-01T23:57:49.775081+00:00",
+      "exit_code":0, "seconds":10.18343659499999,
+      "log_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "probe_source_sha256":"aec4981953945e2e714564623cb15006bec97d4703ca6d02a4baa3c6595f8f84"
+    },
+    {
+      "name":"old-probe-amend",
+      "argv":["/mnt/data/wls861_audit_20261101/execution/old-probe","amend"],
+      "cwd":"/mnt/data/wls861_audit_20261101/current", "uid":1000,
+      "started_at":"2026-11-01T23:57:49.775538+00:00", "ended_at":"2026-11-01T23:57:49.989943+00:00",
+      "exit_code":0, "seconds":0.21441382500000827,
+      "log_sha256":"88470d71cb1d6f1ba2edadd4899404a13e3b1f31e6a789dc2497aebdc9703fab",
+      "original_log_text":"START exact AMEND replay does not stop a new-generation call\nAMEND_REPLAY original_result_equal=true request_unchanged=true budget_unchanged=true new_call_stop_requested=0\nPASS exact AMEND replay does not stop a new-generation call\nRESULT 1 passed, 0 failed\n"
+    },
+    {
+      "name":"old-probe-cycle",
+      "argv":["/mnt/data/wls861_audit_20261101/execution/old-probe","cycle"],
+      "cwd":"/mnt/data/wls861_audit_20261101/current", "uid":1000,
+      "started_at":"2026-11-01T23:57:49.990620+00:00", "ended_at":"2026-11-01T23:57:50.960178+00:00",
+      "exit_code":0, "seconds":0.9694786400000339,
+      "log_sha256":"017e9fc92f5463ab2e2283acc19f4ff9be69a3e25cc9b805342d87a3a536136b",
+      "original_log_text":"START cross-pool FIFO does not deadlock fair normal slots\nCROSS_POOL_FIFO cycle=0 awaiting=0 queued=0 executing=0 resource_blocked=0 managers_normal_running=0 workers_normal_running=0\nPASS cross-pool FIFO does not deadlock fair normal slots\nRESULT 1 passed, 0 failed\n"
+    },
+    {
+      "name":"event-probe-build",
+      "argv":["/usr/bin/g++","-std=c++20","-O0","-g0","-pthread","-Wall","-Wextra","-Wpedantic","-Wconversion","-Wshadow","-Werror","-DWLS_SOURCE_DIR=\"/mnt/data/wls861_audit_20261101/current\"","-I/mnt/data/wls861_audit_20261101/current/include","-I/mnt/data/wls861_audit_20261101/current/tests","/mnt/data/wls861_audit_20261101/current/tests/repros/store_event_serialization_same_source.cpp","/mnt/data/wls861_audit_20261101/build-current/libwls_s1.a","/mnt/data/wls861_audit_20261101/build-current/libwls_kernel.a","-lsqlite3","-lcrypto","/usr/lib/x86_64-linux-gnu/libcurl.so","-l:libyaml-0.so.2","-Wl,--wrap=_ZN3wls2s114canonical_jsonB5cxx11ERKN5boost4json5valueE","-o","/mnt/data/wls861_audit_20261101/execution/event-probe"],
+      "cwd":"/mnt/data/wls861_audit_20261101/current", "uid":1000,
+      "started_at":"2026-11-01T23:57:50.962383+00:00", "ended_at":"2026-11-01T23:57:58.248279+00:00",
+      "exit_code":0, "seconds":7.285943748000022,
+      "log_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name":"event-probe",
+      "argv":["/mnt/data/wls861_audit_20261101/execution/event-probe"],
+      "cwd":"/mnt/data/wls861_audit_20261101/current", "uid":1000,
+      "started_at":"2026-11-01T23:57:58.248838+00:00", "ended_at":"2026-11-01T23:57:58.362993+00:00",
+      "exit_code":0, "seconds":0.11416424500004041,
+      "log_sha256":"032319c38ccc317cc4bbf01180c628e323b473de3b41585017079345a2dcbfd7",
+      "original_log_text":"START store event serializes its original plan command once\nEVENT_COMMAND_SERIALIZATIONS=1\nEVENT_COMMAND_SERIALIZATIONS_REPLAY=1\nPASS store event serializes its original plan command once\nRESULT 1 passed, 0 failed\n"
+    },
+    {
+      "name":"runner-selfcheck", "argv":["/opt/pyvenv/bin/python3","-B","tests/test_run_gcc_asan.py"],
+      "cwd":"/mnt/data/wls861_audit_20261101/current", "uid":1000,
+      "started_at":"2026-11-01T23:57:58.363385+00:00", "ended_at":"2026-11-01T23:58:00.761023+00:00",
+      "exit_code":0, "seconds":2.397637201000009, "tool_methods_passed":24,
+      "log_sha256":"3afcdeef876cf35d15a957abc53f793c67389adf47b96405f71726c1f1295575"
+    },
+    {
+      "name":"immediate-selfcheck", "argv":["/opt/pyvenv/bin/python3","-B","tests/test_immediate_unittest.py"],
+      "cwd":"/mnt/data/wls861_audit_20261101/current", "uid":1000,
+      "started_at":"2026-11-01T23:58:00.761477+00:00", "ended_at":"2026-11-01T23:58:02.687695+00:00",
+      "exit_code":0, "seconds":1.9262171799999805, "tool_methods_passed":4,
+      "log_sha256":"d22257955352f9c4f2769907e9f49b1845371dc20727503055e31482f9a8a5ff"
+    },
+    {
+      "name":"transport-selfcheck", "argv":["/opt/pyvenv/bin/python3","-B","tests/test_transport_test_observation.py"],
+      "cwd":"/mnt/data/wls861_audit_20261101/current", "uid":1000,
+      "started_at":"2026-11-01T23:58:02.688170+00:00", "ended_at":"2026-11-01T23:58:04.037998+00:00",
+      "exit_code":0, "seconds":1.3497570540000083, "tool_methods_passed":11,
+      "log_sha256":"e21cf47c9914026bf1940cb48f40d4947b0c107d3cd09e09dfecf8ac5509d214"
+    },
+    {
+      "name":"fairness-selfcheck", "argv":["/opt/pyvenv/bin/python3","-B","tests/test_a4_fairness_gate.py"],
+      "cwd":"/mnt/data/wls861_audit_20261101/current", "uid":1000,
+      "started_at":"2026-11-01T23:58:04.038658+00:00", "ended_at":"2026-11-01T23:58:05.107767+00:00",
+      "exit_code":0, "seconds":1.069136159999971, "tool_methods_passed":9,
+      "log_sha256":"150f11885de464ec62bd6c53a4b937f17c5020c2fb44c7a5e67a99ee1fd075b6"
+    },
+    {
+      "name":"offline-contract", "argv":["/opt/pyvenv/bin/python3","-B","tests/r3_offline_acceptance_tests.py","/mnt/data/wls861_audit_20261101/current"],
+      "cwd":"/mnt/data/wls861_audit_20261101/current", "uid":1000,
+      "started_at":"2026-11-01T23:58:05.108475+00:00", "ended_at":"2026-11-01T23:58:06.939708+00:00",
+      "exit_code":0, "seconds":1.8312331740000332, "contract_methods_passed":9,
+      "log_sha256":"3f94e352cada9e2a7187f87c26177693fbc0ddc98a19715a1016c2006899503d"
+    }
+  ],
+  "audit_helper_correction": {"initial_order_sensitive_comparison_failed":true,"cause":"Compared sorted registration array to catalog with appended entries, not to a name-keyed map.","subsequent_name_timeout_map_comparison_equal":true,"product_inputs_changed":false,"classification":"audit helper correction, not product failure or rerun"},
+  "decision":{"R-A3-01":"VERIFIED_FIXED_SCOPED","R-A4-01":"VERIFIED_FIXED_SCOPED","overall_acceptance":"VALIDATION_BLOCKED","merge_authorized":false},
+  "limits":[
+    "Only six of 92 CTest registrations executed here; not full product validation.",
+    "Unchanged old audit probes ran only on the new implementation this turn; old red execution is prior evidence.",
+    "Tool selfchecks are not product or sanitizer tests.",
+    "PR13-specific fifth diagnostic test not executed in this audit.",
+    "No user server/private original log source/Windows machine/real supplier or paid WLS runtime access.",
+    "Remote executable payloads absent; manifests checked, not ELF/PE rehashed.",
+    "Not all 17 remote jobs independently reread; Push six job statuses and one exact SHA ASan artifact checked."
+  ]
+}
