@@ -83,6 +83,9 @@ jobs:
       - name: Check shared GCC ASan runner contracts
         if: matrix.name == 'strict' || matrix.name == 'ASan'
         run: .local/test-venv/bin/python tests/test_run_gcc_asan.py
+      - name: Check local private evidence capture and bundle integrity
+        if: matrix.name == 'strict'
+        run: .local/test-venv/bin/python -B tests/test_private_evidence.py
       - name: Check immediate failure diagnostics survive suite interruption
         if: matrix.name == 'strict' || matrix.name == 'ASan'
         run: .local/test-venv/bin/python -B tests/test_immediate_unittest.py
