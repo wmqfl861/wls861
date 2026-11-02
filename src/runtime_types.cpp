@@ -65,18 +65,48 @@ struct UniqueKeys {
     bool on_comment(View, ParseError&) { return true; }
 };
 
+// Match the original DOM parser's limits and syntax/UTF-8 checks without
+// allocating another copy of the already serialized value. This validator
+// intentionally does not use UniqueKeys' separate strict-input size limits.
+struct CanonicalValidation {
+    static constexpr std::size_t max_array_size = boost::json::array::max_size();
+    static constexpr std::size_t max_object_size = boost::json::object::max_size();
+    static constexpr std::size_t max_string_size = boost::json::string::max_size();
+    static constexpr std::size_t max_key_size = boost::json::string::max_size();
+    bool on_document_begin(ParseError&) { return true; }
+    bool on_document_end(ParseError&) { return true; }
+    bool on_array_begin(ParseError&) { return true; }
+    bool on_array_end(std::size_t, ParseError&) { return true; }
+    bool on_object_begin(ParseError&) { return true; }
+    bool on_object_end(std::size_t, ParseError&) { return true; }
+    bool on_string_part(View, std::size_t, ParseError&) { return true; }
+    bool on_string(View, std::size_t, ParseError&) { return true; }
+    bool on_key_part(View, std::size_t, ParseError&) { return true; }
+    bool on_key(View, std::size_t, ParseError&) { return true; }
+    bool on_number_part(View, ParseError&) { return true; }
+    bool on_int64(std::int64_t, View, ParseError&) { return true; }
+    bool on_uint64(std::uint64_t, View, ParseError&) { return true; }
+    bool on_double(double, View, ParseError&) { return true; }
+    bool on_bool(bool, ParseError&) { return true; }
+    bool on_null(ParseError&) { return true; }
+    bool on_comment_part(View, ParseError&) { return true; }
+    bool on_comment(View, ParseError&) { return true; }
+};
+
 void append_quoted(View text, std::string& out) {
     // Keep the default Boost.JSON spelling, but append ordinary spans together.
     // Its resumable serializer stays in the character-at-a-time escape path
     // after an early newline, including a large otherwise unescaped tail.
     // canonical_json still validates the complete result with Boost.JSON below.
     constexpr char hex[] = "0123456789abcdef";
+    const auto* data = text.data();
+    const auto size = text.size();
     out.push_back('"');
     std::size_t first = 0;
-    for (std::size_t index = 0; index < text.size(); ++index) {
-        const auto byte = static_cast<unsigned char>(text[index]);
+    for (std::size_t index = 0; index < size; ++index) {
+        const auto byte = static_cast<unsigned char>(data[index]);
         if (byte >= 0x20U && byte != '"' && byte != '\\') continue;
-        out.append(text.data() + first, index - first);
+        out.append(data + first, index - first);
         switch (byte) {
         case '"': out += "\\\""; break;
         case '\\': out += "\\\\"; break;
@@ -93,7 +123,7 @@ void append_quoted(View text, std::string& out) {
         }
         first = index + 1;
     }
-    if (first < text.size()) out.append(text.data() + first, text.size() - first);
+    if (first < size) out.append(data + first, size - first);
     out.push_back('"');
 }
 
@@ -217,9 +247,11 @@ std::string canonical_json(const Json& value) {
     // Program-created strings also need UTF-8 validation before hashing/storing.
     boost::json::parse_options options;
     options.max_depth = 128;
+    boost::json::basic_parser<CanonicalValidation> check(options);
     ParseError ec;
-    static_cast<void>(boost::json::parse(result, ec, {}, options));
-    if (ec) throw Error(ErrorCode::InvalidInput, "canonical JSON contains invalid UTF-8 or structure");
+    const auto consumed = check.write_some(false, result.data(), result.size(), ec);
+    if (ec || consumed != result.size())
+        throw Error(ErrorCode::InvalidInput, "canonical JSON contains invalid UTF-8 or structure");
     return result;
 }
 

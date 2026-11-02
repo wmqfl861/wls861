@@ -1214,8 +1214,8 @@ public:
                     const FrozenRequestConfig* reservation_config = nullptr) const {
         std::optional<FrozenRequestConfig> restored;
         if (reservation_config) {
-            // Only reserve_attempt supplies its already validated local
-            // snapshot from this transaction. Match the authorized row
+            // Reservation and persistent-note steps supply an already
+            // validated local snapshot from this transaction. Match the authorized row
             // exactly; nothing is cached across Store calls.
             require(reservation_config->sha256() == str(r, "config_snapshot_sha256") &&
                     reservation_config->serialize() == str(r, "config_snapshot"),
@@ -1742,16 +1742,21 @@ public:
     Json issue_instruction_in_transaction(const StoreActor& actor, const ExecutionBinding& frozen,
         std::int64_t expected, const Json& body, const std::string& command_id);
     Json start_operation_in_transaction(const StoreActor& actor, const std::string& id,
-                            std::int64_t expected, const std::string& command_id);
+                            std::int64_t expected, const std::string& command_id,
+                            const FrozenRequestConfig* reservation_config = nullptr);
     Json finish_operation_in_transaction(const StoreActor& actor, const std::string& id,
         const ExecutionBinding& frozen, std::int64_t expected, const std::string& outcome,
         const std::string& evidence, const std::string& command_id);
-    Json claim_offline_call_in_transaction(const StoreActor& actor, const std::string& attempt_id);
+    class EventLinkReadContext;
+    Json claim_offline_call_in_transaction(const StoreActor& actor, const std::string& attempt_id,
+                            EventLinkReadContext* reads = nullptr);
     Json reserve_attempt_in_transaction(const StoreActor& actor, const ExecutionBinding& frozen,
-                            const AttemptReservation& reservation);
+                            const AttemptReservation& reservation,
+                            const FrozenRequestConfig* reservation_config = nullptr);
     Json prepare_operation_in_transaction(const StoreActor& actor, const ExecutionBinding& frozen,
         std::int64_t expected, const std::string& business_key, const std::string& tool_id,
-        const Json& arguments, const std::string& side_effect, const std::string& command_id, bool registered);
+        const Json& arguments, const std::string& side_effect, const std::string& command_id, bool registered,
+        const FrozenRequestConfig* reservation_config = nullptr);
 
     sqlite3* db{};
     int lease_fd{-1};
@@ -1794,8 +1799,33 @@ public:
     Row event_claim_snapshot(const std::string& claim_id) const;
     void event_claim_current(const StoreActor& actor, const Row& snapshot) const;
     Row event_link_row(const std::string& link_id) const;
-    void verify_event_link(const Row& link) const;
-    void event_link_current(const StoreActor& actor, const Row& link) const;
+    // Call-local only: every use matches the actual bytes read again from
+    // SQLite. Receipts, projections, authorization and CAS are always checked
+    // afresh. No result survives a public call or crosses a transaction.
+    class EventLinkReadContext {
+    public:
+        const ModelRequest& request(const std::string& bytes) {
+            if (!request_ || envelope_ != bytes) {
+                auto parsed = model_request_from_json(parse_json_strict(bytes, 4U * 1024U * 1024U));
+                envelope_ = bytes;
+                request_ = std::move(parsed);
+            }
+            return *request_;
+        }
+        const FrozenRequestConfig& config(const Row& row) {
+            const auto bytes = str(row, "config_snapshot");
+            const auto hash = str(row, "config_snapshot_sha256");
+            if (!config_ || config_->serialize() != bytes || config_->sha256() != hash)
+                config_ = FrozenRequestConfig::restore(bytes, hash);
+            return *config_;
+        }
+    private:
+        std::string envelope_;
+        std::optional<ModelRequest> request_;
+        std::optional<FrozenRequestConfig> config_;
+    };
+    void verify_event_link(const Row& link, EventLinkReadContext* reads = nullptr) const;
+    void event_link_current(const StoreActor& actor, const Row& link, EventLinkReadContext* reads = nullptr) const;
     Json event_receipt(const std::string& link_id, const std::string& kind) const;
     void append_event_receipt(const Row& link, const std::string& kind, const Json& fact);
     std::int64_t event_metadata_bytes(const std::string& request_id) const;
@@ -1805,7 +1835,7 @@ public:
     void guard_event_tail_capacity(const std::string& request_id, const std::string& command_id = {}, const Row* command = nullptr) const;
     bool event_item_targets(const Row& source, const Json& fact) const;
     void event_amendment_targets_current(const Json& fact) const;
-    Json event_link_info(const Row& link) const;
+    Json event_link_info(const Row& link, EventLinkReadContext* reads = nullptr) const;
     bool has_unsettled_model(const std::string& id, const std::string& team_id = {}) const;
     void live_accounting_ready(const std::string& request_id, const std::string& excluding = {}) const;
     void initialize_usage_projection(const Row& original);
@@ -3311,7 +3341,8 @@ Json Store::Impl::prepare_operation(const StoreActor& actor, const ExecutionBind
 
 Json Store::Impl::prepare_operation_in_transaction(const StoreActor& actor, const ExecutionBinding& frozen,
         std::int64_t expected, const std::string& business_key, const std::string& tool_id,
-        const Json& arguments, const std::string& side_effect, const std::string& command_id, bool registered) {
+        const Json& arguments, const std::string& side_effect, const std::string& command_id, bool registered,
+        const FrozenRequestConfig* reservation_config) {
     require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
     text_field(business_key, "business idempotency key"); text_field(tool_id, "tool id");
     require(side_effect == "none" || side_effect == "workspace" || side_effect == "external", ErrorCode::InvalidInput, "invalid side-effect class");
@@ -3324,7 +3355,7 @@ Json Store::Impl::prepare_operation_in_transaction(const StoreActor& actor, cons
     if (registered) {
         require_tools_schema();
         (void)authorize(actor, {Role::Worker}); matches(frozen);
-        tool_grant(request_row(actor.request_id), team_row(actor.team_id), tool_id);
+        tool_grant(request_row(actor.request_id), team_row(actor.team_id), tool_id, reservation_config);
     }
     if (auto old = replay(actor.request_id, command_id, command)) {
         const auto result = registered ? exposed(op_row(str(old->as_object(), "op_id"))) : *old;
@@ -3338,7 +3369,7 @@ Json Store::Impl::prepare_operation_in_transaction(const StoreActor& actor, cons
         if (!registered) for (const auto& field : frozen_document.as_object()) require(existing->at(field.key()) == field.value(), ErrorCode::Conflict, "business key reused with different execution binding");
         const auto result = exposed(op_row(str(*existing, "op_id"))); return result;
     }
-    ready(actor, frozen, tool_id);
+    ready(actor, frozen, tool_id, reservation_config);
     if (registered && side_effect == "workspace")
         require(!workspace_info(actor.team_id).is_null(), ErrorCode::NotReady, "team workspace has not been bound");
     const auto r = request_row(actor.request_id);
@@ -3383,7 +3414,8 @@ Json Store::start_operation(const StoreActor& actor, const std::string& id,
 }
 
 Json Store::Impl::start_operation_in_transaction(const StoreActor& actor, const std::string& id,
-                            std::int64_t expected, const std::string& command_id) {
+                            std::int64_t expected, const std::string& command_id,
+                            const FrozenRequestConfig* reservation_config) {
     require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
     const auto command = payload(actor, "start_op", Row{{"op_id", id}, {"expected_op_version", expected}});
     (void)authorize(actor, {Role::Worker}, false);
@@ -3393,7 +3425,7 @@ Json Store::Impl::start_operation_in_transaction(const StoreActor& actor, const 
     Row binding_fields;
     const auto current_document = to_json(binding(actor.task_id));
     for (const auto& field : current_document.as_object()) binding_fields[field.key()] = op.at(field.key());
-    ready(actor, execution_binding_from_json(binding_fields), str(op, "tool_id"));
+    ready(actor, execution_binding_from_json(binding_fields), str(op, "tool_id"), reservation_config);
     require(str(op, "status") == "PREPARED", ErrorCode::NotReady, "only a PREPARED operation may dispatch");
     cas("UPDATE ops SET status='RUNNING',state_version=state_version+1,started_at=? WHERE op_id=? AND state_version=?", {stamp(), id, expected});
     const auto result = exposed(op_row(id));
@@ -3820,7 +3852,8 @@ Json Store::claim_offline_call(const StoreActor& actor, const std::string& attem
     tx.commit(); return value;
 }
 
-Json Store::Impl::claim_offline_call_in_transaction(const StoreActor& actor, const std::string& attempt_id) {
+Json Store::Impl::claim_offline_call_in_transaction(const StoreActor& actor, const std::string& attempt_id,
+                            EventLinkReadContext* reads) {
     require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
     text_field(attempt_id, "offline attempt_id");
     require_workflow_schema();
@@ -3830,10 +3863,12 @@ Json Store::Impl::claim_offline_call_in_transaction(const StoreActor& actor, con
     require(str(original, "request_id") == actor.request_id && str(original, "role") == role_name(actor.role) &&
             str(original, "principal_id") == actor.principal_id, ErrorCode::Unauthorized,
             "offline execution belongs to the original actor");
-    const auto request = model_request_from_json(parse_json_strict(str(original, "request_envelope"), 4U * 1024U * 1024U));
+    EventLinkReadContext local;
+    if (!reads) reads = &local;
+    const auto& request = reads->request(str(original, "request_envelope"));
     actor_binding(actor, request.binding);
     const auto current = request_row(actor.request_id);
-    const auto frozen = FrozenRequestConfig::restore(str(current, "config_snapshot"), str(current, "config_snapshot_sha256"));
+    const auto& frozen = reads->config(current);
     require(frozen.model_profile(actor.role).at("adapter").as_string() == "fake" &&
             request.model == frozen.resolve(actor.role), ErrorCode::Unauthorized,
             "offline execution requires the original frozen Fake profile");
@@ -3903,7 +3938,7 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
 }
 
 Json Store::Impl::reserve_attempt_in_transaction(const StoreActor& actor, const ExecutionBinding& frozen,
-                            const AttemptReservation& reservation) {
+                            const AttemptReservation& reservation, const FrozenRequestConfig* reservation_config) {
     require(sqlite3_get_autocommit(db) == 0, ErrorCode::Corrupt, "N5 shared step requires an active transaction");
     text_field(reservation.call_id, "call_id"); text_field(reservation.attempt_id, "attempt_id");
     text_field(reservation.model_ref, "model_ref");
@@ -3955,7 +3990,16 @@ Json Store::Impl::reserve_attempt_in_transaction(const StoreActor& actor, const 
     require(experience || !terminal_request(str(r, "status")), ErrorCode::NotReady, "business model attempt after request termination");
     matches(frozen);
     require(str(r, "config_snapshot_sha256") == reservation.config_snapshot_sha256, ErrorCode::Stale, "model attempt changed the frozen request configuration");
-    const auto frozen_config = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256"));
+    std::optional<FrozenRequestConfig> restored_config;
+    if (reservation_config) {
+        require(reservation_config->serialize() == str(r, "config_snapshot") &&
+                reservation_config->sha256() == str(r, "config_snapshot_sha256"), ErrorCode::Corrupt,
+                "validated event reservation configuration differs from the authorized request");
+    } else {
+        restored_config.emplace(FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256")));
+        reservation_config = &*restored_config;
+    }
+    const auto& frozen_config = *reservation_config;
     require(original_model_request.context.structured() ==
             (frozen_config.context_request_format() == "structured-v2"), ErrorCode::Unauthorized,
             "model context format differs from frozen request policy");
