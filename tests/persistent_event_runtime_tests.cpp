@@ -480,7 +480,7 @@ void reserved_and_dispatched_restarts_keep_original_actor_hold() {
 }
 
 void post_t1_storage_failure_retains_slot_and_flush_never_reapplies_t4() {
-    wls::test::persistent_events::StorageFault fault;
+    ::test::persistent_events::StorageFault fault;
     Fixture f; AsyncCoordinator runtime(f.open(), schemas());
     const auto id = f.admit(runtime.store());
     const auto captured = runtime.capture(id, Role::Dispatcher);
