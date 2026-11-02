@@ -31,6 +31,9 @@ jobs:
       - name: Check complete native evidence collection with synthetic CTest processes
         shell: pwsh
         run: python source/platform/native-foundation/tools/test_windows_ci_evidence.py
+      - name: Check offline image provenance source binding
+        shell: pwsh
+        run: python source/platform/native-foundation/tools/test_windows_image_provenance.py
       - name: Build and verify the isolated native slice with pinned preinstalled tools
         shell: pwsh
         run: python source/platform/native-foundation/tools/run_windows_ci.py --source-root source --work-root native-work --image-environment-snapshot native-image-environment.json

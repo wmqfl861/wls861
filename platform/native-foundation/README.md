@@ -122,3 +122,51 @@ successful execution from full machine/security acceptance, which stays
 `NOT_RUN`; the full native runtime remains `NOT_IMPLEMENTED`. Hosted Server
 results and synthetic selfchecks cannot fill in a Windows 11 machine run. No
 Windows 11 execution is claimed by adding this entry.
+
+## Explicit read-only identity mechanism (N5)
+
+Deployment status: **POLICY_PENDING; Windows 11 ordinary-user acceptance NOT_RUN**.
+The added library interface is `wls/native_readonly.hpp`:
+`ReadOnlyRoot::open(absolute_root, WindowsReadOnlyPolicy)` followed by
+`capture_registered()`. It captures only the original compiled manifest and
+35 registered public assets. The existing `PublicResources` API keeps its
+historical public-byte integrity semantics.
+
+The external trust policy must be supplied explicitly by the trusted host as a
+`WindowsReadOnlyPolicy` value with all three fields: a coordinator-approved
+`approval_reference`, an exact `approved_builds` list, and canonical
+`trusted_owner_and_writer_sids`. No deployment policy file, build list, current
+user, SYSTEM or Administrators exception is bundled or selected automatically.
+No policy-file parser or new CLI security option is implemented in this slice;
+the `resources` command continues to use the historical public-byte reader.
+The host must obtain and freeze an adopted external policy before using the new
+API. A supplied reference string alone is not evidence of coordinator adoption.
+Empty policy fields fail with `POLICY_PENDING` before opening the root.
+
+Even with explicit policy, the mechanism requires native x64 Windows 11 at an
+exact listed build, a normal non-admin, non-elevated, medium-integrity primary
+token without thread impersonation, and same-handle local NTFS/ACL observations.
+Every real ancestor and asset owner must be explicitly trusted; untrusted
+dangerous allow ACEs, unknown/conditional/object-specific ACEs, NULL/empty DACLs,
+unreadable security descriptors, reparse points, short/case aliases, unsupported
+volumes and shared-write/delete conflicts refuse. It neither changes ACLs nor
+enables privileges to make ordinary `%TEMP%` or a deployment path acceptable.
+Object IDs are full Windows volume/128-bit file IDs, not POSIX descriptors or
+reopen/cleanup authority. See the [N5 contract](../../docs/implementation/n5-windows-readonly-identity.md).
+
+One new `native_readonly` CTest registration is supplied for the integrator:
+three Linux compatibility/policy methods and seven Windows methods, including
+synthetic-descriptor checks and real temporary-handle observations. These are
+mechanism tests; Server/elevated results cannot accept the Win11 entry. The
+integrated Windows method catalog must be five native suites / 34 methods;
+the Linux product catalog remains 92. The original four suite deadlines stay
+unchanged. Native execution results are recorded separately in the N5 report.
+
+`tools/windows_image_provenance.py --help` documents the separate offline
+source-comparison tool. Its `--inputs` JSON names saved run/job/API/log/archive
+captures and their original capture receipts; it is not a SID/build trust policy.
+The tool checks the original artifact hash, same numeric job/attempt, actual
+checkout command and printed environment capture, and writes a fresh private
+receipt. Conflicting header/environment versions remain `UNRESOLVED`, exit 1,
+with both sources, timestamps, hashes and trust limitations. It makes no network
+requests, executes no archive code and never rewrites the original audit.

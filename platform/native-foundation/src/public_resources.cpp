@@ -20,6 +20,27 @@ void require(bool condition, ErrorCode code, const char* message) {
 }
 } // namespace
 
+system::CapturedPublicBundle system::capture_registered_public_bundle(
+    const std::function<std::string(std::string_view, std::size_t)>& read) {
+    const auto manifest = read("runtime-manifest.json", 64U * 1024U);
+    CapturedPublicBundle result;
+    result.manifest_digest = sha256(manifest);
+    require(result.manifest_digest == manifest_sha256, ErrorCode::Mismatch,
+        "public resource manifest differs from the compiled exact-byte identity");
+    for (const auto& asset : resource_assets) {
+        require(asset.size <= 1024U * 1024U, ErrorCode::Mismatch, "compiled public resource is oversized");
+        auto content = read(asset.path, asset.size);
+        require(content.size() == asset.size && sha256(content) == asset.sha256,
+            ErrorCode::Mismatch, "public resource differs from the compiled registration");
+        result.total_bytes += content.size();
+        require(result.total_bytes <= 8U * 1024U * 1024U, ErrorCode::Mismatch,
+            "public resource total exceeds bound");
+        require(result.assets.emplace(asset.path, std::move(content)).second,
+            ErrorCode::Mismatch, "duplicate compiled public resource");
+    }
+    return result;
+}
+
 PublicResources PublicResources::from_bundle(const std::filesystem::path& root) {
     const auto spelling = path_to_utf8(root);
     require(root.is_absolute() && !spelling.empty() && spelling.size() <= 4096 &&
@@ -28,22 +49,13 @@ PublicResources PublicResources::from_bundle(const std::filesystem::path& root) 
     require(root == root.lexically_normal(), ErrorCode::InvalidInput,
         "public resource root must be normalized");
     auto directory = system::open_public_directory(root);
-    const auto manifest = directory->read("runtime-manifest.json", 64U * 1024U);
+    auto captured = system::capture_registered_public_bundle([&](std::string_view name, std::size_t maximum) {
+        return directory->read(name, maximum);
+    });
     PublicResources result;
-    result.manifest_digest_ = system::sha256(manifest);
-    require(result.manifest_digest_ == manifest_sha256, ErrorCode::Mismatch,
-        "public resource manifest differs from the compiled exact-byte identity");
-    for (const auto& asset : resource_assets) {
-        require(asset.size <= 1024U * 1024U, ErrorCode::Mismatch, "compiled public resource is oversized");
-        auto content = directory->read(asset.path, asset.size);
-        require(content.size() == asset.size && system::sha256(content) == asset.sha256,
-            ErrorCode::Mismatch, "public resource differs from the compiled registration");
-        result.total_bytes_ += content.size();
-        require(result.total_bytes_ <= 8U * 1024U * 1024U, ErrorCode::Mismatch,
-            "public resource total exceeds bound");
-        require(result.assets_.emplace(asset.path, std::move(content)).second,
-            ErrorCode::Mismatch, "duplicate compiled public resource");
-    }
+    result.assets_ = std::move(captured.assets);
+    result.total_bytes_ = captured.total_bytes;
+    result.manifest_digest_ = std::move(captured.manifest_digest);
     return result;
 }
 

@@ -61,13 +61,13 @@ endforeach()
 add_library(wls_native_foundation STATIC
     "${WLS_REPO_ROOT}/src/config.cpp"
     "${WLS_REPO_ROOT}/src/scheduler.cpp"
-    src/foundation.cpp src/public_resources.cpp)
+    src/foundation.cpp src/public_resources.cpp src/readonly_resources.cpp)
 target_include_directories(wls_native_foundation PUBLIC include "${WLS_REPO_ROOT}/include")
 target_include_directories(wls_native_foundation PRIVATE "${WLS_REPO_ROOT}/src"
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(wls_native_foundation PUBLIC Threads::Threads)
 if(WIN32)
-    target_sources(wls_native_foundation PRIVATE src/system_windows.cpp)
+    target_sources(wls_native_foundation PRIVATE src/system_windows.cpp src/readonly_windows.cpp)
     target_compile_definitions(wls_native_foundation PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN
         UNICODE _UNICODE _WIN32_WINNT=0x0A00)
     target_compile_options(wls_native_foundation PUBLIC /W4 /WX /permissive- /utf-8 /EHsc)
@@ -87,13 +87,14 @@ install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/captured-resources/" DESTINATION 
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(suite IN ITEMS modules platform)
+    foreach(suite IN ITEMS modules platform readonly)
         add_executable(native_${suite}_tests tests/${suite}_tests.cpp)
         target_link_libraries(native_${suite}_tests PRIVATE wls_native_foundation)
         add_test(NAME native_${suite} COMMAND native_${suite}_tests
             "${CMAKE_CURRENT_BINARY_DIR}/captured-resources")
         set_tests_properties(native_${suite} PROPERTIES TIMEOUT 30)
     endforeach()
+    target_include_directories(native_readonly_tests PRIVATE src)
     add_test(NAME native_cli COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_native_cli.py"
         --executable "$<TARGET_FILE:wls-native-foundation>"
