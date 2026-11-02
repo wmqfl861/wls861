@@ -513,6 +513,99 @@ class GateContracts(unittest.TestCase):
             with self.subTest(kind=sample.split(":", 1)[0]), self.assertRaisesRegex(RuntimeError, "JUnit root text"):
                 gate.check_public_package(public, names, {"one"})
 
+    def rewrite_public_artifact(self, public, name, data):
+        path = public / name
+        path.write_bytes(data)
+        manifest = json.loads((public / "public-index.json").read_text())
+        entry = manifest["artifacts"][name]
+        entry["public_bytes"] = len(data)
+        entry["public_sha256"] = hashlib.sha256(data).hexdigest()
+        if isinstance(entry["ranges"], list):
+            entry["ranges"] = [{"kind": "verbatim", "source_bytes": [0, entry["source_bytes"]],
+                                "public_bytes": [0, len(data)]}]
+        gate.write_json(public / "public-index.json", manifest)
+
+    def test_public_package_guard_rejects_duplicate_index_key(self):
+        _, _, _, private = self.exercise_main()
+        public = private.parent / "public-evidence"
+        path = public / "public-index.json"
+        path.write_bytes(b'{"policy":{"request_body":"SYNTHETIC_PRIVATE"},' + path.read_bytes()[1:])
+        with self.assertRaisesRegex(RuntimeError, "duplicate public JSON key"):
+            gate.check_public_package(public, gate.public_method_names(self.root), {"one"})
+
+    def test_public_package_guard_rejects_nested_duplicate_json_keys(self):
+        _, _, _, private = self.exercise_main()
+        public = private.parent / "public-evidence"
+        names = gate.public_method_names(self.root)
+        samples = [("summary.projection.json", b'"ASAN_OPTIONS":'),
+                   ("source-before.json", b'"sha256":'),
+                   ("expected-tests.json", b'"timeout":')]
+        for name, key in samples:
+            original = (public / name).read_bytes()
+            injected = original.replace(key, key + b'{"request_body":"SYNTHETIC_PRIVATE"},' + key, 1)
+            self.assertNotEqual(injected, original, "the fixture must inject an actual duplicate")
+            self.rewrite_public_artifact(public, name, injected)
+            with self.subTest(artifact=name), self.assertRaisesRegex(RuntimeError, "duplicate public JSON key"):
+                gate.check_public_package(public, names, {"one"})
+            self.rewrite_public_artifact(public, name, original)
+
+    def test_public_package_guard_rejects_nonfinite_json_numbers(self):
+        _, _, _, private = self.exercise_main()
+        public = private.parent / "public-evidence"
+        names = gate.public_method_names(self.root)
+        samples = [("summary.projection.json", b'"name": "compiler-version",', b'"seconds":'),
+                   ("expected-tests.json", b'"timeout": 90', None)]
+        for name, anchor, inserted in samples:
+            original = (public / name).read_bytes()
+            for number in (b"NaN", b"Infinity", b"-Infinity", b"1e999"):
+                replacement = anchor + inserted + number + b"," if inserted else b'"timeout": ' + number
+                injected = original.replace(anchor, replacement, 1)
+                self.assertNotEqual(injected, original, "the fixture must inject an actual number")
+                self.rewrite_public_artifact(public, name, injected)
+                with self.subTest(artifact=name, number=number), self.assertRaisesRegex(RuntimeError, "non-finite public JSON number"):
+                    gate.check_public_package(public, names, {"one"})
+                self.rewrite_public_artifact(public, name, original)
+
+    def test_public_package_guard_rejects_discarded_xml_syntax(self):
+        _, _, _, private = self.exercise_main()
+        public = private.parent / "public-evidence"
+        names = gate.public_method_names(self.root)
+        original = (public / "ctest.projection.xml").read_bytes()
+        declaration, body = original.split(b"\n", 1)
+        comment = b"<!-- Authorization: Bearer SYNTHETIC_PRIVATE -->"
+        instruction = b'<?diagnostic request_body="SYNTHETIC_PRIVATE"?>'
+        doctype = b'<!DOCTYPE testsuite [<!ENTITY diagnostic "SYNTHETIC_PRIVATE">]>'
+        samples = [("leading comment", declaration + b"\n" + comment + body),
+                   ("nested comment", original.replace(b"<testsuite>", b"<testsuite>" + comment, 1)),
+                   ("trailing comment", original + comment),
+                   ("leading PI", declaration + b"\n" + instruction + body),
+                   ("nested PI", original.replace(b"<testsuite>", b"<testsuite>" + instruction, 1)),
+                   ("DTD", declaration + b"\n" + doctype + body)]
+        for name, injected in samples:
+            self.assertNotEqual(injected, original, "the fixture must inject actual XML syntax")
+            self.rewrite_public_artifact(public, "ctest.projection.xml", injected)
+            with self.subTest(syntax=name), self.assertRaisesRegex(RuntimeError, "noncanonical public JUnit XML"):
+                gate.check_public_package(public, names, {"one"})
+
+    def test_publication_guard_failure_keeps_originals_without_public_directory(self):
+        original = gate.check_public_package
+
+        def inject_then_check(directory, names, tests):
+            path = directory / "public-index.json"
+            path.write_bytes(b'{"policy":{"request_body":"SYNTHETIC_PRIVATE"},' + path.read_bytes()[1:])
+            return original(directory, names, tests)
+
+        with patch.object(gate, "check_public_package", side_effect=inject_then_check):
+            result, summary, _, private = self.exercise_main()
+        self.assertEqual(result, 1)
+        self.assertEqual(summary["status"], "NOT_COMPLETE")
+        self.assertIn("duplicate public JSON key", summary["public_evidence_error"])
+        self.assertFalse((private.parent / "public-evidence").exists())
+        self.assertTrue((private.parent / "public-evidence-pending").is_dir())
+        self.assertEqual((private / "ctest-logs/LastTest.log").read_bytes(),
+                         (private.parent / "Testing/Temporary/LastTest.log").read_bytes())
+        self.assertTrue((private / "binaries-after.json").is_file())
+
     def test_publication_interrupt_cannot_leave_a_passed_private_summary(self):
         with patch.object(gate, "publish_public_evidence", side_effect=KeyboardInterrupt("publication barrier")):
             try:

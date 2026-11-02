@@ -6,6 +6,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -378,8 +379,29 @@ def publish_public_evidence(source: Path, build: Path, private: Path,
     return destination
 
 
+def read_public_json(path: Path) -> object:
+    """Reject ignored duplicate values and non-finite numbers at every depth."""
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result = {}
+        for key, value in pairs:
+            require(key not in result, "duplicate public JSON key")
+            result[key] = value
+        return result
+
+    def finite_float(raw: str) -> float:
+        value = float(raw)
+        require(math.isfinite(value), "non-finite public JSON number")
+        return value
+
+    def reject_constant(_raw: str) -> None:
+        raise RuntimeError("non-finite public JSON number")
+
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object,
+                      parse_float=finite_float, parse_constant=reject_constant)
+
+
 def check_public_package(directory: Path, names: tuple[set[str], set[str], set[str]], tests: set[str]) -> None:
-    manifest = json.loads((directory / "public-index.json").read_text())
+    manifest = read_public_json(directory / "public-index.json")
     require(set(manifest) == {"schema_version", "policy", "private_directory", "artifacts"}
             and manifest["schema_version"] == 1 and manifest["policy"] == "static-test-observations-v1"
             and manifest["private_directory"] == "private-evidence", "invalid public index")
@@ -423,7 +445,7 @@ def check_public_package(directory: Path, names: tuple[set[str], set[str], set[s
         elif entry["kind"] == "verbatim-identity":
             require(name == source_name and name in {"source-before.json", "source-after.json", "binaries-before.json", "binaries-after.json"},
                     "unapproved identity artifact")
-            for relative, value in json.loads(path.read_text()).items():
+            for relative, value in read_public_json(path).items():
                 require(not Path(relative).is_absolute() and ".." not in Path(relative).parts and
                         not any(character in relative for character in ('\n', '\r', ':', '"', '{', '}')),
                         "invalid identity path")
@@ -434,7 +456,12 @@ def check_public_package(directory: Path, names: tuple[set[str], set[str], set[s
                 require(isinstance(checksum, str) and re.fullmatch(r"[a-f0-9]{64}", checksum), "invalid identity hash")
         elif entry["kind"] == "junit-status-projection":
             require(name == "ctest.projection.xml" and source_name == "ctest.xml", "unapproved JUnit projection")
-            root = ET.parse(path).getroot()
+            raw = path.read_bytes()
+            root = ET.fromstring(raw)
+            # We publish only our generator's exact XML serialization. DOM
+            # checks alone miss comments, PIs and DTDs discarded by ET.parse.
+            require(ET.tostring(root, encoding="utf-8", xml_declaration=True) == raw,
+                    "noncanonical public JUnit XML")
             require(root.tag == "testsuite" and not root.attrib, "invalid public JUnit root")
             require(not (root.text or "").strip() and not (root.tail or "").strip(), "unexpected public JUnit root text")
             for case in root:
@@ -447,7 +474,7 @@ def check_public_package(directory: Path, names: tuple[set[str], set[str], set[s
                             and child.text == "Original diagnostic is retained privately."
                             and not (child.tail or "").strip(), "unexpected public JUnit diagnostic")
         elif entry["kind"] == "structured-projection":
-            value = json.loads(path.read_text())
+            value = read_public_json(path)
             if name == "summary.projection.json" and source_name == "summary-publication-input.json":
                 require(set(value) == {"head", "status", "started_at", "ended_at", "uid", "gid", "build_umask", "test_umask",
                     "sanitizer_environment", "historical_clang_asan_failures_closed", "identities_unchanged",
