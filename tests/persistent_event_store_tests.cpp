@@ -11,11 +11,17 @@
 #include <sqlite3.h>
 
 #include <algorithm>
+#include <cerrno>
+#include <chrono>
+#include <csignal>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
 #include <source_location>
 #include <string>
+#include <poll.h>
+#include <sys/wait.h>
 
 using namespace wls::s1;
 using wls::Role;
@@ -582,6 +588,8 @@ void failed_013_and_wrong_asset_leave_original_version_and_history() {
     expect(ErrorCode::Corrupt, [&] { (void)open(StoreOpenMode::ReadOnly, valid + "\n-- changed original asset\n"); });
     CHECK(scalar(path, "PRAGMA user_version") == 411);
 }
+
+#include "persistent_event_store_crash.inc"
 } // namespace
 
 int main() {
@@ -602,6 +610,11 @@ int main() {
         {"immutable facts and missing open projection fail closed", corrupt_open_projection_fails_closed_and_facts_are_immutable},
         {"AMEND or cancel after settlement preserves response and rejects stale effects", control_after_settlement_invalidates_business_but_keeps_original_response},
         {"410 upgrade requires all-request maintenance and preserves legacy history", structural_410_upgrade_retains_history_and_requires_maintenance},
-        {"failed013 and wrong immutable asset preserve original migration state", failed_013_and_wrong_asset_leave_original_version_and_history}
+        {"failed013 and wrong immutable asset preserve original migration state", failed_013_and_wrong_asset_leave_original_version_and_history},
+        {"process crashes W00 through W05 roll back whole claim reservation and dispatch steps", process_crash_claim_reservation_and_dispatch},
+        {"process crashes W06 through W10 preserve actual dispatch callback and observation boundaries", process_crash_callback_and_observation},
+        {"process crashes W11 through W15 preserve atomic note feedback and every captured ID", process_crash_atomic_action_tail},
+        {"process crashes W16 retain committed AMEND or cancel and original observation", process_crash_control_after_observation},
+        {"legacy process crash W19 preserves a real committed effect without feedback across upgrade", process_crash_legacy_feedback_gap_upgrade}
     });
 }
