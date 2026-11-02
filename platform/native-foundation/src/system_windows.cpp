@@ -1,4 +1,4 @@
-#include "internal.hpp"
+#include "readonly_windows_internal.hpp"
 
 #include <windows.h>
 #include <bcrypt.h>
@@ -50,10 +50,10 @@ BY_HANDLE_FILE_INFORMATION information(HANDLE handle, bool directory) {
     return result;
 }
 
-Handle open_directory(const std::filesystem::path& path) {
+Handle open_directory(const std::filesystem::path& path, bool inspect_acl = false) {
     // Hold every ancestor without write/delete sharing until capture ends.
     // This also excludes a concurrent reparse-data writer after inspection.
-    Handle handle(::CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
+    Handle handle(::CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES | (inspect_acl ? READ_CONTROL : 0U),
         FILE_SHARE_READ, nullptr, OPEN_EXISTING,
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
     require(handle.valid(), open_error(), "public resource directory cannot be opened");
@@ -81,7 +81,8 @@ void component_name(const std::filesystem::path& component) {
         "Windows reserved device component refused");
 }
 
-std::vector<Handle> pin_directories(const std::filesystem::path& path) {
+std::vector<Handle> pin_directories(const std::filesystem::path& path,
+    const system::WindowsReadOnlyChecks* checks, std::vector<WindowsObjectObservation>& observations) {
     auto preferred = path;
     preferred.make_preferred();
     const auto root = preferred.root_path().native();
@@ -92,11 +93,21 @@ std::vector<Handle> pin_directories(const std::filesystem::path& path) {
         "public resources require a fixed local drive");
     std::filesystem::path current(root);
     std::vector<Handle> held;
-    held.push_back(open_directory(current));
+    held.push_back(open_directory(current, checks != nullptr));
+    if (checks != nullptr) {
+        checks->require_volume_root(held.back().get());
+        observations.push_back(checks->observe(held.back().get(), true, {}));
+    }
     for (const auto& component : preferred.relative_path()) {
         component_name(component);
         current /= component;
-        held.push_back(open_directory(current));
+        held.push_back(open_directory(current, checks != nullptr));
+        if (checks != nullptr) {
+            auto observation = checks->observe(held.back().get(), true, component.native());
+            require(observation.identity.volume_serial == observations.front().identity.volume_serial,
+                ErrorCode::Denied, "read-only ancestor changed volume");
+            observations.push_back(std::move(observation));
+        }
     }
     return held;
 }
@@ -112,19 +123,54 @@ bool same(const BY_HANDLE_FILE_INFORMATION& first, const BY_HANDLE_FILE_INFORMAT
         first.ftLastWriteTime.dwLowDateTime == second.ftLastWriteTime.dwLowDateTime;
 }
 
-class Directory final : public system::PublicDirectory {
+class Directory final : public system::WindowsPublicDirectory {
 public:
-    explicit Directory(std::filesystem::path root) : root_(std::move(root)), held_(pin_directories(root_)) {}
+    explicit Directory(std::filesystem::path root, const WindowsReadOnlyPolicy* policy = nullptr)
+        : root_(std::move(root)),
+          checks_(policy == nullptr ? nullptr : std::make_unique<system::WindowsReadOnlyChecks>(*policy)),
+          held_(pin_directories(root_, checks_.get(), observations_)) { require_ancestors(); }
     std::string read(std::string_view relative, std::size_t maximum) const override {
+        return capture(relative, maximum).bytes;
+    }
+    const WindowsObjectObservation& root_observation() const override {
+        require(checks_ != nullptr && !observations_.empty(), ErrorCode::Denied,
+            "historical public reader has no ACL policy observation");
+        return observations_.back();
+    }
+    const std::string& policy_digest() const override {
+        require(checks_ != nullptr, ErrorCode::Denied, "explicit read-only policy is missing");
+        return checks_->policy_digest();
+    }
+    system::WindowsCapturedFile read_observed(std::string_view relative, std::size_t maximum) const override {
+        require(checks_ != nullptr, ErrorCode::Denied, "explicit read-only policy is missing");
+        return capture(relative, maximum);
+    }
+private:
+    void require_ancestors() const {
+        if (checks_ == nullptr) return;
+        checks_->require_current_token();
+        for (std::size_t index = 0; index < held_.size(); ++index)
+            checks_->require_unchanged(held_[index].get(), observations_[index]);
+    }
+    system::WindowsCapturedFile capture(std::string_view relative, std::size_t maximum) const {
+        require_ancestors();
         const auto path = path_from_utf8(relative);
-        require(path.is_relative() && relative.size() <= 512, ErrorCode::InvalidInput,
+        require(path.is_relative() && !path.empty() && relative.size() <= 512 &&
+            maximum < std::numeric_limits<std::size_t>::max(), ErrorCode::InvalidInput,
             "invalid registered public resource path");
         std::vector<Handle> children;
+        std::vector<WindowsObjectObservation> child_observations;
         auto parent = root_;
         for (const auto& component : path.parent_path()) {
             component_name(component);
             parent /= component;
-            children.push_back(open_directory(parent));
+            children.push_back(open_directory(parent, checks_ != nullptr));
+            if (checks_ != nullptr) {
+                auto observation = checks_->observe(children.back().get(), true, component.native());
+                require(observation.identity.volume_serial == root_observation().identity.volume_serial,
+                    ErrorCode::Denied, "read-only resource directory changed volume");
+                child_observations.push_back(std::move(observation));
+            }
         }
         component_name(path.filename());
         const auto filename = parent / path.filename();
@@ -134,6 +180,12 @@ public:
             nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
         require(input.valid(), open_error(), "public resource file cannot be opened");
         const auto before = information(input.get(), false);
+        WindowsObjectObservation observed;
+        if (checks_ != nullptr) {
+            observed = checks_->observe(input.get(), false, path.filename().native());
+            require(observed.identity.volume_serial == root_observation().identity.volume_serial,
+                ErrorCode::Denied, "read-only resource file changed volume");
+        }
         const auto size = (static_cast<std::uint64_t>(before.nFileSizeHigh) << 32U) | before.nFileSizeLow;
         require(size <= maximum, ErrorCode::Mismatch, "public resource file exceeds bound");
         std::string output;
@@ -152,10 +204,17 @@ public:
             "public resource changed during reading");
         require(eof && output.size() <= maximum && output.size() == size, ErrorCode::Mismatch,
             "public resource EOF or size differs from observation");
-        return output;
+        if (checks_ != nullptr) {
+            checks_->require_unchanged(input.get(), observed);
+            for (std::size_t index = 0; index < children.size(); ++index)
+                checks_->require_unchanged(children[index].get(), child_observations[index]);
+            require_ancestors();
+        }
+        return {std::move(output), std::move(observed)};
     }
-private:
     std::filesystem::path root_;
+    std::unique_ptr<system::WindowsReadOnlyChecks> checks_;
+    std::vector<WindowsObjectObservation> observations_;
     std::vector<Handle> held_;
 };
 } // namespace
@@ -194,6 +253,11 @@ HostFacts host_facts() {
 namespace system {
 std::unique_ptr<PublicDirectory> open_public_directory(const std::filesystem::path& root) {
     return std::make_unique<Directory>(root);
+}
+
+std::unique_ptr<WindowsPublicDirectory> open_windows_readonly_directory(
+    const std::filesystem::path& root, const WindowsReadOnlyPolicy& policy) {
+    return std::make_unique<Directory>(root, &policy);
 }
 
 std::string sha256(std::string_view bytes) {

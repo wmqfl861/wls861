@@ -37,6 +37,7 @@ SOURCE = ARGS.source_root.resolve()
 SUITES = {
     'native_modules': ('modules_tests.cpp', 30),
     'native_platform': ('platform_tests.cpp', 30),
+    'native_readonly': ('readonly_tests.cpp', 30),
     'native_cli': ('test_native_cli.py', 60),
     'native_bundle_capture': ('test_bundle_capture.py', 30),
 }
@@ -91,7 +92,7 @@ suite, mode, raw_names = sys.argv[1:]
 names = json.loads(raw_names)
 if mode == 'missing' and suite == 'native_cli':
     names = names[:-1]
-if suite in ('native_modules', 'native_platform'):
+if suite in ('native_modules', 'native_platform', 'native_readonly'):
     for name in names:
         print('PASS ' + name)
     if mode == 'duplicate' and suite == 'native_modules':
@@ -194,7 +195,7 @@ else:
         receipt = json.loads((evidence / 'ctest-methods.json').read_text())
         self.assertEqual(receipt['status'], 'PASSED')
         self.assertEqual({row['suite']: row['passed_methods'] for row in receipt['suites']}, self.methods)
-        self.assertEqual(sum(len(row['passed_methods']) for row in receipt['suites']), 27)
+        self.assertEqual(sum(len(row['passed_methods']) for row in receipt['suites']), 34)
         result = json.loads((evidence / 'result.json').read_text())
         self.assertEqual(result['windows_11_machine_acceptance'], 'NOT_RUN')
         self.assertEqual(result['ordinary_user_security_acceptance'], 'NOT_RUN')
@@ -220,7 +221,7 @@ else:
         self.assertEqual(json.loads((evidence / 'ctest.command.json').read_text())['status'], 'TIMEOUT')
         self.assertFalse((evidence / 'result.json').exists())
 
-    def test_missing_method_cannot_be_inferred_from_four_green_suites(self):
+    def test_missing_method_cannot_be_inferred_from_five_green_suites(self):
         with self.assertRaisesRegex(RuntimeError, 'method evidence'):
             self.invoke('missing')
         self.assertFalse((self.work / 'evidence/result.json').exists())
@@ -243,12 +244,12 @@ else:
         self.assertFalse((evidence / 'vswhere.command.json').exists())
         self.assertFalse((evidence / 'result.json').exists())
 
-    def test_windows11_entry_retains_four_suites_without_claiming_security_acceptance(self):
+    def test_windows11_entry_retains_five_suites_without_claiming_security_acceptance(self):
         self.invoke(windows11=True)
         evidence = self.work / 'evidence'
         result = json.loads((evidence / 'result.json').read_text())
-        self.assertEqual(result['native_suites'], 4)
-        self.assertEqual(result['native_methods'], 27)
+        self.assertEqual(result['native_suites'], 5)
+        self.assertEqual(result['native_methods'], 34)
         self.assertEqual(result['windows_11_component_validation'], 'PASSED')
         self.assertEqual(result['windows_11_machine_acceptance'], 'NOT_RUN')
         self.assertEqual(result['ordinary_user_security_acceptance'], 'NOT_RUN')
