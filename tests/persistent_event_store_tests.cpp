@@ -518,6 +518,90 @@ void corrupt_open_projection_fails_closed_and_facts_are_immutable() {
     expect(ErrorCode::Corrupt, [&] { f.store->claim_event_batch(f.actor(Role::Dispatcher)); });
     CHECK(scalar(f.path, "SELECT COUNT(*) FROM events WHERE type='claim_offline_call'") == 0);
 }
+void same_transaction_config_change_rejects_and_rolls_back_dispatch() {
+    Fixture f; auto value = f.capture(Role::Dispatcher); f.reserve(value);
+    const auto id = text(value.link, "link_id");
+    const auto original_request = f.store->request(f.id);
+    const auto original_attempt = f.store->attempt(value.reservation.attempt_id);
+    const auto budget = f.store->budget(f.id);
+    // Synthetic database corruption after the original validation, within T2.
+    // The unmodified snapshot hash must never validate these different bytes.
+    sql(f.path, "CREATE TRIGGER n5_test_config_change AFTER INSERT ON n5_event_receipts "
+        "WHEN NEW.kind='DISPATCH' BEGIN UPDATE requests SET config_snapshot="
+        "json_set(config_snapshot,'$.system.limits.max_active_workers',9),"
+        "state_version=state_version+1 WHERE request_id=(SELECT request_id FROM n5_event_links WHERE link_id=NEW.link_id); END");
+    expect(ErrorCode::Corrupt, [&] { f.store->claim_event_dispatch(value.captured.actor, id); });
+    CHECK(f.store->request(f.id) == original_request);
+    CHECK(f.store->attempt(value.reservation.attempt_id) == original_attempt);
+    CHECK(f.store->budget(f.id) == budget);
+    CHECK(scalar(f.path, "SELECT COUNT(*) FROM events WHERE type='claim_offline_call'") == 0);
+    CHECK(scalar(f.path, "SELECT COUNT(*) FROM n5_event_receipts WHERE kind='DISPATCH'") == 0);
+    CHECK(f.store->event_link_status(id).at("state") == "RESERVED");
+    sql(f.path, "DROP TRIGGER n5_test_config_change");
+    CHECK(f.store->claim_event_dispatch(value.captured.actor, id).at("dispatch_claimed") == true);
+    CHECK(f.store->claim_event_dispatch(value.captured.actor, id).at("dispatch_claimed") == false);
+    CHECK(scalar(f.path, "SELECT COUNT(*) FROM events WHERE type='claim_offline_call'") == 1);
+}
+void note_start_revalidates_config_and_rolls_back_the_original_tail() {
+    ::test::persistent_events::StorageFault fault;
+    Fixture f; f.plan(); f.ready(); auto value = f.capture(Role::Worker); f.reserve(value);
+    const auto response = f.observe(value, "note", Object{{"text", "retain the original note boundary"}});
+    const auto id = text(value.link, "link_id");
+    f.store->settle_event_observation(id, response);
+    const auto sibling = f.admit();
+    const auto sibling_request = f.store->request(sibling);
+    const auto request = f.store->request(f.id);
+    CHECK(request.at("config_snapshot").at("system").at("limits").at("max_active_workers") == 8);
+    const auto task = f.task();
+    const auto original_task = f.store->task(text(task, "task_id"));
+    const auto attempt = f.store->attempt(value.reservation.attempt_id);
+    const auto budget = f.store->budget(f.id);
+    const auto inbox = f.store->request_inbox(f.id);
+    const auto link = f.store->event_link_status(id);
+    const auto events = scalar(f.path, "SELECT COUNT(*) FROM events");
+    const auto feedback = scalar(f.path, "SELECT COUNT(*) FROM model_tool_feedback");
+    // Change bytes only after prepare's original fact is inserted. A start
+    // that ignored the fresh configuration would hit SQLITE_IOERR instead of
+    // the required Corrupt refusal, before any later link postcheck.
+    sql(f.path, "CREATE TRIGGER n5_test_note_config AFTER INSERT ON events "
+        "WHEN NEW.type='prepare_op' BEGIN UPDATE requests SET config_snapshot="
+        "json_set(config_snapshot,'$.system.limits.max_active_workers',9),"
+        "state_version=state_version+1 WHERE request_id=NEW.request_id; END");
+    sql(f.path, "CREATE TRIGGER n5_test_note_forbidden_start BEFORE UPDATE ON ops "
+        "WHEN NEW.status='RUNNING' BEGIN SELECT n5_test_storage_fault(); END");
+    expect(ErrorCode::Corrupt, [&] { f.store->commit_event_action_and_finish(value.captured.actor, id, f.schemas); });
+    CHECK(f.store->request(f.id) == request);
+    CHECK(f.store->task(text(task, "task_id")) == original_task); CHECK(f.task() == task);
+    CHECK(f.store->attempt(value.reservation.attempt_id) == attempt);
+    CHECK(f.store->budget(f.id) == budget);
+    CHECK(f.store->request_inbox(f.id) == inbox);
+    CHECK(f.store->event_link_status(id) == link);
+    CHECK(f.store->request(sibling) == sibling_request);
+    CHECK(scalar(f.path, "SELECT COUNT(*) FROM ops") == 0);
+    CHECK(scalar(f.path, "SELECT COUNT(*) FROM model_tool_feedback") == feedback);
+    CHECK(scalar(f.path, "SELECT COUNT(*) FROM events") == events);
+    sql(f.path, "DROP TRIGGER n5_test_note_config");
+    sql(f.path, "DROP TRIGGER n5_test_note_forbidden_start");
+    expect(ErrorCode::NotReady, [&] { f.store->commit_event_action_and_finish(value.captured.actor, id, f.schemas); });
+    CHECK(f.store->event_link_status(id) == link);
+    CHECK(f.store->budget(f.id) == budget);
+    CHECK(scalar(f.path, "SELECT COUNT(*) FROM ops") == 0);
+}
+void later_call_revalidates_config_after_a_successful_read() {
+    Fixture f; auto value = f.capture(Role::Dispatcher); f.reserve(value);
+    const auto id = text(value.link, "link_id");
+    CHECK(f.store->event_link_status(id).at("state") == "RESERVED");
+    const auto budget = f.store->budget(f.id);
+    const auto attempt = f.store->attempt(value.reservation.attempt_id);
+    sql(f.path, "UPDATE requests SET config_snapshot=json_set(config_snapshot,"
+        "'$.system.limits.max_active_workers',9),state_version=state_version+1");
+    expect(ErrorCode::Corrupt, [&] { f.store->event_link_status(id); });
+    expect(ErrorCode::Corrupt, [&] { f.store->request_event_links(f.id); });
+    expect(ErrorCode::Corrupt, [&] { f.store->claim_event_dispatch(value.captured.actor, id); });
+    CHECK(f.store->budget(f.id) == budget);
+    CHECK(f.store->attempt(value.reservation.attempt_id) == attempt);
+    CHECK(scalar(f.path, "SELECT COUNT(*) FROM events WHERE type='claim_offline_call'") == 0);
+}
 void control_after_settlement_invalidates_business_but_keeps_original_response() {
     for (const bool cancel : {false, true}) {
         Fixture f; auto value = f.capture(Role::Dispatcher); f.reserve(value);
@@ -608,6 +692,9 @@ int main() {
         {"original AMEND task CAS is checked before reservation and first dispatch", amendment_task_cas_is_checked_before_reservation_and_dispatch},
         {"claim link metadata and original event tail limits reject before billing", lifetime_limits_and_tail_capacity_reject_before_attempts},
         {"immutable facts and missing open projection fail closed", corrupt_open_projection_fails_closed_and_facts_are_immutable},
+        {"changed config bytes inside dispatch reject and roll back the complete transaction", same_transaction_config_change_rejects_and_rolls_back_dispatch},
+        {"note start revalidates changed config before dispatch and preserves the complete original tail", note_start_revalidates_config_and_rolls_back_the_original_tail},
+        {"a later public call validates actual config bytes after a successful read", later_call_revalidates_config_after_a_successful_read},
         {"AMEND or cancel after settlement preserves response and rejects stale effects", control_after_settlement_invalidates_business_but_keeps_original_response},
         {"410 upgrade requires all-request maintenance and preserves legacy history", structural_410_upgrade_retains_history_and_requires_maintenance},
         {"failed013 and wrong immutable asset preserve original migration state", failed_013_and_wrong_asset_leave_original_version_and_history},

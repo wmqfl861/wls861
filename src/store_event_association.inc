@@ -101,7 +101,9 @@ Json Store::Impl::event_receipt(const std::string& id, const std::string& kind) 
     require(value.at("link_id") == Json(id) && value.at("kind") == Json(kind), ErrorCode::Corrupt, "event receipt identity mismatch");
     return value;
 }
-void Store::Impl::verify_event_link(const Row& link) const {
+void Store::Impl::verify_event_link(const Row& link, EventLinkReadContext* reads) const {
+    EventLinkReadContext local;
+    if (!reads) reads = &local;
     const auto fact = event_fact(link);
     const auto id = str(link, "link_id");
     require(event_driver_enabled(str(link, "request_id")) && fact.at("link_id") == Json(id) && fact.at("request_id") == link.at("request_id") &&
@@ -113,7 +115,7 @@ void Store::Impl::verify_event_link(const Row& link) const {
             fact.at("generation") == claim.at("generation"), ErrorCode::Corrupt, "event link original claim changed");
     const auto attempt = one("SELECT * FROM call_attempts WHERE attempt_id=?", {link.at("attempt_id")});
     const auto envelope = str(attempt, "request_envelope");
-    const auto request = model_request_from_json(parse_json_strict(envelope, 4U * 1024U * 1024U));
+    const auto& request = reads->request(envelope);
     require(attempt.at("request_id") == link.at("request_id") && attempt.at("call_id") == link.at("call_id") &&
             fact.at("envelope_sha256") == Json(sha256_hex(envelope)) && fact.at("binding") == to_json(request.binding) &&
             fact.at("reservation_sha256") == attempt.at("reservation_sha256") && fact.at("role_call_index") == request.role_call_index &&
@@ -124,7 +126,7 @@ void Store::Impl::verify_event_link(const Row& link) const {
             ((request.binding.team_id.empty() && attempt.at("team_id").is_null()) || attempt.at("team_id") == Json(request.binding.team_id)),
             ErrorCode::Corrupt, "event association differs from original attempt bytes");
     const auto original_request = request_row(str(link, "request_id"));
-    const auto frozen = FrozenRequestConfig::restore(str(original_request, "config_snapshot"), str(original_request, "config_snapshot_sha256"));
+    const auto& frozen = reads->config(original_request);
     require(fact.at("profile") == frozen.model_profile(request.role), ErrorCode::Corrupt, "event frozen model profile changed");
     const auto reserve_event = one("SELECT payload,command_sha256 FROM events WHERE request_id=? AND command_id=?",
         {link.at("request_id"), "reserve:" + str(link, "attempt_id")});
@@ -217,8 +219,8 @@ void Store::Impl::verify_event_link(const Row& link) const {
         }
     }
 }
-void Store::Impl::event_link_current(const StoreActor& actor, const Row& link) const {
-    verify_event_link(link);
+void Store::Impl::event_link_current(const StoreActor& actor, const Row& link, EventLinkReadContext* reads) const {
+    verify_event_link(link, reads);
     const auto fact = event_fact(link);
     require(fact.at("actor") == actor_json(actor), ErrorCode::Unauthorized, "event call belongs to another original actor");
     event_claim_current(actor, event_claim_snapshot(str(link, "claim_id")));
@@ -434,7 +436,8 @@ Json Store::claim_event_batch(const StoreActor& actor, std::int64_t maximum) {
     require(maximum > 0 && maximum <= 64, ErrorCode::InvalidInput, "persistent event claim limit must be 1..64");
     Impl::Transaction tx(*impl_);
     (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
-    for (const auto& link : impl_->all("SELECT * FROM n5_event_links WHERE request_id=?", {actor.request_id})) impl_->verify_event_link(link);
+    Impl::EventLinkReadContext reads;
+    for (const auto& link : impl_->all("SELECT * FROM n5_event_links WHERE request_id=?", {actor.request_id})) impl_->verify_event_link(link, &reads);
     if (impl_->optional("SELECT link_id FROM n5_event_links l WHERE request_id=? AND json_extract(fact,'$.actor.role')=? "
             "AND json_extract(fact,'$.actor.task_id')=? AND NOT EXISTS(SELECT 1 FROM n5_event_receipts r WHERE r.link_id=l.link_id AND r.kind='CLOSE') LIMIT 1",
             {actor.request_id, role_name(actor.role), actor.task_id})) {
@@ -523,7 +526,10 @@ Json Store::reserve_event_call(const StoreActor& actor, const ExecutionBinding& 
     const auto policy = impl_->one("SELECT * FROM n5_event_requests WHERE request_id=?", {actor.request_id});
     require(number(impl_->one("SELECT COUNT(*) AS n FROM n5_event_links WHERE request_id=?", {actor.request_id}), "n") < number(policy, "max_links"),
             ErrorCode::Quota, "persistent event lifetime link capacity exhausted");
-    const auto frozen = FrozenRequestConfig::restore(str(impl_->request_row(actor.request_id), "config_snapshot"), reservation.config_snapshot_sha256);
+    Impl::EventLinkReadContext reads;
+    const auto& frozen = reads.config(impl_->request_row(actor.request_id));
+    require(frozen.sha256() == reservation.config_snapshot_sha256, ErrorCode::Corrupt,
+            "event reservation configuration hash differs from the original request");
     const Row target{{"expected_state_version", association.expected_state_version}, {"workflow_action", association.workflow_action},
         {"subject_sha256", sha256_hex(canonical_json(subject))}, {"binding", to_json(binding)}};
     const auto target_bytes = json_text(target, 1024 * 1024);
@@ -552,7 +558,7 @@ Json Store::reserve_event_call(const StoreActor& actor, const ExecutionBinding& 
                 ErrorCode::NotReady, "persistent note operation tail capacity unavailable");
     }
     Impl::EventProtocolScope step(*impl_, id, business_tail, control_tail);
-    (void)impl_->reserve_attempt_in_transaction(actor, binding, reservation);
+    (void)impl_->reserve_attempt_in_transaction(actor, binding, reservation, &frozen);
     const auto original = impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {reservation.attempt_id});
     fact["envelope_sha256"] = sha256_hex(str(original, "request_envelope")); fact["reservation_sha256"] = original.at("reservation_sha256");
     const auto encoded = json_text(fact, 2 * 1024 * 1024);
@@ -569,47 +575,49 @@ Json Store::reserve_event_call(const StoreActor& actor, const ExecutionBinding& 
     impl_->append_event_receipt(link, "RESERVED", Row{{"claim_sha256", snapshot.at("fact_sha256")}, {"link_sha256", sha256_hex(encoded)},
         {"reservation_sha256", original.at("reservation_sha256")}, {"business_tail", business_tail}, {"control_tail", control_tail}});
     impl_->guard_event_tail_capacity(actor.request_id);
-    const auto result = impl_->event_link_info(link); tx.commit(); return result;
+    const auto result = impl_->event_link_info(link, &reads); tx.commit(); return result;
 }
 
 Json Store::claim_event_dispatch(const StoreActor& actor, const std::string& id) {
     const std::lock_guard lock(impl_->mutex);
     Impl::Transaction tx(*impl_);
     (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker}, false);
-    const auto link = impl_->event_link_row(id); impl_->verify_event_link(link);
+    Impl::EventLinkReadContext reads;
+    const auto link = impl_->event_link_row(id); impl_->verify_event_link(link, &reads);
     require(impl_->event_fact(link).at("actor") == actor_json(actor), ErrorCode::Unauthorized, "dispatch original actor changed");
     Impl::EventProtocolScope step(*impl_, id);
     if (!impl_->event_receipt(id, "DISPATCH").is_null()) {
-        const auto replay = impl_->claim_offline_call_in_transaction(actor, str(link, "attempt_id"));
+        const auto replay = impl_->claim_offline_call_in_transaction(actor, str(link, "attempt_id"), &reads);
         require(replay.at("dispatch_claimed") == false, ErrorCode::Corrupt, "original event dispatch authority disappeared");
-        auto result = impl_->event_link_info(link).as_object(); result["dispatch_claimed"] = false;
+        auto result = impl_->event_link_info(link, &reads).as_object(); result["dispatch_claimed"] = false;
         tx.commit(); return result;
     }
     require(!impl_->optional("SELECT seq FROM events WHERE request_id=? AND command_id=?", {link.at("request_id"), "offline-dispatch:" + str(link, "attempt_id")}),
             ErrorCode::Corrupt, "dispatch event exists without its atomic association receipt");
-    impl_->event_link_current(actor, link);
+    impl_->event_link_current(actor, link, &reads);
     require(!impl_->event_application_halted, ErrorCode::NotReady, "persistent event Store retained a failed application; halt new dispatch");
     impl_->event_amendment_targets_current(impl_->event_fact(link));
     require(impl_->event_receipt(id, "SETTLEMENT").is_null() && impl_->event_receipt(id, "ERROR").is_null(), ErrorCode::NotReady,
             "settled or held event calls cannot dispatch");
-    const auto claimed = impl_->claim_offline_call_in_transaction(actor, str(link, "attempt_id"));
+    const auto claimed = impl_->claim_offline_call_in_transaction(actor, str(link, "attempt_id"), &reads);
     require(claimed.at("dispatch_claimed") == true, ErrorCode::Corrupt, "new event call did not obtain original unique dispatch");
     const auto event = impl_->one("SELECT seq,event_id,payload,result FROM events WHERE request_id=? AND command_id=?",
         {link.at("request_id"), "offline-dispatch:" + str(link, "attempt_id")});
     impl_->append_event_receipt(link, "DISPATCH", Row{{"event_seq", event.at("seq")}, {"event_id", event.at("event_id")},
         {"payload_sha256", sha256_hex(str(event, "payload"))}, {"result_sha256", sha256_hex(str(event, "result"))},
         {"reservation_sha256", impl_->event_fact(link).at("reservation_sha256")}});
-    auto result = impl_->event_link_info(link).as_object(); result["dispatch_claimed"] = true;
+    auto result = impl_->event_link_info(link, &reads).as_object(); result["dispatch_claimed"] = true;
     tx.commit(); return result;
 }
 
 Json Store::settle_event_observation(const std::string& id, const ModelResponse& response) {
     const std::lock_guard lock(impl_->mutex);
     Impl::Transaction tx(*impl_);
-    const auto link = impl_->event_link_row(id); impl_->verify_event_link(link);
+    Impl::EventLinkReadContext reads;
+    const auto link = impl_->event_link_row(id); impl_->verify_event_link(link, &reads);
     require(!impl_->event_receipt(id, "DISPATCH").is_null(), ErrorCode::NotReady, "event observation lacks its original dispatch authority");
     const auto original = impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {link.at("attempt_id")});
-    const auto request = model_request_from_json(parse_json_strict(str(original, "request_envelope"), 4U * 1024U * 1024U));
+    const auto& request = reads.request(str(original, "request_envelope"));
     require(response.call_id == request.call_id && response.attempt_id == request.attempt_id && response.role == request.role &&
             response.role_call_index == request.role_call_index && response.binding == request.binding &&
             response.config_snapshot_id == request.config_snapshot_id, ErrorCode::Stale, "event response changed its complete original call identity");
@@ -622,7 +630,7 @@ Json Store::settle_event_observation(const std::string& id, const ModelResponse&
     impl_->append_event_receipt(link, "SETTLEMENT", Row{{"settlement_sha256", settled.at("settlement_sha256")},
         {"response_sha256", sha256_hex(str(impl_->one("SELECT response FROM call_attempts WHERE attempt_id=?", {request.attempt_id}), "response"))},
         {"usage_sha256", sha256_hex(str(impl_->one("SELECT usage FROM call_attempts WHERE attempt_id=?", {request.attempt_id}), "usage"))}});
-    const auto result = impl_->event_link_info(link); tx.commit(); return result;
+    const auto result = impl_->event_link_info(link, &reads); tx.commit(); return result;
 }
 
 Json Store::commit_event_action_and_finish(const StoreActor& actor, const std::string& id, const SchemaRegistry& schemas) {
@@ -641,12 +649,13 @@ Json Store::commit_event_action_and_finish(const StoreActor& actor, const std::s
     try {
         Impl::Transaction tx(*impl_);
         Impl::EventProtocolScope step(*impl_, id);
-        impl_->event_link_current(actor, link);
+        Impl::EventLinkReadContext reads;
+        impl_->event_link_current(actor, link, &reads);
         const auto original = impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {link.at("attempt_id")});
         require(!original.at("response").is_null() && number(original, "accepted") == 1 &&
                 number(original, "unknown_input") == 0 && number(original, "unknown_output") == 0 && number(original, "unknown_cost") == 0,
                 ErrorCode::UnknownOutcome, "event application requires complete original response and known original accounting");
-        const auto request = model_request_from_json(parse_json_strict(str(original, "request_envelope"), 4U * 1024U * 1024U));
+        const auto& request = reads.request(str(original, "request_envelope"));
         const auto raw_response = parse_json_strict(str(original, "response"), 4U * 1024U * 1024U);
         const auto response = model_response_from_json(raw_response);
         require_complete_response(request, response);
@@ -703,10 +712,11 @@ Json Store::commit_event_action_and_finish(const StoreActor& actor, const std::s
             require(action == "note" && tool.name == "note", ErrorCode::Unsupported, "persistent Worker slice supports only a database note");
             object_fields(tool.arguments, {"text"}, {"text"});
             (void)workflow_text(tool.arguments, "text", 4000);
+            const auto& transaction_config = reads.config(impl_->request_row(actor.request_id));
             const auto prepared = impl_->prepare_operation_in_transaction(actor, request.binding, expected, request.attempt_id,
-                "note", tool.arguments, "none", command + ":prepare", false);
+                "note", tool.arguments, "none", command + ":prepare", false, &transaction_config);
             const auto op_id = str(prepared.as_object(), "op_id");
-            const auto started = impl_->start_operation_in_transaction(actor, op_id, number(prepared.as_object(), "state_version"), command + ":start");
+            const auto started = impl_->start_operation_in_transaction(actor, op_id, number(prepared.as_object(), "state_version"), command + ":start", &transaction_config);
             result = impl_->finish_operation_in_transaction(actor, op_id, request.binding, number(started.as_object(), "state_version"),
                 "SUCCEEDED", "sqlite:operation_intents/" + op_id + "#sha256=" + sha256_hex(canonical_json(tool.arguments)), command + ":finish");
             const auto op = impl_->op_row(op_id);
@@ -772,7 +782,7 @@ Json Store::commit_event_action_and_finish(const StoreActor& actor, const std::s
             {"effects", effects}, {"dispositions", dispositions}, {"completed_ids", finished.at("completed_ids")},
             {"released_ids", finished.at("released_ids")}, {"result", result}});
         impl_->guard_event_tail_capacity(actor.request_id);
-        const auto closed = impl_->event_link_info(link); tx.commit(); impl_->event_application_started.erase(id); return closed;
+        const auto closed = impl_->event_link_info(link, &reads); tx.commit(); impl_->event_application_started.erase(id); return closed;
     } catch (const Error& error) {
         // SQLite/storage corruption retains the original response and the
         // caller's result slot. This path cannot turn an I/O failure into an
@@ -800,8 +810,8 @@ Json Store::commit_event_action_and_finish(const StoreActor& actor, const std::s
     }
 }
 
-Json Store::Impl::event_link_info(const Row& link) const {
-    verify_event_link(link);
+Json Store::Impl::event_link_info(const Row& link, EventLinkReadContext* reads) const {
+    verify_event_link(link, reads);
     const auto fact = event_fact(link); const auto id = str(link, "link_id");
     const auto attempt = one("SELECT * FROM call_attempts WHERE attempt_id=?", {link.at("attempt_id")});
     std::string state = "RESERVED", hold = "HOLD_MISSING_DISPATCH";
@@ -848,8 +858,9 @@ std::vector<Json> Store::request_event_links(const std::string& id) const {
     require(impl_->event_association_schema, ErrorCode::Unsupported, "persistent event protocol requires Store 411");
     impl_->exec("BEGIN");
     try {
+        Impl::EventLinkReadContext reads;
         std::vector<Json> result;
-        for (const auto& link : impl_->all("SELECT * FROM n5_event_links WHERE request_id=? ORDER BY rowid", {id})) result.push_back(impl_->event_link_info(link));
+        for (const auto& link : impl_->all("SELECT * FROM n5_event_links WHERE request_id=? ORDER BY rowid", {id})) result.push_back(impl_->event_link_info(link, &reads));
         impl_->exec("COMMIT"); return result;
     } catch (...) { impl_->rollback(); throw; }
 }
