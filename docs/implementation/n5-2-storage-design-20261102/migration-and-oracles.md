@@ -80,13 +80,14 @@ WAL 处理方式、文件权限、全部资源输入和 SHA；不要只复制仍
 | G05 | 强制恢复；旧Actor/proof、缺失／篡改recover见证；显式当前Dispatcher重捕获 | 旧会话在 replay 前拒绝；旧 proof 永不派发；仅合法连续见证可产生新 proof，原 instructions/acceptance 原字节不变；否则 HOLD |
 | G06 | 普通publish/create/accept/reserve/tool路径直接访问启用图的c | 每个公开业务入口同样守卫，无 CLI-only ready 绕过；控制cancel/settlement可达且不授业务权 |
 | R01 | 从真实 submission 固定候选；同内容另一submission、改path/size/hash/base64/顺序 | 映射绑定原提交和完整文件；同内容不同ID不共享ticket；损坏零 ticket/round/budget变更；不读取当前文件替代 |
-| R02 | producer冒充reviewer、OneRequest越界、第三请求、不同root/project/tenant、重绑child | 全部拒绝，两个原请求和第三请求字节／预算不受副作用；真正ReviewPair仅允许既定方法 |
+| R02 | producer冒充reviewer、OneRequest越界、第三请求、不同root/project/tenant、重绑child；不合法pair的两方预先含真实pending work/活动claim；合法pair恢复第二方时注入故障 | 宿主双边身份／映射在任何恢复写前完整核验；不合法pair零epoch/claim/预算/待办变化；合法pair两方恢复同事务，故障零半恢复；真正ReviewPair仅允许既定方法 |
 | R03 | producer/reviewer分别更改十域任一版本、各CAS、当前scope或取消 | 在T2和T4各拒绝；原ticket不刷新；迟到原observation/usage可保存；同候选不得复用原 pass |
-| R04 | pass，逐项必需host checks缺失/fail/not_run；model自报pass | 只有独立host checks全部满足后当前Dispatcher才能原子接受；旧accept入口仍拒绝必需review |
+| R04 | pass+major/blocker、pass+模型failed evidence、重复finding ID；required_checks自身重复，host checks缺项/重复/额外或外国ID/fail/not_run/错误ticket或版本/缺runner或receipt；model自报pass | 原语义矛盾全部拒绝，即使host checks通过；host checks须唯一且与冻结必需集合精确相同、逐项同原绑定且pass；原报告/反馈保留；全部原S1守卫满足后才允许当前Dispatcher原子接受，旧accept入口仍拒绝必需review |
 | R05 | changes_requested、inconclusive、最后一轮、同键精确replay | 原findings留存；新task/instruction/ack；两个额度分别约束且不归零；replay零增量，耗尽明确升级 |
 | B01 | 父普通reserve与child审核reserve在同剩余额度交错；不同调用同时借记 | 同一父聚合额度只有可容纳者成功；每个child attempt恰好一个debit，无parent假attempt；本地和聚合verifier一致 |
 | B02 | child usage局部null、全null、input/output/cost已知但仅cache_read或cache_write为null；对照已知cache=0；零预留但unknown、超预留、迟到、结算故障；未启用新review的原Fake对照 | 新review的cache-only-null也使父子HOLD，已知0本身不触发该HOLD；三维原账本正常投影、未知三维保留原预留，不虚构cache预留或双计input/output；原Fake三维unknown门禁兼容不变；所有原usage不改写，超额全量保存、attempt计数不退还、精确重放零费用增量 |
 | B03 | ticket准备后崩溃、T1未dispatch崩溃、DISPATCH后无结果、T4 commit失败 | 逐边故障表全部满足；无重复claim/callback、无无证DONE；新恢复ID不能绕开原未结算call |
+| B04 | 新graph/review action的business/control计数与编码字节距原限额0/1/所需尾部；T1后另有调用消耗容量；receipt/check/acceptance/experience/父借记观察达到界限 | T1保存按新action计算的原尾部预留；T4重核原归属及实际用量＋其他未消费预留＋本次尚需尾部，不足整笔回滚并保留T3/HOLD；无借用兄弟／控制容量、无双计或误释放 |
 | S01 | 双池普通满载，审核Dispatcher/Worker各入队，同资源FIFO | 两种原review reserve仍有效；producer等待不占活跃槽、不释放UNKNOWN／保留结果／冲突资源；无同步父等子死锁 |
 | C01 | 旧411 ELF开412、412原未启用请求、真实历史库、迁移断点 | 旧程序明确拒绝；旧协议原字节保持；原子metadata/资产hash；无静默upgrade/新模式回退 |
 | C02 | parent终态、child仍UNKNOWN／在途，旧清理claim、新scope重开 | 不提前交付/清理，无新业务许可；所有权、原进程exit、结算、cleanup CAS原条件仍同时满足 |

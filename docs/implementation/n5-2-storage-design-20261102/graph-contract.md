@@ -91,6 +91,12 @@ T2 唯一 claim 事务和 T4 业务提交事务重新读取完整 proof/graph/so
 T3 保存原 settlement/nullable usage；T4 的 stale/UNKNOWN 拒绝不能吞掉原 response/feedback。
 图的准备／失败待办不能让原 T0 claim 中没有选中的 ID 被完成。
 
+新 graph action 在实施前也须按 action 冻结 receipt/map、验收／experience job、feedback、
+逐 ID 完成和失败收尾所需的最大编码字节与原 business/control 事件尾部。T1 原子取得这些
+预留；T4 在原业务事务内再次核本 link 的原预留、其他未消费预留、实际用量和原冻结限额。
+不能直接沿用 N5-1 plan/instruction/note 的尾部计数，不能用图的行数上限证明收尾空间。
+不足／归属不明时回滚整笔业务，原 T3 响应与 HOLD 保留；不消耗兄弟请求或控制专用容量。
+
 Store 入口覆盖必须包括模型 reserve/claim、工具 prepare/唯一 dispatch、submit/check/accept、
 change/rework 及其直接公开重放入口。仅在 runtime 的 ready 清单过滤不够。图模式的 live
 入口首片直接 Unsupported；不能因一般 live API 存在而绕开图边。取消、结算、明确控制 ack、
@@ -111,6 +117,7 @@ AMEND/新 plan/源 task 或 instruction 语义变更、撤销接受均使旧 pro
 只允许见证链能够逐项解释的转换；缺少证明拒绝，不能只忽略 epoch 或 state_version。
 保存新 proof 对原 receipt 及完整见证的引用，原 proof、Actor、acceptance 不改盖新 epoch。
 具体哪些行 CAS 随 recovery 改动须在实现时从现有 recovery 事务生成可核验证据，未证明即 HOLD。
+恢复 CAS 转换的完整见证及篡改／缺失／断链负例是 D2 实施前置；未补齐时不得开放重捕获入口。
 
 这不是复用旧审核 verdict：第二片 ticket 要求双方当前捕获身份，任一方 epoch 变更都需新
 ticket／新计费 attempt。D2 未获批准时采用保守出口：恢复后的 DAG 不派发，显示

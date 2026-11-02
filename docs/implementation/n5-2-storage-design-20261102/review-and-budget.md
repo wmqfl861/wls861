@@ -52,7 +52,10 @@ hash；producer 另存 submission CAS、candidate map/hash、graph ID，reviewer
 
 推荐 D4 的具体宿主入口是新 `StoreRecoveryScope::ReviewPair(parent, child, mapping_id)`，
 仅同一数据库、同 tenant/project/root 的两个明确请求，首片同时只启用一个 pair。
-它是待批准接口，当前代码没有这个枚举。打开时分别执行原按需恢复，然后才签发各自 Actor；
+它是待批准接口，当前代码没有这个枚举。**任何一方的恢复写入之前**，先核完双方宿主认证、
+持久 owner、parent/child/tenant/project/root 全集、原准入与冻结 mapping/config；不合法就拒绝，
+两方 epoch、claim、预算和待办均不变。合法后，在同一原 Store 写事务内完成两方各自的按需
+恢复；任一方失败则整体回滚，不允许先提交父恢复再发现子非法。事务提交后才签发各自 Actor；
 整个 Store 仍由一个原 owner 线程和原独占写者锁拥有。原 OneRequest 仍拒绝另一请求，
 AdmissionOnly 不签发执行身份；不能从 child_id、公开构造 Actor 或 WorkClass::Review 扩权。
 
@@ -62,8 +65,10 @@ AdmissionOnly 不签发执行身份；不能从 child_id、公开构造 Actor �
 2. AdmissionOnly 通过后继 `admit_review_only_child` 创建冻结的 review-child-v1 请求，
    明确 parent/mapping/config/原有限预算。该新模式从准入起禁止任何普通业务／attempt，
    直到双边关系和父级额度原子登记；原 admit 路径不能产生相同新模式的未受限 child。
-3. 关闭 admission Store，用 ReviewPair 打开同一数据库，恢复两方后取得新 Actor；
-   双方当前 root 身份和冻结映射完全匹配才登记 pair。此时尚未创建 ticket 或消耗模型轮次。
+3. 关闭 admission Store，用 ReviewPair 打开同一数据库；先按上述全集完成宿主身份／冻结
+   映射验证，再原子恢复两方。取得新 Actor 后仍重新核当前 root 身份、映射和双方 CAS 才
+   登记 pair。此时尚未创建 ticket 或消耗模型轮次。不得串接两个会自行提交的恢复 API
+   代替这一双边事务；所需事务内恢复边界尚待实现／验证。
 
 pair 不是通用跨请求 capability。只允许固定候选只读、票据预约、原审核 response/usage
 记录、有限 verdict/check 及当前 producer 验收／返工控制。所有其他 request 访问拒绝；
@@ -88,6 +93,14 @@ pair 不是通用跨请求 capability。只允许固定候选只读、票据预�
 execution/policy、team、CAS 等新字段属于 envelope，不塞入旧正文。新 verifier 必须同时校验
 旧正文与 envelope 的共有值相等，格式未知拒绝，不能只通过旧 JSON 形状就采纳业务。
 
+新 Store verifier 还须完整保留 `scripts/validate_contracts.py` 的原语义守卫：findings ID
+不得重复；pass 与任一 blocker/major finding 矛盾时拒绝，pass 与模型 evidence 中任一 fail
+矛盾时也拒绝，即使独立 host checks 全通过。必需 check ID 本身须唯一；实际 host check
+不能重复、缺项或含额外 ID，其集合必须与原 ticket 冻结的 required_checks **精确相同**。
+每个 host check 都核原 ticket/candidate/全部版本绑定及非空 runner_id/evidence_ref，并须
+result=pass；模型自报 evidence 不替代这些 host 事实。原始矛盾／无效报告仍由 T3 保存，
+T4 拒绝业务采用并保留原反馈。首片没有 user waiver；参考 verifier 的豁免分支不是本协议授权。
+
 拟议 `prepare_review(pair_root, producer_dispatcher, both_captured, candidate_map,
 expected_cas, checks, budget_grant, command)` 在单事务保存 ticket、round fact、pair 版本、
 原 producer 等待投影与 reviewer 待办。首次 ticket 创建消耗一次原 round；只允许一个活动
@@ -101,10 +114,17 @@ T2 唯一 dispatch 复核双方当前身份、CAS、候选、pair、父预算状
 
 T3 `record_review_observation` 依据原 dispatch 记录原响应／usage；即使取消、恢复、双方
 scope 不再有业务权，也可在受限双边 accounting 路径写原事实和原父借记投影。
-T4 `apply_review_verdict` 再核双方原捕获 tuple、CAS、候选和账目，才提交原 verdict 的业务
+T4 `apply_review_verdict` 再核双方原捕获 tuple、CAS、候选、账目和下述原尾部预留，才提交原 verdict 的业务
 投影与精确 feedback/已完成 ID。先保存原观察，后业务拒绝；不得把 T3 成功当业务 pass。
 将来的 `accept_reviewed_candidate` 再做全部原 S1 验收守卫，加有效 ticket/pass 与每项必需
 host check；创建原 acceptance/experience 和审核消费事实同事务。旧 accept 路径仍拒绝。
+
+新增 review action 不能直接复用 N5-1 plan/instruction/note 的尾部数值。实施前须分别冻结
+ticket/verdict/check、parent debit/observation、acceptance/experience、feedback、逐 ID receipt
+及失败收尾的最大字节和原 business/control 事件数。T1 在原限额内一次预留，T4 在同一提交
+事务重新核“实际用量＋其他未消费预留＋本次尚需尾部≤原限额”及本 link 的预留归属，才消费
+自己的位置；不足或不明则业务整体回滚，保留原 T3/结果与 HOLD。有限 graph/ticket 行数不是
+收尾空间证明，也不能重复计算或释放旧 pending call/op 的同一份预留。
 
 双方 CAS 可能因**本协议自己**的等待／ticket 投影而变化。ticket 同时保存 prepare 前捕获值
 与同一事务预定的 prepare 后值；后续只接受有原 transition receipt 的本协议变化。

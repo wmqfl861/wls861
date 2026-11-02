@@ -1,7 +1,8 @@
 # N5-2 存储选择包 v1：文本检查记录
 
-时间范围：2026-11-02，本报告提交前的独立文档工作树检查。
-执行者：本地子 Agent `/root/concurrency_fix`；协调者 `/root`。
+时间范围：2026-11-02，初版独立文档工作树检查；后续提案复核修订另在下文标明。
+执行者：本地子 Agent `/root/concurrency_fix`；本地执行／集成人 `/root`。
+主协调 Agent 另行负责正式架构采纳、任务决策与最终批准；本地分派和发布不代表该批准。
 这不是生产功能验证、独立设计批准或真实供应商运行报告。
 
 ## 基线、范围与实际产物
@@ -14,7 +15,7 @@ head `design/n5-1-persistent-events-20261102-csj777e9`，完整 SHA
 工作树位于数据盘
 `/mnt/d/codex-workspace/wls861-n5-20261102-csj777e9/dag-design`。
 
-协调者要求在等待 N5-1 集成／编译窗口期间，具体化 N5-2 存储选择，明确不做生产实现。
+本地集成人分派在等待 N5-1 集成／编译窗口期间具体化 N5-2 存储选择，明确不做生产实现。
 新增四份 [设计文档](../implementation/n5-2-storage-design-20261102/README.md)、
 一份来源清单和本报告。现有 N4、N5-1 提案、历史报告／SQL／Schema、third_party、
 docs/handoff、C++ 与构建注册均未修改。
@@ -35,6 +36,18 @@ Unsupported 守卫保留。
 清单 SHA-256：`4d59004c0514dd1ba27286ac4e087bf76813548e32d7839c5865ca833c921fa5`。
 这是设计依据的完整文件身份，不宣称逐行审核整份 store.cpp。
 
+非作者 `/root/delivery_report` 已完成对初版 edf08f0 的有界源码／设计复核，原记录在
+`evidence/n5-2-nonauthor-design-review-01/review.md` 和 `review.json`；这不是正式 PR 批准。
+修订按 F1 区分现 Fake 三维 unknown 与 live projection 五维完整性；新 review 的五维 HOLD
+明确是拟议新增守卫。F2 补齐原 verifier 的矛盾 pass、重复 findings 与精确 host check 集合；
+F3 修正本地集成人和主协调 Agent 的角色表述。ReviewPair 恢复前双边验证／原子恢复、新
+action 的 T1/T4 尾部预留及 D2 缺见证 HOLD 也作为实施前置写明。
+
+[复核补充输入清单](../implementation/n5-2-storage-design-20261102/review-source-inputs-v2.sha256)
+新增固定同一451基线的 `src/store_live.inc` 和 `scripts/validate_contracts.py` 原字节身份，
+没有修改原21项清单或设计基线。实际结算守卫／账本重建在 store_live.inc；store.cpp 保存
+相关调用和三维原 settlement 更新，两者不能混称为同一处实现。
+
 本会话按 installed codebase-memory skill 做有界结构调查；本子 Agent 无 graph MCP tools，
 使用准确源码 read/rg fallback。未以父会话旧图的缺项推断实现不存在。核对了独立计划守卫、
 原 submit/acceptance 实现、两种 CAS、十域 binding、原 request_budgets/call_attempts，
@@ -49,7 +62,7 @@ Schema 和 N5-1 设计依赖。范围未覆盖未来尚不存在的 014 或 tick
 
 ## 实际命令与结果
 
-本段仅记录轻量文本／Git 检查，不计入产品测试套件。精确 argv、退出码和完整输出在数据盘
+本段保留初版六文件的轻量文本／Git 检查结果，不计入产品测试套件。精确 argv、退出码和完整输出在数据盘
 `evidence/n5-2-design-static-01/`；检查脚本和日志是该次文本检查的证据，不进入生产构建。
 
 | 检查 | 命令或方法 | 实际状态 |
@@ -80,7 +93,7 @@ Schema 和 N5-1 设计依赖。范围未覆盖未来尚不存在的 014 或 tick
 | LOCAL_VALIDATION_COMPLETE | NO：产品验证未执行；文本检查另列 |
 | PUSH_COMPLETE | NO：本报告不承担发布动作 |
 | REMOTE_CI_COMPLETE | NO：本包未取得最终SHA CI证据 |
-| PR_REVIEW_COMPLETE | NO：等待协调者／非作者独立审查 |
+| PR_REVIEW_COMPLETE | NO：已有非作者有界设计复核，正式采纳／PR批准仍待主协调 Agent |
 | MERGED | NO |
 
 最终 commit/tree、文档快照 SHA-256 及后续发布状态由数据盘外置 receipt 记录，避免为记录

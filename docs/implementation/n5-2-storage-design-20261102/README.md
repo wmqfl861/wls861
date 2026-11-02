@@ -49,6 +49,7 @@ callback 不访问 Store，不向同步 runner 重交同一 attempt。不能以 
 - [候选、双边审核与父预算](review-and-budget.md)：格式、最小接口、失败与借记守恒。
 - [迁移、回滚和验收](migration-and-oracles.md)：旧程序拒绝、原子故障点、逐事实查询。
 - [输入清单](source-inputs.sha256)：设计基线中实际参考文件的 SHA-256；不是本包自哈希。
+- [复核补充输入清单](review-source-inputs-v2.sha256)：同一451基线的实际账本／未结算检查与参考审核verifier；原21项清单保留。
 - [本批验证报告](../../reports/n5-2-storage-design-validation-20261102.md)：实际文本检查、未运行项和提交前时域。
 
 本包承接 [N5-2 依赖](../n5-persistent-events-20261102/n5-2-dependencies.md)、
