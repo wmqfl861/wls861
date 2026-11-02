@@ -189,7 +189,7 @@ void until(Runtime& runtime, Predicate predicate,
 }
 bool ready(std::future<Json>& future) { return future.wait_for(std::chrono::seconds(0)) == std::future_status::ready; }
 Json task(Store& store, const std::string& id, std::string_view node) {
-    for (const auto& value : store.tasks(id)) if (value.at("node_id") == node) return value;
+    for (const auto& value : store.tasks(id)) if (text(value, "node_id") == node) return value;
     throw std::runtime_error("expected original task is missing");
 }
 bool contains(const Json& ids, const Json& id) {
@@ -208,7 +208,7 @@ void original_target_shape_is_checked_before_empty_subject() {
         {"target", Object{{"pending_node_ids", "bad"}}}}, event); });
     const Json action = Object{{"kind", "amendment"}, {"target", Object{
         {"pending_node_ids", Array{"alpha"}}, {"tasks", Array{
-            Object{{"task_id", "a"}, {"node_id", "alpha"}}, Object{{"task_id", "b"}, {"node_id", "beta"}}}}}};
+            Object{{"task_id", "a"}, {"node_id", "alpha"}}, Object{{"task_id", "b"}, {"node_id", "beta"}}}}}}};
     CHECK(event_matches_workflow_action(action, event));
     CHECK(!event_claim_contains_workflow_action(action, empty));
     CHECK(event_matches_workflow_action(action, Object{{"type", "recover"}, {"subject_task_id", "a"}}));
