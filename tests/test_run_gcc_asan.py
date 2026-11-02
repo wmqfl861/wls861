@@ -673,6 +673,47 @@ class GateContracts(unittest.TestCase):
         self.assertEqual((private / "summary-publication-input.json").read_bytes(),
                          (private / "summary.json").read_bytes())
 
+    def test_quarantine_failure_still_records_incomplete_terminal_receipt(self):
+        original_publish, original_rename = gate.publish_public_evidence, Path.rename
+        published_bytes = None
+
+        def publish_then_interrupt(source, build, private, summary):
+            nonlocal published_bytes
+            public = original_publish(source, build, private, summary)
+            published_bytes = {path.name: path.read_bytes() for path in public.iterdir()}
+            raise KeyboardInterrupt("after publication rename")
+
+        def refuse_quarantine(path, target):
+            if path.name == "public-evidence":
+                raise PermissionError("synthetic quarantine permission failure")
+            return original_rename(path, target)
+
+        with patch.object(gate, "publish_public_evidence", side_effect=publish_then_interrupt), \
+                patch.object(Path, "rename", refuse_quarantine):
+            try:
+                result, summary, _, private = self.exercise_main()
+            except PermissionError:
+                # The old finalizer leaves its checkpoint without recording
+                # why publication and quarantine both failed.
+                result = 1
+                paths = list(self.root.glob("build-gcc-asan-*/private-evidence/summary.json"))
+                self.assertEqual(len(paths), 1)
+                private = paths[0].parent
+                summary = json.loads(paths[0].read_text())
+        self.assertIsNotNone(published_bytes, "the injection must follow an actual checked publication")
+        self.assertEqual(result, 1)
+        self.assertEqual(summary["status"], "NOT_COMPLETE")
+        self.assertEqual(summary.get("public_evidence_error"), "after publication rename",
+                         "the final receipt lost the original publication failure")
+        self.assertIn("synthetic quarantine permission failure", summary["public_quarantine_error"])
+        self.assertIs(summary["failed_ci_required"], True)
+        public = private.parent / "public-evidence"
+        self.assertTrue(public.is_dir(), "the test must expose the unsuccessful quarantine boundary")
+        self.assertEqual({path.name: path.read_bytes() for path in public.iterdir()}, published_bytes)
+        self.assertEqual((private / "ctest-logs/LastTest.log").read_bytes(),
+                         (private.parent / "Testing/Temporary/LastTest.log").read_bytes())
+        self.assertTrue((private / "binaries-after.json").is_file())
+
     def check_identity_failure_keeps_binary_after(self, fault):
         result, summary, _, private = self.exercise_main(identity_fault=fault)
         self.assertEqual(result, 1)
