@@ -57,6 +57,28 @@ std::int64_t sql_number(const std::filesystem::path& path, const char* statement
     sqlite3_finalize(query); sqlite3_close(database);
     return result;
 }
+Json original_instruction_rows(const std::filesystem::path& path) {
+    sqlite3* database{};
+    CHECK(sqlite3_open_v2(path.c_str(), &database, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+    sqlite3_stmt* query{};
+    CHECK(sqlite3_prepare_v2(database, "SELECT * FROM instructions ORDER BY task_id,instruction_revision",
+        -1, &query, nullptr) == SQLITE_OK);
+    Array rows;
+    int status = SQLITE_OK;
+    while ((status = sqlite3_step(query)) == SQLITE_ROW) {
+        Array row;
+        for (int column = 0; column < sqlite3_column_count(query); ++column) {
+            const auto type = sqlite3_column_type(query, column);
+            const auto* bytes = sqlite3_column_text(query, column);
+            row.push_back(Object{{"type", type}, {"bytes", bytes ?
+                std::string(reinterpret_cast<const char*>(bytes), static_cast<std::size_t>(sqlite3_column_bytes(query, column))) : std::string{}}});
+        }
+        rows.push_back(std::move(row));
+    }
+    CHECK(status == SQLITE_DONE);
+    sqlite3_finalize(query); sqlite3_close(database);
+    return rows;
+}
 void sql(const std::filesystem::path& path, const char* statement) {
     sqlite3* database{};
     CHECK(sqlite3_open(path.c_str(), &database) == SQLITE_OK);
@@ -536,7 +558,7 @@ void real_adapter_flag_and_excess_limits_fail_before_t0() {
 void empty_selection_releases_only_unassociated_original_claim() {
     Fixture f;
     std::string id, task_id;
-    Json before_instruction;
+    Json before_instruction, original_rows;
     {
         PersistentEventRuntime initial(f.open(), schemas());
         id = f.admit(initial.store());
@@ -546,10 +568,18 @@ void empty_selection_releases_only_unassociated_original_claim() {
         task_id = text(task(initial.store(), id, "alpha"), "task_id");
         before_instruction = initial.store().instruction(task_id);
         initial.close();
+        original_rows = original_instruction_rows(f.path);
     }
     AsyncCoordinator runtime(f.open(StoreRecoveryScope::request(id)), schemas());
     (void)runtime.store().recover_request(id, number(runtime.store().request(id), "state_version"));
-    CHECK(runtime.store().instruction(task_id) == before_instruction);
+    const auto projected = runtime.store().instruction(task_id);
+    CHECK(original_instruction_rows(f.path) == original_rows);
+    for (const auto* field : {"body", "team_id", "task_revision", "plan_revision", "instruction_revision", "based_on_requirements_revision"})
+        CHECK(projected.at(field) == before_instruction.at(field));
+    CHECK(number(projected, "dispatcher_epoch") == number(before_instruction, "dispatcher_epoch") + 1);
+    CHECK(number(projected, "execution_epoch") == number(before_instruction, "execution_epoch") + 1);
+    CHECK(number(projected, "dispatcher_epoch") == runtime.store().binding(task_id).dispatcher_epoch);
+    CHECK(number(projected, "execution_epoch") == runtime.store().binding(task_id).execution_epoch);
     // The remaining Worker feedback names the old epoch. It is in C, but
     // cannot enter S for this newly captured binding. submit_event must use
     // typed empty release and leave the original ID pending without an attempt.
@@ -568,7 +598,8 @@ void empty_selection_releases_only_unassociated_original_claim() {
     CHECK(runtime.store().inbox(actor).front().at("inbox_id") == pending.front().at("inbox_id"));
     CHECK(runtime.store().inbox(actor).front().at("status") == "PENDING");
     CHECK(runtime.snapshot().outstanding == 0 && runtime.snapshot().accepting && model->calls == 0);
-    CHECK(runtime.store().instruction(task_id) == before_instruction);
+    CHECK(runtime.store().instruction(task_id) == projected);
+    CHECK(original_instruction_rows(f.path) == original_rows);
     runtime.close();
 }
 
