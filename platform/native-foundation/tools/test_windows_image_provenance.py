@@ -4,6 +4,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -145,4 +146,9 @@ class SourceComparison(unittest.TestCase):
 
 
 if __name__ == '__main__':
+    if os.name == 'nt':
+        # A bounded synthetic observation, not an extra test or a relaxation
+        # of read_file. Keep the original eight assertions and failure exits.
+        from windows_stat_probe import emit_windows_stat_probe
+        emit_windows_stat_probe()
     unittest.main(verbosity=2)
