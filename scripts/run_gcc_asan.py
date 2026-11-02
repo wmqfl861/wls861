@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shlex
 import shutil
 import signal
@@ -22,6 +23,8 @@ DEFAULT_EXPECTED_TESTS = 92
 
 ASAN = "halt_on_error=1:detect_leaks=1"
 UBSAN = "halt_on_error=1:print_stacktrace=1"
+STEP_NAMES = {"compiler-version", "compiler-banner", "cmake-version", "python-dependencies",
+              "mount", "configure", "build", "test-plan", "ctest"}
 
 
 def require(condition: bool, message: str) -> None:
@@ -132,6 +135,348 @@ def build_snapshot(build: Path) -> dict[str, str]:
     return {p.name: digest(p) for p in sorted(paths)}
 
 
+def preserve_ctest_evidence(build: Path, evidence: Path,
+                            steps: list[dict[str, object]]) -> dict[str, object]:
+    """Copy original CTest bytes after its process has exited, including failures.
+
+    JUnit may truncate successful output. LastTest.log is a separate original,
+    not reconstructed from the console or XML. Interrupted .tmp files are kept
+    under their own names and never passed off as complete LastTest.log files.
+    """
+    records = [step for step in steps if step["name"] == "ctest"]
+    step = records[-1] if records else None
+    finished = bool(step and step.get("ended_at") and step.get("exit_code") is not None
+                    and not step.get("interrupted_or_launch_error"))
+    index: dict[str, object] = {
+        "schema_version": 1, "captured_at": utc(), "ctest_attempted": step is not None,
+        "ctest_step": step, "execution_completed": finished, "complete": False,
+        "artifacts": {}, "warnings": [],
+        "publication_review": "private originals; never upload this directory",
+    }
+    artifacts, warnings = index["artifacts"], index["warnings"]
+    native = evidence / "ctest-logs"
+    native.mkdir(mode=0o700)
+    for name in ("LastTest.log", "LastTestsFailed.log", "LastTest.log.tmp", "LastTestsFailed.log.tmp"):
+        original = build / "Testing" / "Temporary" / name
+        if not original.exists():
+            continue
+        try:
+            require(original.is_file() and not original.is_symlink(), "non-regular CTest log")
+            target = native / name
+            with original.open("rb") as source, target.open("xb") as destination:
+                shutil.copyfileobj(source, destination)
+            checksum = digest(target)
+            require(checksum == digest(original), "CTest log changed during preservation")
+            artifacts["ctest-logs/" + name] = {
+                "source": str(original), "bytes": target.stat().st_size, "sha256": checksum,
+                "partial": name.endswith(".tmp"),
+            }
+        except Exception as error:
+            warnings.append(f"could not preserve {name}: {type(error).__name__}: {error}")
+    # These originals already live in the unique evidence directory. Index
+    # their bytes without rewriting JUnit, command receipts or identity files.
+    for name in ("ctest.xml", "ctest.log", "ctest.stderr.log", "ctest.step.json",
+                 "source-before.json", "source-after.json", "binaries-before.json",
+                 "binaries-after.json", "expected-tests.json"):
+        path = evidence / name
+        if path.is_file() and not path.is_symlink():
+            artifacts[name] = {"source": str(path), "bytes": path.stat().st_size, "sha256": digest(path)}
+    if step is not None:
+        for name in ("ctest-logs/LastTest.log", "ctest.xml", "ctest.log", "ctest.stderr.log", "ctest.step.json"):
+            if name not in artifacts:
+                warnings.append(f"missing original {name}")
+        if not finished:
+            warnings.append("CTest has no complete, uninterrupted exit record")
+        index["complete"] = finished and not warnings
+    write_json(evidence / "ctest-evidence.json", index)
+    for warning in warnings:
+        print(f"CTest evidence incomplete: {warning}", file=sys.stderr, flush=True)
+    return index
+
+
+def public_method_names(source: Path) -> tuple[set[str], set[str], set[str]]:
+    native, methods, classes = set(), set(), set()
+    for path in (source / "tests").rglob("*"):
+        if path.suffix not in (".cpp", ".hpp", ".py") or not path.is_file():
+            continue
+        content = path.read_text(encoding="utf-8")
+        if path.suffix == ".py":
+            methods.update(re.findall(r"^\s*def (test_[A-Za-z0-9_]+)\(", content, re.M))
+            classes.update(re.findall(r"^\s*class ([A-Za-z0-9_]+)\b", content, re.M))
+        elif "test::run({" in content:
+            for match in re.finditer(r'\{\s*("(?:[^"\\\n]|\\.)*")\s*,', content.split("test::run({", 1)[1]):
+                try:
+                    name = json.loads(match[1])
+                except ValueError:
+                    continue
+                if "\n" not in name and "\r" not in name:
+                    native.add(name)
+    return native, methods, classes
+
+
+def public_log_line(line: str, native: set[str], methods: set[str], classes: set[str],
+                    tests: set[str]) -> bool:
+    """Allow only static method names and numeric test observations, not data."""
+    if line in ("", "OK", "Test Passed.", "Test Failed.", "<end of output>", "Output:",
+                "The following tests FAILED:", "Errors while running CTest"):
+        return True
+    if re.fullmatch(r"[-=]{3,}", line):
+        return True
+    if any(line == prefix + name for prefix in ("START ", "PASS ") for name in native):
+        return True
+    if re.fullmatch(r"RESULT \d+ passed, \d+ failed|Ran \d+ tests? in [0-9.]+s|"
+                    r"FAILED \((?:failures|errors|skipped)=\d+(?:, (?:failures|errors|skipped)=\d+)*\)|"
+                    r"Test time =\s*[0-9.]+ sec|Test timeout computed to be: [0-9.]+|"
+                    r"\d+% tests passed, \d+ tests failed out of \d+|"
+                    r"Total Test time \(real\) =\s*[0-9.]+ sec", line):
+        return True
+    match = re.fullmatch(r"(test_[A-Za-z0-9_]+) \((?:__main__|[A-Za-z0-9_]+)\.([A-Za-z0-9_]+)\.\1\)(?: \.\.\. (?:ok|FAIL|ERROR))?", line)
+    if match and match[1] in methods and match[2] in classes:
+        return True
+    match = re.fullmatch(r"\[immediate-unittest (?:FAIL|ERROR) (?:__main__|[A-Za-z0-9_]+)\.([A-Za-z0-9_]+)\.(test_[A-Za-z0-9_]+)\]", line)
+    if match and match[1] in classes and match[2] in methods:
+        return True
+    for name in tests:
+        escaped = re.escape(name)
+        if re.fullmatch(r"\s*(?:\d+/\d+ Testing: |Start\s+\d+: )" + escaped, line):
+            return True
+        if re.fullmatch(r"\s*\d+/\d+ Test\s+#\d+: " + escaped +
+                        r"\s*\.+\s+(?:Passed|\*\*\*Failed|\*\*\*Timeout|\*\*\*Exception: [A-Za-z ]+)\s+[0-9.]+ sec", line):
+            return True
+        if re.fullmatch(r"\s*\d+ - " + escaped + r" \((?:Failed|Timeout|Not Run)\)", line):
+            return True
+        if re.fullmatch('"' + escaped + r'" time elapsed: \d+:\d+:\d+', line):
+            return True
+    return False
+
+
+def public_log_projection(raw: bytes, names: tuple[set[str], set[str], set[str]],
+                          tests: set[str]) -> tuple[bytes, list[dict[str, object]]]:
+    spans: list[tuple[bool, int, int]] = []
+    offset = 0
+    def span(keep: bool, begin: int, end: int) -> None:
+        if begin == end:
+            return
+        if spans and spans[-1][0] == keep and spans[-1][2] == begin:
+            spans[-1] = (keep, spans[-1][1], end)
+        else:
+            spans.append((keep, begin, end))
+    for line in raw.splitlines(keepends=True):
+        content = line.rstrip(b"\r\n")
+        try:
+            text = content.decode("utf-8")
+        except UnicodeError:
+            text = "\0"
+        if public_log_line(text, *names, tests):
+            span(True, offset, offset + len(line))
+        else:
+            # Preserve the known FAIL method, while its exception text stays
+            # private. Exceptions/tracebacks may embed Doctor/config/headers.
+            prefix = next((f"FAIL {name}: ".encode() for name in names[0]
+                           if content.startswith(f"FAIL {name}: ".encode())), b"")
+            span(True, offset, offset + len(prefix))
+            span(False, offset + len(prefix), offset + len(line))
+        offset += len(line)
+    projected = bytearray()
+    ranges = []
+    for keep, begin, end in spans:
+        start = len(projected)
+        projected.extend(raw[begin:end] if keep else f"[private output omitted: {end - begin} bytes]\n".encode())
+        ranges.append({"kind": "verbatim" if keep else "redacted", "source_bytes": [begin, end],
+                       "public_bytes": [start, len(projected)]})
+    return bytes(projected), ranges
+
+
+def check_public_log(raw: bytes, names: tuple[set[str], set[str], set[str]], tests: set[str]) -> None:
+    for line in raw.decode("utf-8").splitlines():
+        if public_log_line(line, *names, tests) or re.fullmatch(r"\[private output omitted: \d+ bytes\]", line):
+            continue
+        if any(re.fullmatch(re.escape(f"FAIL {name}: ") + r"\[private output omitted: \d+ bytes\]", line)
+               for name in names[0]):
+            continue
+        raise RuntimeError("unapproved dynamic line in public log projection")
+
+
+def publish_public_evidence(source: Path, build: Path, private: Path,
+                            summary: dict[str, object]) -> Path:
+    """Publish only a checked allowlist projection; raw evidence stays private."""
+    staging = build / "public-evidence-pending"
+    staging.mkdir(mode=0o700)
+    names = public_method_names(source)
+    catalog = json.loads((source / "tests/gcc_asan_expected_tests.json").read_text())
+    tests = {entry["name"] for entry in catalog["tests"]}
+    manifest: dict[str, object] = {"schema_version": 1, "policy": "static-test-observations-v1",
+                                 "private_directory": "private-evidence", "artifacts": {}}
+    def emit(name: str, data: bytes, original: Path, kind: str, ranges=None) -> None:
+        (staging / name).write_bytes(data)
+        manifest["artifacts"][name] = {
+            "source": str(original.relative_to(private)), "source_bytes": original.stat().st_size,
+            "source_sha256": digest(original), "public_bytes": len(data),
+            "public_sha256": hashlib.sha256(data).hexdigest(), "kind": kind,
+            "ranges": ranges if ranges is not None else "structured projection; no byte-copy claim",
+        }
+    for original in sorted(private.rglob("*")):
+        if not original.is_file() or original.is_symlink():
+            continue
+        relative = original.relative_to(private).as_posix()
+        if original.suffix == ".log" or original.name.endswith(".log.tmp"):
+            projected, ranges = public_log_projection(original.read_bytes(), names, tests)
+            emit(relative.replace("/", "__") + ".projection.txt", projected, original, "log-projection", ranges)
+        elif relative in ("source-before.json", "source-after.json", "binaries-before.json", "binaries-after.json"):
+            values = json.loads(original.read_text())
+            for path, value in values.items():
+                require(not Path(path).is_absolute() and ".." not in Path(path).parts,
+                        "invalid public identity path")
+                checksum = value["sha256"] if isinstance(value, dict) else value
+                require(re.fullmatch(r"[a-f0-9]{64}", checksum) is not None, "invalid public identity digest")
+                require(not isinstance(value, dict) or set(value) == {"sha256", "mode"}, "unexpected identity fields")
+            data = original.read_bytes()
+            emit(relative, data, original, "verbatim-identity", [{"kind": "verbatim", "source_bytes": [0, len(data)], "public_bytes": [0, len(data)]}])
+    safe_summary = {key: summary[key] for key in ("head", "status", "started_at", "ended_at", "uid", "gid",
+                    "build_umask", "test_umask", "sanitizer_environment", "historical_clang_asan_failures_closed")}
+    safe_summary["identities_unchanged"] = summary.get("identities_unchanged", False)
+    safe_summary["ctest_evidence_complete"] = summary.get("ctest_evidence", {}).get("complete", False)
+    safe_summary["registered_tests"] = summary.get("registered_tests")
+    safe_summary["steps"] = [{key: record[key] for key in ("name", "started_at", "ended_at", "seconds", "exit_code") if key in record}
+                             for record in summary["steps"]]
+    for public, original, value in (("summary.projection.json", private / "summary.json", safe_summary),
+                                    ("expected-tests.json", source / "tests/gcc_asan_expected_tests.json", catalog)):
+        if public == "expected-tests.json":
+            # Source catalog may be needed even when setup failed before CTest.
+            private_catalog = private / "public-catalog-source.json"
+            with private_catalog.open("xb") as destination:
+                destination.write(original.read_bytes())
+            original = private_catalog
+        emit(public, (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode(), original, "structured-projection")
+    junit = private / "ctest.xml"
+    if junit.is_file():
+        try:
+            root = ET.Element("testsuite")
+            for case in ET.parse(junit).getroot().findall(".//testcase"):
+                require(case.get("name") in tests, "unknown public JUnit test name")
+                status, elapsed = case.get("status", "run"), case.get("time", "0")
+                require(status in ("run", "notrun") and re.fullmatch(r"[0-9.eE+-]+", elapsed) is not None,
+                        "unknown public JUnit status/time")
+                projected = ET.SubElement(root, "testcase", name=case.get("name"), status=status, time=elapsed)
+                for tag in ("failure", "error", "skipped"):
+                    if case.find(tag) is not None:
+                        ET.SubElement(projected, tag).text = "Original diagnostic is retained privately."
+            emit("ctest.projection.xml", ET.tostring(root, encoding="utf-8", xml_declaration=True), junit, "junit-status-projection")
+        except ET.ParseError:
+            # Keep malformed/interrupted XML privately; never invent test rows.
+            emit("ctest-incomplete.json", b'{"status":"MALFORMED_OR_INCOMPLETE_JUNIT"}\n', junit, "structured-projection")
+    write_json(staging / "public-index.json", manifest)
+    check_public_package(staging, names, tests)
+    destination = build / "public-evidence"
+    require(not destination.exists(), "public evidence already exists")
+    staging.rename(destination)
+    return destination
+
+
+def check_public_package(directory: Path, names: tuple[set[str], set[str], set[str]], tests: set[str]) -> None:
+    manifest = json.loads((directory / "public-index.json").read_text())
+    require(set(manifest) == {"schema_version", "policy", "private_directory", "artifacts"}
+            and manifest["schema_version"] == 1 and manifest["policy"] == "static-test-observations-v1"
+            and manifest["private_directory"] == "private-evidence", "invalid public index")
+    expected = set(manifest["artifacts"]) | {"public-index.json"}
+    require({path.name for path in directory.iterdir()} == expected, "unexpected public artifact")
+    for name, entry in manifest["artifacts"].items():
+        require(set(entry) == {"source", "source_bytes", "source_sha256", "public_bytes", "public_sha256", "kind", "ranges"},
+                "unexpected public provenance fields")
+        source_name = entry["source"]
+        originals = {stem + suffix for stem in STEP_NAMES for suffix in (".log", ".stderr.log")}
+        originals.update({"ctest-logs/" + n for n in ("LastTest.log", "LastTestsFailed.log", "LastTest.log.tmp", "LastTestsFailed.log.tmp")})
+        originals.update({"source-before.json", "source-after.json", "binaries-before.json", "binaries-after.json",
+                          "summary.json", "public-catalog-source.json", "ctest.xml"})
+        require(source_name in originals, "unapproved private source name")
+        require(all(re.fullmatch(r"[a-f0-9]{64}", entry[key]) for key in ("source_sha256", "public_sha256")),
+                "invalid public provenance hash")
+        require(all(type(entry[key]) is int and entry[key] >= 0 for key in ("source_bytes", "public_bytes")),
+                "invalid public provenance size")
+        if isinstance(entry["ranges"], list):
+            source_offset = public_offset = 0
+            for span in entry["ranges"]:
+                require(set(span) == {"kind", "source_bytes", "public_bytes"}
+                        and span["kind"] in ("verbatim", "redacted"), "invalid public byte range")
+                for key, offset in (("source_bytes", source_offset), ("public_bytes", public_offset)):
+                    bounds = span[key]
+                    require(isinstance(bounds, list) and len(bounds) == 2 and
+                            all(type(value) is int for value in bounds) and bounds[0] == offset and bounds[1] >= offset,
+                            "noncontiguous public byte ranges")
+                source_offset, public_offset = span["source_bytes"][1], span["public_bytes"][1]
+            require(source_offset == entry["source_bytes"] and public_offset == entry["public_bytes"],
+                    "incomplete public byte ranges")
+        else:
+            require(entry["ranges"] == "structured projection; no byte-copy claim", "invalid projection scope")
+        path = directory / name
+        require(Path(name).name == name and path.is_file() and not path.is_symlink(), "unsafe public artifact")
+        require(path.stat().st_size == entry["public_bytes"] and digest(path) == entry["public_sha256"],
+                "public artifact identity mismatch")
+        if entry["kind"] == "log-projection":
+            require(name == source_name.replace("/", "__") + ".projection.txt", "unapproved public log name")
+            check_public_log(path.read_bytes(), names, tests)
+        elif entry["kind"] == "verbatim-identity":
+            require(name == source_name and name in {"source-before.json", "source-after.json", "binaries-before.json", "binaries-after.json"},
+                    "unapproved identity artifact")
+            for relative, value in json.loads(path.read_text()).items():
+                require(not Path(relative).is_absolute() and ".." not in Path(relative).parts and
+                        not any(character in relative for character in ('\n', '\r', ':', '"', '{', '}')),
+                        "invalid identity path")
+                if isinstance(value, dict):
+                    require(set(value) == {"sha256", "mode"} and type(value["mode"]) is int and 0 <= value["mode"] <= 0o777,
+                            "invalid source identity fields")
+                checksum = value["sha256"] if isinstance(value, dict) else value
+                require(isinstance(checksum, str) and re.fullmatch(r"[a-f0-9]{64}", checksum), "invalid identity hash")
+        elif entry["kind"] == "junit-status-projection":
+            require(name == "ctest.projection.xml" and source_name == "ctest.xml", "unapproved JUnit projection")
+            root = ET.parse(path).getroot()
+            require(root.tag == "testsuite" and not root.attrib, "invalid public JUnit root")
+            require(not (root.text or "").strip() and not (root.tail or "").strip(), "unexpected public JUnit root text")
+            for case in root:
+                require(case.tag == "testcase" and set(case.attrib) == {"name", "status", "time"} and
+                        case.get("name") in tests and case.get("status") in ("run", "notrun") and
+                        re.fullmatch(r"[0-9.eE+-]+", case.get("time", "")), "invalid public JUnit case")
+                require(not (case.text or "").strip() and not (case.tail or "").strip(), "unexpected public JUnit output")
+                for child in case:
+                    require(child.tag in ("failure", "error", "skipped") and not child.attrib and not list(child)
+                            and child.text == "Original diagnostic is retained privately."
+                            and not (child.tail or "").strip(), "unexpected public JUnit diagnostic")
+        elif entry["kind"] == "structured-projection":
+            value = json.loads(path.read_text())
+            if name == "summary.projection.json" and source_name == "summary.json":
+                require(set(value) == {"head", "status", "started_at", "ended_at", "uid", "gid", "build_umask", "test_umask",
+                    "sanitizer_environment", "historical_clang_asan_failures_closed", "identities_unchanged",
+                    "ctest_evidence_complete", "registered_tests", "steps"}, "unexpected public summary fields")
+                require(re.fullmatch(r"[a-f0-9]{40}", value["head"]) and value["status"] in ("PASSED", "NOT_COMPLETE"),
+                        "invalid public summary identity/status")
+                require(value["sanitizer_environment"] == {"ASAN_OPTIONS": ASAN, "UBSAN_OPTIONS": UBSAN, "LSAN_OPTIONS": None}
+                        and value["build_umask"] == "0022" and value["test_umask"] == "0002", "invalid public gate options")
+                require(value["historical_clang_asan_failures_closed"] is False and
+                        all(type(value[key]) is bool for key in ("identities_unchanged", "ctest_evidence_complete")) and
+                        all(type(value[key]) is int for key in ("uid", "gid")) and
+                        (value["registered_tests"] is None or type(value["registered_tests"]) is int), "invalid public summary scalars")
+                for key in ("started_at", "ended_at"):
+                    dt.datetime.fromisoformat(value[key])
+                for record in value["steps"]:
+                    require(set(record) <= {"name", "started_at", "ended_at", "seconds", "exit_code"}
+                            and record["name"] in STEP_NAMES, "invalid public command metadata")
+                    require(record.get("exit_code") is None or type(record["exit_code"]) is int, "invalid public command exit")
+                    require("seconds" not in record or type(record["seconds"]) in (int, float), "invalid public command duration")
+                    for key in ("started_at", "ended_at"):
+                        if key in record:
+                            dt.datetime.fromisoformat(record[key])
+            elif name == "expected-tests.json" and source_name == "public-catalog-source.json":
+                require(set(value) == {"schema_version", "tests"} and value["schema_version"] == 1 and
+                        {case["name"] for case in value["tests"]} == tests, "invalid public catalog")
+                for case in value["tests"]:
+                    require(set(case) == {"name", "timeout"} and type(case["timeout"]) in (int, float), "invalid public deadline")
+            else:
+                require(name == "ctest-incomplete.json" and source_name == "ctest.xml" and
+                        value == {"status": "MALFORMED_OR_INCOMPLETE_JUNIT"}, "unapproved public JSON artifact")
+        else:
+            raise RuntimeError("unapproved public artifact kind")
+
+
 class Recorder:
     def __init__(self, directory: Path, source: Path, env: dict[str, str]):
         self.directory, self.source, self.env = directory, source, env
@@ -198,7 +543,7 @@ def main(argv: list[str] | None = None) -> int:
     old_mask = os.umask(0o022)
     build = source / ("build-gcc-asan-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8])
     build.mkdir(mode=0o700)
-    evidence = build / "evidence"
+    evidence = build / "private-evidence"
     evidence.mkdir(mode=0o700)
     temporary = build / "tmp"
     temporary.mkdir(mode=0o700)
@@ -261,8 +606,25 @@ def main(argv: list[str] | None = None) -> int:
             summary["identity_error"] = str(error)
         if "error" in summary:
             summary["status"] = "NOT_COMPLETE"
+        try:
+            retained = preserve_ctest_evidence(build, evidence, recorder.steps)
+            summary["ctest_evidence"] = {
+                "index": "ctest-evidence.json", "sha256": digest(evidence / "ctest-evidence.json"),
+                "complete": retained["complete"], "warnings": retained["warnings"],
+            }
+            if not retained["complete"]:
+                summary["status"] = "NOT_COMPLETE"
+        except Exception as error:
+            summary["status"] = "NOT_COMPLETE"
+            summary["ctest_evidence_error"] = str(error)
         summary["ended_at"] = utc()
         write_json(evidence / "summary.json", summary)
+        try:
+            publish_public_evidence(source, build, evidence, summary)
+        except Exception as error:
+            summary["status"] = "NOT_COMPLETE"
+            summary["public_evidence_error"] = str(error)
+            write_json(evidence / "summary.json", summary)
         os.umask(old_mask)
         print(f"{summary['status']}: {evidence / 'summary.json'}", flush=True)
     return 0 if summary["status"] == "PASSED" else 1

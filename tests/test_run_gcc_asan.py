@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Runner contract tests only; these are not WLS C++/ASan product results."""
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -190,14 +192,16 @@ class GateContracts(unittest.TestCase):
         self.assertFalse(path.with_suffix(".json.tmp").exists())
 
 
-    def exercise_main(self, failing_step=None, mutate_binary=False, compiler_version="13.3.0"):
+    def exercise_main(self, failing_step=None, mutate_binary=False, compiler_version="13.3.0",
+                      missing_log=False, interrupt=False, launch_error=False, private_output=None):
         # This is deliberately a mocked command flow, not a C++/ASan run.
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         (self.root / ".gitignore").write_text("/build*/\n")
         (self.root / "tests").mkdir()
         (self.root / "tests/gcc_asan_expected_tests.json").write_text(json.dumps(
             {"schema_version": 1, "tests": [{"name": "one", "timeout": 90}]}))
-        subprocess.run(["git", "add", ".gitignore", "tests/gcc_asan_expected_tests.json"], cwd=self.root, check=True)
+        (self.root / "tests/fixture.cpp").write_text('return test::run({{"safe fixture method", fixture_method}});\n')
+        subprocess.run(["git", "add", ".gitignore", "tests"], cwd=self.root, check=True)
         subprocess.run(["git", "-c", "user.name=Runner Test", "-c", "user.email=test@example.invalid",
                         "commit", "-qm", "fixture"], cwd=self.root, check=True)
         observed = []
@@ -208,6 +212,11 @@ class GateContracts(unittest.TestCase):
             build = recorder.directory.parent
             path = recorder.directory / (name + (".json" if kwargs.get("json_output") else ".log"))
             path.write_text(compiler_version if name == "compiler-version" else "fixture")
+            (recorder.directory / (name + ".stderr.log")).write_text("")
+            record = {"name": name, "argv": argv, "cwd": str(recorder.source),
+                      "started_at": gate.utc(), "ended_at": gate.utc(),
+                      "exit_code": 7 if name == failing_step else 0}
+            recorder.steps.append(record)
             if name == "build":
                 for binary in ("wls", "wls861"):
                     (build / binary).write_text("fixture executable")
@@ -221,17 +230,31 @@ class GateContracts(unittest.TestCase):
                     "properties": [{"name": "TIMEOUT", "value": 90}]}]}))
             if name == "ctest":
                 (recorder.directory / "ctest.xml").write_text('<testsuite><testcase name="one" status="run"/></testsuite>')
+                logs = build / "Testing/Temporary"
+                logs.mkdir(parents=True)
+                if not missing_log:
+                    (logs / "LastTest.log").write_text(private_output if private_output is not None else "original success output\n" * 200)
+                if name == failing_step:
+                    (logs / "LastTestsFailed.log").write_text("1:one\n")
+                if interrupt or launch_error:
+                    record["interrupted_or_launch_error"] = True
+                    record["exit_code"] = None if launch_error else -signal.SIGTERM
                 if mutate_binary:
                     (build / "wls").write_text("modified")
+            gate.write_json(recorder.directory / (name + ".step.json"), record)
+            if name == "ctest" and interrupt:
+                raise KeyboardInterrupt("injected recoverable interruption")
+            if name == "ctest" and launch_error:
+                raise FileNotFoundError("injected launch error")
             if name == failing_step:
                 raise RuntimeError("injected command failure")
             return path
 
         with patch.object(gate.os, "geteuid", return_value=1000), patch.object(gate.Recorder, "run", run), \
-                contextlib.redirect_stdout(io.StringIO()):
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             result = gate.main(["--source", str(self.root), "--python", sys.executable,
                                 "--compiler", compiler, "--expected-tests", "1"])
-        receipts = list(self.root.glob("build-gcc-asan-*/evidence/summary.json"))
+        receipts = list(self.root.glob("build-gcc-asan-*/*/summary.json"))
         self.assertEqual(len(receipts), 1)
         return result, json.loads(receipts[0].read_text()), observed, receipts[0].parent
 
@@ -252,6 +275,234 @@ class GateContracts(unittest.TestCase):
         self.assertTrue(summary["identities_unchanged"])
         for name in ("source-before.json", "source-after.json", "binaries-before.json", "binaries-after.json"):
             self.assertTrue((evidence / name).is_file())
+        self.assertEqual((evidence / "ctest-logs/LastTestsFailed.log").read_text(), "1:one\n")
+        self.assertEqual(json.loads((evidence / "ctest-evidence.json").read_text())["ctest_step"]["exit_code"], 7)
+
+    def test_successful_main_keeps_complete_original_lasttest_and_index(self):
+        result, summary, _, evidence = self.exercise_main()
+        self.assertEqual(result, 0)
+        self.assertEqual(summary["status"], "PASSED")
+        original = (evidence.parent / "Testing/Temporary/LastTest.log").read_bytes()
+        self.assertGreater(len(original), 1024)
+        self.assertTrue((evidence / "ctest-logs/LastTest.log").is_file(), "original CTest LastTest.log was not retained")
+        self.assertEqual((evidence / "ctest-logs/LastTest.log").read_bytes(), original)
+        self.assertTrue(summary["ctest_evidence"]["complete"])
+        self.assertEqual(summary["ctest_evidence"]["sha256"], gate.digest(evidence / "ctest-evidence.json"))
+
+    def test_missing_lasttest_rejects_apparent_success_without_fabricating_it(self):
+        result, summary, _, evidence = self.exercise_main(missing_log=True)
+        self.assertEqual(result, 1)
+        self.assertEqual(summary["status"], "NOT_COMPLETE")
+        self.assertTrue(summary["identities_unchanged"])
+        self.assertFalse((evidence / "ctest-logs/LastTest.log").exists())
+        self.assertIn("missing original ctest-logs/LastTest.log", summary["ctest_evidence"]["warnings"])
+
+    def test_interrupted_main_retains_original_logs_identities_and_terminal_status(self):
+        result, summary, _, evidence = self.exercise_main(interrupt=True)
+        self.assertEqual(result, 1)
+        self.assertEqual(summary["status"], "NOT_COMPLETE")
+        self.assertEqual(summary["error"], "injected recoverable interruption")
+        self.assertTrue(summary["identities_unchanged"])
+        self.assertIn("ended_at", summary)
+        index = json.loads((evidence / "ctest-evidence.json").read_text())
+        self.assertFalse(index["complete"])
+        self.assertEqual(index["ctest_step"]["exit_code"], -signal.SIGTERM)
+        for name in ("ctest-logs/LastTest.log", "ctest.xml", "source-before.json", "source-after.json",
+                     "binaries-before.json", "binaries-after.json"):
+            self.assertEqual(index["artifacts"][name]["sha256"], gate.digest(evidence / name))
+
+    def test_launch_error_main_cannot_pass_with_apparently_complete_files(self):
+        result, summary, _, evidence = self.exercise_main(launch_error=True)
+        self.assertEqual(result, 1)
+        self.assertEqual(summary["status"], "NOT_COMPLETE")
+        self.assertTrue(summary["identities_unchanged"])
+        index = json.loads((evidence / "ctest-evidence.json").read_text())
+        self.assertIsNone(index["ctest_step"]["exit_code"])
+        self.assertFalse(index["execution_completed"])
+        self.assertFalse(index["complete"])
+
+    def run_fixture_ctest(self, exit_code=0, interrupt=False):
+        # Real CTest + Recorder, but only a synthetic Python child: no build,
+        # Store, network or sanitizer product run is involved in this selfcheck.
+        build, evidence = self.root / "fixture-build", self.root / "evidence"
+        build.mkdir()
+        evidence.mkdir()
+        marker = "complete-success-method-output-" + "x" * 4096
+        child = build / "child.py"
+        child.write_text("import os,signal,sys\n"
+                         f"print({marker!r}, flush=True)\n" +
+                         (f"os.kill({os.getpid()}, signal.SIGUSR1)\nsignal.pause()\n" if interrupt else
+                          f"sys.exit({exit_code})\n"))
+        (build / "CTestTestfile.cmake").write_text(
+            f'add_test(long-output "{sys.executable}" "{child}")\n'
+            'set_tests_properties(long-output PROPERTIES TIMEOUT 10)\n')
+        recorder = gate.Recorder(evidence, self.root, gate.clean_environment(dict(os.environ)))
+        argv = ["ctest", "--test-dir", str(build), "--output-on-failure", "--parallel", "1",
+                "--no-tests=error", "--output-junit", str(evidence / "ctest.xml")]
+        def interrupted(_signum, _frame):
+            raise KeyboardInterrupt("synthetic child reached its barrier")
+        previous = signal.signal(signal.SIGUSR1, interrupted) if interrupt else None
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                if interrupt:
+                    with self.assertRaisesRegex(KeyboardInterrupt, "reached its barrier"):
+                        recorder.run("ctest", argv)
+                elif exit_code:
+                    with self.assertRaises(RuntimeError):
+                        recorder.run("ctest", argv)
+                else:
+                    recorder.run("ctest", argv)
+        finally:
+            if interrupt:
+                signal.signal(signal.SIGUSR1, previous)
+        with contextlib.redirect_stderr(io.StringIO()):
+            index = gate.preserve_ctest_evidence(build, evidence, recorder.steps)
+        return build, evidence, index, marker
+
+    def test_real_ctest_success_preserves_more_than_junit_output_limit(self):
+        build, evidence, index, marker = self.run_fixture_ctest()
+        original = (build / "Testing/Temporary/LastTest.log").read_bytes()
+        self.assertGreater(len(marker.encode()), 1024)
+        self.assertIn(marker.encode(), original)
+        self.assertEqual((evidence / "ctest-logs/LastTest.log").read_bytes(), original)
+        self.assertTrue(index["complete"])
+        self.assertEqual(index["ctest_step"]["exit_code"], 0)
+        self.assertEqual(index["artifacts"]["ctest.xml"]["sha256"], gate.digest(evidence / "ctest.xml"))
+        gate.check_junit(evidence / "ctest.xml", ["long-output"])
+
+    def test_real_ctest_failure_keeps_lasttest_failed_list_and_junit(self):
+        build, evidence, index, marker = self.run_fixture_ctest(exit_code=7)
+        self.assertNotEqual(index["ctest_step"]["exit_code"], 0)
+        self.assertTrue(index["execution_completed"])
+        for name in ("LastTest.log", "LastTestsFailed.log"):
+            self.assertEqual((evidence / "ctest-logs" / name).read_bytes(),
+                             (build / "Testing/Temporary" / name).read_bytes())
+        self.assertIn(marker, (evidence / "ctest-logs/LastTest.log").read_text())
+        with self.assertRaises(RuntimeError):
+            gate.check_junit(evidence / "ctest.xml", ["long-output"])
+
+    def test_real_ctest_interruption_keeps_available_originals_and_never_passes(self):
+        build, evidence, index, _ = self.run_fixture_ctest(interrupt=True)
+        self.assertFalse(index["execution_completed"])
+        self.assertFalse(index["complete"])
+        self.assertTrue(index["ctest_step"]["interrupted_or_launch_error"])
+        self.assertIsNotNone(index["ctest_step"]["exit_code"])
+        self.assertTrue(index["warnings"])
+        originals = list((build / "Testing/Temporary").glob("LastTest*"))
+        self.assertTrue(originals)
+        for original in originals:
+            if original.name in ("LastTest.log", "LastTest.log.tmp", "LastTestsFailed.log", "LastTestsFailed.log.tmp"):
+                self.assertEqual((evidence / "ctest-logs" / original.name).read_bytes(), original.read_bytes())
+
+    def test_real_launch_failure_preserves_receipt_and_reports_missing_ctest_logs(self):
+        evidence = self.root / "evidence"
+        evidence.mkdir()
+        recorder = gate.Recorder(evidence, self.root, gate.clean_environment(dict(os.environ)))
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(FileNotFoundError):
+            recorder.run("ctest", [str(self.root / "missing-ctest")])
+        with contextlib.redirect_stderr(io.StringIO()):
+            index = gate.preserve_ctest_evidence(self.root, evidence, recorder.steps)
+        self.assertFalse(index["complete"])
+        self.assertIsNone(index["ctest_step"]["exit_code"])
+        self.assertIn("ctest.step.json", index["artifacts"])
+        self.assertIn("missing original ctest-logs/LastTest.log", index["warnings"])
+
+    def test_public_guard_refuses_known_doctor_config_body_and_header_records(self):
+        # Deliberately synthetic negative samples, never actual host secrets.
+        samples = [b'{"report_format":"wls-doctor-report-v1","objects":[{"path":"SYNTHETIC_PRIVATE"}]}\n',
+                   b'{"config":{"credential_present":true,"value":"SYNTHETIC_PRIVATE"}}\n',
+                   b'{"request_body":"SYNTHETIC_PRIVATE"}\n',
+                   b'Authorization: Bearer SYNTHETIC_PRIVATE\n']
+        for sample in samples:
+            with self.subTest(sample=sample.split(b":", 1)[0]), self.assertRaises(RuntimeError):
+                gate.check_public_log(sample, ({"safe fixture method"}, set(), set()), {"one"})
+
+    def test_public_projection_preserves_long_static_methods_and_every_unchanged_byte(self):
+        name = "static long method " + "x" * 1600
+        names = ({name}, {"test_fixture"}, {"Fixture"})
+        original = (f"START {name}\n" + '{"body":"SYNTHETIC_PRIVATE"}\n' +
+                    f"PASS {name}\n" + "test_fixture (__main__.Fixture.test_fixture) ... ok\n" +
+                    "RESULT 1 passed, 0 failed\n").encode()
+        public, ranges = gate.public_log_projection(original, names, {"one"})
+        self.assertGreater(len(public), 1024)
+        self.assertNotIn(b"SYNTHETIC_PRIVATE", public)
+        self.assertIn(f"START {name}\n".encode(), public)
+        self.assertIn(f"PASS {name}\n".encode(), public)
+        self.assertIn(b"test_fixture (__main__.Fixture.test_fixture) ... ok\n", public)
+        for span in ranges:
+            if span["kind"] == "verbatim":
+                self.assertEqual(original[slice(*span["source_bytes"])], public[slice(*span["public_bytes"])])
+        self.assertEqual(ranges[-1]["source_bytes"][1], len(original))
+        self.assertEqual(ranges[-1]["public_bytes"][1], len(public))
+        gate.check_public_log(public, names, {"one"})
+
+    def test_fail_method_keeps_name_but_never_dynamic_exception_text(self):
+        names = ({"safe fixture method"}, set(), set())
+        public, ranges = gate.public_log_projection(
+            b'FAIL safe fixture method: {"headers":{"Authorization":"SYNTHETIC_PRIVATE"}}\n', names, {"one"})
+        self.assertTrue(public.startswith(b"FAIL safe fixture method: [private output omitted:"))
+        self.assertNotIn(b"Authorization", public)
+        self.assertEqual([span["kind"] for span in ranges], ["verbatim", "redacted"])
+        gate.check_public_log(public, names, {"one"})
+
+    def test_main_only_publishes_checked_projection_and_keeps_private_original(self):
+        raw = 'START safe fixture method\n{"report_format":"wls-doctor-report-v1","objects":["SYNTHETIC_PRIVATE"]}\nPASS safe fixture method\nRESULT 1 passed, 0 failed\n'
+        result, summary, _, private = self.exercise_main(private_output=raw)
+        self.assertEqual(result, 0)
+        self.assertEqual(summary["status"], "PASSED")
+        self.assertEqual((private / "ctest-logs/LastTest.log").read_text(), raw)
+        self.assertFalse((private.parent / "evidence").exists())
+        public = private.parent / "public-evidence"
+        self.assertTrue(public.is_dir())
+        self.assertFalse((private.parent / "public-evidence-pending").exists())
+        index = json.loads((public / "public-index.json").read_text())
+        entry = index["artifacts"]["ctest-logs__LastTest.log.projection.txt"]
+        self.assertEqual(entry["source_sha256"], gate.digest(private / "ctest-logs/LastTest.log"))
+        self.assertEqual(entry["source_bytes"], len(raw.encode()))
+        for path in public.iterdir():
+            self.assertNotIn(b"SYNTHETIC_PRIVATE", path.read_bytes())
+            self.assertNotIn(b"credential_present", path.read_bytes())
+        names = gate.public_method_names(self.root)
+        gate.check_public_package(public, names, {"one"})
+
+    def test_public_package_guard_rejects_added_raw_file_and_rehashed_dynamic_log(self):
+        _, _, _, private = self.exercise_main()
+        public = private.parent / "public-evidence"
+        names = gate.public_method_names(self.root)
+        raw = public / "raw-doctor.json"
+        raw.write_text('{"report_format":"wls-doctor-report-v1"}\n')
+        with self.assertRaisesRegex(RuntimeError, "unexpected public artifact"):
+            gate.check_public_package(public, names, {"one"})
+        raw.unlink()
+        path = public / "ctest-logs__LastTest.log.projection.txt"
+        path.write_bytes(b'Authorization: Bearer SYNTHETIC_PRIVATE\n')
+        manifest = json.loads((public / "public-index.json").read_text())
+        entry = manifest["artifacts"][path.name]
+        entry["public_bytes"] = path.stat().st_size
+        entry["public_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        entry["ranges"] = [{"kind": "redacted", "source_bytes": [0, entry["source_bytes"]],
+                            "public_bytes": [0, entry["public_bytes"]]}]
+        gate.write_json(public / "public-index.json", manifest)
+        with self.assertRaisesRegex(RuntimeError, "unapproved dynamic line"):
+            gate.check_public_package(public, names, {"one"})
+
+    def test_public_package_guard_rejects_private_text_in_rehashed_junit(self):
+        _, _, _, private = self.exercise_main()
+        public = private.parent / "public-evidence"
+        names = gate.public_method_names(self.root)
+        path = public / "ctest.projection.xml"
+        for sample in ('{"report_format":"wls-doctor-report-v1"}', '{"config":"SYNTHETIC_PRIVATE"}',
+                       '{"request_body":"SYNTHETIC_PRIVATE"}', 'Authorization: Bearer SYNTHETIC_PRIVATE'):
+            document = gate.ET.parse(path).getroot()
+            document.text = sample
+            path.write_bytes(gate.ET.tostring(document, encoding="utf-8", xml_declaration=True))
+            manifest = json.loads((public / "public-index.json").read_text())
+            entry = manifest["artifacts"][path.name]
+            entry["public_bytes"] = path.stat().st_size
+            entry["public_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+            gate.write_json(public / "public-index.json", manifest)
+            with self.subTest(kind=sample.split(":", 1)[0]), self.assertRaisesRegex(RuntimeError, "JUnit root text"):
+                gate.check_public_package(public, names, {"one"})
 
     def test_binary_change_rejects_apparent_ctest_success(self):
         result, summary, _, _ = self.exercise_main(mutate_binary=True)

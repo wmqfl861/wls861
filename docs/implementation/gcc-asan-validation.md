@@ -35,10 +35,34 @@ LSAN_OPTIONS 或其他 sanitizer 覆盖。`ASAN_OPTIONS=halt_on_error=1:detect_l
 
 ## 通过条件及证据
 
-所有证据保存在新构建目录的 `evidence/`；CI 即使失败也尝试上传该目录。
+完整原件保存在新构建目录的 `private-evidence/`，不得将该目录配置为公开 CI artifact。
 配置、构建、测试各自记录 argv、cwd、起止时间、真实退出码、stdout/stderr 原字节及 SHA-256。
 运行前后保存全部 tracked 源文件的字节/模式、HEAD、实际二进制/静态库和关键构建文件身份。
 非零 CTest 同样执行末尾身份核验；SIGKILL 等不可捕获终止只留下未完成回执，不能算通过。
+
+成功、失败以及能够收尾的中断均复制原 `Testing/Temporary/LastTest.log`，并复制存在的
+`LastTestsFailed.log`；中断遗留 `.tmp` 独立保留，不能改称完整日志。原 JUnit 不改写，
+成功输出原有截断配置不变，完整逐方法原文以 LastTest 为准。`ctest-evidence.json` 索引原
+文件的路径、字节数、hash、命令终态和前后身份。缺 LastTest/JUnit/命令退出记录会告警，
+状态保持 NOT_COMPLETE；即使意外留下形似完整的文件，启动失败/中断也不能计为通过。
+
+公开上传只能选择 `build-gcc-asan-*/public-evidence/`。该目录在封闭临时目录
+`public-evidence-pending/` 内生成、通过隐私 guard 后才命名发布；CI 必须精确选择前者，
+不能上传构建目录、私有目录或 pending 目录。没有可收尾结果时允许无公开 artifact，
+不得从 artifact 缺失或之前的绿色推导本次通过。
+
+公开投影使用当前冻结测试源码中的静态 native 方法名称、Python unittest 方法/类名、
+已审阅 CTest 目录名称及数值结果/期限白名单。匹配的安全方法行原字节保留，FAIL 的静态
+方法名保留而动态异常尾部隐藏；其他输出整段隐藏。Doctor 对象、配置全对象、原始正文、
+headers/凭据存在性和 traceback 动态值不会被复制进公开日志或索引。
+每个投影记录私有逻辑来源、原字节数/hash、公开字节数/hash及完整连续的源/目标字节范围；
+`verbatim` 范围逐字不变。JUnit 公开副本只包含原 testcase 名称、状态、时间和失败/跳过标记，
+它明确标为结构投影，不冒称原 XML；完整 XML 与命令仍留私有。
+
+公开包包含经过字段检查的状态摘要、原源码/二进制身份清单和原目录期限，
+不包含原 argv 路径/异常值或构建 cache 内容。隐私 guard 拒绝额外文件、未知字段、
+不匹配 hash、非连续范围、动态日志和额外 JUnit 输出。工具自检用已知的合成
+Doctor/config/body/header 拒绝样本作红例，精确生成的包作绿例；这不宣称无限范围秘密扫描。
 
 通过需要完整注册数与 `--expected-tests` 相符、没有 disabled 项、CTest exit 0，
 JUnit 逐项与注册名匹配且没有 failure/error/skipped/notrun，以及输入和构建身份保持。
@@ -64,4 +88,6 @@ JUnit 逐项与注册名匹配且没有 failure/error/skipped/notrun，以及输
 CI 仅将原 CMake ASan 矩阵项接到此入口；另外五路与原 Make-ASan CPPFLAGS 目标保持。
 这是共享验证配置，而不是已经证明了某个生产缺陷的修复。
 
-本批整合新增 3 项注册：`async_coordinator` (180s)、`r3_offline_acceptance` (30s)、`r3_offline_acceptance_cli` (600s)。当前完整集合 92 项，runner 自检 24 项；原 89 项期限保持不变。
+本批整合新增 3 项注册：`async_coordinator` (180s)、`r3_offline_acceptance` (30s)、`r3_offline_acceptance_cli` (600s)。当前完整集合 92 项；原 89 项期限保持不变。
+N2 增加原 LastTest 保留/缺失拒绝、实际轻量 CTest 成功/失败/中断/启动失败、
+主流程前后身份、公开投影及隐私拒绝自检。实际方法数与命令结果见本批报告；工具方法不增加产品注册数。
