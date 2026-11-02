@@ -440,6 +440,46 @@ void all_stream_read_and_payload_bounds_are_enforced() {
     CHECK(replay(parallel_tools(), limits).response.error_code == "stream_limit");
 }
 
+void long_comment_preserves_raw_bytes_and_exact_line_boundary() {
+    const auto profile = fixture::profile();
+    const auto request = fixture::request();
+    const auto events = text_events("bounded comment 中😀");
+    const auto line = std::string(": ") + std::string(65534, 'x');
+    const auto tail = std::string("\n\r\n") + stream(events);
+    const auto bytes = line + "\r" + tail;
+    auto limits = SseReplayLimits{};
+    limits.max_line_bytes = line.size();
+    const auto result = replay_responses_sse(profile, request,
+        {{line.substr(0, 32768), 0ms}, {line.substr(32768) + "\r", 0ms}, {tail, 0ms}}, limits);
+    CHECK(result.response.status == ModelResultStatus::Completed);
+    CHECK(result.response.text == "bounded comment 中😀");
+    CHECK(result.raw_stream == bytes);
+    CHECK(result.evidence.at("raw_stream_sha256") == sha256_hex(bytes));
+    CHECK(result.evidence.at("parsed_stream_bytes") == bytes.size());
+    CHECK(result.evidence.at("comment_lines") == 1);
+    CHECK(result.evidence.at("events") == events.size());
+    CHECK(result.evidence.at("network_requests") == 0);
+    CHECK(result.evidence.at("retry_attempts") == 0);
+    CHECK(result.response.binding == request.binding);
+    CHECK(result.response.usage.input_tokens == 9);
+    CHECK(!result.response.usage.cost_micro_usd);
+
+    const auto oversized = line + "x\r" + tail;
+    const auto rejected = replay_responses_sse(profile, request, {{oversized, 0ms}}, limits);
+    CHECK(rejected.response.status == ModelResultStatus::Error);
+    CHECK(rejected.response.error_code == "stream_limit");
+    CHECK(rejected.response.error_message == "SSE line exceeds its byte bound");
+    CHECK(rejected.response.tool_calls.empty());
+    CHECK(rejected.response.binding == request.binding);
+    CHECK(!rejected.response.usage.cost_micro_usd);
+    CHECK(rejected.raw_stream == oversized);
+    CHECK(rejected.evidence.at("raw_stream_sha256") == sha256_hex(oversized));
+    CHECK(rejected.evidence.at("parsed_stream_bytes") == line.size() + 1);
+    CHECK(!rejected.evidence.at("stream_complete").as_bool());
+    CHECK(!rejected.evidence.at("response_usable").as_bool());
+    CHECK(rejected.evidence.at("retry_attempts") == 0);
+}
+
 void profile_stream_limits_cannot_be_enlarged_by_replay_arguments() {
     auto profile = fixture::profile();
     profile.limits.max_sse_events = 1;
@@ -683,6 +723,7 @@ int main() {
         {"SSE failed and incomplete terminal preserve known usage without tools", failed_and_incomplete_terminal_keep_known_usage_but_no_tools},
         {"SSE uses the HTTP decoder for nullable and invalid usage", shared_http_decoder_keeps_unknown_usage_and_refuses_invalid_usage},
         {"SSE total, line, event, chunk, item, tool and payload budgets stop replay", all_stream_read_and_payload_bounds_are_enforced},
+        {"SSE long comment keeps exact bytes and original line boundary rejection", long_comment_preserves_raw_bytes_and_exact_line_boundary},
         {"SSE caller limits cannot enlarge frozen profile event bounds", profile_stream_limits_cannot_be_enlarged_by_replay_arguments},
         {"SSE content parts have separate bounded indices", content_parts_are_individually_indexed_and_bounded},
         {"SSE invalid UTF-8 and duplicate JSON remain lossless failures", invalid_utf8_and_duplicate_json_are_preserved_losslessly},
