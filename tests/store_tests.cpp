@@ -12,9 +12,12 @@
 #include <fstream>
 #include <future>
 #include <iterator>
+#include <memory>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <utility>
+#include <vector>
 
 using namespace wls::s1;
 using wls::Role;
@@ -878,6 +881,7 @@ void catalog_shape_rejected_at_store_boundary() {
     error(ErrorCode::InvalidInput, [&] { (void)store.admit(admission); });
     CHECK(raw_number(path, "SELECT count(*) FROM events") == 0);
 }
+#include "store_event_compatibility_cases.hpp"
 }
 
 int main(int argc, char** argv) {
@@ -895,6 +899,8 @@ int main(int argc, char** argv) {
         {"unknown and incomplete reference databases remain intact", unknown_database_is_preserved},
         {"scoped immutable admission and original retry after AMEND", scoped_admission_and_original_retry},
         {"state, plan and event commit atomically", event_failure_rolls_back_whole_transaction},
+        {"event original bytes hashes and replay authority remain durable", event_original_bytes_hash_and_replay_guards_are_durable},
+        {"event encoding limits roll back plan fences and original rows", event_encoding_limits_roll_back_plan_fences_and_original_rows},
         {"initial instruction, bounded acknowledgment and durable command retry", instruction_ack_and_durable_exact_commands},
         {"full assigned constraint text and frozen team capacity", full_constraint_text_and_frozen_team_limit},
         {"AMEND omission stays paused and old dispositions cannot be retagged", amend_omission_and_stale_disposition},
