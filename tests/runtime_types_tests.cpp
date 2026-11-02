@@ -7,6 +7,7 @@
 #include <mutex>
 #include <set>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -66,6 +67,88 @@ void canonical_strings_keep_original_boost_bytes_and_utf8_guards() {
                 (void)canonical_json(boost::json::object{{prefix + text, "value"}});
             });
         }
+    }
+}
+
+void canonical_validation_matches_original_dom_parser() {
+    // Every fixture constructs object keys in canonical order. The unchanged
+    // Boost serializer supplies exact bytes, while the original DOM parse with
+    // max_depth 128 independently decides whether those bytes are acceptable.
+    const auto check = [](const Json& value) {
+        const auto original = boost::json::serialize(value);
+        boost::json::parse_options options;
+        options.max_depth = 128;
+        boost::system::error_code ec;
+        static_cast<void>(boost::json::parse(original, ec, {}, options));
+        bool rejected = false;
+        try {
+            const auto actual = canonical_json(value);
+            CHECK(!ec);
+            CHECK(actual == original);
+        } catch (const Error& error) {
+            CHECK(error.code() == ErrorCode::InvalidInput);
+            rejected = true;
+        }
+        CHECK(rejected == static_cast<bool>(ec));
+    };
+    const auto nested = [](std::size_t depth, bool mixed, Json value) {
+        for (std::size_t layer = 0; layer < depth; ++layer) {
+            if (mixed && layer % 2 == 0) {
+                boost::json::object object;
+                object.emplace("node", std::move(value));
+                value = std::move(object);
+            } else {
+                boost::json::array array;
+                array.push_back(std::move(value));
+                value = std::move(array);
+            }
+        }
+        return value;
+    };
+    for (const std::size_t depth : {126U, 127U, 128U, 129U}) {
+        for (const bool mixed : {false, true}) {
+            check(nested(depth, mixed, Json{}));
+            // The empty innermost container still consumes parser depth even
+            // though the append recursion has no child value to visit.
+            check(nested(depth, mixed, boost::json::array{}));
+            check(nested(depth, mixed, boost::json::object{}));
+        }
+    }
+    for (const Json& value : {Json{}, Json(true), Json(false), Json(std::int64_t{-1}),
+             Json(std::numeric_limits<std::int64_t>::min()),
+             Json(std::numeric_limits<std::uint64_t>::max()), Json(-0.0),
+             Json(std::numeric_limits<double>::denorm_min()),
+             Json(std::numeric_limits<double>::max()), Json(1.2345678901234567)}) check(value);
+    check(boost::json::object{{"a", boost::json::array{nullptr, true, 1.25,
+        boost::json::object{{"a", "line\n"}, {"z", boost::json::array{false, "tail"}}}}}, {"z", "end"}});
+    const std::vector<std::string> valid{
+        "", "\"\\\b\f\n\r\t/", std::string("nul\0tail", 8),
+        "中文😀\x7f\xc2\x80\xdf\xbf\xe0\xa0\x80\xef\xbf\xbf\xf0\x90\x80\x80\xf4\x8f\xbf\xbf",
+        "early\n" + std::string(1024U * 1024U + 17U, 'p')};
+    for (const auto& text : valid) {
+        check(Json(text));
+        // In particular, the large key must retain the DOM parser's limit,
+        // rather than acquiring the strict-input checker's 1 MiB key limit.
+        check(boost::json::object{{text, "value"}});
+    }
+    const std::vector<std::string> invalid{
+        "\x80", "\xc0\xaf", "\xc2", "\xe0\x80\x80", "\xed\xa0\x80",
+        "\xf0\x80\x80\x80", "\xf4\x90\x80\x80", "\xf5\x80\x80\x80", "\xff"};
+    for (const auto& text : invalid) {
+        for (const auto& prefix : {std::string{}, std::string("escaped\n"),
+                 std::string("nul\0", 4), std::string(4096, 'p')}) {
+            check(Json(prefix + text));
+            check(boost::json::object{{prefix + text, "value"}});
+        }
+        // A valid earlier member must not make the final invalid bytes pass.
+        check(boost::json::object{{"a", "valid"}, {"z", "tail" + text}});
+    }
+    for (const double value : {std::numeric_limits<double>::infinity(),
+             -std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
+        bool rejected = false;
+        try { (void)canonical_json(Json(value)); }
+        catch (const Error& error) { rejected = error.code() == ErrorCode::InvalidInput; }
+        CHECK(rejected);
     }
 }
 
@@ -172,6 +255,7 @@ int main() {
         {"strict JSON rejects duplicates, bad UTF-8 and non-finite input", strict_json},
         {"canonical bytes and SHA-256 preserve content identity", canonical_and_digest},
         {"canonical string spans preserve Boost bytes and UTF-8 rejection", canonical_strings_keep_original_boost_bytes_and_utf8_guards},
+        {"canonical validation matches original DOM depth and complete UTF-8 bytes", canonical_validation_matches_original_dom_parser},
         {"decimal money limits preserve every cent and round down sub-micro amounts", decimal_money_limits_do_not_lose_microdollars},
         {"catalog input shape rejects missing keys and wrong types as invalid input", catalog_shape_errors_are_user_errors},
         {"typed ULIDs are monotonic and unique across threads", typed_ulids},
