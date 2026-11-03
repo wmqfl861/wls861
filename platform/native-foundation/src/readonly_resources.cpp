@@ -25,6 +25,13 @@ void require_readonly_policy_shape(const WindowsReadOnlyPolicy& policy) {
                 return (value < '0' || value > '9') && value != '-';
             }))
             throw Error(ErrorCode::Denied, "read-only policy requires explicit canonical SID strings");
+        // The current token's administrator membership and the resource
+        // owner/writer trust set are separate boundaries. This restricted
+        // profile cannot trust the broad Administrators group, even when the
+        // caller explicitly lists it. Native SID canonicalization still runs
+        // before any descriptor is accepted.
+        if (sid == "S-1-5-32-544")
+            throw Error(ErrorCode::Denied, "Builtin Administrators cannot be a trusted owner/writer");
     }
 }
 #ifndef _WIN32

@@ -242,6 +242,7 @@ class SourceComparison(unittest.TestCase):
         self.assertIsNone(result['preferred_source'])
         self.assertIsNone(result['explanation'])
         self.assertEqual(result['causal_explanation_evidence'], [])
+        self.assertEqual(result['machine_registry_environment']['status'], 'NOT_COLLECTED')
         self.assertFalse(result['artifact_code_executed'])
         for source in (result['runner_header']['source'], result['process_environment']['source']):
             self.assertEqual(len(source['sha256']), 64)
@@ -300,6 +301,77 @@ class SourceComparison(unittest.TestCase):
                 self.environment['captured_at_utc'] = observed
                 with self.assertRaises(ValueError):
                     audit.compare(self.fixture())
+
+    def machine(self, version):
+        return dict(schema='wls-native-machine-image-environment-v1',
+            captured_at_utc='2026-11-02T08:00:05.000100+00:00',
+            source='read-only Windows Registry HKEY_LOCAL_MACHINE',
+            key=audit.MACHINE_ENVIRONMENT_KEY, view='64-bit',
+            values={'ImageOS': 'win22', 'ImageVersion': version},
+            field_status={'ImageOS': 'OBSERVED', 'ImageVersion': 'OBSERVED'},
+            status='OBSERVED', reason=None)
+
+    def test_machine_matching_process_does_not_resolve_original_header_conflict(self):
+        self.environment['machine_image_environment'] = self.machine('20261026.347.1')
+        result = audit.compare(self.fixture())
+        self.assertEqual(result['exit_code'], 1)
+        self.assertEqual(result['exact_runner_image_identity'], 'UNRESOLVED')
+        self.assertEqual(result['machine_registry_environment']['field_comparison'],
+                         {'ImageOS': 'MATCH', 'ImageVersion': 'MATCH'})
+        self.assertIsNone(result['machine_registry_environment']['causal_explanation'])
+        self.assertIsNone(result['preferred_source'])
+
+    def test_machine_matching_header_does_not_erase_conflicting_process_observation(self):
+        self.environment['machine_image_environment'] = self.machine(self.header_version)
+        result = audit.compare(self.fixture())
+        self.assertEqual(result['exit_code'], 1)
+        self.assertEqual(result['exact_runner_image_identity'], 'UNRESOLVED')
+        self.assertEqual(result['machine_registry_environment']['field_comparison']['ImageVersion'], 'CONFLICT')
+        self.assertEqual(result['process_environment']['values']['ImageVersion'], '20261026.347.1')
+        self.assertEqual(result['runner_header']['fields']['Version'], self.header_version)
+        self.assertIsNone(result['preferred_source'])
+
+    def test_matching_header_and_process_do_not_erase_conflicting_machine_observation(self):
+        self.header_version = self.environment['image_environment']['ImageVersion']
+        self.environment['machine_image_environment'] = self.machine('different-machine-version')
+        result = audit.compare(self.fixture())
+        self.assertTrue(result['image_version_fields_match'])
+        self.assertEqual(result['exit_code'], 1)
+        self.assertEqual(result['exact_runner_image_identity'], 'UNRESOLVED')
+        self.assertEqual(result['machine_registry_environment']['field_comparison']['ImageVersion'], 'CONFLICT')
+        self.assertIsNone(result['preferred_source'])
+
+    def test_missing_or_denied_machine_fields_keep_not_checked_without_fallback(self):
+        for state in ('MISSING', 'DENIED', 'QUERY_FAILED', 'NOT_CHECKED'):
+            with self.subTest(state=state):
+                machine = self.machine(None)
+                machine['values'] = {'ImageOS': None, 'ImageVersion': None}
+                machine['field_status'] = {'ImageOS': state, 'ImageVersion': state}
+                machine['status'] = 'NOT_CHECKED'
+                self.environment['machine_image_environment'] = machine
+                result = audit.compare(self.fixture())
+                self.assertEqual(result['machine_registry_environment']['status'], 'NOT_CHECKED')
+                self.assertEqual(result['machine_registry_environment']['field_comparison'],
+                                 {'ImageOS': 'NOT_CHECKED', 'ImageVersion': 'NOT_CHECKED'})
+                self.assertEqual(result['exit_code'], 1)
+
+    def test_machine_observation_rejects_extra_scope_fabricated_status_or_outside_job(self):
+        changes = [('schema', 'unknown'), ('key', r'Software\Other'), ('view', '32-bit'),
+                   ('values', {'ImageOS': 'win22', 'ImageVersion': None}), ('status', 'NOT_CHECKED'),
+                   ('captured_at_utc', '2026-11-02T08:00:04+00:00'),
+                   ('captured_at_utc', '2026-11-02T08:00:11+00:00')]
+        for key, value in changes:
+            with self.subTest(key=key, value=value):
+                machine = self.machine('20261026.347.1')
+                machine[key] = value
+                self.environment['machine_image_environment'] = machine
+                with self.assertRaises(ValueError):
+                    audit.compare(self.fixture())
+        machine = self.machine('20261026.347.1')
+        machine['values']['MODEL_API_KEY'] = 'never-a-machine-image-field'
+        self.environment['machine_image_environment'] = machine
+        with self.assertRaisesRegex(ValueError, 'exactly allowlisted'):
+            audit.compare(self.fixture())
 
 
 if __name__ == '__main__':

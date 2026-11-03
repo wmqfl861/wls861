@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the existing four native component suites on an ordinary Windows 11 host.
+"""Validate the existing five native component suites on an ordinary Windows 11 host.
 
 This performs the pinned offline build and retains full original evidence. It
 does not accept the full Windows runtime, ACL security or sandbox capability.

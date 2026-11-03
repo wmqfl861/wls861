@@ -1,0 +1,215 @@
+{
+  "classification": "PUBLIC_SAFE_METADATA_INDEX_PRIVATE_RAW_FILES_NOT_PUBLISHED",
+  "recorded_at": "2026-11-03T06:31:43.328874+00:00",
+  "base_product": "c2a5cea64aeea261b214cdfd9a968b53f491110a",
+  "coordinator_review": "d843493fafe158f3a6443bafaa0de95cbf6c05c2",
+  "branch": "fix/n5-review-windows-20261103-74bnxwj5",
+  "source_delta": {
+    "platform/native-foundation/src/readonly_resources.cpp": {
+      "bytes": 4774,
+      "sha256": "7d3b77392db59381551c49574cd9d22df898324ed90421353f9c7e210e277a1c"
+    },
+    "platform/native-foundation/tests/readonly_tests.cpp": {
+      "bytes": 13984,
+      "sha256": "267e02e27ecbd45b814796013b273ffcff18bf32441d59c7d1236338b081d54a"
+    },
+    "platform/native-foundation/tools/run_windows11.py": {
+      "bytes": 690,
+      "sha256": "6140446a4e58c6ed284992469cafcf0fc68cc71e1e7dcc31011b0889cfc31366"
+    },
+    "platform/native-foundation/tools/run_windows_ci.py": {
+      "bytes": 23088,
+      "sha256": "703041ed30529c72d908041da9bc267ecb0e691dff44cced8139c15889528571"
+    },
+    "platform/native-foundation/tools/windows_image_provenance.py": {
+      "bytes": 22258,
+      "sha256": "73be4f01acde7395d79d1ef6f5604d72d6f2f8b3d79afc3b5874d7a324a792e2"
+    },
+    "platform/native-foundation/tools/test_windows_ci_evidence.py": {
+      "bytes": 34927,
+      "sha256": "fd9bafd0e8371453ff6aadc932f36ee974afe1ca456817366039c55e9cefc9d2"
+    },
+    "platform/native-foundation/tools/test_windows_image_provenance.py": {
+      "bytes": 21195,
+      "sha256": "153812da0c24df48a1ba57395d740a0daf00fc1968c7a1c696a05e72fbf31853"
+    },
+    "docs/implementation/n5-review-windows-policy-20261103.md": {
+      "bytes": 7828,
+      "sha256": "2e122842e493707e393b0810414188c6a230cb9bc8e7d2ae0f4ad58ebac3785a"
+    },
+    "docs/reports/n5-review-windows-validation-20261103.md": {
+      "bytes": 11431,
+      "sha256": "c52784007359027ef94b31de9496c7a9cb77f5a892c9e2f11bdd39cf36905fbf"
+    }
+  },
+  "private_evidence_root": "/mnt/d/codex-workspace/wls861-n5-review-20261103-74bnxwj5/evidence",
+  "evidence": [
+    {
+      "path": "windows-policy-validation-01/plan.json",
+      "bytes": 1628,
+      "sha256": "17993852724bbc156b785930db454e9f9f8c4922dfb574ed4cbe9211581fc4c1"
+    },
+    {
+      "path": "windows-policy-validation-01/run_validation.py",
+      "bytes": 5328,
+      "sha256": "fe5f496c22cb54d5bb78673a30189462185c46946e5714b84dedb91ef0658674"
+    },
+    {
+      "path": "windows-policy-validation-01/summary.json",
+      "bytes": 10926,
+      "sha256": "d28e5f3e6928ff45a2ed864479e3f89c67782204ba8daa73c5b8a7fac8155754"
+    },
+    {
+      "path": "windows-policy-validation-01/sources-before.json",
+      "bytes": 316824,
+      "sha256": "1bd19ebddb3d2e2e2846ce6f6f3f932a601b513f38215dff33ece19b8066b644"
+    },
+    {
+      "path": "windows-policy-validation-01/sources-after.json",
+      "bytes": 316824,
+      "sha256": "1bd19ebddb3d2e2e2846ce6f6f3f932a601b513f38215dff33ece19b8066b644"
+    },
+    {
+      "path": "windows-policy-validation-01/binaries-before.json",
+      "bytes": 4635,
+      "sha256": "e88eccba65657b72da572d0fd3f2815ff00b03569c90f319200ba6a093355e3c"
+    },
+    {
+      "path": "windows-policy-validation-01/binaries-after.json",
+      "bytes": 4635,
+      "sha256": "e88eccba65657b72da572d0fd3f2815ff00b03569c90f319200ba6a093355e3c"
+    },
+    {
+      "path": "windows-policy-validation-01/baseline-library-new-policy-probe.receipt.json",
+      "bytes": 949,
+      "sha256": "e396d2ee964f53837b40cbfee4cf8f4d24d9dc953927cec6ec9dd08cf2e7acb6"
+    },
+    {
+      "path": "windows-policy-validation-01/baseline-library-new-policy-probe.stdout",
+      "bytes": 137,
+      "sha256": "f35cec8eef96a15597c333c046e2039db023b219453004f92526a5bc706843ae"
+    },
+    {
+      "path": "windows-policy-validation-01/baseline-library-new-policy-probe.stderr",
+      "bytes": 83,
+      "sha256": "41ee2a41d26b6bcddd61045777e87f6f30f62f43836c73fb24cd8b2473998aec"
+    },
+    {
+      "path": "windows-policy-validation-01/candidate-ctest-0022.receipt.json",
+      "bytes": 1000,
+      "sha256": "6e48f18cd8890a32511f5c94e0ac69802fbbba1824f0a4d6d8b1acd841973e89"
+    },
+    {
+      "path": "windows-policy-validation-01/candidate-ctest-0002.receipt.json",
+      "bytes": 1000,
+      "sha256": "c159f1b88b498eac69af28d55790b7305b8085d274916a53995eb359a0792910"
+    },
+    {
+      "path": "windows-policy-validation-01/candidate-ctest-0022.xml",
+      "bytes": 3528,
+      "sha256": "e682c9c6df51f31c9a1e86099082f198f14243d5f2ea0120e761a46a8285c343"
+    },
+    {
+      "path": "windows-policy-validation-01/candidate-ctest-0002.xml",
+      "bytes": 3528,
+      "sha256": "f57de3d0e5e458e24e9a903230dde8bbbae13fe6d05527e852324d63f2c65581"
+    },
+    {
+      "path": "windows-policy-validation-01/candidate-ctest-0022-logs/LastTest.log",
+      "bytes": 7618,
+      "sha256": "4e7829cc20206302051d6542f304d60d7ca269dcb3f7a3baf8339d8cba068aa3"
+    },
+    {
+      "path": "windows-policy-validation-01/candidate-ctest-0002-logs/LastTest.log",
+      "bytes": 7618,
+      "sha256": "a57aa8c1f21891c5bf834982c2e82104d9542d354ef657cec991a8e553e3b6a8"
+    },
+    {
+      "path": "windows-policy-validation-01/candidate-registrations.stdout",
+      "bytes": 4577,
+      "sha256": "565cc135c4f1fe249bd0db03085022605fa5224d2311885fa117283f272895ea"
+    },
+    {
+      "path": "windows-policy-validation-01/linux-native-methods.json",
+      "bytes": 5903,
+      "sha256": "4573271e6e21416e6ed777864b9aff37ce91eca888a2ee0ede5e57b3445c1abc"
+    },
+    {
+      "path": "windows-policy-validation-01/toolchains.json",
+      "bytes": 1224,
+      "sha256": "00a4c27107df3b9c9e846d7b746ed0920ac9235bd1061d4f0d3b5b093e01a36f"
+    },
+    {
+      "path": "windows-tools-selfcheck-01/summary.json",
+      "bytes": 1934,
+      "sha256": "3f622dfbb6c557587fb457f182d3fa81047ea94cceac2ef557360b86ca3ee2ec"
+    },
+    {
+      "path": "windows-tools-selfcheck-02/runner.receipt.json",
+      "bytes": 989,
+      "sha256": "e8b931a0a0e5db33f839e5d4af190e11db98779f6eb765053d2e80297c81772f"
+    },
+    {
+      "path": "windows-provenance-selfcheck-02/receipt.json",
+      "bytes": 972,
+      "sha256": "88ec32481991e1b708e6d6581a549daa7d510111f47b663dfcb687f80bbcb881"
+    },
+    {
+      "path": "windows-original-conflict-recheck-01/summary.json",
+      "bytes": 622,
+      "sha256": "47895e627b038832749dee39a901e7e207e25f6d66ce57bbd2062f28d4ca324e"
+    },
+    {
+      "path": "windows-original-conflict-recheck-01/41416271880/receipt.json",
+      "bytes": 7388,
+      "sha256": "8520a4288a84dae9761b2cf51ba1863851454152993c5b043e57aa0286bded1c"
+    },
+    {
+      "path": "windows-original-conflict-recheck-01/41416271880/comparison.json",
+      "bytes": 7539,
+      "sha256": "7a50a80e9b721453c0dfe5a81d046ae73afef075256f116b6412fd3740ae7297"
+    },
+    {
+      "path": "windows-original-conflict-recheck-01/41416279414/receipt.json",
+      "bytes": 7388,
+      "sha256": "1dc6f630ec4049e04f7e5801c17539adbf2799d483fa1f0aaa0418c5d75ce6b8"
+    },
+    {
+      "path": "windows-original-conflict-recheck-01/41416279414/comparison.json",
+      "bytes": 7547,
+      "sha256": "2e13c9f997946c4b0541a3e1e1cb9453cc801d6f828c75944ab7b4ce385b62c4"
+    },
+    {
+      "path": "windows-official-source-01/INDEX.json",
+      "bytes": 10206,
+      "sha256": "68e9ecf77c25b4fdb881a69e50dbf81967f13ad850e8b01ca3ac5a694b30dfe1"
+    }
+  ],
+  "local_result": {
+    "native_linux_masks": {
+      "0022": {
+        "suites_passed": 5,
+        "methods_passed": 30
+      },
+      "0002": {
+        "suites_passed": 5,
+        "methods_passed": 30
+      }
+    },
+    "baseline_policy_increment_probe": {
+      "exit": 1,
+      "methods_passed": 2,
+      "methods_failed": 1,
+      "historical_security_defect": false
+    },
+    "final_runner_tool_methods": 27,
+    "final_provenance_tool_methods": 17,
+    "Windows11": "NOT_RUN",
+    "Windows_ACL_subcases": "NOT_RUN_UNTIL_NATIVE_CI",
+    "original_conflict": "UNRESOLVED",
+    "hosted_private_originals": "BLOCKED"
+  },
+  "formal_approval": false,
+  "merged": false,
+  "original_records_rewritten": false
+}

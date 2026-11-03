@@ -466,6 +466,18 @@ class ProvenanceAndHostGuards(unittest.TestCase):
         self.assertFalse(result['image_environment_fields_complete'])
         self.assertEqual(result['exact_runner_image_identity'], 'UNRESOLVED_REQUIRES_JOB_HEADER_COMPARISON')
 
+    def test_machine_capture_time_is_separate_from_actual_machine_value_change(self):
+        capture = RUNNER.image_environment('a' * 40)
+        other = json.loads(json.dumps(capture))
+        other['machine_image_environment']['captured_at_utc'] = '2026-11-02T08:01:00+00:00'
+        self.assertEqual(RUNNER.image_provenance(capture, other)['changed_fields'], [])
+        other['machine_image_environment']['values']['ImageVersion'] = 'different-machine-observation'
+        result = RUNNER.image_provenance(capture, other)
+        self.assertEqual(result['changed_fields'], ['machine_image_environment'])
+        self.assertEqual(result['machine_environment_consistency'], 'CHANGED')
+        self.assertEqual(result['process_environment_consistency'], 'UNCHANGED')
+        self.assertEqual(result['exact_runner_image_identity'], 'UNRESOLVED_REQUIRES_JOB_HEADER_COMPARISON')
+
     def test_workstation_normal_token_fixed_ntfs_is_the_supported_host_selection(self):
         windows_host.require_windows11(ordinary_windows11())
 
@@ -492,6 +504,81 @@ class ProvenanceAndHostGuards(unittest.TestCase):
                 with patch.object(RUNNER, 'os', SimpleNamespace(name=name, environ={'GITHUB_ACTIONS': actions})):
                     with self.assertRaisesRegex(RuntimeError, 'ephemeral native Windows Actions'):
                         RUNNER.require_actions()
+
+
+class MachineImageRegistry(unittest.TestCase):
+    def capture(self, values=None, *, open_error=None):
+        values = values or {'ImageOS': ('win22', 1), 'ImageVersion': ('20261026.347.1', 1)}
+        calls = []
+
+        class Key:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        key = Key()
+
+        def open_key(*args):
+            calls.append(('open', args))
+            if open_error is not None:
+                raise open_error
+            return key
+
+        def query_value(opened, name):
+            self.assertIs(opened, key)
+            self.assertIn(name, ('ImageOS', 'ImageVersion'))
+            calls.append(('query', name))
+            value = values[name]
+            if isinstance(value, BaseException):
+                raise value
+            return value
+
+        registry = SimpleNamespace(HKEY_LOCAL_MACHINE='machine-hive-only', KEY_QUERY_VALUE=1,
+            KEY_WOW64_64KEY=0x100, REG_SZ=1, OpenKey=open_key, QueryValueEx=query_value)
+        with patch.object(RUNNER, 'os', SimpleNamespace(name='nt')), \
+             patch.dict(sys.modules, {'winreg': registry}):
+            result = RUNNER.machine_image_environment()
+        return result, calls
+
+    def test_only_two_named_machine_values_are_read_with_query_only_native_view(self):
+        result, calls = self.capture()
+        self.assertEqual(calls, [('open', ('machine-hive-only', RUNNER.MACHINE_ENVIRONMENT_KEY, 0, 0x101)),
+                                 ('query', 'ImageOS'), ('query', 'ImageVersion')])
+        self.assertEqual(result['status'], 'OBSERVED')
+        self.assertEqual(result['values'], {'ImageOS': 'win22', 'ImageVersion': '20261026.347.1'})
+        self.assertEqual(result['field_status'], {'ImageOS': 'OBSERVED', 'ImageVersion': 'OBSERVED'})
+        self.assertEqual(result['view'], '64-bit')
+
+    def test_missing_or_denied_named_value_is_not_filled_from_process_environment(self):
+        for error, state in ((FileNotFoundError(), 'MISSING'), (PermissionError(), 'DENIED'),
+                             (OSError(), 'QUERY_FAILED')):
+            with self.subTest(state=state):
+                result, _ = self.capture({'ImageOS': ('win22', 1), 'ImageVersion': error})
+                self.assertEqual(result['status'], 'PARTIAL')
+                self.assertEqual(result['field_status']['ImageVersion'], state)
+                self.assertIsNone(result['values']['ImageVersion'])
+
+    def test_unavailable_machine_key_remains_not_checked_and_does_not_query_other_hives(self):
+        for error, reason in ((FileNotFoundError(), 'MACHINE_ENVIRONMENT_KEY_MISSING'),
+                              (PermissionError(), 'MACHINE_ENVIRONMENT_KEY_DENIED'),
+                              (OSError(), 'MACHINE_ENVIRONMENT_KEY_UNAVAILABLE')):
+            with self.subTest(reason=reason):
+                result, calls = self.capture(open_error=error)
+                self.assertEqual(result['status'], 'NOT_CHECKED')
+                self.assertEqual(result['reason'], reason)
+                self.assertEqual(result['values'], {'ImageOS': None, 'ImageVersion': None})
+                self.assertEqual(len(calls), 1)
+
+    def test_non_string_expandable_unbounded_or_control_values_are_not_expanded_or_published(self):
+        for value in ((123, 1), ('%SECRET%', 2), ('x' * 257, 1), ('bad\nvalue', 1), ('', 1)):
+            with self.subTest(kind=value[1]):
+                result, _ = self.capture({'ImageOS': value, 'ImageVersion': value})
+                self.assertEqual(result['status'], 'NOT_CHECKED')
+                self.assertEqual(result['values'], {'ImageOS': None, 'ImageVersion': None})
+                self.assertEqual(result['field_status'], {'ImageOS': 'UNSUPPORTED_VALUE',
+                                                         'ImageVersion': 'UNSUPPORTED_VALUE'})
 
 
 if __name__ == '__main__':

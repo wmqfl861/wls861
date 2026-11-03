@@ -23,6 +23,56 @@ IMAGE_KEYS = ('ImageOS', 'ImageVersion')
 CONTEXT_KEYS = ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_JOB', 'GITHUB_SHA',
                 'GITHUB_EVENT_NAME', 'GITHUB_WORKFLOW_REF', 'GITHUB_WORKFLOW_SHA',
                 'RUNNER_OS', 'RUNNER_ARCH', 'RUNNER_NAME')
+MACHINE_ENVIRONMENT_KEY = r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+
+
+def machine_image_environment():
+    """Read only two named machine values; never expand or enumerate environment."""
+    result = dict(schema='wls-native-machine-image-environment-v1',
+        captured_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        source='read-only Windows Registry HKEY_LOCAL_MACHINE',
+        key=MACHINE_ENVIRONMENT_KEY, view='64-bit',
+        values={key: None for key in IMAGE_KEYS},
+        field_status={key: 'NOT_CHECKED' for key in IMAGE_KEYS},
+        status='NOT_CHECKED', reason=None)
+    if os.name != 'nt':
+        result['reason'] = 'NATIVE_WINDOWS_REQUIRED'
+        return result
+    try:
+        import winreg
+    except ImportError:
+        result['reason'] = 'REGISTRY_API_UNAVAILABLE'
+        return result
+    try:
+        # Query-only, explicit native view. No process/user fallback: the
+        # inherited process values are captured separately under their own name.
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, MACHINE_ENVIRONMENT_KEY, 0,
+                            winreg.KEY_QUERY_VALUE | winreg.KEY_WOW64_64KEY) as key:
+            for name in IMAGE_KEYS:
+                try:
+                    value, kind = winreg.QueryValueEx(key, name)
+                except FileNotFoundError:
+                    result['field_status'][name] = 'MISSING'
+                except PermissionError:
+                    result['field_status'][name] = 'DENIED'
+                except OSError:
+                    result['field_status'][name] = 'QUERY_FAILED'
+                else:
+                    if (kind != winreg.REG_SZ or not isinstance(value, str) or not value or
+                            len(value) > 256 or any(ord(item) < 32 or ord(item) == 127 for item in value)):
+                        result['field_status'][name] = 'UNSUPPORTED_VALUE'
+                    else:
+                        result['values'][name] = value
+                        result['field_status'][name] = 'OBSERVED'
+    except FileNotFoundError:
+        result['reason'] = 'MACHINE_ENVIRONMENT_KEY_MISSING'
+    except PermissionError:
+        result['reason'] = 'MACHINE_ENVIRONMENT_KEY_DENIED'
+    except OSError:
+        result['reason'] = 'MACHINE_ENVIRONMENT_KEY_UNAVAILABLE'
+    observed = sum(value == 'OBSERVED' for value in result['field_status'].values())
+    result['status'] = 'OBSERVED' if observed == len(IMAGE_KEYS) else 'PARTIAL' if observed else 'NOT_CHECKED'
+    return result
 
 
 def require_actions():
@@ -36,6 +86,7 @@ def image_environment(checkout_sha):
         captured_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
         source='inherited process environment; no job-header or image-release inference',
         image_environment={key: os.environ.get(key) for key in IMAGE_KEYS},
+        machine_image_environment=machine_image_environment(),
         github_context={key: os.environ.get(key) for key in CONTEXT_KEYS},
         github_job_meaning='workflow job key, not the numeric Actions API job ID',
         actual_checkout_sha=checkout_sha)
@@ -46,10 +97,20 @@ def image_provenance(earlier, current):
         raise RuntimeError('unrecognized workflow image environment snapshot')
     changed = [key for key in ('image_environment', 'github_context', 'actual_checkout_sha')
                if earlier.get(key) != current[key]]
+    process_changed = bool(changed)
+    machine_keys = ('schema', 'source', 'key', 'view', 'values', 'field_status', 'status', 'reason')
+    before_machine, after_machine = (value.get('machine_image_environment') for value in (earlier, current))
+    machine_consistency = 'NOT_CHECKED'
+    if isinstance(before_machine, dict) and isinstance(after_machine, dict):
+        machine_changed = any(before_machine.get(key) != after_machine.get(key) for key in machine_keys)
+        machine_consistency = 'CHANGED' if machine_changed else 'UNCHANGED'
+        if machine_changed:
+            changed.append('machine_image_environment')
     values = current['image_environment']
     return dict(schema='wls-native-image-provenance-v1', workflow_capture=earlier,
         runner_entry=current, changed_fields=changed,
-        process_environment_consistency='CHANGED' if changed else 'UNCHANGED',
+        process_environment_consistency='CHANGED' if process_changed else 'UNCHANGED',
+        machine_environment_consistency=machine_consistency,
         image_environment_fields_complete=all(isinstance(values[key], str) and values[key]
                                                for key in IMAGE_KEYS),
         job_header_comparison='NOT_COLLECTED; compare the original same-job Runner Image group externally',

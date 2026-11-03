@@ -51,6 +51,16 @@ void duplicate_policy_rejects(const std::filesystem::path& root) {
     policy = synthetic_policy();
     policy.approved_builds = {20348};
     rejects_code(ErrorCode::Denied, [&] { (void)ReadOnlyRoot::open(root, policy); });
+    // Resource trust cannot be inferred from a non-elevated caller. Refuse
+    // Administrators as either the only or an additional trusted identity,
+    // before OS support or any attempt to open the nonexistent path.
+    for (bool administrator_only : {false, true}) {
+        policy = synthetic_policy();
+        if (administrator_only) policy.trusted_owner_and_writer_sids.clear();
+        policy.trusted_owner_and_writer_sids.push_back("S-1-5-32-544");
+        rejects_code(ErrorCode::Denied, [&] { (void)ReadOnlyRoot::open(root / "not-created", policy); });
+    }
+    CHECK(!std::filesystem::exists(root / "not-created"));
 }
 void historical_capture_compatible(const std::filesystem::path& root) {
     const auto captured = PublicResources::from_bundle(root);
@@ -123,6 +133,29 @@ void complete_acl_policy() {
     auto broad = policy;
     broad.trusted_owner_and_writer_sids.push_back("S-1-1-0");
     rejects_code(ErrorCode::Denied, [&] { (void)system::inspect_windows_acl(safe.value, broad); });
+
+    // This profile rejects explicit Administrators trust. Merely adding the
+    // group cannot authorize either an administrative owner or a writer ACE.
+    auto administrator = policy;
+    administrator.trusted_owner_and_writer_sids.push_back("S-1-5-32-544");
+    Security administrator_writer(L"O:" + owner + L"D:P(A;;FA;;;" + owner + L")(A;;FW;;;BA)");
+    Security administrator_owner(L"O:BAD:P(A;;FA;;;" + owner + L")");
+    for (auto* descriptor : {safe.value, administrator_writer.value, administrator_owner.value})
+        rejects_code(ErrorCode::Denied, [&] { (void)system::inspect_windows_acl(descriptor, administrator); });
+    for (const auto& unsafe : {
+            L"O:" + owner + L"D:P(A;;FA;;;" + owner + L")(A;;FA;;;BA)",
+            L"O:" + owner + L"D:P(A;;FA;;;" + owner + L")(A;;WD;;;BA)",
+            L"O:" + owner + L"D:P(A;;FA;;;" + owner + L")(A;;WO;;;BA)",
+            L"O:" + owner + L"D:P(D;;FA;;;BA)(A;;FA;;;BA)(A;;FA;;;" + owner + L")"}) {
+        Security descriptor(unsafe);
+        rejects_code(ErrorCode::Denied, [&] { (void)system::inspect_windows_acl(descriptor.value, policy); });
+    }
+    // Refusing the group as a trusted writer does not turn a read-only or
+    // deny-only ACE into a write grant. Denies still cannot erase unsafe allows.
+    Security administrator_read(L"O:" + owner + L"D:P(A;;FA;;;" + owner + L")(A;;FR;;;BA)");
+    Security administrator_deny(L"O:" + owner + L"D:P(D;;FA;;;BA)(A;;FA;;;" + owner + L")");
+    for (auto* descriptor : {administrator_read.value, administrator_deny.value})
+        CHECK(system::inspect_windows_acl(descriptor, policy).owner_sid == policy.trusted_owner_and_writer_sids.front());
 }
 void unsupported_ace_and_inheritance() {
     const auto policy = synthetic_policy();
