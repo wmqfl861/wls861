@@ -21,6 +21,7 @@ import zipfile
 SCHEMA = 'wls-windows-image-source-comparison-v1'
 ENVIRONMENT_MEMBER = 'native-image-environment.json'
 STAMP = r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z'
+MACHINE_ENVIRONMENT_KEY = r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
 
 
 def require(condition, message):
@@ -178,6 +179,46 @@ def header_observation(text):
     return result
 
 
+def machine_observation(environment):
+    """Validate an optional new capture without inventing it for historical jobs."""
+    observed = environment.get('machine_image_environment')
+    if observed is None:
+        return dict(status='NOT_COLLECTED', values=None, field_comparison=None,
+                    causal_explanation=None, trust='historical capture has no machine registry observation')
+    require(isinstance(observed, dict) and set(observed) == {'schema', 'captured_at_utc', 'source', 'key', 'view',
+                                                          'values', 'field_status', 'status', 'reason'} and
+            observed.get('schema') == 'wls-native-machine-image-environment-v1' and
+            observed.get('source') == 'read-only Windows Registry HKEY_LOCAL_MACHINE' and
+            observed.get('key') == MACHINE_ENVIRONMENT_KEY and observed.get('view') == '64-bit',
+            'machine image source schema or explicit registry scope differs')
+    require(observed.get('reason') in {None, 'NATIVE_WINDOWS_REQUIRED', 'REGISTRY_API_UNAVAILABLE',
+            'MACHINE_ENVIRONMENT_KEY_MISSING', 'MACHINE_ENVIRONMENT_KEY_DENIED', 'MACHINE_ENVIRONMENT_KEY_UNAVAILABLE'},
+            'unknown machine image observation reason')
+    require(timestamp(observed['captured_at_utc']) >= timestamp(environment['captured_at_utc']),
+            'machine image observation predates its containing capture')
+    names = {'ImageOS', 'ImageVersion'}
+    values, states = observed.get('values', {}), observed.get('field_status', {})
+    require(set(values) == names and set(states) == names, 'machine image observation is not exactly allowlisted')
+    supported = {'NOT_CHECKED', 'MISSING', 'DENIED', 'QUERY_FAILED', 'UNSUPPORTED_VALUE', 'OBSERVED'}
+    for name in names:
+        require(states[name] in supported, 'unknown machine image observation state')
+        if states[name] == 'OBSERVED':
+            require(isinstance(values[name], str) and 0 < len(values[name]) <= 256 and
+                    all(ord(item) >= 32 and ord(item) != 127 for item in values[name]),
+                    'machine image observation claims missing or unsupported bytes')
+        else:
+            require(values[name] is None, 'unobserved machine image field cannot carry a value')
+    count = sum(value == 'OBSERVED' for value in states.values())
+    status = 'OBSERVED' if count == 2 else 'PARTIAL' if count else 'NOT_CHECKED'
+    require(observed.get('status') == status, 'machine image observation status differs from its fields')
+    process = environment['image_environment']
+    return dict(status=status, observation=observed,
+                field_comparison={name: ('MATCH' if process.get(name) == values[name] else 'CONFLICT')
+                                  if states[name] == 'OBSERVED' else 'NOT_CHECKED' for name in sorted(names)},
+                causal_explanation=None,
+                trust='same-job captured named machine registry values; not signed host or image attestation')
+
+
 def compare(inputs):
     require(isinstance(inputs, dict), 'provenance inputs must be an object')
     require(inputs.get('schema') == 'wls-windows-image-source-input-v1', 'unknown provenance input schema')
@@ -251,6 +292,17 @@ def compare(inputs):
     require(set(values) == {'ImageOS', 'ImageVersion'} and all(isinstance(value, str) and value for value in values.values()),
             'image environment fields are incomplete')
     version_match = header['fields']['Version'] == values['ImageVersion']
+    machine = machine_observation(environment)
+    if machine['status'] != 'NOT_COLLECTED':
+        require(timestamp(machine['observation']['captured_at_utc']) <= timestamp(job['completed_at']),
+                'machine image observation is outside the actual job interval')
+    machine_conflict = any(value == 'CONFLICT' for value in (machine['field_comparison'] or {}).values())
+    sources_consistent = version_match and not machine_conflict
+    unresolved_reason = None
+    if not version_match:
+        unresolved_reason = 'original Runner Image Version and inherited ImageVersion disagree; no causal evidence was supplied'
+    elif machine_conflict:
+        unresolved_reason = 'named machine registry and inherited process image fields disagree; no causal evidence was supplied'
     environment_source = dict(archive=archive_source, member=ENVIRONMENT_MEMBER, bytes=len(environment_raw),
         sha256=hashlib.sha256(environment_raw).hexdigest(), captured_at_utc=environment['captured_at_utc'],
         trust='workflow inherited process variables; archive/API hash and same-job printed capture agree; values remain workflow-controlled')
@@ -262,14 +314,15 @@ def compare(inputs):
         runner_header=dict(**header, source=log_source,
             trust='runner initialization log before checkout; metadata observation, not an independent host-image attestation'),
         process_environment=dict(values=values, source=environment_source),
+        machine_registry_environment=machine,
         api_sources=dict(run=run_source, jobs=jobs_source, artifacts=artifacts_source),
         image_version_fields_match=version_match,
-        exact_runner_image_identity='CONSISTENT_OBSERVATIONS_NOT_HOST_ATTESTATION' if version_match else 'UNRESOLVED',
-        explanation='matching observed version fields only' if version_match else None,
+        exact_runner_image_identity='CONSISTENT_OBSERVATIONS_NOT_HOST_ATTESTATION' if sources_consistent else 'UNRESOLVED',
+        explanation='matching observed fields only; missing channels remain unobserved' if sources_consistent else None,
         causal_explanation_evidence=[],
-        unresolved_reason=None if version_match else 'original Runner Image Version and inherited ImageVersion disagree; no causal evidence was supplied',
+        unresolved_reason=unresolved_reason,
         preferred_source=None, prior_audit_rewritten=False, artifact_code_executed=False,
-        remote_requests=0, windows11_acceptance='NOT_RUN', exit_code=0 if version_match else 1)
+        remote_requests=0, windows11_acceptance='NOT_RUN', exit_code=0 if sources_consistent else 1)
 
 
 def main():
