@@ -9,10 +9,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <condition_variable>
 #include <mutex>
 #include <source_location>
 #include <thread>
+
+#include <fcntl.h>
+#include <sys/file.h>
 
 #ifndef WLS_SOURCE_DIR
 #define WLS_SOURCE_DIR "."
@@ -533,6 +537,65 @@ void close_joins_callback_and_stores_only_original_observation() {
     CHECK(model->calls == 1);
 }
 
+void destructor_joins_callback_before_releasing_the_store_writer_lease() {
+    class LeaseCheckedModel final : public ModelAdapter {
+    public:
+        LeaseCheckedModel(const CapturedModelCall& call, std::shared_ptr<Gate> gate, std::filesystem::path path)
+            : fake_(script().default_steps, call.request.model.model), gate_(std::move(gate)), path_(std::move(path)) {}
+        AdapterCapabilities capabilities() const override { return fake_.capabilities(); }
+        void validate(const ModelRequest& request) const override { fake_.validate(request); }
+        ModelResponse complete(ModelRequest request, std::stop_token stop) const override {
+            ++calls; gate_->wait(stop);
+            CHECK(stop.stop_requested());
+            // Check the actual exclusive writer lease while this callback is
+            // still live. Do not invoke Store or write SQLite from the model.
+            const auto lock_path = path_.string() + ".writer-lock";
+            const int descriptor = ::open(lock_path.c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW);
+            CHECK(descriptor >= 0);
+            const auto locked = ::flock(descriptor, LOCK_EX | LOCK_NB);
+            const auto saved_errno = errno;
+            CHECK(::close(descriptor) == 0);
+            CHECK(locked == -1 && (saved_errno == EWOULDBLOCK || saved_errno == EAGAIN));
+            lease_held = true;
+            auto response = fake_.complete(std::move(request));
+            { std::lock_guard lock(mutex_); original_ = to_json(response); }
+            completed = true; return response;
+        }
+        Json original() const { std::lock_guard lock(mutex_); return original_; }
+        mutable std::atomic<int> calls{};
+        mutable std::atomic<bool> lease_held{}, completed{};
+    private:
+        FakeModel fake_;
+        std::shared_ptr<Gate> gate_;
+        std::filesystem::path path_;
+        mutable std::mutex mutex_;
+        mutable Json original_ = nullptr;
+    };
+    Fixture f;
+    auto runtime = std::make_unique<AsyncCoordinator>(f.open(), schemas());
+    const auto id = f.admit(runtime->store());
+    const auto captured = runtime->capture(id, Role::Dispatcher);
+    auto gate = std::make_shared<Gate>(); Release release{gate};
+    auto model = std::make_shared<LeaseCheckedModel>(captured, gate, f.path);
+    auto submission = runtime->submit_event(captured, model);
+    until(*runtime, [&] { return gate->entered == 1; });
+    runtime.reset(); // Destructor must stop/join, settle original evidence, then release Store.
+    CHECK(model->calls == 1 && model->lease_held && model->completed);
+    CHECK(ready(submission.completion));
+    expect(ErrorCode::NotReady, [&] { (void)submission.completion.get(); });
+    auto reopened = f.open(StoreRecoveryScope::request(id));
+    const auto original = reopened->attempt(captured.request.attempt_id);
+    CHECK(original.at("response") == model->original());
+    CHECK(original.at("request_envelope") == to_json(captured.request));
+    CHECK(!original.at("settlement_sha256").is_null());
+    CHECK(reopened->event_link_status(submission.link_id).at("state") == "SETTLED");
+    CHECK(reopened->event_link_status(submission.link_id).at("completed_ids").as_array().empty());
+    CHECK(reopened->tool_feedback(captured.request.attempt_id).is_null() && reopened->tasks(id).empty());
+    expect(ErrorCode::Stale, [&] { (void)reopened->claim_event_dispatch(captured.actor, submission.link_id); });
+    reopened->settle_event_observation(submission.link_id, model_response_from_json(model->original()));
+    CHECK(reopened->attempt(captured.request.attempt_id) == original && model->calls == 1);
+}
+
 void real_adapter_flag_and_excess_limits_fail_before_t0() {
     class RealFlag final : public ModelAdapter {
     public:
@@ -619,6 +682,7 @@ int main() { return test::run({
     {"reserved and dispatched restarts retain original actor and call holds", reserved_and_dispatched_restarts_keep_original_actor_hold},
     {"post-T1 storage failure retains capacity and evidence retry never applies T4", post_t1_storage_failure_retains_slot_and_flush_never_reapplies_t4},
     {"close joins the callback and persists only its original observation", close_joins_callback_and_stores_only_original_observation},
+    {"destructor joins the live callback before releasing the actual Store writer lease", destructor_joins_callback_before_releasing_the_store_writer_lease},
     {"real adapter flags and excessive runtime limits refuse before T0", real_adapter_flag_and_excess_limits_fail_before_t0},
     {"empty S releases only its unassociated original claim and preserves pending IDs", empty_selection_releases_only_unassociated_original_claim}
 }); }

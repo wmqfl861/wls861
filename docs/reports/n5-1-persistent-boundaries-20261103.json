@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "classification": "CORRECT_GUARD_COVERAGE_NEW_TEST_INPUT_ORIGINAL_C2_RELEASE_LIBRARIES",
+  "production_baseline": "c2a5cea64aeea261b214cdfd9a968b53f491110a",
+  "handoff": "d843493fafe158f3a6443bafaa0de95cbf6c05c2",
+  "module_branch": "test/n5-review-persistent-20261103-74bnxwj5",
+  "production_changes": false,
+  "ctest_registrations": {
+    "baseline_complete_plan": 94,
+    "module_registration_delta": 0,
+    "selected_in_local_affected_run": 2
+  },
+  "method_counts": {
+    "store_original": 25,
+    "store_candidate": 30,
+    "runtime_original": 13,
+    "runtime_candidate": 14,
+    "new_methods": 6
+  },
+  "local_attempts": [
+    {
+      "path": "persistent-coverage-release-01/targeted-new-store-run-01",
+      "passed": 1,
+      "failed": 3,
+      "classification": "FIXTURE_SCOPE_AND_INJECTION_ERRORS_RETAINED"
+    },
+    {
+      "path": "persistent-coverage-release-02/run-store",
+      "passed": 4,
+      "failed": 1,
+      "classification": "CORRECT_GUARD_COVERAGE_AND_METADATA_FIXTURE_ERROR_RETAINED"
+    },
+    {
+      "path": "persistent-coverage-release-02/run-runtime",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "path": "persistent-coverage-release-03/targeted-new-store",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "path": "persistent-coverage-release-03/full-store-runtime",
+      "registered_passed": 2,
+      "registered_failed": 0,
+      "registered_timeout": 0,
+      "registered_skipped": 0,
+      "registered_notrun": 0,
+      "methods_passed": 44,
+      "methods_failed": 0,
+      "original_sigkill_phases_passed": [
+        "W00",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05",
+        "W06",
+        "W07",
+        "W08",
+        "W09",
+        "W10",
+        "W11_prepare",
+        "W11_start",
+        "W12",
+        "W13",
+        "W14_first_id",
+        "W14_close",
+        "W15",
+        "W16_amend",
+        "W16_cancel",
+        "W19"
+      ],
+      "inputs_unchanged": true
+    },
+    {
+      "path": "persistent-coverage-release-04/full-store-runtime",
+      "classification": "FINAL_TEST_INPUT_AFFECTED_REGRESSIONS_ORIGINAL_C2_PRODUCTION",
+      "registered_passed": 2,
+      "registered_failed": 0,
+      "registered_timeout": 0,
+      "registered_skipped": 0,
+      "registered_notrun": 0,
+      "methods_passed": 44,
+      "methods_failed": 0,
+      "original_sigkill_phases_passed": [
+        "W00",
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05",
+        "W06",
+        "W07",
+        "W08",
+        "W09",
+        "W10",
+        "W11_prepare",
+        "W11_start",
+        "W12",
+        "W13",
+        "W14_first_id",
+        "W14_close",
+        "W15",
+        "W16_amend",
+        "W16_cancel",
+        "W19"
+      ],
+      "store_seconds": 28.56,
+      "runtime_seconds": 4.65,
+      "seconds": 33.248187182005495,
+      "inputs_unchanged": true
+    }
+  ],
+  "release_03_test_input_sha256": {
+    "persistent_event_store_tests.cpp": "b670812f0568a51a28a5aaa8fd59c065134c083ff8eb97315e04198c5e0ecbeb",
+    "persistent_event_runtime_tests.cpp": "07d1ce39dbade45857836abacf8429b0e687e6e91439297fd2cf960567fd5853",
+    "persistent_event_store_crash.inc": "6d63756b2ac4ace8c03815a797087c6978696f259d8d444a2b3bd54e10dd3683",
+    "persistent_event_faults.hpp": "1b0d5696bfd91420f8c14ccff193a76ec96f4fb74278e4f7d3d2c8033d4c62aa",
+    "test_support.hpp": "5b44c995a3c1a8e93774aa5d4f3a672a23d49571e34e6f45fd8ea197aad20922"
+  },
+  "release_03_elf_sha256": {
+    "persistent_event_store_tests": "e6f4315060612a847f61194be1beb1097ac86e896f0c67dbb751c202a5d4db2a",
+    "persistent_event_runtime_tests": "c2208eff1aa31164215305e115b4477238f33f7d5e65104f01ea5002d06ff243"
+  },
+  "release_03_original_production_archives_sha256": {
+    "libwls_s1.a": "7e0ff1e85a2d832d546c8c67aaf03a0ead995e2060bc1de106a169d98eb272d5",
+    "libwls_kernel.a": "a780803a40cb241a40454fad86b7ec19da7e28babb66110aa49ce6f0f2e1767f"
+  },
+  "private_evidence_root": "/mnt/d/codex-workspace/wls861-n5-review-20261103-74bnxwj5/evidence",
+  "release_03_raw_evidence": {
+    "full-store-runtime/ctest-logs/LastTest.log": {
+      "bytes": 14248,
+      "sha256": "39e0248aeafa8ddbe13a3a12d1bc822deb082cde93a0fe67690bf0ce46f42a44"
+    },
+    "full-store-runtime/junit.xml": {
+      "bytes": 2752,
+      "sha256": "b0929ec5127f220ed9dde409a0e53c261ef32baf56d8d73bd4d8e3257c5f8832"
+    },
+    "full-store-runtime/stdout.log": {
+      "bytes": 578,
+      "sha256": "c73ed3c1b04c69ab26aa0e039304d9ecdb9f76e8e2981953fc928121bc1c6e29"
+    },
+    "full-store-runtime/stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "full-store-runtime/result.json": {
+      "bytes": 5047,
+      "sha256": "724f234ff478d6aaedb34fdbf9b335698515878c3db46241bfc3834bf70ae4ca"
+    }
+  },
+  "privacy": "PRIVATE_ORIGINALS_RETAINED_LOCALLY_NO_PUBLIC_RAW_UPLOAD",
+  "final_input_pending": false,
+  "historical_failures_closed": false,
+  "statuses": {
+    "IMPLEMENTATION_COMPLETE": "COMPLETE_FOR_ASSIGNED_TEST_ONLY_MODULE",
+    "LOCAL_VALIDATION_COMPLETE": "AFFECTED_RELEASE_COMPLETE_FULL_CONFIGURATION_MATRIX_PENDING_INTEGRATION",
+    "PUSH_COMPLETE": "NOT_COMPLETE_AT_PREPUBLICATION_FREEZE",
+    "REMOTE_CI_COMPLETE": "NOT_RUN_AT_PREPUBLICATION_FREEZE",
+    "PR_REVIEW_COMPLETE": "NOT_COMPLETE",
+    "MERGED": false
+  },
+  "release_03_production_identity_check": {
+    "captured_at": "2026-11-03T06:42:13.815702+00:00",
+    "files": 184,
+    "unchanged": true,
+    "before_sha256": "ecb69f54c3cc03ff07950913401bc4398b0c4ae6462f6ccf64ebcbeeef0809fa",
+    "after_sha256": "ecb69f54c3cc03ff07950913401bc4398b0c4ae6462f6ccf64ebcbeeef0809fa"
+  },
+  "final_test_source_sha256": {
+    "tests/persistent_event_faults.hpp": "1b0d5696bfd91420f8c14ccff193a76ec96f4fb74278e4f7d3d2c8033d4c62aa",
+    "tests/persistent_event_store_tests.cpp": "bed3ee82c04a0c08b1b472d8b459f4a154bfc31c1f6ec3fd9c0364644c90869f",
+    "tests/persistent_event_runtime_tests.cpp": "07d1ce39dbade45857836abacf8429b0e687e6e91439297fd2cf960567fd5853"
+  },
+  "final_elf_sha256": {
+    "persistent_event_store_tests": "70a25da0334abef3dde758475c34151bf052282b649e973972d89f5607fc2ae7",
+    "persistent_event_runtime_tests": "c2208eff1aa31164215305e115b4477238f33f7d5e65104f01ea5002d06ff243"
+  },
+  "final_production_archives_sha256": {
+    "libwls_s1.a": "7e0ff1e85a2d832d546c8c67aaf03a0ead995e2060bc1de106a169d98eb272d5",
+    "libwls_kernel.a": "a780803a40cb241a40454fad86b7ec19da7e28babb66110aa49ce6f0f2e1767f"
+  },
+  "final_production_source_resource_identity": {
+    "files": 184,
+    "before_sha256": "ecb69f54c3cc03ff07950913401bc4398b0c4ae6462f6ccf64ebcbeeef0809fa",
+    "after_sha256": "ecb69f54c3cc03ff07950913401bc4398b0c4ae6462f6ccf64ebcbeeef0809fa",
+    "unchanged": true
+  },
+  "final_raw_evidence": {
+    "full-store-runtime/ctest-logs/LastTest.log": {
+      "bytes": 14248,
+      "sha256": "020e61c6ab0c84302a2665d1583782d6bd102ff9c1debdae5c3324881a3d8886"
+    },
+    "full-store-runtime/junit.xml": {
+      "bytes": 2751,
+      "sha256": "8eec502835bb5950217bb65631b63a965029e5c298017c650839d0edcebc008e"
+    },
+    "full-store-runtime/stdout.log": {
+      "bytes": 578,
+      "sha256": "ea5ee84b5587fae00c4b5c5b5c1fedb70aba3b3b633688602be18d8dfd6cfe8e"
+    },
+    "full-store-runtime/stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "full-store-runtime/result.json": {
+      "bytes": 5066,
+      "sha256": "fdbd59196daef8fc4c15944fd278c32e061c13e342ac06408515ea292add6bc8"
+    },
+    "freeze.json": {
+      "bytes": 810,
+      "sha256": "727bb399590afc021e5a6ae85623afe57e41362484169c6907225b2e5b3282a6"
+    }
+  },
+  "test_input_frozen_at": "2026-11-03T06:47:54.979860+00:00",
+  "report_scope": "PREPUBLICATION_LOCAL_EXECUTION_AND_NONAUTHOR_REVIEW_REMOTE_STATUS_RECORDED_BY_SEPARATE_POSTPUBLICATION_RECEIPT",
+  "report_finalized_at": "2026-11-03T06:50:02.936661+00:00",
+  "nonauthor_review": {
+    "reviewer": "/root/compatibility_sidecars",
+    "receipt": "/mnt/d/codex-workspace/wls861-n5-review-20261103-74bnxwj5/evidence/persistent-nonauthor-review-01/review.json",
+    "sha256": "5fbec605a1cab041ede7f012aedf900a01303f3e76f91825b79618f79df74e05",
+    "blocking_findings": [],
+    "scope": "SOURCE_REVIEW_WITHOUT_REVIEWER_EXECUTION",
+    "formal_product_approval": false
+  }
+}
