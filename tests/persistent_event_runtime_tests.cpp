@@ -11,6 +11,8 @@
 #include <atomic>
 #include <cerrno>
 #include <condition_variable>
+#include <functional>
+#include <future>
 #include <mutex>
 #include <source_location>
 #include <thread>
@@ -137,16 +139,28 @@ struct Fixture {
 
 struct Gate {
     std::mutex mutex;
-    std::condition_variable changed;
+    std::condition_variable_any changed;
     std::atomic<int> entered{};
     bool released{};
+    // Test-only seam for the false-predicate / blocking-wait boundary. Normal
+    // model gates never set it; no production interface exposes this callback.
+    std::function<void()> before_wait;
     void release() { { std::lock_guard lock(mutex); released = true; } changed.notify_all(); }
     void wait(std::stop_token stop) {
-        std::stop_callback wake(stop, [this] { changed.notify_all(); });
         std::unique_lock lock(mutex);
         ++entered;
         changed.notify_all();
-        changed.wait(lock, [&] { return released || stop.stop_requested(); });
+        // The stop-aware overload closes the gap between reading a false
+        // predicate and entering the wait. An unrelated notify_all callback
+        // can lose a stop in precisely that gap.
+        (void)changed.wait(lock, stop, [&] {
+            const bool ready = released;
+            if (!ready && before_wait) {
+                auto hook = std::move(before_wait);
+                hook();
+            }
+            return ready;
+        });
     }
 };
 struct Release {
@@ -537,6 +551,28 @@ void close_joins_callback_and_stores_only_original_observation() {
     CHECK(model->calls == 1);
 }
 
+void stop_between_false_predicate_and_wait_cannot_lose_its_wakeup() {
+    Gate gate;
+    std::stop_source stop;
+    gate.before_wait = [&] { (void)stop.request_stop(); };
+    std::promise<void> completed;
+    auto completion = completed.get_future();
+    std::jthread callback([&] {
+        try { gate.wait(stop.get_token()); completed.set_value(); }
+        catch (...) { completed.set_exception(std::current_exception()); }
+    });
+    // The hook requests a real stop after the predicate captured false and
+    // before blocking. Measure completion before release, then always reap
+    // the callback so the old implementation produces an assertion failure
+    // instead of hanging this process until its CTest deadline.
+    const bool completed_from_stop = completion.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    gate.release();
+    callback.join();
+    completion.get();
+    CHECK(stop.stop_requested() && gate.entered == 1);
+    CHECK(completed_from_stop);
+}
+
 void destructor_joins_callback_before_releasing_the_store_writer_lease() {
     class LeaseCheckedModel final : public ModelAdapter {
     public:
@@ -682,6 +718,7 @@ int main() { return test::run({
     {"reserved and dispatched restarts retain original actor and call holds", reserved_and_dispatched_restarts_keep_original_actor_hold},
     {"post-T1 storage failure retains capacity and evidence retry never applies T4", post_t1_storage_failure_retains_slot_and_flush_never_reapplies_t4},
     {"close joins the callback and persists only its original observation", close_joins_callback_and_stores_only_original_observation},
+    {"stop between a false gate predicate and blocking wait cannot be lost", stop_between_false_predicate_and_wait_cannot_lose_its_wakeup},
     {"destructor joins the live callback before releasing the actual Store writer lease", destructor_joins_callback_before_releasing_the_store_writer_lease},
     {"real adapter flags and excessive runtime limits refuse before T0", real_adapter_flag_and_excess_limits_fail_before_t0},
     {"empty S releases only its unassociated original claim and preserves pending IDs", empty_selection_releases_only_unassociated_original_claim}

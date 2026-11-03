@@ -1,0 +1,155 @@
+{
+  "schema": "wls-n5-test-gate-repair-v1",
+  "frozen_at": "2026-11-03T07:48:20.034865+00:00",
+  "time_scope": "Prepublication freeze; final commit, push, PR, and remote checks are recorded in a separate private postpublication receipt.",
+  "baseline": "f15bf1a944a1ea5f6b9e5e9696b921caa48f04cc",
+  "branch": "fix/n5-stop-gate-20261103-74bnxwj5",
+  "direct_dependency": {
+    "pr": 31,
+    "branch": "work/n5-review-integration-20261103-74bnxwj5"
+  },
+  "classification": "test-helper lost stop notification; production unchanged; historical sanitizer causes remain OPEN",
+  "source": {
+    "path": "tests/persistent_event_runtime_tests.cpp",
+    "sha256": "3e660d205faa7fdaaa1b8bae92a2480d8e72025377f92d6a65119a000b2bb0aa"
+  },
+  "registrations": {
+    "whole_product_unchanged": 95,
+    "affected_subset_run": 1,
+    "old_runtime_methods": 14,
+    "new_runtime_methods": 15,
+    "runtime_ctest_deadline_seconds": 180,
+    "existing_wait_seconds": 5
+  },
+  "observed_remote_failure": {
+    "run_id": 41592497997,
+    "job_id": 125772192904,
+    "attempt": 1,
+    "event": "push",
+    "checkout_sha": "3a2dd55d51e32e7e49ed546ccb4c441d3bd96782",
+    "configuration": "Clang-18",
+    "ctest_registered": 94,
+    "passed": 93,
+    "timeout": 1,
+    "failed": 0,
+    "last_started_method": "destructor joins the live callback before releasing the actual Store writer lease",
+    "timeout_seconds": 180.1,
+    "original_log": {
+      "relative_private_path": "linux-remote-watch-03/125772192904.log",
+      "bytes": 65894,
+      "sha256": "b771a5dbebc0abaadf5a8f0f8e9633dc428e2bf2c1dc55ce9b212a90fbd7807c"
+    },
+    "limitation": "No original stack trace locates the exact lost-wake instruction; deterministic extracted-helper probes establish the bug mechanism without rewriting the original timeout."
+  },
+  "probe_receipt": {
+    "relative_private_path": "stop-gate-sensitivity-01/executed.json",
+    "sha256": "74ecae0d33299ded72c7d4ae0f7889ff1c8c8cb35816ce92ba71bce9b409fae0",
+    "all_expected_behaviors_observed": true
+  },
+  "probes": [
+    {
+      "compiler": "gcc13",
+      "variant": "old",
+      "compile_exit": 0,
+      "exit": 1,
+      "seconds": 5.0497898298781365,
+      "outer_timeout": false,
+      "expected_behavior_observed": true,
+      "binary_sha256": "7c399a182f48eb8f82f88424808310bc176ff036b5cd48557d46d666f9a1b5e1",
+      "source_and_binary_unchanged": true
+    },
+    {
+      "compiler": "gcc13",
+      "variant": "fixed",
+      "compile_exit": 0,
+      "exit": 0,
+      "seconds": 0.004645257955417037,
+      "outer_timeout": false,
+      "expected_behavior_observed": true,
+      "binary_sha256": "9c5f87868a043cf1bbf8c684879d17c919b04fb8fd96155789ebea7c2ff2e770",
+      "source_and_binary_unchanged": true
+    },
+    {
+      "compiler": "clang18",
+      "variant": "old",
+      "compile_exit": 0,
+      "exit": 1,
+      "seconds": 5.055426286999136,
+      "outer_timeout": false,
+      "expected_behavior_observed": true,
+      "binary_sha256": "9aa4b473dab15f3b91ef2889d0ff3cdff040140afb8be8fe2f7f01ed2cd14863",
+      "source_and_binary_unchanged": true
+    },
+    {
+      "compiler": "clang18",
+      "variant": "fixed",
+      "compile_exit": 0,
+      "exit": 0,
+      "seconds": 0.004368142923340201,
+      "outer_timeout": false,
+      "expected_behavior_observed": true,
+      "binary_sha256": "f406e4373c4f209e6e541340d9ed389a37ec6c8e06a8d9cc6ab9f75cef1c7df1",
+      "source_and_binary_unchanged": true
+    }
+  ],
+  "affected_release": {
+    "classification": "derived affected suite; GCC13 strict Release candidate test TU plus frozen f15 GCC13 production archives; not final complete95 matrix",
+    "compile_exit": 0,
+    "compile_seconds": 62.899555010022596,
+    "ctest_exit": 0,
+    "ctest_seconds": 15.044681657105684,
+    "passed": 1,
+    "failed": 0,
+    "timeout": 0,
+    "skipped": 0,
+    "notrun": 0,
+    "passed_methods": 15,
+    "failed_methods": 0,
+    "all_original_methods_passed": true,
+    "inputs_and_archives_unchanged": true,
+    "source_header_resource_input_count": 223,
+    "elf": {
+      "path": "/mnt/d/codex-workspace/wls861-n5-review-20261103-74bnxwj5/evidence/stop-gate-runtime-release-01/persistent_event_runtime_tests",
+      "bytes": 5042264,
+      "sha256": "3d1e0dfdd69c72e812f210626aaf7f64fff281b6834c96818e989a8759fdb33e"
+    },
+    "lasttest": {
+      "path": "/mnt/d/codex-workspace/wls861-n5-review-20261103-74bnxwj5/evidence/stop-gate-runtime-release-01/ctest/Testing/Temporary/LastTest.log",
+      "bytes": 3191,
+      "sha256": "508edb9db097e432a8be4a4c06f886cbe3d8b560b896b8867fcddd5b6005796d"
+    },
+    "junit": {
+      "path": "/mnt/d/codex-workspace/wls861-n5-review-20261103-74bnxwj5/evidence/stop-gate-runtime-release-01/ctest/JUnit.xml",
+      "bytes": 1473,
+      "sha256": "c01828892eb8000b0fdf936de2eef0e38584d574254092d60ed02becab755d04"
+    },
+    "receipt": {
+      "relative_private_path": "stop-gate-runtime-release-01/summary.json",
+      "sha256": "8de7b3ec399c52d7da146aa80f256ca52ad6bafba7a844ad1146e050ad6c4371"
+    }
+  },
+  "non_author_review": {
+    "reviewer": "/root/compatibility_sidecars",
+    "author": "/root/persistent_hardening",
+    "static_status": "NO_SOURCE_BLOCKER",
+    "original_receipt_sha256": "0e0b62a881b89fd701ce66203b13d287c7cb78ba51d9a8e267510cd46bcb2c17",
+    "immutable_author_correction_and_probe_readback_sha256": "22acf6f8fb1b932f3f33948c35292d2e23a6a2747fc595f944925f273aef0c69",
+    "scope": "Static source/derivation review and readback of four executed probe receipts; reviewer did not compile/run them, not coordinator approval or second-model review."
+  },
+  "pending": [
+    "New-input complete Release both umasks, strict Clang, UBSan, shared GCC ASan/LSan, Make-ASan and remote Linux gates belong to the final integrated candidate; they have not run for this fix at this report freeze.",
+    "Original local sanitizer and Make IPC diagnoses stay OPEN/UNRESOLVED; this helper bug is not their established cause.",
+    "Private remote raw LastTest/JUnit hosting remains BLOCKED; preserve locally retained originals.",
+    "Windows11 x64 ordinary-user NTFS target remains NOT_RUN; no platform scope changed.",
+    "DAG/014/Store412 remains an unapproved proposal, not implemented."
+  ],
+  "states_at_freeze": {
+    "IMPLEMENTATION_COMPLETE": true,
+    "AFFECTED_LOCAL_VALIDATION_COMPLETE": true,
+    "LOCAL_VALIDATION_COMPLETE": false,
+    "PUSH_COMPLETE": false,
+    "REMOTE_CI_COMPLETE": false,
+    "PR_REVIEW_COMPLETE": false,
+    "MERGED": false
+  }
+}
