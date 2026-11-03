@@ -449,6 +449,58 @@ class GateContracts(unittest.TestCase):
         self.assertEqual(ranges[-1]["public_bytes"][1], len(public))
         gate.check_public_log(public, names, {"one"})
 
+    def grouped_method_registry(self):
+        tests = self.root / "tests"
+        tests.mkdir(exist_ok=True)
+        source = tests / "grouped.cpp"
+        source.write_text('const std::vector<test::Case> cases{\n'
+                          '  {"static grouped method", grouped_method}\n};\n', encoding="utf-8")
+        registry = {"format": "wls-gcc-asan-static-methods-v1", "sources": [
+            {"path": "tests/grouped.cpp", "sha256": gate.digest(source),
+             "methods": ["static grouped method"]}]}
+        path = tests / "gcc_asan_public_methods.json"
+        path.write_text(json.dumps(registry), encoding="utf-8")
+        return source, path, registry
+
+    def test_public_registry_preserves_grouped_names_without_dynamic_output(self):
+        self.grouped_method_registry()
+        names = gate.public_method_names(self.root)
+        self.assertIn("static grouped method", names[0])
+        raw = (b"START static grouped method\nPASS static grouped method\n"
+               b"FAIL static grouped method: SYNTHETIC_PRIVATE\n"
+               b"PASS unregistered runtime label\n")
+        public, _ = gate.public_log_projection(raw, names, {"one"})
+        self.assertIn(b"START static grouped method\nPASS static grouped method\n", public)
+        self.assertIn(b"FAIL static grouped method: [private output omitted:", public)
+        self.assertNotIn(b"SYNTHETIC_PRIVATE", public)
+        self.assertNotIn(b"unregistered runtime label", public)
+        gate.check_public_log(public, names, {"one"})
+
+    def test_public_registry_refuses_changed_source_and_unregistered_label(self):
+        source, path, registry = self.grouped_method_registry()
+        source.write_text(source.read_text() + "// changed source\n", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "static method source"):
+            gate.public_method_names(self.root)
+        registry["sources"][0]["sha256"] = gate.digest(source)
+        registry["sources"][0]["methods"] = ["unregistered label"]
+        path.write_text(json.dumps(registry), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "static method label"):
+            gate.public_method_names(self.root)
+
+    def test_public_registry_refuses_unsafe_paths_duplicates_and_newlines(self):
+        _, path, registry = self.grouped_method_registry()
+        entry = registry["sources"][0]
+        for key, value in (("path", "../outside.cpp"), ("path", "/absolute.cpp"),
+                           ("methods", ["static grouped method", "static grouped method"]),
+                           ("methods", ["static grouped method\nPASS injected"])):
+            with self.subTest(key=key, value=value):
+                candidate = json.loads(json.dumps(registry))
+                candidate["sources"][0][key] = value
+                path.write_text(json.dumps(candidate), encoding="utf-8")
+                with self.assertRaises(RuntimeError):
+                    gate.public_method_names(self.root)
+        self.assertEqual(entry["path"], "tests/grouped.cpp")
+
     def test_fail_method_keeps_name_but_never_dynamic_exception_text(self):
         names = ({"safe fixture method"}, set(), set())
         public, ranges = gate.public_log_projection(

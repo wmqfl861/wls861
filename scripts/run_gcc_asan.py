@@ -212,6 +212,40 @@ def public_method_names(source: Path) -> tuple[set[str], set[str], set[str]]:
                     continue
                 if "\n" not in name and "\r" not in name:
                     native.add(name)
+    # Grouped/vector registrations do not have the inline test::run({ form.
+    # Keep a reviewed static allowlist for those labels, bound to the entire
+    # original test source. Never learn public labels from run output, where a
+    # dynamically generated name could contain private fixture data.
+    registry_path = source / "tests" / "gcc_asan_public_methods.json"
+    if registry_path.is_file():
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        require(set(registry) == {"format", "sources"} and
+                registry["format"] == "wls-gcc-asan-static-methods-v1" and
+                isinstance(registry["sources"], list), "invalid static method registry")
+        seen_paths: set[str] = set()
+        for entry in registry["sources"]:
+            require(isinstance(entry, dict) and set(entry) == {"path", "sha256", "methods"},
+                    "invalid static method source entry")
+            relative = entry["path"]
+            require(isinstance(relative, str) and relative.startswith("tests/") and
+                    Path(relative).as_posix() == relative and ".." not in Path(relative).parts and
+                    Path(relative).suffix in (".cpp", ".hpp") and relative not in seen_paths,
+                    "invalid static method source path")
+            seen_paths.add(relative)
+            path = source / relative
+            require(path.resolve().is_relative_to((source / "tests").resolve()) and
+                    path.is_file() and digest(path) == entry["sha256"],
+                    "static method source differs from reviewed bytes")
+            labels = entry["methods"]
+            require(isinstance(labels, list) and labels and
+                    all(isinstance(label, str) and 0 < len(label) <= 4096 and
+                        not any(c in label for c in "\r\n\0") for label in labels) and
+                    len(set(labels)) == len(labels), "invalid static method labels")
+            content = path.read_text(encoding="utf-8")
+            for label in labels:
+                require(json.dumps(label, ensure_ascii=False) in content,
+                        "static method label is absent from reviewed source")
+                native.add(label)
     return native, methods, classes
 
 
