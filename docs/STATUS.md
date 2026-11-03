@@ -1,5 +1,32 @@
 # 当前实现 **0.11.1-r3.3c-audit**，实施基线蓝图 **v0.4.1**；本开发候选 Store **411**，历史 main 为 **410**。
 
+## 2026-11-03：N5 独立复审整改候选
+
+本批以 PR #25 的 `c2a5cea64aeea261b214cdfd9a968b53f491110a` 为产品输入，
+读取冻结交接 `d843493fafe158f3a6443bafaa0de95cbf6c05c2`，在独立数据盘 worktree
+正常整合以下模块；原分支和 main 未移动，GitHub PR 均未合并。
+
+- [PR #27](https://github.com/wmqfl861/wls861/pull/27)：公开 ASan 投影补齐 59 个静态
+  C++ 方法标签，绑定四份完整源码 hash；动态异常仍脱敏。工具自检 60/60，与产品门禁分开。
+- [PR #29](https://github.com/wmqfl861/wls861/pull/29)：未来数据库头在 SQLite 打开之前
+  只读拒绝，保留真实 WAL/version/metadata、权限和锁守卫。同源九方法原 ELF 6 通过／3 失败，
+  明确标注的派生候选 9/9；旧 410 ELF 的 Compatibility02/03 严格 sidecar 失败不被代填。
+- [PR #30](https://github.com/wmqfl861/wls861/pull/30)：补 T4 rollback、真实 postcommit API
+  报错、跨重开逐 ID 重放、损坏／容量边界与 callback 回收。原 c2 生产库受影响 Store 30/30、
+  runtime 14/14；新增方法不增加注册项，不宣称历史生产漏洞。
+- [PR #28](https://github.com/wmqfl861/wls861/pull/28)：只读策略拒绝显式信任 Builtin
+  Administrators，补负例与独立机器注册表 image 观测。Win11 x64／普通用户／NTFS 仍 NOT_RUN。
+  新 Server/elevated 三来源仍存在 header 与 process/machine 的冲突，原因仍 UNRESOLVED。
+
+新集合为 **95 个 Linux CTest 注册项**：仅增加独立 `store_open_compatibility`（120 秒），
+原 94 个名称和期限逐项保持。新集成输入的完整本机矩阵和远端 CI 分别执行，不能继承父提交绿色。
+原 c2 ASan 54 通过／38 超时／2 失败、Make Store 21 通过／4 失败，以及历史 Clang/live_workflow
+原因继续 OPEN。新 Make 全前缀诊断捕获 W00 的 poll=0 与实际阶段／CPU；这是诊断，未关闭原门禁。
+私有 LastTest/JUnit 原件留数据盘；托管仍 BLOCKED，公开投影不等于原件。
+
+整体继续 **VALIDATION_BLOCKED**。013／411 不变；014／412、DAG 及独立审核票据未授权实施。
+本地非作者交叉复核不代替主协调者批准。无真实供应商／付费调用、生产操作或合并。
+
 ## 2026-11-02：N5 开发候选与验证边界
 
 后继候选 `work/n5-final-candidate-20261102-csj777e9` 汇集 PR #22、#23、#24 的准确输入，

@@ -7,6 +7,18 @@
 当前能力、实现版本及证据集中在[STATUS](STATUS.md)，历史阶段成果见 CHANGELOG 和 reports。
 第二份审核处置见[10-24记录](reviews/claude-2026-10-24-disposition.md)和[ADR-064–066](adr/064-audit24-recovery.md)。
 
+## 2026-11-03 复审整改后的顺序
+
+先对单一集成输入记录完整本机与远端门禁；N5-0 的 ASan/Make/历史 Clang/live_workflow、
+旧 410 严格 sidecar 兼容和私有证据托管按各自真实证据保留 OPEN／NOT_COMPLETE／BLOCKED，
+不以某个定向绿例或 Windows Server 组件 CI 豁免。N5-1 此批只强化既有持久事务及关闭回收覆盖，
+不接入真实 live、文件／进程执行器或第二写者。
+
+Windows Builtin Administrators 的保守拒绝候选已实现；目标部署主体和 Windows 11 普通用户
+实机支持仍由协调者验收，原 image 来源冲突继续 UNRESOLVED。N5-2 只准备 PR #21 D1–D6
+采纳条件；待单独采纳 014／412 且 N5-1 稳定后，才先三节点依赖汇合，再做版本化独立审核票据。
+本轮不提前展开 DAG、记忆、MCP、服务化、强沙箱或付费产品验收。
+
 ## 2026-11-02 N5 的实施依赖与剩余门禁
 
 N5-0 继续优先关闭精确输入的本机失败及证据缺口。
