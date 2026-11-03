@@ -1,0 +1,88 @@
+{
+  "format": "wls-gcc-asan-static-methods-v1",
+  "sources": [
+    {
+      "path": "tests/doctor_diagnostics_tests.cpp",
+      "sha256": "5fac599a8952f1795d0df5131357701da22273b2bc4544cfc20eee5343bb4cbe",
+      "methods": [
+        "default report identifies inputs without execution proof",
+        "failed runtime preserves later independent observations",
+        "hash conflict retains expected and observed bytes separately",
+        "leaf and ancestor symlinks are rejected with explicit causes",
+        "unsafe owner modes remain unchanged and unread",
+        "directories and nonblocking FIFOs are not runtime files",
+        "special runtime sources rejected without opening them",
+        "zero stat size cannot fabricate an empty runtime digest",
+        "forbidden destination refuses before source reads",
+        "duplicate destination does not hide a later independent entry",
+        "missing or invalid frozen hashes never become approval",
+        "relative parent and malformed destination paths have stable causes",
+        "sparse oversized source is rejected before content read",
+        "fixed small shared-budget boundary never consumes rejected bytes",
+        "actual source growth during read fails original identity check",
+        "actual injected read failure preserves errno and later files",
+        "128-entry bound and omitted entries are explicit",
+        "unsupported global policy retains independent observations",
+        "cgroup-shaped ordinary directory cannot prove delegation",
+        "filesystem and cgroup hierarchy roots are refused",
+        "fixed controller and domain classification is labeled synthetic",
+        "fixed cgroup filesystem mount and access causes are explicit",
+        "operation control paths remain uncreated patterns",
+        "root-owned ELF and hash mismatch are observations only",
+        "launcher mode and ELF failures retain specific reasons",
+        "marked fake launcher is neither executed nor repaired",
+        "report check-count overflow cannot claim completeness",
+        "reason and error-text bounds expose truncation",
+        "CLI provenance cannot overflow the final report bound",
+        "core report budget facts survive repeated serialization",
+        "invalid UTF8 and oversized paths expose actual display truncation",
+        "repeated bounds cannot restore truncated prerequisite readiness"
+      ]
+    },
+    {
+      "path": "tests/single_agent_tests.cpp",
+      "sha256": "597cd5c41ecff2b86bd57c25477cd20088bb011d1b63e81b2ec9e015996a21c8",
+      "methods": [
+        "transcript prefixes equal complete canonical arrays",
+        "transcript keeps aggregate depth and JSON guards",
+        "transcript byte limit includes the complete array",
+        "shared native history crosses roles and tasks",
+        "omitted original pair refuses reservation",
+        "reordered original pairs refuse reservation",
+        "changed or missing logical identity refuses reservation",
+        "concurrent captures cannot fork original history",
+        "settled turn without immutable feedback blocks continuation",
+        "historical Worker tools do not authorize manager actions",
+        "ordinary restart continues one chain without rewriting bindings",
+        "sibling request history never enters the shared transcript",
+        "frozen attempt and byte capacities stop before reservation",
+        "explicit frozen policy and common model are required"
+      ]
+    },
+    {
+      "path": "tests/r24_recovery_predicates_tests.cpp",
+      "sha256": "b66c4d7b13bfb5fa6f03943b0c2909ec2dfd8b42d8c909d8a84aa93f58010ad6",
+      "methods": [
+        "CANCEL_REQUESTED alone fences an original operation without inventing exit",
+        "orphan CLAIMED inbox alone releases original work and preserves UNKNOWN",
+        "FAILED experience alone recovers an active request with source and budget intact",
+        "FAILED experience alone recovers delivered management without business epochs",
+        "FAILED cleanup alone renews delivered lease without deleting or accepting old CAS",
+        "FAILED retained cleanup after cancellation cannot gain deletion or business authority"
+      ]
+    },
+    {
+      "path": "tests/r24_concurrency_tests.cpp",
+      "sha256": "a6e8d29629f8a10622e19c564d89924ac7f6ece948f2851baa88fc5cf8aa62a7",
+      "methods": [
+        "PREPARED writer excludes reopen; exited writer recovers once and fences exact old prepare",
+        "RUNNING child boundary excludes reopen until SIGKILL/wait and preserves UNKNOWN late facts",
+        "isolated legacy CANCEL_REQUESTED state is fenced atomically against another opener",
+        "real file effect and result INSERT window exclude reopen and preserve one original fact",
+        "late prepare cannot cross an explicit execution epoch switch",
+        "late exact prepare replays one original effect without new writes",
+        "cleanup claim excludes online recovery and exited writer loses Root/claim authority"
+      ]
+    }
+  ]
+}
