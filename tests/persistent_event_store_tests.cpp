@@ -674,6 +674,281 @@ void failed_013_and_wrong_asset_leave_original_version_and_history() {
 }
 
 #include "persistent_event_store_crash.inc"
+
+void t4_all_business_helpers_rollback_failed_feedback_and_close() {
+    ::test::persistent_events::StorageFault fault;
+    for (const auto* action : {"plan", "instruction", "amendment"}) {
+        for (const bool fail_close : {false, true}) {
+            Fixture f;
+            const std::string selected(action);
+            if (selected != "plan") f.plan();
+            if (selected == "amendment")
+                f.store->amend(f.actor(Role::Root), number(f.store->request(f.id), "state_version"),
+                    "preserve fixture observations", input().constraint_catalog, new_id("amend"));
+            auto value = selected == "instruction" ? f.capture(Role::TeamLead) :
+                f.capture(Role::Dispatcher, "alpha", selected == "amendment" ? 2 : 1, selected == "amendment");
+            const auto tool = selected == "plan" ? "submit_plan" :
+                selected == "instruction" ? "issue_work_order" : "submit_amendment_plan";
+            const Json arguments = selected == "plan" ? plan_body() : selected == "instruction" ? order_body() :
+                Json(Object{{"plan", plan_body()}, {"dispositions", Object{{"alpha", Object{
+                    {"disposition", "keep"}, {"rationale", "the original alpha decision"}}}}}});
+            f.reserve(value); const auto response = f.observe(value, tool, arguments);
+            const auto id = text(value.link, "link_id");
+            f.store->settle_event_observation(id, response);
+            const auto sibling = f.admit();
+            const auto sibling_request = crash_rows(f.path, "SELECT * FROM requests WHERE request_id=?", {sibling});
+            const auto sibling_attempts = crash_rows(f.path, "SELECT * FROM call_attempts WHERE request_id=?", {sibling});
+            const auto sibling_budget = crash_rows(f.path, "SELECT * FROM request_budgets WHERE request_id=?", {sibling});
+            const auto original = f.store->attempt(value.reservation.attempt_id), budget = f.store->budget(f.id);
+            const auto database = crash_database_hash(f.path);
+            sql(f.path, fail_close ?
+                "CREATE TRIGGER n5_test_helper_tail BEFORE INSERT ON n5_event_receipts WHEN NEW.kind='CLOSE' BEGIN SELECT n5_test_storage_fault(); END" :
+                "CREATE TRIGGER n5_test_helper_tail BEFORE INSERT ON model_tool_feedback BEGIN SELECT n5_test_storage_fault(); END");
+            expect(ErrorCode::Storage, [&] { f.store->commit_event_action_and_finish(value.captured.actor, id, f.schemas); });
+            // This hashes every actual column of every business table in one
+            // read snapshot. Rollback may not leave any event, object, feedback,
+            // individual ID, claim, receipt, projection or budget half-write.
+            CHECK(crash_database_hash(f.path) == database);
+            CHECK(f.store->event_link_status(id).at("state") == "SETTLED");
+            CHECK(f.store->tool_feedback(value.reservation.attempt_id).is_null());
+            CHECK(f.store->attempt(value.reservation.attempt_id) == original);
+            CHECK(f.store->budget(f.id) == budget);
+            sql(f.path, "DROP TRIGGER n5_test_helper_tail");
+            f.store.reset();
+            f.store = std::make_unique<Store>(f.path, MigrationRegistry(resources()),
+                StoreOpenMode::Takeover, StoreRecoveryScope::request(f.id));
+            const auto recovered = crash_database_hash(f.path);
+            expect(ErrorCode::Stale, [&] { f.store->commit_event_action_and_finish(value.captured.actor, id, f.schemas); });
+            expect(ErrorCode::Stale, [&] { f.store->claim_event_dispatch(value.captured.actor, id); });
+            const auto current = f.actor(value.captured.actor.role);
+            const auto held = f.store->claim_event_batch(current);
+            CHECK(held.at("items").as_array().empty());
+            CHECK(held.at("hold_reason") == "HOLD_UNRESOLVED_ORIGINAL_CALL");
+            CHECK(crash_database_hash(f.path) == recovered);
+            CHECK(f.store->attempt(value.reservation.attempt_id) == original);
+            CHECK(f.store->budget(f.id) == budget);
+            CHECK(crash_rows(f.path, "SELECT * FROM requests WHERE request_id=?", {sibling}) == sibling_request);
+            CHECK(crash_rows(f.path, "SELECT * FROM call_attempts WHERE request_id=?", {sibling}) == sibling_attempts);
+            CHECK(crash_rows(f.path, "SELECT * FROM request_budgets WHERE request_id=?", {sibling}) == sibling_budget);
+            std::cout << "T4-ROLLBACK action=" << action << " fault=" << (fail_close ? "CLOSE" : "feedback")
+                      << " all_business_tables_unchanged=true reopened_hold=true" << std::endl;
+        }
+    }
+}
+
+void committed_wal_error_keeps_each_original_transaction_outcome() {
+    for (int stage = 1; stage <= 4; ++stage) {
+        ::test::persistent_events::CommitOutcomeFault fault;
+        Fixture f; auto value = f.capture(Role::Dispatcher);
+        ModelResponse response;
+        if (stage >= 2) f.reserve(value);
+        if (stage >= 3) response = f.observe(value, "submit_plan", plan_body());
+        if (stage >= 4) f.store->settle_event_observation(text(value.link, "link_id"), response);
+        const auto sibling = f.admit();
+        const auto sibling_request = crash_rows(f.path, "SELECT * FROM requests WHERE request_id=?", {sibling});
+        const auto sibling_attempts = crash_rows(f.path, "SELECT * FROM call_attempts WHERE request_id=?", {sibling});
+        const auto sibling_budget = crash_rows(f.path, "SELECT * FROM request_budgets WHERE request_id=?", {sibling});
+        const auto kind = stage == 1 ? "RESERVED" : stage == 2 ? "DISPATCH" : stage == 3 ? "SETTLEMENT" : "CLOSE";
+        sql(f.path, "CREATE TRIGGER n5_test_commit_outcome AFTER INSERT ON n5_event_receipts WHEN NEW.kind='" +
+            std::string(kind) + "' BEGIN SELECT n5_test_arm_commit_outcome(); END");
+        fault.arm(f.path);
+        expect(ErrorCode::Storage, [&] {
+            if (stage == 1) f.reserve(value);
+            else if (stage == 2) (void)f.store->claim_event_dispatch(value.captured.actor, text(value.link, "link_id"));
+            else if (stage == 3) (void)f.store->settle_event_observation(text(value.link, "link_id"), response);
+            else (void)f.store->commit_event_action_and_finish(value.captured.actor, text(value.link, "link_id"), f.schemas);
+        });
+        CHECK(fault.installed() == 1 && fault.hits() == 1 && fault.committed_pages() > 0);
+        const auto links = f.store->request_event_links(f.id); CHECK(links.size() == 1);
+        const auto id = text(links.front(), "link_id"); value.link = links.front();
+        CHECK(links.front().at("state") == (stage == 1 ? "RESERVED" : stage == 2 ? "DISPATCHED" : stage == 3 ? "SETTLED" : "CLOSED"));
+        CHECK(f.store->budget(f.id).at("attempts") == 1);
+        const auto original = f.store->attempt(value.reservation.attempt_id);
+        const auto budget = f.store->budget(f.id);
+        const auto database = crash_database_hash(f.path);
+        CHECK(scalar(f.path, "SELECT COUNT(*) FROM events WHERE type='claim_offline_call'") == (stage >= 2 ? 1 : 0));
+        CHECK(scalar(f.path, "SELECT COUNT(*) FROM n5_event_receipts WHERE kind='SETTLEMENT'") == (stage >= 3 ? 1 : 0));
+        CHECK(scalar(f.path, "SELECT COUNT(*) FROM n5_event_receipts WHERE kind='CLOSE'") == (stage == 4 ? 1 : 0));
+        CHECK(scalar(f.path, "SELECT COUNT(*) FROM model_tool_feedback") == (stage == 4 ? 1 : 0));
+        CHECK(f.store->tasks(f.id).size() == (stage == 4 ? 2U : 0U));
+        CHECK(f.store->tool_feedback(value.reservation.attempt_id).is_null() == (stage != 4));
+        CHECK(original.at("response").is_null() == (stage < 3));
+        // The reported error is not permission to repeat an actual effect.
+        if (stage == 1) CHECK(f.store->reserve_event_call(value.captured.actor, value.captured.request.binding,
+            value.reservation, value.association).at("link_id") == Json(id));
+        else CHECK(f.store->claim_event_dispatch(value.captured.actor, id).at("dispatch_claimed") == false);
+        if (stage >= 3) f.store->settle_event_observation(id, response);
+        if (stage == 4) CHECK(f.store->commit_event_action_and_finish(value.captured.actor, id, f.schemas).at("state") == "CLOSED");
+        CHECK(crash_database_hash(f.path) == database);
+        f.store.reset();
+        f.store = std::make_unique<Store>(f.path, MigrationRegistry(resources()),
+            StoreOpenMode::Takeover, StoreRecoveryScope::request(f.id));
+        const auto recovered_database = crash_database_hash(f.path);
+        expect(ErrorCode::Stale, [&] { f.store->claim_event_dispatch(value.captured.actor, id); });
+        expect(ErrorCode::Stale, [&] { f.store->commit_event_action_and_finish(value.captured.actor, id, f.schemas); });
+        if (stage < 3) {
+            const auto recovered = f.store->attempt(value.reservation.attempt_id);
+            CHECK(recovered.at("status") == "UNKNOWN" && recovered.at("response").is_null());
+            CHECK(recovered.at("unknown_input") == 1 && recovered.at("unknown_output") == 1 && recovered.at("unknown_cost") == 1);
+            CHECK(recovered.at("request_envelope") == original.at("request_envelope"));
+            CHECK(recovered.at("frozen_binding") == original.at("frozen_binding"));
+            CHECK(f.store->event_link_status(id).at("state") == "HOLD_UNKNOWN");
+            CHECK(f.store->budget(f.id).at("reserved_input") == budget.at("reserved_input"));
+            CHECK(f.store->budget(f.id).at("reserved_output") == budget.at("reserved_output"));
+            CHECK(f.store->budget(f.id).at("reserved_cost") == budget.at("reserved_cost"));
+        } else {
+            CHECK(f.store->attempt(value.reservation.attempt_id) == original && f.store->budget(f.id) == budget);
+            f.store->settle_event_observation(id, response);
+        }
+        if (stage == 4) CHECK(f.store->commit_event_action_and_finish(f.actor(Role::Dispatcher), id, f.schemas).at("state") == "CLOSED");
+        else {
+            const auto held = f.store->claim_event_batch(f.actor(Role::Dispatcher));
+            CHECK(held.at("items").as_array().empty() && held.at("hold_reason") == "HOLD_UNRESOLVED_ORIGINAL_CALL");
+        }
+        CHECK(crash_database_hash(f.path) == recovered_database);
+        CHECK(crash_rows(f.path, "SELECT * FROM requests WHERE request_id=?", {sibling}) == sibling_request);
+        CHECK(crash_rows(f.path, "SELECT * FROM call_attempts WHERE request_id=?", {sibling}) == sibling_attempts);
+        CHECK(crash_rows(f.path, "SELECT * FROM request_budgets WHERE request_id=?", {sibling}) == sibling_budget);
+        std::cout << "COMMIT-OUTCOME stage=T" << stage << " wal_hook_error=SQLITE_IOERR_WRITE"
+                  << " durable_commit_observed=true hook_hits=" << fault.hits()
+                  << " pages=" << fault.committed_pages() << " replay_effects=0" << std::endl;
+    }
+}
+
+void closed_partial_id_replay_cannot_complete_a_new_claim_after_restart() {
+    Fixture f; f.plan(); f.ready(); auto value = f.capture(Role::Worker);
+    CHECK(value.association.selected_ids.size() == 2);
+    const auto omitted = value.association.selected_ids.back(); value.association.selected_ids.resize(1);
+    f.reserve(value); const auto response = f.observe(value, "note", Object{{"text", "only one captured ID is completed"}});
+    const auto id = text(value.link, "link_id"); f.store->settle_event_observation(id, response);
+    const auto closed = f.store->commit_event_action_and_finish(value.captured.actor, id, f.schemas);
+    const auto original = f.store->attempt(value.reservation.attempt_id);
+    const auto sibling = f.admit();
+    const auto sibling_request = crash_rows(f.path, "SELECT * FROM requests WHERE request_id=?", {sibling});
+    const auto sibling_attempts = crash_rows(f.path, "SELECT * FROM call_attempts WHERE request_id=?", {sibling});
+    const auto sibling_budget = crash_rows(f.path, "SELECT * FROM request_budgets WHERE request_id=?", {sibling});
+    const auto original_sources = crash_rows(f.path, "SELECT * FROM events");
+    const auto original_receipts = crash_rows(f.path, "SELECT * FROM n5_event_receipts");
+    const auto budget = f.store->budget(f.id);
+    CHECK(closed.at("completed_ids").as_array().size() == 1 && closed.at("released_ids") == Array{omitted});
+    f.store.reset();
+    f.store = std::make_unique<Store>(f.path, MigrationRegistry(resources()),
+        StoreOpenMode::Takeover, StoreRecoveryScope::request(f.id));
+    const auto current = f.actor(Role::Worker);
+    expect(ErrorCode::Stale, [&] { f.store->commit_event_action_and_finish(value.captured.actor, id, f.schemas); });
+    const auto fresh = f.store->claim_event_batch(current);
+    CHECK(fresh.at("items").as_array().size() == 2);
+    CHECK(text(fresh, "claim_id") != value.association.claim_id);
+    CHECK(std::any_of(fresh.at("items").as_array().begin(), fresh.at("items").as_array().end(),
+        [omitted](const Json& item) { return item.at("inbox_id") == omitted; }));
+    const auto new_claim_state = crash_database_hash(f.path);
+    const auto replay = f.store->commit_event_action_and_finish(current, id, f.schemas);
+    CHECK(replay.at("completed_ids") == closed.at("completed_ids") && replay.at("released_ids") == closed.at("released_ids"));
+    CHECK(replay.at("dispositions") == closed.at("dispositions"));
+    CHECK(f.store->claim_event_dispatch(current, id).at("dispatch_claimed") == false);
+    f.store->settle_event_observation(id, response);
+    auto changed = response; changed.text = "a different late response";
+    expect(ErrorCode::Conflict, [&] { f.store->settle_event_observation(id, changed); });
+    CHECK(crash_database_hash(f.path) == new_claim_state);
+    CHECK(f.store->attempt(value.reservation.attempt_id) == original && f.store->budget(f.id) == budget);
+    CHECK(crash_rows(f.path, "SELECT * FROM events") == original_sources);
+    CHECK(crash_rows(f.path, "SELECT * FROM n5_event_receipts") == original_receipts);
+    CHECK(crash_rows(f.path, "SELECT * FROM requests WHERE request_id=?", {sibling}) == sibling_request);
+    CHECK(crash_rows(f.path, "SELECT * FROM call_attempts WHERE request_id=?", {sibling}) == sibling_attempts);
+    CHECK(crash_rows(f.path, "SELECT * FROM request_budgets WHERE request_id=?", {sibling}) == sibling_budget);
+    const auto released = f.store->release_event_batch(current, text(fresh, "claim_id"), number(fresh, "generation"));
+    CHECK(released.at("completed_ids").as_array().empty());
+    CHECK(scalar(f.path, "SELECT COUNT(*) FROM ops WHERE status='SUCCEEDED'") == 1);
+    CHECK(scalar(f.path, "SELECT COUNT(*) FROM events WHERE type='claim_offline_call'") == 3);
+}
+
+void corrupt_link_fact_and_reserved_tail_reject_after_a_successful_snapshot() {
+    for (const auto* damage : {"claim_hash", "link_hash", "link_bytes", "member_hash", "receipt_hash", "business_tail", "control_tail"}) {
+        Fixture f; auto value = f.capture(Role::Dispatcher); f.reserve(value);
+        const auto id = text(value.link, "link_id");
+        CHECK(f.store->event_link_status(id).at("state") == "RESERVED");
+        const auto original = f.store->attempt(value.reservation.attempt_id), budget = f.store->budget(f.id);
+        const std::string selected(damage);
+        const auto table = selected == "claim_hash" ? "n5_event_claims" : selected == "member_hash" ? "n5_event_items" :
+            selected == "receipt_hash" ? "n5_event_receipts" : "n5_event_links";
+        const auto field = selected == "link_bytes" ? "encoded_bytes=encoded_bytes+1" :
+            selected == "business_tail" ? "business_tail=3" : selected == "control_tail" ? "control_tail=3" :
+            "fact_sha256=CASE WHEN fact_sha256=printf('%064d',0) THEN printf('%064d',1) ELSE printf('%064d',0) END";
+        const auto trigger = std::string(table) + "_no_update";
+        const auto immutable = "UPDATE " + std::string(table) + " SET " + field;
+        const auto undamaged = crash_database_hash(f.path);
+        sqlite3* raw{}; CHECK(sqlite3_open_v2(f.path.c_str(), &raw, SQLITE_OPEN_READWRITE, nullptr) == SQLITE_OK);
+        CHECK(sqlite3_exec(raw, immutable.c_str(), nullptr, nullptr, nullptr) == SQLITE_CONSTRAINT);
+        sqlite3_close(raw);
+        // Inject corruption only into this throwaway fixture. Restore its
+        // original immutable trigger before invoking any production reader.
+        const auto definition = crash_json(f.path, "SELECT json_quote(sql) FROM sqlite_master WHERE type='trigger' AND name=?", {trigger});
+        sql(f.path, "DROP TRIGGER " + trigger); sql(f.path, immutable); sql(f.path, definition.as_string().c_str());
+        const auto damaged = crash_database_hash(f.path);
+        CHECK(damaged != undamaged);
+        expect(ErrorCode::Corrupt, [&] { (void)f.store->event_link_status(id); });
+        expect(ErrorCode::Corrupt, [&] { (void)f.store->request_event_links(f.id); });
+        expect(ErrorCode::Corrupt, [&] { (void)f.store->claim_event_dispatch(value.captured.actor, id); });
+        CHECK(crash_database_hash(f.path) == damaged);
+        CHECK(f.store->attempt(value.reservation.attempt_id) == original && f.store->budget(f.id) == budget);
+        CHECK(scalar(f.path, "SELECT COUNT(*) FROM events WHERE type='claim_offline_call'") == 0);
+        std::cout << "CORRUPT-LINK field=" << damage << " successful_prior_snapshot=true refused_without_writes=true" << std::endl;
+    }
+}
+
+void exact_metadata_and_original_tail_boundaries_keep_reservation_atomic() {
+    // Fresh fixtures use the same input and fixed-width typed IDs. Calibrate
+    // the public measured size, then freeze the exact limit in a new request;
+    // no policy fact or counter is rewritten to create this boundary.
+    const auto measure = [](std::int64_t limit) {
+        Fixture calibration(EventDriverLimits{64, 128, limit});
+        auto sample = calibration.capture(Role::Dispatcher); calibration.reserve(sample);
+        return number(calibration.store->event_link_status(text(sample.link, "link_id")), "metadata_bytes_and_reserved");
+    };
+    constexpr std::int64_t maximum_metadata = 16 * 1024 * 1024;
+    const auto initial = measure(maximum_metadata);
+    std::int64_t same_width_ceiling = 9;
+    while (same_width_ceiling < initial)
+        same_width_ceiling = std::min(maximum_metadata, same_width_ceiling * 10 + 9);
+    const auto boundary = measure(same_width_ceiling);
+    CHECK(std::to_string(boundary).size() == std::to_string(same_width_ceiling).size());
+    CHECK(std::to_string(boundary - 1).size() == std::to_string(boundary).size());
+    std::cout << "CAPACITY-MEASURE metadata_exact=" << boundary << " frozen_calibration_limit=" << same_width_ceiling << std::endl;
+    Fixture exact(EventDriverLimits{64, 128, boundary}); auto accepted = exact.capture(Role::Dispatcher);
+    exact.reserve(accepted);
+    CHECK(number(exact.store->event_link_status(text(accepted.link, "link_id")), "metadata_bytes_and_reserved") == boundary);
+    CHECK(exact.store->budget(exact.id).at("attempts") == 1);
+    const auto accepted_snapshot = crash_database_hash(exact.path);
+    exact.reserve(accepted); // Exact replay at the limit is free.
+    CHECK(crash_database_hash(exact.path) == accepted_snapshot);
+    Fixture below(EventDriverLimits{64, 128, boundary - 1}); auto refused = below.capture(Role::Dispatcher);
+    const auto original_budget = below.store->budget(below.id);
+    const auto original_snapshot = crash_database_hash(below.path);
+    expect(ErrorCode::Quota, [&] { below.reserve(refused); });
+    CHECK(crash_database_hash(below.path) == original_snapshot && below.store->budget(below.id) == original_budget);
+    CHECK(below.store->request_event_links(below.id).empty());
+    CHECK(scalar(below.path, "SELECT COUNT(*) FROM call_attempts") == 0);
+
+    // The existing negative case leaves only two business-event positions.
+    // Leaving exactly three admits the original reservation and its two
+    // captured business-tail positions, without dispatching an extra call.
+    Fixture tail; auto plan = tail.capture(Role::Dispatcher); const auto state = tail.store->capacity_status(tail.id);
+    const auto maximum = number(state.at("limits"), "business_events");
+    const auto fill = maximum - number(state.at("counts"), "business_events") - 3;
+    CHECK(fill > 0);
+    sql(tail.path, "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<" + std::to_string(fill) +
+        ") INSERT INTO events(event_id,request_id,type,actor,command_id,command_sha256,payload,result,created_at) "
+        "SELECT 'exact-tail-'||x,'" + tail.id + "','fixture','runtime','exact-tail-'||x,printf('%064d',0),'{}','{}','fixture' FROM n");
+    tail.reserve(plan);
+    CHECK(tail.store->event_link_status(text(plan.link, "link_id")).at("state") == "RESERVED");
+    CHECK(number(tail.store->capacity_status(tail.id).at("counts"), "business_events") == maximum - 2);
+    CHECK(tail.store->budget(tail.id).at("attempts") == 1);
+    const auto reserved_snapshot = crash_database_hash(tail.path); tail.reserve(plan);
+    CHECK(crash_database_hash(tail.path) == reserved_snapshot);
+    CHECK(scalar(tail.path, "SELECT COUNT(*) FROM events WHERE type='claim_offline_call'") == 0);
+    std::cout << "CAPACITY-BOUNDARY metadata_exact=" << boundary << " metadata_one_byte_less_refused=true"
+              << " business_reservation_and_tail_exact=true replay_writes=0" << std::endl;
+}
 } // namespace
 
 int main() {
@@ -702,6 +977,11 @@ int main() {
         {"process crashes W06 through W10 preserve actual dispatch callback and observation boundaries", process_crash_callback_and_observation},
         {"process crashes W11 through W15 preserve atomic note feedback and every captured ID", process_crash_atomic_action_tail},
         {"process crashes W16 retain committed AMEND or cancel and original observation", process_crash_control_after_observation},
-        {"legacy process crash W19 preserves a real committed effect without feedback across upgrade", process_crash_legacy_feedback_gap_upgrade}
+        {"legacy process crash W19 preserves a real committed effect without feedback across upgrade", process_crash_legacy_feedback_gap_upgrade},
+        {"T4 plan instruction and AMEND helpers roll back feedback and CLOSE faults across reopen", t4_all_business_helpers_rollback_failed_feedback_and_close},
+        {"T1 through T4 committed WAL errors recover only original durable outcomes", committed_wal_error_keeps_each_original_transaction_outcome},
+        {"CLOSED partial ID replay after restart cannot finish a new claim or replace late response", closed_partial_id_replay_cannot_complete_a_new_claim_after_restart},
+        {"later snapshots and dispatch reject corrupt facts byte counters and reserved tails", corrupt_link_fact_and_reserved_tail_reject_after_a_successful_snapshot},
+        {"exact metadata and original event tail boundaries keep admission atomic", exact_metadata_and_original_tail_boundaries_keep_reservation_atomic}
     });
 }
