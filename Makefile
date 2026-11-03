@@ -180,6 +180,7 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_
 	$(PYTHON) tests/test_live_workflow_cli.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/test_billing_baseline_e2e.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/runtime_resources_cli_tests.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
+	$(PYTHON) tests/store_open_compatibility_tests.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/review_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 
 # The default sanitizer gate is UBSan; ASan is independently available so a

@@ -376,6 +376,10 @@
     {
       "name": "persistent_event_runtime",
       "timeout": 180
+    },
+    {
+      "name": "store_open_compatibility",
+      "timeout": 120
     }
   ]
 }

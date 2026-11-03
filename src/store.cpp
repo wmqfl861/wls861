@@ -373,6 +373,45 @@ Row reconciliation_command(const StoreActor& root, const std::string& id, std::i
     (void)canonical_json(command); // Validate UTF-8 before taking over a writer.
     return command;
 }
+// Refusal only. Opening even a read-only SQLite WAL connection may create
+// sidecars before PRAGMA user_version can reject a future schema. A complete
+// main-file header can reject an explicitly newer format without that open.
+// It never authorizes a supported version: pending WAL may contain a newer
+// user_version, and the original SQLite/metadata guards below remain required.
+void reject_future_database_header(const std::string& path) {
+    const int descriptor = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (descriptor < 0) {
+        require(errno == ENOENT, ErrorCode::Storage, "cannot read SQLite header safely");
+        return; // The original open/create and scoped existence rules decide.
+    }
+    try {
+        struct stat info{};
+        require(::fstat(descriptor, &info) == 0 && S_ISREG(info.st_mode),
+                ErrorCode::Storage, "SQLite header must come from a regular file");
+        std::array<unsigned char, 100> header{};
+        std::size_t filled = 0;
+        while (filled < header.size()) {
+            const auto count = ::pread(descriptor, header.data() + filled,
+                                       header.size() - filled, static_cast<off_t>(filled));
+            if (count < 0 && errno == EINTR) continue;
+            require(count >= 0, ErrorCode::Storage, "cannot read SQLite header");
+            if (count == 0) break;
+            filled += static_cast<std::size_t>(count);
+        }
+        if (filled == header.size() && std::memcmp(header.data(), "SQLite format 3\0", 16) == 0) {
+            std::uint32_t version = 0;
+            for (std::size_t i = 60; i != 64; ++i)
+                version = (version << 8U) | static_cast<std::uint32_t>(header[i]);
+            require(version <= 411, ErrorCode::Unsupported,
+                    "unknown database version; explicit migration required");
+        }
+    } catch (...) {
+        ::close(descriptor);
+        throw;
+    }
+    ::close(descriptor);
+}
+
 class Statement {
 public:
     Statement(sqlite3* db, std::string_view sql, const Array& parameters = {}) : db_(db) {
@@ -466,6 +505,7 @@ public:
         text_field(path, "database path", 4096);
         database_file_path = path;
         try {
+            reject_future_database_header(path);
             if (mode == StoreOpenMode::Takeover) {
                 const auto lock_path = path + ".writer-lock";
                 lease_fd = ::open(lock_path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);

@@ -117,8 +117,10 @@ Unsupported operations must keep failing before effects. Its five native suites
 are separate from the Linux product CTest catalog.
 
 Use the existing shared GCC gate and its reviewed test-name/deadline catalog.
-This branch registers 94 suites: the original 92 (89 plus the async suite and
-two offline acceptance suites), plus the Store 411 and persistent-event runtime suites.
+This branch registers 95 suites: the original 92 (89 plus the async suite and
+two offline acceptance suites), plus the Store 411, persistent-event runtime and
+independent Store-open compatibility suites. The compatibility suite has a new
+120-second deadline; the preceding 94 names and deadlines remain unchanged.
 Subcases remain distinct from registrations. Never accept a new current count without
 reviewing names and deadlines. Update catalog, default, CI and selfchecks together.
 Runner selfchecks and diagnostic probes are not product sanitizer results. Keep
