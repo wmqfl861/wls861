@@ -1,0 +1,470 @@
+{
+ "schema_version": 1,
+ "classification": "PUBLIC_SAFE_EVIDENCE_INDEX_PRIVATE_RAW_FILES_NOT_PUBLISHED",
+ "report": "docs/reports/n5-windows-evidence-continuation-20261104-v2.md",
+ "supersedes_unpublished_same_day_draft": true,
+ "baseline_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+ "baseline_pr": {
+  "number": 32,
+  "state": "open",
+  "draft": true,
+  "base": "f15bf1a944a1ea5f6b9e5e9696b921caa48f04cc (PR #31)"
+ },
+ "verification_session": {
+  "remote_requests": 0,
+  "ci_reruns": 0,
+  "archived_code_executed": false,
+  "product_builds": 0,
+  "archives_rehashed_this_round": 8,
+  "run_job_record_files_read_this_round": 22,
+  "linux_validation_files_read_this_round": 3,
+  "prior_311_inventory_rehashed_this_round": false
+ },
+ "run_rows": [
+  {
+   "row": 1,
+   "group": "historical",
+   "run_id": 41416271880,
+   "job_id": 125180768812,
+   "attempt": 1,
+   "workflow_job_key": "native-foundation",
+   "artifact_sha256": "a96da3042486772950409c637163e0f09927d51a2dad7c9bc0408a4238fded4b",
+   "lasttest_sha256": "61cae96f6d93e7db4fcdc93f198ce05576a4b76c98ea8fe9a548bb494c3abaf0",
+   "registry_sha256": "f523b8fe29b8b21808e339bb94b27f34187f238abe91d7a6ebd6ea98c1d05169",
+   "suite_count": 4,
+   "method_count": 27,
+   "per_suite": {
+    "native_modules": 3,
+    "native_platform": 4,
+    "native_cli": 14,
+    "native_bundle_capture": 6
+   },
+   "native_readonly_present": false,
+   "all_methods_passed": true
+  },
+  {
+   "row": 2,
+   "group": "historical",
+   "run_id": 41416279414,
+   "job_id": 125180794615,
+   "attempt": 1,
+   "workflow_job_key": "native-foundation",
+   "artifact_sha256": "c098fafc1daf30492d43033473b3afd2bc44becdb30ff0fcf33b0cd0809822d1",
+   "lasttest_sha256": "4e7bd70ae6668b6e7f4ec0a750aa959657df0cf62427aea45f8953515ad28709",
+   "registry_sha256": "1f726a917c3462a21339f3e1e6dc017eca07f1538292eca70c572056ce0b305f",
+   "suite_count": 4,
+   "method_count": 27,
+   "per_suite": {
+    "native_modules": 3,
+    "native_platform": 4,
+    "native_cli": 14,
+    "native_bundle_capture": 6
+   },
+   "native_readonly_present": false,
+   "all_methods_passed": true
+  },
+  {
+   "row": 3,
+   "group": "module",
+   "run_id": 41591301054,
+   "job_id": 125768414375,
+   "attempt": 1,
+   "workflow_job_key": "native-foundation",
+   "artifact_sha256": "1fe44999f1ac8aa21650edd5a82080bbb6ac4b59d2a57c5f65b9a3e2147234a8",
+   "lasttest_sha256": "602d427901f4ecfedeeaf6deb1a4e02397029686edf25348ebadcea9846430d2",
+   "registry_sha256": "cb18d79744efe2db906324ac9a25e75084eb23d3dce9b7bcbcfe3e74b2c1760a",
+   "suite_count": 5,
+   "method_count": 34,
+   "per_suite": {
+    "native_modules": 3,
+    "native_platform": 4,
+    "native_readonly": 7,
+    "native_cli": 14,
+    "native_bundle_capture": 6
+   },
+   "native_readonly_present": true,
+   "all_methods_passed": true
+  },
+  {
+   "row": 4,
+   "group": "module",
+   "run_id": 41591416087,
+   "job_id": 125768769642,
+   "attempt": 1,
+   "workflow_job_key": "native-foundation",
+   "artifact_sha256": "6bf81f0bf6b1c7a18193c3130695fad280f8f0076f3ed557fc97f42bf76bc364",
+   "lasttest_sha256": "97e33a1fb36a0d6c0208a37a809a3327061a5b4fac1cb845b836256d317342f1",
+   "registry_sha256": "ac1b7ab6cd802fa6bdecdff925246e5c520291d8db76e8bf0bc9399df509ab8e",
+   "suite_count": 5,
+   "method_count": 34,
+   "per_suite": {
+    "native_modules": 3,
+    "native_platform": 4,
+    "native_readonly": 7,
+    "native_cli": 14,
+    "native_bundle_capture": 6
+   },
+   "native_readonly_present": true,
+   "all_methods_passed": true
+  },
+  {
+   "row": 5,
+   "group": "integrated",
+   "run_id": 41593459570,
+   "job_id": 125775278062,
+   "attempt": 1,
+   "workflow_job_key": "native-foundation",
+   "artifact_sha256": "1aaa68fba9927b3f44c0db02b5fff51b8e815a639b44c52674e4904d62d38db6",
+   "lasttest_sha256": "28352f775f0c9bbd79d1d45a7f2256543ba28d367cce3a53e983cb6c1348b346",
+   "registry_sha256": "96d98bf58d2872b74944c080f352b23d3719fc72adc37f8399437e4a3dab297b",
+   "suite_count": 5,
+   "method_count": 34,
+   "per_suite": {
+    "native_modules": 3,
+    "native_platform": 4,
+    "native_readonly": 7,
+    "native_cli": 14,
+    "native_bundle_capture": 6
+   },
+   "native_readonly_present": true,
+   "all_methods_passed": true
+  },
+  {
+   "row": 6,
+   "group": "integrated",
+   "run_id": 41593557500,
+   "job_id": 125775579900,
+   "attempt": 1,
+   "workflow_job_key": "native-foundation",
+   "artifact_sha256": "3f1dff0164046aed314815c18f7c5b6a605f47a64acaf7825f6686238fa3c8e7",
+   "lasttest_sha256": "0aa1972a747a98d06261247152fb61370841385ae87648da5ca3a86c7d72a358",
+   "registry_sha256": "4a1b5b600b2c160a6c777aabb42e914a43d232af0e3d29e1fac3ae803c51592b",
+   "suite_count": 5,
+   "method_count": 34,
+   "per_suite": {
+    "native_modules": 3,
+    "native_platform": 4,
+    "native_readonly": 7,
+    "native_cli": 14,
+    "native_bundle_capture": 6
+   },
+   "native_readonly_present": true,
+   "all_methods_passed": true
+  },
+  {
+   "row": 7,
+   "group": "pr32",
+   "run_id": 41598903763,
+   "job_id": 125792707157,
+   "attempt": 1,
+   "workflow_job_key": "native-foundation",
+   "artifact_sha256": "0135c9c5cdd5536940eb4b693ce7a6911cb7152fb50d0756ba907e389d97c3e0",
+   "lasttest_sha256": "a4ca05218dbe39f41d705bf1ecd43981aa37390fffb975f16cb48486655e7041",
+   "registry_sha256": "80985563acb67e7fe69a98c5360c4439c00902268a208eab921ea0c3d49d76b8",
+   "suite_count": 5,
+   "method_count": 34,
+   "per_suite": {
+    "native_modules": 3,
+    "native_platform": 4,
+    "native_readonly": 7,
+    "native_cli": 14,
+    "native_bundle_capture": 6
+   },
+   "native_readonly_present": true,
+   "all_methods_passed": true
+  },
+  {
+   "row": 8,
+   "group": "pr32",
+   "run_id": 41599060437,
+   "job_id": 125793198983,
+   "attempt": 1,
+   "workflow_job_key": "native-foundation",
+   "artifact_sha256": "93f671f9feb5b8f11cba831db4912b74e186df680be9928313b0c6ae38e7fe25",
+   "lasttest_sha256": "c8349f289a9ff88fc7f6bc754646688886afde12eec3cf73fa928799ecf4f6cf",
+   "registry_sha256": "6370e725255c9f8a5377d1d82085d22a7bdcb5c3c522319f3919c3dbf387b6c0",
+   "suite_count": 5,
+   "method_count": 34,
+   "per_suite": {
+    "native_modules": 3,
+    "native_platform": 4,
+    "native_readonly": 7,
+    "native_cli": 14,
+    "native_bundle_capture": 6
+   },
+   "native_readonly_present": true,
+   "all_methods_passed": true
+  }
+ ],
+ "image_source_conclusion": {
+  "header_version_all_rows": "20261025.346.1 (re-read from each saved job log this round)",
+  "process_environment_all_rows": "ImageOS=win22, ImageVersion=20261026.347.1",
+  "registry_rows_3_to_8": "ImageOS=win22, ImageVersion=20261026.347.1 (saved query-only capture)",
+  "registry_rows_1_to_2": "NOT_COLLECTED",
+  "process_equals_registry": "CONSISTENT_OBSERVATIONS_NOT_HOST_ATTESTATION",
+  "preferred_source": null,
+  "causal_root": "NOT_ESTABLISHED",
+  "exact_runner_image_identity": "UNRESOLVED"
+ },
+ "method_completeness": {
+  "counting_rule": "C++ PASS lines + Python unittest ok lines recomputed from raw LastTest; equal to the in-archive registry on all rows; five green suites never substituted for method output",
+  "current_group_rows_3_to_8": {
+   "suite_count": 5,
+   "method_count": 34,
+   "breakdown": {
+    "native_modules": 3,
+    "native_platform": 4,
+    "native_readonly": 7,
+    "native_cli": 14,
+    "native_bundle_capture": 6
+   }
+  },
+  "historical_group_rows_1_to_2": {
+   "suite_count": 4,
+   "method_count": 27,
+   "breakdown": {
+    "native_modules": 3,
+    "native_platform": 4,
+    "native_cli": 14,
+    "native_bundle_capture": 6
+   },
+   "native_readonly": "suite did not exist at that input"
+  },
+  "native_readonly_methods_verbatim": [
+   "missing explicit policy refuses before root open",
+   "duplicate or unsupported policy entries reject",
+   "historical compiled public capture stays compatible",
+   "native complete owner and DACL allow deny policy",
+   "native unknown ACE and inheritance boundaries",
+   "native same handle identity ACL and replacement barrier",
+   "native thread impersonation refuses before root open"
+  ],
+  "suite_catalog_deadlines_seconds": {
+   "native_modules": 30,
+   "native_platform": 30,
+   "native_readonly": 30,
+   "native_cli": 60,
+   "native_bundle_capture": 30
+  },
+  "linux_native_30_methods_different_input_not_cross_filled": true,
+  "all_rows_terminal_state": "completed PASS; failure/timeout/interrupted retention not claimed"
+ },
+ "readonly_coverage": {
+  "rows_total": 17,
+  "counts": {
+   "PORTABLE_EXECUTED": 3,
+   "WINDOWS_SERVER_COMPONENT_EXECUTED": 11,
+   "SOURCE_ONLY": 2,
+   "WINDOWS11_NOT_RUN": 1
+  },
+  "ids_by_classification": {
+   "PORTABLE_EXECUTED": [
+    "C1",
+    "C2",
+    "C3"
+   ],
+   "WINDOWS_SERVER_COMPONENT_EXECUTED": [
+    "C4",
+    "C5",
+    "C7",
+    "C8",
+    "C9",
+    "C10",
+    "C11",
+    "C12",
+    "C13",
+    "C14",
+    "C15"
+   ],
+   "SOURCE_ONLY": [
+    "C6",
+    "C16"
+   ],
+   "WINDOWS11_NOT_RUN": [
+    "C17"
+   ]
+  },
+  "row_classifications": [
+   {
+    "id": "C1",
+    "classification": "PORTABLE_EXECUTED",
+    "executed_claim_scope": "missing/duplicate/old-build policy entries refused before path access"
+   },
+   {
+    "id": "C2",
+    "classification": "PORTABLE_EXECUTED",
+    "executed_claim_scope": "Builtin Administrators SID refused as only/additional trusted owner-writer before path access"
+   },
+   {
+    "id": "C3",
+    "classification": "PORTABLE_EXECUTED",
+    "executed_claim_scope": "Store 411 public bundle identity verified; non-Windows refusal without fallback executed on Linux"
+   },
+   {
+    "id": "C4",
+    "classification": "WINDOWS_SERVER_COMPONENT_EXECUTED",
+    "executed_claim_scope": "canonical SID conversion executed; S-1-1-0 broad-trust entry refused on the inspect path"
+   },
+   {
+    "id": "C5",
+    "classification": "WINDOWS_SERVER_COMPONENT_EXECUTED",
+    "executed_claim_scope": "thread impersonation refused before root open (caller-token protection)"
+   },
+   {
+    "id": "C6",
+    "classification": "SOURCE_ONLY",
+    "executed_claim_scope": "none executed; code present, requires an ordinary non-elevated token"
+   },
+   {
+    "id": "C7",
+    "classification": "WINDOWS_SERVER_COMPONENT_EXECUTED",
+    "executed_claim_scope": "complete owner+DACL acceptance with descriptor hash"
+   },
+   {
+    "id": "C8",
+    "classification": "WINDOWS_SERVER_COMPONENT_EXECUTED",
+    "executed_claim_scope": "admin owner/writer and dangerous allow ACEs refused; deny never erases an unsafe allow; null and empty DACL refused"
+   },
+   {
+    "id": "C9",
+    "classification": "WINDOWS_SERVER_COMPONENT_EXECUTED",
+    "executed_claim_scope": "read-only and deny-only controls stay interpretable, owner retained"
+   },
+   {
+    "id": "C10",
+    "classification": "WINDOWS_SERVER_COMPONENT_EXECUTED",
+    "executed_claim_scope": "object ACE refused (type pre-verified); owner-rights refused; inherited/inherit-only accepted"
+   },
+   {
+    "id": "C11",
+    "classification": "WINDOWS_SERVER_COMPONENT_EXECUTED",
+    "executed_claim_scope": "FILE_ID_128/volume identity equality; invalid handle Unsupported"
+   },
+   {
+    "id": "C12",
+    "classification": "WINDOWS_SERVER_COMPONENT_EXECUTED",
+    "executed_claim_scope": "same-handle owner/DACL observation; non-inheritable handle required"
+   },
+   {
+    "id": "C13",
+    "classification": "WINDOWS_SERVER_COMPONENT_EXECUTED",
+    "executed_claim_scope": "file-level concurrent-rename replacement barrier executed"
+   },
+   {
+    "id": "C14",
+    "classification": "WINDOWS_SERVER_COMPONENT_EXECUTED",
+    "executed_claim_scope": "junction, hard-link, directory-for-asset, same-size tamper, oversized, self-reported manifest, no cwd/env fallback, relocation/unicode refusals executed"
+   },
+   {
+    "id": "C15",
+    "classification": "WINDOWS_SERVER_COMPONENT_EXECUTED",
+    "executed_claim_scope": "bounded EOF/size capture with read-back identity recheck executed on every bundle read"
+   },
+   {
+    "id": "C16",
+    "classification": "SOURCE_ONLY",
+    "executed_claim_scope": "none executed; code present, require_host restricts the chain to Windows 11 workstation builds"
+   },
+   {
+    "id": "C17",
+    "classification": "WINDOWS11_NOT_RUN",
+    "executed_claim_scope": "not run this round; no Windows 11 ordinary-user machine"
+   }
+  ],
+  "gaps_row_bound_not_rows": [
+   {
+    "row_id": "C1",
+    "unproven_claims": [
+     "reference >256 bytes or control characters",
+     "more than 32 builds / 32 SIDs",
+     "non-'S-1-' prefix, >184-byte or non-canonical-character SID spellings (code branches without an executed subcase)"
+    ]
+   },
+   {
+    "row_id": "C4",
+    "unproven_claims": [
+     "remaining broad/dynamic SID spellings of readonly_windows.cpp:57-64 (S-1-0-0, S-1-2-0, S-1-2-1, S-1-3-*, S-1-5-2/4/7/11/15, S-1-5-32-545 Users, S-1-5-32-546 Guests, S-1-15-2-* AppContainer) have no executed negative subcase",
+     "invalid or non-canonical SID input refusal (:51-55) not directly fed"
+    ]
+   },
+   {
+    "row_id": "C6",
+    "unproven_claims": [
+     "full ordinary-token profile (primary non-elevated token, elevation type, admin-group membership, explicit user-SID trust, medium integrity) has no executed subcase on any available machine"
+    ]
+   },
+   {
+    "row_id": "C8",
+    "unproven_claims": [
+     "malformed SDDL input strings have no executed subcase",
+     "DACL-absent (present=FALSE) descriptor not directly fed (null and empty DACL are the executed variants)",
+     "remaining dangerous-mask spellings (FILE_APPEND_DATA, FILE_WRITE_EA, FILE_WRITE_ATTRIBUTES, FILE_DELETE_CHILD, DELETE, WRITE_DAC, WRITE_OWNER individually) not individually fed"
+    ]
+   },
+   {
+    "row_id": "C10",
+    "unproven_claims": [
+     "conditional ACE string has no executed subcase",
+     "IO/NP without OI/CI refusal branch (:118-120) not directly fed",
+     "generic-mask mapping bound (:122-125) not directly fed"
+    ]
+   },
+   {
+    "row_id": "C13",
+    "unproven_claims": [
+     "ancestor-directory replacement race negative not executed (only file-level replacement is executed)"
+    ]
+   },
+   {
+    "row_id": "C16",
+    "unproven_claims": [
+     "volume-root GUID/SUBST alias refusal",
+     "per-ancestor pinned observation chain",
+     "NTFS persistent-ACL and case-sensitivity refusal",
+     "short-name/case-alias leaf check",
+     "token LUID re-binding including a mid-capture token change negative",
+     "policy-bound observed EOF/size/hash chain",
+     "default NTFS Administrators ancestor grants can refuse a complete root capture under current policy (retained deployment limitation; no host ACL/trusted_sids/assertion weakened)"
+    ]
+   },
+   {
+    "row_id": "C17",
+    "unproven_claims": [
+     "whole-component acceptance on Windows 11 x64 ordinary non-elevated NTFS; frozen future inputs remain build/MSVC/SDK/NTFS/ordinary-token/SID policy"
+    ]
+   }
+  ],
+  "distinct_admin_protections": "shared preflight S-1-5-32-544 owner/writer trust rejection (C2, portable, executed) separate from ordinary_token elevated-caller rejection (C5 entry executed; C6 full profile source-only pending ordinary token)",
+  "deployment_limitation_retained": "default NTFS Administrators ancestor grants can refuse complete root capture; no host ACL/trusted_sids/assertion weakened"
+ },
+ "corrections_over_prior_draft": [
+  "coverage summary counts corrected from 3/10/3/1 to the row-derived 3/11/2/1; the gap item is no longer counted as a third SOURCE_ONLY row",
+  "method completeness split into separate historical (27 = 3+4+14+6) and current (34 = 3+4+7+14+6) groups; native_readonly=7 in the current group",
+  "all seven native_readonly method names listed verbatim and verified equal across the current test registration and all six current-group registries",
+  "portable rows (C1-C3) no longer cite the two historical runs that have no native_readonly suite",
+  "composite rows (C4, C8, C10 and C1 bounds) narrowed to executed subcases; the wider code-level claims moved to row-bound gaps",
+  "prior draft's local-process metadata and future-dated timestamps not carried into this public version"
+ ],
+ "defect_assessment": {
+  "code_change_required": false,
+  "deterministic_red": "NOT_APPLICABLE",
+  "tool_selfchecks_rerun": false,
+  "record_integrity_errors_in_prior_draft_corrected": true
+ },
+ "states": {
+  "IMPLEMENTATION_COMPLETE": "true (limited evidence-continuation scope)",
+  "LOCAL_VALIDATION_COMPLETE": "false",
+  "PUSH_COMPLETE": "false at report freeze",
+  "REMOTE_CI_COMPLETE": "true for frozen head 3a872558 per saved PR #32 rollup receipts (captured 2026-11-03); not inherited by new files",
+  "PR_REVIEW_COMPLETE": "false",
+  "MERGED": "false"
+ },
+ "retained_open": [
+  "image source conflict UNRESOLVED",
+  "Windows 11 ordinary-user acceptance NOT_RUN",
+  "restricted private original hosting BLOCKED",
+  "historical local sanitizer and compatibility items owned by other directions"
+ ],
+ "no_private_paths_no_raw_logs_no_credentials_in_this_index": true,
+ "recorded_at_utc": "2026-11-04T16:32:36.608849+00:00"
+}
