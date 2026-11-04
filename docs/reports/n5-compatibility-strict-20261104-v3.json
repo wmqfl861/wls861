@@ -1,0 +1,183 @@
+{
+  "schema": "n5-compatibility-strict-20261104-v3.public-projection",
+  "generated_at": "2026-11-04T22:20:58.670936+00:00",
+  "note": "Self-contained public projection of the frozen N5 strict-compatibility evidence task; pairs with docs/reports/n5-compatibility-strict-20261104-v3.md and does not depend on any unpublished file. Full private evidence (fixtures, frozen copies, raw traces, holder journals, correction-harness records, derived adjudication) is retained outside the repository on the project data disk. Earlier draft projections of the same results remain local-only, byte-unmodified, and excluded from the published set.",
+  "headline": {
+    "overall_strict_compatibility": "BLOCKED_NOT_COMPLETE",
+    "c4_controlled_kill_capability": "NOT_ESTABLISHED",
+    "c4_execution_from_correction_on": "NOT_RUN_BY_DESIGN",
+    "original_statement_aggregate_assertions": "CORRECTED_TO_ROW_LEVEL_OBSERVATION_SCOPE",
+    "this_round_execution": "static checks only; zero product, compile and harness runs"
+  },
+  "baseline_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+  "branch": "test/n5-compatibility-20261104-_7wxnkyn",
+  "identity": {
+    "old_elf": {
+      "sha256": "b048a449ecdc22cd53ccf2813804bd36c720a26870732f03ebe9c066ed5d407e",
+      "bytes": 4733672,
+      "verification_this_round": "fresh_read_only_rehash_match",
+      "executed_this_round": false
+    },
+    "current_binary": {
+      "sha256": "fab236410c7e39cef14e5f18733aefe85b291a72cb5b30fc74726425d5bd9673",
+      "bytes": 5117440,
+      "build": "cmake target wls at baseline HEAD, out-of-tree",
+      "verification_this_round": "fresh_read_only_rehash_match",
+      "executed_this_round": false
+    },
+    "sqlite": {
+      "runtime_version": "3.45.1",
+      "library": "libsqlite3.so.0.8.6",
+      "library_sha256": "85265a9d4afca6f4b325ceb078b669c754fb881abed4cafe91ccebe9d625d975",
+      "verification_this_round": "recorded_identity_comparison_not_fresh_rehash"
+    },
+    "python_version": "3.12.3",
+    "mount_regime": "ext4 rw,relatime (recorded per observation)",
+    "execution_uid": 1000,
+    "umask": "0077"
+  },
+  "runner_identities": {
+    "executed_matrix_runner_sha256": "e83beb5593b83d47956da4b6623253343474de61573589b45b1c1eaa1f29a1e7",
+    "first_delivery_runner_sha256": "fa090d81eb5843e132dfa2c106c122541c194c7a932d6a1eb0e9878a1add2de7",
+    "corrected_mock_verified_runner_sha256": "3ca64e26d8816961e77907e6585ac4b90f31c351151f276ab68ba6c01ac330fc",
+    "this_delivery_runner_sha256": "fd8b70ea710919a6ca8afa3c7ebd04afe9fdb34df8748f7abd00b26d31b24895",
+    "this_delivery_change": "two docstring report references updated (module docstring and row_c4 docstring); all executable code byte-identical to the corrected runner, verified by docstring-stripped AST equality and verbatim diff",
+    "observer_sha256_unchanged": "50d8efa0c595c63c759f45318dbfd668537b5edc2e31f823c09b5e74bb0d47f6",
+    "selfcheck_sha256_unchanged": "38fa9422d164a010ce21e3c40e287db6fff800d5530fe1861404ca01563f9999",
+    "note": "the historical matrix was executed by the executed-matrix runner; the old matrix must not be represented as a run of any later runner"
+  },
+  "rows": {
+    "c0": {"recorded_status": "PASS", "limited_result": "two-snapshot windows stable; originals byte- and metadata-identical before/after; frozen-copy readback equal; all-table logical dumps equal; observer non-perturbing"},
+    "c1a": {"recorded_status": "STRICT_FAIL", "limited_result": "correct unsupported refusal (exit 2); original main content equal, main atime changed by the old program's own read; member set changed: new empty -wal (0 bytes) and new 32768-byte -shm added; business rows identical"},
+    "c1b": {"recorded_status": "STRICT_FAIL", "limited_result": "correct unsupported refusal; no net sidecar difference across the sampled before/after windows (transient actions between samples not directly observed by this row); main atime+ctime and writer-lock ctime changed (same-mode fchmod ctime pattern observed on this machine and mount regime during these runs); business rows identical"},
+    "c2a": {"recorded_status": "STRICT_FAIL", "limited_result": "correct unsupported refusal; main/WAL/SHM content equal on all pre-existing members; only WAL/SHM atime changed (old program read them); no member-set change; business rows identical"},
+    "c2b": {"recorded_status": "STRICT_FAIL", "limited_result": "state 2 constructed by the real approved 013 migration under a live keeper (wls init exit 0; main SHA and user_version 410 unchanged; WAL 234872 bytes; frozen copy reads 411; migration connection not the last to close; no explicit checkpoint); correct unsupported refusal from the WAL-visible version; all member contents equal; atime deltas only; business rows identical"},
+    "c3a": {"recorded_status": "STRICT_FAIL", "limited_result": "correct conflict (exit 3) before any user_version execution - an independent refusal condition, not a version refusal; main/WAL/SHM content and metadata equal; only writer-lock ctime changed (lock-file fchmod pattern observed); business rows identical"},
+    "c3b": {"recorded_status": "STRICT_FAIL", "limited_result": "correct unsupported refusal; all member contents equal; metadata deltas observed in this window (main atime+ctime, WAL/SHM atime, writer-lock ctime); sidecars retained (holder connection prevented the close-time unlink); business rows identical"},
+    "c4receipt": {"recorded_status": "PASS", "scope": "normal-comparison receipt only: uninterrupted traced vs untraced refusal classification equivalence plus SHM-text visibility; verifies no kill rendezvous, identifies no tracee, must never gate controlled-kill execution; normal equivalence does not imply non-perturbation under interruption", "historical_row_record_sha256": "c8a027f6be3df533650f2cbc205607102a096fbf91b3689b0acf9da730321bdf"},
+    "c4": {
+      "recorded_status": "RECORDED (historical row bytes retained)",
+      "corrected_adjudication": "the stop/confirm/kill/reap chain acted only on the strace tracer (argv[0]=strace, tracer pid 830993, exit -9); tracee identity, syscall-stop position, exit and reap UNKNOWN / NOT_ESTABLISHED; the 34419 ns value (1766747342156736-1766747342122317) is the host's interval between receiving trace text containing the SHM path and signalling the tracer; sidecar retention equally explained by the live holder connection; the captured Unsupported text proves only that the refusal text was seen",
+      "capability": "c4_product_crash_coverage=NOT_ESTABLISHED; qualified controlled abnormal-exit rows=0",
+      "from_correction_on": "row_c4 returns a structured NOT_RUN before any fixture/holder/product/signal/observer effect and reads no receipt; _trace_old rejects its kill mode before any effect; C4 stays explicitly NOT_RUN in this delivery",
+      "historical_row_record_sha256": "46c958f8267e1a6359766167e975c515ace0e5745b877c7942f28e1732e15eab",
+      "historical_trace_sha256": "58b7859b3601df112ff1702b2f803b9d3eeb1907180bfa04b18388da099ed3e4"
+    },
+    "c5": {
+      "recorded_status": "RECORDED_OK (historical row bytes retained)",
+      "supported": "old-program process-lifetime overlap: one authorized holder commit (compat_controlled_facts 1->2) committed while the direct old-ELF child (pid 831032, no tracer) was SIGSTOP-confirmed, before SIGCONT and its exit 2/unsupported",
+      "not_established": ["which SQLite/DB-access stage the stopped process had reached", "simultaneous SQLite access by both sides", "any raw trace for this row"],
+      "retained_facts": "original business rows unchanged; WAL/SHM content changes correspond to the authorized commit (WAL 20632->24752 bytes, SHM sha changed) with raw_equality_claimed=false; main raw-equal",
+      "historical_row_record_sha256": "9bdb03dfbda65a9320fec054defa6429cf68b33dc61df7df4b5ab8ddb1def0ec"
+    },
+    "c7a": {"recorded_status": "SUPPORT_CONTROL_PASS", "limited_result": "old410 pending on its own populated legal 410 (2 requests, 33 non-empty tables): exit 0, business rows identical - binary, source root and fixtures proven usable, so the refusal rows are not resource failures"},
+    "c7b": {"recorded_status": "SUPPORT_CONTROL_PASS", "limited_result": "current build pending on populated 411 (34 non-empty tables): exit 0, business rows identical"},
+    "c6": {
+      "recorded_status": "SUITE_PASS (derived verdict)",
+      "detail": "single execution, exit 0, Ran 9 tests OK, all nine methods ok; the original verdict record mis-parsed (stdout-only; unittest reports on stderr) and recorded method_count 0; original record retained unchanged; corrected verdict is a new derived record from the same captured stderr bytes (stderr sha256 54afa6ea4d203f5c6ddcb6afa097a74116c150a25afa9933208e6de52cc2382b; derived record sha256 0fd2a15e58eab715ea516d1997545a797b080cf33cc937531829ad7b5a528f21); suite not re-run; derived correction, not an in-place edit"
+    }
+  },
+  "corrected_assertions": [
+    {"source": "earlier unpublished results statement, C4 row", "quote": "SIGSTOP 34 µs after the traced `-shm` open", "correction": "the 34419 ns value is the host's gap between receiving trace text containing the SHM path and sending SIGSTOP to the strace tracer; not a tracee syscall-stop position and not a rendezvous proof"},
+    {"source": "earlier unpublished results statement, C4 row", "quote": "stopped state confirmed, SIGKILL, exit −9, reaped", "correction": "the stopped/confirmed/killed/reaped process was the strace tracer (pid 830993, exit -9); tracee identity, exit and reap UNKNOWN / NOT_ESTABLISHED"},
+    {"source": "earlier unpublished results statement, C4 row", "quote": "WAL/SHM retained (killed before cleanup unlink)", "correction": "sidecar retention is equally explained by the online holder keeping its connection open for the whole row; kill-before-cleanup-unlink is NOT_ESTABLISHED"},
+    {"source": "earlier unpublished results statement, C4 row", "quote": "process kill never classified as unsupported", "correction": "the same row records the complete Unsupported JSON with error_classification=unsupported; the sentence contradicts the row; the capture proves only that the refusal text was seen"},
+    {"source": "earlier unpublished results statement, aggregate determination", "quote": "preserved all business rows and all main/WAL/SHM content bytes", "correction": "per-row on pre-existing members only: C1a added a new empty WAL and 32768-byte SHM; C5's WAL/SHM content changed (authorized commit, WAL 20632->24752, SHM sha changed, raw_equality_claimed=false); C2a/C2b/C3a/C3b and the historical C4 attempt content-equal on pre-existing members"},
+    {"source": "earlier unpublished results statement, aggregate determination and rationale", "quote": "the frozen old ELF always leaves metadata deltas / unavoidable metadata deltas", "correction": "deltas were observed on this machine (ext4 rw,relatime), these fixture initial states and sampled windows; C5's main had no metadata delta; sampled boundaries do not exclude unsampled instants; always/unavoidable is not established"},
+    {"source": "earlier unpublished results statement, limitations", "quote": "the raw traces bound the C4/C5 windows", "correction": "C5 has no raw trace (row timestamps bound its window); C4's trace is tracer-side output ending at the SHM open and bounds nothing about the tracee"}
+  ],
+  "verification": {
+    "observer_selfcheck": {
+      "cases": 22,
+      "first_run": "17/22 (real observer defect: member-path realpath followed a symlink member defeating O_NOFOLLOW, plus two case-ordering bugs; retained)",
+      "second_run": "22/22 PASS (retained)"
+    },
+    "historical_matrix": {
+      "attempts": 12,
+      "attempt_rows": ["c0", "c1a", "c1b", "c2a", "c2b", "c3a", "c3b", "c4receipt", "c4", "c5", "c7a", "c7b"],
+      "retried_to_green": false,
+      "c4_qualified_controlled_abnormal_exit_rows": 0
+    },
+    "nine_method_suite": {
+      "runs": 1,
+      "methods": 9,
+      "result": "exit 0, all nine methods ok; verdict correction derived from the same captured bytes; suite not re-run"
+    },
+    "correction_round_tool_verification": {
+      "product_matrix_runs": 0,
+      "product_compiles": 0,
+      "old_elf_invocations": 0,
+      "strace_or_ptrace_experiments": 0,
+      "real_sqlite_fixtures": 0,
+      "ctest_registrations_added": 0,
+      "mock_red": "12/12 against the pre-correction runner (forged in-memory PASS receipt read by old row_c4; strace-launch attempt by old kill mode; all effects intercepted before any real effect)",
+      "mock_green_first": "17/23 (core rejection assertions passed; six failures were static-check definitions: line-number block keys, string hits in docstrings)",
+      "mock_green_fixed": "23/23",
+      "data_checks": "44/44 (original hashes recomputed and preserved; derived adjudication matches row values; four transcribed-hash typos caught and corrected in derived records; failed iterations retained)",
+      "harness_provenance_limit": "intermediate harness versions retained only as embedded digests plus result records; no full intermediate source snapshots; no claim of one identical harness across stages or verbatim re-verification of intermediate versions; harness paths and digests are private and not listed here",
+      "classification": "tool-correction evidence only; not product registration, not product regression, not C4 coverage; the 35 canonical checks (red 12 + green 23) are two tool-assertion counts, not 35 independent product regressions"
+    },
+    "this_round": {
+      "product_runs": 0,
+      "compiles": 0,
+      "harness_runs": 0,
+      "old_elf_executions": 0,
+      "archived_or_product_code_executed": false,
+      "git_writes": 0,
+      "checks_performed": "static only: existence/identity/hashing of the delivery set; JSON parse; docstring-stripped AST comparison plus verbatim diff of the runner (exactly two report-reference replacements); semantic md/json cross-check; privacy screen of the published set and the intended PR title/body"
+    }
+  },
+  "denominators": {
+    "selfcheck_cases": 22,
+    "historical_matrix_attempts": 12,
+    "historical_matrix_attempt_rows": ["c0", "c1a", "c1b", "c2a", "c2b", "c3a", "c3b", "c4receipt", "c4", "c5", "c7a", "c7b"],
+    "c4_attempt_count_in_denominator": 1,
+    "nine_method_suite_runs": 1,
+    "nine_method_suite_methods": 9,
+    "correction_round_mock_checks_canonical": "red 12 + green 23 = 35 (the intermediate 17/23 run is a separate retained record)",
+    "correction_round_data_checks": 44,
+    "product_ctest_registrations_added": 0,
+    "product_ctest_catalog_total_unchanged": 95
+  },
+  "coverage": {
+    "original_matrix_coverage_complete": false,
+    "c4_product_crash_coverage": "NOT_ESTABLISHED",
+    "c4_qualified_controlled_abnormal_exit_rows": 0,
+    "c5_scope": "old-program process-lifetime overlap only",
+    "simultaneous_sqlite_access": "NOT_ESTABLISHED"
+  },
+  "registration": {
+    "IMPLEMENTATION_COMPLETE": true,
+    "IMPLEMENTATION_COMPLETE_scope": "the evidence-tool delivery (observer, selfcheck, runner with C4/kill disabled and scoped notes) and this corrected self-contained public projection only",
+    "LOCAL_VALIDATION_COMPLETE": true,
+    "LOCAL_VALIDATION_COMPLETE_scope": "historically executed evidence (selfcheck, 12 matrix attempts, nine-method suite) plus local mock and static verification of the correction and of this projection; no product regression executed or claimed this round",
+    "original_matrix_coverage_complete": false,
+    "c4_product_crash_coverage": "NOT_ESTABLISHED",
+    "overall_strict_compatibility": "BLOCKED_NOT_COMPLETE",
+    "PUSH_COMPLETE": false,
+    "REMOTE_CI_COMPLETE": false,
+    "PR_REVIEW_COMPLETE": false,
+    "MERGED": false,
+    "as_of": "2026-11-04T22:20:58.670936+00:00"
+  },
+  "end_states": {
+    "windows11_ordinary_user_ntfs": "NOT_RUN",
+    "restricted_private_hosting": "BLOCKED_LOCAL_ORIGINALS_RETAINED",
+    "historical_clang_asan_failures_closed": false,
+    "store_411_migration_013": "APPROVED_AND_IMPLEMENTED_UNCHANGED",
+    "n5_2_items_014_412": "UNAUTHORIZED_UNCHANGED"
+  },
+  "preserved_history": {
+    "earlier_projection_files": "two earlier candidate report pairs remain local-only, byte-unmodified, excluded from the published set",
+    "original_rows_traces_receipts": "unmodified historical records; identities cited in the rows above",
+    "historical_pass_rows_retained": ["c0", "c4receipt", "c7a", "c7b", "c6 (derived verdict correction)"]
+  },
+  "limitations": [
+    "phase snapshots prove sampled boundaries only; unsampled instantaneous writes are not excluded",
+    "C4: no proven old-ELF tracee identity or syscall-stop rendezvous; controlled-termination coverage NOT_ESTABLISHED; future C4 execution NOT_RUN by design",
+    "C5: no raw trace; DB-access stage at stop and simultaneous SQLite access NOT_ESTABLISHED",
+    "metadata deltas are observations on this machine (ext4 rw,relatime), these fixtures and sampled windows, not universal claims",
+    "evidence from other tasks and platform runs is not mixed into this report"
+  ],
+  "machine_projection_pair": "docs/reports/n5-compatibility-strict-20261104-v3.md"
+}
