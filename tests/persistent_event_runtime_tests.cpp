@@ -93,6 +93,63 @@ void sql(const std::filesystem::path& path, const char* statement) {
     sqlite3_close(database);
     CHECK(result == SQLITE_OK);
 }
+Json query_rows(const std::filesystem::path& path, const char* statement, const std::string& parameter) {
+    sqlite3* database{};
+    CHECK(sqlite3_open_v2(path.c_str(), &database, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+    sqlite3_stmt* query{};
+    CHECK(sqlite3_prepare_v2(database, statement, -1, &query, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_bind_text(query, 1, parameter.c_str(), -1, SQLITE_TRANSIENT) == SQLITE_OK);
+    Array rows;
+    int status = SQLITE_OK;
+    while ((status = sqlite3_step(query)) == SQLITE_ROW) {
+        Object row;
+        for (int column = 0; column < sqlite3_column_count(query); ++column) {
+            const auto type = sqlite3_column_type(query, column);
+            const auto* bytes = sqlite3_column_text(query, column);
+            row[sqlite3_column_name(query, column)] = Object{{"type", type}, {"bytes", bytes ?
+                std::string(reinterpret_cast<const char*>(bytes), static_cast<std::size_t>(sqlite3_column_bytes(query, column))) : std::string{}}};
+        }
+        rows.push_back(std::move(row));
+    }
+    CHECK(status == SQLITE_DONE);
+    sqlite3_finalize(query); sqlite3_close(database);
+    return rows;
+}
+std::int64_t count_rows(const std::filesystem::path& path, const char* statement, const std::string& parameter) {
+    sqlite3* database{};
+    CHECK(sqlite3_open_v2(path.c_str(), &database, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+    sqlite3_stmt* query{};
+    CHECK(sqlite3_prepare_v2(database, statement, -1, &query, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_bind_text(query, 1, parameter.c_str(), -1, SQLITE_TRANSIENT) == SQLITE_OK);
+    CHECK(sqlite3_step(query) == SQLITE_ROW);
+    const auto result = sqlite3_column_int64(query, 0);
+    sqlite3_finalize(query); sqlite3_close(database);
+    return result;
+}
+// Per-request durable facts used to prove the injected faults stay isolated.
+// Byte-typed rows keep NULL distinct from empty text without interpreting columns.
+Json request_facts(const std::filesystem::path& path, const std::string& id) {
+    return Object{
+        {"requests", query_rows(path, "SELECT * FROM requests WHERE request_id=?", id)},
+        {"attempts", query_rows(path, "SELECT * FROM call_attempts WHERE request_id=?", id)},
+        {"budgets", query_rows(path, "SELECT * FROM request_budgets WHERE request_id=?", id)},
+        {"events", query_rows(path, "SELECT * FROM events WHERE request_id=?", id)},
+        {"inbox", query_rows(path, "SELECT * FROM event_inbox WHERE request_id=?", id)},
+        {"event_policy", query_rows(path, "SELECT * FROM n5_event_requests WHERE request_id=?", id)}};
+}
+std::int64_t receipts_of_kind(const std::filesystem::path& path, const char* kind) {
+    return sql_number(path, ("SELECT count(*) FROM n5_event_receipts WHERE kind='" + std::string(kind) + "'").c_str());
+}
+const Json* find_receipt(const Json& link, const char* kind) {
+    for (const auto& receipt : link.at("receipts").as_array())
+        if (receipt.at("kind") == Json(kind)) return &receipt;
+    return nullptr;
+}
+bool completes_with_storage_error(std::future<Json>& future) {
+    try { (void)future.get(); }
+    catch (const Error& error) { return error.code() == ErrorCode::Storage; }
+    return false;
+}
 
 EventFakeScript script(std::int64_t worker_calls = 1) {
     auto result = event_fake_script_from_json(fixture("s13_fake_initial.json"));
@@ -704,6 +761,626 @@ void empty_selection_releases_only_unassociated_original_claim() {
     runtime.close();
 }
 
+void committed_wal_errors_preserve_async_original_outcomes() {
+    const auto arm_fault = [&](Fixture& f, const char* kind) {
+        sql(f.path, ("CREATE TRIGGER n5_test_g1_commit_outcome AFTER INSERT ON n5_event_receipts WHEN NEW.kind='" +
+            std::string(kind) + "' BEGIN SELECT n5_test_arm_commit_outcome(); END").c_str());
+    };
+    const auto usage_key = [](const std::string& dimension) {
+        return dimension == "cost" ? std::string("cost_micro_usd") : dimension + "_tokens";
+    };
+    // T1: submit itself reports failure after a durable RESERVED commit. The
+    // host may neither release the associated claim nor treat the slot as free.
+    {
+        ::test::persistent_events::CommitOutcomeFault fault;
+        Fixture f;
+        std::string id, sibling, link_id;
+        CapturedModelCall captured;
+        Json sibling_before, attempt, budget;
+        std::shared_ptr<GatedModel> model;
+        {
+            AsyncCoordinator runtime(f.open(), schemas());
+            sibling = f.admit(runtime.store());
+            sibling_before = request_facts(f.path, sibling);
+            id = f.admit(runtime.store());
+            captured = runtime.capture(id, Role::Dispatcher);
+            model = std::make_shared<GatedModel>(captured, script().default_steps);
+            arm_fault(f, "RESERVED");
+            fault.arm(f.path);
+            expect(ErrorCode::Storage, [&] { (void)runtime.submit_event(captured, model); });
+            CHECK(fault.installed() == 1 && fault.hits() == 1 && fault.committed_pages() > 0);
+            const auto snapshot = runtime.snapshot();
+            CHECK(snapshot.outstanding == 1 && snapshot.retained_results == 1 &&
+                snapshot.settlement_halted && !snapshot.accepting && snapshot.dispatches == 0);
+            CHECK(model->calls == 0);
+            const auto retained = runtime.retained_results();
+            CHECK(retained.as_array().size() == 1);
+            const auto& slot = retained.as_array().front();
+            CHECK(slot.at("response").is_null());
+            CHECK(slot.at("request").at("attempt_id") == Json(captured.request.attempt_id));
+            CHECK(!slot.at("event_claim").is_null() && slot.at("event_link_id") == Json(std::string{}));
+            // New business is refused before any new T0 claim is created.
+            const auto claims = sql_number(f.path, "SELECT count(*) FROM n5_event_claims");
+            expect(ErrorCode::NotReady, [&] { (void)runtime.capture(sibling, Role::Dispatcher); });
+            CHECK(sql_number(f.path, "SELECT count(*) FROM n5_event_claims") == claims);
+            // The durable association exists even though the API reported failure.
+            const auto links = runtime.store().request_event_links(id);
+            CHECK(links.size() == 1 && links.front().at("state") == "RESERVED");
+            link_id = text(links.front(), "link_id");
+            attempt = runtime.store().attempt(captured.request.attempt_id);
+            CHECK(attempt.at("status") == "PENDING" && attempt.at("response").is_null() &&
+                attempt.at("settlement_sha256").is_null());
+            budget = runtime.store().budget(id);
+            CHECK(sql_number(f.path, "SELECT count(*) FROM n5_event_open_items") > 0);
+            // Without a retained response both flush and close must keep failing.
+            expect(ErrorCode::Storage, [&] { runtime.flush_retained_evidence(); });
+            expect(ErrorCode::Storage, [&] { runtime.close(); });
+            CHECK(model->calls == 0);
+        }
+        CHECK(sql_number(f.path, "SELECT count(*) FROM n5_event_links") == 1);
+        CHECK(sql_number(f.path, "SELECT count(*) FROM n5_event_claims") == 1);
+        CHECK(receipts_of_kind(f.path, "RESERVED") == 1);
+        CHECK(sql_number(f.path, "SELECT count(*) FROM n5_event_receipts") == 1);
+        CHECK(sql_number(f.path, "SELECT count(*) FROM n5_event_open_items") > 0);
+        CHECK(request_facts(f.path, sibling) == sibling_before);
+        {
+            auto reopened = f.open(StoreRecoveryScope::request(id));
+            const auto recovered = reopened->attempt(captured.request.attempt_id);
+            CHECK(recovered.at("status") == "UNKNOWN" && recovered.at("response").is_null());
+            CHECK(recovered.at("unknown_input") == 1 && recovered.at("unknown_output") == 1 &&
+                recovered.at("unknown_cost") == 1);
+            CHECK(recovered.at("request_envelope") == attempt.at("request_envelope"));
+            CHECK(recovered.at("frozen_binding") == attempt.at("frozen_binding"));
+            const auto after = reopened->budget(id);
+            for (const auto* dimension : {"input", "output", "cost"})
+                CHECK(after.at("reserved_" + std::string(dimension)) == budget.at("reserved_" + std::string(dimension)));
+            CHECK(after.at("attempts") == 1);
+            const auto held = reopened->event_link_status(link_id);
+            CHECK(held.at("state") == "HOLD_UNKNOWN" && held.at("completed_ids").as_array().empty());
+            expect(ErrorCode::Stale, [&] { (void)reopened->claim_event_dispatch(captured.actor, link_id); });
+            const auto owner = reopened->claim_event_batch(reopened->host_actor(Role::Dispatcher, id));
+            CHECK(owner.at("items").as_array().empty() && owner.at("hold_reason") == "HOLD_UNRESOLVED_ORIGINAL_CALL");
+            CHECK(request_facts(f.path, sibling) == sibling_before);
+            std::cout << "G1-T1 commit_outcome=RESERVED durable_association_kept=true "
+                         "typed_release_refused=true recovered=UNKNOWN" << std::endl;
+        }
+    }
+    // T2: the dispatch commits durably while its API reports failure. Normal
+    // continuation must reach exactly one whitelisted tail: the original
+    // host_not_dispatched observation, unknown accounting, an ERROR receipt
+    // and a retained slot; evidence-only flush releases the slot with the
+    // original storage error while the durable fence stays.
+    {
+        ::test::persistent_events::CommitOutcomeFault fault;
+        Fixture f;
+        std::string id, sibling;
+        CapturedModelCall captured;
+        Json sibling_before, budget;
+        std::shared_ptr<GatedModel> model;
+        EventCallSubmission submitted;
+        {
+            AsyncCoordinator runtime(f.open(), schemas());
+            sibling = f.admit(runtime.store());
+            sibling_before = request_facts(f.path, sibling);
+            id = f.admit(runtime.store());
+            captured = runtime.capture(id, Role::Dispatcher);
+            model = std::make_shared<GatedModel>(captured, script().default_steps);
+            arm_fault(f, "DISPATCH");
+            fault.arm(f.path);
+            submitted = runtime.submit_event(captured, model);
+            CHECK(runtime.store().event_link_status(submitted.link_id).at("state") == "RESERVED");
+            budget = runtime.store().budget(id);
+            // The fault fires inside exactly one owner poll; stop right after it.
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (!fault.hits()) {
+                CHECK(std::chrono::steady_clock::now() < deadline);
+                (void)runtime.poll();
+                std::this_thread::yield();
+            }
+            CHECK(fault.installed() == 1 && fault.hits() == 1 && fault.committed_pages() > 0);
+            // T2-A: the durable dispatch exists; nothing else has progressed.
+            CHECK(receipts_of_kind(f.path, "RESERVED") == 1 && receipts_of_kind(f.path, "DISPATCH") == 1);
+            CHECK(receipts_of_kind(f.path, "SETTLEMENT") == 0 && receipts_of_kind(f.path, "ERROR") == 0 &&
+                receipts_of_kind(f.path, "CLOSE") == 0);
+            const auto pending = runtime.store().attempt(captured.request.attempt_id);
+            CHECK(pending.at("status") == "PENDING" && pending.at("response").is_null() &&
+                pending.at("settlement_sha256").is_null());
+            const auto dispatched = runtime.store().event_link_status(submitted.link_id);
+            CHECK(dispatched.at("state") == "DISPATCHED" && dispatched.at("hold_reason") == "HOLD_MISSING_RESPONSE");
+            auto snapshot = runtime.snapshot();
+            CHECK(snapshot.outstanding == 1 && snapshot.retained_results == 0 && snapshot.dispatches == 0);
+            CHECK(!snapshot.settlement_halted && snapshot.accepting);
+            CHECK(model->calls == 0 && !ready(submitted.completion));
+            CHECK(runtime.store().budget(id) == budget);
+            // T2-B: the only legal continuation reaches that whitelisted tail.
+            until(runtime, [&] { return runtime.snapshot().settlement_halted; });
+            snapshot = runtime.snapshot();
+            CHECK(snapshot.outstanding == 1 && snapshot.retained_results == 1 &&
+                snapshot.settlement_halted && !snapshot.accepting && snapshot.dispatches == 0);
+            CHECK(model->calls == 0 && !ready(submitted.completion));
+            const auto interrupted = runtime.store().attempt(captured.request.attempt_id);
+            CHECK(interrupted.at("status") == "INTERRUPTED" && interrupted.at("accepted") == 0);
+            CHECK(interrupted.at("unknown_input") == 1 && interrupted.at("unknown_output") == 1 &&
+                interrupted.at("unknown_cost") == 1);
+            CHECK(!interrupted.at("settlement_sha256").is_null());
+            CHECK(interrupted.at("request_envelope") == to_json(captured.request));
+            const auto response = interrupted.at("response");
+            CHECK(response.at("error_code") == "host_not_dispatched");
+            CHECK(response.at("call_id") == Json(captured.request.call_id) &&
+                response.at("attempt_id") == Json(captured.request.attempt_id));
+            for (const auto* field : {"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_micro_usd"})
+                CHECK(interrupted.at("usage").at(field).is_null());
+            CHECK(receipts_of_kind(f.path, "SETTLEMENT") == 1 && receipts_of_kind(f.path, "ERROR") == 1 &&
+                receipts_of_kind(f.path, "CLOSE") == 0);
+            const auto held = runtime.store().event_link_status(submitted.link_id);
+            CHECK(held.at("state") == "HOLD_UNKNOWN" && held.at("hold_reason") == "HOLD_UNKNOWN");
+            const auto* failure = find_receipt(held, "ERROR");
+            CHECK(failure != nullptr);
+            CHECK(failure->at("body").at("error_code") == "unknown_outcome");
+            CHECK(failure->at("body").at("business_applied") == false);
+            CHECK(failure->at("body").at("completed_ids").as_array().empty());
+            const auto unknown_budget = runtime.store().budget(id);
+            for (const auto* dimension : {"input", "output", "cost"}) {
+                const std::string name(dimension);
+                CHECK(unknown_budget.at("reserved_" + name) == budget.at("reserved_" + name));
+                CHECK(unknown_budget.at("spent_" + name) == budget.at("spent_" + name));
+                CHECK(number(unknown_budget, "unknown_" + name) ==
+                    number(budget, "unknown_" + name) + number(budget, "reserved_" + name));
+            }
+            CHECK(runtime.store().tasks(id).empty() && runtime.store().plan(id).is_null());
+            // The ERROR tail keeps its original host-failure feedback bound to
+            // this attempt; that is failure evidence, not model execution or
+            // business success, and no captured ID is completed by it.
+            const auto feedback = runtime.store().tool_feedback(captured.request.attempt_id);
+            CHECK(!feedback.is_null());
+            CHECK(feedback.at("result").at("runtime_error") == true);
+            CHECK(feedback.at("result").at("error_code") == "unknown_outcome");
+            CHECK(feedback.at("result").at("observation_complete") == false);
+            CHECK(feedback.at("original_binding") == held.at("binding"));
+            CHECK(sql_number(f.path, "SELECT count(*) FROM event_inbox WHERE status='DONE'") == 0);
+            CHECK(sql_number(f.path, "SELECT count(*) FROM n5_event_open_items") > 0);
+            // T2-C: with the test trigger removed, flush is evidence-only.
+            sql(f.path, "DROP TRIGGER n5_test_g1_commit_outcome");
+            runtime.flush_retained_evidence();
+            snapshot = runtime.snapshot();
+            CHECK(snapshot.outstanding == 0 && snapshot.retained_results == 0 &&
+                snapshot.settlement_halted && !snapshot.accepting);
+            CHECK(completes_with_storage_error(submitted.completion));
+            CHECK(runtime.store().attempt(captured.request.attempt_id) == interrupted);
+            CHECK(runtime.store().event_link_status(submitted.link_id) == held);
+            CHECK(runtime.store().budget(id) == unknown_budget);
+            CHECK(model->calls == 0);
+            runtime.close();
+        }
+        CHECK(request_facts(f.path, sibling) == sibling_before);
+        {
+            auto reopened = f.open(StoreRecoveryScope::request(id));
+            CHECK(reopened->event_link_status(submitted.link_id).at("state") == "HOLD_UNKNOWN");
+            expect(ErrorCode::Stale, [&] { (void)reopened->claim_event_dispatch(captured.actor, submitted.link_id); });
+            const auto owner = reopened->claim_event_batch(reopened->host_actor(Role::Dispatcher, id));
+            CHECK(owner.at("items").as_array().empty() && owner.at("hold_reason") == "HOLD_UNRESOLVED_ORIGINAL_CALL");
+            CHECK(reopened->tasks(id).empty());
+            CHECK(request_facts(f.path, sibling) == sibling_before);
+            std::cout << "G1-T2 commit_outcome=DISPATCH terminal=INTERRUPTED_HOLD_UNKNOWN "
+                         "error_receipt=unknown_outcome flush=evidence_only future=Storage" << std::endl;
+        }
+    }
+    // T3: the real observation settles durably but its API reports failure. The
+    // response and slot are retained, T4 never runs by itself, and replay stays
+    // evidence-only.
+    {
+        ::test::persistent_events::CommitOutcomeFault fault;
+        Fixture f;
+        std::string id, sibling, link_id;
+        CapturedModelCall captured;
+        Json sibling_before, budget, settled_link, settled_budget;
+        std::shared_ptr<GatedModel> model;
+        EventCallSubmission submitted;
+        {
+            AsyncCoordinator runtime(f.open(), schemas());
+            sibling = f.admit(runtime.store());
+            sibling_before = request_facts(f.path, sibling);
+            id = f.admit(runtime.store());
+            captured = runtime.capture(id, Role::Dispatcher);
+            model = std::make_shared<GatedModel>(captured, script().default_steps);
+            arm_fault(f, "SETTLEMENT");
+            fault.arm(f.path);
+            submitted = runtime.submit_event(captured, model);
+            link_id = submitted.link_id;
+            CHECK(runtime.store().event_link_status(link_id).at("state") == "RESERVED");
+            budget = runtime.store().budget(id);
+            until(runtime, [&] { return runtime.snapshot().settlement_halted; });
+            CHECK(fault.installed() == 1 && fault.hits() == 1 && fault.committed_pages() > 0);
+            CHECK(model->calls == 1);
+            auto snapshot = runtime.snapshot();
+            CHECK(snapshot.outstanding == 1 && snapshot.retained_results == 1 &&
+                snapshot.settlement_halted && !snapshot.accepting && snapshot.dispatches == 1);
+            CHECK(!ready(submitted.completion));
+            const auto attempt = runtime.store().attempt(captured.request.attempt_id);
+            CHECK(attempt.at("response") == model->original());
+            CHECK(attempt.at("status") == "COMPLETED" && attempt.at("accepted") == 1);
+            CHECK(!attempt.at("settlement_sha256").is_null());
+            CHECK(attempt.at("unknown_input") == 0 && attempt.at("unknown_output") == 0 &&
+                attempt.at("unknown_cost") == 0);
+            CHECK(receipts_of_kind(f.path, "RESERVED") == 1 && receipts_of_kind(f.path, "DISPATCH") == 1 &&
+                receipts_of_kind(f.path, "SETTLEMENT") == 1 && receipts_of_kind(f.path, "ERROR") == 0 &&
+                receipts_of_kind(f.path, "CLOSE") == 0);
+            settled_link = runtime.store().event_link_status(link_id);
+            CHECK(settled_link.at("state") == "SETTLED" &&
+                settled_link.at("hold_reason") == "HOLD_MISSING_FEEDBACK_PROOF");
+            CHECK(runtime.store().tasks(id).empty() && runtime.store().plan(id).is_null());
+            CHECK(runtime.store().tool_feedback(captured.request.attempt_id).is_null());
+            CHECK(sql_number(f.path, "SELECT count(*) FROM event_inbox WHERE status='DONE'") == 0);
+            settled_budget = runtime.store().budget(id);
+            for (const auto* dimension : {"input", "output", "cost"}) {
+                const std::string name(dimension);
+                CHECK(number(settled_budget, "unknown_" + name) == number(budget, "unknown_" + name));
+                CHECK(number(settled_budget, "spent_" + name) == number(budget, "spent_" + name) + number(attempt, usage_key(name)));
+                CHECK(number(settled_budget, "reserved_" + name) == number(budget, "reserved_" + name) - number(attempt, "reserved_" + name));
+            }
+            sql(f.path, "DROP TRIGGER n5_test_g1_commit_outcome");
+            runtime.flush_retained_evidence();
+            snapshot = runtime.snapshot();
+            CHECK(snapshot.outstanding == 0 && snapshot.retained_results == 0 &&
+                snapshot.settlement_halted && !snapshot.accepting);
+            CHECK(completes_with_storage_error(submitted.completion));
+            CHECK(runtime.store().attempt(captured.request.attempt_id) == attempt);
+            CHECK(runtime.store().event_link_status(link_id) == settled_link);
+            CHECK(runtime.store().budget(id) == settled_budget);
+            CHECK(model->calls == 1);
+            runtime.close();
+        }
+        CHECK(request_facts(f.path, sibling) == sibling_before);
+        {
+            auto reopened = f.open(StoreRecoveryScope::request(id));
+            CHECK(reopened->attempt(captured.request.attempt_id).at("response") == model->original());
+            const auto state = reopened->event_link_status(link_id);
+            CHECK(state.at("state") == "SETTLED" && state.at("hold_reason") == "HOLD_MISSING_FEEDBACK_PROOF");
+            CHECK(reopened->tasks(id).empty());
+            expect(ErrorCode::Stale, [&] { (void)reopened->claim_event_dispatch(captured.actor, link_id); });
+            // Exact observation replay is idempotent; a different response is refused.
+            (void)reopened->settle_event_observation(link_id, model_response_from_json(model->original()));
+            CHECK(reopened->event_link_status(link_id) == state);
+            CHECK(reopened->budget(id) == settled_budget);
+            auto changed = model_response_from_json(model->original());
+            changed.text = "a different late observation";
+            expect(ErrorCode::Conflict, [&] { (void)reopened->settle_event_observation(link_id, changed); });
+            const auto owner = reopened->claim_event_batch(reopened->host_actor(Role::Dispatcher, id));
+            CHECK(owner.at("items").as_array().empty() && owner.at("hold_reason") == "HOLD_UNRESOLVED_ORIGINAL_CALL");
+            CHECK(request_facts(f.path, sibling) == sibling_before);
+            std::cout << "G1-T3 commit_outcome=SETTLEMENT original_observation_kept=true t4_not_run=true "
+                         "flush=evidence_only replay_idempotent=true" << std::endl;
+        }
+    }
+    // T4: the whole action tail commits durably while its API reports failure.
+    // Nothing may run T4 again; only the result slot completes, with the
+    // original error, and every closed fact survives flush and exact replay.
+    {
+        ::test::persistent_events::CommitOutcomeFault fault;
+        Fixture f;
+        std::string id, sibling, link_id;
+        CapturedModelCall captured;
+        Json sibling_before, closed_attempt, closed_link, closed_budget, closed_completed;
+        std::int64_t events{};
+        std::shared_ptr<GatedModel> model;
+        EventCallSubmission submitted;
+        {
+            AsyncCoordinator runtime(f.open(), schemas());
+            sibling = f.admit(runtime.store());
+            sibling_before = request_facts(f.path, sibling);
+            id = f.admit(runtime.store());
+            captured = runtime.capture(id, Role::Dispatcher);
+            model = std::make_shared<GatedModel>(captured, script().default_steps);
+            arm_fault(f, "CLOSE");
+            fault.arm(f.path);
+            submitted = runtime.submit_event(captured, model);
+            link_id = submitted.link_id;
+            const Json budget = runtime.store().budget(id);
+            until(runtime, [&] { return runtime.snapshot().settlement_halted; });
+            CHECK(fault.installed() == 1 && fault.hits() == 1 && fault.committed_pages() > 0);
+            CHECK(model->calls == 1);
+            auto snapshot = runtime.snapshot();
+            CHECK(snapshot.outstanding == 1 && snapshot.retained_results == 1 &&
+                snapshot.settlement_halted && !snapshot.accepting && snapshot.dispatches == 1);
+            CHECK(!ready(submitted.completion));
+            closed_attempt = runtime.store().attempt(captured.request.attempt_id);
+            CHECK(closed_attempt.at("response") == model->original() &&
+                !closed_attempt.at("settlement_sha256").is_null());
+            closed_link = runtime.store().event_link_status(link_id);
+            closed_completed = closed_link.at("completed_ids");
+            CHECK(closed_link.at("state") == "CLOSED" && closed_link.at("hold_reason") == Json(std::string{}));
+            CHECK(!closed_completed.as_array().empty());
+            for (const auto& completed : closed_completed.as_array()) {
+                CHECK(contains(closed_link.at("selected_ids"), completed));
+                CHECK(contains(closed_link.at("captured_ids"), completed));
+            }
+            CHECK(runtime.store().tasks(id).size() == 2);
+            CHECK(!runtime.store().plan(id).is_null());
+            CHECK(!runtime.store().tool_feedback(captured.request.attempt_id).is_null());
+            CHECK(count_rows(f.path, "SELECT count(*) FROM event_inbox WHERE status='DONE' AND request_id=?", id) ==
+                static_cast<std::int64_t>(closed_completed.as_array().size()));
+            closed_budget = runtime.store().budget(id);
+            for (const auto* dimension : {"input", "output", "cost"}) {
+                const std::string name(dimension);
+                CHECK(number(closed_budget, "unknown_" + name) == 0);
+                CHECK(number(closed_budget, "spent_" + name) == number(budget, "spent_" + name) + number(closed_attempt, usage_key(name)));
+                CHECK(number(closed_budget, "reserved_" + name) == number(budget, "reserved_" + name) - number(closed_attempt, "reserved_" + name));
+            }
+            events = count_rows(f.path, "SELECT count(*) FROM events WHERE request_id=?", id);
+            CHECK(events > 0);
+            sql(f.path, "DROP TRIGGER n5_test_g1_commit_outcome");
+            runtime.flush_retained_evidence();
+            snapshot = runtime.snapshot();
+            CHECK(snapshot.outstanding == 0 && snapshot.retained_results == 0 &&
+                snapshot.settlement_halted && !snapshot.accepting);
+            CHECK(completes_with_storage_error(submitted.completion));
+            CHECK(runtime.store().attempt(captured.request.attempt_id) == closed_attempt);
+            CHECK(runtime.store().event_link_status(link_id) == closed_link);
+            CHECK(runtime.store().budget(id) == closed_budget);
+            CHECK(count_rows(f.path, "SELECT count(*) FROM events WHERE request_id=?", id) == events);
+            CHECK(model->calls == 1);
+            runtime.close();
+        }
+        CHECK(request_facts(f.path, sibling) == sibling_before);
+        {
+            auto reopened = f.open(StoreRecoveryScope::request(id));
+            const auto before = reopened->event_link_status(link_id);
+            CHECK(before.at("state") == "CLOSED" && before.at("completed_ids") == closed_completed);
+            expect(ErrorCode::Stale, [&] { (void)reopened->claim_event_dispatch(captured.actor, link_id); });
+            // The legal exact replay comes from the rebuilt current owner of
+            // the same identity; the durable CLOSED facts make it a no-op.
+            const auto replay = reopened->commit_event_action_and_finish(
+                reopened->host_actor(Role::Dispatcher, id), link_id, *schemas());
+            CHECK(replay.at("state") == "CLOSED" && replay.at("completed_ids") == closed_completed);
+            CHECK(reopened->attempt(captured.request.attempt_id) == closed_attempt);
+            CHECK(reopened->budget(id) == closed_budget);
+            CHECK(count_rows(f.path, "SELECT count(*) FROM events WHERE request_id=?", id) == events);
+            CHECK(reopened->tasks(id).size() == 2);
+            CHECK(request_facts(f.path, sibling) == sibling_before);
+            std::cout << "G1-T4 commit_outcome=CLOSE business_committed_durable=true "
+                         "no_second_t4=true exact_replay_no_effects=true" << std::endl;
+        }
+    }
+}
+
+void foreign_destructor_joins_event_callback_before_releasing_writer_lease() {
+    // The callback parks after observing the foreign destructor's stop. Only
+    // the original host thread probes the real writer lease and only it may
+    // end the barrier; no participant touches the transferred Store.
+    class ParkedCallbackModel final : public ModelAdapter {
+    public:
+        ParkedCallbackModel(const CapturedModelCall& call, std::shared_ptr<Gate> gate,
+                            std::promise<void> parked, std::future<void> release)
+            : fake_(script().default_steps, call.request.model.model), gate_(std::move(gate)),
+              parked_(std::move(parked)), release_(std::move(release)) {}
+        AdapterCapabilities capabilities() const override { return fake_.capabilities(); }
+        void validate(const ModelRequest& request) const override { fake_.validate(request); }
+        ModelResponse complete(ModelRequest request, std::stop_token stop) const override {
+            CHECK(std::this_thread::get_id() != owner_);
+            ++calls;
+            gate_->wait(stop);
+            CHECK(stop.stop_requested());
+            parked_.set_value(); // Parked: deliberately not yet returned.
+            release_.wait();    // The original host ends this barrier explicitly.
+            auto response = fake_.complete(std::move(request));
+            { std::lock_guard lock(mutex_); original_ = to_json(response); }
+            ++returned;
+            return response;
+        }
+        Json original() const { std::lock_guard lock(mutex_); return original_; }
+        mutable std::atomic<int> calls{}, returned{};
+    private:
+        FakeModel fake_;
+        std::shared_ptr<Gate> gate_;
+        mutable std::promise<void> parked_;
+        mutable std::future<void> release_;
+        const std::thread::id owner_{std::this_thread::get_id()};
+        mutable std::mutex mutex_;
+        mutable Json original_ = nullptr;
+    };
+    // Shared bounded reaping for this method's parked-callback scenarios. The
+    // parked callback can still occupy two wait points: the first Gate (its
+    // stop-aware wait has no deadline of its own) and the return barrier it
+    // waits on after that gate. Both wait points are released here, before
+    // any join runs, so a lost stop becomes a bounded observed failure
+    // instead of a cleanup cycle only the CTest process deadline could break.
+    // The barrier has exactly one satisfying owner; Gate::release is
+    // idempotent, and the first Gate must never depend on the later RAII
+    // Release sitting behind the joins.
+    class ParkedCallbackReaper {
+    public:
+        ParkedCallbackReaper(std::shared_ptr<Gate> gate, std::promise<void>& barrier)
+            : gate_(std::move(gate)), barrier_(&barrier) {}
+        void release_wait_points() {
+            if (!satisfied_.exchange(true)) barrier_->set_value();
+            gate_->release();
+        }
+    private:
+        std::shared_ptr<Gate> gate_;
+        std::promise<void>* barrier_;
+        std::atomic<bool> satisfied_{false};
+    };
+    // Joins every thread this method created, on the explicit path and on
+    // exception unwind, exactly once: wait points are released before any
+    // join runs, and threads are joined newest first because each owning
+    // thread joins the ones it created. Threads live inside the guard (with
+    // capacity reserved up front) so a construction failure never leaves a
+    // joinable thread behind on unwinding.
+    class BoundedReap {
+    public:
+        explicit BoundedReap(ParkedCallbackReaper& reap) : reap_(reap) {}
+        std::vector<std::thread> threads;
+        void perform() {
+            if (performed_) return;
+            performed_ = true;
+            reap_.release_wait_points();
+            for (auto thread = threads.rbegin(); thread != threads.rend(); ++thread)
+                if (thread->joinable()) thread->join();
+        }
+        ~BoundedReap() { perform(); }
+        BoundedReap(const BoundedReap&) = delete;
+        BoundedReap& operator=(const BoundedReap&) = delete;
+    private:
+        ParkedCallbackReaper& reap_;
+        bool performed_ = false;
+    };
+    Fixture f;
+    std::string id, sibling;
+    CapturedModelCall captured;
+    Json sibling_before, budget_rows, budget;
+    std::shared_ptr<ParkedCallbackModel> model;
+    EventCallSubmission submission;
+    {
+        auto runtime = std::make_unique<AsyncCoordinator>(f.open(), schemas());
+        sibling = f.admit(runtime->store());
+        sibling_before = request_facts(f.path, sibling);
+        id = f.admit(runtime->store());
+        captured = runtime->capture(id, Role::Dispatcher);
+        auto gate = std::make_shared<Gate>();
+        Release release{gate};
+        std::promise<void> parked_promise, allow_promise, done_promise;
+        auto parked = parked_promise.get_future();
+        auto destructor_finished = done_promise.get_future();
+        model = std::make_shared<ParkedCallbackModel>(captured, gate,
+            std::move(parked_promise), allow_promise.get_future());
+        submission = runtime->submit_event(captured, model);
+        budget = runtime->store().budget(id);
+        budget_rows = query_rows(f.path, "SELECT * FROM request_budgets WHERE request_id=?", id);
+        until(*runtime, [&] { return gate->entered == 1; });
+        // Foreign-thread destruction may only stop and join; it must wait for
+        // the parked callback instead of abandoning or persisting anything.
+        ParkedCallbackReaper parked_reap(gate, allow_promise);
+        BoundedReap scenario_reap{parked_reap};
+        scenario_reap.threads.reserve(1);
+        scenario_reap.threads.emplace_back([&] { runtime.reset(); done_promise.set_value(); });
+        const bool parked_reached = parked.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+        const bool destructor_incomplete =
+            destructor_finished.wait_for(std::chrono::seconds(0)) != std::future_status::ready;
+        const auto lease_path = f.path.string() + ".writer-lock";
+        const int descriptor = ::open(lease_path.c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW);
+        const int locked = descriptor >= 0 ? ::flock(descriptor, LOCK_EX | LOCK_NB) : -1;
+        const int lease_errno = errno;
+        if (descriptor >= 0) (void)::close(descriptor);
+        // Reap every thread before any assertion can fail: both wait points
+        // (the first Gate and the parked callback's return barrier) are
+        // released before the join, so a lost stop can no longer park cleanup
+        // on a gate whose only release used to sit behind that join.
+        scenario_reap.perform();
+        const bool destructor_completed =
+            destructor_finished.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+        const int probe = ::open(lease_path.c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW);
+        const int reacquired = probe >= 0 ? ::flock(probe, LOCK_EX | LOCK_NB) : -1;
+        if (probe >= 0) (void)::close(probe);
+        CHECK(parked_reached);
+        CHECK(destructor_incomplete && destructor_completed);
+        CHECK(descriptor >= 0 && locked == -1 && (lease_errno == EWOULDBLOCK || lease_errno == EAGAIN));
+        CHECK(reacquired == 0);
+        CHECK(model->calls == 1 && model->returned == 1);
+    }
+    // The future can only end broken or failed; the callback is never re-run.
+    CHECK(ready(submission.completion));
+    bool terminal_failure = false;
+    try { (void)submission.completion.get(); }
+    catch (const std::future_error&) { terminal_failure = true; }
+    catch (const Error&) { terminal_failure = true; }
+    CHECK(terminal_failure);
+    CHECK(model->calls == 1);
+    // Read-only durable facts before any takeover: exactly one committed
+    // dispatch, the original PENDING reservation, and no foreign backfill.
+    CHECK(count_rows(f.path, "SELECT count(*) FROM n5_event_links WHERE request_id=?", id) == 1);
+    CHECK(count_rows(f.path, "SELECT count(*) FROM n5_event_receipts WHERE link_id=?", submission.link_id) == 2);
+    CHECK(count_rows(f.path, "SELECT count(*) FROM n5_event_receipts WHERE link_id=? AND kind='DISPATCH'", submission.link_id) == 1);
+    CHECK(count_rows(f.path, "SELECT count(*) FROM call_attempts WHERE attempt_id=? AND status='PENDING' "
+        "AND response IS NULL AND usage IS NULL AND settlement_sha256 IS NULL", captured.request.attempt_id) == 1);
+    CHECK(count_rows(f.path, "SELECT count(*) FROM model_tool_feedback WHERE attempt_id=?", captured.request.attempt_id) == 0);
+    CHECK(count_rows(f.path, "SELECT count(*) FROM tasks WHERE request_id=?", id) == 0);
+    CHECK(count_rows(f.path, "SELECT count(*) FROM event_inbox WHERE status='DONE' AND request_id=?", id) == 0);
+    CHECK(sql_number(f.path, "SELECT count(*) FROM n5_event_open_items") > 0);
+    CHECK(query_rows(f.path, "SELECT * FROM request_budgets WHERE request_id=?", id) == budget_rows);
+    CHECK(request_facts(f.path, sibling) == sibling_before);
+    {
+        auto reopened = f.open(StoreRecoveryScope::request(id));
+        const auto recovered = reopened->attempt(captured.request.attempt_id);
+        CHECK(recovered.at("status") == "UNKNOWN" && recovered.at("response").is_null());
+        CHECK(recovered.at("unknown_input") == 1 && recovered.at("unknown_output") == 1 &&
+            recovered.at("unknown_cost") == 1);
+        CHECK(recovered.at("request_envelope") == to_json(captured.request));
+        const auto held = reopened->event_link_status(submission.link_id);
+        CHECK(held.at("state") == "HOLD_UNKNOWN" && held.at("completed_ids").as_array().empty());
+        // Request-scope recovery moves the still-reserved original call into
+        // unknown accounting; reserved and spent dimensions stay unchanged.
+        const auto recovered_budget = reopened->budget(id);
+        for (const auto* dimension : {"input", "output", "cost"}) {
+            const std::string name(dimension);
+            CHECK(recovered_budget.at("reserved_" + name) == budget.at("reserved_" + name));
+            CHECK(recovered_budget.at("spent_" + name) == budget.at("spent_" + name));
+            CHECK(number(recovered_budget, "unknown_" + name) ==
+                number(budget, "unknown_" + name) + number(budget, "reserved_" + name));
+        }
+        expect(ErrorCode::Stale, [&] { (void)reopened->claim_event_dispatch(captured.actor, submission.link_id); });
+        const auto owner = reopened->claim_event_batch(reopened->host_actor(Role::Dispatcher, id));
+        CHECK(owner.at("items").as_array().empty() && owner.at("hold_reason") == "HOLD_UNRESOLVED_ORIGINAL_CALL");
+        CHECK(reopened->tasks(id).empty());
+        CHECK(model->calls == 1);
+        CHECK(request_facts(f.path, sibling) == sibling_before);
+        std::cout << "G2 foreign_destruction parked_barrier_reached=true lease_held_during_barrier=true "
+                     "destructor_joined_callback=true recovered=UNKNOWN callbacks=1" << std::endl;
+    }
+    // Local bounded cleanup regression for the same shared reaping path, with
+    // no Store and no model: a controlled callback parks on the first Gate
+    // behind a default-constructed stop token that no stop_source can
+    // request, then waits on an independent return barrier only after that
+    // gate returns. The tested cleanup owns the return barrier and the joiner
+    // that joins the callback; the supervisor confirms entry through the real
+    // Gate counter, watches the original 5s bound for self-completion, and
+    // otherwise performs one idempotent Gate release to rescue the old
+    // two-step cleanup before reaping every thread and asserting.
+    {
+        auto gate = std::make_shared<Gate>();
+        std::promise<void> allow_promise, reaped_promise, joined_promise;
+        auto allow = allow_promise.get_future();
+        auto reaped = reaped_promise.get_future();
+        auto joined = joined_promise.get_future();
+        ParkedCallbackReaper cleanup_reap(gate, allow_promise);
+        BoundedReap scenario_reap{cleanup_reap};
+        scenario_reap.threads.reserve(3);
+        const std::stop_token unstoppable{};
+        CHECK(!unstoppable.stop_possible());
+        scenario_reap.threads.emplace_back([&] {
+            gate->wait(unstoppable); // First wait point; only a release passes it.
+            allow.wait();            // Return barrier, reached only after the gate.
+        });
+        std::thread& callback = scenario_reap.threads.back();
+        scenario_reap.threads.emplace_back([&callback, &joined_promise] { callback.join(); joined_promise.set_value(); });
+        std::thread& joiner = scenario_reap.threads.back();
+        scenario_reap.threads.emplace_back([&] {
+            cleanup_reap.release_wait_points();
+            joiner.join();
+            reaped_promise.set_value();
+        });
+        bool entered_first_gate = false;
+        {
+            std::unique_lock lock(gate->mutex);
+            entered_first_gate = gate->changed.wait_for(lock, std::chrono::seconds(5),
+                [&] { return gate->entered >= 1; });
+        }
+        const bool finished_on_own =
+            reaped.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+        if (!finished_on_own) gate->release(); // Idempotent rescue of the old path.
+        const bool reaped_after_rescue =
+            reaped.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+        scenario_reap.perform();
+        const bool joiner_finished =
+            joined.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+        CHECK(entered_first_gate);
+        CHECK(reaped_after_rescue && joiner_finished);
+        CHECK(finished_on_own);
+        CHECK(gate->entered == 1);
+        std::cout << "G2 cleanup_regression entered_first_gate=true self_completed="
+                  << (finished_on_own ? "true" : "false") << " bounded_reap=true" << std::endl;
+    }
+}
+
 } // namespace
 
 int main() { return test::run({
@@ -721,5 +1398,7 @@ int main() { return test::run({
     {"stop between a false gate predicate and blocking wait cannot be lost", stop_between_false_predicate_and_wait_cannot_lose_its_wakeup},
     {"destructor joins the live callback before releasing the actual Store writer lease", destructor_joins_callback_before_releasing_the_store_writer_lease},
     {"real adapter flags and excessive runtime limits refuse before T0", real_adapter_flag_and_excess_limits_fail_before_t0},
-    {"empty S releases only its unassociated original claim and preserves pending IDs", empty_selection_releases_only_unassociated_original_claim}
+    {"empty S releases only its unassociated original claim and preserves pending IDs", empty_selection_releases_only_unassociated_original_claim},
+    {"committed WAL errors preserve each async original transaction outcome", committed_wal_errors_preserve_async_original_outcomes},
+    {"foreign destructor joins the event callback before releasing the writer lease", foreign_destructor_joins_event_callback_before_releasing_writer_lease}
 }); }
