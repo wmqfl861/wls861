@@ -18,6 +18,7 @@ taskkill is used anywhere.
 import argparse
 import ctypes
 import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -60,6 +61,12 @@ class Recorder:
 
     def begin(self, root):
         root = Path(root)
+        if not root.is_absolute():
+            # Anchor the evidence root once to the current cwd so every marker
+            # and outcome path derived from it survives child-side cwd changes.
+            # No resolve/realpath and no normalization: the anchored path keeps
+            # its own separators and any '..' components as given.
+            root = Path.cwd() / root
         if root.exists():
             raise SystemExit(f'evidence directory already exists: {root}')
         root.mkdir(parents=True)
@@ -1131,6 +1138,439 @@ def synthetic_abi_create_process_handle_list_contract(case):
         fixture.restore()
 
 
+# --------------------------------------------------------------------------------------
+# Fixture-contract regressions: CLI dispatch, cross-cwd evidence roots, N6
+# outcome preservation and N9 exception receipts (harness-only oracles)
+# --------------------------------------------------------------------------------------
+#
+# The three cases below keep the harness itself under test. They run on any
+# platform, use only finite self-created fixtures, bound every subprocess and
+# restore each patched boundary in a finally block. They are engineering tool
+# cases: they are not native product suites and prove no native Windows
+# behaviour.
+
+
+def _bounded_cli_run(argv, cwd, timeout=60):
+    # Bounded subprocess probe reserved for finite, side-effect-free CLI forms.
+    started = time.monotonic()
+    completed = subprocess.run(argv, cwd=str(cwd), capture_output=True, timeout=timeout)
+    return {'exit_code': completed.returncode,
+            'stdout': completed.stdout.decode('utf-8', 'replace'),
+            'stderr': completed.stderr.decode('utf-8', 'replace'),
+            'elapsed_seconds': round(time.monotonic() - started, 3)}
+
+
+def fixture_cli_dispatch_contract(case):
+    # Two independent sub-checks, ENTRY and PATH. Each captures its own
+    # failures into facts and both always run; the verdict comes at the end so
+    # an argparse failure can never mask the cross-cwd path failure.
+    workspace = case._recorder.root / 'cli-dispatch-probe'
+    workspace.mkdir(parents=True, exist_ok=True)
+    entry = {}
+
+    def parse_exit(argv):
+        try:
+            parse_args(argv)
+            return None
+        except SystemExit as error:
+            return error.code
+
+    # ENTRY: a real finite leaf (hold=0, no Win32 dependency) must dispatch
+    # through the real script argv without the ordinary selfcheck flags.
+    probe_cwd = workspace / 'entry-cwd'
+    probe_cwd.mkdir()
+    entry['leaf_probe'] = _bounded_cli_run(
+        _fixture_argv('leaf', hold=0, index='cli-entry-probe'), probe_cwd)
+    entry['leaf_exit_zero'] = entry['leaf_probe']['exit_code'] == 0
+    entry['leaf_marker_passed_through'] = 'child-marker cli-entry-probe' in \
+        entry['leaf_probe']['stdout']
+    entry['leaf_required_args_stderr'] = 'the following arguments are required' in \
+        entry['leaf_probe']['stderr']
+
+    # Every existing fixture name must parse for dispatch without the
+    # ordinary mode/evidence-dir flags.
+    entry['fixture_names_accepted'] = {}
+    for name in sorted(FIXTURES):
+        try:
+            options, _values = parse_args(['--fixture', name])
+            entry['fixture_names_accepted'][name] = bool(
+                options.fixture == name and options.mode is None)
+        except SystemExit as error:
+            entry['fixture_names_accepted'][name] = f'SystemExit:{error.code}'
+    entry['all_fixture_names_accepted'] = all(
+        value is True for value in entry['fixture_names_accepted'].values())
+
+    # The ordinary entry keeps both flags required, explicit values stay
+    # validated, unknown/empty fixture names are argument errors and the
+    # residual key/value parsing stays lenient.
+    entry['ordinary_no_args_exit'] = parse_exit([])
+    entry['ordinary_mode_only_exit'] = parse_exit(['--mode', 'synthetic'])
+    entry['ordinary_evidence_only_exit'] = parse_exit(['--evidence-dir', 'x'])
+    entry['unknown_fixture_exit'] = parse_exit(['--fixture', 'no-such-fixture'])
+    entry['empty_fixture_exit'] = parse_exit(['--fixture', ''])
+    entry['fixture_invalid_mode_exit'] = parse_exit(['--fixture', 'leaf', '--mode', 'bogus'])
+    try:
+        _options, residual = parse_args(['--fixture', 'leaf', '--hold', '0',
+                                         '--custom-token', 'v'])
+        entry['residual_options'] = residual
+        entry['residual_lenient'] = (residual.get('hold') == '0' and
+                                     residual.get('custom_token') == 'v')
+    except SystemExit as error:
+        entry['residual_options'] = None
+        entry['residual_lenient'] = f'SystemExit:{error.code}'
+
+    # An unknown fixture name must be rejected before any side effect,
+    # observable through a real CLI process run in a clean directory.
+    unknown_cwd = workspace / 'unknown-fixture-cwd'
+    unknown_cwd.mkdir()
+    entry['unknown_fixture_cli'] = _bounded_cli_run(
+        [sys.executable, '-B', str(Path(__file__).resolve()), '--fixture',
+         'no-such-fixture'], unknown_cwd)
+    entry['unknown_fixture_rejected_before_effects'] = (
+        entry['unknown_fixture_cli']['exit_code'] == 2 and
+        not any(unknown_cwd.iterdir()))
+
+    # A valid fixture plus valid ordinary flags stays fixture-only: the fixture
+    # runs and the ordinary evidence directory is never created.
+    ordinary_dir = workspace / 'ordinary-evidence-must-not-exist'
+    entry['priority_probe'] = _bounded_cli_run(
+        _fixture_argv('leaf', hold=0, index='cli-priority-probe', mode='synthetic',
+                      evidence_dir=ordinary_dir), probe_cwd)
+    entry['fixture_priority_kept'] = (entry['priority_probe']['exit_code'] == 0 and
+                                      'child-marker cli-priority-probe' in
+                                      entry['priority_probe']['stdout'])
+    entry['ordinary_evidence_dir_not_created'] = not ordinary_dir.exists()
+
+    # --help keeps its argparse exit-0 behaviour without fixture effects.
+    help_cwd = workspace / 'help-cwd'
+    help_cwd.mkdir()
+    entry['help_probe'] = _bounded_cli_run(
+        [sys.executable, '-B', str(Path(__file__).resolve()), '--help'], help_cwd)
+    entry['help_exit_zero_without_effects'] = (entry['help_probe']['exit_code'] == 0 and
+                                               not any(help_cwd.iterdir()))
+    case.record(**entry)
+
+    # PATH: bypassing the CLI gate, a relative evidence root with a space is
+    # established through the real Recorder from one cwd, the sentinel argv is
+    # produced through the real _fixture_argv, and the real finite sentinel
+    # handler then runs from a different cwd with parse-shaped options whose
+    # values come from the actual argv tokens. An absolute root keeps its
+    # original positive behaviour.
+    original_cwd = Path.cwd()
+    relative_root_name = 'evidence root with space'
+
+    def sentinel_probe(parent_dir, child_dir, root_value):
+        os.chdir(parent_dir)
+        try:
+            recorder = Recorder(root_value)
+            recorder.begin(root_value)
+            argv = _fixture_argv('sentinel', seconds=0,
+                                 start_marker=recorder.root / 'sentinel-started.txt',
+                                 end_marker=recorder.root / 'sentinel-finished.txt')
+            tokens = {}
+            for index, token in enumerate(argv[:-1]):
+                if token in ('--start-marker', '--end-marker', '--seconds'):
+                    tokens[token] = argv[index + 1]
+            os.chdir(child_dir)
+            options = {'start_marker': tokens['--start-marker'],
+                       'end_marker': tokens['--end-marker'],
+                       'seconds': tokens['--seconds']}
+            try:
+                _fixture_sentinel(options)
+            except Exception as error:
+                # Keep the actual child-cwd write failure as a recorded fact so
+                # the sub-check stays non-masking and bounded; KeyboardInterrupt
+                # and SystemExit still propagate.
+                probe_error = f'{type(error).__name__}: {error}'
+            else:
+                probe_error = None
+        finally:
+            os.chdir(original_cwd)
+        return recorder, options, probe_error
+
+    parent_a = workspace / 'path-parent-a'
+    parent_b = workspace / 'path-parent-b'
+    parent_a.mkdir()
+    parent_b.mkdir()
+    recorder, relative_options, relative_error = sentinel_probe(
+        parent_a, parent_b, relative_root_name)
+    relative_probe = {
+        'recorder_root': str(recorder.root),
+        'root_is_absolute': recorder.root.is_absolute(),
+        'started_marker_at_original_root':
+            (recorder.root / 'sentinel-started.txt').is_file(),
+        'finished_marker_at_original_root':
+            (recorder.root / 'sentinel-finished.txt').is_file(),
+        'misplaced_directory_in_child_cwd': (parent_b / relative_root_name).exists(),
+        'sentinel_error': relative_error,
+        'sentinel_options': relative_options}
+    absolute_root = workspace / 'absolute-evidence-root'
+    recorder_absolute, absolute_options, absolute_error = sentinel_probe(
+        parent_a, parent_b, absolute_root)
+    absolute_probe = {
+        'recorder_root': str(recorder_absolute.root),
+        'root_is_absolute': recorder_absolute.root.is_absolute(),
+        'started_marker_at_original_root':
+            (recorder_absolute.root / 'sentinel-started.txt').is_file(),
+        'finished_marker_at_original_root':
+            (recorder_absolute.root / 'sentinel-finished.txt').is_file(),
+        'misplaced_directory_in_child_cwd': (parent_b / absolute_root.name).exists(),
+        'sentinel_error': absolute_error,
+        'sentinel_options': absolute_options}
+    case.record(relative_probe=relative_probe, absolute_probe=absolute_probe)
+
+    failures = []
+    if not entry['leaf_exit_zero'] or not entry['leaf_marker_passed_through']:
+        failures.append(f"ENTRY: a valid finite fixture must dispatch without ordinary "
+                        f"flags (exit {entry['leaf_probe']['exit_code']})")
+    if not entry['all_fixture_names_accepted']:
+        failures.append('ENTRY: every existing fixture name must parse for dispatch '
+                        'without --mode/--evidence-dir')
+    if entry['ordinary_no_args_exit'] != 2 or entry['ordinary_mode_only_exit'] != 2 or \
+            entry['ordinary_evidence_only_exit'] != 2:
+        failures.append('ENTRY: the ordinary entry must keep --mode/--evidence-dir '
+                        'required')
+    if entry['unknown_fixture_exit'] != 2 or entry['empty_fixture_exit'] != 2 or \
+            not entry['unknown_fixture_rejected_before_effects']:
+        failures.append('ENTRY: unknown/empty fixture names must be rejected before '
+                        'any side effect')
+    if entry['fixture_invalid_mode_exit'] != 2:
+        failures.append('ENTRY: an explicit invalid --mode must stay rejected')
+    if not entry['fixture_priority_kept'] or not entry['ordinary_evidence_dir_not_created']:
+        failures.append('ENTRY: a valid fixture plus valid ordinary flags must stay '
+                        'fixture-only')
+    if not entry['help_exit_zero_without_effects']:
+        failures.append('ENTRY: --help must exit 0 without fixture effects')
+    if entry['residual_lenient'] is not True:
+        failures.append('ENTRY: parse_known_args residual key/value handling must stay')
+    if relative_probe['root_is_absolute'] is not True:
+        failures.append('PATH: a relative evidence root must be anchored to the cwd '
+                        'where the Recorder established it')
+    if not relative_probe['started_marker_at_original_root'] or \
+            not relative_probe['finished_marker_at_original_root']:
+        failures.append('PATH: sentinel markers must land under the original evidence '
+                        'root across the child cwd change')
+    if relative_probe['misplaced_directory_in_child_cwd']:
+        failures.append('PATH: no misplaced evidence directory may appear under the '
+                        'child cwd')
+    if relative_probe['sentinel_error'] is not None:
+        failures.append('PATH: the finite sentinel handler must complete against the '
+                        'evidence root from the child cwd')
+    if not absolute_probe['root_is_absolute'] or \
+            not absolute_probe['started_marker_at_original_root'] or \
+            not absolute_probe['finished_marker_at_original_root'] or \
+            absolute_probe['misplaced_directory_in_child_cwd'] or \
+            absolute_probe['sentinel_error'] is not None:
+        failures.append('PATH: an absolute evidence root must keep its positive '
+                        'behaviour')
+    case.check(not failures, '; '.join(failures) or 'fixture CLI and path contract holds')
+
+
+def fixture_ctrlc_outcome_preservation(case):
+    # Calls the REAL _fixture_ctrlc_controller with only its external boundaries
+    # (the low-level run_owned launch and the console-ctrl event generator)
+    # replaced by controlled stand-ins; the controller body itself is never
+    # replaced. The runner stand-in takes the outcome path from the actually
+    # received runner argv and exclusively writes fixed inner interrupt bytes,
+    # so a controller that forwards its own outcome path destroys those bytes
+    # at the same location. This is a local data-flow counterexample only, it
+    # is never a real Ctrl-C reproduction.
+    workspace = case._recorder.root / 'ctrlc-outcome-probe'
+    workspace.mkdir(parents=True, exist_ok=True)
+    root = workspace / 'controller-root'
+    root.mkdir()
+    ready = root / 'ctest-ready'
+    controller_outcome = root / 'controller-outcome.json'
+    inner_fields = {'cleanup_status': 'PROVEN_ZERO',
+                    'keyboard_interrupt_observed': True,
+                    'termination_reason': 'INTERRUPTED',
+                    'tree_exit_proven': True}
+    inner_bytes = (json.dumps(inner_fields, indent=2) + '\n').encode('utf-8')
+    inner_sha = hashlib.sha256(inner_bytes).hexdigest()
+    observed = {}
+
+    class _RunnerResult:
+        exit_code = 0
+        tree_exit_proven = True
+
+    def controlled_run_owned(command, **kwargs):
+        argv = [str(item) for item in command]
+        observed['runner_argv'] = argv
+        outcome_index = argv.index('--outcome') + 1
+        observed['runner_outcome_path'] = argv[outcome_index]
+        ready.write_text('ready', encoding='utf-8')
+        Path(observed['runner_outcome_path']).write_bytes(inner_bytes)
+        return _RunnerResult()
+
+    def controlled_console_event():
+        observed['console_event_calls'] = observed.get('console_event_calls', 0) + 1
+        return True
+
+    original_run_owned = run_owned
+    original_event = _generate_console_ctrl_event
+    original_handler = signal.getsignal(signal.SIGINT)
+    options = {'root': str(root), 'ready': str(ready),
+               'outcome': str(controller_outcome), 'budget': '18'}
+    try:
+        globals()['run_owned'] = controlled_run_owned
+        globals()['_generate_console_ctrl_event'] = controlled_console_event
+        observed['controller_exit_code'] = _fixture_ctrlc_controller(options)
+    finally:
+        globals()['run_owned'] = original_run_owned
+        globals()['_generate_console_ctrl_event'] = original_event
+        signal.signal(signal.SIGINT, original_handler)
+    facts = {'controller_exit_code': observed.get('controller_exit_code'),
+             'runner_outcome_path': observed.get('runner_outcome_path'),
+             'controller_outcome_path': str(controller_outcome),
+             'console_event_calls': observed.get('console_event_calls')}
+    runner_path = Path(observed['runner_outcome_path'])
+    facts['paths_differ'] = runner_path != controller_outcome
+    facts['runner_file_bytes_sha256'] = hashlib.sha256(
+        runner_path.read_bytes()).hexdigest() if runner_path.is_file() else None
+    facts['inner_bytes_preserved'] = facts['runner_file_bytes_sha256'] == inner_sha
+    facts['controller_record'] = None
+    if controller_outcome.is_file():
+        facts['controller_record'] = json.loads(controller_outcome.read_text())
+    record = facts['controller_record'] or {}
+    facts['controller_error'] = record.get('controller_error')
+    facts['console_event_sent'] = (record.get('console_event') or {}).get('sent')
+    facts['controller_embeds_runner_outcome'] = record.get('runner_outcome') == inner_fields
+    facts['controller_embeds_runner_sha256'] = record.get('runner_outcome_sha256') == \
+        inner_sha
+    consumer = json.loads(runner_path.read_bytes()) if runner_path.is_file() else {}
+    facts['consumer_keyboard_interrupt_observed'] = consumer.get('keyboard_interrupt_observed')
+    facts['consumer_tree_exit_proven'] = consumer.get('tree_exit_proven')
+    facts['consumer_termination_reason'] = consumer.get('termination_reason')
+    case.record(**facts)
+    case.check(facts['paths_differ'],
+               'the controller record and the runner outcome must use different paths')
+    case.check(observed.get('controller_exit_code') == 0,
+               'the controller must still report success for the simulated run')
+    case.check(facts['controller_error'] is None and facts['console_event_sent'] is True,
+               'the controlled boundaries must satisfy the controller observation')
+    case.check(facts['inner_bytes_preserved'],
+               'the inner runner outcome bytes must survive the controller unchanged')
+    case.check(facts['controller_embeds_runner_outcome'] and
+               facts['controller_embeds_runner_sha256'],
+               'the controller record must embed the runner outcome content and identity')
+    case.check(facts['consumer_keyboard_interrupt_observed'] is True and
+               facts['consumer_tree_exit_proven'] is True and
+               facts['consumer_termination_reason'] == 'INTERRUPTED',
+               'the consumer must still verify the original interrupt and tree-proof '
+               'fields on the runner record')
+
+
+def fixture_integration_error_receipt(case):
+    # Drives the real _integration_router closure with a controlled lower-level
+    # run_owned entry that raises an actual TimeoutExpired carrying an original
+    # dict process receipt. The same exception object must be re-raised, the
+    # same receipt must gain exactly the expected substitution note and every
+    # original field must survive. Success results and exceptions without a
+    # dict receipt keep their original semantics and no receipt is fabricated.
+    # The receipt attribute is injected by this probe; this is not a real
+    # Windows timeout reproduction.
+    workspace = case._recorder.root / 'integration-error-probe'
+    workspace.mkdir(parents=True, exist_ok=True)
+    ctest_argv = [sys.executable, '-B', '-c', 'print("never executed")']
+    fixture = {'ctest_command': ctest_argv, 'interruptible': False}
+    note = INTEGRATION_TIMEOUT_OVERRIDE_NOTE
+    facts = {}
+    raised = {}
+
+    class _SuccessResult:
+        def __init__(self):
+            self.receipt = {'outcome': 'COMPLETED', 'tree_exit_proven': True,
+                            'exit_code': 0}
+
+    def timeout_run_owned(command, **kwargs):
+        facts['routed_argv'] = [str(item) for item in command]
+        facts['routed_timeout'] = kwargs.get('timeout')
+        error = subprocess.TimeoutExpired(ctest_argv, 6.0)
+        error.process_receipt = {'outcome': 'EXECUTION_DEADLINE',
+                                 'tree_exit_proven': True,
+                                 'termination': {'reason': 'EXECUTION_DEADLINE'},
+                                 'output': {'complete': False}}
+        raised['timeout'] = error
+        raise error
+
+    def interrupt_without_receipt(command, **kwargs):
+        error = KeyboardInterrupt('synthetic interrupt without a receipt')
+        raised['interrupt'] = error
+        raise error
+
+    def success_run_owned(command, **kwargs):
+        return _SuccessResult()
+
+    original_run_owned = windows_process.run_owned
+
+    def call_router(entry):
+        windows_process.run_owned = entry
+        try:
+            router = _integration_router(fixture, [])
+            return {'returned': router(ctest_argv, cwd=str(workspace), env={},
+                                       timeout=6.0, spool_root=workspace / 'spool',
+                                       command_id='ctest')}
+        except BaseException as error:
+            return {'raised': error}
+        finally:
+            windows_process.run_owned = original_run_owned
+
+    outcome_timeout = call_router(timeout_run_owned)
+    outcome_interrupt = call_router(interrupt_without_receipt)
+    outcome_success = call_router(success_run_owned)
+
+    caught_timeout = outcome_timeout.get('raised')
+    facts['timeout_exception_type'] = type(caught_timeout).__name__ \
+        if caught_timeout else None
+    facts['timeout_exception_same_object'] = caught_timeout is raised.get('timeout')
+    receipt = getattr(caught_timeout, 'process_receipt', None) if caught_timeout else None
+    facts['timeout_receipt_same_object'] = receipt is \
+        getattr(raised.get('timeout'), 'process_receipt', None)
+    facts['timeout_receipt_note'] = receipt.get('integration_substitution') \
+        if isinstance(receipt, dict) else None
+    facts['timeout_fields_preserved'] = isinstance(receipt, dict) and all([
+        receipt.get('outcome') == 'EXECUTION_DEADLINE',
+        receipt.get('tree_exit_proven') is True,
+        (receipt.get('termination') or {}).get('reason') == 'EXECUTION_DEADLINE',
+        (receipt.get('output') or {}).get('complete') is False])
+
+    caught_interrupt = outcome_interrupt.get('raised')
+    facts['interrupt_exception_same_object'] = caught_interrupt is \
+        raised.get('interrupt')
+    facts['interrupt_receipt_still_absent'] = getattr(
+        caught_interrupt, 'process_receipt', None) is None if caught_interrupt else None
+
+    returned = outcome_success.get('returned')
+    facts['success_returned'] = returned is not None
+    facts['success_receipt_note'] = returned.receipt.get('integration_substitution') \
+        if returned is not None else None
+    facts['success_fields_preserved'] = returned is not None and \
+        returned.receipt.get('outcome') == 'COMPLETED' and \
+        returned.receipt.get('tree_exit_proven') is True
+    case.record(**facts)
+
+    case.check(facts['timeout_receipt_note'] == note,
+               'a substituted failing command must carry the integration-substitution '
+               'note on its original exception receipt')
+    case.check(facts['timeout_exception_same_object'] and
+               facts['timeout_receipt_same_object'],
+               'the original TimeoutExpired object and its receipt must be re-raised '
+               'unchanged')
+    case.check(facts['timeout_fields_preserved'],
+               'the original failure fields must survive the note attachment')
+    case.check(facts['routed_argv'] == [str(item) for item in ctest_argv] and
+               facts['routed_timeout'] == 6.0,
+               'the router must keep the original ctest argv and short-timeout '
+               'parameters')
+    case.check(facts['interrupt_exception_same_object'] and
+               facts['interrupt_receipt_still_absent'] is True,
+               'an exception without a dict receipt must be re-raised unchanged with '
+               'no fabricated receipt')
+    case.check(facts['success_returned'] and facts['success_receipt_note'] == note and
+               facts['success_fields_preserved'],
+               'the success path must keep its existing note and fields')
+
+
 SYNTHETIC_CASES = [
     ('normal-completion', synthetic_normal_completion),
     ('stage-failures', synthetic_stage_failures),
@@ -1150,6 +1590,9 @@ SYNTHETIC_CASES = [
     ('abi-pidlist-returned-count', synthetic_abi_pidlist_returned_count),
     ('abi-create-process-handle-list-contract',
      synthetic_abi_create_process_handle_list_contract),
+    ('fixture-cli-dispatch-contract', fixture_cli_dispatch_contract),
+    ('fixture-ctrlc-outcome-preservation', fixture_ctrlc_outcome_preservation),
+    ('fixture-integration-error-receipt', fixture_integration_error_receipt),
 ]
 
 
@@ -1623,20 +2066,24 @@ def native_n6_isolated_console_ctrl_c(case):
     api = ObservingAPI(Win32ProcessAPI())
     root = case._recorder.root / 'native-n6'
     root.mkdir(parents=True, exist_ok=True)
-    runner_outcome = root / 'runner-outcome.json'
+    runner_outcome = root / 'supervised-runner-outcome.json'
+    controller_outcome = root / 'controller-outcome.json'
     controller = _fixture_argv('ctrlc-controller', ready=root / 'ctest-ready',
-                               outcome=runner_outcome, budget=18)
+                               outcome=controller_outcome, budget=18)
     result, error, elapsed = _native_budgeted_launch(
         case, api, controller, command_id='n6-ctrlc-controller', timeout=22,
         extra_creation_flags=windows_process.CREATE_NEW_CONSOLE)
     case.check(error is None, f'controller failed: {error!r}')
     case.check(result.exit_code == 0, f'controller exit {result.exit_code}: {result.stderr!r}')
     case.check(result.tree_exit_proven, 'controller tree must be proven')
+    observation = json.loads(controller_outcome.read_text())
+    case.check(runner_outcome.is_file(), 'the runner outcome file must survive the controller')
     outcome = json.loads(runner_outcome.read_text())
     case.check(outcome.get('keyboard_interrupt_observed') is True, 'real Ctrl-C observed')
     case.check(outcome.get('tree_exit_proven') is True, 'interrupted tree proven')
     case.check(outcome.get('termination_reason') == 'INTERRUPTED', 'interrupt recorded')
-    case.record(controller_receipt=_summary(result.receipt), runner_outcome=outcome,
+    case.record(controller_receipt=_summary(result.receipt),
+                controller_observation=observation, runner_outcome=outcome,
                 elapsed_seconds=round(elapsed, 3))
 
 
@@ -1843,9 +2290,19 @@ def _integration_router(fixture, substitutions_log):
             pass  # real git in the real fixture repository
         substitutions_log.append({'command_id': command_id, 'note': note,
                                   'timeout': timeout, 'argv': argv})
-        result = real_run_owned(argv, cwd=cwd, env=env, timeout=timeout,
-                                spool_root=spool_root, command_id=command_id,
-                                extra_env=extra_env, **kwargs)
+        try:
+            result = real_run_owned(argv, cwd=cwd, env=env, timeout=timeout,
+                                    spool_root=spool_root, command_id=command_id,
+                                    extra_env=extra_env, **kwargs)
+        except BaseException as error:
+            # A substituted command that fails keeps its original exception
+            # identity and is re-raised unchanged; when that exception already
+            # carries a dict process receipt, the same substitution note is
+            # attached to it. No receipt is ever fabricated.
+            receipt = getattr(error, 'process_receipt', None)
+            if note is not None and isinstance(receipt, dict):
+                receipt['integration_substitution'] = note
+            raise
         if note is not None and isinstance(result.receipt, dict):
             result.receipt['integration_substitution'] = note
         return result
@@ -2011,9 +2468,11 @@ def _fixture_ctrlc_controller(options):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     root = Path(options['root']) if options.get('root') else Path(options['ready']).parent
     outcome_path = Path(options['outcome'])
+    runner_outcome_path = root / 'supervised-runner-outcome.json'
     ready = Path(options['ready'])
     runner_argv = [sys.executable, '-B', str(Path(__file__).resolve()), '--fixture',
-                   'supervised-runner', '--ready', str(ready), '--outcome', str(outcome_path)]
+                   'supervised-runner', '--ready', str(ready),
+                   '--outcome', str(runner_outcome_path)]
     event = {}
 
     def fire_when_ready():
@@ -2042,6 +2501,20 @@ def _fixture_ctrlc_controller(options):
     elif event.get('sent') is False:
         observation['controller_error'] = observation.get('controller_error') or \
             'GenerateConsoleCtrlEvent failed'
+    # The inner runner keeps its own separate outcome file byte-for-byte; the
+    # controller only reads it and embeds its content and identity in its own
+    # record. The two files are never merged or overwritten.
+    if runner_outcome_path.is_file():
+        runner_bytes = runner_outcome_path.read_bytes()
+        observation['runner_outcome_sha256'] = hashlib.sha256(runner_bytes).hexdigest()
+        try:
+            observation['runner_outcome'] = json.loads(runner_bytes)
+        except ValueError as error:
+            observation['controller_error'] = observation.get('controller_error') or \
+                f'runner outcome unreadable: {error}'
+    else:
+        observation['controller_error'] = observation.get('controller_error') or \
+            'runner outcome missing'
     outcome_path.write_text(json.dumps(observation, indent=2) + '\n', encoding='utf-8')
     return 0 if observation.get('controller_error') is None and \
         observation.get('runner_exit_code') == 0 else 1
@@ -2159,10 +2632,24 @@ FIXTURES = {
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', choices=('synthetic', 'native'), required=True)
-    parser.add_argument('--evidence-dir', type=Path, required=True)
+    parser.add_argument('--mode', choices=('synthetic', 'native'))
+    parser.add_argument('--evidence-dir', type=Path)
     parser.add_argument('--fixture')
     options, rest = parser.parse_known_args(argv)
+    if options.fixture is not None:
+        # A valid existing fixture dispatches without the ordinary selfcheck
+        # flags; an unknown or empty fixture name is an argument error here,
+        # before any fixture side effect.
+        if options.fixture not in FIXTURES:
+            parser.error(f'unknown --fixture {options.fixture!r}; expected one of '
+                         f'{sorted(FIXTURES)}')
+    else:
+        # The ordinary synthetic/native entry keeps both flags required.
+        missing = [flag for flag, value in (('--mode', options.mode),
+                                            ('--evidence-dir', options.evidence_dir))
+                   if value is None]
+        if missing:
+            parser.error(f'the following arguments are required: {", ".join(missing)}')
     values = {}
     rest = [item for item in rest if item != '--']
     for index in range(0, len(rest) - 1, 2):

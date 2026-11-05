@@ -1,0 +1,282 @@
+{
+  "schema": "wls-windows-runner-validation-report-v5",
+  "generated_at_utc": "2026-11-05T19:03:13.230978+00:00",
+  "scope": "E002 harness-only fixture entry/path/N6/N9 corrections per FINAL v6; three owned repository files; zero production semantic changes",
+  "baseline": {
+    "head": "6c04265a8a7863fc976a8e7da2631c23bada74b0",
+    "tree": "d7cb3cba269b2ec98c0c9775f5be7c89f1e9b6a3",
+    "branch": "fix/audit-windows-evidence-20261105-adp35vg4",
+    "supervisor_test_sha256_baseline": "55b5a6b6e1440da0bfa2bd2ef8a3075fb5a9860afd76cbc2edeb54038a1679be",
+    "production_windows_process_sha256": "a1fa6e7a4477bc819b53c82edfc0c62133c04f52485a5e5a23eba100187e2c02",
+    "production_unchanged_this_batch": true
+  },
+  "native_runs_at_6c04265": [
+    {
+      "run_id": 42076583585,
+      "event": "push",
+      "job_id": 127418273395,
+      "attempt": 1,
+      "api_head_sha": "6c04265a8a7863fc976a8e7da2631c23bada74b0",
+      "actual_checkout": "6c04265a8a7863fc976a8e7da2631c23bada74b0",
+      "tree": "d7cb3cba269b2ec98c0c9775f5be7c89f1e9b6a3",
+      "artifact_id": 13437704765,
+      "artifact_zip_sha256": "c5b56b130e6592adfe78384d0e0559609ab99ca1d3da1cf49ad56b6d08ed54d8",
+      "step_status": {
+        "1": "success",
+        "2": "success",
+        "3": "success",
+        "4": "success",
+        "5": "success",
+        "6": "success",
+        "7": "failure",
+        "8": "skipped",
+        "9": "skipped",
+        "10": "success",
+        "20": "success",
+        "21": "success"
+      },
+      "native_pass": [
+        "startup-abi-nesting",
+        "n7-assign-failure-injection"
+      ],
+      "native_failed": [
+        "N1",
+        "N2",
+        "N3",
+        "N4",
+        "N5",
+        "N6",
+        "N8",
+        "N9",
+        "N10"
+      ],
+      "startup_facts_status": "PASS"
+    },
+    {
+      "run_id": 42076594588,
+      "event": "pull_request",
+      "job_id": 127418314096,
+      "attempt": 1,
+      "api_head_sha": "6c04265a8a7863fc976a8e7da2631c23bada74b0",
+      "actual_checkout": "eb7b68ee37a40219b422943e9551b307386985e0",
+      "tree": "d7cb3cba269b2ec98c0c9775f5be7c89f1e9b6a3",
+      "artifact_id": 13438606566,
+      "artifact_zip_sha256": "be0dc88e98cde44ab2041f46b209609e27770463c1033fa98869c739ba7770dc",
+      "step_status": {
+        "1": "success",
+        "2": "success",
+        "3": "success",
+        "4": "success",
+        "5": "success",
+        "6": "success",
+        "7": "failure",
+        "8": "skipped",
+        "9": "skipped",
+        "10": "success",
+        "20": "success",
+        "21": "success"
+      },
+      "native_pass": [
+        "startup-abi-nesting",
+        "n7-assign-failure-injection"
+      ],
+      "native_failed": [
+        "N1",
+        "N2",
+        "N3",
+        "N4",
+        "N5",
+        "N6",
+        "N8",
+        "N9",
+        "N10"
+      ],
+      "startup_facts_status": "PASS"
+    }
+  ],
+  "startup_boundary_confirmed": {
+    "handle_list_key_contrast": "old key 0x00020000 FALSE with immediate error 24 versus SDK key 0x00020002 TRUE; three fixture-owned handles, 24-byte payload",
+    "createprocess_list_same_as_updated": true,
+    "startup_probe": "COMPLETED, exit 0, tree exit proven, cleanup PROVEN_ZERO",
+    "limit": "confirms this startup boundary on these two hosted runs only; it does not close the nine failed cases or the product suites"
+  },
+  "findings": [
+    {
+      "id": "F6-ENTRY",
+      "tier": "observed in both 6c native runs and statically confirmed",
+      "defect": "parse_args made --mode/--evidence-dir required before internal fixture dispatch, so all nine native fixture invocations died as argument errors (each case has its own 313-byte stderr original)",
+      "repair": "valid existing fixtures dispatch without the ordinary flags; unknown or empty fixture names are argument errors before side effects; the ordinary entry keeps both flags required; fixture priority, parse_known_args residual handling, help exit 0 and return semantics are preserved"
+    },
+    {
+      "id": "F6-PATH",
+      "tier": "statically confirmed with the observed N9 argv/cwd mismatch; not natively reproduced after unlock",
+      "defect": "Recorder stored the relative evidence root as-is, so marker/outcome paths derived from it were re-interpreted in child cwd directories (the workflow passes a relative evidence-dir and budgeted launches change cwd)",
+      "repair": "the evidence root is anchored once to the cwd where the Recorder established it, with no resolve/realpath, no case/separator normalization and no extra dot-dot collapse; absolute inputs and the existing-directory refusal keep their semantics"
+    },
+    {
+      "id": "F6-N6-OUTCOME",
+      "tier": "statically confirmed; masked by the entry failure in the native runs",
+      "defect": "the ctrlc controller forwarded its own outcome path to the supervised runner and then overwrote the same file, destroying the inner interrupt fields N6 consumes",
+      "repair": "the runner keeps its own supervised-runner-outcome.json byte-for-byte; the controller writes a separate controller-outcome record embedding the runner content and its sha256; native N6 verifies the original interrupt/tree fields on the runner record; the unused --budget 18 argv option and every existing timeout/wait stay untouched"
+    },
+    {
+      "id": "F6-N9-NOTE",
+      "tier": "statically confirmed; masked by the entry failure in the native runs",
+      "defect": "the integration router attached the substitution note only to normally returned receipts, so a real TimeoutExpired carrying a dict process receipt reached the N9 check without the required note",
+      "repair": "the router attaches the same note to the existing dict receipt of the original exception and bare-raises the identical object; no receipt is fabricated, the production runner/supervisor are untouched and the 6 s / 300 s routing parameters stay unchanged"
+    }
+  ],
+  "implementation": {
+    "attempt_1": {
+      "red_source_sha256": "1e6cc828c9381e619f0d0eb6adddfa09e047fce3386d5aeae1b554b31e57f24b",
+      "result": "17 PASS / 3 FAIL",
+      "oracle_defect": "the PATH sub-check aborted on the sentinel write FileNotFoundError before recording facts; preserved in red/ and never re-bound; rebuilt as attempt 2"
+    },
+    "attempt_2": {
+      "red_2_source_sha256": "278cb2c298314245469dadb526bfff52fecab3ea62ded45b6c2ddd52e65850c3",
+      "green_2_source_sha256": "367af8d18c19fd95b40c784397b21f6b723c16a35fdd84a65e4f895db51d6bd4",
+      "green_repo_sha256_now": "367af8d18c19fd95b40c784397b21f6b723c16a35fdd84a65e4f895db51d6bd4",
+      "target_symbols_unchanged_in_red_2": "13/13",
+      "green_2_changed_by_design": [
+        "Recorder",
+        "_fixture_ctrlc_controller",
+        "_integration_router",
+        "native_n6_isolated_console_ctrl_c",
+        "parse_args"
+      ],
+      "green_2_still_baseline": [
+        "_fixture_argv",
+        "_fixture_chain",
+        "_fixture_hang",
+        "_fixture_integration_controller",
+        "_fixture_sentinel",
+        "_fixture_supervised_runner",
+        "main",
+        "native_n9_run_native_timeout_integration"
+      ],
+      "oracle_raw_bytes_frozen_red2_green2": true,
+      "registry_frozen_entry_count": 20,
+      "identity_rule": "symbol name plus raw segment sha256 (final newline stripped); baseline line numbers auxiliary only"
+    },
+    "red_2_result": {
+      "pass": 17,
+      "fail": 3,
+      "failed": [
+        "fixture-cli-dispatch-contract",
+        "fixture-ctrlc-outcome-preservation",
+        "fixture-integration-error-receipt"
+      ],
+      "independent_conditions": {
+        "entry": "valid finite leaf CLI probe exited 2 with the required-args stderr; all eight fixture names were rejected at parse level",
+        "path": "relative evidence root stayed relative; markers were absent from the original root and the sentinel handler failed its write in the child cwd (FileNotFoundError: [Errno 2] No such file or directory: 'evidence root with space/sentinel-started.txt'); the absolute-root control passed",
+        "n6": "the controller and runner outcome paths were identical and the inner bytes were overwritten (paths_differ=false, inner_bytes_preserved=false)",
+        "n9": "the re-raised TimeoutExpired kept identity and fields but its receipt had no integration_substitution note"
+      }
+    },
+    "green_result": {
+      "supervisor_synthetic_pass": 20,
+      "runner_synthetic": {
+        "ran_line": "Ran 31 tests in 29.173s",
+        "ok": true,
+        "source": "commands/20261105T185948-1610132-green-2-runner-synthetic.stderr"
+      },
+      "image_provenance": {
+        "ran_line": "Ran 17 tests in 0.493s",
+        "ok": true,
+        "source": "commands/20261105T190031-1610670-green-2-image-provenance.stderr"
+      },
+      "bundle_capture": {
+        "ran_line": "Ran 6 tests in 1.997s",
+        "ok": true,
+        "source": "commands/20261105T190032-1610678-green-2-bundle-capture.stderr"
+      },
+      "expected_counts_met": true
+    },
+    "command_receipts": {
+      "red1": {
+        "path": "commands/20261105T185618-1607860-red-process-synthetic.receipt.json",
+        "sha256": "a29ce16f6153b2c6a513b531592234c4cd05624ddbdf6a519d71b75602d22af1",
+        "exit_code": 1,
+        "stdout_sha256": "a430be873cdf8b4d4865b691fe8214fe3fc4f8af08491bade081b6b7d9e1a2b0",
+        "stderr_sha256": "ca3d433e2f9a74c85858ebfdcc26a234ea5f25151928118b44ea4a9582150ed4",
+        "started_at_utc": "2026-11-05T18:56:18.550962+00:00",
+        "ended_at_utc": "2026-11-05T18:56:21.959699+00:00"
+      },
+      "red2": {
+        "path": "commands/20261105T185853-1609504-red-2-process-synthetic.receipt.json",
+        "sha256": "c40cbe5530cbb554dbb8b54dfacf6227503121a9a848da94b2d1e9e484a7c1d1",
+        "exit_code": 1,
+        "stdout_sha256": "62ac4ddbcf52e389384571c58ba196db68a865e852825db66e800fc27b5897c8",
+        "stderr_sha256": "ca3d433e2f9a74c85858ebfdcc26a234ea5f25151928118b44ea4a9582150ed4",
+        "started_at_utc": "2026-11-05T18:58:53.269152+00:00",
+        "ended_at_utc": "2026-11-05T18:58:56.521502+00:00"
+      },
+      "green_supervisor": {
+        "path": "commands/20261105T185925-1609869-green-2-process-synthetic.receipt.json",
+        "sha256": "143f07c01e7d1592ae96f89fe8b977741c9e70636a377dd22e3af9fd68f365ca",
+        "exit_code": 0,
+        "stdout_sha256": "a5190748f09274b8d92aea3e4e435da4f9e0f4f3a58a4ef1b773664233524d08",
+        "stderr_sha256": "edf6cfb9c74b2fa73c412ddfba0f60eb1f47b37ea28bfd340735eedfdd0d5dd5",
+        "started_at_utc": "2026-11-05T18:59:25.758421+00:00",
+        "ended_at_utc": "2026-11-05T18:59:28.957291+00:00"
+      },
+      "green_runner": {
+        "path": "commands/20261105T185948-1610132-green-2-runner-synthetic.receipt.json",
+        "sha256": "bf2898f9c3344f7a6483ccef5d30d1d355305beeda3ae581e6e113fcc73585ac",
+        "exit_code": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "c9547a40bd25238e3bdd925101b0d214442005a32b666f0e45d3622c6ebf88cb",
+        "started_at_utc": "2026-11-05T18:59:48.339400+00:00",
+        "ended_at_utc": "2026-11-05T19:00:18.433656+00:00"
+      },
+      "green_image": {
+        "path": "commands/20261105T190031-1610670-green-2-image-provenance.receipt.json",
+        "sha256": "da3448b017707fac34f5fce93c99f71a7f9418e93f1fe70062aece1f8f68be62",
+        "exit_code": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "25fb717b511d5dc3cd3dedc0a6ec86873f724d0fd9788b2f414d61e160292303",
+        "started_at_utc": "2026-11-05T19:00:31.145605+00:00",
+        "ended_at_utc": "2026-11-05T19:00:32.231814+00:00"
+      },
+      "green_bundle": {
+        "path": "commands/20261105T190032-1610678-green-2-bundle-capture.receipt.json",
+        "sha256": "c9063e7be0c26f9bd5e98f4199f18b05cb2ebf82b23a119a1a5783b28e79d2f9",
+        "exit_code": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "5b09d0a82a6091acc86b6e65e2de19ae2e79f6d98494bb95d34c5d62c5fd2566",
+        "started_at_utc": "2026-11-05T19:00:32.626672+00:00",
+        "ended_at_utc": "2026-11-05T19:00:34.929516+00:00"
+      }
+    }
+  },
+  "native_validation": {
+    "status": "NOT_RUN_PENDING_CI",
+    "exit_criteria": "startup attribute contrast/list observation plus all eleven startup+N1-N10 cases must pass on the real final-SHA CI originals; N6 must show the separated controller/runner reports with real interrupt and tree proof; N9 must surface a real TimeoutExpired (not an argument exit 2) carrying the exception-receipt note; N10 must show a real KeyboardInterrupt with cleanup before the after snapshot; the workflow keeps passing the relative evidence-dir so cross-cwd behaviour is exercised for real",
+    "windows11_ordinary_user_ntfs": "NOT_RUN",
+    "image_conflict": "UNRESOLVED",
+    "private_original_hosting": "BLOCKED",
+    "full_native_runtime": "NOT_IMPLEMENTED"
+  },
+  "publication_states": {
+    "IMPLEMENTATION_COMPLETE": "yes, for the three owned files and the local evidence described here",
+    "LOCAL_VALIDATION_COMPLETE": "yes, for the local synthetic and three regression suites only",
+    "PUSH_COMPLETE": false,
+    "REMOTE_CI_COMPLETE": "PENDING (future final-SHA runs)",
+    "PR_REVIEW_COMPLETE": "PENDING (fresh independent hard review required)",
+    "MERGED": false
+  },
+  "inherited_disclosures": {
+    "H6_1": "result aggregation stays a pre-finalization projection; final command coverage uses identity-finalization plus per-command originals including source-snapshot-after",
+    "H6_2": "the 12:20 timestamps in the old v1/E003 records are not verified write times; original write times stay UNKNOWN",
+    "H6_4": "README identity is its real sha256 b1334000a93a8ef49eaf3da5ac65cfe97bbe8274df7d607386d5ac16134a3427; the malformed hash in the old response stays excluded",
+    "D03_1_to_D03_4": "system-tmp staging, environment replacement, the manifest transcription error and the report mode normalization stay acknowledged, unwaived and uncorrected",
+    "D04_1_to_D04_7": "the failed first fixture attempt, hand-transcribed precheck, empty-directory and temp-copy deviations, the unverified v4 timestamp, the stripped historical porcelain and the freeze scope clarification all stay open; this round improves on D04-6 by capturing every command receipt with unstripped raw porcelain bytes, base64 and hashes",
+    "hard_review_04_limit": "the per-receipt constant-only disclosure was not carried on every receipt then and is not backfilled"
+  },
+  "budgets_and_limits": {
+    "deadlines_unchanged": true,
+    "local_cpp_build": "none performed by this task",
+    "engineering_only": "the 20 supervisor tool cases are not product registrations and not the native 5-suite/34-method set",
+    "real_wls_or_paid_calls": false
+  }
+}
