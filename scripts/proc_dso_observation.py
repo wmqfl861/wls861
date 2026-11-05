@@ -10,11 +10,18 @@ reclassifies a native or CTest exit or any product gate.
 
 * ``read_status == "COMPLETE"`` only proves that this one /proc text stream
   ended with a real zero-byte read inside the byte / read-attempt /
-  monotonic-time budgets.  It is not an atomic global memory-mapping snapshot
-  and says nothing about unsampled intervals or transient dlopen/unload.
+  monotonic-time budgets, where every read's budget is judged from one
+  monotonic sample taken after that read returns: a zero-byte EOF landing
+  past the time budget stays INCOMPLETE/TIME_BUDGET_EXHAUSTED with
+  ``eof_observed`` recording the EOF fact, never COMPLETE.  It is not an
+  atomic global memory-mapping snapshot and says nothing about unsampled
+  intervals or transient dlopen/unload.
 * ``"FAIL"`` (``SIZE_LIMIT_EXCEEDED``) is proven the moment the
   (limit + 1)-th byte is observed; no oversized raw snapshot is retained for
-  it and no later read may relabel it COMPLETE.
+  it and no later read may relabel it COMPLETE.  For one and the same
+  returned read, SIZE_LIMIT_EXCEEDED outranks TIME_BUDGET_EXHAUSTED, which
+  outranks an EOF COMPLETE; the synchronous loop cannot hard-interrupt a
+  read callback, so no real-time interruption is promised.
 * ``"INCOMPLETE"`` keeps a concrete reason; every failure or incomplete branch
   blocks ``evidence_complete``.
 * Target identity and DSO verification compare only one explicitly expected,
@@ -22,6 +29,15 @@ reclassifies a native or CTest exit or any product gate.
   list.  Descendant or parent mappings never fill a target's direct set.
   Mappings marked ``(deleted)`` are never accepted as evidence for a current
   file object.
+* ``verify_file_object`` binds stat facts, the full EOF-terminated content,
+  the actual byte count and the hash to one fixed read-only fd opened after
+  an lstat type precheck, re-checks that fd after EOF and the pathname after
+  the read, and only then compares the frozen expectation.  Its success
+  domain is regular non-symlink files; the pre-read lstat, post-EOF fstat
+  and final-path lstat are three separate samples, not an atomic filesystem
+  snapshot (the pathname can be replaced after the final sample).  This
+  fixed-fd policy does not apply to the ``/proc/PID/exe`` magic link read
+  by ``RealProcIO.exe_identity``.
 
 All frozen identities must be passed explicitly by the caller.  This module
 never guesses inputs from cwd, ambient configuration or implicit search paths
@@ -39,6 +55,7 @@ import errno
 import hashlib
 import os
 import re
+import stat
 import time
 
 __all__ = [
@@ -135,6 +152,18 @@ def read_proc_stream(read, *, max_bytes=DEFAULT_MAX_BYTES,
     proves SIZE_LIMIT_EXCEEDED (FAIL, no data retained); exhausting the time
     or read-attempt budget, EINTR storms, EAGAIN, permission errors and
     process disappearance are INCOMPLETE with a concrete reason.
+
+    Every read's budget is judged from one monotonic sample taken after the
+    read returns (the same sample also becomes that step's reported
+    elapsed): a zero-byte EOF landing past ``capture_seconds`` stays
+    INCOMPLETE/TIME_BUDGET_EXHAUSTED with ``eof_observed`` recording the EOF
+    fact, and a non-empty block landing past the budget keeps its in-budget
+    data and real counts.  For one and the same returned read,
+    SIZE_LIMIT_EXCEEDED outranks TIME_BUDGET_EXHAUSTED, which outranks
+    COMPLETE; an elapsed exactly equal to the budget keeps completing (the
+    strict ``>`` boundary is unchanged).  This synchronous loop cannot
+    hard-interrupt a running read callback, so no real-time interruption is
+    promised.
     """
     _require(callable(read), "read must be callable")
     _require(callable(clock), "clock must be callable")
@@ -193,16 +222,28 @@ def read_proc_stream(read, *, max_bytes=DEFAULT_MAX_BYTES,
                               b"".join(blocks), clock() - started)
             raise ReadError(f"proc read os error {error.errno}") from error
         last_was_eintr = False
+        # One monotonic sample after every successful read drives both that
+        # read's boundary decision and its reported elapsed.
+        elapsed = clock() - started
         if not block:
+            if elapsed > capture_seconds:
+                # The zero-byte read genuinely proved EOF, but only after the
+                # budget: keep the EOF fact, never COMPLETE.
+                return finish(READ_INCOMPLETE, REASON_TIME_BUDGET_EXHAUSTED,
+                              True, b"".join(blocks), elapsed)
             return finish(READ_COMPLETE, REASON_EOF, True, b"".join(blocks),
-                          clock() - started)
+                          elapsed)
         lengths.append(len(block))
         total += len(block)
         if total > max_bytes:
-            # Proven over budget: keep no oversized raw snapshot.
+            # Proven over budget: keep no oversized raw snapshot; this
+            # outranks a time overrun from the same read.
             return finish(READ_FAIL, REASON_SIZE_LIMIT_EXCEEDED, False, None,
-                          clock() - started)
+                          elapsed)
         blocks.append(block)
+        if elapsed > capture_seconds:
+            return finish(READ_INCOMPLETE, REASON_TIME_BUDGET_EXHAUSTED, False,
+                          b"".join(blocks), elapsed)
 
 
 def proc_path(pid, name):
@@ -397,25 +438,145 @@ def verify_direct_dso_entries(entries, expected_dsos):
             "missing": [item["name"] for item in results if not item["observed"]]}
 
 
+_VFO_FROZEN_FIELDS = ("device", "inode", "type", "size", "mtime_ns", "ctime_ns")
+
+
+def _stat_facts(info):
+    """File-object facts for identity comparison.  The frozen comparison
+    covers device, inode, type, size, mtime_ns and ctime_ns; extra sampled
+    facts (mode/uid/gid/nlink) ride along for diagnosis only."""
+    return {
+        "device": [os.major(info.st_dev), os.minor(info.st_dev)],
+        "inode": info.st_ino,
+        "type": stat.S_IFMT(info.st_mode),
+        "size": info.st_size,
+        "mtime_ns": info.st_mtime_ns,
+        "ctime_ns": info.st_ctime_ns,
+        "mode": info.st_mode,
+        "uid": info.st_uid,
+        "gid": info.st_gid,
+        "nlink": info.st_nlink,
+    }
+
+
+def _same_frozen_object(left, right):
+    return all(left[field] == right[field] for field in _VFO_FROZEN_FIELDS)
+
+
 def verify_file_object(path, expected, *, max_bytes=DEFAULT_MAX_EXE_BYTES):
-    """Re-stat and hash one expected file object; report whether its current
-    identity still matches the frozen expectation."""
-    info = os.stat(path)
-    if info.st_size > max_bytes:
-        return {"path": path, "matches": False, "reason": "EXCEEDS_HASH_BUDGET"}
-    digest = hashlib.sha256()
-    with open(path, "rb") as stream:
+    """Verify one expected file object through a single fixed read-only fd.
+
+    ``matches=True`` means: this one fixed-opened regular (non-symlink) file
+    object's complete EOF-terminated content, actual byte count, device and
+    inode equal the frozen expectation, and the pre-read pathname lstat, the
+    post-EOF fd fstat and the final pathname lstat all showed the same
+    frozen object.  The flow is: pathname lstat type precheck -> one
+    read-only ``os.open`` with O_CLOEXEC/O_NONBLOCK/O_NOFOLLOW -> fstat type
+    and identity alignment with the precheck -> chunked hashing on that one
+    fd, each request at most ``min(1 MiB, remaining + 1)`` bytes and bounded
+    by what is really read (rejected the moment the (max_bytes + 1)-th byte
+    is actually observed, without ever buffering the whole file) -> a real
+    zero-byte EOF -> fd fstat recheck -> final pathname lstat recheck ->
+    comparison with ``expected`` over device/inode/bytes/sha256.
+
+    The success domain is regular non-symlink files: directories, FIFOs,
+    symlinks and post-open type changes are rejected without completing.
+    Over-budget inputs keep the historical ``EXCEEDS_HASH_BUDGET`` reason,
+    with ``stage`` separating the preflight stat-size rejection
+    (``preflight_size``) from a really observed (limit + 1)-th byte
+    (``read_limit_plus_one``); a file of exactly ``max_bytes`` bytes still
+    needs a real zero-byte EOF to complete.  Incomplete observations emit no
+    ``actual`` hash field that could be mistaken for a complete one.
+
+    The precheck, the post-EOF fd stat and the final pathname lstat are
+    three separate samples, not an atomic filesystem snapshot: the pathname
+    can still be replaced after the final sample.  This fixed-fd policy is
+    for ordinary caller-supplied paths only; the ``/proc/PID/exe`` magic
+    link read by ``RealProcIO.exe_identity`` keeps its own contract.
+
+    I/O errors from lstat/open/read/fstat propagate unchanged and never
+    become ``matches=True``; InterruptedError from reads is retried at most
+    ``DEFAULT_MAX_READ_ATTEMPTS`` times and then reported as a structured
+    rejection.  The single fd is closed on every return and raise.
+    """
+    _require(isinstance(max_bytes, int) and not isinstance(max_bytes, bool),
+             "max_bytes must be an integer")
+    _require(max_bytes >= 1, "max_bytes must be positive")
+
+    def rejection(reason, stage, read_bytes, eof_observed):
+        return {"path": path, "matches": False, "actual": None, "reason": reason,
+                "stage": stage, "observation_complete": False,
+                "read_bytes": read_bytes, "eof_observed": eof_observed}
+
+    pre_facts = _stat_facts(os.lstat(path))
+    if pre_facts["type"] != stat.S_IFREG:
+        return rejection("NOT_A_REGULAR_FILE", "preflight_lstat_type", 0, False)
+    if pre_facts["size"] > max_bytes:
+        return rejection("EXCEEDS_HASH_BUDGET", "preflight_size", 0, False)
+
+    flags = (os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+             | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0))
+    fd = os.open(path, flags)
+    try:
+        opened_facts = _stat_facts(os.fstat(fd))
+        if opened_facts["type"] != stat.S_IFREG:
+            return rejection("NOT_A_REGULAR_FILE", "open_fstat_type", 0, False)
+        if not _same_frozen_object(pre_facts, opened_facts):
+            return rejection("OBJECT_REPLACED_BEFORE_OPEN", "open_identity",
+                             0, False)
+
+        digest = hashlib.sha256()
+        total = 0
+        eof_observed = False
+        interrupted = 0
         while True:
-            block = stream.read(1024 * 1024)
+            want = min(1024 * 1024, max_bytes - total + 1)
+            try:
+                block = os.read(fd, want)
+            except InterruptedError:
+                interrupted += 1
+                if interrupted > DEFAULT_MAX_READ_ATTEMPTS:
+                    return rejection("EINTR_BUDGET_EXHAUSTED", "read_eintr",
+                                     total, eof_observed)
+                continue
             if not block:
+                eof_observed = True
                 break
+            total += len(block)
+            if total > max_bytes:
+                return rejection("EXCEEDS_HASH_BUDGET", "read_limit_plus_one",
+                                 total, False)
             digest.update(block)
-    actual = {"device": [os.major(info.st_dev), os.minor(info.st_dev)],
-              "inode": info.st_ino, "bytes": info.st_size,
-              "sha256": digest.hexdigest()}
-    keys = ("device", "inode", "bytes", "sha256")
-    matches = all(actual[key] == expected.get(key) for key in keys)
-    return {"path": path, "actual": actual, "matches": matches}
+
+        after_facts = _stat_facts(os.fstat(fd))
+        if after_facts["type"] != stat.S_IFREG:
+            return rejection("NOT_A_REGULAR_FILE", "post_read_fstat_type",
+                             total, eof_observed)
+        if not _same_frozen_object(opened_facts, after_facts):
+            return rejection("OBJECT_CHANGED_DURING_READ", "post_read_fstat",
+                             total, eof_observed)
+        if total != after_facts["size"]:
+            return rejection("SIZE_MISMATCH", "post_read_size", total,
+                             eof_observed)
+
+        final_facts = _stat_facts(os.lstat(path))
+        if final_facts["type"] != stat.S_IFREG:
+            return rejection("NOT_A_REGULAR_FILE", "final_lstat_type",
+                             total, eof_observed)
+        if not _same_frozen_object(after_facts, final_facts):
+            return rejection("PATH_REPLACED_AFTER_READ", "final_lstat",
+                             total, eof_observed)
+
+        actual = {"device": opened_facts["device"],
+                  "inode": opened_facts["inode"], "bytes": total,
+                  "read_bytes": total, "sha256": digest.hexdigest()}
+        keys = ("device", "inode", "bytes", "sha256")
+        matches = all(actual[key] == expected.get(key) for key in keys)
+        return {"path": path, "actual": actual, "matches": matches,
+                "reason": None, "stage": None, "observation_complete": True,
+                "read_bytes": total, "eof_observed": eof_observed}
+    finally:
+        os.close(fd)
 
 
 def pid_identity_matches(expected, actual):

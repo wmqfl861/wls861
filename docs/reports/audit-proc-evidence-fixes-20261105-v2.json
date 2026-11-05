@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "report_id": "audit-proc-evidence-fixes-20261105-v2",
+  "created_at": "2026-11-05",
+  "scope": {
+    "finding_ids": ["F-02", "F-03"],
+    "module": "scripts/proc_dso_observation.py (diagnostic tool; not registered with CTest/Make/CI)",
+    "files_changed": [
+      {
+        "path": "scripts/proc_dso_observation.py",
+        "sha256_before": "795e8bc135a02e041e8937c6f3834ca82c9f25d8d894451dfa60b9c0b1836cd9",
+        "sha256_after": "b9878f2d3589ee6b23e6814131e43b310d1b040cfbbfa0f0dfeecfedad9e16eb"
+      },
+      {
+        "path": "tests/test_proc_dso_observation.py",
+        "sha256_before": "075dd9446821475dd2a5a1f43b8eaa6a42f666370dbaab999c9a6526a147edff",
+        "sha256_after": "8ba8948b884086acc375320d806c1b8a976cb3aebfbc3039795e14e532fa4b15"
+      }
+    ],
+    "branch": "fix/audit-proc-evidence-20261105-adp35vg4",
+    "baseline_commit": "537b3aef5d5671325239d626448608041de8b79a",
+    "product_callers_of_verify_file_object": "none in this repository (re-verified by full-tree search before and after)"
+  },
+  "fixes": {
+    "F-02_read_proc_stream": {
+      "defect": "time budget was checked only before each read; a real zero-byte EOF returned after the budget was still classified COMPLETE/EOF",
+      "contract_after": [
+        "budgets unchanged (2 MiB bytes, 1024 attempts, 0.25 s, 65536 chunk); injected read/clock preserved",
+        "one monotonic sample after every successful read drives that step's decision and elapsed_seconds",
+        "same-read priority SIZE_LIMIT_EXCEEDED > TIME_BUDGET_EXHAUSTED > EOF COMPLETE; exact-equal elapsed still completes (strict >)",
+        "late zero-byte EOF: INCOMPLETE/TIME_BUDGET_EXHAUSTED with eof_observed=true, in-budget data and real counts kept; maps_eof_complete/evidence_complete derive only from COMPLETE",
+        "EINTR/EAGAIN/permission/disappearance/OSError mappings, attempt counting and ReadError chaining unchanged"
+      ]
+    },
+    "F-03_verify_file_object": {
+      "defect": "os.stat then a second path open mixed two file objects: actual identity from the old stat, hash from the newly opened object; no type precheck, no fd identity, no post-read rechecks",
+      "contract_after": [
+        "same name/signature; max_bytes default 1 GiB unchanged, validated as a positive non-bool integer",
+        "flow: lstat type precheck -> single read-only os.open (O_CLOEXEC/O_NONBLOCK/O_NOFOLLOW) -> fstat type/identity alignment -> same-fd chunked hash, requests capped at min(1 MiB, remaining+1), rejected on the really observed (limit+1)-th byte -> real zero-byte EOF -> fd re-fstat -> final pathname lstat -> compare device/inode/bytes/sha256",
+        "fstat/path comparisons cover device, inode, type, size, mtime_ns, ctime_ns; actual bytes are the really read byte count and must equal the stable size",
+        "success domain: regular non-symlink files; directory/FIFO/symlink and post-open type changes rejected without opening a FIFO",
+        "EXCEEDS_HASH_BUDGET kept, stage preflight_size vs read_limit_plus_one distinguishes the two byte-budget rejections; incomplete observations emit no actual hash field",
+        "bounded EINTR retries (DEFAULT_MAX_READ_ATTEMPTS) then structured EINTR_BUDGET_EXHAUSTED; other I/O errors propagate and never become matches=true; the single fd is closed on every return/reject/raise",
+        "documented limit: precheck/fd-restat/final-lstat are three separate samples, not an atomic filesystem snapshot; policy does not apply to the /proc/PID/exe magic link in RealProcIO.exe_identity"
+      ]
+    }
+  },
+  "validation": {
+    "environment": "ordinary user uid=1000; stock CPython 3.12.3; task-private data-disk TMPDIR; PYTHONDONTWRITEBYTECODE=1; python3 -B direct entry",
+    "evidence_location": "private module evidence directory implementation-01/runs (exclusive outputs; capture script sha256 9ca7ba03...; failing red run preserved as designed)",
+    "runs": [
+      {
+        "label": "red-core-2tests",
+        "source_sha256": "795e8bc135a02e041e8937c6f3834ca82c9f25d8d894451dfa60b9c0b1836cd9",
+        "test_sha256": "8ba8948b884086acc375320d806c1b8a976cb3aebfbc3039795e14e532fa4b15",
+        "tests": ["StreamReadTests.test_final_eof_over_time_budget", "FileObjectTests.test_swap_before_open_rejected"],
+        "exit_code": 1,
+        "result": "Ran 2, FAILED (failures=2): 'COMPLETE' != 'INCOMPLETE'; True is not false (deterministic counterexamples on the unmodified baseline real helpers)",
+        "stderr_sha256": "4c9516d1274fd83af19d2b380f254c4de5a22184e60c98255b18c1cd2996542c"
+      },
+      {
+        "label": "green-core-2tests",
+        "source_sha256": "b9878f2d3589ee6b23e6814131e43b310d1b040cfbbfa0f0dfeecfedad9e16eb",
+        "test_sha256": "8ba8948b884086acc375320d806c1b8a976cb3aebfbc3039795e14e532fa4b15",
+        "tests": ["StreamReadTests.test_final_eof_over_time_budget", "FileObjectTests.test_swap_before_open_rejected"],
+        "exit_code": 0,
+        "result": "Ran 2, OK (same frozen expectations and command as the red run)",
+        "stderr_sha256": "f7d1e2c2afb4c17030f344101cbb9db2b7c53ed2595ef7399f83cacb36fad081"
+      },
+      {
+        "label": "full-suite",
+        "source_sha256": "b9878f2d3589ee6b23e6814131e43b310d1b040cfbbfa0f0dfeecfedad9e16eb",
+        "test_sha256": "8ba8948b884086acc375320d806c1b8a976cb3aebfbc3039795e14e532fa4b15",
+        "tests": ["whole existing entry python3 -B tests/test_proc_dso_observation.py -v"],
+        "exit_code": 0,
+        "result": "Ran 42, OK, 0 skipped (includes the real stock-interpreter /proc fixture with its own five-second bound)",
+        "stderr_sha256": "1b70485a5150ac289069f3bcb66bac971e945e57fb8b14b272f113a9fbac1da7"
+      }
+    ],
+    "test_count_breakdown": {
+      "existing_kept": 23,
+      "new_F02": 4,
+      "new_F03": 15,
+      "total": 42,
+      "note": "original elapsed/status/data/count/error assertions all retained and passing; ListClock fixed to explicitly remember its last value (the exhausted-list expression previously indexed an empty list)"
+    },
+    "strength_layers": {
+      "real_helper_injected_clock": "F-02 core/boundaries/same-read priority exercise the unmocked read_proc_stream with an event clock; not an end-to-end /proc timing claim",
+      "real_helper_wrapped_os_seams": "F-03's 15 tests exercise the unmocked verify_file_object; swaps/mutations confined to the fixture's own path and owned fd via wrapped open/os.open/os.read/os.fstat/os.close restored in finally; fd closure proven by immediate EBADF with the real os.fstat (no close-spy-only trust, no /proc/self/fd)",
+      "synthetic_upper_layer": "F-02 propagation uses a FakeProcIO derivative whose maps read forwards to the real helper; explicitly synthetic",
+      "real_ordinary_subprocess": "existing Group 4 stock-interpreter /proc fixture passed on the fixed source; no TOOL_INTEGRATION_BLOCKED on this platform",
+      "not_done_here": "no real provider/model calls, no product Store, no product CTest/CI/sanitizer runs"
+    },
+    "red_phase_discipline": "only the two deterministically terminating core counterexamples were run on the original source; FIFO/directory/symlink and EINTR-storm boundaries that would hang or be meaningless on the old code ran only on the fixed source"
+  },
+  "status": {
+    "IMPLEMENTATION_COMPLETE": true,
+    "LOCAL_VALIDATION_COMPLETE": "true (tool self-check scope only)",
+    "PUSH_COMPLETE": false,
+    "REMOTE_CI_COMPLETE": false,
+    "PR_REVIEW_COMPLETE": false,
+    "MERGED": false
+  },
+  "preserved_open_states": [
+    "historical local sanitizer/Clang/live_workflow/Make IPC open states",
+    "strict WAL/SHM compatibility BLOCKED_NOT_COMPLETE",
+    "Windows 11 ordinary-user NTFS NOT_RUN",
+    "private original hosting BLOCKED",
+    "95 product CTest registrations and deadlines unchanged; this tool registers no product gate",
+    "audit finding F-O1 (snapshot_retained contract question) not merged into this fix"
+  ],
+  "limitations": [
+    "final pathname lstat happens after the read; the pathname can still be replaced afterwards (three samples, not an atomic filesystem snapshot)",
+    "verify_file_object remains a diagnostic API with no product callers; this is not a product DSO-load authentication fix",
+    "tool green is not a product sanitizer or compatibility pass"
+  ],
+  "report_revision": {
+    "revision": "v2 metadata correction; same-day supersedes of the v1 pair; no technical contract, run fact, limitation or open-state change; v1 originals retained unmodified at their original paths",
+    "supersedes": {
+      "md": {
+        "path": "docs/reports/audit-proc-evidence-fixes-20261105-v1.md",
+        "sha256": "829c1ba13478af98a263011b7272fba0ae1c52ebdca85c269864036cb078092d"
+      },
+      "json": {
+        "path": "docs/reports/audit-proc-evidence-fixes-20261105-v1.json",
+        "sha256": "d8d99715f719d0a1741f10b31e19c8f73698fc5d8c859ac1bc7702ae8401093e"
+      }
+    },
+    "corrected_at": "2026-11-05T12:01:54.758638+00:00",
+    "corrections": [
+      {
+        "field": "validation.test_count_breakdown.existing_kept",
+        "old_incorrect_value": 24,
+        "corrected_value": 23,
+        "basis": "static ast.parse enumeration of class-local test_* methods on the exact baseline commit blob: 23 baseline methods all retained + 4 new StreamReadTests + 15 new FileObjectTests = 42 (also 23 + 19 = 42), consistent with the historical full-suite receipt 'Ran 42 tests'; 24 + 4 + 15 = 43 was self-contradictory; not the result of any new test run"
+      },
+      {
+        "field": "scope.files_changed[path=tests/test_proc_dso_observation.py].sha256_before",
+        "old_incorrect_value": "075dd9446821475dd2a5a1f43b8baa6a42f666370dbaab999c9a6526a147edff (old incorrect value; provenance only, not used by any valid identity field)",
+        "corrected_value": "075dd9446821475dd2a5a1f43b8eaa6a42f666370dbaab999c9a6526a147edff",
+        "basis": "SHA-256 recomputed this correction round over the exact git blob 537b3aef5d5671325239d626448608041de8b79a:tests/test_proc_dso_observation.py; the same transcription error in the original private implementation summary is preserved unmodified and superseded by this round's private correction manifest; all other before/after source/test hashes keep their original values"
+      }
+    ],
+    "verification_this_round": "static-only: git blob sha256 recomputation plus ast.parse method enumeration; no module import or execution; no new tests run (new_tests_run=false); the Ran-42 full-suite result continues to reuse the historical implementation-01 receipts and logs",
+    "status_time_scope": {
+      "note": "the six status values in this report are the historical snapshot from the original implementation report-writing stage; the original v1 report's exact creation UTC is unknown; the original implementation-stage entry receipt created_at 2026-11-05T11:20:57.240960+00:00 is a stage anchor only, not the report write time",
+      "values_changed_by_v2": false,
+      "post_original_hard_review": "hard-review-01 (separate read-only session) registered PASS with its receipt at 2026-11-05T11:33:07.259879+00:00; recorded separately here; this is not PR_REVIEW_COMPLETE and not the result of a new v2 hard review (none has run)"
+    }
+  }
+}

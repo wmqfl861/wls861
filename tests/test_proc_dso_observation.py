@@ -17,11 +17,20 @@ the private implementation receipts, not here.
 
 Group 4 runs one small ordinary-user fixture process (a stock interpreter
 waiting on a controlled pipe).  It exercises the real /proc paths, real EOF
-and target-exe binding against that process's own limited static identity.  It
-does not call any WLS code, create a business Store or run product tests, and
-it reaps only that one fixture process.  If the platform denies the needed
-/proc access, the case is reported as TOOL_INTEGRATION_BLOCKED and skipped,
-never silently passed.
+and target-exe binding against that process's own limited static identity.
+It does not call any WLS code, create a business Store or run product tests,
+and it reaps only that one fixture process.  If the platform denies the
+needed /proc access, the case is reported as TOOL_INTEGRATION_BLOCKED and
+skipped, never silently passed.
+
+The F-02 additions in StreamReadTests check the post-read budget contract
+with an event-driven injected clock (the clock only advances at read
+boundaries, so the same fixtures stay deterministic on any implementation).
+The F-03 additions in FileObjectTests check the fixed-fd file-object
+contract with deterministic wrapped-OS-call seams confined to one fixture
+path/fd, same-bytes different-inode swap files, and EBADF fd-closure proofs
+(no /proc/self/fd enumeration).  All their fixtures are created and removed
+inside this file's own temporary directories.
 """
 
 from __future__ import annotations
@@ -31,6 +40,7 @@ import hashlib
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 
@@ -61,11 +71,39 @@ class ScriptedRead:
 
 
 class ListClock:
+    """Deterministic clock over a finite value list.  Once the list is
+    exhausted the last value is explicitly remembered and repeated, so
+    implementations that sample the clock a different number of times still
+    see a defined monotonic instant instead of an indexing failure."""
+
     def __init__(self, values):
         self.values = list(values)
+        self.last = self.values[0] if self.values else None
 
     def __call__(self):
-        return self.values.pop(0) if self.values else self.values[-1:][0]
+        if self.values:
+            self.last = self.values.pop(0)
+        return self.last
+
+
+def advancing_clock_read(events, start=0.0):
+    """Deterministic (read, clock) pair for post-read budget checks: one
+    shared monotonic clock that only advances when the read callback runs,
+    to the scheduled instant of that read.  No sleeps are used; the queue is
+    finite, so an implementation needing one read more than scheduled fails
+    loudly instead of silently reusing a stale instant."""
+    state = {"now": start}
+    queue = list(events)
+
+    def read(_count):
+        when, block = queue.pop(0)
+        state["now"] = when
+        return block
+
+    def clock():
+        return state["now"]
+
+    return read, clock
 
 
 def chunked_read(data, size):
@@ -141,6 +179,36 @@ class FakeProcIO(pdo.ProcIO):
         if name == "maps":
             return pdo.read_proc_stream(chunked_read(spec["maps"], 13), **budgets)
         raise ValueError(f"unsupported fake stream {name}")
+
+
+class LateEofProcIO(FakeProcIO):
+    """FakeProcIO whose maps stream ends with a genuine zero-byte EOF that
+    only arrives after the capture budget: the fixture-owned clock jumps
+    exactly when the final EOF read runs.  Identity/exe premises stay valid,
+    so only the late EOF can block evidence completion."""
+
+    def __init__(self, processes, jump_to=5.0):
+        super().__init__(processes)
+        self.jump_to = jump_to
+
+    def read_text_stream(self, pid, name, **budgets):
+        spec = self.processes.get(int(pid))
+        if spec is None:
+            raise ProcessLookupError(f"no such pid {pid}")
+        if name != "maps":
+            raise ValueError(f"unsupported fake stream {name}")
+        if "clock" in budgets:
+            raise ValueError("LateEofProcIO owns the clock for this fixture")
+        base = chunked_read(spec["maps"], 13)
+        state = {"now": 0.0}
+
+        def read(count):
+            block = base(count)
+            if not block:
+                state["now"] = self.jump_to
+            return block
+
+        return pdo.read_proc_stream(read, clock=lambda: state["now"], **budgets)
 
 
 def synthetic_identity(pid=4242, ppid=100, start_ticks=999999):
@@ -313,6 +381,113 @@ class StreamReadTests(unittest.TestCase):
             self.assertEqual(result.elapsed_seconds, 0.5)
             self.assertGreaterEqual(result.elapsed_seconds, 0.0)
 
+    def test_final_eof_over_time_budget(self):
+        """F-02 core counterexample: the genuine zero-byte EOF lands after
+        the monotonic capture budget.  The original loop checked time only
+        before each read and classified this COMPLETE; the contract now
+        samples the clock once after every successful read, so the same EOF
+        must be INCOMPLETE/TIME_BUDGET_EXHAUSTED with the EOF fact kept.
+        Real helper with an injected event clock; no /proc end-to-end run is
+        implied."""
+        read, clock = advancing_clock_read([(0.5, b"")])
+        result = pdo.read_proc_stream(read, capture_seconds=0.25, clock=clock)
+        self.assertEqual(result.read_status, pdo.READ_INCOMPLETE)
+        self.assertEqual(result.reason, pdo.REASON_TIME_BUDGET_EXHAUSTED)
+        self.assertTrue(result.eof_observed)
+        self.assertEqual(result.elapsed_seconds, 0.5)
+        self.assertEqual(result.read_attempts, 1)
+        self.assertEqual(result.data, b"")
+
+    def test_post_read_time_boundaries(self):
+        """F-02 boundary matrix: an EOF inside or exactly at the budget still
+        completes (the strict ``>`` boundary and every budget are unchanged);
+        a non-empty block landing past the budget is INCOMPLETE with its
+        in-budget data and real counts kept; an EOF on the last permitted
+        read still completes; exhausting attempts without any EOF stays
+        INCOMPLETE."""
+        with self.subTest("eof_just_inside_budget_completes"):
+            read, clock = advancing_clock_read([(0.249, b"")])
+            result = pdo.read_proc_stream(read, capture_seconds=0.25, clock=clock)
+            self.assertEqual(result.read_status, pdo.READ_COMPLETE)
+            self.assertEqual(result.reason, pdo.REASON_EOF)
+            self.assertTrue(result.eof_observed)
+            self.assertEqual(result.elapsed_seconds, 0.249)
+        with self.subTest("eof_exactly_at_budget_completes"):
+            read, clock = advancing_clock_read([(0.25, b"")])
+            result = pdo.read_proc_stream(read, capture_seconds=0.25, clock=clock)
+            self.assertEqual(result.read_status, pdo.READ_COMPLETE)
+            self.assertTrue(result.eof_observed)
+            self.assertEqual(result.elapsed_seconds, 0.25)
+        with self.subTest("late_non_empty_block_is_incomplete"):
+            read, clock = advancing_clock_read([(0.5, b"data")])
+            result = pdo.read_proc_stream(read, capture_seconds=0.25, clock=clock)
+            self.assertEqual(result.read_status, pdo.READ_INCOMPLETE)
+            self.assertEqual(result.reason, pdo.REASON_TIME_BUDGET_EXHAUSTED)
+            self.assertFalse(result.eof_observed)
+            self.assertEqual(result.data, b"data")
+            self.assertEqual(result.total_bytes, 4)
+            self.assertEqual(result.read_lengths, [4])
+            self.assertEqual(result.read_attempts, 1)
+            self.assertEqual(result.elapsed_seconds, 0.5)
+        with self.subTest("eof_on_last_permitted_read_completes"):
+            read, clock = advancing_clock_read([(0.0, b"a"), (0.1, b"")])
+            result = pdo.read_proc_stream(read, capture_seconds=1.0,
+                                           max_read_attempts=2, clock=clock)
+            self.assertEqual(result.read_status, pdo.READ_COMPLETE)
+            self.assertTrue(result.eof_observed)
+            self.assertEqual(result.read_attempts, 2)
+            self.assertEqual(result.data, b"a")
+        with self.subTest("attempts_exhausted_without_eof_stays_incomplete"):
+            def always_data(_count):
+                return b"ab"
+            result = pdo.read_proc_stream(always_data, capture_seconds=5.0,
+                                           max_read_attempts=4)
+            self.assertEqual(result.read_status, pdo.READ_INCOMPLETE)
+            self.assertEqual(result.reason, pdo.REASON_READ_ATTEMPTS_EXHAUSTED)
+            self.assertFalse(result.eof_observed)
+            self.assertEqual(result.total_bytes, 8)
+            self.assertEqual(result.read_attempts, 4)
+
+    def test_size_limit_outranks_late_time_in_same_read(self):
+        """F-02 priority: when one and the same read both delivers the
+        (limit + 1)-th byte and lands past the time budget,
+        SIZE_LIMIT_EXCEEDED wins; no oversized snapshot is retained and EOF
+        cannot be claimed for that read."""
+        read, clock = advancing_clock_read([(0.5, b"x" * 17)])
+        result = pdo.read_proc_stream(read, capture_seconds=0.25,
+                                      max_bytes=16, clock=clock)
+        self.assertEqual(result.read_status, pdo.READ_FAIL)
+        self.assertEqual(result.reason, pdo.REASON_SIZE_LIMIT_EXCEEDED)
+        self.assertFalse(result.eof_observed)
+        self.assertIsNone(result.data)
+        self.assertEqual(result.total_bytes, 17)
+        self.assertEqual(result.read_attempts, 1)
+        self.assertEqual(result.elapsed_seconds, 0.5)
+
+    def test_late_eof_blocks_evidence_complete(self):
+        """F-02 propagation through the synthetic upper layer: FakeProcIO
+        forwards to the real read_proc_stream, so a genuinely late EOF keeps
+        the target/DSO premises valid while maps_eof_complete and
+        evidence_complete must both stay false.  Explicitly a synthetic
+        upper-layer composition, not a real /proc observation."""
+        maps = SyntheticMaps()
+        io = LateEofProcIO({4242: {"identity": synthetic_identity(),
+                                   "exe": synthetic_exe(),
+                                   "maps": maps.bytes}}, jump_to=5.0)
+        expected_identity = {"pid": 4242, "start_ticks": 999999,
+                             "uid": os.getuid(), "ppid": 100, "pgid": 100,
+                             "sid": 100}
+        result = pdo.observe_target(4242, expected_pid_identity=expected_identity,
+                                    expected_elf=synthetic_exe(),
+                                    expected_dsos=maps.expected, io=io)
+        self.assertEqual(result["maps_read"]["read_status"], pdo.READ_INCOMPLETE)
+        self.assertEqual(result["maps_read"]["reason"],
+                         pdo.REASON_TIME_BUDGET_EXHAUSTED)
+        self.assertTrue(result["maps_read"]["eof_observed"])
+        self.assertFalse(result["maps_eof_complete"])
+        self.assertTrue(result["target_identity_verified"])
+        self.assertFalse(result["evidence_complete"])
+
 
 class MapsParseTests(unittest.TestCase):
     def test_parse_complete_maps_and_reject_bad_lines(self):
@@ -479,6 +654,516 @@ class SnapshotStoreTests(unittest.TestCase):
         self.assertEqual(store.total_bytes, len(maps.bytes))
         self.assertEqual(store.records[0]["target_identity"]["exe_sha256"],
                          synthetic_exe()["sha256"])
+
+
+class _OwnedFdSeams:
+    """Deterministic OS-call seams for exactly one verify_file_object fixture.
+
+    For the duration of one helper call this wraps the module-level ``open``
+    (the original baseline helper's read path), ``os.open``/``os.close`` (the
+    fixed-fd helper path) and ``os.read``/``os.fstat``.  The pathname swap
+    fires at most once and only for this fixture's own target path; the
+    read/fstat seams fire only for fds obtained from that path.  Every other
+    path, fd and call is passed through to the saved original function, and
+    everything is restored by ``restore()``.  Fd closure is proven with the
+    real ``os.fstat`` raising EBADF after the helper returned and before any
+    other open could reuse a number; a close spy alone is never trusted and
+    /proc/self/fd is never enumerated.
+    """
+
+    def __init__(self, target):
+        self.target = os.path.abspath(target)
+        self.real_open = open
+        self.real_os_open = os.open
+        self.real_os_close = os.close
+        self.real_os_read = os.read
+        self.real_os_fstat = os.fstat
+        self.swap_action = None      # callable(target_path), fires at most once
+        self.swap_triggered = False
+        self.read_hook = None        # callable(fd, block) after a real read
+        self.read_override = None    # callable(fd, count) replacing the read
+        self.fstat_hook = None       # callable(fd) before a real fstat
+        self.owned_fds = []
+        self.helper_closed_fds = set()
+        self.harness_closed_fds = []
+        self.installed = False
+
+    def install(self):
+        if "open" in vars(pdo):
+            raise AssertionError("proc_dso_observation unexpectedly defines open")
+        self.installed = True
+        pdo.open = self._wrapped_module_open
+        os.open = self._wrapped_os_open
+        os.close = self._wrapped_os_close
+        os.read = self._wrapped_os_read
+        os.fstat = self._wrapped_os_fstat
+
+    def restore(self):
+        if not self.installed:
+            return
+        del pdo.open
+        os.open = self.real_os_open
+        os.close = self.real_os_close
+        os.read = self.real_os_read
+        os.fstat = self.real_os_fstat
+        self.installed = False
+
+    def _maybe_swap(self, path):
+        if self.swap_action is None or self.swap_triggered:
+            return
+        try:
+            candidate = os.fspath(path)
+        except TypeError:
+            return
+        if os.path.abspath(candidate) != self.target:
+            return
+        self.swap_triggered = True
+        self.swap_action(self.target)
+
+    def _wrapped_module_open(self, file, mode="r", *args, **kwargs):
+        self._maybe_swap(file)
+        stream = self.real_open(file, mode, *args, **kwargs)
+        try:
+            self.owned_fds.append(stream.fileno())
+        except (OSError, ValueError):
+            pass
+        return stream
+
+    def _wrapped_os_open(self, path, flags, *args, **kwargs):
+        self._maybe_swap(path)
+        fd = self.real_os_open(path, flags, *args, **kwargs)
+        try:
+            if os.path.abspath(os.fspath(path)) == self.target:
+                self.owned_fds.append(fd)
+        except (TypeError, ValueError):
+            pass
+        return fd
+
+    def _wrapped_os_close(self, fd, *args, **kwargs):
+        result = self.real_os_close(fd, *args, **kwargs)
+        self.helper_closed_fds.add(fd)
+        return result
+
+    def _wrapped_os_read(self, fd, count):
+        if fd in self.owned_fds and self.read_override is not None:
+            return self.read_override(fd, count)
+        block = self.real_os_read(fd, count)
+        if fd in self.owned_fds and self.read_hook is not None:
+            self.read_hook(fd, block)
+        return block
+
+    def _wrapped_os_fstat(self, fd):
+        if fd in self.owned_fds and self.fstat_hook is not None:
+            self.fstat_hook(fd)
+        return self.real_os_fstat(fd)
+
+    def unclosed_fds(self):
+        """Fds this fixture observed that are still open once the helper has
+        returned (the real ``os.fstat`` did not raise EBADF)."""
+        leftovers = []
+        for fd in self.owned_fds:
+            try:
+                self.real_os_fstat(fd)
+            except OSError as error:
+                if error.errno != errno.EBADF:
+                    raise
+            else:
+                leftovers.append(fd)
+        return leftovers
+
+    def harness_close(self, fds):
+        """Test-side fallback so that even a failing assertion never leaks
+        the helper's fd; recorded separately from helper-managed closure."""
+        for fd in fds:
+            try:
+                self.real_os_close(fd)
+                self.harness_closed_fds.append(fd)
+            except OSError:
+                pass
+
+
+class FileObjectTests(unittest.TestCase):
+    """F-03: verify_file_object must bind stat facts, the complete EOF
+    content, the actual byte count and the hash to one fixed opened file
+    object, and must reject replacement, in-place change, non-regular types
+    and over-budget reads with stable reason codes.  Every fixture is a
+    regular file this class creates inside its own task-private temporary
+    directory; replacements are same-bytes different-inode files from the
+    same test.  No product DSO is loaded, no archived probe is executed and
+    no other task's files are touched."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="proc-f03-")
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = self._tmp.name
+
+    def _write(self, name, payload):
+        path = os.path.join(self.dir, name)
+        with open(path, "wb") as handle:
+            handle.write(payload)
+        return path
+
+    def _expected_for(self, path, payload):
+        info = os.lstat(path)
+        return {"device": [os.major(info.st_dev), os.minor(info.st_dev)],
+                "inode": info.st_ino, "bytes": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest()}
+
+    def _run_with_seams(self, seams, call):
+        """Install the seams, run ``call``, restore, then verify every fd
+        observed for this fixture is closed (real EBADF) before anything
+        else could open; leftovers are harness-closed so no assertion
+        failure or helper exception leaks an fd."""
+        try:
+            seams.install()
+            try:
+                outcome = call()
+            finally:
+                seams.restore()
+        finally:
+            leftovers = seams.unclosed_fds()
+            seams.harness_close(leftovers)
+        return outcome, leftovers
+
+    def test_swap_before_open_rejected(self):
+        """F-03 core counterexample: the pathname is atomically replaced by
+        a same-bytes different-inode file between the identity precheck and
+        the first real open.  The original helper hashed the replacement
+        while labelling the result with the old stat and reported
+        matches=true; the fixed helper compares the fixed fd's identity with
+        the precheck and rejects the mixed object."""
+        payload = b"swap-before-open fixture payload"
+        target = self._write("target.bin", payload)
+        replacement = self._write("replacement.bin", payload)
+        expected = self._expected_for(target, payload)
+        self.assertNotEqual(os.lstat(target).st_ino,
+                            os.lstat(replacement).st_ino)
+        seams = _OwnedFdSeams(target)
+        seams.swap_action = lambda path: os.replace(replacement, path)
+        result, leftovers = self._run_with_seams(
+            seams, lambda: pdo.verify_file_object(target, expected))
+        self.assertEqual(leftovers, [])
+        self.assertTrue(seams.swap_triggered)
+        self.assertFalse(result["matches"])
+        self.assertEqual(result["reason"], "OBJECT_REPLACED_BEFORE_OPEN")
+        self.assertEqual(result["stage"], "open_identity")
+        self.assertFalse(result["observation_complete"])
+        self.assertIsNone(result["actual"])
+        self.assertFalse(result["eof_observed"])
+        self.assertEqual(result["read_bytes"], 0)
+
+    def test_path_swapped_during_read_rejected(self):
+        """F-03: the pathname is replaced after one data block was read from
+        the still-open fd; the fixed fd is drained to its real EOF, but the
+        final pathname identity check must reject the object mix."""
+        payload = bytes(range(256)) * 8
+        target = self._write("target.bin", payload)
+        other = self._write("other.bin", payload)
+        expected = self._expected_for(target, payload)
+        seams = _OwnedFdSeams(target)
+        state = {"swapped": False}
+
+        def on_read(fd, block):
+            if block and not state["swapped"]:
+                state["swapped"] = True
+                os.replace(other, target)
+
+        seams.read_hook = on_read
+        result, leftovers = self._run_with_seams(
+            seams, lambda: pdo.verify_file_object(target, expected))
+        self.assertEqual(leftovers, [])
+        self.assertTrue(state["swapped"])
+        self.assertFalse(result["matches"])
+        self.assertEqual(result["reason"], "PATH_REPLACED_AFTER_READ")
+        self.assertEqual(result["stage"], "final_lstat")
+        self.assertTrue(result["eof_observed"])
+        self.assertEqual(result["read_bytes"], len(payload))
+        self.assertFalse(result["observation_complete"])
+        self.assertIsNone(result["actual"])
+
+    def test_path_swapped_at_eof_boundary_rejected(self):
+        """F-03: replacement exactly at the EOF read seam: the fixed fd
+        proved EOF for its own object, but the pathname now names a
+        different one."""
+        payload = b"eof-boundary fixture payload"
+        target = self._write("target.bin", payload)
+        other = self._write("other.bin", payload)
+        expected = self._expected_for(target, payload)
+        seams = _OwnedFdSeams(target)
+        state = {"swapped": False}
+
+        def on_read(fd, block):
+            if not block and not state["swapped"]:
+                state["swapped"] = True
+                os.replace(other, target)
+
+        seams.read_hook = on_read
+        result, leftovers = self._run_with_seams(
+            seams, lambda: pdo.verify_file_object(target, expected))
+        self.assertEqual(leftovers, [])
+        self.assertTrue(state["swapped"])
+        self.assertFalse(result["matches"])
+        self.assertEqual(result["reason"], "PATH_REPLACED_AFTER_READ")
+        self.assertEqual(result["stage"], "final_lstat")
+        self.assertTrue(result["eof_observed"])
+        self.assertEqual(result["read_bytes"], len(payload))
+
+    def test_in_place_change_during_read_rejected(self):
+        """F-03: same inode and size, but the timestamps change while the fd
+        is being read; the post-EOF fd recheck must reject before any
+        comparison is made."""
+        payload = b"in-place change fixture block\n" * 64
+        target = self._write("target.bin", payload)
+        expected = self._expected_for(target, payload)
+        seams = _OwnedFdSeams(target)
+        state = {"touched": False}
+
+        def on_read(fd, block):
+            if block and not state["touched"]:
+                state["touched"] = True
+                stamp = time.time_ns() + 1_000_000_000
+                os.utime(target, ns=(stamp, stamp))
+
+        seams.read_hook = on_read
+        result, leftovers = self._run_with_seams(
+            seams, lambda: pdo.verify_file_object(target, expected))
+        self.assertEqual(leftovers, [])
+        self.assertTrue(state["touched"])
+        self.assertFalse(result["matches"])
+        self.assertEqual(result["reason"], "OBJECT_CHANGED_DURING_READ")
+        self.assertEqual(result["stage"], "post_read_fstat")
+        self.assertTrue(result["eof_observed"])
+        self.assertEqual(result["read_bytes"], len(payload))
+        self.assertIsNone(result["actual"])
+
+    def test_growth_beyond_limit_during_read_rejected(self):
+        """F-03: the file grows past max_bytes while being read; the loop
+        must stop at exactly the (limit + 1)-th observed byte and reject with
+        the read-stage reason, never a preflight stat guess and never a
+        hash."""
+        payload = b"g" * (1024 * 1024)
+        target = self._write("target.bin", payload)
+        expected = self._expected_for(target, payload)
+        seams = _OwnedFdSeams(target)
+        state = {"grown": False}
+
+        def on_read(fd, block):
+            if block and not state["grown"]:
+                state["grown"] = True
+                with open(target, "ab") as handle:
+                    handle.write(b"+")
+
+        seams.read_hook = on_read
+        result, leftovers = self._run_with_seams(
+            seams, lambda: pdo.verify_file_object(target, expected,
+                                                  max_bytes=1024 * 1024))
+        self.assertEqual(leftovers, [])
+        self.assertTrue(state["grown"])
+        self.assertFalse(result["matches"])
+        self.assertEqual(result["reason"], "EXCEEDS_HASH_BUDGET")
+        self.assertEqual(result["stage"], "read_limit_plus_one")
+        self.assertEqual(result["read_bytes"], 1024 * 1024 + 1)
+        self.assertFalse(result["eof_observed"])
+        self.assertIsNone(result["actual"])
+
+    def test_preflight_size_over_budget_rejected_without_open(self):
+        """F-03: a static file already over max_bytes is rejected by the
+        preflight stat size (preflight_size), with no descriptor taken at
+        all."""
+        payload = b"z" * 64
+        target = self._write("big.bin", payload)
+        expected = self._expected_for(target, payload)
+        seams = _OwnedFdSeams(target)
+        result, leftovers = self._run_with_seams(
+            seams, lambda: pdo.verify_file_object(target, expected, max_bytes=63))
+        self.assertEqual(leftovers, [])
+        self.assertEqual(seams.owned_fds, [])
+        self.assertFalse(result["matches"])
+        self.assertEqual(result["reason"], "EXCEEDS_HASH_BUDGET")
+        self.assertEqual(result["stage"], "preflight_size")
+        self.assertEqual(result["read_bytes"], 0)
+        self.assertFalse(result["eof_observed"])
+
+    def test_stable_regular_file_matches(self):
+        """F-03 positive case: one stable regular file observed through one
+        fixed fd matches its frozen expectation, with the fd closed by the
+        helper itself."""
+        payload = b"stable fixture content line\n" * 24
+        target = self._write("stable.bin", payload)
+        expected = self._expected_for(target, payload)
+        seams = _OwnedFdSeams(target)
+        result, leftovers = self._run_with_seams(
+            seams, lambda: pdo.verify_file_object(target, expected))
+        self.assertEqual(leftovers, [])
+        self.assertEqual(len(seams.owned_fds), 1)
+        self.assertEqual(seams.helper_closed_fds, set(seams.owned_fds))
+        self.assertEqual(seams.harness_closed_fds, [])
+        self.assertTrue(result["matches"])
+        self.assertTrue(result["observation_complete"])
+        self.assertTrue(result["eof_observed"])
+        self.assertIsNone(result["reason"])
+        self.assertIsNone(result["stage"])
+        self.assertEqual(result["read_bytes"], len(payload))
+        self.assertEqual(result["actual"]["bytes"], len(payload))
+        self.assertEqual(result["actual"]["read_bytes"], len(payload))
+        self.assertEqual(result["actual"]["inode"], expected["inode"])
+        self.assertEqual(result["actual"]["device"], expected["device"])
+        self.assertEqual(result["actual"]["sha256"], expected["sha256"])
+
+    def test_exact_max_bytes_boundary_with_real_eof(self):
+        """F-03: a file of exactly max_bytes bytes must still obtain a real
+        zero-byte EOF before it may match."""
+        payload = b"e" * 32
+        target = self._write("exact.bin", payload)
+        expected = self._expected_for(target, payload)
+        seams = _OwnedFdSeams(target)
+        result, leftovers = self._run_with_seams(
+            seams, lambda: pdo.verify_file_object(target, expected, max_bytes=32))
+        self.assertEqual(leftovers, [])
+        self.assertTrue(result["matches"])
+        self.assertTrue(result["observation_complete"])
+        self.assertTrue(result["eof_observed"])
+        self.assertEqual(result["read_bytes"], 32)
+        self.assertEqual(result["actual"]["bytes"], 32)
+
+    def test_wrong_expected_identity_or_hash_not_matched(self):
+        """F-03: a complete observation against a wrong frozen expectation
+        stays matches=false with the true actual facts, not an error."""
+        payload = b"mismatch fixture"
+        target = self._write("mismatch.bin", payload)
+        info = os.lstat(target)
+        wrong_inode = {"device": [os.major(info.st_dev), os.minor(info.st_dev)],
+                       "inode": info.st_ino + 1, "bytes": len(payload),
+                       "sha256": hashlib.sha256(payload).hexdigest()}
+        result = pdo.verify_file_object(target, wrong_inode)
+        self.assertFalse(result["matches"])
+        self.assertTrue(result["observation_complete"])
+        self.assertIsNone(result["reason"])
+        self.assertEqual(result["actual"]["inode"], info.st_ino)
+        wrong_hash = {"device": [os.major(info.st_dev), os.minor(info.st_dev)],
+                      "inode": info.st_ino, "bytes": len(payload),
+                      "sha256": "f" * 64}
+        result = pdo.verify_file_object(target, wrong_hash)
+        self.assertFalse(result["matches"])
+        self.assertTrue(result["observation_complete"])
+        self.assertEqual(result["actual"]["sha256"],
+                         hashlib.sha256(payload).hexdigest())
+
+    def test_rejects_fifo_directory_and_symlink_without_opening(self):
+        """F-03: the lstat type precheck rejects a FIFO (without the
+        blocking open the original helper would have done), a directory and
+        a symlink (never followed), before any descriptor is taken."""
+        fifo = os.path.join(self.dir, "fifo")
+        os.mkfifo(fifo)
+        real = self._write("real.bin", b"behind the link")
+        link = os.path.join(self.dir, "link")
+        os.symlink(real, link)
+        directory = os.path.join(self.dir, "subdir")
+        os.mkdir(directory)
+        seams = _OwnedFdSeams(fifo)
+
+        def call():
+            return [pdo.verify_file_object(path, {}) for path in
+                    (fifo, directory, link)]
+
+        results, leftovers = self._run_with_seams(seams, call)
+        self.assertEqual(leftovers, [])
+        self.assertEqual(seams.owned_fds, [])
+        for result in results:
+            self.assertFalse(result["matches"])
+            self.assertEqual(result["reason"], "NOT_A_REGULAR_FILE")
+            self.assertEqual(result["stage"], "preflight_lstat_type")
+            self.assertEqual(result["read_bytes"], 0)
+            self.assertFalse(result["eof_observed"])
+
+    def test_symlink_swapped_in_before_open_is_not_followed(self):
+        """F-03: a symlink moved onto the pathname between the precheck and
+        the open must make the open itself fail (O_NOFOLLOW) instead of
+        silently reading through the link."""
+        payload = b"never read through a swapped link"
+        target = self._write("target.bin", payload)
+        elsewhere = self._write("elsewhere.bin", payload)
+        expected = self._expected_for(target, payload)
+        link = os.path.join(self.dir, "swap-link")
+        os.symlink(elsewhere, link)
+        seams = _OwnedFdSeams(target)
+        seams.swap_action = lambda path: os.replace(link, path)
+
+        def call():
+            with self.assertRaises(OSError):
+                pdo.verify_file_object(target, expected)
+
+        _, leftovers = self._run_with_seams(seams, call)
+        self.assertEqual(leftovers, [])
+        self.assertTrue(seams.swap_triggered)
+        self.assertEqual(seams.owned_fds, [])
+
+    def test_eintr_storm_is_bounded_structured_rejection(self):
+        """F-03: an endless EINTR storm is retried at most
+        DEFAULT_MAX_READ_ATTEMPTS times and then rejected without success;
+        the fd is closed."""
+        payload = b"payload"
+        target = self._write("eintr.bin", payload)
+        expected = self._expected_for(target, payload)
+        seams = _OwnedFdSeams(target)
+
+        def override(fd, count):
+            raise InterruptedError()
+
+        seams.read_override = override
+        result, leftovers = self._run_with_seams(
+            seams, lambda: pdo.verify_file_object(target, expected))
+        self.assertEqual(leftovers, [])
+        self.assertEqual(seams.helper_closed_fds, set(seams.owned_fds))
+        self.assertFalse(result["matches"])
+        self.assertEqual(result["reason"], "EINTR_BUDGET_EXHAUSTED")
+        self.assertFalse(result["observation_complete"])
+        self.assertFalse(result["eof_observed"])
+        self.assertIsNone(result["actual"])
+
+    def test_read_oserror_propagates_and_fd_is_closed(self):
+        payload = b"payload"
+        target = self._write("eio.bin", payload)
+        expected = self._expected_for(target, payload)
+        seams = _OwnedFdSeams(target)
+
+        def override(fd, count):
+            raise OSError(errno.EIO, "Input/output error")
+
+        seams.read_override = override
+
+        def call():
+            with self.assertRaises(OSError):
+                pdo.verify_file_object(target, expected)
+
+        _, leftovers = self._run_with_seams(seams, call)
+        self.assertEqual(leftovers, [])
+        self.assertEqual(seams.helper_closed_fds, set(seams.owned_fds))
+
+    def test_fstat_oserror_propagates_and_fd_is_closed(self):
+        payload = b"payload"
+        target = self._write("fstat.bin", payload)
+        expected = self._expected_for(target, payload)
+        seams = _OwnedFdSeams(target)
+
+        def hook(fd):
+            raise OSError(errno.EIO, "Input/output error")
+
+        seams.fstat_hook = hook
+
+        def call():
+            with self.assertRaises(OSError):
+                pdo.verify_file_object(target, expected)
+
+        _, leftovers = self._run_with_seams(seams, call)
+        self.assertEqual(leftovers, [])
+        self.assertEqual(seams.helper_closed_fds, set(seams.owned_fds))
+
+    def test_max_bytes_must_be_positive_integer(self):
+        target = self._write("budget.bin", b"x")
+        for bad in (0, -1, 1.5, True):
+            with self.assertRaises(ValueError):
+                pdo.verify_file_object(target, {}, max_bytes=bad)
 
 
 class RealProcFixtureTests(unittest.TestCase):
