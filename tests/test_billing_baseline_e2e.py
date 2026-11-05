@@ -668,7 +668,7 @@ class BillingBaselineIntegration(unittest.TestCase):
                 run = dict(entry, database=str(corrupted), plan_sha256=plan['plan_sha256'])
                 row = evaluator.build_report(plan, [run])['rows'][8]
                 self.assertEqual(row['status'], 'invalid_evidence', row)
-                self.assertIn('request admitted for original live transport', row['reason'])
+                self.assertEqual('transcript_live_admission_mismatch', row['reason'])
         self.assertEqual(snapshot(corrupted), before)
 
     def test_97_evaluation_source_kind_must_match_original_frozen_settings(self):
@@ -718,7 +718,7 @@ class BillingBaselineIntegration(unittest.TestCase):
                     run = dict(entry, database=str(corrupted), plan_sha256=changed_plan['plan_sha256'])
                     row = evaluator.build_report(changed_plan, [run])['rows'][8]
                     self.assertEqual(row['status'], 'invalid_evidence', row)
-                    self.assertIn('original live execution', row['reason'])
+                    self.assertEqual('live_source_frozen_mismatch', row['reason'])
             self.assertEqual(snapshot(corrupted), before)
 
     def test_98_run_index_labels_cannot_change_the_original_agent_condition(self):

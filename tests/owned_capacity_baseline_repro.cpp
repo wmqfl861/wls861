@@ -1,8 +1,10 @@
 #include "wls/cleanup.hpp"
 #include "wls/workspace.hpp"
+#include "test_support.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <unistd.h>
 #include <sys/stat.h>
 using namespace wls::s1;
@@ -10,9 +12,9 @@ using O=boost::json::object;
 int main(){
   if(::geteuid()==0) return 9;
   ::umask(0077);
-  char pattern[]="/tmp/wls-owned-capacity-red-XXXXXX";
-  const char* tmp=::mkdtemp(pattern); if(!tmp) return 8;
-  const std::filesystem::path parent(tmp);
+  std::unique_ptr<test::TempDir> holder;
+  try{holder=std::make_unique<test::TempDir>();}catch(const std::exception&){return 8;}
+  const std::filesystem::path parent(holder->path);
   int result=1;
   try {
     const auto id=new_id("res");
@@ -34,5 +36,5 @@ int main(){
       }
     }
   }catch(const std::exception& e){std::cerr<<e.what()<<'\n';}
-  std::filesystem::remove_all(parent);return result;
+  return result;
 }

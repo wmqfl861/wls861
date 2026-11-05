@@ -220,7 +220,17 @@ class GateContracts(unittest.TestCase):
             (recorder.directory / (name + ".stderr.log")).write_text("")
             record = {"name": name, "argv": argv, "cwd": str(recorder.source),
                       "started_at": gate.utc(), "ended_at": gate.utc(),
-                      "exit_code": 7 if name == failing_step else 0}
+                      "exit_code": 7 if name == failing_step else 0,
+                      # Simulated receipts carry the private process-group
+                      # teardown fields explicitly, like the real Recorder.
+                      "process_group": {"scope": "owned_process_group", "started": True,
+                                        "verified": True, "signal_sent": False,
+                                        "term_sent": False, "kill_sent": False,
+                                        "leader_exit_observed": True, "leader_reaped": True,
+                                        "cleanup_complete": True, "remaining_live": [],
+                                        "escaped_members": [], "external_reap_needed": [],
+                                        "observation_errors": [], "cleanup_errors": [],
+                                        "deferred_signals": [], "member_exit_observations": []}}
             recorder.steps.append(record)
             if name == "build":
                 for binary in ("wls", "wls861"):
@@ -245,6 +255,9 @@ class GateContracts(unittest.TestCase):
                 if interrupt or launch_error:
                     record["interrupted_or_launch_error"] = True
                     record["exit_code"] = None if launch_error else -signal.SIGTERM
+                if launch_error:
+                    record["process_group"] = {"scope": "owned_process_group", "started": False,
+                                               "signal_sent": False, "cleanup_complete": True}
                 if mutate_binary:
                     (build / "wls").write_text("modified")
                 if identity_fault == "source":
@@ -887,6 +900,261 @@ class GateContracts(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertEqual([name for name, _ in observed], ["compiler-version"])
         self.assertIn("expected GCC 13.3.0", summary["error"])
+
+
+PROCESS_TREE_CONTROLLER = r'''
+import ctypes, importlib.util, json, os, signal, sys, time
+from pathlib import Path
+
+module_path, fixture, variant = sys.argv[1], Path(sys.argv[2]), sys.argv[3]
+fixture.mkdir(mode=0o700, parents=True, exist_ok=True)
+facts = {"variant": variant, "watchdog_fired": False, "injection_applied": False}
+# This fixture adopts only its own descendants so it can reap them during its
+# own bounded cleanup; the test host and other tasks keep their global state.
+assert ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) == 0
+spec = importlib.util.spec_from_file_location("gate_under_test", module_path)
+gate = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gate)
+if variant in ("double-interrupt", "observation-failure") and hasattr(gate, "_group_snapshot"):
+    original_snapshot, fired = gate._group_snapshot, []
+
+    def snapshot_once(pgid):
+        if not fired:
+            fired.append(True)
+            if variant == "double-interrupt":
+                raise KeyboardInterrupt("synthetic second interrupt during group cleanup")
+            raise OSError("synthetic group observation failure")
+        return original_snapshot(pgid)
+
+    gate._group_snapshot = snapshot_once
+    facts["injection_applied"] = True
+marker = fixture / "child.json"
+interrupt = variant in ("ignore-term-interrupt", "term-able-interrupt",
+                        "double-interrupt", "observation-failure")
+ignore_term = variant in ("ignore-term-interrupt", "double-interrupt", "observation-failure")
+grandchild = ("import os,signal,json;from pathlib import Path;" +
+              ("signal.signal(signal.SIGTERM,signal.SIG_IGN);" if ignore_term else "") +
+              "Path(" + repr(str(marker)) + ").write_text(json.dumps({'child':os.getpid()," +
+              "'parent':os.getppid(),'pgid':os.getpgrp()}));" +
+              (("os.kill(" + str(os.getpid()) + ",signal.SIGUSR1);") if interrupt else "") +
+              "signal.pause()")
+if interrupt:
+    parent = "import subprocess,sys,signal;subprocess.Popen([sys.executable,'-B','-c'," \
+             + repr(grandchild) + "]);signal.pause()"
+else:
+    parent = "import subprocess,sys,time;from pathlib import Path;child=subprocess.Popen(" \
+             "[sys.executable,'-B','-c'," + repr(grandchild) + "]);\n" \
+             "while not Path(" + repr(str(marker)) + ").exists() and child.poll() is None:" \
+             "    time.sleep(0.05)\nsys.exit(0)"
+
+
+def interrupted(_signum, _frame):
+    raise KeyboardInterrupt("fixture grandchild reached ready barrier")
+
+
+def watchdog(_signum, _frame):
+    facts["watchdog_fired"] = True
+    raise RuntimeError("controller watchdog expired")
+
+
+previous_usr1 = signal.signal(signal.SIGUSR1, interrupted) if interrupt else None
+previous_alarm = signal.signal(signal.SIGALRM, watchdog)
+signal.alarm(35)
+pids = None
+try:
+    recorder = gate.Recorder(fixture, fixture, gate.clean_environment(dict(os.environ)))
+    argv = [str(fixture / "missing-executable")] if variant == "launch-failure" \
+        else [sys.executable, "-B", "-c", parent]
+    try:
+        recorder.run("fixture", argv)
+        facts["run_outcome"] = "returned"
+    except BaseException as error:
+        facts["run_outcome"] = type(error).__name__
+        facts["original_exception"] = str(error)
+    for _ in range(100):
+        if pids is not None or marker.exists():
+            break
+        time.sleep(0.05)
+    if marker.exists():
+        pids = json.loads(marker.read_text())
+        facts.update(child=pids["child"], parent_pid=pids["parent"], pgid=pids["pgid"])
+        state = (Path("/proc") / str(pids["child"]) / "stat").read_text()
+        facts["grandchild_state_after"] = state.rsplit(")", 1)[1].split()[0]
+        facts["grandchild_live_after"] = facts["grandchild_state_after"] not in ("Z", "X")
+    receipt = json.loads((fixture / "fixture.step.json").read_text())
+    facts["exit_code"] = receipt.get("exit_code")
+    facts["interrupted_or_launch_error"] = receipt.get("interrupted_or_launch_error")
+    facts["logs_status"] = receipt.get("logs_status", "legacy_absent")
+    facts["process_group"] = receipt.get("process_group")
+finally:
+    signal.alarm(0)
+    if interrupt:
+        signal.signal(signal.SIGUSR1, previous_usr1)
+    signal.signal(signal.SIGALRM, previous_alarm)
+    if pids is None and marker.exists():
+        pids = json.loads(marker.read_text())
+    if pids:
+        try:
+            os.killpg(pids["pgid"], signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            pid, status = os.waitpid(pids["child"], 0)
+            facts["fixture_cleanup"] = {"reaped_pid": pid, "wait_status": status,
+                "sigkill": os.WIFSIGNALED(status) and os.WTERMSIG(status) == signal.SIGKILL}
+        except ChildProcessError:
+            facts["fixture_cleanup"] = {"already_reaped": True}
+        facts["fixture_child_absent_after_cleanup"] = not (Path("/proc") / str(pids["child"])).exists()
+print(json.dumps(facts, ensure_ascii=False))
+sys.exit(3 if facts["watchdog_fired"] else 0)
+'''
+
+
+class RecorderProcessGroupContracts(unittest.TestCase):
+    """Real Linux parent/grandchild process trees against the real Recorder.
+
+    These are runner contract checks only; no product build, Store or
+    sanitizer run is involved, and the outer fixture process is the subreaper
+    that finally reaps this test's own descendants.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="wls-recorder-process-group-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def run_controller(self, variant):
+        fixture = self.root / ("proc-tree-" + variant)
+        completed = subprocess.run(
+            [sys.executable, "-B", "-c", PROCESS_TREE_CONTROLLER, str(MODULE), str(fixture), variant],
+            capture_output=True, text=True, timeout=120)
+        facts = json.loads(completed.stdout.strip().splitlines()[-1]) if completed.stdout.strip() else {}
+        facts["_stderr_tail"] = completed.stderr[-2000:]
+        facts["_exit_code"] = completed.returncode
+        return facts
+
+    def test_interrupt_teardown_proves_whole_owned_group_down(self):
+        # The original-runner success oracle: a grandchild that ignores TERM
+        # must not outlive the Recorder's return after an interruption.
+        facts = self.run_controller("ignore-term-interrupt")
+        self.assertEqual(facts["_exit_code"], 0, facts)
+        self.assertFalse(facts["watchdog_fired"], facts)
+        self.assertEqual(facts["run_outcome"], "KeyboardInterrupt")
+        self.assertIn("reached ready barrier", facts["original_exception"])
+        self.assertEqual(facts["exit_code"], -signal.SIGTERM)
+        self.assertTrue(facts["interrupted_or_launch_error"])
+        self.assertFalse(facts["grandchild_live_after"], facts)
+        group = facts["process_group"] or {}
+        self.assertTrue(group.get("started"))
+        self.assertTrue(group.get("verified"))
+        self.assertEqual(group.get("scope"), "owned_process_group")
+        self.assertTrue(group.get("term_sent"))
+        self.assertTrue(group.get("kill_sent"))
+        self.assertTrue(group.get("cleanup_complete"), facts)
+        self.assertEqual(group.get("remaining_live"), [])
+        self.assertTrue(group.get("leader_exit_observed"))
+        self.assertTrue(group.get("leader_reaped"))
+        self.assertEqual(facts["logs_status"], "complete")
+        self.assertEqual(facts["fixture_cleanup"]["reaped_pid"], facts["child"])
+        self.assertTrue(facts["fixture_cleanup"]["sigkill"])
+        self.assertTrue(facts["fixture_child_absent_after_cleanup"])
+
+    def test_term_honoring_group_completes_within_grace_without_kill(self):
+        facts = self.run_controller("term-able-interrupt")
+        self.assertEqual(facts["_exit_code"], 0, facts)
+        self.assertEqual(facts["run_outcome"], "KeyboardInterrupt")
+        self.assertIn("reached ready barrier", facts["original_exception"])
+        self.assertEqual(facts["exit_code"], -signal.SIGTERM)
+        self.assertFalse(facts["grandchild_live_after"], facts)
+        group = facts["process_group"] or {}
+        self.assertTrue(group.get("term_sent"))
+        self.assertFalse(group.get("kill_sent"))
+        self.assertTrue(group.get("cleanup_complete"), facts)
+        self.assertTrue(facts["fixture_child_absent_after_cleanup"])
+
+    def test_leader_exit_zero_with_live_member_is_incomplete_lifecycle(self):
+        facts = self.run_controller("parent-exit-live-child")
+        self.assertEqual(facts["_exit_code"], 0, facts)
+        self.assertEqual(facts["run_outcome"], "RuntimeError")
+        self.assertIn("owned-process-group cleanup", facts["original_exception"])
+        self.assertEqual(facts["exit_code"], 0)
+        self.assertFalse(facts["interrupted_or_launch_error"])
+        self.assertFalse(facts["grandchild_live_after"], facts)
+        group = facts["process_group"] or {}
+        self.assertTrue(group.get("leader_exit_left_live_members"))
+        self.assertTrue(group.get("term_sent"))
+        self.assertTrue(group.get("cleanup_complete"), facts)
+        self.assertTrue(facts["fixture_child_absent_after_cleanup"])
+
+    def test_launch_failure_sends_no_group_signal(self):
+        facts = self.run_controller("launch-failure")
+        self.assertEqual(facts["_exit_code"], 0, facts)
+        self.assertEqual(facts["run_outcome"], "FileNotFoundError")
+        self.assertIsNone(facts["exit_code"])
+        self.assertTrue(facts["interrupted_or_launch_error"])
+        group = facts["process_group"] or {}
+        self.assertFalse(group.get("started"))
+        self.assertFalse(group.get("signal_sent"))
+        self.assertNotIn("child", facts)
+
+    def test_second_interrupt_during_cleanup_preserves_original_exception(self):
+        facts = self.run_controller("double-interrupt")
+        self.assertEqual(facts["_exit_code"], 0, facts)
+        self.assertTrue(facts["injection_applied"], "injection requires the fixed runner helper")
+        self.assertEqual(facts["run_outcome"], "KeyboardInterrupt")
+        self.assertIn("reached ready barrier", facts["original_exception"])
+        group = facts["process_group"] or {}
+        recorded = group.get("cleanup_errors", []) + group.get("observation_errors", [])
+        self.assertTrue(any("second interrupt" in str(item) for item in recorded), facts)
+        self.assertFalse(group.get("cleanup_complete"))
+        self.assertFalse(facts["grandchild_live_after"], facts)
+        self.assertTrue(facts["fixture_child_absent_after_cleanup"])
+
+    def test_group_observation_failure_keeps_step_incomplete(self):
+        facts = self.run_controller("observation-failure")
+        self.assertEqual(facts["_exit_code"], 0, facts)
+        self.assertTrue(facts["injection_applied"], "injection requires the fixed runner helper")
+        self.assertEqual(facts["run_outcome"], "KeyboardInterrupt")
+        self.assertIn("reached ready barrier", facts["original_exception"])
+        group = facts["process_group"] or {}
+        self.assertTrue(group.get("observation_errors"), facts)
+        self.assertFalse(group.get("cleanup_complete"))
+        self.assertFalse(facts["grandchild_live_after"], facts)
+        self.assertTrue(facts["fixture_child_absent_after_cleanup"])
+
+    def test_proc_stat_parser_handles_spaces_and_parens_in_comm(self):
+        synthetic = self.root / "synthetic-stat"
+        synthetic.write_text("1234 (python3 (fixture worker) [venv]) R 1 234 234 0 5 0 0 0 0 0 0 0 0 0 0 0 0 0 987654 4\n")
+        parsed = gate._read_stat(synthetic)
+        self.assertEqual(parsed, {"state": "R", "ppid": 1, "pgid": 234, "session": 234, "starttime": 987654})
+        self.assertIsNone(gate._read_stat(self.root / "absent-stat"))
+
+    def test_preserve_ctest_evidence_consumes_cleanup_complete(self):
+        build = self.root / "b"
+        build.mkdir()
+
+        def steps(cleanup_complete, *, interrupted=False):
+            record = {"name": "ctest", "started_at": gate.utc(), "ended_at": gate.utc(),
+                      "exit_code": 0, "logs": {},
+                      "process_group": {"scope": "owned_process_group", "started": True,
+                                        "cleanup_complete": cleanup_complete}}
+            if interrupted:
+                record["interrupted_or_launch_error"] = True
+            return [record]
+
+        indexes = []
+        for name, step_list in (("unfinished", steps(False)), ("interrupted", steps(True, interrupted=True)),
+                                ("finished", steps(True))):
+            evidence = self.root / ("e-" + name)
+            evidence.mkdir()
+            with contextlib.redirect_stderr(io.StringIO()):
+                indexes.append(gate.preserve_ctest_evidence(build, evidence, step_list))
+        unfinished, interrupted, finished = indexes
+        self.assertFalse(unfinished["execution_completed"])
+        self.assertFalse(interrupted["execution_completed"])
+        self.assertTrue(finished["execution_completed"])
+        for index in indexes:
+            self.assertFalse(index["complete"], "missing CTest originals keep every index incomplete")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Pure local preparation checks; this suite does not execute wls."""
+import contextlib
 import copy
 import hashlib
+import io
+import json
 import os
 from pathlib import Path
 import runpy
@@ -219,6 +222,136 @@ class OfflinePreparation(unittest.TestCase):
         self.assertTrue(all(row['semantic_result'] == 'NOT_RUN' and row['reviewer'] is None
                             for row in review['rows']))
         self.assertEqual(review['coordinator_acceptance'], 'PENDING')
+
+    def synthetic_v3_plan(self):
+        common = {'model_ref': 'fake', 'profile_sha256': 'a' * 64,
+                  'reasoning': {'mode': 'provider_default'}, 'environment_sha256': 'b' * 64,
+                  'workflow_policy_sha256': 'c' * 64, 'constraints_sha256': 'd' * 64, 'tools': [],
+                  'budget': {'max_attempts': 64, 'input_limit': 1000000, 'output_limit': 100000,
+                             'cost_limit': 0}, 'max_wall_ms': 300000, 'max_paid_retries': 0}
+        plan = {'schema_version': 3, 'benchmark_id': 'r3-small-tasks-v3', 'evidence_mode': 'synthetic',
+                'conditions': list(a.evaluation.CONDITIONS), 'repetitions': 1, 'common': common,
+                'tasks': [{'task_id': name, 'material': material,
+                           'material_sha256': hashlib.sha256(material.encode()).hexdigest(), 'checks': checks}
+                          for name, material, checks in a.evaluation.TASKS],
+                'decision_evidence': 'model-origin-v1', 'identity_contract': a.evaluation.LOGICAL_AGENT_CONTRACT,
+                'single_agent_policy': a.evaluation.DEFAULT_LOGICAL_AGENT_POLICY}
+        plan['plan_sha256'] = a.evaluation.digest({k: v for k, v in plan.items() if k != 'plan_sha256'})
+        return plan
+
+    def old_style_run_fixture(self, marker):
+        run = a.mkdir(self.package / 'run')
+        plan = self.synthetic_v3_plan()
+        a.write_json(run / 'plan.json', plan)
+        a.write_json(run / 'runs.json', [{'task_id': 'tool_roundtrip', 'condition': 'multi_agent',
+            'database': str(self.root / marker / 'missing.sqlite'), 'request_id': 'synthetic-missing',
+            'elapsed_ms': 1, 'plan_sha256': plan['plan_sha256']}])
+        outcomes = [
+            {'task_id': 'tool_roundtrip', 'condition': 'multi_agent', 'runner_status': 'FAILED',
+             'reason': 'offline command failed with exit 7; private path ' + str(self.root / marker / 'logs'),
+             'argv_tail': ['/private/' + marker, '--secret-flag'], 'nested': {'path': '/var/' + marker}},
+            {'task_id': 'partial_amend', 'condition': 'single_agent', 'runner_status': 'MAYBE_UNCHECKED'}]
+        a.write_json(run / 'outcomes.json', outcomes)
+        return run, outcomes
+
+    def test_report_projects_old_style_outcomes_and_never_private_text(self):
+        # Original outcome files stay byte-identical; the public report keeps
+        # only validated cells, statuses, fixed reason codes and safe hashes.
+        marker = 'SYNTHETIC-F01-TEST-MARKER-51ab'
+        run, outcomes = self.old_style_run_fixture(marker)
+        original_bytes = (run / 'outcomes.json').read_bytes()
+        result = a.report(self.package)
+        public = a.encoded(result).decode()
+        self.assertNotIn(marker, public)
+        self.assertNotIn('argv_tail', public)
+        self.assertNotIn('nested', public)
+        self.assertNotIn('/private/', public)
+        self.assertEqual(result['evaluation']['counts'], {'invalid_evidence': 1, 'not_executed': 9})
+        self.assertEqual(result['evaluation']['expected_cells'], 10)
+        projected = result['runner_outcomes']
+        self.assertEqual(projected[0]['runner_status'], 'FAILED')
+        self.assertEqual(projected[0]['reason'], 'runner_failed')
+        self.assertEqual(projected[0]['outcome_sha256'], a.evaluation.digest(outcomes[0]))
+        self.assertNotIn('reason', projected[1])
+        self.assertEqual((run / 'outcomes.json').read_bytes(), original_bytes)
+
+    def test_unrecognized_outcome_status_is_never_projected_completed(self):
+        marker = 'SYNTHETIC-F01-TEST-MARKER-77cd'
+        self.old_style_run_fixture(marker)
+        result = a.report(self.package)
+        self.assertEqual(result['runner_outcomes'][1]['runner_status'], 'UNRECOGNIZED')
+        self.assertNotIn('COMPLETED', [row['runner_status'] for row in result['runner_outcomes']])
+
+    def test_private_error_collector_retains_full_original_privately(self):
+        marker = 'SYNTHETIC-F01-SINK-MARKER-8e3f'
+        errors = a.mkdir(self.root / 'retained-errors')
+        collector = a.PrivateErrorCollector(errors)
+        reference = collector({'task_id': 'tool_roundtrip', 'condition': 'multi_agent',
+                               'error': OSError(2, 'No such file or directory', '/private/' + marker + '/x'),
+                               'context': {'stage': 'fake-cell'}})
+        self.assertTrue({'private_error_id', 'private_error_sha256'} <= set(reference))
+        path = errors / (reference['private_error_id'] + '.json')
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        retained = json.loads(path.read_text())
+        self.assertIn('/private/' + marker, retained['message'])
+        self.assertEqual(retained['error_type'], 'FileNotFoundError')
+        self.assertEqual(retained['errno'], 2)
+        self.assertEqual(retained['message_truncated'], False)
+        self.assertEqual(a.sha(path.read_bytes()), reference['private_error_sha256'])
+
+    def test_evaluation_sink_refusal_keeps_public_projection_safe(self):
+        # A sink that refuses must leave the public reason a fixed code, an
+        # honest not-retained status and the denominator unchanged.
+        marker = 'SYNTHETIC-F01-SINK-MARKER-91d2'
+        plan = self.synthetic_v3_plan()
+        entry = [{'task_id': 'tool_roundtrip', 'condition': 'multi_agent',
+                  'database': str(self.root / marker / 'missing.sqlite'),
+                  'request_id': 'synthetic-missing', 'elapsed_ms': 1, 'plan_sha256': plan['plan_sha256']}]
+
+        def refusing_sink(_capture):
+            raise OSError('synthetic sink refusal ' + marker)
+
+        report = a.evaluation.build_report(plan, entry, self.root, private_error_sink=refusing_sink)
+        public = a.evaluation.canonical(report).decode()
+        self.assertNotIn(marker, public)
+        row = report['rows'][0]
+        self.assertEqual(row['status'], 'invalid_evidence')
+        self.assertEqual(row['reason'], 'evidence_missing')
+        self.assertIs(row['reason_detail_retained'], False)
+        self.assertIs(row['reason_retention_failed'], True)
+        self.assertEqual(report['counts'], {'invalid_evidence': 1, 'not_executed': 9})
+
+    def test_evaluation_sink_retention_is_referenced_not_inlined(self):
+        marker = 'SYNTHETIC-F01-SINK-MARKER-a4b5'
+        plan = self.synthetic_v3_plan()
+        entry = [{'task_id': 'tool_roundtrip', 'condition': 'multi_agent',
+                  'database': str(self.root / marker / 'missing.sqlite'),
+                  'request_id': 'synthetic-missing', 'elapsed_ms': 1, 'plan_sha256': plan['plan_sha256']}]
+        errors = a.mkdir(self.root / 'inline-errors')
+        collector = a.PrivateErrorCollector(errors)
+        report = a.evaluation.build_report(plan, entry, self.root, private_error_sink=collector)
+        public = a.evaluation.canonical(report).decode()
+        self.assertNotIn(marker, public)
+        row = report['rows'][0]
+        self.assertEqual(row['reason'], 'evidence_missing')
+        self.assertIs(row['reason_detail_retained'], True)
+        self.assertIn('private_error_id', row)
+        retained = json.loads((errors / (row['private_error_id'] + '.json')).read_text())
+        self.assertIn(marker, retained['message'])
+        self.assertEqual(row['private_error_sha256'], a.sha((errors / (row['private_error_id'] + '.json')).read_bytes()))
+
+    def test_offline_cli_top_level_error_is_a_fixed_code(self):
+        marker = 'SYNTHETIC-F01-CLI-MARKER-c6d7'
+        incomplete = a.mkdir(self.root / ('incomplete-' + marker))
+        with contextlib.redirect_stderr(io.StringIO()) as captured:
+            exit_code = a.main(['report', '--package', str(incomplete)])
+        payload = json.loads(captured.getvalue())
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(set(payload), {'error'})
+        self.assertNotIn(marker, captured.getvalue())
+        self.assertNotIn(str(self.root), captured.getvalue())
+        self.assertIn(payload['error'], set(a.PACKAGE_REASON_CODES.values()) | {'invalid_evidence',
+                           'evidence_missing', 'evidence_unreadable', 'evidence_io_error'})
 
 
 if __name__ == '__main__':

@@ -9,6 +9,7 @@ import argparse
 import base64
 from collections import Counter
 from contextlib import closing, contextmanager
+import errno
 import hashlib
 import json
 import math
@@ -47,6 +48,64 @@ class InvalidEvidence(ValueError):
 def require(condition, message):
     if not condition:
         raise InvalidEvidence(message)
+
+
+# Public error projection: reviewed constant messages map to fixed reason
+# codes; everything else falls back to a generic code. Raw exception text,
+# class names, slugs and paths never reach public output through this map.
+INVALID_EVIDENCE_REASON_CODES = {
+    'single-Agent execution chain is missing, reordered or forked': 'logical_chain_broken',
+    'single-Agent frozen policy differs from the precommitted plan': 'logical_policy_mismatch',
+    'single-Agent actual model input omitted or changed the shared original history': 'logical_history_changed',
+    'single-Agent shared history byte capacity exceeded': 'logical_history_capacity_exceeded',
+    'single-Agent immutable feedback changed its original response or binding': 'feedback_binding_changed',
+    'feedback changed original response or binding': 'feedback_binding_changed',
+    'model decision differs from the original transport response': 'model_decision_response_changed',
+    'model decision changed original live send identity': 'model_decision_identity_changed',
+    'model decision applied to another target or version': 'model_decision_target_changed',
+    'recovered instruction differs from its original model work order': 'recovery_instruction_changed',
+    'original instruction recovery does not prove the submitted epoch projection': 'recovery_projection_unproven',
+    'usage projection does not reconstruct budget': 'budget_reconstruction_mismatch',
+    'original task materials differ': 'task_material_mismatch',
+    'model/environment/tools/budget conditions differ': 'common_condition_mismatch',
+    'synthetic/provider evidence cannot be relabelled': 'evidence_mode_relabel_refused',
+    'original live execution source differs from the frozen settings': 'live_source_frozen_mismatch',
+    'transcript differs from the request admitted for original live transport': 'transcript_live_admission_mismatch',
+    'single-Agent original request fingerprint mismatch': 'logical_request_fingerprint_mismatch',
+    'single-Agent original response identity mismatch': 'logical_response_identity_mismatch',
+    'original frozen configuration fingerprint mismatch': 'frozen_configuration_mismatch',
+}
+
+
+def public_reason_code(error):
+    """Map an evaluation error to one fixed public reason code.
+
+    InvalidEvidence is checked before ValueError because it subclasses it.
+    Unknown constant messages and every other error class fall back to fixed
+    generic codes, so no caller-controlled text can reach public output.
+    """
+    if isinstance(error, InvalidEvidence):
+        return INVALID_EVIDENCE_REASON_CODES.get(str(error), 'invalid_evidence')
+    if isinstance(error, OSError):
+        if error.errno in (errno.ENOENT, errno.ENOTDIR, errno.ESTALE):
+            return 'evidence_missing'
+        if error.errno in (errno.EACCES, errno.EPERM, errno.EISDIR):
+            return 'evidence_unreadable'
+        return 'evidence_io_error'
+    if isinstance(error, sqlite3.Error):
+        # A failed read-only open (CANTOPEN) is a bounded unreadable-input
+        # class, identified by its numeric code rather than message text.
+        code = getattr(error, 'sqlite_errorcode', None)
+        if code is not None and code & 0xff == sqlite3.SQLITE_CANTOPEN:
+            return 'evidence_unreadable'
+        return 'evidence_database_error'
+    if isinstance(error, KeyError):
+        return 'evidence_field_missing'
+    if isinstance(error, (TypeError, IndexError)):
+        return 'evidence_field_type_invalid'
+    if isinstance(error, ValueError):
+        return 'evidence_value_invalid'
+    return 'invalid_evidence'
 
 
 def canonical(value):
@@ -1079,7 +1138,7 @@ def inspect_run(plan, task, condition, run, base_directory):
                 'request_status': request['status'], 'evidence_sha256': digest({'attempts': attempts, 'budget': budget})}
 
 
-def build_report(plan, run_index, base_directory=Path('.')):
+def build_report(plan, run_index, base_directory=Path('.'), *, private_error_sink=None):
     validate_plan(plan)
     base_directory = Path(base_directory)
     require(isinstance(run_index, list) and len(run_index) <= len(TASKS) * 2, 'bounded run array required')
@@ -1109,7 +1168,25 @@ def build_report(plan, run_index, base_directory=Path('.')):
                 try:
                     cell.update(inspect_run(plan, task, condition, run, Path(base_directory)))
                 except (InvalidEvidence, sqlite3.Error, KeyError, TypeError, ValueError, OSError) as error:
-                    cell.update(status='invalid_evidence', reason=str(error)[:256])
+                    # Public rows carry a fixed reason code and at most a
+                    # labeled fingerprint of the original error; full detail
+                    # survives only when a private sink explicitly retained it.
+                    cell.update(status='invalid_evidence', reason=public_reason_code(error),
+                                reason_detail_retained=False,
+                                error_fingerprint_sha256=hashlib.sha256(
+                                    f'{type(error).__name__}: {error}'.encode('utf-8', 'replace')).hexdigest())
+                    if private_error_sink is not None:
+                        try:
+                            retained = private_error_sink(
+                                {'task_id': task['task_id'], 'condition': condition, 'error': error,
+                                 'context': {'stage': 'build_report'}})
+                        except BaseException:
+                            cell['reason_retention_failed'] = True
+                        else:
+                            if isinstance(retained, dict):
+                                cell.update({key: retained[key] for key in
+                                             ('private_error_id', 'private_error_sha256') if key in retained})
+                                cell['reason_detail_retained'] = True
             output.append(cell)
     counts = Counter(x['status'] for x in output)
     report = {'schema_version': plan['schema_version'], 'plan_sha256': plan['plan_sha256'], 'evidence_mode': plan['evidence_mode'],
@@ -1152,7 +1229,7 @@ def main():
         print(canonical(result).decode())
         return 0
     except (InvalidEvidence, sqlite3.Error, KeyError, TypeError, ValueError, OSError) as error:
-        print(json.dumps({'error': 'invalid_evidence', 'message': str(error)[:256]}), file=sys.stderr)
+        print(json.dumps({'error': public_reason_code(error)}), file=sys.stderr)
         return 2
 
 
