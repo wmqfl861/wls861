@@ -268,6 +268,52 @@ class AllocationRecoveryCLI(helpers.OwnedCleanupCLI):
         self.assertEqual((retained / resource["intent"]["stage_leaf"] / "owner.json").read_bytes(),
                          json.dumps(resource["intent"]["marker"], sort_keys=True, separators=(",", ":")).encode())
 
+    def test_long_retained_paths_abandon_and_display_through_cli(self):
+        request = self.invoke("submit", "--db", self.database, "--key", "long-path",
+                              "--text-file", FIXTURES / "s14_request.txt",
+                              "--constraints-file", FIXTURES / "s14_constraints.json",
+                              "--config", self.config, "--functions-dir", SOURCE / "config/examples/functions")["request"]["request_id"]
+        self.pump(request, workspace=False, max_calls=1)
+        task = self.view(request)["tasks"][0]["task_id"]
+        long_parent = self.directory / ("long-" + "p" * 180) / ("nested-" + "q" * 90)
+        long_parent.mkdir(parents=True, mode=0o700)
+        self.inject("CREATE TRIGGER allocation_fixture_failure BEFORE UPDATE ON owned_workspaces "
+                    "WHEN NEW.allocation_receipt IS NOT NULL "
+                    "BEGIN SELECT RAISE(ABORT,'injected allocation record failure'); END")
+        self.invoke("allocate-workspace", "--db", self.database, "--request", request, "--task", task,
+                    "--parent", long_parent, "--key", "long-path", error="conflict")
+        self.inject("DROP TRIGGER allocation_fixture_failure")
+        resource = self.resource(self.rows(
+            "SELECT resource_id FROM owned_workspaces WHERE request_id=? AND command_key=?",
+            (request, "long-path"))[0]["resource_id"])
+        self.assertEqual(resource["status"], "PREPARED")
+        stage, final = self.paths(resource)
+        self.assertGreater(len(str(final).encode()), 256)
+        self.assertGreater(len(str(stage).encode()), 256)
+        abandoned = self.abandon(request, resource)
+        self.assertEqual(abandoned["status"], "ABANDONED")
+        self.assertIsNone(abandoned["proof"])
+        self.assertFalse(abandoned["abandonment"]["filesystem_observed"])
+        self.assertFalse(abandoned["abandonment"]["deletion_performed"])
+        self.assertEqual(abandoned["abandonment"]["retained_paths"], sorted([str(stage), str(final)]))
+        closeout = self.invoke("closeout", "--db", self.database, "--request", request)
+        entries = closeout["retained_allocations"]
+        self.assertEqual([entry["resource_id"] for entry in entries], [resource["resource_id"]])
+        self.assertEqual(entries[0]["paths"], sorted([str(stage), str(final)]))
+        self.assertIn(str(final), json.dumps(self.invoke("owned-workspaces", "--db", self.database,
+                                                          "--request", request)))
+        self.invoke("allocate-workspace", "--db", self.database, "--request", request, "--task", task,
+                    "--parent", long_parent, "--key", "long-path")
+        self.assertEqual(self.resource(resource["resource_id"]), abandoned)
+        # The retained-path nesting guard must fire while no active team
+        # allocation exists; a later active allocation would fail earlier on
+        # the frozen team-slot check instead.
+        self.invoke("allocate-workspace", "--db", self.database, "--request", request, "--task", task,
+                    "--parent", stage, "--key", "nested", error="unauthorized")
+        fresh = self.invoke("allocate-workspace", "--db", self.database, "--request", request, "--task", task,
+                            "--parent", long_parent, "--key", "long-replacement")
+        self.assertEqual(fresh["status"], "OWNED")
+
 
 if __name__ == "__main__":
     suite = unittest.TestSuite(AllocationRecoveryCLI(name) for name in sorted(AllocationRecoveryCLI.__dict__)

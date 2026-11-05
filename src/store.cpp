@@ -152,6 +152,19 @@ Array strings(const std::vector<std::string>& values) {
     for (const auto& value : unique) result.emplace_back(value);
     return result;
 }
+Array owned_path_strings(const std::vector<std::string>& values) {
+    // Retained allocation paths are original intent bytes, not tool grants:
+    // apply the owned path domain while keeping the same nonempty/NUL rule,
+    // stable dictionary order and duplicate rejection.
+    Array result;
+    std::set<std::string> unique;
+    for (const auto& value : values) {
+        text_field(value, "owned path", 4096);
+        require(unique.insert(value).second, ErrorCode::InvalidInput, "duplicate owned path");
+    }
+    for (const auto& value : unique) result.emplace_back(value);
+    return result;
+}
 bool contains(const Json& list, std::string_view value) {
     require(list.is_array(), ErrorCode::Corrupt, "expected string array");
     return std::any_of(list.as_array().begin(), list.as_array().end(), [&](const Json& item) {
