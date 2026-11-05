@@ -22,6 +22,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import struct
 import subprocess
 import sys
 import threading
@@ -528,6 +529,298 @@ def synthetic_ordering_contract(case):
     case.record(call_order=calls[:12])
 
 
+# --------------------------------------------------------------------------------------
+# Synthetic ABI regressions: production declarations and constructor bindings
+# --------------------------------------------------------------------------------------
+#
+# The cases above drive the supervisor state machine through FakeWin32API and
+# never reach the real Win32 declarations or the real ``Win32ProcessAPI``
+# constructor; the platform-refusal case stops at the constructor's ``os.name``
+# guard. They therefore cannot detect declaration/binding defects such as a
+# missing ``ctypes.c_ulongptr`` carrier. The three cases below keep those
+# fakes untouched and check the production ABI itself against an independent
+# SDK byte oracle. They are in-memory only: no process is created, terminated
+# or queried for real, and no Win32 function is executed.
+
+
+class _NtPlatformShim:
+    """Delegates to the real ``os`` module; only ``name`` reports Windows."""
+
+    def __init__(self, real):
+        object.__setattr__(self, '_real', real)
+
+    def __getattr__(self, item):
+        return getattr(object.__getattribute__(self, '_real'), item)
+
+    @property
+    def name(self):
+        return 'nt'
+
+
+class _ProbeDllFunction:
+    """Accepts only argtypes/restype assignment; any call fails the case."""
+
+    def __init__(self, name, attempted_calls):
+        self.name = name
+        self.argtypes = None
+        self.restype = None
+        self._attempted_calls = attempted_calls
+
+    def __call__(self, *args, **kwargs):
+        self._attempted_calls.append(self.name)
+        raise CaseFailure(f'construction must not call the Win32 {self.name} function')
+
+
+class _ProbeWinDLL:
+    """Kernel32 loader replacement: hands out bindable names, executes none."""
+
+    def __init__(self, attempted_calls):
+        self.__dict__['attempted_calls'] = attempted_calls
+        self.__dict__['functions'] = {}
+
+    def __getattr__(self, name):
+        functions = self.__dict__['functions']
+        if name not in functions:
+            functions[name] = _ProbeDllFunction(name, self.__dict__['attempted_calls'])
+        return functions[name]
+
+
+class _CtypesLoaderShim:
+    """Delegates to the real ctypes module except the WinDLL loader and the
+    Windows-only last-error source: Linux ctypes provides no
+    ``get_last_error``, so the probe supplies an inert zero source that the
+    constructor only stores (it is read solely through recorded failures)."""
+
+    def __init__(self, real, loader, last_error):
+        object.__setattr__(self, '_real', real)
+        object.__setattr__(self, '_loader', loader)
+        object.__setattr__(self, '_last_error', last_error)
+
+    def __getattr__(self, item):
+        if item == 'WinDLL':
+            return object.__getattribute__(self, '_loader')
+        if item == 'get_last_error':
+            return object.__getattribute__(self, '_last_error')
+        return getattr(object.__getattribute__(self, '_real'), item)
+
+
+class patched_win32_constructor:
+    """Patch ONLY the platform identification, the kernel32 DLL loader and the
+    last-error source for the real ``Win32ProcessAPI.__init__``; everything
+    restores on exit. The production constructor, declarations and bindings
+    run unmodified; ``ctypes`` itself is never monkey patched and FakeWin32API
+    is never substituted for the constructor under test."""
+
+    def __enter__(self):
+        self._saved_os = windows_process.os
+        self._saved_ctypes = windows_process.ctypes
+        self.attempted_calls = []
+        self.loader_state = {'names': [], 'use_last_error': []}
+        self.dlls = []
+        self.last_error_source_reads = 0
+
+        def last_error():
+            self.last_error_source_reads += 1
+            return 0
+
+        def loader(name, use_last_error=False):
+            self.loader_state['names'].append(name)
+            self.loader_state['use_last_error'].append(bool(use_last_error))
+            dll = _ProbeWinDLL(self.attempted_calls)
+            self.dlls.append(dll)
+            return dll
+
+        windows_process.os = _NtPlatformShim(self._saved_os)
+        windows_process.ctypes = _CtypesLoaderShim(self._saved_ctypes, loader, last_error)
+        return self
+
+    def __exit__(self, *args):
+        windows_process.os = self._saved_os
+        windows_process.ctypes = self._saved_ctypes
+        return False
+
+
+def synthetic_abi_declaration_sdk_layout(case):
+    # The expected bytes come from an independent struct.pack oracle in the
+    # official SDK order, never from the production _fields_.
+    structures = windows_process._declare_structures()
+    pointer_width = ctypes.sizeof(ctypes.c_void_p)
+    for alias in ('ULONG_PTR', 'DWORD_PTR'):
+        carrier = getattr(windows_process, alias, None)
+        case.check(carrier is not None, f'{alias} must be declared as a real carrier')
+        case.check(ctypes.sizeof(carrier) == pointer_width,
+                   f'{alias} must be pointer-width')
+        high_value = (1 << (pointer_width * 8 - 1)) | 0x3210
+        case.check(carrier(high_value).value == high_value,
+                   f'{alias} must be unsigned and keep high-bit values')
+    limit_fields = dict(structures['JOBOBJECT_BASIC_LIMIT_INFORMATION']._fields_)
+    case.check(ctypes.sizeof(limit_fields['Affinity']) == pointer_width,
+               'Affinity must use the pointer-width ULONG_PTR carrier')
+    extended = structures['JOBOBJECT_EXTENDED_LIMIT_INFORMATION']()
+    high_affinity = (1 << (pointer_width * 8 - 1)) | 0xFEDC
+    extended.BasicLimitInformation.Affinity = high_affinity
+    case.check(int(extended.BasicLimitInformation.Affinity) == high_affinity,
+               'a high-bit Affinity must round-trip without truncation')
+    accounting = structures['JOBOBJECT_BASIC_ACCOUNTING_INFORMATION']
+    # Literal official SDK order (TotalUserTime, TotalKernelTime, then the two
+    # ThisPeriod values, then the four DWORD counters), written here from the
+    # published declaration — never reconstructed from the production _fields_.
+    official_accounting_fields = [
+        'TotalUserTime', 'TotalKernelTime',
+        'ThisPeriodTotalUserTime', 'ThisPeriodTotalKernelTime',
+        'TotalPageFaultCount', 'TotalProcesses', 'ActiveProcesses',
+        'TotalTerminatedProcesses']
+    declared_accounting_fields = [name for name, _ in accounting._fields_]
+    case.check(declared_accounting_fields == official_accounting_fields,
+               'accounting must declare exactly the official SDK fields in order; '
+               f'expected {official_accounting_fields}, '
+               f'actual {declared_accounting_fields}')
+    payload = struct.pack('<qqqqIIII', 111, 222, 333, 444, 777, 9, 2, 7)
+    case.check(len(payload) == 48, 'the SDK accounting oracle must be exactly 48 bytes')
+    decoded = accounting.from_buffer_copy(payload)
+    case.check(int(decoded.TotalUserTime) == 111, 'SDK oracle total user time')
+    case.check(int(decoded.TotalKernelTime) == 222, 'SDK oracle total kernel time')
+    case.check(int(decoded.ThisPeriodTotalUserTime) == 333,
+               'SDK oracle this-period user time')
+    case.check(int(decoded.ThisPeriodTotalKernelTime) == 444,
+               'SDK oracle this-period kernel time')
+    case.check(int(decoded.TotalPageFaultCount) == 777, 'SDK oracle page faults')
+    case.check(int(decoded.TotalProcesses) == 9, 'SDK oracle total processes')
+    case.check(int(decoded.ActiveProcesses) == 2, 'SDK oracle active processes')
+    case.check(int(decoded.TotalTerminatedProcesses) == 7, 'SDK oracle terminated processes')
+    pid_list = structures['JOBOBJECT_BASIC_PROCESS_IDLIST']
+    case.check([name for name, _ in pid_list._fields_] == [
+        'NumberOfAssignedProcesses', 'NumberOfProcessIdsInList', 'ProcessIdList'],
+        'the PID list must declare the official two-DWORD header')
+    if pointer_width == 8:
+        case.check(ctypes.sizeof(accounting) == 48,
+                   f'x64 accounting size {ctypes.sizeof(accounting)} != 48')
+        for field, expected_offset in (('TotalUserTime', 0), ('TotalKernelTime', 8),
+                                       ('ThisPeriodTotalUserTime', 16),
+                                       ('ThisPeriodTotalKernelTime', 24),
+                                       ('TotalPageFaultCount', 32), ('TotalProcesses', 36),
+                                       ('ActiveProcesses', 40), ('TotalTerminatedProcesses', 44)):
+            actual_offset = getattr(accounting, field).offset
+            case.check(actual_offset == expected_offset,
+                       f'{field} offset {actual_offset} != {expected_offset}')
+        case.check(getattr(pid_list, 'NumberOfAssignedProcesses').offset == 0,
+                   'assigned count must live at offset 0')
+        case.check(getattr(pid_list, 'NumberOfProcessIdsInList').offset == 4,
+                   'returned count must live at offset 4')
+        case.check(getattr(pid_list, 'ProcessIdList').offset == 8,
+                   'the PID array must start at offset 8')
+        for name, expected_size in windows_process.X64_STRUCTURE_SIZES.items():
+            actual_size = ctypes.sizeof(structures[name])
+            case.check(actual_size == expected_size,
+                       f'{name} size {actual_size} != {expected_size}')
+    case.record(pointer_width=pointer_width,
+                accounting_size=ctypes.sizeof(accounting),
+                pid_list_size=ctypes.sizeof(pid_list))
+
+
+def synthetic_abi_constructor_binding_smoke(case):
+    # Only the platform identification and the kernel32 loader are replaced;
+    # the real Win32ProcessAPI.__init__ runs unmodified and any Win32 function
+    # call during construction fails the case.
+    with patched_win32_constructor() as probe:
+        api = Win32ProcessAPI()
+    case.check(probe.attempted_calls == [],
+               f'construction must not call Win32 functions, got {probe.attempted_calls}')
+    case.check(probe.loader_state['names'] == ['kernel32'],
+               f"only the kernel32 loader may be requested, got {probe.loader_state['names']}")
+    case.check(probe.loader_state['use_last_error'] == [True],
+               'the kernel32 loader must request use_last_error')
+    case.check(len(probe.dlls) == 1 and len(probe.dlls[0].functions) >= 19,
+               'the constructor must bind the full declared function set')
+    pointer_width = ctypes.sizeof(ctypes.c_void_p)
+    for name in ('CreateJobObjectW', 'QueryInformationJobObject',
+                 'UpdateProcThreadAttribute', 'TerminateJobObject'):
+        function = getattr(api, name)
+        case.check(function.restype is not None, f'{name} must declare a restype')
+        case.check(function.argtypes, f'{name} must declare argtypes')
+    # UpdateProcThreadAttribute(lpAttributeList, dwFlags, Attribute, lpValue,
+    # cbSize, lpPreviousValue, lpReturnSize): Attribute is DWORD_PTR and
+    # cbSize is SIZE_T — both pointer-width unsigned with high bits kept.
+    attribute_type = api.UpdateProcThreadAttribute.argtypes[2]
+    size_type = api.UpdateProcThreadAttribute.argtypes[4]
+    for label, carrier in (('Attribute(DWORD_PTR)', attribute_type),
+                           ('cbSize(SIZE_T)', size_type)):
+        case.check(ctypes.sizeof(carrier) == pointer_width,
+                   f'UpdateProcThreadAttribute {label} must be pointer-width')
+        high_value = (1 << (pointer_width * 8 - 1)) | 0x5678
+        case.check(carrier(high_value).value == high_value,
+                   f'UpdateProcThreadAttribute {label} must keep high-bit values')
+    case.check(ctypes.sizeof(api.CreateJobObjectW.restype) == pointer_width,
+               'HANDLE returns must stay pointer-width')
+    case.check(ctypes.sizeof(api.TerminateJobObject.argtypes[1]) == 4,
+               'DWORD parameters must stay 4 bytes')
+    case.record(bound_functions=sorted(probe.dlls[0].functions),
+                attempted_win32_calls=probe.attempted_calls,
+                last_error_source_reads=probe.last_error_source_reads)
+
+
+def synthetic_abi_pidlist_returned_count(case):
+    # The test QueryInformationJobObject writes ONLY the specified bytes into
+    # the production buffer; the real job_process_ids must report the copied
+    # count (NumberOfProcessIdsInList), never the assigned count, and never
+    # padding or unwritten array slots. No real PID is created or terminated.
+    pointer_width = ctypes.sizeof(ctypes.c_void_p)
+    entry_format = 'Q' if pointer_width == 8 else 'I'
+    if pointer_width == 8:
+        pid_first, pid_second = 0x0000ABCD12345678, 0x0F0E0D0C0B0A0908
+    else:
+        pid_first, pid_second = 0x12345678, 0x0B0A0908
+    copied_payload = struct.pack('<II', 5, 2) + struct.pack('<2' + entry_format,
+                                                            pid_first, pid_second)
+    with patched_win32_constructor() as probe:
+        api = Win32ProcessAPI()
+    case.check(probe.attempted_calls == [], 'no Win32 call may happen in construction')
+
+    queries = []
+
+    def install_query(payload, result):
+        def query(job, information_class, buffer, size, return_length):
+            queries.append({'information_class': int(information_class),
+                            'size': int(size)})
+            if result == 0:
+                return 0
+            ctypes.memmove(buffer, payload, len(payload))
+            return 1
+        api.QueryInformationJobObject = query
+
+    expected_buffer_size = 8 + 64 * pointer_width
+    install_query(copied_payload, 1)
+    listed = api.job_process_ids(object())
+    case.check(listed == [pid_first, pid_second],
+               f'only the two copied IDs may be returned, got {listed!r}')
+    case.check(len(queries) == 1 and
+               queries[0]['information_class'] == windows_process.JobObjectBasicProcessIdList,
+               'the PID list query class must be JobObjectBasicProcessIdList')
+    case.check(queries[0]['size'] == expected_buffer_size,
+               f"the fixed 64-entry buffer must be {expected_buffer_size} bytes, "
+               f"got {queries[0]['size']}")
+    # A copied count beyond the fixed buffer must fail explicitly, never
+    # truncate into a complete-looking list.
+    install_query(struct.pack('<II', 70, 70), 1)
+    try:
+        api.job_process_ids(object())
+        raise CaseFailure('a copied count over the fixed buffer must be rejected')
+    except WindowsProcessError as error:
+        over_limit_reason = str(error)[:512]
+    # The original query-failure behaviour is preserved.
+    install_query(b'', 0)
+    try:
+        api.job_process_ids(object())
+        raise CaseFailure('a failed PID list query must still fail')
+    except WindowsProcessError as error:
+        query_failure_type = type(error).__name__
+    case.check(query_failure_type == 'Win32CallFailure',
+               f'a failed query must raise Win32CallFailure, got {query_failure_type}')
+    case.record(copied_ids=[hex(pid_first), hex(pid_second)], assigned_in_oracle=5,
+                copied_in_oracle=2, over_limit_reason=over_limit_reason,
+                query_failure_type=query_failure_type, queries=len(queries))
+
+
 SYNTHETIC_CASES = [
     ('normal-completion', synthetic_normal_completion),
     ('stage-failures', synthetic_stage_failures),
@@ -542,6 +835,9 @@ SYNTHETIC_CASES = [
     ('timeout-with-capture-failure', synthetic_timeout_preserved_with_capture_failure),
     ('platform-refusal', synthetic_platform_refusal_and_no_fallback),
     ('ordering-contract', synthetic_ordering_contract),
+    ('abi-declaration-sdk-layout', synthetic_abi_declaration_sdk_layout),
+    ('abi-constructor-binding-smoke', synthetic_abi_constructor_binding_smoke),
+    ('abi-pidlist-returned-count', synthetic_abi_pidlist_returned_count),
 ]
 
 
@@ -631,6 +927,29 @@ def native_startup_checks(case):
     for name, expected in windows_process.X64_STRUCTURE_SIZES.items():
         case.check(sizes[name] == expected, f'{name} size {sizes[name]} != {expected}')
     case.check(ctypes.sizeof(ctypes.c_void_p) == 8, 'x64 pointer width required')
+    # Official accounting/PID-list layouts beyond the size table: all eight
+    # accounting fields (four LARGE_INTEGER times then the four DWORD counters)
+    # and the PID-list header/array sit at their SDK offsets, and the module
+    # DWORD_PTR alias keeps pointer width.
+    accounting_class = api.JOBOBJECT_BASIC_ACCOUNTING_INFORMATION
+    accounting_offsets = {name: getattr(accounting_class, name).offset
+                          for name, _ in accounting_class._fields_}
+    for field, expected_offset in (('TotalUserTime', 0), ('TotalKernelTime', 8),
+                                   ('ThisPeriodTotalUserTime', 16),
+                                   ('ThisPeriodTotalKernelTime', 24),
+                                   ('TotalPageFaultCount', 32), ('TotalProcesses', 36),
+                                   ('ActiveProcesses', 40), ('TotalTerminatedProcesses', 44)):
+        case.check(accounting_offsets[field] == expected_offset,
+                   f'{field} offset {accounting_offsets[field]} != {expected_offset}')
+    pid_list_class = api.JOBOBJECT_BASIC_PROCESS_IDLIST
+    pid_list_offsets = {name: getattr(pid_list_class, name).offset
+                        for name, _ in pid_list_class._fields_}
+    for field, expected_offset in (('NumberOfAssignedProcesses', 0),
+                                   ('NumberOfProcessIdsInList', 4), ('ProcessIdList', 8)):
+        case.check(pid_list_offsets[field] == expected_offset,
+                   f'{field} offset {pid_list_offsets[field]} != {expected_offset}')
+    case.check(ctypes.sizeof(windows_process.DWORD_PTR) == ctypes.sizeof(ctypes.c_void_p),
+               'DWORD_PTR must stay pointer-width')
     # NULL and INVALID_HANDLE_VALUE stay distinct failure identities.
     try:
         api.open_output_spool(case._recorder.root / 'native-cwd' / 'missing-dir' / 'x')
@@ -645,7 +964,11 @@ def native_startup_checks(case):
         command_id='startup-probe', timeout=10)
     case.check(error is None and result.stdout.strip() == b'ok', 'startup probe failed')
     case.check(result.tree_exit_proven, 'startup probe must prove its tree exit')
-    case.record(structure_sizes=sizes, nested_job_assignment='ALLOWED_AND_PROVEN',
+    case.record(structure_sizes=sizes, accounting_offsets=accounting_offsets,
+                pid_list_offsets=pid_list_offsets,
+                pid_list_size=ctypes.sizeof(pid_list_class),
+                dword_ptr_width=ctypes.sizeof(windows_process.DWORD_PTR),
+                nested_job_assignment='ALLOWED_AND_PROVEN',
                 startup_probe=_summary(result.receipt))
 
 

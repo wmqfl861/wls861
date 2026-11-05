@@ -75,7 +75,11 @@ FILE_ATTRIBUTE_NORMAL = 0x00000080
 
 # x64 ABI expectations for the structures declared below. They are asserted
 # by the native selfcheck on real Windows; ctypes itself applies the native
-# alignment rules on the host that instantiates the real API.
+# alignment rules on the host that instantiates the real API. The accounting
+# entry follows the official SDK layout: four LARGE_INTEGER values then the
+# four DWORD counters (size 48, DWORD offsets 32/36/40/44). The process-id
+# list entry covers the two-DWORD header plus the fixed 64-entry diagnostic
+# buffer (8 + 64 * 8 = 520).
 X64_STRUCTURE_SIZES = {
     'STARTUPINFOW': 104,
     'STARTUPINFOEXW': 112,
@@ -83,8 +87,19 @@ X64_STRUCTURE_SIZES = {
     'JOBOBJECT_BASIC_LIMIT_INFORMATION': 64,
     'IO_COUNTERS': 48,
     'JOBOBJECT_EXTENDED_LIMIT_INFORMATION': 144,
-    'JOBOBJECT_BASIC_ACCOUNTING_INFORMATION': 72,
+    'JOBOBJECT_BASIC_ACCOUNTING_INFORMATION': 48,
+    'JOBOBJECT_BASIC_PROCESS_IDLIST': 520,
 }
+
+# Python's ctypes has no ``c_ulongptr``, and on the LLP64 Windows target an
+# ``unsigned long`` is 32 bits and cannot carry pointer-width values, so a
+# ``c_ulong`` fallback would corrupt them. The pointer-width unsigned carrier
+# Python actually provides is ``c_size_t`` (SIZE_T): ULONG_PTR, DWORD_PTR and
+# SIZE_T therefore share it on every supported platform. HANDLE stays
+# ``c_void_p`` and DWORD stays ``c_uint32``; ctypes is never monkey patched
+# and no 32-bit platform support is declared.
+ULONG_PTR = ctypes.c_size_t
+DWORD_PTR = ctypes.c_size_t
 
 
 class WindowsProcessError(OSError):
@@ -168,7 +183,7 @@ def _declare_structures():
             ('MinimumWorkingSetSize', ctypes.c_size_t),
             ('MaximumWorkingSetSize', ctypes.c_size_t),
             ('ActiveProcessLimit', ctypes.c_uint32),
-            ('Affinity', ctypes.c_ulongptr),
+            ('Affinity', ULONG_PTR),
             ('PriorityClass', ctypes.c_uint32),
             ('SchedulingClass', ctypes.c_uint32),
         ]
@@ -189,24 +204,32 @@ def _declare_structures():
         ]
 
     class JOBOBJECT_BASIC_ACCOUNTING_INFORMATION(ctypes.Structure):
+        # Official SDK layout: TotalUserTime, TotalKernelTime,
+        # ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime (four LARGE_INTEGER
+        # at x64 offsets 0/8/16/24), then the DWORD counters TotalPageFaultCount,
+        # TotalProcesses, ActiveProcesses, TotalTerminatedProcesses at x64
+        # offsets 32/36/40/44 (size 48). The former trailing
+        # ActiveProcessesLimit/Peak* entries belong to other structures and had
+        # shifted the real counter offsets.
         _fields_ = [
             ('TotalUserTime', ctypes.c_int64),
             ('TotalKernelTime', ctypes.c_int64),
             ('ThisPeriodTotalUserTime', ctypes.c_int64),
             ('ThisPeriodTotalKernelTime', ctypes.c_int64),
             ('TotalPageFaultCount', ctypes.c_uint32),
-            ('TotalTerminatedProcesses', ctypes.c_uint32),
             ('TotalProcesses', ctypes.c_uint32),
             ('ActiveProcesses', ctypes.c_uint32),
-            ('ActiveProcessesLimit', ctypes.c_uint32),
-            ('PeakProcessMemoryUsed', ctypes.c_ulongptr),
-            ('PeakJobMemoryUsed', ctypes.c_ulongptr),
+            ('TotalTerminatedProcesses', ctypes.c_uint32),
         ]
 
     class JOBOBJECT_BASIC_PROCESS_IDLIST(ctypes.Structure):
-        # Fixed 64-entry view for read-only observation queries.
-        _fields_ = [('NumberOfProcessIds', ctypes.c_uint32),
-                    ('ProcessIdList', ctypes.c_ulongptr * 64)]
+        # Official SDK header: DWORD NumberOfAssignedProcesses (offset 0) and
+        # DWORD NumberOfProcessIdsInList (offset 4), then the ULONG_PTR
+        # entries. Fixed 64-entry read-only diagnostic view; a Job larger
+        # than the buffer makes its query fail rather than truncating here.
+        _fields_ = [('NumberOfAssignedProcesses', ctypes.c_uint32),
+                    ('NumberOfProcessIdsInList', ctypes.c_uint32),
+                    ('ProcessIdList', ULONG_PTR * 64)]
 
     class STARTUPINFOW(ctypes.Structure):
         _fields_ = [
@@ -265,7 +288,6 @@ class Win32ProcessAPI:
         DWORD = ctypes.c_uint32
         BOOL = ctypes.c_int
         SIZE_T = ctypes.c_size_t
-        DWORD_PTR = ctypes.c_ulongptr if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint
 
         def bind(name, argtypes, restype):
             function = getattr(kernel32, name)
@@ -344,8 +366,16 @@ class Win32ProcessAPI:
         if not self.QueryInformationJobObject(job, JobObjectBasicProcessIdList,
                                               ctypes.byref(listing), ctypes.sizeof(listing), None):
             raise self._fail('QueryInformationJobObject(idlist)')
-        count = min(int(listing.NumberOfProcessIds), len(listing.ProcessIdList))
-        return [int(listing.ProcessIdList[index]) for index in range(count)]
+        copied = int(listing.NumberOfProcessIdsInList)
+        if copied > len(listing.ProcessIdList):
+            # The fixed 64-entry diagnostic buffer cannot hold more copied IDs;
+            # the extra entries are never silently truncated into a complete-
+            # looking list. NumberOfAssignedProcesses stays diagnostic only.
+            raise WindowsProcessError(
+                'QueryInformationJobObject(idlist) copied '
+                f'{copied} process IDs into a {len(listing.ProcessIdList)}-entry '
+                'buffer; refusing to report a truncated membership list')
+        return [int(listing.ProcessIdList[index]) for index in range(copied)]
 
     # ---- Standard handles --------------------------------------------------------
     def open_input_null(self):

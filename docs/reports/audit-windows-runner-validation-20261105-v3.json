@@ -1,0 +1,165 @@
+{
+  "schema": "wls-windows-runner-validation-report-v3",
+  "version": 3,
+  "generated_at_utc": "2026-11-05T14:54:52+00:00",
+  "corrects_scope_of": {
+    "report_md": "docs/reports/audit-windows-runner-validation-20261105-v2.md",
+    "report_md_sha256": "fb315b7c3a3585c3f943bc80b63d69fa550987ed9f4cb83ad13bb0f7b064e676",
+    "report_json": "docs/reports/audit-windows-runner-validation-20261105-v2.json",
+    "report_json_sha256": "c2190666d93347133d67498d1f98af82358a91b5ce4305c29c411651b3c28898",
+    "v2_is_latest_acceptance_report": false,
+    "withdrawn_v2_claims": [
+      "v2 md section 2 item 2: 'The official declaration is four LARGE_INTEGER values (ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime, TotalUserTime, TotalKernelTime)' — the order is wrong; official order is TotalUserTime, TotalKernelTime, ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime",
+      "v2 json correction ABI-2: 'official field order restored' — not true for the four LARGE_INTEGER fields in the v2 candidate",
+      "any implication that the v2 candidate was acceptable: hard-review-02 returned FAIL with blocker B-1"
+    ],
+    "v2_preserved_bytes": true,
+    "v2_local_green_interpretation": "real runs of the then-wrong-order oracle; they do not prove the official SDK order"
+  },
+  "scope": "B-1 accounting field-order correction only: two owned source files plus this report pair; no workflow, aggregate, README, budget or CI-deadline changes",
+  "baseline": {
+    "branch": "fix/audit-windows-evidence-20261105-adp35vg4",
+    "head": "966d23c3d38b6ac29981b3b87efad0d5a81ad195",
+    "worktree_state": "dirty candidate bytes; not a future final Git SHA",
+    "existing_pr": 39,
+    "pr_base": "fix/n5-windows-evidence-20261104-_7wxnkyn"
+  },
+  "b1_blocker": {
+    "source": "hard-review-02 (SOURCE_AND_LOCAL_SYNTHETIC) FAIL, session-independent; adjudicated RETURN_TO_IMPLEMENTATION_FOR_EXISTING_FINAL_REQUIREMENT by the same author in plan-final-v4",
+    "defect": "implementation-02 reversed the four LARGE_INTEGER names of JOBOBJECT_BASIC_ACCOUNTING_INFORMATION (ThisPeriod first) and labeled that order official in the production comment, the abi-declaration-sdk-layout oracle and the v2 report",
+    "introduced_by": "implementation-02; the 966d baseline order (Total first) was already correct",
+    "mitigation_acknowledged_not_waiving": "no source code read the four time fields, so no runtime misread path existed; ABI/oracle/report correctness still required",
+    "official_declaration": "LARGE_INTEGER TotalUserTime; LARGE_INTEGER TotalKernelTime; LARGE_INTEGER ThisPeriodTotalUserTime; LARGE_INTEGER ThisPeriodTotalKernelTime; DWORD TotalPageFaultCount; DWORD TotalProcesses; DWORD ActiveProcesses; DWORD TotalTerminatedProcesses",
+    "x64_layout": {
+      "size": 48,
+      "TotalUserTime": 0,
+      "TotalKernelTime": 8,
+      "ThisPeriodTotalUserTime": 16,
+      "ThisPeriodTotalKernelTime": 24,
+      "TotalPageFaultCount": 32,
+      "TotalProcesses": 36,
+      "ActiveProcesses": 40,
+      "TotalTerminatedProcesses": 44
+    },
+    "proof_level": "STATIC_CONFIRMED_IMPLEMENTATION_REGRESSION corrected; dedicated local pre-fix red plus same-oracle green; not exercised by a real Windows query"
+  },
+  "corrections_this_round": [
+    {
+      "id": "B1-accounting-time-field-order",
+      "change": "first four accounting fields restored to TotalUserTime, TotalKernelTime, ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime; comment corrected; size 48 and DWORD segment unchanged; no other production function changed"
+    },
+    {
+      "id": "B1-oracle-correction",
+      "change": "literal official-order expected list with expected/actual failure reporting; four distinct time-value decode assertions (111/222/333/444) added beside the existing DWORD decodes (777/9/2/7); all-eight accounting offsets asserted in the synthetic case and in native_startup_checks"
+    }
+  ],
+  "preserved_from_v2_round": {
+    "accounting_size": 48,
+    "accounting_dword_segment": "TotalPageFaultCount/TotalProcesses/ActiveProcesses/TotalTerminatedProcesses at 32/36/40/44",
+    "pid_list": "two-DWORD header (assigned@0, copied@4), array@8, fixed 64-entry buffer (x64 size 520), copied-count read, over-limit explicit rejection, query-failure behavior preserved, read-only diagnostic",
+    "carriers": "ULONG_PTR = DWORD_PTR = ctypes.c_size_t; SIZE_T c_size_t; HANDLE c_void_p; DWORD c_uint32; no ctypes monkey patching; no c_ulong fallback; no 32-bit declaration"
+  },
+  "repository_writes_this_round": {
+    "count": 4,
+    "files": [
+      "platform/native-foundation/tools/windows_process.py",
+      "platform/native-foundation/tools/test_windows_process_supervisor.py",
+      "docs/reports/audit-windows-runner-validation-20261105-v3.md",
+      "docs/reports/audit-windows-runner-validation-20261105-v3.json"
+    ],
+    "cumulative_candidate_files_against_966d": 6,
+    "cumulative_note": "two modified Python files, preserved v2 pair (inherited, unmodified this round), new v3 pair; never present six as four"
+  },
+  "local_validation": {
+    "environment": "ordinary user, Linux, data disk, fresh private round evidence directory, byte-exact before-correction snapshot verified before any write, private TMPDIR outside the checkout, PYTHONDONTWRITEBYTECODE=1; per-command receipts with argv/cwd/interpreter/source SHA/UTC start-end/exit code/stdout+stderr bytes and hashes retained privately",
+    "interpreter": {"path": "/usr/bin/python3", "version": "Python 3.12.3"},
+    "b1_pre_fix_red": {
+      "production_sha256_at_run": "77b184076b1574b654e90208253bfe7b30c2545700ef0d1adae5e22203748693",
+      "test_sha256_at_run": "c97bcaf5b946355933bd968403ecb106ca5c0d1f6c817f3fec558b5f838c8c27",
+      "window_utc": "2026-11-05T14:51:25.459353+00:00/2026-11-05T14:51:26.137390+00:00",
+      "exit_code": 1,
+      "cases": 16,
+      "passed": 15,
+      "failed": ["abi-declaration-sdk-layout"],
+      "failure": "order assertion with expected (official Total-first order) and actual (ThisPeriod-first wrong order) both recorded in the case original",
+      "classification": "local declaration/decode counterexample for B-1; not a Win32 API execution, not the E002 dynamic reproduction, not the earlier c_ulongptr red"
+    },
+    "post_fix_green": {
+      "production_sha256": "169110205983ea0fb6dece48c6a5b2ca1a69c85a11207930c723138e2813293d",
+      "test_sha256": "c97bcaf5b946355933bd968403ecb106ca5c0d1f6c817f3fec558b5f838c8c27",
+      "test_bytes_identical_to_red": true,
+      "intermediate_failures_this_round": "none between red and green",
+      "runs": [
+        {"check": "supervisor synthetic selfcheck", "cases": 16, "passed": 16, "exit_code": 0, "window_utc": "2026-11-05T14:52:46.647259+00:00/2026-11-05T14:52:47.144360+00:00", "stdout_sha256": "945a6f7b6ade83a58e318a07a2341265ab109c8d3fbda519fc809393fae67dbc"},
+        {"check": "runner synthetic selfcheck (test_windows_ci_evidence.py)", "tests": 31, "exit_code": 0, "window_utc": "2026-11-05T14:52:47.250736+00:00/2026-11-05T14:53:15.941770+00:00"},
+        {"check": "image provenance source-binding selfcheck", "tests": 17, "exit_code": 0, "window_utc": "2026-11-05T14:53:16.040055+00:00/2026-11-05T14:53:17.335244+00:00"},
+        {"check": "bundle capture selfcheck (--source-root .)", "tests": 6, "exit_code": 0, "window_utc": "2026-11-05T14:53:17.433364+00:00/2026-11-05T14:53:19.653660+00:00"}
+      ],
+      "abi_case_facts": {"pointer_width": 8, "accounting_size": 48, "pid_list_size": 520}
+    },
+    "prior_round_history_preserved": "first-red empty receipt, partial note, get_last_error shim failure and wrong-oracle green all retained as originals; not re-run or rewritten",
+    "limitation": "Linux runs are declaration/binding/layout regressions and supervisor state-machine checks; they are not native Windows API executions and do not substitute for native evidence"
+  },
+  "native_failure_966d": {
+    "classification": "NATIVE_OBSERVED_INITIALIZATION_FAILURE",
+    "run_id": 42028520881,
+    "job_id": 127248705818,
+    "attempt": 1,
+    "event": "push",
+    "head_and_checkout": "966d23c3d38b6ac29981b3b87efad0d5a81ad195",
+    "failed_step": "Capture inherited image environment before selfchecks",
+    "failed_step_window_utc": "2026-11-05T12:38:19Z/2026-11-05T12:38:22Z",
+    "exit_code": 1,
+    "error": "AttributeError: module 'ctypes' has no attribute 'c_ulongptr'",
+    "subsequent_steps": "skipped, not executed, not recorded as passed",
+    "artifact_count": 0,
+    "actions_log_originals_available": true,
+    "remote_capture_spool_directory": "missing, not downloaded, not reconstructed",
+    "native_artifact_originals_available": false,
+    "original_e002_dynamic_reproduction": "NOT_RUN (original defect stays STATIC_CONFIRMED / STATIC_CONTROL_FLOW_EVIDENCE)"
+  },
+  "proof_levels": {
+    "e002_supervisor_leak": "STATIC_CONFIRMED / STATIC_CONTROL_FLOW_EVIDENCE; Windows dynamic reproduction NOT_RUN",
+    "c_ulongptr_initialization_failure": "NATIVE_OBSERVED_INITIALIZATION_FAILURE (966d CI trace; also locally red before the v2 fix)",
+    "accounting_dword_and_pid_layout_corrections": "STATIC_CONFIRMED_SDK_LAYOUT_MISMATCH corrected; local synthetic oracle only; not exercised by a real Windows query",
+    "accounting_time_field_order_correction_b1": "STATIC_CONFIRMED_IMPLEMENTATION_REGRESSION corrected; dedicated pre-fix local red plus same-oracle green; not exercised by a real Windows query",
+    "no_layout_claimed_win32_verified": true
+  },
+  "open_states": {
+    "windows_capture_step_corrected_bytes": "PENDING_CI",
+    "supervisor_native_n1_n10_and_startup_all_eight_offsets": "PENDING_CI",
+    "native_slice_5_suites_34_methods_new_sha": "PENDING_CI (frozen expected catalog; verify actual original method logs for names/counts/duplicates/skips without lowering expectations or counting tool cases into 34)",
+    "install_relocated_detached_corrected_code": "PENDING_CI",
+    "linux_six_way_and_95_suite_new_sha": "PENDING_CI (cannot borrow older-SHA results)",
+    "windows_11_ordinary_user_ntfs": "NOT_RUN",
+    "original_e002_windows_dynamic_reproduction": "NOT_RUN",
+    "historical_image_conflict": "UNRESOLVED",
+    "restricted_private_original_hosting": "BLOCKED",
+    "full_native_runtime": "NOT_IMPLEMENTED",
+    "historical_local_sanitizer_clang_live_workflow_limitations": "unchanged, open for their own evidence"
+  },
+  "carried_disclosures": {
+    "source": "post-hard-review-disposition-v1",
+    "required_in_pr39_context": true,
+    "H6-1": "result.json owned_process_supervision is a pre-finalization projection omitting source-snapshot-after; final command coverage requires identity-finalization.json plus per-command receipts including source-snapshot-after; the code omission is not fixed this round",
+    "H6-2": "the 2026-11-05T12:20:00+00:00 timestamps in the v1 and E003 v3 report pairs are nominal, not verified write times; actual write time UNKNOWN; original bytes preserved; 12:20 must not be used to date executions or CI facts",
+    "H6-4": "platform/native-foundation/README.md identity is its actual 64-character SHA-256 b1334000a93a8ef49eaf3da5ac65cfe97bbe8274df7d607386d5ac16134a3427; the malformed hash in the earlier implementation response is excluded from identity evidence; README unchanged",
+    "note": "evidence-interpretation corrections; none claims a code fix in this round"
+  },
+  "states": {
+    "IMPLEMENTATION_COMPLETE": "true, limited to this round's 4-file B-1 order correction delta",
+    "LOCAL_VALIDATION_COMPLETE": "true, limited to the local synthetic/tool checks listed",
+    "PUSH_COMPLETE": "false at freeze; implementation stage performed no Git writes",
+    "REMOTE_CI_COMPLETE": "false, PENDING_CI for the corrected candidate",
+    "PR_REVIEW_COMPLETE": "false; the fresh independent hard review of this corrected delta has not run; coordinator owns acceptance",
+    "MERGED": "false"
+  },
+  "boundaries": {
+    "job_object_is_sandbox": false,
+    "exit_proof_rule": "same-Job ActiveProcesses == 0 AND root HANDLE signaled AND actual exit code read; unknowns never written as 0/true/PASSED",
+    "real_model_or_paid_calls": false,
+    "engineering_model_requests_per_stage_receipt": {"implementation-02": 43, "hard-review-02": 9, "this_round": "left to its entry receipt; not pre-written"},
+    "git_writes_in_implementation": false,
+    "future_final_sha_receipt": "a new external versioned receipt after review/publication; no self-referential follow-up commit"
+  }
+}
