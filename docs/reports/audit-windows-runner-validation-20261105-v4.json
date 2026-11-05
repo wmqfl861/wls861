@@ -1,0 +1,208 @@
+{
+  "schema": "wls-windows-runner-validation-report-v4",
+  "generated_at_utc": "2026-11-05T17:08:00Z",
+  "scope": "implementation-04 of plan-final-v5: explicit inherited-handle attribute list fix; four repository files only; no Git writes",
+  "baseline": {
+    "branch": "fix/audit-windows-evidence-20261105-adp35vg4",
+    "head": "a273b971531a0630aa6deccbb3b9bee997b662fe",
+    "tree": "cb6bb995e4d4d292fc0296db84a5a2c777ece7e2",
+    "head_unchanged_by_this_batch": true,
+    "production_sha256": "169110205983ea0fb6dece48c6a5b2ca1a69c85a11207930c723138e2813293d",
+    "test_sha256": "c97bcaf5b946355933bd968403ecb106ca5c0d1f6c817f3fec558b5f838c8c27"
+  },
+  "final_files": {
+    "platform/native-foundation/tools/windows_process.py": "a1fa6e7a4477bc819b53c82edfc0c62133c04f52485a5e5a23eba100187e2c02",
+    "platform/native-foundation/tools/test_windows_process_supervisor.py": "55b5a6b6e1440da0bfa2bd2ef8a3075fb5a9860afd76cbc2edeb54038a1679be",
+    "docs/reports/audit-windows-runner-validation-20261105-v4.md": "de1452a38249f7dae3f6e8b27060b12a0605cb4c9439ad3389546041009fa410",
+    "docs/reports/audit-windows-runner-validation-20261105-v4.json": "self-referential; see final/report-binding.json in validation-attribute-01 for the bound pair hashes"
+  },
+  "native_failures_answered": [
+    {
+      "run_id": 42056774966,
+      "run_number": 98,
+      "event": "push",
+      "job_id": 127347180379,
+      "attempt": 1,
+      "platform": "windows-2022",
+      "api_head_sha": "a273b971531a0630aa6deccbb3b9bee997b662fe",
+      "actual_checkout_sha": "a273b971531a0630aa6deccbb3b9bee997b662fe",
+      "failed_step": 4,
+      "failed_step_name": "Capture inherited image environment before selfchecks",
+      "failure_window_utc": "15:37:14-15:37:17",
+      "error": "Win32CallFailure: UpdateProcThreadAttribute failed with Win32 error 24",
+      "post_capture_steps_5_to_9": ["skipped", "skipped", "skipped", "skipped", "skipped"],
+      "artifact_count": 0,
+      "runner_capture_spool_downloaded": false
+    },
+    {
+      "run_id": 42056786169,
+      "run_number": 99,
+      "event": "pull_request",
+      "job_id": 127347218354,
+      "attempt": 1,
+      "platform": "windows-2022",
+      "api_head_sha": "a273b971531a0630aa6deccbb3b9bee997b662fe",
+      "actual_checkout_sha": "eb8474c5ec553040ec5b4c184afd76108c34855c",
+      "actual_checkout_kind": "merge of a273b971 into 9cd5261 (PR 39); API head must not substitute for it",
+      "failed_step": 4,
+      "failed_step_name": "Capture inherited image environment before selfchecks",
+      "failure_window_utc": "15:37:17-15:37:20",
+      "error": "Win32CallFailure: UpdateProcThreadAttribute failed with Win32 error 24",
+      "post_capture_steps_5_to_9": ["skipped", "skipped", "skipped", "skipped", "skipped"],
+      "artifact_count": 0,
+      "runner_capture_spool_downloaded": false
+    }
+  ],
+  "findings": [
+    {
+      "id": "ATTR-1",
+      "status": "STATIC_CONFIRMED_WRONG_ATTRIBUTE_KEY__NOW_FIXED_LOCALLY",
+      "a273_value": "0x00020000",
+      "sdk_meaning_of_old_value": "PROC_THREAD_ATTRIBUTE_PARENT_PROCESS",
+      "correct_value": "0x00020002",
+      "derivation": "ProcThreadAttributeValue(ProcThreadAttributeHandleList=2, FALSE, TRUE, FALSE) = PROC_THREAD_ATTRIBUTE_INPUT | 2, pinned win32metadata commit c16762d41f1bd641ff8c4389ebf16ee50747129f WinBase.h",
+      "payload_contract": "three HANDLE entries, cbSize 3*sizeof(void*) = 24 on x64",
+      "native_causal_contrast": "PENDING_CI (same-conditions real-API contrast implemented; not executed on this Linux host)"
+    },
+    {
+      "id": "ATTR-2",
+      "status": "STATIC_CONFIRMED_ATTRIBUTE_LIST_NOT_SUBMITTED__NOW_FIXED_LOCALLY",
+      "defect": "STARTUPINFOEXW.lpAttributeList never referenced the initialized/updated attribute_buffer",
+      "fix": "startup.lpAttributeList = ctypes.cast(attribute_buffer, ctypes.c_void_p).value after successful InitializeProcThreadAttributeList",
+      "native_leak_or_unrestricted_creation_observed": false,
+      "native_list_submission_proof": "PENDING_CI (per-instance recorder before real CreateProcessW)"
+    }
+  ],
+  "production_states": {
+    "a273_baseline": "169110205983ea0fb6dece48c6a5b2ca1a69c85a11207930c723138e2813293d",
+    "red2_constant_only_intermediate": {
+      "sha256": "260cd00bd1ff600b587caf3e6dd15fa076aaf435dbc0b7304d3e1ab0f2f57059",
+      "change": "constant 0x00020000 -> 0x00020002 plus adjacent SDK comment only; no lpAttributeList binding",
+      "execution": "LOCAL_SYNTHETIC_FIXTURE_ONLY",
+      "native_execution": "NONE (prohibited and not performed)",
+      "published": false,
+      "archived": "red-2/intermediate/ (bytes, sha256, unified diff)"
+    },
+    "green_final": "a1fa6e7a4477bc819b53c82edfc0c62133c04f52485a5e5a23eba100187e2c02"
+  },
+  "test_states": {
+    "attempt1_sha256": "620bec7b8db0f27b6ad108faec2cbefd638d680ae819fc4cc413e82dde73ca9e",
+    "attempt1_outcome": "red1 and red2 hit their planned boundaries; green attempt failed on a fixture typo (stdout_handle/stdout_value) in the FAULT_INJECTION sub-branch after the main sub-branch passed; whole sequence preserved under attempt-1/",
+    "final_sha256": "55b5a6b6e1440da0bfa2bd2ef8a3075fb5a9860afd76cbc2edeb54038a1679be",
+    "final_sha_identical_across_red1_red2_green": true,
+    "synthetic_case_count": 17,
+    "new_case": "abi-create-process-handle-list-contract",
+    "new_case_oracle": "independent SDK derivation 0x00020000 | 2 == 0x20002, never the production constant",
+    "fault_injection_subbranch": "explicit Update failure with Win32 24; original exception propagation, no CreateProcessW, exactly one Delete; marked FAULT_INJECTION; not a real Windows error reproduction"
+  },
+  "local_double_red_green": [
+    {
+      "stage": "RED-1",
+      "production_sha256": "169110205983ea0fb6dece48c6a5b2ca1a69c85a11207930c723138e2813293d",
+      "exit_code": 1,
+      "cases_passed": 16,
+      "failed_cases": ["abi-create-process-handle-list-contract"],
+      "failure": "UpdateProcThreadAttribute attribute key must be 0x20002 (SDK PROC_THREAD_ATTRIBUTE_INPUT | HandleList number), got 0x20000",
+      "receipt": "commands/20261105T170420-156936-red1-process-synthetic.json"
+    },
+    {
+      "stage": "RED-2",
+      "production_sha256": "260cd00bd1ff600b587caf3e6dd15fa076aaf435dbc0b7304d3e1ab0f2f57059",
+      "exit_code": 1,
+      "cases_passed": 16,
+      "failed_cases": ["abi-create-process-handle-list-contract"],
+      "failure": "CreateProcessW STARTUPINFOEX.lpAttributeList must submit the initialized/updated attribute list 0x<addr>, got NULL",
+      "interpretation": "constant-only correction is independently insufficient",
+      "receipt": "commands/20261105T170436-851449-red2-process-synthetic.json"
+    },
+    {
+      "stage": "GREEN",
+      "production_sha256": "a1fa6e7a4477bc819b53c82edfc0c62133c04f52485a5e5a23eba100187e2c02",
+      "exit_code": 0,
+      "result": "17/17 PASS including the FAULT_INJECTION sub-branch",
+      "receipt": "commands/20261105T170449-555739-green-process-synthetic.json"
+    }
+  ],
+  "local_regressions_green": [
+    {"command": "test_windows_process_supervisor.py --mode synthetic", "exit_code": 0, "result": "17/17 PASS"},
+    {"command": "test_windows_ci_evidence.py --retain-fixtures", "exit_code": 0, "result": "Ran 31 tests, OK", "receipt": "commands/20261105T170455-644883-green-runner-synthetic.json"},
+    {"command": "test_windows_image_provenance.py", "exit_code": 0, "result": "Ran 17 tests, OK", "receipt": "commands/20261105T170525-430363-green-image-provenance.json"},
+    {"command": "test_bundle_capture.py --source-root .", "exit_code": 0, "result": "Ran 6 tests, OK", "receipt": "commands/20261105T170527-232611-green-bundle-capture.json"}
+  ],
+  "regression_class": "engineering tools; not the Linux product CTest catalog (95 registrations unchanged) and not the native product five-suite catalog",
+  "hash_protection": {
+    "before_snapshot": "20 files re-hashed with expected values loaded programmatically from planner-record-final-v5.json and post-implementation-03-disposition-v1.json; all matched",
+    "final_freeze": "same set re-hashed after GREEN; zero violations; only the two owned files differ from a273",
+    "read_only_scripts_unchanged": {
+      "platform/native-foundation/tools/test_windows_ci_evidence.py": "6ecc3b1ada6c31428c2e724ec480cde28e6cc6209882bd1d76144b555dc9eb54",
+      "platform/native-foundation/tools/test_windows_image_provenance.py": "153812da0c24df48a1ba57395d740a0daf00fc1968c7a1c696a05e72fbf31853",
+      "platform/native-foundation/tests/test_bundle_capture.py": "3d2f969fd53a2fd52761d8d7d2936b974d2c7b49685a7375cbb5fe700e884967"
+    },
+    "evidence_root": "validation-attribute-01 (private data disk; 0700/0600; exclusive-create; private TMPDIR; PYTHONDONTWRITEBYTECODE=1; no system-tmp staging)",
+    "evidence_files_enumerated": 1517
+  },
+  "native_additions": {
+    "status": "NOT_RUN_ON_THIS_HOST__PENDING_CI",
+    "real_api_key_contrast": {
+      "location": "native_startup_checks, before the existing startup-probe",
+      "conditions": "same binding, same three fixture-owned inheritable handles (NUL input + two private spool files), same 24-byte payload, flags 0, reserved NULL, count 1; two fresh lists; only the key differs",
+      "old_key_expectation": "BOOL FALSE with immediate GetLastError 24; any other observation fails and is retained unchanged",
+      "sdk_key_expectation": "BOOL TRUE; success last-error recorded NOT_APPLICABLE",
+      "cleanup": "each list deleted once, all handles closed in finally; CreateProcessW never called"
+    },
+    "production_path_recorder": {
+      "wraps": "Initialize/Update/Delete attribute list + CreateProcessW on the api instance",
+      "semantics": "record actual args/order, forward unchanged to real Win32, no result/last-error/permission substitution, restore in finally",
+      "pre_create_check": "STARTUPINFOEX.lpAttributeList non-NULL and identical to the list the successful Update targeted; three stdio members, 24-byte payload, required flags recorded"
+    },
+    "capture_step_order_unchanged": true
+  },
+  "budgets": {
+    "startup_finalize_constants_seconds": 15.0,
+    "startup_finalize_semantics": "preserved constants with elapsed recording only; no enforced comparison exists and none was added",
+    "synthetic_case_budget_seconds": 55.0,
+    "ci_synthetic_step_timeout_seconds": 60,
+    "native_scenario_budget_seconds": 25.0,
+    "native_internal_total_seconds": 280.0,
+    "native_step_timeout_seconds": 300,
+    "native_job_timeout_seconds": 900,
+    "build_timeout_seconds": 600,
+    "ctest_timeout_seconds": 300,
+    "native_suite_deadlines_seconds": [30, 30, 30, 60, 30],
+    "new_n_scenario_or_cli_mode_or_product_suite": false
+  },
+  "inherited_disclosures_unchanged": {
+    "H6_1_pre_finalization_result_projection": "open; final coverage via identity-finalization + per-command receipts",
+    "H6_2_v1_e003_1220_timestamp_non_evidence": "open; actual write time UNKNOWN; originals preserved",
+    "H6_4_readme_verified_sha": "b1334000a93a8ef49eaf3da5ac65cfe97bbe8274df7d607386d5ac16134a3427",
+    "D03_1_system_tmp_staging": "historical NONCOMPLIANT, history UNKNOWN; this batch used private data-disk TMPDIR only (does not close D03-1)",
+    "D03_2_environment_first_version": "ORIGINAL_UNAVAILABLE; unchanged",
+    "D03_3_first_manifest_typo": "retained and explained; this batch loads expected hashes from records and preserves failed attempts",
+    "D03_4_mode_normalization": "no history rewriting in this batch"
+  },
+  "release_states": {
+    "IMPLEMENTATION_COMPLETE": true,
+    "LOCAL_VALIDATION_COMPLETE": "local synthetic only (double-red + green 17/31/17/6)",
+    "PUSH_COMPLETE": false,
+    "REMOTE_CI_COMPLETE": "PENDING",
+    "PR_REVIEW_COMPLETE": "PENDING",
+    "MERGED": false
+  },
+  "preserved_open_states": {
+    "windows11_ordinary_user_ntfs": "NOT_RUN",
+    "windows_image_conflict": "UNRESOLVED",
+    "private_original_hosting": "BLOCKED",
+    "full_native_runtime": "NOT_IMPLEMENTED",
+    "historical_clang_live_workflow": "open",
+    "native_five_suites_34_methods": "frozen expectation; must be proven from final merged SHA originals"
+  },
+  "calls_and_requests": {
+    "real_wls_or_paid_provider_calls": false,
+    "engineering_zcode_model_request_count": "unknown (recorded by the local entry receipts)"
+  },
+  "limitations": [
+    "All reds/greens are local low-level contract fixtures at the real production method boundary; no Windows kernel call was made by them",
+    "Native contrast, production-path list-submission proof, N1-N10, native suites and final-SHA Linux six-way remain pending their own originals",
+    "Nothing in this report closes the native runnability question; any next native failure retains originals and returns to the same planning author"
+  ]
+}

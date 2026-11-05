@@ -63,7 +63,10 @@ CREATE_UNICODE_ENVIRONMENT = 0x00000400
 CREATE_NEW_CONSOLE = 0x00000010
 EXTENDED_STARTUPINFO_PRESENT = 0x00080000
 STARTF_USESTDHANDLES = 0x00000100
-PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020000
+# SDK WinBase.h: ProcThreadAttributeValue(ProcThreadAttributeHandleList = 2,
+# FALSE, TRUE, FALSE) — the PROC_THREAD_ATTRIBUTE_INPUT bit (0x00020000) OR the
+# HandleList attribute number 2; the bare INPUT bit alone is the ParentProcess key.
+PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002
 HANDLE_FLAG_INHERIT = 0x00000001
 FILE_SHARE_READ = 0x00000001
 FILE_SHARE_WRITE = 0x00000002
@@ -418,6 +421,11 @@ class Win32ProcessAPI:
         if not self.InitializeProcThreadAttributeList(attribute_buffer, 1, 0,
                                                       ctypes.byref(attribute_size)):
             raise self._fail('InitializeProcThreadAttributeList')
+        # The extended STARTUPINFO must submit exactly this initialized (and
+        # below updated) attribute list to CreateProcessW: the pointer-width
+        # cast keeps the full list identity and the buffer stays alive until
+        # the finally deletes that same list after the call returns.
+        startup.lpAttributeList = ctypes.cast(attribute_buffer, ctypes.c_void_p).value
         try:
             inherited = (ctypes.c_void_p * 3)(stdin_handle, stdout_handle, stderr_handle)
             if not self.UpdateProcThreadAttribute(attribute_buffer, 0,

@@ -821,6 +821,316 @@ def synthetic_abi_pidlist_returned_count(case):
                 query_failure_type=query_failure_type, queries=len(queries))
 
 
+# --------------------------------------------------------------------------------------
+# Synthetic ABI regression: explicit inheritable-handle list at the real creation boundary
+# --------------------------------------------------------------------------------------
+#
+# The case below runs the REAL production Win32ProcessAPI.create_process_suspended
+# method against a fixture that replaces, on its own API instance only, the low-level
+# entries that method itself calls (Initialize/Update/Delete attribute list,
+# CreateProcessW, GetProcessTimes) plus a programmable last-error source. It is a
+# local contract fixture at the real method boundary: no Windows kernel call is
+# made, no process is created and nothing here reproduces native Win32 error
+# behaviour. The key oracle is the fixed SDK declaration, never the production
+# constant under test.
+
+# Pinned SDK WinBase.h: ProcThreadAttributeValue(ProcThreadAttributeHandleList = 2,
+# FALSE, TRUE, FALSE) — the PROC_THREAD_ATTRIBUTE_INPUT bit OR the HandleList
+# attribute number. The bare INPUT bit 0x00020000 is the ParentProcess key.
+SDK_PROC_THREAD_ATTRIBUTE_INPUT = 0x00020000
+SDK_PROC_THREAD_ATTRIBUTE_HANDLE_LIST_NUMBER = 2
+SDK_PROC_THREAD_ATTRIBUTE_HANDLE_LIST = (
+    SDK_PROC_THREAD_ATTRIBUTE_INPUT | SDK_PROC_THREAD_ATTRIBUTE_HANDLE_LIST_NUMBER)
+WIN32_ERROR_BAD_LENGTH = 24
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+
+
+class _StageLastError:
+    """Fixture-local GetLastError source for the handle-list contract case.
+
+    Every synthetic stage programs the value the production failure path must
+    observe next: 122 after the Initialize NULL capacity probe, 24 for the
+    explicit FAULT_INJECTION Update failure, 0 for the other synthetic stages.
+    It is installed on this case's own API instance only; the constructor
+    smoke's constant-zero source and any native last-error stay untouched."""
+
+    def __init__(self):
+        self.value = 0
+        self.reads = 0
+
+    def __call__(self):
+        self.reads += 1
+        return self.value
+
+
+class _HandleListContractFixture:
+    """Programmable low-level boundary for the real create_process_suspended.
+
+    The three stdio values are synthetic non-zero handle integers; they are
+    never used as real process or system handle identities. Every replaced
+    entry validates the contract at the exact point the production method
+    exercises it and raises CaseFailure with expected/actual values on any
+    mismatch, so neither defect can hide behind the other."""
+
+    REPLACED = ('InitializeProcThreadAttributeList', 'UpdateProcThreadAttribute',
+                'DeleteProcThreadAttributeList', 'CreateProcessW', 'GetProcessTimes',
+                '_last_error')
+
+    def __init__(self, api, case, stdin_value, stdout_value, stderr_value):
+        self.api = api
+        self.case = case
+        self.stdin_value = stdin_value
+        self.stdout_value = stdout_value
+        self.stderr_value = stderr_value
+        self.last_error = _StageLastError()
+        self.calls = []
+        self.probe_capacity = None
+        self.initialized_address = None
+        self.update = None
+        self.inject_update_failure = False
+        self.delete_count = 0
+        self.created = None
+        self._saved = None
+
+    def capture(self):
+        self._saved = {name: getattr(self.api, name) for name in self.REPLACED}
+        return self._saved
+
+    def restore(self):
+        for name, value in (self._saved or {}).items():
+            setattr(self.api, name, value)
+
+    def install(self):
+        api, case = self.api, self.case
+        pointer_width = ctypes.sizeof(ctypes.c_void_p)
+
+        def initialize(attribute_list, count, flags, size):
+            if attribute_list is None:
+                self.calls.append('Initialize(NULL-probe)')
+                self.last_error.value = 122  # ERROR_INSUFFICIENT_BUFFER contract
+                case.check(int(count) == 1 and int(flags) == 0,
+                           f'Initialize NULL probe must use count=1 flags=0, '
+                           f'got count={count} flags={flags}')
+                capacity = ctypes.cast(size, ctypes.POINTER(ctypes.c_size_t))
+                capacity.contents.value = 4 * pointer_width
+                self.probe_capacity = capacity.contents.value
+                return 0
+            self.calls.append('Initialize')
+            self.last_error.value = 0
+            case.check(int(count) == 1 and int(flags) == 0,
+                       f'Initialize must use count=1 flags=0, '
+                       f'got count={count} flags={flags}')
+            address = ctypes.addressof(attribute_list)
+            case.check(self.initialized_address is None,
+                       'only one real list initialization is expected')
+            case.check(self.probe_capacity is not None and
+                       self.probe_capacity >= pointer_width,
+                       'the real initialization must follow the NULL capacity probe')
+            self.initialized_address = address
+            return 1
+
+        def update(attribute_list, flags, attribute, value, size_bytes, previous,
+                   return_size):
+            self.calls.append('Update')
+            address = ctypes.addressof(attribute_list)
+            case.check(address == self.initialized_address,
+                       f'Update must target the initialized list '
+                       f'{self.initialized_address:#x}, got {address:#x}')
+            record = {'attribute_key': int(attribute), 'flags': int(flags),
+                      'handles': [int(item) if item is not None else None
+                                  for item in value],
+                      'cb_bytes': int(size_bytes),
+                      'previous_value': previous, 'return_size': return_size}
+            self.update = record
+            if self.inject_update_failure:
+                self.last_error.value = WIN32_ERROR_BAD_LENGTH  # FAULT_INJECTION only
+                return 0
+            self.last_error.value = 0
+            case.check(record['attribute_key'] == SDK_PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                       f'UpdateProcThreadAttribute attribute key must be '
+                       f'{SDK_PROC_THREAD_ATTRIBUTE_HANDLE_LIST:#x} (SDK '
+                       f'PROC_THREAD_ATTRIBUTE_INPUT | HandleList number), got '
+                       f'{record["attribute_key"]:#x}')
+            case.check(record['flags'] == 0, 'UpdateProcThreadAttribute flags must be 0')
+            case.check(record['handles'] == [self.stdin_value, self.stdout_value,
+                                             self.stderr_value],
+                       'the inherited list must be exactly the original '
+                       f'stdin/stdout/stderr handles in order, got {record["handles"]!r}')
+            case.check(record['cb_bytes'] == 3 * pointer_width,
+                       f'the handle-list payload must be 3 pointer-width entries '
+                       f'({3 * pointer_width} bytes), got {record["cb_bytes"]}')
+            case.check(record['previous_value'] is None and
+                       record['return_size'] is None,
+                       'lpPreviousValue and lpReturnSize must both stay NULL')
+            return 1
+
+        def create_process(application, command_line, process_attributes,
+                           thread_attributes, inherit_handles, creation_flags,
+                           environment, current_directory, startup_info,
+                           process_information):
+            self.calls.append('CreateProcessW')
+            self.last_error.value = 0
+            case.check('Delete' not in self.calls,
+                       'DeleteProcThreadAttributeList must not precede CreateProcessW')
+            extended = ctypes.cast(startup_info,
+                                   ctypes.POINTER(api.STARTUPINFOEXW)).contents
+            startup = extended.StartupInfo
+            case.check(ctypes.addressof(extended) == ctypes.addressof(startup),
+                       'CreateProcessW must receive the STARTUPINFOEX with its '
+                       'embedded StartupInfo as one object')
+            submitted = extended.lpAttributeList
+            actual = int(submitted) if submitted is not None else None
+            expected = self.initialized_address
+            case.check(actual is not None and actual == expected,
+                       'CreateProcessW STARTUPINFOEX.lpAttributeList must submit the '
+                       f'initialized/updated attribute list {expected:#x}, got '
+                       f'{"NULL" if actual is None else hex(actual)}')
+            case.check(int(startup.cb) == ctypes.sizeof(api.STARTUPINFOEXW),
+                       f'cb must be sizeof(STARTUPINFOEXW)='
+                       f'{ctypes.sizeof(api.STARTUPINFOEXW)}, got {int(startup.cb)}')
+            case.check(int(startup.dwFlags) & windows_process.STARTF_USESTDHANDLES,
+                       'STARTF_USESTDHANDLES must stay set')
+            stdio = (int(startup.hStdInput), int(startup.hStdOutput),
+                     int(startup.hStdError))
+            case.check(stdio == (self.stdin_value, self.stdout_value, self.stderr_value),
+                       f'the three stdio members must stay the original handles, '
+                       f'got {stdio!r}')
+            case.check(bool(inherit_handles),
+                       'bInheritHandles must stay TRUE for the explicit whitelist')
+            flags_value = int(creation_flags)
+            for required, label in ((windows_process.CREATE_SUSPENDED, 'CREATE_SUSPENDED'),
+                                    (windows_process.CREATE_UNICODE_ENVIRONMENT,
+                                     'CREATE_UNICODE_ENVIRONMENT'),
+                                    (windows_process.EXTENDED_STARTUPINFO_PRESENT,
+                                     'EXTENDED_STARTUPINFO_PRESENT')):
+                case.check(flags_value & required, f'{label} must stay set')
+            case.check(not flags_value & CREATE_BREAKAWAY_FROM_JOB,
+                       'no breakaway flag may be added')
+            information = ctypes.cast(process_information,
+                                      ctypes.POINTER(api.PROCESS_INFORMATION)).contents
+            information.hProcess = 0x0AAA0001
+            information.hThread = 0x0AAA0002
+            information.dwProcessId = 4242
+            information.dwThreadId = 4243
+            self.created = {'process': information.hProcess, 'thread': information.hThread,
+                            'pid': information.dwProcessId, 'creation_flags': flags_value,
+                            'application': str(application),
+                            'attribute_list_address': actual}
+            return 1
+
+        def delete(attribute_list):
+            self.calls.append('Delete')
+            address = ctypes.addressof(attribute_list)
+            case.check(address == self.initialized_address,
+                       f'Delete must target the initialized list '
+                       f'{self.initialized_address:#x}, got {address:#x}')
+            self.delete_count += 1
+            return None
+
+        def get_process_times(process, creation, exit_time, kernel, user):
+            self.calls.append('GetProcessTimes')
+            self.last_error.value = 0
+            created = ctypes.cast(creation, ctypes.POINTER(api.FILETIME)).contents
+            created.dwLowDateTime = 0x55667788
+            created.dwHighDateTime = 0x11223344
+            return 1
+
+        api.InitializeProcThreadAttributeList = initialize
+        api.UpdateProcThreadAttribute = update
+        api.DeleteProcThreadAttributeList = delete
+        api.CreateProcessW = create_process
+        api.GetProcessTimes = get_process_times
+        api._last_error = self.last_error
+
+
+def synthetic_abi_create_process_handle_list_contract(case):
+    # The real production method must submit an explicit HANDLE_LIST attribute
+    # through a correctly keyed Update AND pass the same initialized list inside
+    # the STARTUPINFOEX to CreateProcessW. Neither defect may mask the other.
+    case.check(SDK_PROC_THREAD_ATTRIBUTE_HANDLE_LIST == 0x20002,
+               'the SDK oracle must be the fixed HandleList key 0x20002')
+    pointer_width = ctypes.sizeof(ctypes.c_void_p)
+    stdin_value, stdout_value, stderr_value = 0x0AAA11, 0x0AAA22, 0x0AAA33
+    case.check(len({stdin_value, stdout_value, stderr_value}) == 3 and
+               all(value != 0 and value != windows_process.INVALID_HANDLE_VALUE
+                   for value in (stdin_value, stdout_value, stderr_value)),
+               'the three synthetic stdio values must be distinct, non-zero and '
+               'non-pseudo')
+    with patched_win32_constructor() as probe:
+        api = Win32ProcessAPI()
+    case.check(probe.attempted_calls == [],
+               f'construction must not call Win32 functions, got {probe.attempted_calls}')
+    fixture = _HandleListContractFixture(api, case, stdin_value, stdout_value,
+                                         stderr_value)
+    fixture.capture()
+    expected_filetime = (0x11223344 << 32) | 0x55667788
+    try:
+        fixture.install()
+        process, thread, pid, creation_filetime = api.create_process_suspended(
+            application='C:\\synthetic-contract\\tool.exe',
+            command_line='"C:\\synthetic-contract\\tool.exe" --handle-list-contract',
+            current_directory='C:\\synthetic-contract',
+            environment_block=b'\x00\x00',
+            stdin_handle=stdin_value, stdout_handle=stdout_value,
+            stderr_handle=stderr_value)
+        case.check((process, thread, pid) == (0x0AAA0001, 0x0AAA0002, 4242),
+                   f'the returned identities must be the controlled low-level '
+                   f'writes, got {(process, thread, pid)!r}')
+        case.check(creation_filetime == expected_filetime,
+                   f'the creation FILETIME must round-trip the controlled write, '
+                   f'got {creation_filetime!r}')
+        case.check(fixture.calls == ['Initialize(NULL-probe)', 'Initialize', 'Update',
+                                     'CreateProcessW', 'Delete', 'GetProcessTimes'],
+                   f'the real method boundary call order mismatched: {fixture.calls!r}')
+        case.check(fixture.delete_count == 1,
+                   'the initialized list must be deleted exactly once after creation')
+        case.record(
+            production_handle_list_constant=windows_process.PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+            sdk_oracle_key=hex(SDK_PROC_THREAD_ATTRIBUTE_HANDLE_LIST),
+            update_contract=fixture.update,
+            initialized_list_address=hex(fixture.initialized_address),
+            submitted_list_address=hex(fixture.created['attribute_list_address']),
+            call_order=fixture.calls, pointer_width=pointer_width)
+        # FAULT_INJECTION sub-branch: an explicitly injected Update failure with
+        # Win32 error 24 must propagate as the original exception with no
+        # CreateProcessW call and exactly one list deletion. The injection is a
+        # synthetic stage behaviour, NOT a real Windows error reproduction.
+        fault = _HandleListContractFixture(api, case, stdin_value, stdout_value,
+                                           stderr_value)
+        fault.inject_update_failure = True
+        fault.install()
+        try:
+            api.create_process_suspended(
+                application='C:\\synthetic-contract\\tool.exe',
+                command_line='"C:\\synthetic-contract\\tool.exe" --fault-injection',
+                current_directory='C:\\synthetic-contract',
+                environment_block=b'\x00\x00',
+                stdin_handle=stdin_value, stdout_handle=stdout_value,
+                stderr_handle=stderr_value)
+            raise CaseFailure('the injected Update failure must propagate')
+        except Win32CallFailure as failure:
+            case.check(failure.function == 'UpdateProcThreadAttribute',
+                       f'expected the original UpdateProcThreadAttribute failure, '
+                       f'got {failure.function!r}')
+            case.check(failure.last_error == WIN32_ERROR_BAD_LENGTH,
+                       f'the injected last error must stay '
+                       f'{WIN32_ERROR_BAD_LENGTH}, got {failure.last_error!r}')
+        case.check(fault.calls == ['Initialize(NULL-probe)', 'Initialize', 'Update',
+                                   'Delete'],
+                   f'the fault path must stop after Update with one Delete, '
+                   f'got {fault.calls!r}')
+        case.check(fault.delete_count == 1 and 'CreateProcessW' not in fault.calls,
+                   'no CreateProcess, resume or fallback may run after the Update '
+                   'failure')
+        case.record(fault_injection={'marker': 'FAULT_INJECTION',
+                                     'injected_win32_error': WIN32_ERROR_BAD_LENGTH,
+                                     'call_order': fault.calls,
+                                     'note': 'synthetic stage programming only; not a '
+                                             'real Windows error reproduction'})
+    finally:
+        fixture.restore()
+
+
 SYNTHETIC_CASES = [
     ('normal-completion', synthetic_normal_completion),
     ('stage-failures', synthetic_stage_failures),
@@ -838,6 +1148,8 @@ SYNTHETIC_CASES = [
     ('abi-declaration-sdk-layout', synthetic_abi_declaration_sdk_layout),
     ('abi-constructor-binding-smoke', synthetic_abi_constructor_binding_smoke),
     ('abi-pidlist-returned-count', synthetic_abi_pidlist_returned_count),
+    ('abi-create-process-handle-list-contract',
+     synthetic_abi_create_process_handle_list_contract),
 ]
 
 
@@ -920,6 +1232,228 @@ def _native_budgeted_launch(case, api, argv, *, command_id, timeout,
         return None, error, time.monotonic() - started
 
 
+def _native_handle_list_key_contrast(case, api):
+    """Same-condition real-API contrast on this exact Win32ProcessAPI binding.
+
+    Two freshly initialized real attribute lists, the same three fixture-owned
+    inheritable handles (one NUL input handle and two private spool file
+    handles), the same 3-entry pointer-width payload, flags 0, both reserved
+    parameters NULL and count 1: only the attribute key differs. The old key
+    0x00020000 (the SDK ParentProcess key value) is expected to make the real
+    UpdateProcThreadAttribute fail with Win32 error 24; the SDK handle-list key
+    must succeed. The contrast never calls CreateProcessW and grants no
+    parent-process or kill authority; every list and handle it creates is
+    deleted/closed in its finally block. Unexpected observations fail the case
+    as-is; expectations are never rewritten to match a different result."""
+    contrast_root = case._recorder.root / 'native-spool' / 'attribute-contrast'
+    contrast_root.mkdir(parents=True, exist_ok=True)
+    pointer_width = ctypes.sizeof(ctypes.c_void_p)
+    payload_bytes = 3 * pointer_width
+    case.check(windows_process.PROC_THREAD_ATTRIBUTE_HANDLE_LIST ==
+               SDK_PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+               'the corrected production constant must equal the SDK handle-list key')
+    contrast = {'pointer_width': pointer_width, 'handle_entries': 3,
+                'payload_bytes': payload_bytes, 'initialize_count': 1,
+                'initialize_flags': 0, 'reserved_parameters': 'both NULL',
+                'create_process_called': False, 'keys': {}}
+    stdin_handle = None
+    output_handles = []
+    closes = []
+    try:
+        stdin_handle = api.open_input_null()
+        for name in ('contrast-first.spool', 'contrast-second.spool'):
+            output_handles.append(api.open_output_spool(contrast_root / name))
+        inherited = (ctypes.c_void_p * 3)(stdin_handle, output_handles[0],
+                                          output_handles[1])
+        case.check(ctypes.sizeof(inherited) == payload_bytes,
+                   'the contrast payload must be three pointer-width entries')
+        for label, key in (
+                ('old-key-0x00020000-parent-process-value', 0x00020000),
+                ('sdk-key-0x00020002-handle-list',
+                 SDK_PROC_THREAD_ATTRIBUTE_HANDLE_LIST)):
+            attribute_size = ctypes.c_size_t()
+            if api.InitializeProcThreadAttributeList(None, 1, 0,
+                                                     ctypes.byref(attribute_size)):
+                raise CaseFailure(f'{label}: the NULL capacity probe unexpectedly '
+                                  'succeeded')
+            probe_error = api._last_error()
+            case.check(probe_error == windows_process.ERROR_INSUFFICIENT_BUFFER,
+                       f'{label}: the NULL capacity probe must report error 122, '
+                       f'got {probe_error}')
+            buffer = ctypes.create_string_buffer(attribute_size.value)
+            if not api.InitializeProcThreadAttributeList(buffer, 1, 0,
+                                                         ctypes.byref(attribute_size)):
+                raise CaseFailure(f'{label}: real list initialization failed with '
+                                  f'Win32 error {api._last_error()}')
+            try:
+                updated = bool(api.UpdateProcThreadAttribute(
+                    buffer, 0, key, inherited, payload_bytes, None, None))
+                if key == 0x00020000:
+                    error_code = api._last_error()
+                    case.check(updated is False,
+                               f'{label}: Update must fail, got BOOL={updated}')
+                    case.check(error_code == WIN32_ERROR_BAD_LENGTH,
+                               f'{label}: the immediate error must be 24 '
+                               f'(ERROR_BAD_LENGTH), got {error_code}; the '
+                               'expectation is not rewritten to match the result')
+                    contrast['keys'][label] = {'bool': False,
+                                               'immediate_last_error': error_code}
+                else:
+                    case.check(updated is True,
+                               f'{label}: Update must succeed, got BOOL={updated}, '
+                               f'error={api._last_error()}')
+                    contrast['keys'][label] = {
+                        'bool': True,
+                        'immediate_last_error': 'NOT_APPLICABLE_SUCCESS'}
+            finally:
+                api.DeleteProcThreadAttributeList(buffer)
+    finally:
+        for handle in [stdin_handle, *output_handles]:
+            if handle is not None:
+                try:
+                    api.close_handle(handle)
+                    closes.append('CLOSED')
+                except WindowsProcessError as error:
+                    closes.append(f'CLOSE_FAILED:{error}')
+        contrast['handle_closes'] = closes
+        contrast['handles_source'] = ('fixture-owned only: one NUL input handle and '
+                                      'two private spool file handles, created and '
+                                      'closed by this contrast')
+    case.check(len(closes) == 3 and all(item == 'CLOSED' for item in closes),
+               f'all three contrast fixture handles must close, got {closes!r}')
+    return contrast
+
+
+class _AttributeCallRecorder:
+    """Narrow per-instance observation of the real attribute-list boundary.
+
+    The wrappers record the actual arguments and order of the real
+    Initialize/Update/Delete attribute-list calls and CreateProcessW, forward
+    every argument unchanged to the real Win32 function and return its result
+    untouched: no result substitution, no last-error modification, no
+    permission or inheritance change. Before the real CreateProcessW runs, the
+    submitted STARTUPINFOEX attribute list is verified to be the same list the
+    successful Update targeted. The instance functions are restored on exit."""
+
+    def __init__(self, case, api):
+        self.case = case
+        self.api = api
+        self.calls = []
+        self.updated_list_address = None
+        self.last_update = None
+        self._saved = None
+
+    def __enter__(self):
+        api = self.api
+        names = ('InitializeProcThreadAttributeList', 'UpdateProcThreadAttribute',
+                 'DeleteProcThreadAttributeList', 'CreateProcessW')
+        self._saved = {name: getattr(api, name) for name in names}
+        real_initialize = self._saved['InitializeProcThreadAttributeList']
+        real_update = self._saved['UpdateProcThreadAttribute']
+        real_delete = self._saved['DeleteProcThreadAttributeList']
+        real_create = self._saved['CreateProcessW']
+        recorder = self
+
+        def initialize(attribute_list, count, flags, size):
+            stage = 'Initialize(NULL-probe)' if attribute_list is None else 'Initialize'
+            recorder.calls.append({'function': stage, 'count': int(count),
+                                   'flags': int(flags)})
+            return real_initialize(attribute_list, count, flags, size)
+
+        def update(attribute_list, flags, attribute, value, size_bytes, previous,
+                   return_size):
+            record = {'function': 'UpdateProcThreadAttribute',
+                      'list_address': ctypes.addressof(attribute_list),
+                      'flags': int(flags), 'attribute_key': int(attribute),
+                      'handle_entries': [int(item) if item is not None else None
+                                         for item in value],
+                      'cb_bytes': int(size_bytes),
+                      'previous_value_none': previous is None,
+                      'return_size_none': return_size is None}
+            recorder.calls.append(record)
+            result = real_update(attribute_list, flags, attribute, value, size_bytes,
+                                 previous, return_size)
+            if result:
+                recorder.updated_list_address = record['list_address']
+                recorder.last_update = record
+            return result
+
+        def create_process(application, command_line, process_attributes,
+                           thread_attributes, inherit_handles, creation_flags,
+                           environment, current_directory, startup_info,
+                           process_information):
+            extended = ctypes.cast(startup_info,
+                                   ctypes.POINTER(api.STARTUPINFOEXW)).contents
+            startup = extended.StartupInfo
+            submitted = extended.lpAttributeList
+            submitted_address = int(submitted) if submitted is not None else None
+            case = recorder.case
+            case.check(submitted_address is not None,
+                       'the production CreateProcessW must submit a non-NULL '
+                       'attribute list')
+            case.check(recorder.updated_list_address is not None and
+                       submitted_address == recorder.updated_list_address,
+                       f'the CreateProcessW attribute list {submitted_address!r} must '
+                       f'be the same list the successful Update targeted '
+                       f'{recorder.updated_list_address!r}')
+            update = recorder.last_update
+            case.check(update is not None and
+                       update['attribute_key'] == SDK_PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                       'the submitted list must be the one updated with the SDK '
+                       'handle-list key')
+            case.check(update['handle_entries'] == [
+                int(startup.hStdInput), int(startup.hStdOutput),
+                int(startup.hStdError)],
+                'the three stdio members must be the updated handle entries')
+            case.check(update['cb_bytes'] == 3 * ctypes.sizeof(ctypes.c_void_p),
+                       'the updated handle-list payload must be three pointer-width '
+                       'entries')
+            case.check(bool(inherit_handles), 'bInheritHandles must stay TRUE')
+            flags_value = int(creation_flags)
+            for required, label in (
+                    (windows_process.CREATE_SUSPENDED, 'CREATE_SUSPENDED'),
+                    (windows_process.CREATE_UNICODE_ENVIRONMENT,
+                     'CREATE_UNICODE_ENVIRONMENT'),
+                    (windows_process.EXTENDED_STARTUPINFO_PRESENT,
+                     'EXTENDED_STARTUPINFO_PRESENT')):
+                case.check(flags_value & required, f'{label} must stay set')
+            case.check(not flags_value & CREATE_BREAKAWAY_FROM_JOB,
+                       'no breakaway flag may appear')
+            case.check(int(startup.cb) == ctypes.sizeof(api.STARTUPINFOEXW),
+                       'cb must stay sizeof(STARTUPINFOEXW)')
+            case.check(int(startup.dwFlags) & windows_process.STARTF_USESTDHANDLES,
+                       'STARTF_USESTDHANDLES must stay set')
+            recorder.calls.append({'function': 'CreateProcessW',
+                                   'startupinfoex_address': ctypes.addressof(extended),
+                                   'cb': int(startup.cb),
+                                   'attribute_list_address': submitted_address,
+                                   'inherit_handles': bool(inherit_handles),
+                                   'creation_flags': flags_value,
+                                   'stdio_handles': [int(startup.hStdInput),
+                                                     int(startup.hStdOutput),
+                                                     int(startup.hStdError)]})
+            return real_create(application, command_line, process_attributes,
+                               thread_attributes, inherit_handles, creation_flags,
+                               environment, current_directory, startup_info,
+                               process_information)
+
+        def delete(attribute_list):
+            recorder.calls.append({'function': 'DeleteProcThreadAttributeList',
+                                   'list_address': ctypes.addressof(attribute_list)})
+            return real_delete(attribute_list)
+
+        api.InitializeProcThreadAttributeList = initialize
+        api.UpdateProcThreadAttribute = update
+        api.DeleteProcThreadAttributeList = delete
+        api.CreateProcessW = create_process
+        return self
+
+    def __exit__(self, *args):
+        for name, function in self._saved.items():
+            setattr(self.api, name, function)
+        return False
+
+
 def native_startup_checks(case):
     api = Win32ProcessAPI()
     sizes = {name: ctypes.sizeof(getattr(api, name))
@@ -956,19 +1490,38 @@ def native_startup_checks(case):
         raise CaseFailure('CreateFileW on an impossible path must fail')
     except Win32CallFailure:
         pass
+    # Same-condition real-API contrast on this exact binding: identical three
+    # fixture-owned inheritable handles, identical 3-entry payload, flags 0,
+    # both reserved parameters NULL and count 1; only the attribute key differs.
+    # The old key 0x00020000 (SDK ParentProcess value) is expected to fail with
+    # Win32 error 24 and the SDK handle-list key must succeed. This contrast
+    # never calls CreateProcessW and grants no parent-process or kill authority.
+    contrast_started = time.monotonic()
+    contrast = _native_handle_list_key_contrast(case, api)
+    contrast['elapsed_seconds'] = round(time.monotonic() - contrast_started, 3)
     # Nested Job allowance under the Actions outer job is verified by running
-    # one real supervised command end to end.
+    # one real supervised command end to end, now with narrow per-instance
+    # observation of the attribute-list boundary forwarded unchanged to Win32.
     observing = ObservingAPI(api)
-    result, error, _ = _native_budgeted_launch(
-        case, observing, [sys.executable, '-c', 'print("ok")'],
-        command_id='startup-probe', timeout=10)
+    with _AttributeCallRecorder(case, api) as attribute_calls:
+        result, error, _ = _native_budgeted_launch(
+            case, observing, [sys.executable, '-c', 'print("ok")'],
+            command_id='startup-probe', timeout=10)
     case.check(error is None and result.stdout.strip() == b'ok', 'startup probe failed')
     case.check(result.tree_exit_proven, 'startup probe must prove its tree exit')
+    attribute_order = [call['function'] for call in attribute_calls.calls]
+    case.check(attribute_order == ['Initialize(NULL-probe)', 'Initialize',
+                                   'UpdateProcThreadAttribute', 'CreateProcessW',
+                                   'DeleteProcThreadAttributeList'],
+               f'the supervised probe must exercise the attribute boundary in '
+               f'order, got {attribute_order!r}')
     case.record(structure_sizes=sizes, accounting_offsets=accounting_offsets,
                 pid_list_offsets=pid_list_offsets,
                 pid_list_size=ctypes.sizeof(pid_list_class),
                 dword_ptr_width=ctypes.sizeof(windows_process.DWORD_PTR),
                 nested_job_assignment='ALLOWED_AND_PROVEN',
+                handle_list_key_contrast=contrast,
+                production_attribute_calls=attribute_calls.calls,
                 startup_probe=_summary(result.receipt))
 
 
