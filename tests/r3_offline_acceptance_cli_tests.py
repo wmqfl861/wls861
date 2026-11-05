@@ -175,7 +175,7 @@ class OfflineAcceptanceCLI(unittest.TestCase):
             db.execute('UPDATE request_budgets SET spent_input=spent_input+1,state_version=state_version+1')
         row = self.inspect(entry)
         self.assertEqual(row['status'], 'invalid_evidence')
-        self.assertIn('reconstruct budget', row['reason'])
+        self.assertEqual('budget_reconstruction_mismatch', row['reason'])
         with self.assertRaisesRegex(e.InvalidEvidence, 'duplicate run cell'):
             e.build_report(self.plan, [entry, entry], self.run_directory)
         alias = self.directory / 'same-evidence.sqlite'
@@ -199,7 +199,7 @@ class OfflineAcceptanceCLI(unittest.TestCase):
                        (e.canonical(envelope).decode(), attempt))
         row = self.inspect(entry)
         self.assertEqual(row['status'], 'invalid_evidence')
-        self.assertIn('actual model input omitted or changed', row['reason'])
+        self.assertEqual('logical_history_changed', row['reason'])
 
     def test_08_synthetic_source_cannot_be_relabelled_provider(self):
         entry = self.cell()
@@ -209,7 +209,7 @@ class OfflineAcceptanceCLI(unittest.TestCase):
         entry['plan_sha256'] = plan['plan_sha256']
         row = self.inspect(entry, plan)
         self.assertEqual(row['status'], 'invalid_evidence')
-        self.assertIn('cannot be relabelled', row['reason'])
+        self.assertEqual('evidence_mode_relabel_refused', row['reason'])
 
     def test_09_original_unknown_cost_retains_nullable_ledger_and_failed_cell(self):
         runner = a.FakeRunner(BINARY, self.directory)

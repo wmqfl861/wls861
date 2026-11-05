@@ -199,7 +199,7 @@ class Evaluation(unittest.TestCase):
         self.tamper_last_logical_input(lambda logical: logical.update(messages=logical['messages'][2:]))
         row = e.build_report(plan, [self.run_entry(plan, request, 'single_agent', task=4)])['rows'][9]
         self.assertEqual(row['status'], 'invalid_evidence', row)
-        self.assertIn('actual model input omitted or changed', row['reason'])
+        self.assertEqual('logical_history_changed', row['reason'])
 
     def test_v3_rehashed_global_chain_fork_refuses(self):
         request = self.logical_seed()
@@ -212,7 +212,7 @@ class Evaluation(unittest.TestCase):
         self.tamper_last_logical_input(fork)
         row = e.build_report(plan, [self.run_entry(plan, request, 'single_agent', task=4)])['rows'][9]
         self.assertEqual(row['status'], 'invalid_evidence', row)
-        self.assertIn('chain is missing, reordered or forked', row['reason'])
+        self.assertEqual('logical_chain_broken', row['reason'])
 
     def test_v3_old_multi_role_run_cannot_gain_logical_identity_from_a_label(self):
         request = self.logical_seed(logical=False)
@@ -225,7 +225,7 @@ class Evaluation(unittest.TestCase):
         self.tamper_last_logical_input(relabel)
         row = e.build_report(plan, [self.run_entry(plan, request, 'single_agent', task=4)])['rows'][9]
         self.assertEqual(row['status'], 'invalid_evidence', row)
-        self.assertIn('frozen policy differs', row['reason'])
+        self.assertEqual('logical_policy_mismatch', row['reason'])
 
     def test_v3_fairness_removes_only_the_explicit_topology_variable(self):
         multi = self.logical_seed(logical=False, key='multi')
@@ -317,14 +317,14 @@ class Evaluation(unittest.TestCase):
                     db.execute('UPDATE events SET result=? WHERE event_id=?', (e.canonical(changed).decode(), event_id))
                 row = e.build_report(plan, [self.run_entry(plan, request, task=4)])['rows'][8]
                 self.assertEqual(row['status'], 'invalid_evidence', row)
-                self.assertIn('does not prove the submitted epoch projection', row['reason'])
+                self.assertEqual('recovery_projection_unproven', row['reason'])
         # Remove the first projection rather than merely changing its final
         # target. The later original record cannot fill the missing interval.
         with closing(sqlite3.connect(self.database)) as db, db:
             db.execute('DELETE FROM events WHERE event_id=?', (event_id,))
         row = e.build_report(plan, [self.run_entry(plan, request, task=4)])['rows'][8]
         self.assertEqual(row['status'], 'invalid_evidence', row)
-        self.assertIn('does not prove the submitted epoch projection', row['reason'])
+        self.assertEqual('recovery_projection_unproven', row['reason'])
 
     def step(self, role, name, arguments, index=1):
         return {'role': role, 'role_call_index': index, 'status': 'completed',
@@ -422,7 +422,7 @@ class Evaluation(unittest.TestCase):
         self.corrupt_feedback('accept_candidate', lambda fact: fact['response'].update(attempt_id='attempt-another-original'))
         row = e.build_report(plan, [self.run_entry(plan, request, task=4)])['rows'][8]
         self.assertEqual(row['status'], 'invalid_evidence', row)
-        self.assertIn('feedback changed original response', row['reason'])
+        self.assertEqual('feedback_binding_changed', row['reason'])
 
     def test_v2_captured_target_must_match_actual_application(self):
         request = self.seed(task=4)
@@ -444,7 +444,7 @@ class Evaluation(unittest.TestCase):
                        (e.canonical(envelope).decode(), row[0]))
         row = e.build_report(plan, [self.run_entry(plan, request, task=4)])['rows'][8]
         self.assertEqual(row['status'], 'invalid_evidence', row)
-        self.assertIn('another target or version', row['reason'])
+        self.assertEqual('model_decision_target_changed', row['reason'])
 
     def test_v2_diagnostic_read_write_readback_uses_original_feedback(self):
         request = self.seed()
@@ -569,7 +569,7 @@ class Evaluation(unittest.TestCase):
             db.execute('UPDATE request_budgets SET spent_input=spent_input+1,state_version=state_version+1 WHERE request_id=?', (request,))
         row = e.build_report(plan, [self.run_entry(plan, request)])['rows'][0]
         self.assertEqual(row['status'], 'invalid_evidence')
-        self.assertIn('reconstruct budget', row['reason'])
+        self.assertEqual('budget_reconstruction_mismatch', row['reason'])
 
     def test_plan_fixes_five_tasks_and_ten_missing_cells(self):
         request = self.seed()
@@ -647,7 +647,7 @@ class Evaluation(unittest.TestCase):
         run = self.run_entry(plan, request, task=1)
         report = e.build_report(plan, [run])
         self.assertEqual(report['counts'], {'not_executed': 9, 'invalid_evidence': 1})
-        self.assertIn('materials differ', report['rows'][2]['reason'])
+        self.assertEqual('task_material_mismatch', report['rows'][2]['reason'])
 
     def test_changed_budget_condition_is_not_comparable(self):
         request = self.seed()
@@ -656,7 +656,7 @@ class Evaluation(unittest.TestCase):
         plan['plan_sha256'] = e.digest({k: v for k, v in plan.items() if k != 'plan_sha256'})
         row = e.build_report(plan, [self.run_entry(plan, request)])['rows'][0]
         self.assertEqual(row['status'], 'invalid_evidence')
-        self.assertIn('conditions differ', row['reason'])
+        self.assertEqual('common_condition_mismatch', row['reason'])
 
     def test_synthetic_evidence_cannot_claim_provider(self):
         request = self.seed()
@@ -666,7 +666,7 @@ class Evaluation(unittest.TestCase):
         plan['plan_sha256'] = e.digest({k: v for k, v in plan.items() if k != 'plan_sha256'})
         row = e.build_report(plan, [self.run_entry(plan, request)])['rows'][0]
         self.assertEqual(row['status'], 'invalid_evidence')
-        self.assertIn('cannot be relabelled', row['reason'])
+        self.assertEqual('evidence_mode_relabel_refused', row['reason'])
 
     def test_deadline_exhaustion_is_reported_as_failure(self):
         request = self.seed()

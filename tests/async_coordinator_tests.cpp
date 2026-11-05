@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <condition_variable>
 #include <fstream>
+#include <future>
 #include <mutex>
 #include <source_location>
 #include <thread>
@@ -61,16 +62,34 @@ std::int64_t count(const std::filesystem::path& path, const char* statement) {
 
 struct Gate {
     std::mutex mutex;
-    std::condition_variable changed;
+    std::condition_variable_any changed;
     std::atomic<int> entered{};
     bool released{};
+    // Test-only seam at the false-predicate/blocking-wait boundary. Normal
+    // model gates never set it; no production interface exposes this hook.
+    std::function<void()> before_wait;
     void release() { { std::lock_guard lock(mutex); released = true; } changed.notify_all(); }
     void wait(std::stop_token stop, bool respect_stop) {
-        std::stop_callback wake(stop, [this] { changed.notify_all(); });
         std::unique_lock lock(mutex);
         ++entered;
         changed.notify_all();
-        changed.wait(lock, [&] { return released || (respect_stop && stop.stop_requested()); });
+        if (respect_stop) {
+            // The stop-aware overload closes the gap between reading a false
+            // predicate and entering the wait. A bare notify callback can
+            // lose a stop in precisely that gap.
+            (void)changed.wait(lock, stop, [&] {
+                const bool ready = released;
+                if (!ready && before_wait) {
+                    auto hook = std::move(before_wait);
+                    hook();
+                }
+                return ready;
+            });
+        } else {
+            // A real stop must never release a wait that ignores it; only
+            // release() can.
+            changed.wait(lock, [&] { return released; });
+        }
     }
 };
 struct Release {
@@ -1088,6 +1107,74 @@ void logical_question_wait_releases_slot_without_releasing_unknown_budget() {
     CHECK(runtime.store().attempt(captured.request.attempt_id) == original);
     CHECK(runtime.store().tool_feedback(captured.request.attempt_id) == feedback);
 }
+void until_gate_entered(const Gate& gate) {
+    for (int i = 0; gate.entered != 1 && i < 200; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    CHECK(gate.entered == 1);
+}
+
+void stop_between_false_predicate_and_wait_cannot_lose_its_wakeup() {
+    Gate gate;
+    std::stop_source stop;
+    gate.before_wait = [&] { (void)stop.request_stop(); };
+    std::promise<void> completed;
+    auto completion = completed.get_future();
+    std::jthread callback([&] {
+        try { gate.wait(stop.get_token(), true); completed.set_value(); }
+        catch (...) { completed.set_exception(std::current_exception()); }
+    });
+    // The hook requests a real stop after the predicate captured false and
+    // before blocking. Measure completion before release, then always reap
+    // the callback so a lost wakeup surfaces as this CHECK failing instead
+    // of hanging the process until its CTest deadline.
+    const bool completed_from_stop = completion.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    gate.release();
+    callback.join();
+    completion.get();
+    CHECK(stop.stop_requested() && gate.entered == 1);
+    CHECK(completed_from_stop);
+}
+
+void real_stop_cannot_release_a_wait_that_ignores_stop() {
+    for (const bool stop_already_requested : {false, true}) {
+        Gate gate;
+        std::stop_source stop;
+        if (stop_already_requested) (void)stop.request_stop();
+        std::promise<void> completed;
+        auto completion = completed.get_future();
+        std::jthread callback([&] {
+            try { gate.wait(stop.get_token(), false); completed.set_value(); }
+            catch (...) { completed.set_exception(std::current_exception()); }
+        });
+        until_gate_entered(gate);
+        if (!stop_already_requested) (void)stop.request_stop();
+        const bool leaked_stop_release =
+            completion.wait_for(std::chrono::milliseconds(200)) == std::future_status::ready;
+        gate.release();
+        callback.join();
+        completion.get();
+        CHECK(gate.entered == 1);
+        CHECK(!leaked_stop_release);
+    }
+}
+
+void already_requested_stop_releases_only_a_respecting_wait() {
+    Gate gate;
+    std::stop_source stop;
+    (void)stop.request_stop();
+    std::promise<void> completed;
+    auto completion = completed.get_future();
+    std::jthread callback([&] {
+        try { gate.wait(stop.get_token(), true); completed.set_value(); }
+        catch (...) { completed.set_exception(std::current_exception()); }
+    });
+    const bool completed_from_stop =
+        completion.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    gate.release();
+    callback.join();
+    completion.get();
+    CHECK(gate.entered == 1 && completed_from_stop);
+}
 #include "async_resource_fifo_cases.hpp"
 #include "async_resource_lifecycle_cases.hpp"
 } // namespace
@@ -1131,5 +1218,8 @@ int main() {
         {"foreign destruction preserves never-enqueued recovery facts", resource_waiter_foreign_destruction_preserves_pending_attempts},
         {"resource waiters cannot bypass retained settlement or feedback", resource_waiter_cannot_bypass_persistence_failure},
         {"resource FIFO spans all classes while independent siblings progress", resource_fifo_spans_normal_review_handoff_and_allows_siblings},
-        {"AMEND of a resource waiter preserves original capture and predecessor", resource_waiter_amend_preserves_original_capture_and_predecessor}});
+        {"AMEND of a resource waiter preserves original capture and predecessor", resource_waiter_amend_preserves_original_capture_and_predecessor},
+        {"stop between false predicate and wait cannot lose its wakeup", stop_between_false_predicate_and_wait_cannot_lose_its_wakeup},
+        {"a real stop cannot release a wait that ignores stop", real_stop_cannot_release_a_wait_that_ignores_stop},
+        {"an already requested stop releases only a respecting wait", already_requested_stop_releases_only_a_respecting_wait}});
 }

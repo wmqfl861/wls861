@@ -17,15 +17,10 @@ using namespace wls::s1;
 
 class Temp {
 public:
-    Temp() {
-        std::array<char, 64> path{};
-        const std::string pattern = "/tmp/wls-s12-sandbox-test-XXXXXX";
-        std::copy(pattern.begin(), pattern.end(), path.begin());
-        const auto* made = ::mkdtemp(path.data());
-        if (made == nullptr) throw std::runtime_error("mkdtemp failed");
-        root = made;
-    }
-    ~Temp() { std::error_code error; std::filesystem::remove_all(root, error); }
+    Temp() : holder{}, root{holder.path} {}
+    Temp(const Temp&) = delete;
+    Temp& operator=(const Temp&) = delete;
+    test::TempDir holder;
     std::filesystem::path root;
 };
 

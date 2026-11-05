@@ -146,8 +146,13 @@ def preserve_ctest_evidence(build: Path, evidence: Path,
     """
     records = [step for step in steps if step["name"] == "ctest"]
     step = records[-1] if records else None
+    teardown = (step or {}).get("process_group") or {}
+    # Completion requires the owned process-group teardown's own proof, not
+    # just exit_code/ended_at: a leader can exit while stragglers survive.
     finished = bool(step and step.get("ended_at") and step.get("exit_code") is not None
-                    and not step.get("interrupted_or_launch_error"))
+                    and not step.get("interrupted_or_launch_error")
+                    and teardown.get("cleanup_complete") is True
+                    and not teardown.get("leader_exit_left_live_members"))
     index: dict[str, object] = {
         "schema_version": 1, "captured_at": utc(), "ctest_attempted": step is not None,
         "ctest_step": step, "execution_completed": finished, "complete": False,
@@ -551,6 +556,189 @@ def check_public_package(directory: Path, names: tuple[set[str], set[str], set[s
             "passing public summary requires complete passing JUnit")
 
 
+PROC_POLL_SECONDS = 0.05
+TERM_GRACE_SECONDS = 5.0
+KILL_PROOF_SECONDS = 5.0
+
+
+def _read_stat(path):
+    """Parse /proc/<pid>/stat even when comm contains spaces or parentheses."""
+    try:
+        raw = Path(path).read_text()
+    except (FileNotFoundError, ProcessLookupError):
+        return None
+    head, separator, tail = raw.rpartition(')')
+    if not separator:
+        return None
+    fields = tail.split()
+    if len(fields) < 20:
+        return None
+    return {'state': fields[0], 'ppid': int(fields[1]), 'pgid': int(fields[2]),
+            'session': int(fields[3]), 'starttime': int(fields[19])}
+
+
+def _capture_identity(process):
+    """Record the owned leader identity; start_new_session makes pid==pgid==sid."""
+    identity = {'pid': process.pid, 'readable': False, 'verified': False}
+    stat = _read_stat(f'/proc/{process.pid}/stat')
+    if stat is not None:
+        identity.update(pgid=stat['pgid'], session=stat['session'], starttime=stat['starttime'],
+                        readable=True)
+        identity['verified'] = stat['pgid'] == process.pid and stat['session'] == process.pid
+    try:
+        for line in Path(f'/proc/{process.pid}/status').read_text().splitlines():
+            if line.startswith('Uid:'):
+                identity['uid'] = int(line.split()[1])
+                break
+    except (OSError, ValueError):
+        pass
+    return identity
+
+
+def _group_snapshot(pgid):
+    """Identity of every live or zombie process still inside the owned group."""
+    members = {}
+    for entry in os.scandir('/proc'):
+        if not entry.name.isdigit():
+            continue
+        stat = _read_stat(entry.path + '/stat')
+        if stat is not None and stat['pgid'] == pgid:
+            members[int(entry.name)] = stat
+    return members
+
+
+def _group_signal(leader, number, receipt):
+    try:
+        os.killpg(leader, number)
+        return True
+    except ProcessLookupError:
+        return False  # the owned group is already gone
+    except OSError as error:
+        receipt['cleanup_errors'].append('killpg: ' + type(error).__name__ + ' errno=' + str(error.errno))
+        return False
+
+
+def _live_members(leader, known, receipt):
+    """Refresh group membership; None means observation failed (fail closed)."""
+    try:
+        snapshot = _group_snapshot(leader)
+    except OSError as error:
+        receipt['observation_errors'].append('group snapshot: ' + type(error).__name__)
+        return None
+    except BaseException as error:
+        receipt['cleanup_errors'].append(
+            'group snapshot: ' + type(error).__name__ + ': ' + str(error)[:128])
+        return None
+    live = {}
+    for pid, stat in snapshot.items():
+        known.setdefault(pid, stat)
+        if stat['state'] not in ('Z', 'X'):
+            live[pid] = stat
+    return live
+
+
+def _await_group_quiet(leader, known, receipt, budget):
+    """Poll until no live owned-group member remains or the proof budget ends."""
+    deadline = time.monotonic() + budget
+    while True:
+        live = _live_members(leader, known, receipt)
+        if live is not None and not live:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(PROC_POLL_SECONDS)
+
+
+def _leader_exited(process, receipt):
+    """Observe the direct child's exit without reaping it (waitid WNOWAIT)."""
+    try:
+        return os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+    except (ChildProcessError, OSError) as error:
+        receipt['observation_errors'].append('leader waitid: ' + type(error).__name__)
+        return False
+
+
+def _record_final_outcomes(leader, known, receipt):
+    """Classify every process ever seen in the owned group at proof time."""
+    for pid in sorted(known):
+        if pid == leader:
+            continue  # the leader is reaped by this run's own final wait
+        try:
+            stat = _read_stat(f'/proc/{pid}/stat')
+        except OSError as error:
+            receipt['observation_errors'].append('member stat: ' + type(error).__name__)
+            continue
+        if stat is None:
+            outcome = 'absent'
+        elif stat['state'] in ('Z', 'X'):
+            outcome = 'terminal'
+            receipt['external_reap_needed'].append(pid)
+        elif stat['pgid'] != leader:
+            outcome = 'escaped_group'
+            receipt['escaped_members'].append(pid)
+        else:
+            outcome = 'live'
+            receipt['remaining_live'].append(pid)
+        receipt['member_exit_observations'].append(
+            {'pid': pid, 'starttime': known[pid].get('starttime'), 'pgid': known[pid].get('pgid'),
+             'session': known[pid].get('session'), 'first_state': known[pid].get('state'),
+             'final_state': outcome})
+
+
+def _settle_owned_group(process, group, signal_needed):
+    """Observe the owned process group; bounded TERM/KILL teardown for stragglers.
+
+    TERM gets the original five-second grace; after SIGKILL the proof budget
+    is another five seconds. The direct child stays unreaped until the group
+    is proven down so the pgid it leads cannot be recycled while group
+    signals are still in flight. Every fact lands in the private group
+    receipt; cleanup never rewrites the public step projection fields.
+    """
+    leader = process.pid
+    known = {}
+    for key, value in (('term_sent', False), ('kill_sent', False), ('signal_sent', False),
+                       ('member_exit_observations', []), ('observation_errors', []),
+                       ('cleanup_errors', []), ('escaped_members', []),
+                       ('external_reap_needed', []), ('remaining_live', []),
+                       ('leader_exit_observed', False), ('leader_reaped', False)):
+        group.setdefault(key, value)
+    deferred, saved = [], {}
+
+    def defer(number, _frame):
+        deferred.append(int(number))
+
+    try:
+        live = _live_members(leader, known, group)
+        if signal_needed or live:
+            if not signal_needed:
+                group['leader_exit_left_live_members'] = True
+            # Defer catchable interrupts for the cleanup window only; the
+            # original handlers are always restored before returning.
+            for number in (signal.SIGINT, signal.SIGTERM):
+                try:
+                    saved[number] = signal.signal(number, defer)
+                except (OSError, ValueError) as error:
+                    group['cleanup_errors'].append('signal deferral: ' + type(error).__name__)
+            group['term_sent'] = _group_signal(leader, signal.SIGTERM, group)
+            if not _await_group_quiet(leader, known, group, TERM_GRACE_SECONDS):
+                group['kill_sent'] = _group_signal(leader, signal.SIGKILL, group)
+                _await_group_quiet(leader, known, group, KILL_PROOF_SECONDS)
+            group['signal_sent'] = group['term_sent'] or group['kill_sent']
+        if not group['leader_exit_observed']:
+            group['leader_exit_observed'] = _leader_exited(process, group)
+        _record_final_outcomes(leader, known, group)
+    finally:
+        for number, handler in saved.items():
+            try:
+                signal.signal(number, handler)
+            except (OSError, ValueError) as error:
+                group['cleanup_errors'].append('signal restore: ' + type(error).__name__)
+    group['deferred_signals'] = deferred
+    group['cleanup_complete'] = (bool(group.get('verified')) and group['leader_exit_observed']
+                                 and not group['observation_errors'] and not group['cleanup_errors']
+                                 and not group['remaining_live'] and not group['escaped_members'])
+
+
 class Recorder:
     def __init__(self, directory: Path, source: Path, env: dict[str, str]):
         self.directory, self.source, self.env = directory, source, env
@@ -564,28 +752,61 @@ class Recorder:
         self.steps.append(record)
         start = time.monotonic()
         process = None
+        group: dict[str, object] = {"scope": "owned_process_group", "started": False,
+                                    "signal_sent": False, "cleanup_complete": True}
         print(f"[{name}] started", flush=True)
         try:
             with output.open("xb") as out, error.open("xb") as err:
                 process = subprocess.Popen(argv, cwd=self.source, env=self.env,
                                            stdout=out, stderr=err, start_new_session=True)
+                group = {"scope": "owned_process_group", "started": True, **_capture_identity(process)}
+                record["process_group"] = group
+                # The main wait observes exit without reaping: a zombie leader
+                # keeps the pgid anchored until the whole group is proven down.
+                while os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+                    time.sleep(PROC_POLL_SECONDS)
+                group["leader_exit_observed"] = True
+                _settle_owned_group(process, group, signal_needed=False)
                 record["exit_code"] = process.wait()
+                group["leader_reaped"] = True
         except BaseException:
-            if process is not None and process.poll() is None:
-                os.killpg(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
-                    process.wait()
-                record["exit_code"] = process.returncode
             record["interrupted_or_launch_error"] = True
+            try:
+                if process is None:
+                    record["process_group"] = group
+                else:
+                    if "process_group" not in record:
+                        group = {"scope": "owned_process_group", "started": True,
+                                 **_capture_identity(process)}
+                        record["process_group"] = group
+                    # Never call Popen.poll/wait/communicate before the group
+                    # teardown ends: reaping the leader early would release
+                    # the pgid anchor while group signals are still in flight.
+                    _settle_owned_group(process, group, signal_needed=True)
+                    try:
+                        record["exit_code"] = process.wait(
+                            timeout=TERM_GRACE_SECONDS + KILL_PROOF_SECONDS)
+                    except subprocess.TimeoutExpired:
+                        group["kill_sent"] = _group_signal(process.pid, signal.SIGKILL, group) \
+                            or group.get("kill_sent", False)
+                        record["exit_code"] = process.wait()
+                    group["leader_reaped"] = True
+            except BaseException as cleanup_error:
+                group["cleanup_errors"] = [*group.get("cleanup_errors", []),
+                                           "interrupt path: " + type(cleanup_error).__name__]
             raise
         finally:
             record.update(ended_at=utc(), seconds=time.monotonic() - start)
             record["logs"] = {p.name: digest(p) for p in (output, error) if p.is_file()}
+            settled = record.get("process_group") or {}
+            record["logs_status"] = ("complete" if (not settled.get("started", False)
+                                                    or settled.get("cleanup_complete"))
+                                     else "incomplete_may_change")
             write_json(self.directory / (name + ".step.json"), record)
         require(record["exit_code"] == 0, f"{name} failed with exit {record['exit_code']}; see {output}")
+        group = record.get("process_group") or {}
+        require(group.get("cleanup_complete") and not group.get("leader_exit_left_live_members"),
+                f"{name} finished without complete owned-process-group cleanup; see {output}")
         print(f"[{name}] exit 0", flush=True)
         return output
 

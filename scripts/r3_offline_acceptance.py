@@ -54,6 +54,112 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+# Public error projection for this layer: reviewed PackageError constants map
+# to fixed codes; everything else defers to the evaluator's fixed fallbacks.
+PACKAGE_REASON_CODES = {
+    'package directory required': 'package_directory_missing',
+    'symlink input or output is forbidden': 'symlink_input_refused',
+    'regular file required': 'nonregular_input_refused',
+    'executable wls binary required': 'runner_binary_unavailable',
+    'offline command refused': 'runner_command_refused',
+    'offline command timed out; original logs retained': 'runner_timeout',
+    'offline runtime boundary changed': 'runner_offline_boundary_changed',
+    'offline package requires the original synthetic v3 plan': 'package_plan_invalid',
+    'Fake acceptance requires an ordinary user': 'ordinary_user_required',
+}
+
+
+def public_error_code(error):
+    """Fixed public code for a package error; never its raw text."""
+    if isinstance(error, PackageError):
+        return PACKAGE_REASON_CODES.get(str(error), 'invalid_evidence')
+    return evaluation.public_reason_code(error)
+
+
+def public_runner_reason(reason):
+    """Finite whitelist for outcome reasons; unknown text is a fixed fallback."""
+    if isinstance(reason, str):
+        code = PACKAGE_REASON_CODES.get(reason) or evaluation.INVALID_EVIDENCE_REASON_CODES.get(reason)
+        if code is not None:
+            return code
+    return 'runner_failed'
+
+
+MAX_ERROR_MESSAGE_BYTES = 64 * 1024
+
+
+class PrivateErrorCollector:
+    """Retain full private error originals inside this run's 0700 directory.
+
+    Files are created exclusively with 0600 through write_new. A message over
+    the retention bound keeps its true length and hash with a truncated flag
+    instead of a fabricated "complete" copy. A failing write raises to the
+    caller, which records a fixed not-retained status without echoing paths.
+    """
+
+    def __init__(self, directory, limit=64):
+        self.directory, self.limit, self.sequence = directory, limit, 0
+
+    def __call__(self, capture):
+        self.sequence += 1
+        if self.sequence > self.limit:
+            raise RuntimeError('private error retention limit reached')
+        error = capture['error']
+        message_bytes = str(error).encode('utf-8', 'replace')
+        record = {'schema_version': 1,
+                  'error_id': f'err-{self.sequence:03d}',
+                  'captured_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                  'task_id': capture.get('task_id'), 'condition': capture.get('condition'),
+                  'context': capture.get('context'),
+                  'error_type': type(error).__name__,
+                  'errno': getattr(error, 'errno', None),
+                  'message': message_bytes[:MAX_ERROR_MESSAGE_BYTES].decode('utf-8', 'replace'),
+                  'message_truncated': len(message_bytes) > MAX_ERROR_MESSAGE_BYTES,
+                  'original_message_length': len(message_bytes),
+                  'original_message_sha256': sha(message_bytes)}
+        data = encoded(record)
+        write_new(self.directory / (record['error_id'] + '.json'), data)
+        return {'private_error_id': record['error_id'], 'private_error_sha256': sha(data)}
+
+
+RUNNER_STATUS_CODES = ('STARTED', 'COMPLETED', 'FAILED')
+
+
+def project_runner_outcomes(outcomes):
+    """Explicit safe projection of the private runner outcomes for reports.
+
+    Only validated cells, statuses, fixed reason codes and safe hash
+    references are projected. The private original file is never modified,
+    its raw reason text is never trusted, and an unrecognized status can
+    never be projected as COMPLETED.
+    """
+    require(isinstance(outcomes, list) and len(outcomes) <= len(CELLS), 'bounded runner outcomes required')
+    tasks = {name for name, _, _ in evaluation.TASKS}
+    projected = []
+    for item in outcomes:
+        require(isinstance(item, dict), 'runner outcome must be an object')
+        task, condition = item.get('task_id'), item.get('condition')
+        row = {'task_id': task if task in tasks else 'UNKNOWN',
+               'condition': condition if condition in evaluation.CONDITIONS else 'UNKNOWN',
+               'runner_status': (item.get('runner_status') if item.get('runner_status') in RUNNER_STATUS_CODES
+                                 else 'UNRECOGNIZED')}
+        if 'reason' in item:
+            row['reason'] = public_runner_reason(item.get('reason'))
+        for key in ('reason_detail_retained', 'reason_retention_failed'):
+            if key in item:
+                require(isinstance(item[key], bool), 'invalid runner outcome flag')
+                row[key] = item[key]
+        if item.get('private_error_id') is not None or item.get('private_error_sha256') is not None:
+            require(re.fullmatch(r'err-\d{3}', str(item.get('private_error_id'))) is not None and
+                    re.fullmatch(r'[a-f0-9]{64}', str(item.get('private_error_sha256'))) is not None,
+                    'invalid private error reference')
+            row['private_error_reference'] = {'error_id': item['private_error_id'],
+                                              'error_sha256': item['private_error_sha256']}
+        row['outcome_sha256'] = evaluation.digest(item)
+        projected.append(row)
+    return projected
+
+
 def safe_path(path):
     """Reject symlinks in every component, including the package root."""
     path = Path(os.path.abspath(path))
@@ -435,10 +541,12 @@ class FakeRunner:
                         '--method', 'durable_local', '--key', 'offline-receipt-v1')
 
 
-def run_fake(directory, binary):
+def run_fake(directory, binary, *, private_error_sink=None):
     package, manifest = validate_package(directory)
     require(os.geteuid() != 0, 'Fake acceptance requires an ordinary user')
     run = mkdir(package / 'run')  # A run cannot replace an earlier failed sample.
+    collector = private_error_sink if private_error_sink is not None \
+        else PrivateErrorCollector(mkdir(run / 'errors'))
     runner = FakeRunner(binary, run)
     seed = mkdir(run / 'plan-seed')
     request = runner.admit(package, seed, evaluation.TASKS[0][0], 'multi_agent')
@@ -465,14 +573,28 @@ def run_fake(directory, binary):
             runner.execute(package, cell, task, condition, request)
             outcome['runner_status'] = 'COMPLETED'
         except (PackageError, OSError, ValueError) as error:
-            outcome.update(runner_status='FAILED', reason=str(error)[:256])
+            # The private outcome keeps its bounded original reason plus a
+            # reference to the retained full error original; the public
+            # report later projects only fixed reason codes.
+            outcome.update(runner_status='FAILED', reason=str(error)[:256],
+                           reason_detail_retained=False)
+            try:
+                retained = collector({'task_id': task, 'condition': condition, 'error': error,
+                                      'context': {'stage': 'fake-cell', 'command_sequence': runner.sequence}})
+            except BaseException:
+                outcome['reason_retention_failed'] = True
+            else:
+                if isinstance(retained, dict):
+                    outcome.update({key: retained[key] for key in
+                                    ('private_error_id', 'private_error_sha256') if key in retained})
+                    outcome['reason_detail_retained'] = True
         finally:
             if runs and runs[-1]['task_id'] == task and runs[-1]['condition'] == condition:
                 runs[-1]['elapsed_ms'] = int((time.monotonic() - started) * 1000)
                 progress(run / 'runs.json', runs)
             outcomes.append(outcome)
             progress(run / 'outcomes.json', outcomes)
-    result = report(package)
+    result = report(package, private_error_sink=collector)
     write_json(run / 'report.json', result)
     write_json(run / 'human-review.json', human_review(plan['plan_sha256']))
     write_json(run / 'evidence-sha256.json', {str(path.relative_to(run)): file_hash(path)
@@ -491,15 +613,15 @@ def file_hash(path):
     return digest.hexdigest()
 
 
-def report(directory):
+def report(directory, *, private_error_sink=None):
     package, manifest = validate_package(directory)
     run = safe_path(package / 'run')
     plan, index = read_json(run / 'plan.json'), read_json(run / 'runs.json')
     require(plan.get('schema_version') == 3 and plan.get('evidence_mode') == 'synthetic',
             'offline package requires the original synthetic v3 plan')
-    result = evaluation.build_report(plan, index, run)
+    result = evaluation.build_report(plan, index, run, private_error_sink=private_error_sink)
     return {'contract': CONTRACT, 'package_sha256': manifest['package_sha256'], 'evaluation': result,
-            'runner_outcomes': read_json(run / 'outcomes.json'),
+            'runner_outcomes': project_runner_outcomes(read_json(run / 'outcomes.json')),
             'real_execution': 'NOT_RUN', 'provider_quality': 'NOT_RUN', 'actual_provider_cost': 'NOT_RUN',
             'semantic_review': 'NOT_RUN', 'coordinator_acceptance': 'PENDING'}
 
@@ -530,7 +652,7 @@ def main(argv=None):
             return 0 if result['required_fields_complete'] else 2
         return 0
     except (PackageError, evaluation.InvalidEvidence, OSError, KeyError, ValueError) as error:
-        print(json.dumps({'error': str(error)[:256]}, ensure_ascii=False), file=sys.stderr)
+        print(json.dumps({'error': public_error_code(error)}), file=sys.stderr)
         return 2
 
 

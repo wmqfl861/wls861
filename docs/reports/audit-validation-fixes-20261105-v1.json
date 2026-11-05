@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "report": "audit-validation-fixes-20261105-v1",
+  "time_scope": "2026-11-05 implement stage 1: independent Python work plus B/C fixture preparation only (C++ compile slot not granted by root)",
+  "workspace": "/mnt/d/codex-workspace/wls861-audit-fixes-20261105-adp35vg4/validation",
+  "branch": "fix/audit-validation-20261105-adp35vg4",
+  "baseline_commit": "a5675e1245bebba41c499e56bd2c8a16be2d5dae",
+  "baseline_tree": "fac6f4451f8d95998ce9a22a0d228f33c582dc50",
+  "python": "/usr/bin/python3 3.12.3 (system interpreter; jsonschema 4.10.3)",
+  "defects": {
+    "E001": {
+      "status": "FIXED_THIS_STAGE",
+      "original_evidence_level": "audit real process-tree reproduction",
+      "red": {"evidence": "e001/red-01/red-oracle-fixed-parent", "oracle": "grandchild S-state alive after Recorder returns against unmodified runner"},
+      "green": {"evidence": "e001/green-01/green-full-selfcheck", "result": "68/68 methods OK (60 original + 8 new), 37.2s"},
+      "private_receipt_fields_added": ["process_group"],
+      "public_step_whitelist_changed": false
+    },
+    "F-01": {
+      "status": "FIXED_THIS_STAGE",
+      "original_evidence_level": "audit synthetic v3-plan + missing-database marker",
+      "red": {"evidence": ["f01/red-01/f01-red-driver-v2 (D1-D4 all leaked)", "f01/red-01/red-offline-suite-original-scripts (new outcomes tests failed, 9 existing passed)"]},
+      "green": {"evidence": ["f01/green-01/green-driver-final2 (D1-D4 clean, counts invalid_evidence=1/not_executed=9)", "f01/green-01/green-extra-driver-v2 (EACCES/CANTOPEN/invalid/fallback codes, chmod restored)", "f01/green-01/green-offline-suite-final (15/15 OK, 3.3s within the unchanged 30s suite budget)"]},
+      "reason_codes": "fixed finite map; unknown InvalidEvidence falls back to invalid_evidence; no raw text in any public outlet"
+    },
+    "B-001": {
+      "status": "FIXTURE_PREPARED_SLOT_PENDING",
+      "repository_source_unchanged_sha256": "74336e545626fe95395f8f03076e34ce09ac274a691fb948003ecb3e47c5a4b8",
+      "artifacts": ["b001/red-b001/apply_b001.py (check passed; red->green chain exercised on a copy)", "b001/red-b001/async_coordinator_tests.red-preview.cpp a38113db", "b001/red-b001/async_coordinator_tests.green-preview.cpp 73160b1b", "b001/red-b001/B001-PROTOCOL.md"],
+      "compiled_this_session": false
+    },
+    "C-01": {
+      "status": "FIXTURE_PREPARED_SLOT_PENDING",
+      "repository_sources_unchanged": {"tests/sandbox_tests.cpp": "572afc853562f45d5a0c04f43d78cad9973628d56e132ef574a2072991cd7584", "tests/owned_capacity_baseline_repro.cpp": "7d48b3797d8f2aa106e8039e632798fc7900443c6001f4a68405ecce7343fb62"},
+      "artifacts": ["c01/fixture/mkdtemp_observer.c", "c01/fixture/extract_original.cpp", "c01/fixture/extract_candidate.cpp", "c01/fixture/run_c01_fixture.sh (not executed)", "c01/fixture/c01-manifest.json"],
+      "compiled_this_session": false
+    }
+  },
+  "repository_files_modified_this_stage": {
+    "scripts/run_gcc_asan.py": "46866558cb0865bd06a1367569cb8c96c968ad167c9fdc7874a59fc2f745f32f",
+    "tests/test_run_gcc_asan.py": "5de8be03b37dc2fdc6cb0d321c8b03cfbd88ad8dee4d2702f51339db863584c8",
+    "scripts/evaluate_r3.py": "e3f35aa2ff93de9181fbb7ab448914f1006bb0accf7a9ba55e82bfd52ebcfc2a",
+    "scripts/r3_offline_acceptance.py": "11e447bc1126aaf71522c00cc27f0eb1a08d2534219b26881a1e111acd3d6544",
+    "tests/r3_evaluation_tests.py": "f589d87ea02ef80bcb49a8821f5cc57b4ba3a598f739af0b57f8447f0d00855c",
+    "tests/r3_offline_acceptance_tests.py": "b9bda6d4eb2026e0daeb18a28589933997f60a3cc4b9bb7ddd256fb088e3112f",
+    "tests/r3_offline_acceptance_cli_tests.py": "e618358b9a46ce968ed36b528082a30b85e1b5f83b54c268d2aeb3ae220886dc",
+    "tests/test_billing_baseline_e2e.py": "c6365be4ef3450713935f258ee220a8e951532c7d214a230c7a97439ec46e42f",
+    "docs/reports/audit-validation-fixes-20261105-v1.md": "see receipt",
+    "docs/reports/audit-validation-fixes-20261105-v1.json": "this file"
+  },
+  "registry_locked_sources_verified_unchanged": true,
+  "ctest_catalog_or_cmake_or_ci_changed": false,
+  "gates": {
+    "IMPLEMENTATION_COMPLETE": "PARTIAL",
+    "TARGETED_VALIDATION_COMPLETE": "PARTIAL",
+    "LOCAL_VALIDATION_COMPLETE": "NOT_RUN",
+    "INDEPENDENT_CODE_REVIEW_COMPLETE": "NOT_RUN",
+    "PUSH_COMPLETE": "NOT_RUN",
+    "REMOTE_CI_COMPLETE": "NOT_RUN",
+    "INDEPENDENT_RESULT_REVIEW_COMPLETE": "NOT_RUN",
+    "MERGED": false
+  },
+  "not_run": ["B-001/C-01 C++ RED/GREEN and repository edits (slot pending)", "r3_evaluation / r3_offline_acceptance_cli / billing_baseline_e2e executions (need built wls binary)", "async_coordinator / persistent_event_runtime / scheduler / sandbox / owned_capacity* targeted C++ regressions", "full matrix (GCC/Clang/UBSan/ASan/Make) and remote CI", "Windows 11 ordinary-user NTFS (NOT_RUN)", "private hosting (BLOCKED)"],
+  "real_model_or_paid_calls": false,
+  "engineering_model_requests": "this ZCode session itself made engineering model requests; not claimed as zero"
+}
