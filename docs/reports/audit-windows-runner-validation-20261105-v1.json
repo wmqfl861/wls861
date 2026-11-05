@@ -1,0 +1,90 @@
+{
+ "schema_version": 1,
+ "report": "docs/reports/audit-windows-runner-validation-20261105-v1.md",
+ "finding": "E002",
+ "finding_priority": "P2",
+ "original_defect_state": "STATIC_CONFIRMED",
+ "original_defect_baseline": "STATIC_CONTROL_FLOW_EVIDENCE",
+ "original_windows_dynamic_reproduction": "NOT_RUN",
+ "original_run_windows_ci_sha256": "703041ed30529c72d908041da9bc267ecb0e691dff44cced8139c15889528571",
+ "baseline_head": "9cd526130609a8eb0187f1ee65cf0b28aa4e182c",
+ "branch": "fix/audit-windows-evidence-20261105-adp35vg4",
+ "changes": [
+  {
+   "path": "platform/native-foundation/tools/windows_process.py",
+   "kind": "new",
+   "summary": "owned-Job supervision; suspended-create/assign/resume order; three-fact exit proof; bounded closeout; receipts; refuses unsupported platforms; injectable narrow API/clock for tests only"
+  },
+  {
+   "path": "platform/native-foundation/tools/run_windows_ci.py",
+   "kind": "modified",
+   "summary": "all three subprocess entry classes supervised; source-snapshot git query gains a new explicit 30 s deadline; capture-only keeps 30 s with private spool and failure error directory; <name>.process.json receipts; aggregate all_owned_process_trees_exited with NOT_STARTED distinction; unproven trees withhold result.json and stable after snapshots and mark retained originals UNSTABLE_PARTIAL; detached-step restore gated on proven cleanup; MSBUILDDISABLENODEREUSE=1 as a recorded task-level override on configure/build only"
+  },
+  {
+   "path": "platform/native-foundation/tools/test_windows_process_supervisor.py",
+   "kind": "new",
+   "summary": "synthetic selfcheck (fake API/clock) plus ten native scenarios with 25 s per-scenario and 280 s internal budgets; native NOT_RUN on non-Windows exits 3"
+  },
+  {
+   "path": "platform/native-foundation/tools/test_windows_ci_evidence.py",
+   "kind": "modified",
+   "summary": "supervision boundary injectable; 27 original test meanings preserved; 4 new regressions (boundary coverage/deadlines, unproven gating, result aggregation, MSBuild override scope)"
+  },
+  {
+   "path": ".github/workflows/windows-native.yml",
+   "kind": "modified",
+   "summary": "synthetic (1 min) and native (5 min) supervisor selfchecks before product build; runner selfcheck retains fixtures outside the checkout; always() upload adds the three new directories; job limit, pinned actions, guards and product deadlines unchanged"
+  },
+  {
+   "path": "platform/native-foundation/README.md",
+   "kind": "modified",
+   "summary": "supervision documentation; 36 registered public assets / 166684 bytes; Linux product catalog 95 registered suites including Store 411, persistent-event runtime and Store-open compatibility with its 120 s deadline"
+  }
+ ],
+ "validation_executed": {
+  "scope": "local synthetic/tool checks only, ordinary user, private round evidence outside the repository",
+  "supervisor_synthetic": {"status": "PASS", "case_count": 13, "failed": []},
+  "runner_synthetic": {"status": "PASS", "test_count": 31, "original_meanings_preserved": 27, "new_regressions": 4},
+  "image_provenance": {"status": "PASS", "test_count": 17},
+  "bundle_capture": {"status": "PASS", "test_count": 6},
+  "all_exit_codes_zero": true,
+  "interpreter": "system Python 3.12.3, stdlib only"
+ },
+ "not_run": [
+  "windows_hosted_supervisor_native_scenarios",
+  "windows_hosted_runner_integration",
+  "existing_native_slice_on_final_sha",
+  "windows11_ordinary_user_ntfs",
+  "linux_six_way_matrix_for_this_change",
+  "original_e002_windows_dynamic_reproduction"
+ ],
+ "unchanged_open_states": {
+  "windows_11_machine_acceptance": "NOT_RUN",
+  "ordinary_user_security_acceptance": "NOT_RUN",
+  "full_native_runtime": "NOT_IMPLEMENTED",
+  "historical_image_conflict": "UNRESOLVED",
+  "restricted_private_original_hosting": "BLOCKED"
+ },
+ "design_boundaries": {
+  "job_is_supervision_not_sandbox": true,
+  "external_handle_absence_is_design_not_observation": true,
+  "no_unsupervised_fallback": true,
+  "stills_active_never_a_wait_state": true,
+  "terminate_or_close_or_root_wait_alone_not_proof": true,
+  "unproven_never_written_as_pass": true,
+  "native_deadlines_unchanged": {"configure": 180, "build": 600, "ctest": 300, "git_head_status_default": 120, "source_snapshot_git_new": 30, "capture_only_git": 30, "job_minutes": 15}
+ },
+ "states": {
+  "IMPLEMENTATION_COMPLETE": "true (E002 tool-fix scope)",
+  "LOCAL_VALIDATION_COMPLETE": "true (local synthetic/tool scope only)",
+  "PUSH_COMPLETE": "false at report freeze",
+  "REMOTE_CI_COMPLETE": "false",
+  "PR_REVIEW_COMPLETE": "false",
+  "MERGED": "false",
+  "prepublication_source_local_review": "NOT_RUN",
+  "windows_native_validation": "NOT_RUN",
+  "post_ci_independent_evidence_review": "NOT_RUN"
+ },
+ "no_private_paths_no_raw_logs_no_credentials_in_this_index": true,
+ "recorded_at_utc": "2026-11-05T12:20:00+00:00"
+}

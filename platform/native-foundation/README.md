@@ -61,6 +61,62 @@ error with exit code 2; `call-model` returns `denied` with exit code 2. Grant
 calculation does not create an execution capability. Unknown/duplicate options,
 invalid encodings and bad public resources also fail with exit code 2.
 
+## Owned process supervision (E002 tooling fix)
+
+`tools/windows_process.py` supervises every external command this slice starts
+on Windows: each command runs in one unnamed, non-inheritable Job Object with
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. The process is created suspended,
+assigned to the Job, and only then resumed, so no target code can run before
+the owned subtree boundary exists; there is no breakaway configuration and the
+supervisor itself never joins a Job it terminates. The Job is a custody design
+for trusted tooling, not a security sandbox. Completion is proven only by
+three observed facts — the root HANDLE is signaled, its actual exit code was
+read, and a successful same-Job `ActiveProcesses == 0` query; a successful
+`TerminateJobObject`, closing the Job handle, a root-only wait or an absent PID
+are not proof. `STILL_ACTIVE` (259) is never used as a wait state. Unproven
+outcomes stay `UNPROVEN` with their real errors; they are never written as 0,
+true or PASSED. Output spools to private binary files (no inherited PIPE
+reader threads), stdin is a per-call NUL device, and only the three standard
+handles are inherited via `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`. The real Win32
+binding loads only on native Windows; without it the boundary refuses instead
+of falling back to an unsupervised path.
+
+`tools/run_windows_ci.py` routes all three external-command entry classes
+through this boundary: build commands (git-head/git-status keep the original
+120 s default, configure 180 / build 600 / ctest 300 s and the native suite
+deadlines are unchanged), the source snapshot `git ls-files` query with its
+new explicit 30 s deadline, and the capture-only `git rev-parse` query (30 s,
+spool outside the checkout, originals retained in a fresh error directory on
+failure). Each command writes a `<name>.process.json` receipt; `result.json`
+additionally records `all_owned_process_trees_exited`; when any started tree
+cannot be proven, after snapshots and `result.json` are withheld and the
+retained originals are marked `UNSTABLE_PARTIAL`. `configure`/`build` set
+`MSBUILDDISABLENODEREUSE=1` in the subcommand environment only.
+
+The supervisor has its own selfcheck, `tools/test_windows_process_supervisor.py`:
+
+```powershell
+python source/platform/native-foundation/tools/test_windows_process_supervisor.py `
+  --mode synthetic --evidence-dir native-process-synthetic
+python source/platform/native-foundation/tools/test_windows_process_supervisor.py `
+  --mode native --evidence-dir native-process-native
+```
+
+`--mode synthetic` injects a fake Win32 API and fake clock (stage failures,
+root exit with live descendants, query/wait failures, bounded budgets, second
+interrupts, capture failures) and runs anywhere. `--mode native` runs ten real
+owned-process scenarios on Windows — parent/child chains, root-exit-with-
+descendants, a real timeout, inherited output holders, a non-zero root, an
+isolated-console Ctrl-C, an assign-failure injection, an independent sentinel
+and two full `run_native` timeout/interrupt integrations — each within a 25 s
+budget, 280 s internal total. On non-Windows the native mode records NOT_RUN
+and exits 3, which the workflow treats as a failure, never a skip. The
+workflow runs both modes before the product build and uploads
+`native-process-synthetic/`, `native-process-native/` and the runner
+selfcheck fixtures (`--retain-fixtures native-runner-selfcheck`) alongside the
+original evidence; the 15-minute job limit and every product deadline stay
+unchanged.
+
 ## Hosted image provenance
 
 `run_windows_ci.py` keeps its native Windows Actions guard. Immediately after
@@ -129,7 +185,9 @@ Deployment status: **POLICY_PENDING; Windows 11 ordinary-user acceptance NOT_RUN
 The added library interface is `wls/native_readonly.hpp`:
 `ReadOnlyRoot::open(absolute_root, WindowsReadOnlyPolicy)` followed by
 `capture_registered()`. It captures only the original compiled manifest and
-35 registered public assets. The existing `PublicResources` API keeps its
+the 36 registered public assets (the compiled bundle includes the registered
+Store 411 assets; the total stays 166684 bytes). The existing
+`PublicResources` API keeps its
 historical public-byte integrity semantics.
 
 The external trust policy must be supplied explicitly by the trusted host as a
@@ -159,7 +217,10 @@ three Linux compatibility/policy methods and seven Windows methods, including
 synthetic-descriptor checks and real temporary-handle observations. These are
 mechanism tests; Server/elevated results cannot accept the Win11 entry. The
 integrated Windows method catalog must be five native suites / 34 methods;
-the Linux product catalog remains 92. The original four suite deadlines stay
+the Linux product catalog remains 95 registered suites (the original 92 plus
+the async suite, two offline acceptance suites, the Store 411, persistent-event
+runtime and independent Store-open compatibility suites; the compatibility
+suite carries a new 120-second deadline). The original four suite deadlines stay
 unchanged. Native execution results are recorded separately in the N5 report.
 
 `tools/windows_image_provenance.py --help` documents the separate offline

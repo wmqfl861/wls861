@@ -3,10 +3,13 @@
 
 Only Windows/toolchain discovery and build/install are substituted. The CTest
 process and its stdout, JUnit truncation and LastTest files are real. The timeout
-case injects a partial subprocess result without waiting for a product deadline.
+case injects a partial supervised result without waiting for a product deadline.
+The owned-process supervision boundary (windows_process.run_owned) is injectable
+for these synthetic checks; production callers cannot disable it.
 """
 import argparse
 import ast
+import datetime
 import importlib.util
 import io
 import json
@@ -33,6 +36,7 @@ RUNNER = importlib.util.module_from_spec(SPEC)
 sys.path.insert(0, str(ARGS.runner.resolve().parent))
 SPEC.loader.exec_module(RUNNER)
 import windows_host
+import windows_process
 SOURCE = ARGS.source_root.resolve()
 SUITES = {
     'native_modules': ('modules_tests.cpp', 30),
@@ -120,16 +124,61 @@ else:
                                  'set_tests_properties(' + suite + ' PROPERTIES TIMEOUT ' + str(timeout) + ')\n')
         (build / 'CTestTestfile.cmake').write_text(''.join(registrations), encoding='utf-8')
 
-    def invoke(self, mode='success', *, windows11=False, changed_image=False, host=None):
+    def invoke(self, mode='success', *, windows11=False, changed_image=False, host=None,
+               unproven_ctest=False):
         real_run = subprocess.run
+        self.supervised_calls = []
 
-        def run(command, **kwargs):
+        def owned_receipt(command_id, *, exit_code=0, proven=True, outcome=None,
+                          status='COMPLETED', extra_env=None):
+            return dict(schema='wls-owned-process-receipt-v1', command_id=command_id,
+                argv=[command_id], cwd=str(self.work),
+                task_level_env_overrides=dict(extra_env) if extra_env else {},
+                proof_rule='root handle signaled AND actual exit code read AND successful '
+                           'same-Job ActiveProcesses==0 query',
+                execution_timeout_seconds=30, cleanup_timeout_seconds=5.0,
+                started_at_utc='2026-11-05T00:00:00+00:00',
+                ended_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                execution_elapsed_seconds=0.05,
+                establishment={'job_created': True, 'kill_on_close_configured': True,
+                    'process_created_suspended': True, 'assigned_to_job': True,
+                    'primary_thread_resumed': True,
+                    'primary_thread_resume_precedes_any_target_code': True},
+                root_identity={'pid': 4242, 'pid_and_creation_time_are_diagnostic_only': True,
+                    'creation_filetime': None, 'handle_is_operational_identity': True},
+                exit_code_available=True, exit_code=exit_code,
+                termination={'reason': None, 'requested': False, 'api': None,
+                             'requested_exit_code': None, 'job_terminate_succeeded': None,
+                             'pre_assign_process_terminate_succeeded': None},
+                job_zero_observation={'query_ok': True, 'last_active_processes': 0,
+                                      'zero_observed': True, 'query_failures': []},
+                root_wait={'result': 'SIGNALED', 'signaled': True, 'signaled_at_utc':
+                           datetime.datetime.now(datetime.timezone.utc).isoformat()},
+                settle={'configured_seconds': 1.0, 'effective_seconds': 1.0,
+                        'elapsed_seconds': 0.0, 'status': 'NATURAL_ZERO'},
+                cleanup={'timeout_seconds': 5.0, 'elapsed_seconds': 0.01,
+                         'status': 'PROVEN_ZERO' if proven else 'UNPROVEN',
+                         'errors': [], 'handles_closed': {},
+                         'second_interrupt_recorded_and_deferred': False},
+                output={'stdout_bytes': None, 'stdout_sha256': None, 'stderr_bytes': None,
+                        'stderr_sha256': None, 'complete': True, 'capture_errors': [],
+                        'spool_directory': None, 'spool_retained': True},
+                tree_exit_proven=proven,
+                outcome=outcome or ('COMPLETED' if proven else 'UNPROVEN'),
+                failure_reason=None)
+
+        def owned(command, *, cwd, env, timeout, spool_root, command_id, extra_env=None, **kwargs):
             command = [os.fspath(arg) for arg in command]
+            self.supervised_calls.append({'command_id': command_id, 'argv': command,
+                                          'timeout': timeout})
             output = b''
             if command[0].endswith('vswhere.exe'):
                 output = json.dumps([{'installationPath': str(self.installation)}]).encode()
             elif command[0] == 'git' and 'rev-parse' in command:
                 output = b'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n'
+            elif command[0] == 'git' and 'ls-files' in command:
+                self.assertEqual(timeout, 30, 'source snapshot keeps its new explicit 30 s deadline')
+                output = listing
             elif command[0] == 'cmake' and '-S' in command:
                 self.configure_fixture('failure' if mode == 'failure-source-missing' else mode)
             elif command[0] == 'cmake' and '--build' in command:
@@ -140,7 +189,7 @@ else:
             elif command[0] == 'ctest':
                 self.assertEqual(command, ['ctest', '--test-dir', str(self.work / 'build'), '-C', 'Release',
                     '--output-on-failure', '--output-junit', str(self.work / 'evidence/ctest.xml')])
-                self.assertEqual(kwargs['timeout'], 300)
+                self.assertEqual(timeout, 300)
                 # Identities must already exist before the original CTest starts.
                 identity_path = self.work / 'evidence/binary-inputs-before.json'
                 self.binary_before_at_ctest_entry = identity_path.read_bytes() if identity_path.is_file() else None
@@ -150,9 +199,15 @@ else:
                     self.original_last_test = b'original partial CTest output\r\n'
                     (temporary / 'LastTest.log.tmp').write_bytes(self.original_last_test)
                     if mode == 'interrupt':
-                        raise KeyboardInterrupt('synthetic original CTest interruption')
-                    raise subprocess.TimeoutExpired(command, 300, output=b'partial stdout\r\n', stderr=b'partial stderr\r\n')
-                result = real_run(command, **kwargs)
+                        error = KeyboardInterrupt('synthetic original CTest interruption')
+                        error.process_receipt = owned_receipt('ctest', proven=True)
+                        raise error
+                    raise_error = subprocess.TimeoutExpired(command, 300,
+                        output=b'partial stdout\r\n', stderr=b'partial stderr\r\n')
+                    raise_error.process_receipt = owned_receipt('ctest', proven=True)
+                    raise raise_error
+                result = real_run(command, cwd=cwd, env=env, timeout=timeout,
+                                  capture_output=True)
                 self.original_ctest_stdout = result.stdout
                 self.original_last_test = (self.work / 'build/Testing/Temporary/LastTest.log').read_bytes()
                 if mode == 'source-change':
@@ -162,14 +217,22 @@ else:
                     (self.work / 'build/Release/synthetic.exe').write_bytes(b'changed synthetic bytes\n')
                 elif mode == 'failure-source-missing':
                     (self.source / 'platform/native-foundation/tools/verify_detached.py').unlink()
-                return result
+                if unproven_ctest:
+                    return SimpleNamespace(stdout=result.stdout, stderr=result.stderr,
+                        exit_code=0, outcome='UNPROVEN', tree_exit_proven=False,
+                        receipt=owned_receipt('ctest', proven=False, outcome='UNPROVEN'))
+                return SimpleNamespace(stdout=result.stdout, stderr=result.stderr,
+                    exit_code=result.returncode, outcome='COMPLETED', tree_exit_proven=True,
+                    receipt=owned_receipt('ctest', exit_code=result.returncode))
             elif command[0] == 'cmake' and '--install' in command:
                 directory = self.work / 'installed/bin'
                 directory.mkdir(parents=True)
                 (directory / 'wls-native-foundation.exe').write_bytes(b'not executable\n')
             elif command[-1] == 'capabilities':
                 output = b'{"token_elevation":"not_elevated","filesystem":"NTFS"}\n'
-            return subprocess.CompletedProcess(command, 0, output, b'')
+            return SimpleNamespace(stdout=output, stderr=b'', exit_code=0,
+                outcome='COMPLETED', tree_exit_proven=True,
+                receipt=owned_receipt(command_id, extra_env=extra_env))
 
         environment = dict(os.environ, GITHUB_ACTIONS='true', GITHUB_SHA='a' * 40,
                            GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='1', GITHUB_JOB='native-foundation',
@@ -178,9 +241,13 @@ else:
         fake_os = SimpleNamespace(name='nt', environ=environment, fspath=os.fspath)
         listing = b'\0'.join(str(path.relative_to(self.source)).replace('\\', '/').encode()
                               for path in self.source.rglob('*') if path.is_file()) + b'\0'
-        fake_subprocess = SimpleNamespace(run=run, check_output=lambda command: listing,
-                                         PIPE=subprocess.PIPE, TimeoutExpired=subprocess.TimeoutExpired)
+        fake_subprocess = SimpleNamespace(run=lambda command, **kwargs: (_ for _ in ()).throw(
+            AssertionError('subprocess.run is not the supervision boundary')),
+            check_output=lambda command: (_ for _ in ()).throw(
+                AssertionError('subprocess.check_output is not the supervision boundary')),
+            PIPE=subprocess.PIPE, TimeoutExpired=subprocess.TimeoutExpired)
         with patch.object(RUNNER, 'os', fake_os), patch.object(RUNNER, 'subprocess', fake_subprocess), \
+             patch.object(RUNNER.windows_process, 'run_owned', owned), \
              patch.object(sys, 'getwindowsversion', return_value=(10, 0, 20348), create=True), \
              patch.object(RUNNER.platform, 'platform', return_value='synthetic-Windows-host'), \
              patch.object(sys, 'argv', ['run_windows_ci.py', '--source-root', str(self.source), '--work-root', str(self.work)]), \
@@ -402,6 +469,69 @@ else:
         self.assertFalse((evidence / 'configure.command.json').exists())
         self.assertFalse((evidence / 'result.json').exists())
 
+    def test_owned_supervision_boundary_covers_all_command_entry_classes(self):
+        self.invoke()
+        entries = {row['command_id']: row for row in self.supervised_calls}
+        for required in ('git-head', 'vswhere', 'git-status', 'source-snapshot-before',
+                         'cmake-version', 'configure', 'build', 'ctest', 'install',
+                         'host-capabilities', 'detached', 'source-snapshot-after'):
+            self.assertIn(required, entries, 'every planned command must use the boundary')
+        # The three external-command entry classes keep their distinct deadlines.
+        self.assertEqual(entries['git-head']['timeout'], 120)
+        self.assertEqual(entries['git-status']['timeout'], 120)
+        self.assertEqual(entries['source-snapshot-before']['timeout'], 30)
+        self.assertEqual(entries['source-snapshot-after']['timeout'], 30)
+        self.assertEqual(entries['ctest']['timeout'], 300)
+        evidence = self.work / 'evidence'
+        self.assertTrue((evidence / 'ctest.process.json').is_file())
+        self.assertTrue((evidence / 'git-head.process.json').is_file())
+
+    def test_unproven_owned_tree_blocks_result_and_stable_after_snapshots(self):
+        with self.assertRaisesRegex(RuntimeError, 'ctest owned process tree exit could not be proven'):
+            self.invoke(unproven_ctest=True)
+        evidence = self.work / 'evidence'
+        self.assertFalse((evidence / 'result.json').exists())
+        self.assertFalse((evidence / 'source-inputs-after.json').exists())
+        identity = json.loads((evidence / 'identity-finalization.json').read_text())
+        self.assertFalse(identity['identities_complete'])
+        self.assertFalse(identity['after_snapshots_available'])
+        self.assertEqual(identity['retained_originals_stability'], 'UNSTABLE_PARTIAL')
+        self.assertEqual(identity['owned_process_supervision']['unproven_owned_trees'], ['ctest'])
+        failure = json.loads((evidence / 'failure.json').read_text())
+        self.assertFalse(failure['owned_process_supervision']['all_owned_process_trees_exited'])
+        self.assertIn('unproven_owned_trees', failure['identity_finalization_availability'])
+        ctest_command = json.loads((evidence / 'ctest.command.json').read_text())
+        self.assertFalse(ctest_command['tree_exit_proven'])
+        self.assertEqual(ctest_command['supervision_outcome'], 'UNPROVEN')
+
+    def test_result_json_states_all_owned_process_trees_exited(self):
+        self.invoke()
+        evidence = self.work / 'evidence'
+        result = json.loads((evidence / 'result.json').read_text())
+        self.assertTrue(result['all_owned_process_trees_exited'])
+        started = result['owned_process_supervision']['started']
+        self.assertIn('ctest', started)
+        self.assertTrue(all(row['tree_exit_proven'] for row in started.values()))
+        receipt = json.loads((evidence / 'ctest.process.json').read_text())
+        self.assertTrue(receipt['tree_exit_proven'])
+        self.assertEqual(receipt['proof_rule'],
+                         'root handle signaled AND actual exit code read AND successful '
+                         'same-Job ActiveProcesses==0 query')
+
+    def test_configure_and_build_carry_only_task_level_msbuild_override(self):
+        self.invoke()
+        entries = {row['command_id']: row for row in self.supervised_calls}
+        ctest_argv = entries['ctest']['argv']
+        self.assertNotIn('MSBUILDDISABLENODEREUSE', json.dumps(ctest_argv))
+        evidence = self.work / 'evidence'
+        for name in ('configure', 'build'):
+            receipt = json.loads((evidence / (name + '.process.json')).read_text())
+            self.assertEqual(receipt['task_level_env_overrides'], {'MSBUILDDISABLENODEREUSE': '1'})
+        others = ('git-head', 'vswhere', 'git-status', 'ctest', 'install', 'host-capabilities')
+        for name in others:
+            receipt = json.loads((evidence / (name + '.process.json')).read_text())
+            self.assertEqual(receipt['task_level_env_overrides'], {})
+
 
 def ordinary_windows11():
     return dict(os_major=10, os_build=26100, os_product_type=1, native_machine=0x8664,
@@ -423,18 +553,33 @@ class ProvenanceAndHostGuards(unittest.TestCase):
             original_entries = {path.name for path in root.iterdir()}
             fake_os = SimpleNamespace(name='nt', environ={'GITHUB_ACTIONS': 'true',
                 'ImageOS': 'win22', 'ImageVersion': '20261026.347.1', 'MODEL_API_KEY': 'synthetic-secret'})
+
+            def owned(command, **kwargs):
+                receipt = dict(schema='wls-owned-process-receipt-v1',
+                    command_id='capture-git-head', argv=[os.fspath(item) for item in command],
+                    exit_code_available=True, exit_code=0, tree_exit_proven=True,
+                    outcome='COMPLETED', execution_timeout_seconds=kwargs['timeout'],
+                    execution_elapsed_seconds=0.02, settle={'status': 'NATURAL_ZERO'})
+                return SimpleNamespace(stdout=b'a' * 40 + b'\n', stderr=b'', exit_code=0,
+                    outcome='COMPLETED', tree_exit_proven=True, receipt=receipt)
+
             with patch.object(RUNNER, 'os', fake_os), \
-                 patch.object(RUNNER.subprocess, 'check_output', return_value=b'a' * 40 + b'\n') as git_head, \
+                 patch.object(RUNNER.windows_process, 'run_owned', side_effect=owned) as supervised_head, \
                  patch.object(RUNNER.subprocess, 'run', side_effect=AssertionError('no build or product')), \
                  patch.object(sys, 'stdout', io.StringIO()), \
                  patch.object(sys, 'argv', ['run_windows_ci.py', '--source-root', str(source),
                                            '--capture-image-environment', str(destination)]):
                 RUNNER.main()
-                git_head.assert_called_once_with(['git', '-C', str(resolved_source), 'rev-parse', 'HEAD'], timeout=30)
+                self.assertEqual(len(supervised_head.call_args_list), 1)
+                positional, keyword = supervised_head.call_args_list[0]
+                self.assertEqual([os.fspath(item) for item in positional[0]],
+                                 ['git', '-C', str(resolved_source), 'rev-parse', 'HEAD'])
+                self.assertEqual(keyword['timeout'], 30)
             captured = json.loads(destination.read_text())
             self.assertEqual(captured['actual_checkout_sha'], 'a' * 40)
             self.assertEqual(captured['image_environment']['ImageVersion'], '20261026.347.1')
             self.assertNotIn('synthetic-secret', destination.read_text())
+            self.assertEqual(captured['checkout_query_supervision']['tree_exit_proven'], True)
             self.assertEqual({path.name for path in root.iterdir()}, original_entries | {destination.name})
             self.assertEqual(list(resolved_source.iterdir()), [])
 

@@ -27,16 +27,36 @@ jobs:
           persist-credentials: false
       - name: Capture inherited image environment before selfchecks
         shell: pwsh
-        run: python source/platform/native-foundation/tools/run_windows_ci.py --source-root source --capture-image-environment native-image-environment.json
+        run: |
+          python source/platform/native-foundation/tools/run_windows_ci.py --source-root source --capture-image-environment native-image-environment.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check complete native evidence collection with synthetic CTest processes
         shell: pwsh
-        run: python source/platform/native-foundation/tools/test_windows_ci_evidence.py
+        run: |
+          python source/platform/native-foundation/tools/test_windows_ci_evidence.py --retain-fixtures native-runner-selfcheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check the owned process supervisor with injected synthetic APIs
+        shell: pwsh
+        timeout-minutes: 1
+        run: |
+          python source/platform/native-foundation/tools/test_windows_process_supervisor.py --mode synthetic --evidence-dir native-process-synthetic
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check the owned process supervisor against real native Windows processes
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          python source/platform/native-foundation/tools/test_windows_process_supervisor.py --mode native --evidence-dir native-process-native
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check offline image provenance source binding
         shell: pwsh
-        run: python source/platform/native-foundation/tools/test_windows_image_provenance.py
+        run: |
+          python source/platform/native-foundation/tools/test_windows_image_provenance.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build and verify the isolated native slice with pinned preinstalled tools
         shell: pwsh
-        run: python source/platform/native-foundation/tools/run_windows_ci.py --source-root source --work-root native-work --image-environment-snapshot native-image-environment.json
+        run: |
+          python source/platform/native-foundation/tools/run_windows_ci.py --source-root source --work-root native-work --image-environment-snapshot native-image-environment.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Retain original native evidence including failures
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -45,5 +65,8 @@ jobs:
           path: |
             native-image-environment.json
             native-work/evidence/
+            native-process-synthetic/
+            native-process-native/
+            native-runner-selfcheck/
           if-no-files-found: warn
           retention-days: 7

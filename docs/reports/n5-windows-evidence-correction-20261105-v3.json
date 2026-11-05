@@ -1,0 +1,119 @@
+{
+ "schema_version": 1,
+ "report": "docs/reports/n5-windows-evidence-correction-20261105-v3.md",
+ "correction_of": [
+  {
+   "path": "docs/reports/n5-windows-evidence-continuation-20261104-v2.md",
+   "sha256": "f72a97026658175526db2574b68ea4d6094182b8dc0a430eacfa9158e57c604f"
+  },
+  {
+   "path": "docs/reports/n5-windows-evidence-continuation-20261104-v2.json",
+   "sha256": "032535badb62f1a148c3a74cee68adee02423be93dec939e678f2558b78d0eb9"
+  }
+ ],
+ "finding": "E003",
+ "finding_priority": "P3",
+ "original_defect_state": "STATIC_CONFIRMED source/index contradiction",
+ "correction_scope": "C8 WD/WO subcase existence and the provable historical method execution range only",
+ "not_recomputed": [
+  "the other 16 rows and the 3/11/2/1 historical classification",
+  "time ranges",
+  "subcase-to-method counting (subcases are not new methods)",
+  "old Windows 27-method and current 34-method mixing"
+ ],
+ "verified_source": {
+  "path": "platform/native-foundation/tests/readonly_tests.cpp",
+  "sha256": "267e02e27ecbd45b814796013b273ffcff18bf32441d59c7d1236338b081d54a",
+  "size_bytes": 13984,
+  "current_checkout_equals_archive_source_input": true,
+  "containing_method": "native complete owner and DACL allow deny policy",
+  "containing_function": "complete_acl_policy",
+  "subcases": [
+   {
+    "sddl": "(A;;WD;;;BU)", "rights_slot": "WD=WRITE_DAC", "trustee": "BUILTIN\\Users (BU)",
+    "source_line": 125, "judgment": "SOURCE_SUBCASE_PRESENT + HISTORICAL_METHOD_PASS_VERIFIED_FROM_SAVED_ORIGINAL"
+   },
+   {
+    "sddl": "(A;;WO;;;WD)", "rights_slot": "WO=WRITE_OWNER", "trustee": "Everyone (WD in the trustee slot)",
+    "source_line": 126, "judgment": "SOURCE_SUBCASE_PRESENT + HISTORICAL_METHOD_PASS_VERIFIED_FROM_SAVED_ORIGINAL"
+   },
+   {
+    "sddl": "(A;;WD;;;BA)", "rights_slot": "WD=WRITE_DAC", "trustee": "BUILTIN\\Administrators (BA)",
+    "source_line": 147, "judgment": "SOURCE_SUBCASE_PRESENT + HISTORICAL_METHOD_PASS_VERIFIED_FROM_SAVED_ORIGINAL"
+   },
+   {
+    "sddl": "(A;;WO;;;BA)", "rights_slot": "WO=WRITE_OWNER", "trustee": "BUILTIN\\Administrators (BA)",
+    "source_line": 148, "judgment": "SOURCE_SUBCASE_PRESENT + HISTORICAL_METHOD_PASS_VERIFIED_FROM_SAVED_ORIGINAL"
+   }
+  ],
+  "subcases_unconditional": "initializer-list range-for bodies feeding rejects_code(ErrorCode::Denied); no skip path",
+  "slot_discipline": "WD/WO in the rights slot are WRITE_DAC/WRITE_OWNER; WD in the trustee slot is Everyone; FW is file generic write; DC is not FILE_DELETE_CHILD"
+ },
+ "historical_evidence": {
+  "row": 7,
+  "run_id": 41598903763,
+  "job_id": 125792707157,
+  "attempt": 1,
+  "workflow_job_key": "native-foundation",
+  "checkout": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+  "checkout_kind": "exact head per v2 row7",
+  "artifact_sha256": "0135c9c5cdd5536940eb4b693ce7a6911cb7152fb50d0756ba907e389d97c3e0",
+  "artifact_rehashed_this_round": true,
+  "members": {
+   "native-work/evidence/ctest-logs/LastTest.log": "a4ca05218dbe39f41d705bf1ecd43981aa37390fffb975f16cb48486655e7041",
+   "native-work/evidence/ctest-methods.json": "80985563acb67e7fe69a98c5360c4439c00902268a208eab921ea0c3d49d76b8"
+  },
+  "member_paths_as_recorded": true,
+  "method_pass_lines": 1,
+  "method_other_mentions": 0,
+  "readonly_result_summary": "RESULT 7 passed, 0 failed",
+  "trailer": "Test Passed.",
+  "readonly_pass_lines_equal_registry": true,
+  "registry_status": "PASSED",
+  "registry_counts": {"suite_count": 5, "method_count": 34, "native_readonly": 7},
+  "archive_source_inputs_before_equals_after": true,
+  "row8_crosscheck": {
+   "run_id": 41599060437,
+   "job_id": 125793198983,
+   "attempt": 1,
+   "artifact_sha256": "93f671f9feb5b8f11cba831db4912b74e186df680be9928313b0c6ae38e7fe25",
+   "rehashed_this_round": true,
+   "member_extraction_redone": false,
+   "checkout_kind": "PR merge checkout per v2 row8; not claimed as exact head"
+  }
+ },
+ "granularity_limits": {
+  "per_mask_pass_lines_in_original_log": "ABSENT; not claimed",
+  "inference": "same-version once-passing method + unconditional same-SHA subcases implies the subcases executed within that method",
+  "windows_rerun": "NOT_RUN",
+  "new_acceptance": "none"
+ },
+ "c8_corrected_gap": [
+  "malformed SDDL input strings have no executed subcase",
+  "DACL-absent (present=FALSE) descriptor not directly fed (null and empty DACL are the executed variants)",
+  "FILE_APPEND_DATA, FILE_WRITE_EA, FILE_WRITE_ATTRIBUTES, FILE_DELETE_CHILD and DELETE remain without individually fed subcases",
+  "DC remains explicitly not FILE_DELETE_CHILD"
+ ],
+ "distinct_admin_protections": "BA writer/trustee ACE refusal (C8 subcases) is separate from the preflight rejecting Administrators as a trusted owner/writer (C2) and from ordinary_token elevated-caller rejection (C5 entry executed; C6 full profile source-only)",
+ "defect_assessment": {
+  "code_change_required": false,
+  "deterministic_red": "NOT_APPLICABLE",
+  "tool_selfchecks_rerun": false,
+  "documentation_only_correction": true
+ },
+ "retained_open": [
+  "image identity UNRESOLVED",
+  "Windows 11 ordinary-user acceptance NOT_RUN",
+  "restricted private original hosting BLOCKED"
+ ],
+ "states": {
+  "IMPLEMENTATION_COMPLETE": "true (documentation-only correction)",
+  "LOCAL_VALIDATION_COMPLETE": "true (offline read-only re-verification of saved originals)",
+  "PUSH_COMPLETE": "false at report freeze",
+  "REMOTE_CI_COMPLETE": "false (not applicable to an offline correction; not inherited)",
+  "PR_REVIEW_COMPLETE": "false",
+  "MERGED": "false"
+ },
+ "no_private_paths_no_raw_logs_no_credentials_in_this_index": true,
+ "recorded_at_utc": "2026-11-05T12:20:00+00:00"
+}
