@@ -105,6 +105,140 @@ def require_under(path, root, what):
     return real
 
 
+# ------------------------------------------------------ completeness modelling
+def _valid_hex_digest(value):
+    return (isinstance(value, str) and len(value) == 64 and
+            all(character in '0123456789abcdef' for character in value))
+
+
+def _member_incomplete_reason(entry):
+    """Why one observed member cannot support an equality claim; None when complete.
+
+    'refused:<reason>' keeps the read refusal itself as the evidence boundary;
+    an unknown role name never excuses missing read evidence.
+    """
+    if not isinstance(entry, dict):
+        return 'member_not_object'
+    status = entry.get('status')
+    if status == 'refused':
+        return 'refused:' + str((entry.get('error') or {}).get('reason'))
+    if status != 'present':
+        return 'status_' + str(status)
+    if not _valid_hex_digest(entry.get('sha256')):
+        return 'missing_or_invalid_sha256'
+    bytes_read = entry.get('bytes')
+    if not isinstance(bytes_read, int) or isinstance(bytes_read, bool) or bytes_read < 0:
+        return 'invalid_bytes'
+    meta = entry.get('meta')
+    if not isinstance(meta, dict):
+        return 'missing_meta'
+    for field in IDENTITY_FIELDS:
+        if meta.get(field) is None:
+            return 'meta_missing_' + field
+    if meta.get('size') != bytes_read:
+        return 'bytes_meta_size_mismatch'
+    if meta.get('type') != 'regular':
+        return 'not_regular'
+    return None
+
+
+def snapshot_completeness(snapshot_record):
+    """Decide from the record's own facts whether a raw observation is complete.
+
+    Requires a successful flagged directory enumeration, a present and fully
+    observed main member, every listed prefix member present with a valid hash,
+    non-negative actual bytes matching the stable meta size and all required
+    identity fields, and no refused/restricted members.  Optional sidecars that
+    the complete enumeration shows absent simply are not members; nothing is
+    fabricated for them.
+    """
+    result = {'observation_complete': False, 'reasons': [], 'main_present': False,
+              'complete_members': [], 'incomplete_members': {}}
+    if not isinstance(snapshot_record, dict):
+        result['reasons'].append('snapshot_not_object')
+        return result
+    enumeration = snapshot_record.get('enumeration')
+    if (not isinstance(enumeration, dict) or enumeration.get('noatime_ok') is not True or
+            not isinstance(snapshot_record.get('entries'), list)):
+        result['reasons'].append('enumeration_not_established')
+    members = snapshot_record.get('members')
+    if not isinstance(members, dict) or not members:
+        result['reasons'].append('members_missing')
+        members = members if isinstance(members, dict) else {}
+    database_name = snapshot_record.get('database')
+    main_entry = members.get(database_name) if isinstance(database_name, str) else None
+    result['main_present'] = (isinstance(main_entry, dict) and
+                              main_entry.get('status') == 'present')
+    if not result['main_present']:
+        result['reasons'].append('main_absent')
+    for name, entry in sorted(members.items()):
+        reason = _member_incomplete_reason(entry)
+        if reason is None:
+            result['complete_members'].append(name)
+        else:
+            result['incomplete_members'][name] = reason
+            result['reasons'].append(f'{name}:{reason}')
+    if snapshot_record.get('restricted'):
+        result['reasons'].append('restricted_members_present')
+    result['observation_complete'] = not result['reasons']
+    return result
+
+
+def logical_dump_completeness(record):
+    """Decide from the record's own facts whether a logical dump is complete.
+
+    A valid 64-hex digest, correctly typed core payload, quick_check [['ok']],
+    an explicit close == 'ok' written by the real finally path and fully observed
+    members around the SQLite window are all required; a quick_check failure
+    keeps a produced digest but stays incomplete, and identical errors on two
+    records never prove equality.
+    """
+    result = {'observation_complete': False, 'reasons': []}
+    if not isinstance(record, dict):
+        result['reasons'].append('record_not_object')
+        return result
+    digest = record.get('logical_sha256')
+    if not _valid_hex_digest(digest):
+        result['reasons'].append('logical_sha256_missing_or_invalid')
+    pragmas = record.get('pragmas')
+    schema = record.get('sqlite_schema')
+    tables = record.get('tables')
+    core_ok = (isinstance(pragmas, dict) and isinstance(schema, list) and
+               isinstance(tables, dict))
+    if not core_ok:
+        result['reasons'].append('core_payload_missing_or_mistyped')
+    if record.get('sqlite_error'):
+        result['reasons'].append('sqlite_error')
+    if record.get('quick_check') != [['ok']]:
+        result['reasons'].append('quick_check_not_ok')
+    if record.get('close') != 'ok':
+        result['reasons'].append('close_not_ok')
+
+    def _member_entries_ok(entries):
+        return (isinstance(entries, dict) and bool(entries) and
+                all(isinstance(item, dict) and _valid_hex_digest(item.get('sha256')) and
+                    isinstance(item.get('size'), int) and not isinstance(item.get('size'), bool)
+                    and item.get('size') >= 0 for item in entries.values()))
+
+    pre = record.get('pre_open_members')
+    main_name = os.path.basename(str(record.get('database'))) if record.get('database') else None
+    if not (isinstance(pre, dict) and main_name in pre and _member_entries_ok(pre)):
+        result['reasons'].append('pre_open_members_incomplete')
+    post = record.get('post_close_members')
+    if not isinstance(post, dict):
+        result['reasons'].append('post_close_members_missing')
+    elif post and not _member_entries_ok(post):
+        result['reasons'].append('post_close_members_incomplete')
+    if record.get('post_close_error'):
+        result['reasons'].append('post_close_observation_error')
+    if core_ok and _valid_hex_digest(digest):
+        if sha256_json({'pragmas': pragmas, 'tables': tables,
+                        'sqlite_schema': schema}) != digest:
+            result['reasons'].append('logical_sha256_mismatch')
+    result['observation_complete'] = not result['reasons']
+    return result
+
+
 # ---------------------------------------------------------------- statx/xattr
 _STATX_BTIME = 0x00000800
 _STATX_MNT_ID = 0x00001000
@@ -393,10 +527,23 @@ def _recursive_diff(before, after, path=''):
 
 
 def compare_snapshots(before, after):
-    """Field-level diff; new/missing/unknown members are classified explicitly."""
+    """Field-level diff; new/missing/unknown members are classified explicitly.
+
+    Completeness and equality are separate facts: observation_complete_*/comparable
+    carry the evidence validity, strict_equal additionally requires both sides
+    complete plus no differences at all, and records_equal keeps the literal
+    same-error-dict fact without ever letting it prove strict equality.  Per-file
+    content/metadata/raw equality is only decided where the corresponding
+    evidence exists on both sides; missing evidence stays null with an explicit
+    reason instead of becoming a success boolean.
+    """
     stripped_before = _strip_volatile(before)
     stripped_after = _strip_volatile(after)
     differences = _recursive_diff(stripped_before, stripped_after)
+    complete_before = snapshot_completeness(before)
+    complete_after = snapshot_completeness(after)
+    comparable = (complete_before['observation_complete'] and
+                  complete_after['observation_complete'])
     members_before = set(before['members'])
     members_after = set(after['members'])
     added = sorted(members_after - members_before)
@@ -404,41 +551,88 @@ def compare_snapshots(before, after):
     per_file = {}
     for name in sorted(members_before & members_after):
         entry_before, entry_after = before['members'][name], after['members'][name]
-        content_equal = (entry_before.get('sha256') == entry_after.get('sha256') and
-                         entry_before.get('bytes') == entry_after.get('bytes'))
-        meta_before = {field: entry_before.get(field, entry_before.get('meta', {}).get(field))
-                       for field in IDENTITY_FIELDS}
-        meta_after = {field: entry_after.get(field, entry_after.get('meta', {}).get(field))
-                      for field in IDENTITY_FIELDS}
-        meta_equal = meta_before == meta_after
-        per_file[name] = {
-            'role': entry_after.get('role'),
-            'content_equal': content_equal,
-            'metadata_equal': meta_equal,
-            'metadata_changed_fields': {field: [meta_before[field], meta_after[field]]
-                                        for field in IDENTITY_FIELDS if meta_before[field] != meta_after[field]},
-            'raw_equal': entry_before == entry_after,
-        }
+        reason_before = _member_incomplete_reason(entry_before)
+        reason_after = _member_incomplete_reason(entry_after)
+        if reason_before is None and reason_after is None:
+            content_equal = (entry_before.get('sha256') == entry_after.get('sha256') and
+                             entry_before.get('bytes') == entry_after.get('bytes'))
+            meta_before = {field: entry_before.get(field, entry_before.get('meta', {}).get(field))
+                           for field in IDENTITY_FIELDS}
+            meta_after = {field: entry_after.get(field, entry_after.get('meta', {}).get(field))
+                          for field in IDENTITY_FIELDS}
+            entry = {
+                'role': entry_after.get('role'),
+                'content_equal': content_equal,
+                'metadata_equal': meta_before == meta_after,
+                'metadata_changed_fields': {field: [meta_before[field], meta_after[field]]
+                                            for field in IDENTITY_FIELDS
+                                            if meta_before[field] != meta_after[field]},
+                'raw_equal': entry_before == entry_after,
+                'evidence_complete': True,
+            }
+        else:
+            entry = {
+                'role': entry_after.get('role'),
+                'content_equal': None,
+                'metadata_equal': None,
+                'metadata_changed_fields': {},
+                'raw_equal': None,
+                'evidence_complete': False,
+                'incomplete_reason': {'before': reason_before or 'unknown_role_no_read_evidence',
+                                      'after': reason_after or 'unknown_role_no_read_evidence'},
+            }
+        per_file[name] = entry
     for name in added:
         per_file[name] = {'role': after['members'][name].get('role'), 'status': 'added',
-                          'content_equal': False, 'metadata_equal': False, 'raw_equal': False}
+                          'content_equal': False, 'metadata_equal': False, 'raw_equal': False,
+                          'evidence_complete':
+                              _member_incomplete_reason(after['members'][name]) is None}
     for name in removed:
         per_file[name] = {'role': before['members'][name].get('role'), 'status': 'removed',
-                          'content_equal': False, 'metadata_equal': False, 'raw_equal': False}
+                          'content_equal': False, 'metadata_equal': False, 'raw_equal': False,
+                          'evidence_complete':
+                              _member_incomplete_reason(before['members'][name]) is None}
     unknown = sorted(name for name in after['members']
                      if after['members'][name].get('role') == 'unknown_prefix_member')
-    return {'strict_equal': not differences, 'diff_count': len(differences),
+    return {'strict_equal': bool(comparable and not differences and not added and not removed),
+            'comparable': comparable,
+            'observation_complete_before': complete_before['observation_complete'],
+            'observation_complete_after': complete_after['observation_complete'],
+            'reasons_before': complete_before['reasons'],
+            'reasons_after': complete_after['reasons'],
+            'records_equal': before['members'] == after['members'],
+            'diff_count': len(differences),
             'differences': differences[:200], 'added': added, 'removed': removed,
             'per_file': per_file, 'unknown_members': unknown}
 
 
 def stability_check(database, allowed_root, rounds=2):
-    """Observer-only consecutive observations must match, including all times."""
+    """Observer-only consecutive observations must match, including all times.
+
+    Fewer than two rounds is rejected outright so an empty comparison list can
+    never certify stability; every observation must be complete and every
+    comparison comparable and equal before 'stable' is true.
+    """
+    if not isinstance(rounds, int) or isinstance(rounds, bool) or rounds < 2:
+        raise ObservationError('insufficient_rounds', {'rounds': rounds, 'required_min': 2})
     observations = [snapshot(database, allowed_root) for _ in range(rounds)]
+    completeness = [snapshot_completeness(item) for item in observations]
     comparisons = [compare_snapshots(observations[index], observations[index + 1])
                    for index in range(rounds - 1)]
-    return {'stable': all(item['strict_equal'] for item in comparisons),
-            'rounds': rounds, 'comparisons': comparisons, 'observations': observations}
+    reasons = []
+    for index, item in enumerate(completeness):
+        if not item['observation_complete']:
+            reasons.append({'round': index, 'reasons': item['reasons']})
+    for index, item in enumerate(comparisons):
+        if not (item['comparable'] and item['strict_equal']):
+            reasons.append({'comparison': index,
+                            'reasons': (item['reasons_before'] + item['reasons_after'] or
+                                        ['differences_present'])})
+    return {'stable': not reasons and all(item['comparable'] and item['strict_equal']
+                                          for item in comparisons),
+            'rounds': rounds, 'comparisons': comparisons, 'observations': observations,
+            'observation_complete': [item['observation_complete'] for item in completeness],
+            'incomplete_reasons': reasons}
 
 
 # ---------------------------------------------------------------- frozen copy
@@ -469,19 +663,32 @@ def frozen_copy(database, destination_dir, allowed_root):
 
     Originals must be byte- and metadata-identical across the copy; the copy is
     proven by an independent readback against the original before and after the
-    copy window before any SQLite connection may touch it.
+    copy window before any SQLite connection may touch it.  An incomplete member
+    set (any refused or partially observed member) is rejected before the
+    destination directory is created, so a rejected copy can never be mistaken
+    for an empty but legitimate database, and the independent readback must
+    cover the complete expected mapping including main.
     """
     real = require_under(database, allowed_root, 'database')
     require_under(destination_dir, allowed_root, 'copy destination')
-    os.makedirs(destination_dir, mode=0o700, exist_ok=False)
     before = snapshot(real, allowed_root)
+    before_completeness = snapshot_completeness(before)
+    if not before_completeness['observation_complete']:
+        raise ObservationError('copy_source_incomplete', before_completeness)
     present = {name: entry for name, entry in before['members'].items()
                if entry.get('status') == 'present'}
+    if os.path.basename(real) not in present:
+        raise ObservationError('copy_source_incomplete',
+                                {'reasons': ['main_absent_after_completeness_check']})
+    os.makedirs(destination_dir, mode=0o700, exist_ok=False)
     stream = {}
     for name in sorted(present):
         stream[name] = _copy_stream(os.path.join(os.path.dirname(real), name),
                                     os.path.join(destination_dir, name))
     after = snapshot(real, allowed_root)
+    after_completeness = snapshot_completeness(after)
+    if not after_completeness['observation_complete']:
+        raise ObservationError('original_incomplete_after_copy', after_completeness)
     if _strip_volatile(before) != _strip_volatile(after):
         raise ObservationError('original_changed_during_copy',
                                 compare_snapshots(before, after)['differences'][:20])
@@ -513,13 +720,19 @@ def frozen_copy(database, destination_dir, allowed_root):
         if mismatch:
             raise ObservationError('copy_readback_mismatch', {'name': name, **mismatch})
         copy_meta[name] = copy_info
+    if not readback or os.path.basename(real) not in readback:
+        raise ObservationError('copy_readback_mismatch',
+                                {'reasons': ['readback_does_not_cover_main']})
     copied = sorted(os.listdir(destination_dir))
     if copied != sorted(present):
         raise ObservationError('copy_mapping_mismatch',
                                {'directory': copied, 'originals': sorted(present)})
     return {'copy_dir': destination_dir, 'original_before': before, 'original_after': after,
             'readback': readback, 'copy_metadata': copy_meta,
-            'member_mapping': {name: name for name in sorted(present)}}
+            'member_mapping': {name: name for name in sorted(present)},
+            'source_complete': True, 'expected_members': sorted(present),
+            'before_completeness': before_completeness,
+            'after_completeness': after_completeness}
 
 
 # ---------------------------------------------------------------- logical dump
@@ -543,18 +756,59 @@ def encode_value(value):
     raise ObservationError('unexpected_sqlite_value_type', repr(type(value)))
 
 
+def _post_close_members(record, directory, real, allowed_root):
+    """Observe the copy prefix after the SQLite window; failures stay reasons."""
+    post_members = {}
+    try:
+        for name in sorted(os.listdir(directory)):
+            if not name.startswith(os.path.basename(real)):
+                continue
+            entry = read_member(os.path.join(directory, name), allowed_root)
+            post_members[name] = {'size': entry['bytes'], 'sha256': entry['sha256']}
+        record['post_close_members'] = post_members
+    except ObservationError as failure:
+        record['post_close_members'] = post_members
+        record['post_close_error'] = failure.as_dict()
+    except OSError as failure:
+        record['post_close_members'] = post_members
+        record['post_close_error'] = {'reason': 'post_observe_failed',
+                                      'detail': f'[{type(failure).__name__}] {failure}'}
+
+
 def logical_dump(database, allowed_root, connect=None):
-    """Normal (non-immutable) SQLite read of a verified copy; explicit close."""
+    """Normal (non-immutable) SQLite read of a verified copy; explicit close.
+
+    The complete prefix of the copy is verified BEFORE any opener call: an
+    incomplete member set (including a missing main) means the SQLite opener is
+    never invoked, so sqlite3.connect can never turn a rejected copy into a
+    legitimate empty database.  The original fixture is never opened here, and
+    post-close observation failures are recorded as incompleteness reasons
+    without overriding a prior sqlite_error.
+    """
     real = require_under(database, allowed_root, 'copy database')
     directory = os.path.dirname(real)
-    pre_members = {name: {'size': entry['bytes'], 'sha256': entry['sha256']}
-                   for name, entry in snapshot(real, allowed_root)['members'].items()
-                   if entry.get('status') == 'present'}
     record = {'database': real, 'sqlite_runtime': sqlite3.sqlite_version,
-              'pre_open_members': pre_members, 'open_mode': 'normal_readwrite_not_immutable'}
+              'open_mode': 'normal_readwrite_not_immutable', 'sqlite_opener_calls': 0}
+    try:
+        pre_snapshot = snapshot(real, allowed_root)
+    except ObservationError as failure:
+        record['pre_open_completeness'] = {'observation_complete': False,
+                                           'reasons': ['pre_snapshot_failed:' + failure.reason],
+                                           'detail': failure.as_dict()}
+    else:
+        record['pre_open_completeness'] = snapshot_completeness(pre_snapshot)
+        record['pre_open_members'] = {name: {'size': entry['bytes'], 'sha256': entry['sha256']}
+                                      for name, entry in pre_snapshot['members'].items()
+                                      if entry.get('status') == 'present'}
+    if not record['pre_open_completeness'].get('observation_complete'):
+        record['close'] = 'not_attempted'
+        record['open_refusal_reason'] = 'pre_open_members_incomplete'
+        _post_close_members(record, directory, real, allowed_root)
+        return record
     connection = None
     try:
         opener = connect or sqlite3.connect
+        record['sqlite_opener_calls'] = 1
         connection = opener(real)
         pragmas = {}
         for pragma in ('user_version', 'journal_mode', 'page_size', 'page_count',
@@ -589,21 +843,34 @@ def logical_dump(database, allowed_root, connect=None):
                 record['close'] = 'ok'
             except Exception as failure:  # recorded, never swallowed
                 record['close'] = f'[{type(failure).__name__}] {failure}'
-    post_members = {}
-    for name in sorted(os.listdir(directory)):
-        if not name.startswith(os.path.basename(real)):
-            continue
-        entry = read_member(os.path.join(directory, name), allowed_root)
-        post_members[name] = {'size': entry['bytes'], 'sha256': entry['sha256']}
-    record['post_close_members'] = post_members
+    _post_close_members(record, directory, real, allowed_root)
     return record
 
 
 def diff_logical(before, after):
-    """Table-level first differences between two logical dumps."""
-    differences = []
+    """Table-level first differences between two logical dumps.
+
+    observation_complete/comparable and logical_equal are separate facts: with
+    either side incomplete the result is comparable=false, logical_equal=null and
+    per-side reason codes; only two complete dumps decide equality, keeping the
+    original table/pragma differences.  differences=[] therefore never proves
+    business equality downstream.
+    """
+    complete_before = logical_dump_completeness(before)
+    complete_after = logical_dump_completeness(after)
+    comparable = (complete_before['observation_complete'] and
+                  complete_after['observation_complete'])
+    result = {'logical_equal': None, 'differences': [], 'comparable': comparable,
+              'observation_complete_before': complete_before['observation_complete'],
+              'observation_complete_after': complete_after['observation_complete'],
+              'reasons_before': complete_before['reasons'],
+              'reasons_after': complete_after['reasons']}
+    if not comparable:
+        return result
     if before.get('logical_sha256') == after.get('logical_sha256'):
-        return {'logical_equal': True, 'differences': []}
+        result['logical_equal'] = True
+        return result
+    differences = []
     left, right = before.get('tables', {}), after.get('tables', {})
     for name in sorted(set(left) | set(right)):
         if name not in left:
@@ -625,7 +892,9 @@ def diff_logical(before, after):
         if before.get('pragmas', {}).get(pragma) != after.get('pragmas', {}).get(pragma):
             differences.append({'pragma': pragma, 'before': before['pragmas'].get(pragma),
                                 'after': after['pragmas'].get(pragma)})
-    return {'logical_equal': False, 'differences': differences[:50]}
+    result['logical_equal'] = False
+    result['differences'] = differences[:50]
+    return result
 
 
 def committed_fact_visible(dump, table, encoded_row):

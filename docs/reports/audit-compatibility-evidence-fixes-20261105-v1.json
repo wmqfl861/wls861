@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "report": "audit-compatibility-evidence-fixes-20261105-v1",
+  "markdown_file": "docs/reports/audit-compatibility-evidence-fixes-20261105-v1.md",
+  "generated_at_utc": "2026-11-05T11:43:19Z",
+  "evidence_coverage": {
+    "started_at_utc": "2026-11-05T11:27:35Z",
+    "ended_at_utc": "2026-11-05T11:41:33Z",
+    "scope": "this round's selfcheck and mechanism evidence only; no historical matrix rerun; no historical conclusion rewritten",
+    "workspace": "/mnt/d/codex-workspace/wls861-audit-fixes-20261105-adp35vg4/compatibility",
+    "branch": "fix/audit-compat-evidence-20261105-adp35vg4",
+    "baseline_head": "efcd4547bd7627fa821a4b7bce097e633b514982",
+    "private_evidence_reference": "module-private evidence root audit-fixes-20261105-81xzfrt5/compatibility/implement-01; run dirs red-run-*/green-run-* with per-run receipts; originals stay private"
+  },
+  "sources": {
+    "baseline": {
+      "tests/store_compatibility_observer.py": "50d8efa0c595c63c759f45318dbfd668537b5edc2e31f823c09b5e74bb0d47f6",
+      "scripts/run_store_compatibility_lifecycle.py": "fd8b70ea710919a6ca8afa3c7ebd04afe9fdb34df8748f7abd00b26d31b24895",
+      "tests/store_compatibility_observer_selfcheck.py": "38fa9422d164a010ce21e3c40e287db6fff800d5530fe1861404ca01563f9999"
+    },
+    "red_run_selfcheck": "ce68cdc88bf64707afa5fe4618903c99d65f40f443963570cfc52b1de4fe960a",
+    "fixed": {
+      "tests/store_compatibility_observer.py": "1533f0622cb6ca32a706397cfe71b231be8dbb8b1deb92b55589f82daa46efdc",
+      "scripts/run_store_compatibility_lifecycle.py": "7297b70ea62ee7da08aba4d8f2d7b12194f504e837bf775f9f3edcf412d5ff4e",
+      "tests/store_compatibility_observer_selfcheck.py": "e92eb5edffdd55478ce5b6efe2a59aa91a0542c16f2639f25f40701f864995ca"
+    }
+  },
+  "findings_fixed": ["F-04", "F-05", "F-06", "F-O3"],
+  "fix_summaries": {
+    "F-04": "completeness and equality modelled separately in the observer (snapshot_completeness, logical_dump_completeness, per-member missing-evidence reasons, records_equal, strict_equal requiring completeness, stability >=2 complete rounds, frozen_copy pre-check before destination creation, logical_dump opener gated on complete prefix with sqlite_opener_calls) and propagated through strict_window plus C0/C1/C2/C3/C4receipt/C5/C7 and _state2_fixture gates",
+    "F-05": "row_c5 single owned-resource finally from holder_start through close (first exception, phases, error_phase, bounded kill/reap/drain, paused-child direct kill, raw partial outputs), idempotent HolderClient.close closing the socket on every branch, holder_start failure boundaries including HELLO timeout, HOLDER_SOURCE minimal finally, main per-row idempotent backstop and NOT_RUN after unproven cleanup",
+    "F-06": "_trace_old explicit one-way timeout model (poll deadline, communicate TimeoutExpired, cleanup timeout), TimeoutExpired.output kept once, bounded tracer/pipe finally with raw trace/stderr files, tracee facts stay UNKNOWN/NOT_ESTABLISHED, exit -9 kept literal; row_c4receipt requires complete receipts/windows/comparisons and timed_out=false on both sides, keeps literal traced_untraced_equivalent, adds pass_eligible and not_pass_reasons; kill=True refusal and row_c4 NOT_RUN unchanged",
+    "F-O3": "Identity._environment deduplicates libsqlite paths by path string (was first-character comparison), first-seen order, one hash per unique file; no performance claims"
+  },
+  "baseline_counterexamples": {
+    "binding_run": "red-run-20261105T112954-1354919",
+    "R1_layer1_diff_logical": "both-error no-hash records returned logical_equal=true",
+    "R1_layer2_compare_snapshots": "identical refused member returned strict_equal=true and content_equal=true",
+    "R1_layer3_row_c2a": "DEGRADED windows with real failed comparisons returned STRICT_PASS",
+    "R2_row_c5": "stub concurrent WRITE failure escaped the row; stopped stock child unreaped and holder unclosed; test's own bounded fallback reclaimed it (harness_cleanup_applied=true, runner_cleanup_complete=false)",
+    "R3_trace_old": "communicate TimeoutExpired with kill left timed_out=false, exit_code=-9; partial output 'partial-trace\\n' discarded (5-byte trace file); no stderr file",
+    "R4_identity_dedup": "same libsqlite path recorded 3 times and hashed 3 times",
+    "narrowing_preserved": "tool-premise defects only; no claim that historical matrix results were wrong, no real-holder leak claim, no full-normal-comparison claim"
+  },
+  "post_fix_regression": {
+    "binding_run": "green-run-20261105T114123-1361791",
+    "entry": "python3 -B tests/store_compatibility_observer_selfcheck.py --root <run> --out <run>/selfcheck.json (full entry, no --only)",
+    "case_count": 33,
+    "passed": 33,
+    "failed": 0,
+    "not_established": 0,
+    "existing_observer_cases_preserved": 22,
+    "new_mechanism_cases": 11,
+    "key_assertions": [
+      "R1: comparable=false, logical_equal=null, strict_equal=false, records_equal=true, refused member content_equal=null with evidence_complete=false",
+      "R1-L3: real row_c2a returns STRICT_FAIL with gate_reasons naming windows and logic",
+      "R2: runner itself reaps the stopped child and closes the holder (harness_cleanup_applied=false, runner_cleanup_complete=true), first error and error_phase=concurrent_write preserved",
+      "R3: timed_out=true, communicate_timeout=true, exit_code=-9 kept, tracer_reaped/stream/output/cleanup_complete=true, trace 'partial-trace\\nrest\\n' complete, stderr raw file matches",
+      "R4: unique paths hashed exactly once in first-seen order",
+      "incomplete copy (missing main): sqlite opener calls = 0; refused source rejected before destination creation; main-only family complete"
+    ],
+    "environment": "UID 1000, ext4 data disk, per-run private TMPDIR, umask 0077, python3 -B (Python 3.12.3, SQLite 3.45.1); no real strace/ptrace, no old-ELF/WLS execution, no product matrix or C6 suite, no real model or paid calls; all mock signals/Popen intercepted before any real effect"
+  },
+  "run_history": [
+    {"run_id": "red-run-20261105T112735-1353707", "phase": "red", "exit_code": 1, "result": "0/5 pass; R1-L1/L2 genuine; 3 cases failed on new-fixture defects (kept)"},
+    {"run_id": "red-run-20261105T112933-1354694", "phase": "red", "exit_code": 1, "result": "R1x2/R2/R3 genuine; R4 fixture defect (kept)"},
+    {"run_id": "red-run-20261105T112954-1354919", "phase": "red", "exit_code": 1, "result": "all R1-R4 genuine deterministic counterexamples on original baseline sources"},
+    {"run_id": "green-run-20261105T113830-1359612", "phase": "green", "exit_code": 1, "result": "30/33; three fixture/interface detail failures (kept)"},
+    {"run_id": "green-run-20261105T113949-1360543", "phase": "green", "exit_code": 0, "result": "33/33 first full pass (kept as intermediate)"},
+    {"run_id": "green-run-20261105T114123-1361791", "phase": "green", "exit_code": 0, "result": "33/33 final after two cleanup refinements (paused-child direct kill; idempotent second close not misreported)"}
+  ],
+  "historical_files_verified_unchanged": {
+    "docs/reports/n5-compatibility-strict-20261104-v3.md": "566773960c01167b94628a5a8f1ea73feee3a3eea932d3dc524ba2582c499266",
+    "docs/reports/n5-compatibility-strict-20261104-v3.json": "acf54201cdc4cc604a09c4562e50d3d412ff4f0843494b77e6634c07fdd4f15a"
+  },
+  "completion_flags": {
+    "IMPLEMENTATION_COMPLETE": true,
+    "LOCAL_VALIDATION_COMPLETE": true,
+    "PUSH_COMPLETE": false,
+    "REMOTE_CI_COMPLETE": false,
+    "PR_REVIEW_COMPLETE": false,
+    "MERGED": false
+  },
+  "preserved_states": {
+    "strict_wal_shm_compatibility": "BLOCKED_NOT_COMPLETE",
+    "C4": "NOT_RUN/NOT_ESTABLISHED",
+    "win11_ordinary_user": "NOT_RUN",
+    "private_original_hosting": "BLOCKED",
+    "historical_clang_asan_failures_closed": false,
+    "local_sanitizer_clang_live_workflow_make_ipc_closed": false,
+    "C5_claim": "process-lifetime overlap only; no SQLite-stage or simultaneous-access evidence"
+  },
+  "invariants_kept": {
+    "product_suite_registrations": 95,
+    "compatibility_suite_deadline_s": 120,
+    "cli_deadline_s": 20,
+    "ROW_TIMEOUT_S": 25,
+    "HANDSHAKE_TIMEOUT_S": 15,
+    "added_cleanup_wait_s": 5.0,
+    "note": "added _CLEANUP_WAIT_S only bounds owned-resource cleanup waits; no original deadline raised, no assertion weakened"
+  },
+  "not_claimed": [
+    "any historical STRICT_PASS being wrong",
+    "product compatibility acceptance",
+    "independent review, publication, CI or merge approval",
+    "any real provider or paid call"
+  ]
+}
