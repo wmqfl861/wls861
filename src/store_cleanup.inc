@@ -91,7 +91,7 @@ Json Store::Impl::cleanup_status(const std::string& id) const {
         for (const auto& row : all("SELECT * FROM owned_workspaces WHERE request_id=? AND status='ABANDONED' ORDER BY resource_id", {id})) {
             const auto resource = owned_info(row);
             retained.emplace_back(Row{{"resource_id", row.at("resource_id")}, {"team_id", row.at("team_id")},
-                {"status", "ABANDONED"}, {"paths", strings(owned_paths(resource.at("intent")))},
+                {"status", "ABANDONED"}, {"paths", owned_path_strings(owned_paths(resource.at("intent")))},
                 {"abandonment", resource.at("abandonment")}, {"filesystem_observed", false}, {"deletion_performed", false}});
         }
         result["retained_allocations"] = std::move(retained);
@@ -308,7 +308,7 @@ Json Store::abandon_owned_workspace(const StoreActor& actor, const std::string& 
     const auto row = impl_->abandonment_target(actor, id, expected);
     const Row abandonment{{"version", "owned-allocation-abandonment-v1"}, {"root_id", actor.principal_id}, {"actor", actor_json(actor)},
         {"command_key", key}, {"reason", reason}, {"expected_state_version", expected},
-        {"retained_paths", strings(owned_paths(impl_->owned_info(row).at("intent")))},
+        {"retained_paths", owned_path_strings(owned_paths(impl_->owned_info(row).at("intent")))},
         {"filesystem_observed", false}, {"deletion_performed", false}};
     impl_->cas("UPDATE owned_workspaces SET status='ABANDONED',abandonment=?,state_version=state_version+1,updated_at=? WHERE resource_id=? AND state_version=? AND status='PREPARED' AND identity IS NULL",
         {json_text(abandonment), stamp(), id, expected});

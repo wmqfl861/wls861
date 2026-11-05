@@ -639,6 +639,134 @@ void projected_allocation_path_length_refuses_before_intent_commit() {
     CHECK(f.store->owned_workspaces(f.node.request).empty());
     CHECK(rows(f.db,"SELECT * FROM events")==events && std::filesystem::is_empty(f.parent));
 }
+std::filesystem::path exact_length_parent(const Fixture& f, std::size_t target_bytes) {
+    // Real multi-component directory whose absolute path is exactly the
+    // requested byte length; components stay within filesystem name limits.
+    CHECK(target_bytes > f.dir.path.string().size() + 1);
+    std::filesystem::path current = f.dir.path;
+    char flavor = 'a';
+    while (current.string().size() < target_bytes) {
+        const auto remaining = target_bytes - current.string().size() - 1;
+        const auto take = std::min<std::size_t>(remaining, 96);
+        current /= std::string(take, flavor++);
+        CHECK(current.string().size() <= target_bytes);
+    }
+    CHECK(current.string().size() == target_bytes);
+    std::filesystem::create_directories(current);
+    return current;
+}
+std::filesystem::path utf8_long_parent(const Fixture& f, std::size_t minimum_bytes) {
+    // Multi-component legal path with UTF-8 and spaces, longer than the whole
+    // retained-path domain the old tool-identifier encoder accepted.
+    const std::string units[] = {"\xe7\x9b\xae\xe5\xbd\x95-\xce\xb2 ", "\xe9\x98\xb6\xe6\xae\xb5 \xce\xb1_", "\xe8\xaa\xac\xe6\x98\x8e "};
+    std::filesystem::path current = f.dir.path;
+    std::size_t index = 0;
+    while (current.string().size() < minimum_bytes) current /= units[(index++) % 3];
+    std::filesystem::create_directories(current);
+    return current;
+}
+void retained_path_boundaries_are_abandoned_with_exact_bytes() {
+    Fixture f;
+    const auto probe = f.prepare("length-probe");
+    const auto leaf_bytes = text(probe.at("intent"), "leaf").size();
+    const auto stage_bytes = text(probe.at("intent"), "stage_leaf").size();
+    CHECK(stage_bytes > leaf_bytes);
+    CHECK(f.abandon(probe, "probe-abandon", "release the probe before boundary cases").at("status") == "ABANDONED");
+    // Exact absolute byte boundaries of the retained final/stage paths: 256
+    // was the last length the old tool-identifier encoding accepted, 257 the
+    // first it rejected. Every case must prepare, validate and abandon.
+    const std::pair<std::size_t, const char*> boundaries[] = {
+        {256 - 1 - leaf_bytes, "final-256"}, {257 - 1 - leaf_bytes, "final-257"},
+        {256 - 1 - stage_bytes, "stage-256"}, {257 - 1 - stage_bytes, "stage-257"},
+    };
+    for (const auto& [parent_bytes, key] : boundaries) {
+        const auto parent = exact_length_parent(f, parent_bytes);
+        const auto resource = f.store->prepare_owned_workspace(f.root(), f.node.task, allocation_parent_identity(parent), key);
+        const auto final_path = parent / text(resource.at("intent"), "leaf");
+        const auto stage_path = parent / text(resource.at("intent"), "stage_leaf");
+        CHECK(final_path.string().size() == parent_bytes + 1 + leaf_bytes);
+        CHECK(stage_path.string().size() == parent_bytes + 1 + stage_bytes);
+        f.store->validate_abandon_owned_workspace(f.root(), text(resource, "resource_id"), num(resource, "state_version"), key, "boundary retention");
+        const auto abandoned = f.abandon(resource, key, "boundary retention");
+        CHECK(abandoned.at("status") == "ABANDONED" && abandoned.at("proof").is_null());
+        const auto& abandonment = abandoned.at("abandonment");
+        CHECK(abandonment.at("filesystem_observed") == false && abandonment.at("deletion_performed") == false);
+        CHECK(abandonment.at("retained_paths") == (A{Json(final_path.string()), Json(stage_path.string())}));
+        CHECK(f.current(resource).at("status") == "ABANDONED");
+        // Abandoning an allocation that never reached its staging phase must
+        // not create allocation files on the retained parent.
+        CHECK(std::filesystem::is_empty(parent));
+    }
+}
+void long_utf8_multicomponent_retention_keeps_evidence_and_slots() {
+    Fixture f;
+    const auto parent = utf8_long_parent(f, 380);
+    const auto resource = f.store->prepare_owned_workspace(f.root(), f.node.task, allocation_parent_identity(parent), "utf8-long");
+    const auto staged = f.stage(resource);
+    const auto stage_path = parent / text(resource.at("intent"), "stage_leaf");
+    const auto final_path = parent / text(resource.at("intent"), "leaf");
+    CHECK(final_path.string().size() > 256 && stage_path.string().size() > 256);
+    const auto marker = read_file(stage_path / "owner.json");
+    const auto receipt = staged.at("allocation_receipt");
+    const auto abandoned = f.abandon(staged, "utf8-abandon", "retain the long interrupted allocation");
+    CHECK(abandoned.at("status") == "ABANDONED");
+    CHECK(abandoned.at("allocation_receipt") == receipt && abandoned.at("proof").is_null());
+    CHECK(read_file(stage_path / "owner.json") == marker);
+    CHECK(std::filesystem::is_empty(stage_path / "work") && !std::filesystem::exists(final_path));
+    CHECK(f.abandon(staged, "utf8-abandon", "retain the long interrupted allocation") == abandoned);
+    rejects(ErrorCode::Conflict,[&]{(void)f.abandon(staged,"utf8-abandon","changed reason");});
+    // The frozen abandonment gate checks the resource CAS before the status;
+    // a fresh key against the current version must still hit the status gate.
+    rejects(ErrorCode::NotReady,[&]{(void)f.abandon(f.current(staged),"utf8-abandon-fresh","retain the long interrupted allocation");});
+    // Same-key replay must present the original UTF-8 parent identity.
+    CHECK(f.store->prepare_owned_workspace(f.root(),f.node.task,allocation_parent_identity(parent),"utf8-long").at("status") == "ABANDONED");
+    // The retained-allocation nesting guard must fire while no active team
+    // allocation exists; a later active allocation would fail earlier on the
+    // frozen team-slot check instead.
+    rejects(ErrorCode::Unauthorized,[&]{(void)allocate_owned_workspace(*f.store,f.node.request,f.node.task,stage_path/"work","nested");});
+    const auto next = allocate_owned_workspace(*f.store,f.node.request,f.node.task,parent,"utf8-replacement");
+    CHECK(next.at("status") == "OWNED" && next.at("resource_id") != resource.at("resource_id"));
+    CHECK(f.store->active_owned_workspaces(f.node.request).size() == 1);
+    CHECK(f.store->owned_workspaces(f.node.request).size() == 2);
+    const auto status = f.store->workspace_cleanup_status(f.node.request);
+    const auto& retained = status.at("retained_allocations").as_array();
+    CHECK(retained.size() == 1 && retained.front().at("paths").as_array().size() == 2);
+    CHECK(retained.front().at("paths").as_array().at(0) == Json(final_path.string()));
+    CHECK(retained.front().at("paths").as_array().at(1) == Json(stage_path.string()));
+    CHECK(retained.front().at("filesystem_observed") == false && retained.front().at("deletion_performed") == false);
+}
+void owned_path_domain_error_is_path_specific() {
+    Fixture f;
+    const auto resource = f.prepare();
+    CHECK(f.abandon(resource).at("status") == "ABANDONED");
+    auto intent = resource.at("intent");
+    intent.as_object()["parent_identity"].as_object()["path"] = std::string(5000, 'p');
+    sql(f.db,"INSERT INTO owned_workspaces(resource_id,request_id,team_id,command_key,intent,status,state_version,created_at,updated_at,abandonment) VALUES("+
+        quote("res_path_domain_fixture")+","+quote(f.node.request)+","+quote("team_path_domain_fixture")+","+
+        quote("path-domain-fixture")+","+quote(canonical_json(intent))+",'ABANDONED',1,'fixture-created','fixture-updated','{\"fixture\":\"inert forged abandonment\"}')");
+    bool path_error = false;
+    try { (void)f.store->workspace_cleanup_status(f.node.request); }
+    catch (const Error& error) {
+        CHECK(error.code() == ErrorCode::InvalidInput);
+        const auto message = std::string(error.what());
+        CHECK(message.find("owned path") != std::string::npos);
+        CHECK(message.find("tool identifier") == std::string::npos);
+        path_error = true;
+    }
+    CHECK(path_error);
+}
+void overlong_or_duplicate_tool_names_never_enter_the_store() {
+    Fixture f;
+    const auto requests_before = rows(f.db,"SELECT * FROM requests");
+    auto in = f.input("tool-domain");
+    in.tool_allowlist = {"note", std::string(257, 'x')};
+    rejects(ErrorCode::Unauthorized,[&]{(void)f.store->admit(in);});
+    in.tool_allowlist = {"note", std::string(256, 'y')};
+    rejects(ErrorCode::Unauthorized,[&]{(void)f.store->admit(in);});
+    in.tool_allowlist = {"note", "note"};
+    rejects(ErrorCode::InvalidInput,[&]{(void)f.store->admit(in);});
+    CHECK(rows(f.db,"SELECT * FROM requests") == requests_before);
+}
 void abandoned_key_replays_without_observing_missing_or_replaced_parent() {
     for(const bool replacement:{false,true}) {
         Fixture f; const auto resource=f.stage(f.prepare()); const auto abandoned=f.abandon(resource);
@@ -699,6 +827,10 @@ int main() {
         {"control watermark cannot block existing allocation abandonment",continuation_at_control_watermark_never_blocks_existing_abandonment},
         {"abandonment never clears UNKNOWN or unhandled AMEND",abandonment_never_clears_unknown_or_unhandled_amendment},
         {"projected allocation path length refuses before intent commit",projected_allocation_path_length_refuses_before_intent_commit},
-        {"abandoned key replays without observing missing or replaced parent",abandoned_key_replays_without_observing_missing_or_replaced_parent}
+        {"abandoned key replays without observing missing or replaced parent",abandoned_key_replays_without_observing_missing_or_replaced_parent},
+        {"retained final and stage path byte boundaries abandon exactly",retained_path_boundaries_are_abandoned_with_exact_bytes},
+        {"long UTF-8 multicomponent retention keeps evidence slots and display",long_utf8_multicomponent_retention_keeps_evidence_and_slots},
+        {"owned path domain failures use path-specific errors",owned_path_domain_error_is_path_specific},
+        {"overlong or duplicate tool names never enter the Store",overlong_or_duplicate_tool_names_never_enter_the_store}
     });
 }

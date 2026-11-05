@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "report": "audit-product-fixes-20261105-v1",
+  "stage": "implement",
+  "executor": "ZCode implement session implementation-02 (fresh session)",
+  "time_scope": "2026-11-05T11:24:00Z/2026-11-05T13:00:00Z",
+  "plan_file": "/mnt/d/codex-workspace/.wls861-local/audit-fixes-20261105-81xzfrt5/product/plan-final-v1.md",
+  "plan_sha256": "7b24abc84a745464e71d82ab8ab6451ba4af10c7b47cfa91b28e2b6f55b83d5f",
+  "planner_record_sha256": "c7acc09dc8d33c52171d68cf1226b38b2137a71692f6d87196024680e31bb652",
+  "workflow_sha256": "f49ff366cacb15df96ade89e4aa3d4412cb50836e4f11f3be407713a844bf990",
+  "baseline": {
+    "head": "a5675e1245bebba41c499e56bd2c8a16be2d5dae",
+    "branch": "fix/audit-product-20261105-adp35vg4",
+    "git_writes_by_executor": false,
+    "old_library_commit": "f6141569e35a4cd1068701431cd88629b1046de6",
+    "old_artifacts_sha256": {
+      "libwls_s1.a": "6cf0984c28956d3c5a4d18df0ac1e5d1385cd77bce31d25b6dc9aa9d8207c9ff",
+      "libwls_kernel.a": "a780803a40cb241a40454fad86b7ec19da7e28babb66110aa49ce6f0f2e1767f",
+      "wls": "fab236410c7e39cef14e5f18733aefe85b291a72cb5b30fc74726425d5bd9673"
+    },
+    "f614_to_a567": "docs/reports additions only; production/header/build/resource bytes identical"
+  },
+  "findings": [
+    {
+      "id": "ASTRA-A-001",
+      "original_counterexample": "A_store/tmp/path-probe-01: parent=346/final=377/stage=379 bytes; prepare+preflight pass, abandon fails 'invalid tool identifier', record stays PREPARED; compile/run/stdout evidence level, run binary hash not separately listed",
+      "fix": "owned_path_strings helper applies text_field(value, 'owned path', 4096) with stable ordering and duplicate rejection; two call sites in store_cleanup.inc (abandon retained_paths, cleanup_status retained paths); strings tool-name domain unchanged",
+      "red": {
+        "old_library": {"exit": 1, "result": "31 passed, 3 failed", "failures": ["boundary abandon: invalid tool identifier", "long UTF-8 abandon: invalid tool identifier", "path-specific message assertion"]},
+        "old_cli": {"exit": 1, "result": "9 passed, 1 failed", "failure": "long-path abandon invalid_input/invalid tool identifier"}
+      },
+      "green": {"candidate": {"exit": 0, "result": "34 passed, 0 failed"}, "candidate_cli": {"exit": 0, "result": "10 passed, 0 failed"}},
+      "test_source_sha256": "173b2389bb166482aeb9a661631b87373e7070b69c020af24b1adedc36a679b8"
+    },
+    {
+      "id": "D-CLI-001",
+      "original_counterexample": "D_protocol_config/repro_disposition_fresh_v2: fresh run-fake --disposition invalid-enum exit 0, attempts 0->3, events 1->17, tasks/plans/ops 0->1 (REPRODUCED)",
+      "fix": "CLI validates empty|update|keep|cancel after reading --disposition before any Takeover Store; OfflineRuntime::run validates the same enum at entry, then checks applicability (pending_amend computed from a read-only tasks/request snapshot) before any rebind/reservation/ack/effect",
+      "behavior_tightening": "fresh requests now also require an empty disposition; legal update/keep/cancel on fresh are newly rejected",
+      "red": {
+        "old_cli_s1_cli_smoke": {"exit": 1, "result": "10 passed, 2 failed", "failures": ["fresh: 0 == 0 accepted", "absent-db: storage != invalid_input"]},
+        "old_library_offline_runtime": {"exit": 1, "result": "11 passed, 2 failed", "failures": ["fresh: CHECK(caught)", "rebind: task changed before rejection"]}
+      },
+      "green": {"candidate": {"offline_runtime": "13 passed, 0 failed", "s1_cli_smoke": "12 passed, 0 failed"}}
+    }
+  ],
+  "targeted_suites": {
+    "command": "ctest -R ^(allocation_recovery|allocation_recovery_cli|offline_runtime|s1_cli_smoke|r2_amend|r2_amend_cli_smoke|cleanup|cleanup_runtime|owned_capacity|owned_capacity_runtime|r24_recovery|r24_cleanup_recovery)$",
+    "result": "100% tests passed, 0 tests failed out of 12",
+    "registered_tests_in_candidate_build": 95
+  },
+  "candidate_build": {
+    "dir": "build-audit-product-release-v1",
+    "configure": "Release, /usr/bin/g++ 13.3.0, /usr/bin/python3 3.12.3 (jsonschema 4.10.3), CMAKE_EXPORT_COMPILE_COMMANDS=ON",
+    "build_parallelism": "-j1 (measured ~1.4GiB available RAM, no swap; recorded)",
+    "binaries_sha256": {
+      "wls": "6330616fa99ae9f97a06023ab629d9e35f938b088d462567a42370a65de7e6dd",
+      "libwls_s1.a": "5bc7ee8943c0d046521a603892ccf6bc4e3a9f09f6b2b9637b8229a003b793fb",
+      "allocation_recovery_tests": "c7fe98e755045617b798ca0a4a8b4ce62e2b4323f475b1a0a3d1d675bf865c8f",
+      "offline_runtime_tests": "33657f68b06dc6eeca3f7fb4038c9e608cdaa296276d4de1c1582f223bcbe3c1"
+    }
+  },
+  "changed_files_sha256": {
+    "src/store.cpp": "807b2fd766ee2e253872cf08e26ad858081f9bfdce046394eb6ae62e8148d5b3",
+    "src/store_cleanup.inc": "4ab028e5a053533e0080d79ea8fc0130d60480a2c87ae39cb6af33ad401cbec1",
+    "src/cli.cpp": "b426f64c4c4ae0fd4ad760f9b7e9916d2439af83fd2253f12ba1f78ae4d68a04",
+    "src/offline_runtime.cpp": "717602a52293cc8428d1f103debfe11c69ea45760828dc5da12dcc1b62ec258f",
+    "tests/allocation_recovery_tests.cpp": "173b2389bb166482aeb9a661631b87373e7070b69c020af24b1adedc36a679b8",
+    "tests/offline_runtime_tests.cpp": "e33a1db1277864f06f47ea4bb8000b7d38fbf910ba4974628dd709cb64e95075",
+    "tests/s1_cli_smoke.py": "8993bd78be384ac31797139d26daca6fe7e1f4e31588eeb63729805789cab852",
+    "tests/test_s1_allocation_recovery_cli.py": "2d3c20165369659a1bd432fc4430e7c22ed0fe59a11375015726b5e49cf0741a",
+    "docs/reports/audit-product-fixes-20261105-v1.md": "see final-identities rerun after report creation; canonical value recorded in implementation-02/logs/report-hashes.txt",
+    "docs/reports/audit-product-fixes-20261105-v1.json": "self-referential; canonical value recorded in implementation-02/logs/report-hashes.txt"
+  },
+  "test_corrections_vs_leftovers": [
+    "s1_cli_smoke absent-DB loop limited to illegal literals per FINAL semantic boundary",
+    "allocation long-UTF-8: NotReady via current CAS (frozen CAS-before-status order); same-key replay with original parent identity; nesting rejection before replacement allocation (frozen team-slot order)",
+    "allocation boundary: explicit no-allocation-files assertion for unstaged abandonment",
+    "allocation CLI long-path: nesting rejection before replacement allocation"
+  ],
+  "gates": {
+    "plan_review": "PASS (existing, sess_068223e5-9735-45f0-abd0-abba23a67b08)",
+    "implementation": "COMPLETE",
+    "targeted_validation": "COMPLETE",
+    "independent_code_hard_review": "NOT_RUN",
+    "full_local_matrix": "PENDING",
+    "push": "NOT_RUN_BY_EXECUTOR",
+    "remote_ci": "NOT_RUN",
+    "independent_result_hard_review": "NOT_RUN",
+    "formal_pr_review": "NOT_RUN",
+    "merged": false
+  },
+  "still_open": [
+    "historical Clang/live_workflow/Make IPC/sanitizer issues; historical_clang_asan_failures_closed=false",
+    "Windows 11 ordinary-user NTFS NOT_RUN",
+    "private original hosting BLOCKED"
+  ],
+  "evidence_root": "/mnt/d/codex-workspace/.wls861-local/audit-fixes-20261105-81xzfrt5/product/implementation-02",
+  "model_calls": "engineering ZCode session only; zero real/paid provider calls; not WLS supplier acceptance"
+}

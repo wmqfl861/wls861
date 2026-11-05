@@ -1146,6 +1146,11 @@ int run_cli(int argc, char** argv) {
     }
     const auto script = fake_model_steps_from_json(parse_json_strict(read_runtime_file(options.required("--script"))));
     const auto disposition = options.take("--disposition");
+    // Validate the bounded disposition vocabulary before any Takeover Store or
+    // scripted effect. Applicability to the current task state is rechecked by
+    // the runtime; an absent database keeps its existing open semantics.
+    if (!(disposition.empty() || disposition == "update" || disposition == "keep" || disposition == "cancel"))
+        throw Error(ErrorCode::InvalidInput, "disposition must be empty or one of update, keep, or cancel");
     const auto workspace = options.take("--workspace");
     const auto manifest_path = options.take("--sandbox-manifest");
     const auto worker_calls = options.number("--worker-calls", 1, 1);
