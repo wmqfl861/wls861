@@ -130,6 +130,482 @@ def image_provenance(earlier, current):
         exact_runner_image_identity='UNRESOLVED_REQUIRES_JOB_HEADER_COMPARISON')
 
 
+# --------------------------------------------------------------------------------------
+# Configure-only pre-termination owned-Job membership diagnostics.
+# One bounded, read-only, cooperative observation taken between the already
+# decided terminate request and its single original TerminateJobObject
+# forward. The sampled identity is diagnostic only: it never joins success
+# gates, termination choices, deadlines or tree-exit proof. The additive
+# receipt field is an optional extension of wls-owned-process-receipt-v1; a
+# missing configure_job_diagnostics means NOT_COLLECTED, never an empty
+# membership list.
+# --------------------------------------------------------------------------------------
+CONFIGURE_DIAGNOSTIC_SCHEMA = 'wls-configure-job-diagnostics-v1'
+CONFIGURE_DIAGNOSTIC_BUDGET_SECONDS = 0.2
+CONFIGURE_DIAGNOSTIC_MAX_MEMBERS = 8
+CONFIGURE_DIAGNOSTIC_IDLIST_CAPACITY = 64
+CONFIGURE_DIAGNOSTIC_IMAGE_BUFFER_WCHARS = 4096
+
+
+def _configure_diagnostic_error_record(error):
+    return {'type': type(error).__name__, 'function': getattr(error, 'function', None),
+            'win32_error': getattr(error, 'last_error', None), 'reason': str(error)[:512]}
+
+
+def _declare_configure_diagnostic_bindings(kernel32):
+    """Declare the only two extra read-only Win32 bindings of this diagnostic.
+
+    IsProcessInJob(HANDLE, HANDLE, BOOL*) -> BOOL and
+    QueryFullProcessImageNameW(HANDLE, DWORD, LPWSTR, DWORD*) -> BOOL keep
+    pointer-width HANDLEs, a 32-bit BOOL/DWORD and a WCHAR buffer whose size
+    parameter counts characters, never bytes.
+    """
+    import ctypes
+    handle_type = ctypes.c_void_p
+    dword_type = ctypes.c_uint32
+    bool_type = ctypes.c_int
+    is_process_in_job = kernel32.IsProcessInJob
+    is_process_in_job.argtypes = [handle_type, handle_type, ctypes.POINTER(bool_type)]
+    is_process_in_job.restype = bool_type
+    query_full_process_image_name = kernel32.QueryFullProcessImageNameW
+    query_full_process_image_name.argtypes = [handle_type, dword_type, ctypes.c_wchar_p,
+                                              ctypes.POINTER(dword_type)]
+    query_full_process_image_name.restype = bool_type
+    return is_process_in_job, query_full_process_image_name
+
+
+class _ConfigureJobDiagnosticsProxy:
+    """Configure-only, read-only owned-Job membership observer.
+
+    Wraps exactly one underlying Win32ProcessAPI-compatible object — created
+    lazily as the unchanged real ``windows_process.Win32ProcessAPI`` when none
+    is injected — plus the very clock object handed to the same ``run_owned``
+    call. It records the created-and-successfully-assigned Job handle, the
+    root handle/PID and every original accounting query (each forwarded
+    exactly once with its original value or exception). Immediately before
+    forwarding an already-decided ``TerminateJobObject`` for that exact Job it
+    takes one bounded cooperative read-only membership sample. The original
+    terminate call is always forwarded exactly once with its original handle,
+    exit code and exceptions; observation failures are recorded as parallel
+    diagnostic facts and never replace the original outcome.
+    """
+
+    def __init__(self, command_id, *, underlying=None, clock):
+        self._command_id = command_id
+        self._injected_underlying = underlying
+        self._lazy_underlying = underlying
+        self._clock = clock
+        self._observer_ran = False
+        self._created_job = None
+        self._assigned_job = None
+        self._root_pid = None
+        self._root_creation_filetime = None
+        self._accounting = []
+        self._accounting_sequence = 0
+        self._terminate_forwards = 0
+        self._sample = None
+        self._sample_attempted = False
+        self._extra_cache = None
+        self._extra_native = None
+
+    @property
+    def is_injected(self):
+        """The actual underlying's provenance, resolved at first read.
+
+        ``run_owned`` snapshots this value before ``create_job``; the read
+        resolves and caches the same underlying object every later operation
+        uses, so an injected underlying — explicitly provided or created by
+        the lazy factory — is reported truthfully while the real
+        ``Win32ProcessAPI`` stays native-win32. A bare source read is not an
+        observer operation: it never marks the observer as run, and an
+        underlying-construction failure keeps its original exception (the
+        construction happens here, before any supervision state exists).
+        """
+        return bool(getattr(self._require_underlying(), 'is_injected', False))
+
+    def __getattr__(self, name):
+        # Everything else forwards to the lazily created underlying API.
+        self._observer_ran = True
+        return getattr(self._require_underlying(), name)
+
+    def _require_underlying(self):
+        if self._lazy_underlying is None:
+            # Production path: the unchanged real binding, created only when
+            # this proxy is actually used — never at import or construction.
+            self._lazy_underlying = windows_process.Win32ProcessAPI()
+        return self._lazy_underlying
+
+    # ---- forwarded originals ---------------------------------------------------------
+    def create_job(self):
+        self._observer_ran = True
+        job = self._require_underlying().create_job()
+        self._created_job = job
+        return job
+
+    def create_process_suspended(self, **kwargs):
+        self._observer_ran = True
+        process, thread, pid, creation = \
+            self._require_underlying().create_process_suspended(**kwargs)
+        self._root_pid = int(pid)
+        self._root_creation_filetime = creation
+        return process, thread, pid, creation
+
+    def assign_process_to_job(self, job, process):
+        self._observer_ran = True
+        self._require_underlying().assign_process_to_job(job, process)
+        if job is self._created_job:
+            self._assigned_job = job
+
+    def query_job_active_processes(self, job):
+        self._observer_ran = True
+        self._accounting_sequence += 1
+        started_monotonic = self._clock.monotonic()
+        try:
+            active = self._require_underlying().query_job_active_processes(job)
+        except windows_process.WindowsProcessError as error:
+            self._accounting.append(dict(sequence=self._accounting_sequence,
+                monotonic=started_monotonic, query_ok=False, active=None,
+                error=_configure_diagnostic_error_record(error)))
+            raise
+        self._accounting.append(dict(sequence=self._accounting_sequence,
+            monotonic=started_monotonic, query_ok=True, active=int(active), error=None))
+        return active
+
+    def terminate_job(self, job, exit_code):
+        self._observer_ran = True
+        if not self._sample_attempted and job is self._assigned_job:
+            self._sample_attempted = True
+            try:
+                self._sample_members(job)
+            except BaseException as failure:
+                # Diagnostics must never displace the original terminate call.
+                self._sample = self._fallback_sample_record(failure)
+        self._terminate_forwards += 1
+        return self._require_underlying().terminate_job(job, exit_code)
+
+    # ---- receipt attachment ----------------------------------------------------------
+    def attach_to(self, receipt):
+        """Attach the additive diagnostic field to one process receipt dict.
+
+        The field is an optional extension of wls-owned-process-receipt-v1;
+        consumers must treat a missing configure_job_diagnostics as
+        NOT_COLLECTED. Nothing is attached when the observer itself never ran,
+        and no receipt is ever fabricated here.
+        """
+        if not isinstance(receipt, dict) or not self._observer_ran:
+            return False
+        if 'configure_job_diagnostics' in receipt:
+            return False
+        receipt['configure_job_diagnostics'] = self._diagnostic_record()
+        return True
+
+    def _diagnostic_record(self):
+        if self._sample is not None:
+            self._sample['terminate_forwards'] = self._terminate_forwards
+            return self._sample
+        return dict(
+            schema=CONFIGURE_DIAGNOSTIC_SCHEMA, command_id=self._command_id,
+            scope='THIS_CONFIGURE_JOB_ONLY', diagnostic_only=True,
+            hook='BEFORE_EXISTING_TERMINATE_JOB', triggered=False, status='NOT_REQUESTED',
+            observer_ran=True,
+            reason='the observer ran with this configure command but no '
+                   'TerminateJobObject was forwarded for its assigned Job',
+            terminate_forwards=self._terminate_forwards,
+            accounting_observation_count=len(self._accounting),
+            budget_seconds=CONFIGURE_DIAGNOSTIC_BUDGET_SECONDS,
+            member_limit=CONFIGURE_DIAGNOSTIC_MAX_MEMBERS,
+            idlist_capacity=CONFIGURE_DIAGNOSTIC_IDLIST_CAPACITY,
+            image_buffer_wchars=CONFIGURE_DIAGNOSTIC_IMAGE_BUFFER_WCHARS,
+            api_source='injected' if self.is_injected else 'native-win32',
+            clock_source='injected' if getattr(self._clock, 'is_injected', False) else 'monotonic',
+            root_identity=dict(pid=self._root_pid,
+                pid_and_creation_time_are_diagnostic_only=True,
+                creation_filetime=self._root_creation_filetime,
+                handle_is_operational_identity=True),
+            errors=[])
+
+    def _fallback_sample_record(self, failure):
+        return dict(
+            schema=CONFIGURE_DIAGNOSTIC_SCHEMA, command_id=self._command_id,
+            scope='THIS_CONFIGURE_JOB_ONLY', diagnostic_only=True,
+            hook='BEFORE_EXISTING_TERMINATE_JOB', triggered=True, status='DIAGNOSTIC_ERROR',
+            observer_ran=True,
+            errors=[_configure_diagnostic_error_record(failure)])
+
+    # ---- extra read-only bindings ----------------------------------------------------
+    def _extra_read_only_bindings(self):
+        """The only two extra Win32 bindings, built lazily and never at import."""
+        if self._extra_cache is None:
+            underlying = self._require_underlying()
+            provided = tuple(getattr(underlying, name, None)
+                             for name in ('IsProcessInJob', 'QueryFullProcessImageNameW'))
+            if all(callable(item) for item in provided):
+                # An underlying API that supplies narrow stubs is honored
+                # without any native library load — this covers both an
+                # explicitly injected API and the lazily created one.
+                self._extra_native = False
+                self._extra_cache = provided
+            else:
+                # Only the unchanged real Win32ProcessAPI reaches here: the two
+                # extra read-only bindings are declared on a native kernel32.
+                import ctypes
+                self._extra_native = True
+                self._extra_cache = _declare_configure_diagnostic_bindings(
+                    ctypes.WinDLL('kernel32', use_last_error=True))
+        return self._extra_cache
+
+    def _is_process_in_job(self, process_handle, job_handle):
+        """Exact non-NULL Job membership re-confirmation (one extra read-only call)."""
+        import ctypes
+        try:
+            is_process_in_job, _ = self._extra_read_only_bindings()
+            if is_process_in_job is None:
+                return None, {'type': 'BindingUnavailable',
+                              'reason': 'no IsProcessInJob binding is available '
+                                        'for this observer'}
+            result = ctypes.c_int()
+            if not is_process_in_job(process_handle, job_handle, ctypes.byref(result)):
+                error = {'type': 'IsProcessInJobFailed'}
+                error['win32_error'] = ctypes.get_last_error() if self._extra_native else None
+                return None, error
+            return bool(result.value), None
+        except BaseException as failure:
+            return None, _configure_diagnostic_error_record(failure)
+
+    def _query_full_process_image_name(self, process_handle):
+        """Original returned path only; a truncated buffer is never published."""
+        import ctypes
+        try:
+            _, query_full_process_image_name = self._extra_read_only_bindings()
+            if query_full_process_image_name is None:
+                return None, 'UNKNOWN', {'type': 'BindingUnavailable',
+                                         'reason': 'no QueryFullProcessImageNameW binding '
+                                                   'is available for this observer'}
+            buffer = ctypes.create_unicode_buffer(CONFIGURE_DIAGNOSTIC_IMAGE_BUFFER_WCHARS)
+            size = ctypes.c_uint32(CONFIGURE_DIAGNOSTIC_IMAGE_BUFFER_WCHARS)
+            if not query_full_process_image_name(process_handle, 0, buffer, ctypes.byref(size)):
+                error = {'type': 'QueryFullProcessImageNameWFailed'}
+                error['win32_error'] = ctypes.get_last_error() if self._extra_native else None
+                return None, 'UNKNOWN', error
+            if int(size.value) >= CONFIGURE_DIAGNOSTIC_IMAGE_BUFFER_WCHARS:
+                return None, 'INSUFFICIENT_BUFFER', {
+                    'type': 'ImageBufferTooSmall',
+                    'required_wchars': int(size.value),
+                    'buffer_wchars': CONFIGURE_DIAGNOSTIC_IMAGE_BUFFER_WCHARS}
+            return buffer.value, 'OBSERVED', None
+        except BaseException as failure:
+            return None, 'UNKNOWN', _configure_diagnostic_error_record(failure)
+
+    # ---- the one bounded membership sample -------------------------------------------
+    def _sample_members(self, job_handle):
+        started_monotonic = self._clock.monotonic()
+        deadline = started_monotonic + CONFIGURE_DIAGNOSTIC_BUDGET_SECONDS
+        record = dict(
+            schema=CONFIGURE_DIAGNOSTIC_SCHEMA, command_id=self._command_id,
+            scope='THIS_CONFIGURE_JOB_ONLY', diagnostic_only=True,
+            hook='BEFORE_EXISTING_TERMINATE_JOB', triggered=True, observer_ran=True,
+            started_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            started_monotonic=started_monotonic,
+            budget_seconds=CONFIGURE_DIAGNOSTIC_BUDGET_SECONDS,
+            member_limit=CONFIGURE_DIAGNOSTIC_MAX_MEMBERS,
+            idlist_capacity=CONFIGURE_DIAGNOSTIC_IDLIST_CAPACITY,
+            image_buffer_wchars=CONFIGURE_DIAGNOSTIC_IMAGE_BUFFER_WCHARS,
+            api_source='injected' if self.is_injected else 'native-win32',
+            clock_source='injected' if getattr(self._clock, 'is_injected', False) else 'monotonic',
+            root_identity=dict(pid=self._root_pid,
+                pid_and_creation_time_are_diagnostic_only=True,
+                creation_filetime=self._root_creation_filetime,
+                handle_is_operational_identity=True),
+            last_pre_termination_accounting=(dict(self._accounting[-1])
+                                             if self._accounting else None),
+            errors=[])
+        membership = dict(status='SUCCESS', returned=None, returned_count=None,
+            atomic_snapshot=False,
+            race_note='the idlist query and every member check are separate '
+                      'read-only calls; counts, order and member states may race '
+                      'and are never reconciled into proof')
+        members = None
+        if self._clock.monotonic() < deadline:
+            try:
+                members = self._require_underlying().job_process_ids(job_handle)
+            except windows_process.WindowsProcessError as error:
+                membership['status'] = 'QUERY_ERROR'
+                membership['error'] = _configure_diagnostic_error_record(error)
+            except BaseException as failure:
+                membership['status'] = 'QUERY_ERROR'
+                membership['error'] = _configure_diagnostic_error_record(failure)
+        else:
+            membership['status'] = 'QUERY_ERROR'
+            membership['error'] = {'type': 'TimeBudget',
+                'reason': 'the cooperative diagnostic budget was already exhausted '
+                          'before the membership query'}
+        inspected_entries = []
+        uninspected = 0
+        duplicates = 0
+        stopped = []
+        incomplete = []
+        if members is not None:
+            membership['returned'] = [int(value) for value in members]
+            membership['returned_count'] = len(members)
+            seen = set()
+            inspected_count = 0
+            for requested_pid in members:
+                requested_pid = int(requested_pid)
+                if requested_pid in seen:
+                    duplicates += 1
+                    inspected_entries.append(dict(requested_pid=requested_pid,
+                        duplicate_of_inspected_pid=True, opened=False, inspected=False))
+                    continue
+                seen.add(requested_pid)
+                if inspected_count >= CONFIGURE_DIAGNOSTIC_MAX_MEMBERS:
+                    uninspected += 1
+                    continue
+                if self._clock.monotonic() >= deadline:
+                    stopped.append('TIME_BUDGET')
+                    uninspected += 1
+                    continue
+                entry = self._inspect_member(requested_pid, job_handle, deadline, incomplete)
+                inspected_entries.append(entry)
+                inspected_count += 1
+        if membership['status'] == 'QUERY_ERROR':
+            incomplete.append('MEMBERSHIP_QUERY_ERROR')
+        if uninspected:
+            incomplete.append('MEMBER_LIMIT')
+        ended_monotonic = self._clock.monotonic()
+        record.update(
+            membership_query=membership,
+            inspected_members=inspected_entries,
+            inspected_member_count=sum(1 for entry in inspected_entries
+                                       if entry.get('inspected')),
+            duplicate_returned_entries=duplicates,
+            uninspected_member_count=uninspected,
+            stopped_reasons=sorted(set(stopped)),
+            incomplete_reasons=sorted(set(incomplete)),
+            observations_complete=not incomplete,
+            ended_monotonic=ended_monotonic,
+            ended_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            elapsed_seconds=ended_monotonic - started_monotonic,
+            overrun_seconds=max(0.0, ended_monotonic - deadline))
+        record['status'] = ('QUERY_ERROR' if membership['status'] == 'QUERY_ERROR'
+                            else 'COLLECTED' if record['observations_complete'] else 'PARTIAL')
+        self._sample = record
+
+    def _inspect_member(self, requested_pid, job_handle, deadline, incomplete):
+        entry = dict(requested_pid=int(requested_pid), inspected=True)
+
+        def budget_ok():
+            return self._clock.monotonic() < deadline
+
+        handle = None
+        try:
+            try:
+                handle = self._require_underlying().open_process_snapshot(requested_pid)
+            except windows_process.WindowsProcessError as error:
+                entry['open_status'] = 'ERROR'
+                entry['open_error'] = _configure_diagnostic_error_record(error)
+                incomplete.append('OPEN_ERROR')
+                return entry
+            entry['open_status'] = 'OPENED'
+            if budget_ok():
+                try:
+                    confirmed = int(self._require_underlying().process_id(handle))
+                except windows_process.WindowsProcessError as error:
+                    entry['pid_confirmation'] = 'ERROR'
+                    entry['pid_confirmation_error'] = _configure_diagnostic_error_record(error)
+                    incomplete.append('PID_CONFIRMATION_ERROR')
+                else:
+                    entry['confirmed_pid'] = confirmed
+                    if confirmed != int(requested_pid):
+                        entry['pid_confirmation'] = 'CHANGED'
+                        incomplete.append('PID_CHANGED')
+                    else:
+                        entry['pid_confirmation'] = 'CONFIRMED'
+            else:
+                entry['pid_confirmation'] = 'NOT_READ_TIME_BUDGET'
+                incomplete.append('TIME_BUDGET')
+            if entry.get('pid_confirmation') == 'CONFIRMED':
+                if budget_ok():
+                    in_job, in_job_error = self._is_process_in_job(handle, job_handle)
+                    if in_job_error is not None:
+                        entry['same_job_verification'] = 'ERROR'
+                        entry['verification_error'] = in_job_error
+                        incomplete.append('VERIFICATION_ERROR')
+                    elif not in_job:
+                        entry['same_job_verification'] = 'NOT_IN_THIS_JOB'
+                        incomplete.append('NOT_IN_THIS_JOB')
+                    else:
+                        entry['same_job_verification'] = 'CONFIRMED'
+                else:
+                    entry['same_job_verification'] = 'NOT_READ_TIME_BUDGET'
+                    incomplete.append('TIME_BUDGET')
+            else:
+                entry['same_job_verification'] = 'SKIPPED_PID_NOT_CONFIRMED'
+            if entry.get('same_job_verification') == 'CONFIRMED':
+                # Only a same-Job-verified member's creation, image and zero-wait
+                # state are read, from this same observation handle.
+                creation_reader = getattr(self._require_underlying(), '_creation_time', None)
+                if not budget_ok():
+                    entry['creation_status'] = 'NOT_READ_TIME_BUDGET'
+                    incomplete.append('TIME_BUDGET')
+                elif not callable(creation_reader):
+                    entry['creation_filetime'] = None
+                    entry['creation_status'] = 'UNAVAILABLE_NO_UNDERLYING_READER'
+                    incomplete.append('CREATION_UNAVAILABLE')
+                else:
+                    try:
+                        value = creation_reader(handle)
+                    except windows_process.WindowsProcessError as error:
+                        entry['creation_filetime'] = None
+                        entry['creation_status'] = 'UNKNOWN'
+                        entry['creation_error'] = _configure_diagnostic_error_record(error)
+                        incomplete.append('CREATION_UNKNOWN')
+                    else:
+                        entry['creation_filetime'] = int(value) if value is not None else None
+                        entry['creation_status'] = 'OBSERVED' if value is not None else 'UNKNOWN'
+                        if value is None:
+                            incomplete.append('CREATION_UNKNOWN')
+                if budget_ok():
+                    image_path, image_status, image_error = \
+                        self._query_full_process_image_name(handle)
+                    entry['image_path'] = image_path
+                    entry['image_status'] = image_status
+                    if image_error is not None:
+                        entry['image_error'] = image_error
+                    if image_status != 'OBSERVED':
+                        incomplete.append('IMAGE_' + image_status)
+                else:
+                    entry['image_status'] = 'NOT_READ_TIME_BUDGET'
+                    incomplete.append('TIME_BUDGET')
+                if budget_ok():
+                    try:
+                        entry['zero_wait_status'] = \
+                            self._require_underlying().wait_process(handle, 0)
+                    except windows_process.WindowsProcessError as error:
+                        entry['zero_wait_status'] = 'UNKNOWN'
+                        entry['zero_wait_error'] = _configure_diagnostic_error_record(error)
+                        incomplete.append('ZERO_WAIT_UNKNOWN')
+                else:
+                    entry['zero_wait_status'] = 'NOT_READ_TIME_BUDGET'
+                    incomplete.append('TIME_BUDGET')
+            return entry
+        except windows_process.WindowsProcessError as error:
+            entry.setdefault('error', _configure_diagnostic_error_record(error))
+            incomplete.append('MEMBER_INSPECTION_ERROR')
+            return entry
+        finally:
+            if handle is not None:
+                # Opened observation handles are closed unconditionally, with no
+                # TERMINATE right and no budget gate on the close itself.
+                try:
+                    self._require_underlying().close_handle(handle)
+                    entry['observation_handle_closed'] = True
+                except windows_process.WindowsProcessError as error:
+                    entry['observation_handle_closed'] = False
+                    entry['observation_handle_close_error'] = \
+                        _configure_diagnostic_error_record(error)
+                    incomplete.append('OBSERVATION_HANDLE_CLOSE_ERROR')
+
+
 def run_native(source_root, work_root, *, image_snapshot=None, windows11=False):
     if windows11:
         if os.name != 'nt':
@@ -187,6 +663,24 @@ def run_native(source_root, work_root, *, image_snapshot=None, windows11=False):
     def run(name, command, timeout=120):
         command = [os.fspath(value) for value in command]
         started = time.time()
+        diagnostic = None
+        supervision = {}
+        if name == 'configure':
+            # Configure-only diagnose wiring: one lazy read-only membership
+            # observer sharing the very clock object of this run_owned call.
+            # It only adds the optional configure_job_diagnostics receipt
+            # field; it never joins success gates, deadlines or cleanup.
+            supervision_clock = windows_process._RealClock()
+            diagnostic = _ConfigureJobDiagnosticsProxy('configure', clock=supervision_clock)
+            supervision = dict(api=diagnostic, clock=supervision_clock)
+
+        def attach_diagnostic(receipt):
+            if diagnostic is None or not isinstance(receipt, dict):
+                return
+            try:
+                diagnostic.attach_to(receipt)
+            except BaseException as error:
+                remember_capture_error('configure_job_diagnostics', error)
 
         def retain_output(stdout, stderr, details, *, emit_output, process_receipt=None):
             observations = [
@@ -214,9 +708,11 @@ def run_native(source_root, work_root, *, image_snapshot=None, windows11=False):
         try:
             outcome = windows_process.run_owned(command, cwd=str(work), env=environment,
                 timeout=timeout, spool_root=temporary / ('owned-' + name), command_id=name,
-                extra_env=MSBUILD_TASK_ENV if name in ('configure', 'build') else None)
+                extra_env=MSBUILD_TASK_ENV if name in ('configure', 'build') else None,
+                **supervision)
         except BaseException as error:
             process_receipt = getattr(error, 'process_receipt', None)
+            attach_diagnostic(process_receipt)
             if process_receipt is not None:
                 remember_supervision(name, process_receipt)
             status = ('TIMEOUT' if isinstance(error, subprocess.TimeoutExpired) else
@@ -228,6 +724,7 @@ def run_native(source_root, work_root, *, image_snapshot=None, windows11=False):
             retain_output(getattr(error, 'stdout', None) or b'', getattr(error, 'stderr', None) or b'',
                 details, emit_output=False, process_receipt=process_receipt)
             raise
+        attach_diagnostic(outcome.receipt)
         remember_supervision(name, outcome.receipt)
         execution_failure = None
         if outcome.exit_code:

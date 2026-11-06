@@ -533,6 +533,979 @@ else:
             self.assertEqual(receipt['task_level_env_overrides'], {})
 
 
+# --------------------------------------------------------------------------------------
+# Configure-only owned-Job member diagnostics (plan-final-v7). The three checks
+# below drive the actual runner configure branch and the actual
+# windows_process.run_owned/_closeout path with low-level injected Win32-API and
+# clock fakes; the diagnostic observer itself is never stubbed.
+# --------------------------------------------------------------------------------------
+import ctypes
+
+
+class _DiagnosticFakeClock:
+    """Injected clock; monotonic() may advance a fixed step to cross the 200 ms budget."""
+
+    is_injected = True
+
+    def __init__(self, start=2000.0, step=0.0):
+        self.now = float(start)
+        self.step = float(step)
+        self.monotonic_calls = 0
+
+    def monotonic(self):
+        self.monotonic_calls += 1
+        value = self.now
+        self.now += self.step
+        return value
+
+    def sleep(self, seconds):
+        self.now += max(0.0, seconds)
+
+    def advance_milliseconds(self, milliseconds):
+        self.now += max(0.0, milliseconds / 1000.0)
+
+
+def _classify_flow_command(command_line):
+    if 'vswhere.exe' in command_line:
+        return 'vswhere'
+    if 'rev-parse' in command_line:
+        return 'git-head'
+    if 'ls-files' in command_line:
+        return 'ls-files'
+    if 'status --porcelain' in command_line:
+        return 'git-status'
+    if '--version' in command_line:
+        return 'cmake-version'
+    if ' -S ' in command_line:
+        return 'configure'
+    if '--build' in command_line:
+        return 'build'
+    return 'unknown'
+
+
+class _FlowFakeAPI:
+    """Scripted Win32ProcessAPI stand-in driving the real run_owned lifecycle.
+
+    One instance per supervised command; behaviour derives from the launched
+    command line. The configure command leaves synthetic survivor members in
+    its Job so the natural settle expires and the original owned cleanup must
+    terminate the Job.
+    """
+
+    is_injected = True
+    instances = []
+    configure_members = (7001, 7002, 7003)
+    configure_descendants = True
+    installation_path = None
+    work_path = None
+    listing = b''
+
+    def __init__(self):
+        self.calls = []
+        self.command_line = None
+        self.kind = None
+        self.job = 'flow-job-{}'.format(len(_FlowFakeAPI.instances))
+        self.resumed = False
+        self.terminated = False
+        self.root_exit_code = 0
+        self.spool_stdout_path = None
+        self.observation_handles = {}
+        self.closed_observation_handles = []
+        _FlowFakeAPI.instances.append(self)
+
+    def _log(self, name, **details):
+        self.calls.append((name, details))
+
+    # ---- Win32ProcessAPI surface -----------------------------------------------------
+    def create_job(self):
+        self._log('create_job')
+        return self.job
+
+    def set_job_kill_on_close(self, job):
+        self._log('set_job_kill_on_close')
+
+    def open_input_null(self):
+        self._log('open_input_null')
+        return 'flow-stdin'
+
+    def open_output_spool(self, path):
+        self._log('open_output_spool', path=str(path))
+        Path(path).write_bytes(b'')
+        if str(path).endswith('.stdout.spool'):
+            self.spool_stdout_path = Path(path)
+        return 'flow-spool-' + Path(path).name
+
+    def create_process_suspended(self, **kwargs):
+        self.command_line = kwargs['command_line']
+        self.kind = _classify_flow_command(self.command_line)
+        self._log('create_process_suspended', kind=self.kind)
+        if self.kind == 'configure' and _FlowFakeAPI.work_path is not None:
+            build = Path(_FlowFakeAPI.work_path) / 'build'
+            (build / 'CMakeFiles/synthetic').mkdir(parents=True, exist_ok=True)
+            for name in ('CMakeCache.txt', 'native-toolchain.txt',
+                         'CMakeFiles/synthetic/CMakeCXXCompiler.cmake'):
+                (build / name).write_text('synthetic metadata; no compiler executed\n',
+                                          encoding='utf-8')
+        if self.kind == 'build':
+            self.root_exit_code = 1
+        if self.spool_stdout_path is not None:
+            self.spool_stdout_path.write_bytes(_flow_payload(self.kind))
+        return 'flow-root-process', 'flow-root-thread', 4242, 133450000000000000
+
+    def assign_process_to_job(self, job, process):
+        self._log('assign_process_to_job', job=job)
+
+    def resume_thread(self, thread):
+        self._log('resume_thread')
+        self.resumed = True
+        return 1
+
+    def wait_process(self, process, milliseconds):
+        self._log('wait_process', handle=process, milliseconds=int(milliseconds))
+        if process in self.observation_handles:
+            return 'TIMEOUT'
+        return 'SIGNALED' if self.resumed else 'TIMEOUT'
+
+    def process_exit_code(self, process):
+        self._log('process_exit_code')
+        return self.root_exit_code
+
+    def process_id(self, process):
+        if process in self.observation_handles:
+            return self.observation_handles[process]
+        return 4242
+
+    def query_job_active_processes(self, job):
+        self._log('query_job_active_processes', job=job)
+        if self.terminated:
+            return 0
+        if self.kind == 'configure' and _FlowFakeAPI.configure_descendants:
+            return len(_FlowFakeAPI.configure_members)
+        return 0
+
+    def terminate_job(self, job, exit_code):
+        self._log('terminate_job', job=job, exit_code=int(exit_code))
+        self.terminated = True
+
+    def close_handle(self, handle):
+        self._log('close_handle', handle=handle)
+        if handle in self.observation_handles:
+            self.closed_observation_handles.append(handle)
+
+    # ---- read-only observer surface --------------------------------------------------
+    def _creation_time(self, process):
+        if process in self.observation_handles:
+            return 133450000000000000 + self.observation_handles[process]
+        return 133450000000000000
+
+    def job_process_ids(self, job):
+        self._log('job_process_ids', job=job)
+        if self.kind == 'configure' and _FlowFakeAPI.configure_descendants:
+            return list(_FlowFakeAPI.configure_members)
+        return []
+
+    def open_process_snapshot(self, pid):
+        self._log('open_process_snapshot', pid=int(pid))
+        handle = 'flow-observe-{}'.format(pid)
+        self.observation_handles[handle] = int(pid)
+        return handle
+
+    def IsProcessInJob(self, process, job, result):
+        self._log('IsProcessInJob', handle=process, job=job)
+        result._obj.value = 1 if process in self.observation_handles and job == self.job else 0
+        return 1
+
+    def QueryFullProcessImageNameW(self, process, flags, buffer, size):
+        pid = self.observation_handles.get(process)
+        self._log('QueryFullProcessImageNameW', handle=process, flags=int(flags))
+        path = 'C:\\synthetic-survivor-{}.exe'.format(pid)
+        buffer.value = path
+        size._obj.value = len(path)
+        return 1
+
+
+def _flow_payload(kind):
+    if kind == 'git-head':
+        return b'a' * 40 + b'\n'
+    if kind == 'vswhere':
+        return json.dumps([{'installationPath': _FlowFakeAPI.installation_path}]).encode()
+    if kind == 'ls-files':
+        return _FlowFakeAPI.listing
+    if kind == 'cmake-version':
+        return b'cmake version 3.99.0-synthetic\n'
+    return b''
+
+
+class _ScriptedDiagnosticAPI:
+    """Low-level scripted Win32ProcessAPI stand-in for the diagnostic subcases."""
+
+    is_injected = True
+
+    def __init__(self, script, clock):
+        self.script = dict(script)
+        self.clock = clock
+        self.calls = []
+        self.resumed = False
+        self.terminated = False
+        self.job = 'diag-job-1'
+        self.members = list(script.get('members', ()))
+        self.observation_handles = {}
+        self.closed_observation_handles = []
+        self._wait_error_fired = False
+
+    def _log(self, name, **details):
+        self.calls.append((name, details))
+
+    def create_job(self):
+        self._log('create_job')
+        return self.job
+
+    def set_job_kill_on_close(self, job):
+        self._log('set_job_kill_on_close')
+
+    def open_input_null(self):
+        self._log('open_input_null')
+        return 'diag-stdin'
+
+    def open_output_spool(self, path):
+        self._log('open_output_spool', path=str(path))
+        return 'diag-spool-' + Path(path).name
+
+    def create_process_suspended(self, **kwargs):
+        self._log('create_process_suspended')
+        return 'diag-root-process', 'diag-root-thread', 4242, 133450000000000000
+
+    def assign_process_to_job(self, job, process):
+        self._log('assign_process_to_job', job=job)
+
+    def resume_thread(self, thread):
+        self._log('resume_thread')
+        self.resumed = True
+        return 1
+
+    def wait_process(self, process, milliseconds):
+        self.clock.advance_milliseconds(milliseconds)
+        self._log('wait_process', handle=process, milliseconds=int(milliseconds))
+        if process in self.observation_handles:
+            return 'SIGNALED' if process in self.script.get('member_signaled', ()) else 'TIMEOUT'
+        if self.script.get('wait_raises') is not None and not self._wait_error_fired:
+            self._wait_error_fired = True
+            raise self.script['wait_raises']
+        if self.script.get('wait_never_signals'):
+            return 'TIMEOUT'
+        return 'SIGNALED' if self.resumed else 'TIMEOUT'
+
+    def process_exit_code(self, process):
+        self._log('process_exit_code')
+        return 0
+
+    def process_id(self, process):
+        if process in self.observation_handles:
+            actual = self.observation_handles[process]
+            return self.script.get('pid_reuse', {}).get(actual, actual)
+        return 4242
+
+    def query_job_active_processes(self, job):
+        self._log('query_job_active_processes', job=job)
+        if self.script.get('settle_query_error'):
+            raise windows_process.Win32CallFailure('QueryInformationJobObject', 5)
+        if self.terminated:
+            return 0
+        return int(self.script.get('active_during_settle', 3))
+
+    def terminate_job(self, job, exit_code):
+        self._log('terminate_job', job=job, exit_code=int(exit_code))
+        if self.script.get('terminate_fails'):
+            raise windows_process.Win32CallFailure('TerminateJobObject', 5)
+        self.terminated = True
+
+    def close_handle(self, handle):
+        self._log('close_handle', handle=handle)
+        if handle in self.observation_handles:
+            self.closed_observation_handles.append(handle)
+
+    def _creation_time(self, process):
+        if process in self.observation_handles:
+            pid = self.observation_handles[process]
+            if pid in self.script.get('creation_none', ()):
+                return None
+            return 133450000000000000 + pid
+        return 133450000000000000
+
+    def job_process_ids(self, job):
+        self._log('job_process_ids', job=job)
+        failure = self.script.get('idlist_failure')
+        if failure == 'win32':
+            raise windows_process.Win32CallFailure('QueryInformationJobObject(idlist)', 5)
+        if failure == 'truncated':
+            raise windows_process.WindowsProcessError(
+                'QueryInformationJobObject(idlist) copied 65 process IDs into a 64-entry '
+                'buffer; refusing to report a truncated membership list')
+        if callable(failure):
+            raise failure()
+        return list(self.members)
+
+    def open_process_snapshot(self, pid):
+        self._log('open_process_snapshot', pid=int(pid))
+        if pid in self.script.get('open_denied', ()):
+            raise windows_process.Win32CallFailure('OpenProcess', 5)
+        handle = 'diag-observe-{}'.format(pid)
+        self.observation_handles[handle] = int(pid)
+        return handle
+
+    def IsProcessInJob(self, process, job, result):
+        self._log('IsProcessInJob', handle=process, job=job)
+        pid = self.observation_handles.get(process)
+        if pid in self.script.get('not_in_job', ()):
+            result._obj.value = 0
+            return 1
+        if pid in self.script.get('in_job_error', ()):
+            return 0
+        result._obj.value = 1 if job == self.job else 0
+        return 1
+
+    def QueryFullProcessImageNameW(self, process, flags, buffer, size):
+        pid = self.observation_handles.get(process)
+        self._log('QueryFullProcessImageNameW', handle=process, flags=int(flags),
+                  size_wchars=int(size._obj.value))
+        if pid in self.script.get('image_fail', ()):
+            size._obj.value = 2 * 4096
+            return 0
+        if pid in self.script.get('image_exact_full', ()):
+            path = 'C:\\' + 'x' * 4092
+            buffer.value = path
+            size._obj.value = 4096
+            return 1
+        path = 'C:\\diag-member-{}.exe'.format(pid)
+        buffer.value = path
+        size._obj.value = len(path)
+        return 1
+
+
+class ConfigureJobDiagnosticsChecks(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix='configure-diagnostics-')
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.source = self.work = self.installation = self.programs = self.bin = None
+
+    def tearDown(self):
+        if ARGS.retain_fixtures is not None:
+            destination = ARGS.retain_fixtures / self._testMethodName
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(self.root, destination)
+
+    # ---- shared fixture: a full synthetic runner flow over the real run_owned --------
+    def prepare_runner_flow(self):
+        self.source = self.root / 'source'
+        self.work = self.root / 'work'
+        self.installation = self.root / 'visual-studio'
+        self.programs = self.root / 'program-files'
+        self.bin = self.root / 'bin'
+        for _, (name, _) in SUITES.items():
+            relative = Path('platform/native-foundation/tests') / name
+            destination = self.source / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(SOURCE / relative, destination)
+        tool = self.source / 'platform/native-foundation/tools/verify_detached.py'
+        tool.parent.mkdir(parents=True, exist_ok=True)
+        tool.write_text('# unused synthetic detached verifier\n', encoding='utf-8')
+        for path in (self.installation / 'VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe',
+                     self.programs / 'Windows Kits/10/Include/10.0.26100.0/um/Windows.h'):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'synthetic pinned-tool input, never executed\n')
+        vswhere = self.programs / 'Microsoft Visual Studio/Installer/vswhere.exe'
+        vswhere.parent.mkdir(parents=True, exist_ok=True)
+        vswhere.write_text('#!/bin/sh\nexit 0\n', encoding='utf-8')
+        vswhere.chmod(0o755)
+        self.bin.mkdir()
+        for name in ('cmake', 'ctest'):
+            stub = self.bin / name
+            stub.write_text('#!/bin/sh\nexit 0\n', encoding='utf-8')
+            stub.chmod(0o755)
+
+    def run_runner_flow(self, *, configure_descendants):
+        self.prepare_runner_flow()
+        _FlowFakeAPI.instances = []
+        _FlowFakeAPI.configure_descendants = configure_descendants
+        _FlowFakeAPI.installation_path = str(self.installation)
+        _FlowFakeAPI.work_path = str(self.work)
+        _FlowFakeAPI.listing = b'\0'.join(
+            str(path.relative_to(self.source)).replace('\\', '/').encode()
+            for path in sorted(self.source.rglob('*')) if path.is_file()) + b'\0'
+        environment = dict(os.environ, GITHUB_ACTIONS='true', GITHUB_SHA='a' * 40,
+                           GITHUB_RUN_ID='321', GITHUB_RUN_ATTEMPT='1',
+                           GITHUB_JOB='native-foundation', ImageOS='synthetic-win22',
+                           ImageVersion='synthetic-image',
+                           PATH=str(self.bin) + os.pathsep + os.environ.get('PATH', ''))
+        environment['ProgramFiles(x86)'] = str(self.programs)
+        fake_os = SimpleNamespace(name='nt', environ=environment, fspath=os.fspath)
+        fake_subprocess = SimpleNamespace(
+            run=lambda command, **kwargs: (_ for _ in ()).throw(
+                AssertionError('subprocess.run is not the supervision boundary')),
+            check_output=lambda command: (_ for _ in ()).throw(
+                AssertionError('subprocess.check_output is not the supervision boundary')),
+            PIPE=subprocess.PIPE, TimeoutExpired=subprocess.TimeoutExpired)
+        snapshot = self.root / 'flow-image-environment.json'
+        with patch.object(RUNNER, 'os', fake_os), \
+             patch.object(RUNNER, 'subprocess', fake_subprocess), \
+             patch.object(RUNNER.windows_process, 'Win32ProcessAPI', _FlowFakeAPI), \
+             patch.object(sys, 'getwindowsversion', return_value=(10, 0, 20348), create=True), \
+             patch.object(RUNNER.platform, 'platform', return_value='synthetic-Windows-host'), \
+             patch.object(sys, 'stdout', SimpleNamespace(buffer=io.BytesIO())), \
+             patch.object(sys, 'stderr', SimpleNamespace(buffer=io.BytesIO())):
+            snapshot.write_text(json.dumps(RUNNER.image_environment('a' * 40)), encoding='utf-8')
+            RUNNER.run_native(self.source, self.work, image_snapshot=snapshot)
+
+    # ---- shared driver: the real proxy around a scripted API inside real run_owned ---
+    def run_diagnostic_subcase(self, name, script, *, clock_step=0.0):
+        case_root = self.root / 'diagnostic-subcases' / name
+        clock = _DiagnosticFakeClock(step=clock_step)
+        api = _ScriptedDiagnosticAPI(script, clock)
+        proxy = RUNNER._ConfigureJobDiagnosticsProxy('configure', underlying=api, clock=clock)
+        command = [sys.executable, '-c', 'pass']
+        try:
+            result = windows_process.run_owned(command, cwd=str(case_root),
+                env={'PATH': os.environ.get('PATH', '')},
+                timeout=float(script.get('timeout', 30.0)),
+                spool_root=case_root / 'owned-spool', command_id='configure',
+                api=proxy, clock=clock,
+                settle_configured_seconds=float(script.get('settle_seconds', 1.0)),
+                poll_seconds=float(script.get('poll_seconds', 0.1)))
+            error = None
+        except BaseException as caught:
+            result, error = None, caught
+        receipt = result.receipt if result is not None else getattr(error, 'process_receipt', None)
+        proxy.attach_to(receipt)
+        if isinstance(receipt, dict):
+            case_root.mkdir(parents=True, exist_ok=True)
+            (case_root / 'configure.process.json').write_text(
+                json.dumps(receipt, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        return result, error, receipt, api, clock
+
+    def assert_original_terminate_contract(self, receipt, api):
+        terminates = [details for call, details in api.calls if call == 'terminate_job']
+        self.assertEqual(len(terminates), 1, terminates)
+        self.assertEqual(terminates[0]['exit_code'], 1)
+        self.assertEqual(receipt['cleanup']['timeout_seconds'], 5.0)
+        self.assertEqual(sorted(api.observation_handles), sorted(api.closed_observation_handles))
+
+    def test_configure_cleanup_member_observation(self):
+        with self.assertRaisesRegex(RuntimeError,
+                'configure root exited 0 but its owned process tree did not settle'):
+            self.run_runner_flow(configure_descendants=True)
+        evidence = self.work / 'evidence'
+        receipt = json.loads((evidence / 'configure.process.json').read_text())
+        # The original failure semantics are preserved verbatim.
+        self.assertEqual(receipt['schema'], 'wls-owned-process-receipt-v1')
+        self.assertEqual(receipt['outcome'], 'FAILED_DESCENDANTS_AFTER_ROOT_EXIT')
+        self.assertEqual(receipt['exit_code'], 0)
+        self.assertEqual(receipt['settle']['status'], 'EXPIRED')
+        self.assertTrue(receipt['tree_exit_proven'])
+        self.assertEqual(receipt['termination'], {'reason': 'DESCENDANTS_AFTER_ROOT_EXIT',
+            'requested': True, 'api': 'TerminateJobObject', 'requested_exit_code': 1,
+            'job_terminate_succeeded': True, 'pre_assign_process_terminate_succeeded': None})
+        self.assertEqual(receipt['execution_timeout_seconds'], 180.0)
+        self.assertEqual(receipt['task_level_env_overrides'], {'MSBUILDDISABLENODEREUSE': '1'})
+        self.assertEqual(receipt['cwd'], str(self.work))
+        self.assertIn('-S', receipt['argv'])
+        # Later pipeline commands never started.
+        for later in ('build', 'ctest', 'install', 'host-capabilities', 'detached'):
+            self.assertFalse((evidence / (later + '.command.json')).exists())
+        failure = json.loads((evidence / 'failure.json').read_text())
+        self.assertIn('build', failure['owned_process_supervision']['not_started'])
+        self.assertIn('ctest', failure['owned_process_supervision']['not_started'])
+        # Non-configure commands never gain the observer or the field.
+        for other in ('git-head', 'vswhere', 'git-status', 'cmake-version'):
+            other_receipt = json.loads((evidence / (other + '.process.json')).read_text())
+            self.assertNotIn('configure_job_diagnostics', other_receipt)
+        # The pre-termination owned-Job member identity this check exists for.
+        self.assertIn('configure_job_diagnostics', receipt,
+            'the original configure receipt lacks pre-termination owned-Job member identity')
+        diagnostics = receipt['configure_job_diagnostics']
+        # Truthful API provenance (plan-final-v8): the synthetic flow injects
+        # _FlowFakeAPI through the runner's own lazy factory, so both the
+        # top-level receipt and the attached diagnostic must read 'injected';
+        # a constructor-time frozen False surfacing as native-win32 here is a
+        # provenance mislabel.
+        self.assertEqual((receipt['api_source'], diagnostics['api_source']),
+                         ('injected', 'injected'),
+                         'provenance mislabel: top-level api_source={}; '
+                         'configure_job_diagnostics.api_source={}'.format(
+                             receipt.get('api_source'),
+                             diagnostics.get('api_source')))
+        members = list(_FlowFakeAPI.configure_members)
+        self.assertTrue(diagnostics['diagnostic_only'])
+        self.assertEqual(diagnostics['scope'], 'THIS_CONFIGURE_JOB_ONLY')
+        self.assertEqual(diagnostics['hook'], 'BEFORE_EXISTING_TERMINATE_JOB')
+        self.assertTrue(diagnostics['triggered'])
+        self.assertTrue(diagnostics['observer_ran'])
+        self.assertEqual(diagnostics['membership_query']['status'], 'SUCCESS')
+        self.assertEqual(diagnostics['membership_query']['returned'], members)
+        self.assertEqual(diagnostics['membership_query']['returned_count'], 3)
+        self.assertFalse(diagnostics['membership_query']['atomic_snapshot'])
+        inspected = [entry for entry in diagnostics['inspected_members'] if entry.get('inspected')]
+        self.assertEqual([entry['requested_pid'] for entry in inspected], members)
+        for entry in inspected:
+            self.assertEqual(entry['pid_confirmation'], 'CONFIRMED')
+            self.assertEqual(entry['same_job_verification'], 'CONFIRMED')
+            self.assertEqual(entry['creation_status'], 'OBSERVED')
+            self.assertEqual(entry['creation_filetime'],
+                             133450000000000000 + entry['requested_pid'])
+            self.assertEqual(entry['image_status'], 'OBSERVED')
+            self.assertEqual(entry['image_path'],
+                             'C:\\synthetic-survivor-{}.exe'.format(entry['requested_pid']))
+            self.assertEqual(entry['zero_wait_status'], 'TIMEOUT')
+            self.assertTrue(entry['observation_handle_closed'])
+        self.assertEqual(diagnostics['uninspected_member_count'], 0)
+        self.assertEqual(diagnostics['duplicate_returned_entries'], 0)
+        self.assertEqual(diagnostics['stopped_reasons'], [])
+        self.assertTrue(diagnostics['observations_complete'])
+        self.assertTrue(diagnostics['last_pre_termination_accounting']['query_ok'])
+        self.assertEqual(diagnostics['last_pre_termination_accounting']['active'], 3)
+        self.assertEqual(diagnostics['budget_seconds'], 0.2)
+        self.assertEqual(diagnostics['member_limit'], 8)
+        self.assertLessEqual(diagnostics['elapsed_seconds'], diagnostics['budget_seconds'])
+        # The observation ran strictly before the single original terminate
+        # forward, on the same assigned Job, and every new handle was closed.
+        configure_api = next(api for api in _FlowFakeAPI.instances if api.kind == 'configure')
+        names = [call for call, _ in configure_api.calls]
+        terminate_index = names.index('terminate_job')
+        for earlier in ('job_process_ids', 'open_process_snapshot', 'IsProcessInJob',
+                        'QueryFullProcessImageNameW'):
+            self.assertLess(names.index(earlier), terminate_index)
+        observation_closes = [index for index, (call, details) in enumerate(configure_api.calls)
+                              if call == 'close_handle'
+                              and str(details['handle']).startswith('flow-observe-')]
+        self.assertEqual(len(observation_closes), len(members))
+        self.assertTrue(all(index < terminate_index for index in observation_closes))
+        self.assertEqual(configure_api.calls[names.index('job_process_ids')][1]['job'],
+                         configure_api.calls[terminate_index][1]['job'])
+        self.assert_original_terminate_contract(receipt, configure_api)
+
+    def test_configure_diagnostic_partial_and_bounds(self):
+        # idlist failure (Win32 error): the membership list is null, never []
+        result, error, receipt, api, _ = self.run_diagnostic_subcase('idlist-win32-failure',
+            dict(idlist_failure='win32'))
+        self.assertIsNone(error)
+        self.assertEqual(receipt['outcome'], 'FAILED_DESCENDANTS_AFTER_ROOT_EXIT')
+        diagnostics = receipt['configure_job_diagnostics']
+        self.assertEqual(diagnostics['membership_query']['status'], 'QUERY_ERROR')
+        self.assertIsNone(diagnostics['membership_query']['returned'])
+        self.assertIsNone(diagnostics['membership_query']['returned_count'])
+        self.assertEqual(diagnostics['inspected_members'], [])
+        self.assertEqual(diagnostics['inspected_member_count'], 0)
+        self.assertFalse(diagnostics['observations_complete'])
+        self.assertIn('MEMBERSHIP_QUERY_ERROR', diagnostics['incomplete_reasons'])
+        self.assertEqual(diagnostics['membership_query']['error']['function'],
+                         'QueryInformationJobObject(idlist)')
+        self.assertEqual(diagnostics['membership_query']['error']['win32_error'], 5)
+        self.assert_original_terminate_contract(receipt, api)
+
+        # >64-entry buffer refusal keeps the same strict null handling
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('idlist-truncated-refusal',
+            dict(idlist_failure='truncated'))
+        diagnostics = receipt['configure_job_diagnostics']
+        self.assertEqual(diagnostics['membership_query']['status'], 'QUERY_ERROR')
+        self.assertIsNone(diagnostics['membership_query']['returned'])
+        self.assertIn('refusing to report a truncated membership list',
+                      diagnostics['membership_query']['error']['reason'])
+        self.assertEqual(diagnostics['idlist_capacity'], 64)
+        self.assert_original_terminate_contract(receipt, api)
+
+        # A successful empty query is [] — strictly distinct from null
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('successful-empty-list',
+            dict(members=[], active_during_settle=3))
+        diagnostics = receipt['configure_job_diagnostics']
+        self.assertEqual(diagnostics['membership_query']['status'], 'SUCCESS')
+        self.assertEqual(diagnostics['membership_query']['returned'], [])
+        self.assertEqual(diagnostics['membership_query']['returned_count'], 0)
+        self.assertEqual(diagnostics['inspected_members'], [])
+        self.assertTrue(diagnostics['observations_complete'])
+        self.assertFalse(diagnostics['membership_query']['atomic_snapshot'])
+        self.assert_original_terminate_contract(receipt, api)
+
+        # At most eight members are inspected; the rest are counted, not guessed
+        members = list(range(7001, 7013))
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('eight-member-limit',
+            dict(members=members))
+        diagnostics = receipt['configure_job_diagnostics']
+        self.assertEqual(diagnostics['membership_query']['returned'], members)
+        self.assertEqual(diagnostics['inspected_member_count'], 8)
+        self.assertEqual(diagnostics['uninspected_member_count'], 4)
+        self.assertIn('MEMBER_LIMIT', diagnostics['incomplete_reasons'])
+        self.assertFalse(diagnostics['observations_complete'])
+        self.assertEqual(len([1 for call, _ in api.calls
+                              if call == 'open_process_snapshot']), 8)
+        self.assert_original_terminate_contract(receipt, api)
+
+        # Duplicated returned IDs are recorded and never re-opened
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('duplicate-ids',
+            dict(members=[7001, 7002, 7001, 7002]))
+        diagnostics = receipt['configure_job_diagnostics']
+        self.assertEqual(diagnostics['membership_query']['returned'], [7001, 7002, 7001, 7002])
+        self.assertEqual(diagnostics['duplicate_returned_entries'], 2)
+        self.assertEqual(diagnostics['inspected_member_count'], 2)
+        duplicates = [entry for entry in diagnostics['inspected_members']
+                      if entry.get('duplicate_of_inspected_pid')]
+        self.assertEqual([entry['requested_pid'] for entry in duplicates], [7001, 7002])
+        self.assertTrue(all(not entry['opened'] and not entry['inspected']
+                            for entry in duplicates))
+        self.assertEqual(len([1 for call, _ in api.calls
+                              if call == 'open_process_snapshot']), 2)
+        self.assert_original_terminate_contract(receipt, api)
+
+        # PID reuse: the confirmed PID differs, so no image/creation is read
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('pid-reuse',
+            dict(members=[7001, 7002], pid_reuse={7001: 9999}))
+        diagnostics = receipt['configure_job_diagnostics']
+        entries = {entry['requested_pid']: entry for entry in diagnostics['inspected_members']
+                   if entry.get('inspected')}
+        self.assertEqual(entries[7001]['confirmed_pid'], 9999)
+        self.assertEqual(entries[7001]['pid_confirmation'], 'CHANGED')
+        self.assertEqual(entries[7001]['same_job_verification'], 'SKIPPED_PID_NOT_CONFIRMED')
+        self.assertNotIn('image_path', entries[7001])
+        self.assertNotIn('creation_filetime', entries[7001])
+        self.assertIn('PID_CHANGED', diagnostics['incomplete_reasons'])
+        self.assertEqual(entries[7002]['same_job_verification'], 'CONFIRMED')
+        self.assert_original_terminate_contract(receipt, api)
+
+        # A member that left this exact Job is not claimed by PID alone
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('not-in-this-job',
+            dict(members=[7001, 7002], not_in_job={7002}))
+        diagnostics = receipt['configure_job_diagnostics']
+        entries = {entry['requested_pid']: entry for entry in diagnostics['inspected_members']
+                   if entry.get('inspected')}
+        self.assertEqual(entries[7001]['same_job_verification'], 'CONFIRMED')
+        self.assertEqual(entries[7002]['same_job_verification'], 'NOT_IN_THIS_JOB')
+        self.assertNotIn('image_path', entries[7002])
+        self.assertNotIn('creation_filetime', entries[7002])
+        self.assertIn('NOT_IN_THIS_JOB', diagnostics['incomplete_reasons'])
+        self.assert_original_terminate_contract(receipt, api)
+
+        # OpenProcess denial is recorded with its original error, nothing inferred
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('openprocess-denied',
+            dict(members=[7001, 7002], open_denied={7001}))
+        diagnostics = receipt['configure_job_diagnostics']
+        entries = {entry['requested_pid']: entry for entry in diagnostics['inspected_members']
+                   if entry.get('inspected')}
+        self.assertEqual(entries[7001]['open_status'], 'ERROR')
+        self.assertEqual(entries[7001]['open_error']['function'], 'OpenProcess')
+        self.assertEqual(entries[7001]['open_error']['win32_error'], 5)
+        self.assertNotIn('image_path', entries[7001])
+        self.assertIn('OPEN_ERROR', diagnostics['incomplete_reasons'])
+        self.assertEqual(entries[7002]['same_job_verification'], 'CONFIRMED')
+        self.assert_original_terminate_contract(receipt, api)
+
+        # An insufficient image buffer is UNKNOWN, never a truncated path
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('image-insufficient-buffer',
+            dict(members=[7001, 7002], image_fail={7001}, image_exact_full={7002}))
+        diagnostics = receipt['configure_job_diagnostics']
+        entries = {entry['requested_pid']: entry for entry in diagnostics['inspected_members']
+                   if entry.get('inspected')}
+        self.assertIsNone(entries[7001]['image_path'])
+        self.assertEqual(entries[7001]['image_status'], 'UNKNOWN')
+        self.assertEqual(entries[7001]['image_error']['type'], 'QueryFullProcessImageNameWFailed')
+        self.assertIsNone(entries[7002]['image_path'])
+        self.assertEqual(entries[7002]['image_status'], 'INSUFFICIENT_BUFFER')
+        self.assertEqual(entries[7002]['image_error']['required_wchars'], 4096)
+        self.assertEqual(entries[7001]['creation_status'], 'OBSERVED')
+        self.assertIn('IMAGE_UNKNOWN', diagnostics['incomplete_reasons'])
+        self.assertIn('IMAGE_INSUFFICIENT_BUFFER', diagnostics['incomplete_reasons'])
+        self.assert_original_terminate_contract(receipt, api)
+
+        # A member whose creation time is unavailable stays explicitly unknown
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('creation-unknown',
+            dict(members=[7001], creation_none={7001}))
+        diagnostics = receipt['configure_job_diagnostics']
+        entry = diagnostics['inspected_members'][0]
+        self.assertIsNone(entry['creation_filetime'])
+        self.assertEqual(entry['creation_status'], 'UNKNOWN')
+        self.assertIn('CREATION_UNKNOWN', diagnostics['incomplete_reasons'])
+        self.assertEqual(entry['image_status'], 'OBSERVED')
+        self.assert_original_terminate_contract(receipt, api)
+
+        # The injected clock crossing the 200 ms budget stops new identity reads
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('time-budget',
+            dict(members=list(range(7001, 7006))), clock_step=0.06)
+        diagnostics = receipt['configure_job_diagnostics']
+        self.assertEqual(diagnostics['stopped_reasons'], ['TIME_BUDGET'])
+        self.assertIn('TIME_BUDGET', diagnostics['incomplete_reasons'])
+        self.assertFalse(diagnostics['observations_complete'])
+        self.assertGreater(diagnostics['overrun_seconds'], 0.0)
+        self.assertEqual(len([1 for call, _ in api.calls
+                              if call == 'open_process_snapshot']), 1)
+        self.assertEqual(sorted(api.observation_handles), sorted(api.closed_observation_handles))
+        self.assert_original_terminate_contract(receipt, api)
+        self.assertEqual(receipt['cleanup']['timeout_seconds'], 5.0)
+
+        # A member that exited between the list query and its zero-wait probe
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('member-exited-midway',
+            dict(members=[7001], member_signaled={'diag-observe-7001'}))
+        diagnostics = receipt['configure_job_diagnostics']
+        entry = diagnostics['inspected_members'][0]
+        self.assertEqual(entry['zero_wait_status'], 'SIGNALED')
+        self.assertEqual(entry['same_job_verification'], 'CONFIRMED')
+        self.assert_original_terminate_contract(receipt, api)
+
+    def test_configure_diagnostic_binding_and_exception_fidelity(self):
+        # The only two extra Win32 bindings and their declared ABI shapes.
+        class _Declaring:
+            def __init__(self, name):
+                self.name = name
+
+            def __call__(self, *args, **kwargs):
+                return 1
+
+        kernel32 = SimpleNamespace(IsProcessInJob=_Declaring('IsProcessInJob'),
+                                   QueryFullProcessImageNameW=_Declaring(
+                                       'QueryFullProcessImageNameW'))
+        is_in_job, query_image = RUNNER._declare_configure_diagnostic_bindings(kernel32)
+        self.assertIs(is_in_job, kernel32.IsProcessInJob)
+        self.assertIs(query_image, kernel32.QueryFullProcessImageNameW)
+        self.assertEqual(is_in_job.argtypes,
+                         [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)])
+        self.assertIs(is_in_job.restype, ctypes.c_int)
+        self.assertEqual(query_image.argtypes,
+                         [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_wchar_p,
+                          ctypes.POINTER(ctypes.c_uint32)])
+        self.assertIs(query_image.restype, ctypes.c_int)
+        self.assertEqual(ctypes.sizeof(is_in_job.argtypes[0]), ctypes.sizeof(ctypes.c_void_p))
+        self.assertEqual(ctypes.sizeof(is_in_job.argtypes[1]), ctypes.sizeof(ctypes.c_void_p))
+        self.assertEqual(ctypes.sizeof(is_in_job.argtypes[2]), ctypes.sizeof(ctypes.c_void_p))
+        self.assertEqual(ctypes.sizeof(is_in_job.restype), 4)
+        self.assertEqual(ctypes.sizeof(query_image.argtypes[1]), 4)
+        self.assertEqual(ctypes.sizeof(query_image.argtypes[3]), ctypes.sizeof(ctypes.c_void_p))
+
+        # The image query is issued with a character count, never bytes.
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('binding-shape',
+            dict(members=[7001]))
+        diagnostics = receipt['configure_job_diagnostics']
+        entry = diagnostics['inspected_members'][0]
+        self.assertEqual(entry['image_status'], 'OBSERVED')
+        image_calls = [details for call, details in api.calls
+                       if call == 'QueryFullProcessImageNameW']
+        self.assertEqual(len(image_calls), 1)
+        self.assertEqual(image_calls[0]['flags'], 0)
+        self.assertEqual(image_calls[0]['size_wchars'], 4096)
+        in_job_calls = [details for call, details in api.calls if call == 'IsProcessInJob']
+        terminate = next(details for call, details in api.calls if call == 'terminate_job')
+        self.assertEqual(in_job_calls[0]['job'], terminate['job'])
+        self.assert_original_terminate_contract(receipt, api)
+
+        # Normal completion without a terminate request records NOT_REQUESTED.
+        result, error, receipt, api, _ = self.run_diagnostic_subcase('not-requested',
+            dict(active_during_settle=0, members=[]))
+        self.assertIsNone(error)
+        self.assertEqual(receipt['outcome'], 'COMPLETED')
+        diagnostics = receipt['configure_job_diagnostics']
+        self.assertFalse(diagnostics['triggered'])
+        self.assertEqual(diagnostics['status'], 'NOT_REQUESTED')
+        self.assertTrue(diagnostics['observer_ran'])
+        self.assertNotIn('membership_query', diagnostics)
+        self.assertEqual([call for call, _ in api.calls if call == 'terminate_job'], [])
+        self.assertEqual(diagnostics['terminate_forwards'], 0)
+
+        # Only the configure command is wired to the observer (actual runner flow).
+        with self.assertRaisesRegex(RuntimeError, 'build failed with exit 1'):
+            self.run_runner_flow(configure_descendants=False)
+        evidence = self.work / 'evidence'
+        configure_receipt = json.loads((evidence / 'configure.process.json').read_text())
+        self.assertEqual(configure_receipt['outcome'], 'COMPLETED')
+        self.assertEqual(configure_receipt['configure_job_diagnostics']['status'], 'NOT_REQUESTED')
+        for other in ('git-head', 'vswhere', 'git-status', 'cmake-version', 'build'):
+            other_receipt = json.loads((evidence / (other + '.process.json')).read_text())
+            self.assertNotIn('configure_job_diagnostics', other_receipt)
+
+        # An underlying settle query error keeps its original UNPROVEN outcome...
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('settle-query-error',
+            dict(settle_query_error=True, members=[7001]))
+        self.assertEqual(receipt['outcome'], 'UNPROVEN')
+        self.assertEqual(receipt['settle']['status'], 'QUERY_ERROR')
+        diagnostics = receipt['configure_job_diagnostics']
+        self.assertTrue(diagnostics['triggered'])
+        self.assertEqual(diagnostics['membership_query']['returned'], [7001])
+        self.assert_original_terminate_contract(receipt, api)
+
+        # ...and an underlying terminate error is preserved verbatim.
+        _, _, receipt, api, _ = self.run_diagnostic_subcase('terminate-error',
+            dict(terminate_fails=True, members=[7001]))
+        cleanup_errors = receipt['cleanup']['errors']
+        self.assertTrue(cleanup_errors)
+        self.assertEqual(cleanup_errors[0]['function'], 'TerminateJobObject')
+        self.assertEqual(cleanup_errors[0]['win32_error'], 5)
+        self.assertTrue(receipt['configure_job_diagnostics']['triggered'])
+        self.assertFalse(receipt['tree_exit_proven'])
+
+        # TimeoutExpired keeps carrying the receipt with the triggered sample.
+        _, error, receipt, api, _ = self.run_diagnostic_subcase('execution-timeout',
+            dict(wait_never_signals=True, members=[7001], timeout=1.0, poll_seconds=0.1))
+        self.assertIsInstance(error, subprocess.TimeoutExpired)
+        self.assertTrue(receipt['configure_job_diagnostics']['triggered'])
+        self.assertEqual(receipt['termination']['reason'], 'EXECUTION_DEADLINE')
+        self.assert_original_terminate_contract(receipt, api)
+
+        # KeyboardInterrupt and SystemExit keep their original instance.
+        interrupt = KeyboardInterrupt('synthetic interrupt inside the owned wait')
+        _, error, receipt, api, _ = self.run_diagnostic_subcase('keyboard-interrupt',
+            dict(wait_raises=interrupt, members=[7001]))
+        self.assertIs(error, interrupt)
+        self.assertTrue(receipt['configure_job_diagnostics']['triggered'])
+        self.assertEqual(receipt['termination']['reason'], 'INTERRUPTED')
+        self.assert_original_terminate_contract(receipt, api)
+
+        exit_request = SystemExit(7)
+        _, error, receipt, api, _ = self.run_diagnostic_subcase('system-exit',
+            dict(wait_raises=exit_request, members=[7001]))
+        self.assertIs(error, exit_request)
+        self.assertTrue(receipt['configure_job_diagnostics']['triggered'])
+        self.assert_original_terminate_contract(receipt, api)
+
+        # A crashing observer query never replaces the original outcome or forward.
+        def crash():
+            raise RuntimeError('synthetic observer crash inside job_process_ids')
+
+        _, error, receipt, api, _ = self.run_diagnostic_subcase('observer-crash',
+            dict(idlist_failure=crash))
+        self.assertIsNone(error)
+        self.assertEqual(receipt['outcome'], 'FAILED_DESCENDANTS_AFTER_ROOT_EXIT')
+        diagnostics = receipt['configure_job_diagnostics']
+        self.assertEqual(diagnostics['membership_query']['status'], 'QUERY_ERROR')
+        self.assertEqual(diagnostics['membership_query']['error']['type'], 'RuntimeError')
+        self.assert_original_terminate_contract(receipt, api)
+
+        # Honest API-source marking and laziness (plan-final-v8). Explicit
+        # injection reads True with no native library load.
+        with patch.object(ctypes, 'WinDLL',
+                          side_effect=AssertionError(
+                              'WinDLL must not load for an injected observer'), create=True):
+            injected_clock = _DiagnosticFakeClock()
+            injected_api = _ScriptedDiagnosticAPI(dict(members=[7001]), injected_clock)
+            injected_proxy = RUNNER._ConfigureJobDiagnosticsProxy(
+                'configure', underlying=injected_api, clock=injected_clock)
+            self.assertTrue(injected_proxy.is_injected)
+            empty = {}
+            self.assertFalse(injected_proxy.attach_to(empty))
+            self.assertNotIn('configure_job_diagnostics', empty)
+            self.assertFalse(injected_proxy.attach_to(None))
+
+        # The production-shaped lazy proxy: construction itself must neither
+        # materialize the underlying nor load any native library, and the first
+        # source read resolves exactly one cached injected underlying that
+        # every later read reuses. A bare source read never marks the observer
+        # as run, so no diagnostic field is attached.
+        factory_constructions = []
+        factory_instances = []
+
+        class _CountingFactoryAPI(_FlowFakeAPI):  # TEST_DOUBLE factory spy
+            def __init__(self):
+                factory_constructions.append(1)
+                super().__init__()
+                factory_instances.append(self)
+
+        with patch.object(ctypes, 'WinDLL',
+                          side_effect=AssertionError(
+                              'proxy construction must not load WinDLL'), create=True), \
+             patch.object(RUNNER.windows_process, 'Win32ProcessAPI', _CountingFactoryAPI):
+            lazy_proxy = RUNNER._ConfigureJobDiagnosticsProxy('configure',
+                                                              clock=_DiagnosticFakeClock())
+            self.assertEqual(factory_constructions, [],
+                             'proxy construction must not materialize the underlying API')
+            self.assertTrue(lazy_proxy.is_injected)
+            self.assertTrue(lazy_proxy.is_injected)
+            self.assertEqual(len(factory_constructions), 1,
+                             'repeated source reads must reuse one underlying object')
+            self.assertIs(lazy_proxy._require_underlying(), factory_instances[0])
+            source_only = {}
+            self.assertFalse(lazy_proxy.attach_to(source_only),
+                             'a bare source read must not mark the observer as run')
+            self.assertNotIn('configure_job_diagnostics', source_only)
+
+        # The supervisor's first source snapshot already reads the true
+        # underlying: one real run_owned drive through the lazy factory proxy
+        # must label the receipt 'injected' and construct the factory exactly
+        # once.
+        factory_constructions.clear()
+        factory_instances.clear()
+        drive_root = self.root / 'diagnostic-subcases' / 'lazy-provenance-drive'
+        with patch.object(RUNNER.windows_process, 'Win32ProcessAPI', _CountingFactoryAPI):
+            driven_proxy = RUNNER._ConfigureJobDiagnosticsProxy('configure',
+                                                                clock=_DiagnosticFakeClock())
+            driven = windows_process.run_owned([sys.executable, '-c', 'pass'],
+                cwd=str(drive_root), env={'PATH': os.environ.get('PATH', '')},
+                timeout=10.0, spool_root=drive_root / 'owned-spool', command_id='configure',
+                api=driven_proxy, clock=_DiagnosticFakeClock())
+        self.assertEqual(driven.receipt['api_source'], 'injected',
+                         'the supervisor source snapshot must read the actual underlying')
+        self.assertEqual(len(factory_constructions), 1)
+        self.assertIs(driven_proxy._require_underlying(), factory_instances[0])
+
+        # The real API class keeps its native marker; the TEST_DOUBLE false
+        # marker below checks the property contract only — neither value is
+        # ever published as native evidence of a real run.
+        self.assertIs(windows_process.Win32ProcessAPI.is_injected, False)
+
+        class _FalseMarkerUnderlyingTEST_DOUBLE:  # TEST_DOUBLE: contract check only
+            is_injected = False
+
+        false_marker_proxy = RUNNER._ConfigureJobDiagnosticsProxy(
+            'configure', underlying=_FalseMarkerUnderlyingTEST_DOUBLE(),
+            clock=_DiagnosticFakeClock())
+        self.assertFalse(false_marker_proxy.is_injected)
+
+        # An underlying-construction failure raised by the first source read
+        # keeps its original exception instance and escapes before any
+        # supervision state, receipt or fabricated diagnostic exists (the
+        # declared initialization-timing correction of plan-final-v8).
+        initialization_error = windows_process.UnsupportedPlatform(
+            'synthetic pre-created underlying construction failure')
+        failing_calls = []
+
+        class _FailingUnderlyingFactory:  # TEST_DOUBLE factory spy
+            def __call__(self):
+                failing_calls.append(1)
+                raise initialization_error
+
+        failing_proxy = RUNNER._ConfigureJobDiagnosticsProxy('configure',
+                                                             clock=_DiagnosticFakeClock())
+        caught_initialization = None
+        with patch.object(RUNNER.windows_process, 'Win32ProcessAPI',
+                          _FailingUnderlyingFactory()):
+            try:
+                windows_process.run_owned([sys.executable, '-c', 'pass'],
+                    cwd=str(self.root), env={'PATH': os.environ.get('PATH', '')},
+                    timeout=10.0, spool_root=self.root / 'owned-spool-failing',
+                    command_id='configure', api=failing_proxy, clock=_DiagnosticFakeClock())
+            except BaseException as error:
+                caught_initialization = error
+        self.assertIs(caught_initialization, initialization_error,
+                      'the original initialization exception instance must propagate')
+        self.assertIsNone(getattr(caught_initialization, 'process_receipt', None))
+        self.assertEqual(failing_calls, [1])
+        no_diagnostic = {}
+        self.assertFalse(failing_proxy.attach_to(no_diagnostic))
+        self.assertNotIn('configure_job_diagnostics', no_diagnostic)
+
+        # The original real API still refuses unsupported platforms before any
+        # native library load; the proxy does not mask that refusal. (On
+        # native Windows this refusal path does not exist; the supervisor
+        # selfcheck keeps its own platform-conditional refusal case.)
+        if os.name != 'nt':
+            def _windll_spy(*args, **kwargs):
+                raise AssertionError(
+                    'the platform refusal must precede any WinDLL load')
+            with patch.object(ctypes, 'WinDLL', _windll_spy, create=True):
+                refusal_proxy = RUNNER._ConfigureJobDiagnosticsProxy('configure',
+                                                                     clock=_DiagnosticFakeClock())
+                refused = None
+                try:
+                    refusal_proxy.is_injected
+                except windows_process.UnsupportedPlatform as error:
+                    refused = error
+            self.assertIsNotNone(refused,
+                                 'the real API must keep refusing unsupported platforms')
+
+
 def ordinary_windows11():
     return dict(os_major=10, os_build=26100, os_product_type=1, native_machine=0x8664,
         process_machine=0, python_pointer_bytes=8, token_elevated=0, token_elevation_type=1,

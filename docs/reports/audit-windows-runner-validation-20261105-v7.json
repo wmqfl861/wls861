@@ -1,0 +1,149 @@
+{
+  "schema": "audit-windows-runner-validation-v7",
+  "report_version": 7,
+  "generated_at_utc": "2026-11-06T00:54:06+00:00",
+  "generated_at_status": "tool clock at write time; not independently verified",
+  "plan_binding": {
+    "plan_file": "plan-final-v8 (private planning record; plan numbering independent of report version)",
+    "scope": "follow-up public correction to v6 and implementation-06 plus this batch's targeted API-provenance source fix; not a native run, not a configure fix, not survivor identification"
+  },
+  "v6_pair_preserved": {
+    "docs/reports/audit-windows-runner-validation-20261105-v6.md": "03e76c835824813efd5f1bc95e25d4336f8ec5b435bdd86822e218a1b288b92a",
+    "docs/reports/audit-windows-runner-validation-20261105-v6.json": "43a30944271480ae71a9271ed3e1d42e48fb6144b606763cc14dfc9dd6f80f7e",
+    "correction_precedence": "v6 records its generation-time state; this v7 pair corrects conflicting statements without editing v6"
+  },
+  "public_corrections": [
+    {
+      "id": "C7-1",
+      "issue": "command receipt count",
+      "actual": 9,
+      "implementation_06_response_claim": 8,
+      "disposition": "originals retained unchanged"
+    },
+    {
+      "id": "C7-2",
+      "issue": "missing per-command before state",
+      "actual": "all 9 historical head_before/porcelain_before are null; only a session-level before manifest and per-command after bytes exist",
+      "v6_overstatement": "v6 section 3 claimed raw unstripped porcelain bytes around every command",
+      "disposition": "corrected here; identical first/last/after snapshots prove neither the missing befores nor absence of interim changes; no backfill"
+    },
+    {
+      "id": "C7-3",
+      "issue": "interpreter identity",
+      "actual": {"path": "python3", "version": "Python 3.12.3", "sha256": null, "version_probe_timing": "after the command"},
+      "implementation_06_response_claim": "/usr/bin/python3 identity with binary SHA",
+      "additional": "watched_sources_at_run hashes were likewise captured after each command, not an independent pre-execution source capture",
+      "disposition": "historical resolved executable and binary hash remain UNKNOWN; not substituted with today's measurements"
+    },
+    {
+      "id": "C7-4",
+      "issue": "api_source mislabel",
+      "actual": "the retained implementation-06 synthetic configure receipt read api_source=native-win32 at both the top level and configure_job_diagnostics while the actually used underlying was the injected _FlowFakeAPI (is_injected=true)",
+      "cause": "the runner proxy froze is_injected from the constructor argument (underlying=None on the runner wiring) before the lazy factory created the real underlying",
+      "disposition": "fixed in this batch (source change), not merely disclosed"
+    }
+  ],
+  "source_change_this_batch": {
+    "platform/native-foundation/tools/run_windows_ci.py": {
+      "sha256_after": "8c3b71f2f4317d2690355b31276bd29e020b1749c1a0ecf41d960ce4a1c39b3f",
+      "sha256_baseline": "24bf18ddf2a08ee81ec3bd549a0a569550227f1a08833ed9afccad73703408e7",
+      "design": "constructor-time frozen is_injected removed; read-only is_injected property resolves the actual underlying through the existing _require_underlying lazy cache with the original missing-attribute False default",
+      "snapshot_timing": "run_owned reads api.is_injected before create_job, so the first source read materializes the actual underlying and reports it truthfully (explicit and lazy-factory injected read injected; the real Win32ProcessAPI keeps is_injected=False / native-win32)",
+      "laziness": "import and construction materialize nothing and load no WinDLL; at most one successful underlying construction, reused by every later read and operation; a bare source read never marks the observer as run or attaches fields",
+      "initialization_timing_correction_declared": "materialization moved earlier, from create_job inside the run_owned try block to the pre-try supervisor source snapshot, matching the original unproxied run_owned; an underlying-construction failure keeps its original exception type/instance, escapes with no process_receipt and no fabricated diagnostic",
+      "other_semantics_unchanged": ["one shared clock object", "200 ms cooperative budget inside the unchanged 5 s cleanup window", "64/8/4096 limits", "same-Job and same-handle re-verification", "single original terminate forward with original exceptions", "optional configure_job_diagnostics field: missing reads NOT_COLLECTED; NOT_REQUESTED only when the observer ran un-triggered", "non-configure entries unwired", "deadlines 180/1/5 seconds unchanged"]
+    },
+    "platform/native-foundation/tools/test_windows_ci_evidence.py": {
+      "sha256_after": "37ebc029f006c278bd1b0e6cfab13230eed05e4ea90e153328da09857e767cf9",
+      "sha256_before": "79861e51aaa4dab42da8237e7cd9fc7f5534684fbf67d31a190292bada5a2cc1",
+      "changes": "only the existing three ConfigureJobDiagnosticsChecks methods; 34 runner methods total unchanged; no new top-level methods",
+      "configure_flow_check": "asserts the top-level and diagnostic api_source pair reads injected with a self-identifying provenance-mislabel message carrying both actual values",
+      "binding_exception_check": ["explicit injection reads True", "construction neither materializes the underlying nor loads WinDLL (factory and WinDLL spies)", "first source read resolves exactly one cached injected underlying reused by later reads", "a real run_owned drive through the lazy factory labels the receipt injected at the supervisor snapshot with exactly one factory construction", "a bare source read does not run the observer or attach fields", "real API class False convention and a labeled TEST_DOUBLE false-marker checked as synthetic property-contract facts only", "identical pre-created initialization exception instance propagates with no process_receipt and no fabricated diagnostic", "original unsupported-platform refusal before any WinDLL load (platform-conditional)"],
+      "deleted_assertion": "the old requirement that an unmaterialized production-shaped proxy reads is_injected False, replaced by the construction-does-not-materialize check"
+    }
+  },
+  "targeted_validation_this_batch": {
+    "evidence_root": "validation-configure-provenance-01 (private local evidence)",
+    "capture_contract": "helper frozen before first use and bound by path/hash in every receipt; before the command starts: resolved absolute interpreter, binary sha256, version probe, full raw HEAD and unstripped porcelain, watched source hashes; the same identities captured again after exit; failed before capture aborts the command",
+    "command_count": 2,
+    "red": {
+      "command": "20261106T005152-133984-red-attempt-01-red-runner-synthetic",
+      "method": "ConfigureJobDiagnosticsChecks.test_configure_cleanup_member_observation",
+      "runner_sha256": "24bf18ddf2a08ee81ec3bd549a0a569550227f1a08833ed9afccad73703408e7",
+      "oracle_sha256": "37ebc029f006c278bd1b0e6cfab13230eed05e4ea90e153328da09857e767cf9",
+      "result": "1 ran, 1 failure, 0 errors; exit 1",
+      "red_class": "BEHAVIORAL",
+      "failure_message": "provenance mislabel: top-level api_source=native-win32; configure_job_diagnostics.api_source=native-win32",
+      "behavioral_context": "root exit 0, settle EXPIRED, TerminateJobObject forwarded once and succeeded, cleanup PROVEN_ZERO, outcome FAILED_DESCENDANTS_AFTER_ROOT_EXIT, membership SUCCESS [7001, 7002, 7003]"
+    },
+    "green": {
+      "command": "20261106T005328-333157-green-green-01-green-runner-synthetic",
+      "methods": [
+        "ConfigureJobDiagnosticsChecks.test_configure_cleanup_member_observation",
+        "ConfigureJobDiagnosticsChecks.test_configure_diagnostic_partial_and_bounds",
+        "ConfigureJobDiagnosticsChecks.test_configure_diagnostic_binding_and_exception_fidelity",
+        "WindowsEvidence.test_owned_supervision_boundary_covers_all_command_entry_classes"
+      ],
+      "result": "4 ran, 4 passed; exit 0",
+      "runner_sha256": "8c3b71f2f4317d2690355b31276bd29e020b1749c1a0ecf41d960ce4a1c39b3f",
+      "test_file_sha256": "37ebc029f006c278bd1b0e6cfab13230eed05e4ea90e153328da09857e767cf9",
+      "test_file_red_green_identity_diff_bytes": 0,
+      "green_receipt_provenance": {"top_level_api_source": "injected", "configure_job_diagnostics_api_source": "injected"}
+    },
+    "unrun_complement": {
+      "runner_methods_rerun": 4,
+      "runner_methods_total": 34,
+      "runner_methods_not_rerun": 30,
+      "other_suites_not_rerun_this_batch": {"supervisor": 20, "image": 17, "bundle": 6},
+      "historical_status": "implementation-06's 20/34/17/6 remain historical results of those sources"
+    },
+    "coverage_roles": {
+      "binding_method_spies": "direct laziness/no-WinDLL-load evidence",
+      "entry_method": "entry-level regression protection only; stubs run_owned, not independent direct WinDLL evidence",
+      "native_marker_property_checks": "synthetic contract validation, never native evidence"
+    },
+    "batch_deviation_preserved": "frozen snapshot-before-v1.py contained seven mistyped transcribed protected hashes; its own mismatch check aborted before any validation command ran; an independent programmatic comparison confirmed all 26 protected files byte-identical on disk; snapshot-before-v2.py reads the record programmatically; the defective helper and its failed manifest are preserved unchanged"
+  },
+  "native_status_carried_forward": {
+    "runs": [
+      {"run_id": 42093312173, "event": "push", "attempt": 1, "checkout": "2f22823a0794ceec7dd2f330fa64f3d6511b5c29"},
+      {"run_id": 42093324882, "event": "pull_request", "attempt": 1, "checkout": "70a919887a5fbba6605465b6abf63422357ac519", "same_tree": "2a0909ea8d9c99d7c037e6a5a3b6a64dac7e5e44"}
+    ],
+    "native_selfcheck": "11/11 PASS in both runs",
+    "step9": "failure in both runs; steps 4-8 success; step10 retained artifacts",
+    "configure_outcome": "FAILED_DESCENDANTS_AFTER_ROOT_EXIT with root exit 0, settle EXPIRED, TerminateJobObject success, same-Job ActiveProcesses==0 after termination, cleanup PROVEN_ZERO, tree_exit_proven=true",
+    "survivor_cause": "UNKNOWN",
+    "product_not_started": ["build", "ctest", "install", "host-capabilities", "detached"],
+    "corrected_diagnostic_on_real_windows": "PENDING future natural CI; un-triggered reads NOT_REQUESTED; missing field reads NOT_COLLECTED",
+    "behavioral_remedy_applied": false,
+    "configure_fixed": false
+  },
+  "preserved_disclosures": [
+    "H6-1 result aggregate is a pre-finalization projection",
+    "H6-2 historical report timestamps nominal",
+    "H6-4 malformed README hash excluded from identity evidence",
+    "D03-1..4 and D04-1..7 process facts remain open",
+    "hard-review-04 per-receipt disclosure limitation",
+    "implementation-05 attempt-1 oracle defect, session sidecar, frozen private __pycache__",
+    "implementation-06 three numbered oracle/runner repair attempts, all preserved",
+    "the four implementation-06 evidence gaps corrected here are permanent; originals never rewritten or backfilled",
+    "this batch's helper-transcription deviation"
+  ],
+  "release_states": {
+    "IMPLEMENTATION_COMPLETE": "this batch's source changes only (local, uncommitted)",
+    "LOCAL_VALIDATION_COMPLETE": "the targeted set only: 1-method BEHAVIORAL RED plus 4-method GREEN under the identical whole test file",
+    "PUSH_COMPLETE": false,
+    "REMOTE_CI_COMPLETE": false,
+    "PR_REVIEW_COMPLETE": false,
+    "MERGED": false
+  },
+  "standing_states": {
+    "windows_11_ordinary_user_ntfs": "NOT_RUN",
+    "image_conflict": "UNRESOLVED",
+    "private_original_hosting": "BLOCKED",
+    "full_native_runtime": "NOT_IMPLEMENTED",
+    "historical_clang_live_workflow": "open with the coordinator"
+  },
+  "engineering_model_requests": "recorded by stage entry receipts (implementation-06: 62; hard-review-06: 4; this batch: its own stage receipt; unknown stays unknown)",
+  "contains_private_absolute_paths_or_credentials": false
+}
