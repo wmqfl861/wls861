@@ -1,0 +1,319 @@
+{
+  "_projection": {
+    "nature": "REDACTED_HISTORICAL_REPORT_NOT_CURRENT_ACCEPTANCE",
+    "not_exact_copy": true,
+    "original_retained_locally_not_in_git": true,
+    "projected_at": "2026-11-06T10:21:09Z",
+    "original": {
+      "workspace_head": "9cd526130609a8eb0187f1ee65cf0b28aa4e182c",
+      "branch": "fix/n5-windows-evidence-20261104-_7wxnkyn",
+      "relative_path": "docs/reports/n5-windows-evidence-continuation-20261104-v1.json",
+      "bytes": 11197,
+      "sha256": "ad2b86f8d7e8e6b4e56ba2b0be834d32635c8c58f7257201e9e9e9d1231aebc6"
+    },
+    "redaction_categories": [
+      "absolute local workspace/evidence-root paths",
+      "local task plan / version-record / plan-review references",
+      "internal session identifiers"
+    ],
+    "fields_transformed": [
+      "plan_sha256 (local task plan/record reference removed)",
+      "planner_record_sha256 (local task plan/record reference removed)"
+    ],
+    "historical_qualification": "The later correction report n5-windows-evidence-correction-20261105-v3 (PR #39 branch) qualifies this continuation's defect assessment; the latest two native runs of that later branch fail at configure. Not current acceptance."
+  },
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-04T13:30:00Z",
+  "classification": "PUBLIC_SAFE_EVIDENCE_INDEX_PRIVATE_RAW_FILES_NOT_PUBLISHED",
+  "report": "docs/reports/n5-windows-evidence-continuation-20261104-v1.md",
+  "baseline_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+  "baseline_pr": {
+    "number": 32,
+    "state": "open",
+    "draft": true,
+    "base": "f15bf1a944a1ea5f6b9e5e9696b921caa48f04cc (PR #31)"
+  },
+  "verification_session": {
+    "remote_requests": 0,
+    "ci_reruns": 0,
+    "archived_code_executed": false,
+    "product_builds": 0,
+    "private_files_rehashed": 311,
+    "private_files_mismatched": 0
+  },
+  "run_rows": [
+    {
+      "id": "cont-20261104-row-1",
+      "group": "historical",
+      "event": "push",
+      "run_id": 41416271880,
+      "job_id": 125180768812,
+      "attempt": 1,
+      "workflow_job_key": "native-foundation",
+      "branch_head": "aa2c592b8aed6509189710cc6f6d69e0959098a8",
+      "checkout": "aa2c592b8aed6509189710cc6f6d69e0959098a8",
+      "artifact_id": 13127478417,
+      "method_count": 27,
+      "suite_count": 4,
+      "binding_status": "MATCHED_SAVED_SAME_JOB_EVIDENCE",
+      "comparator_exit": 1,
+      "image_identity": "UNRESOLVED",
+      "machine_registry": "NOT_COLLECTED"
+    },
+    {
+      "id": "cont-20261104-row-2",
+      "group": "historical",
+      "event": "pull_request",
+      "run_id": 41416279414,
+      "job_id": 125180794615,
+      "attempt": 1,
+      "workflow_job_key": "native-foundation",
+      "branch_head": "aa2c592b8aed6509189710cc6f6d69e0959098a8",
+      "checkout": "ecc2d4b9b9ad1f49b84bbb813926912007c3046a",
+      "artifact_id": 13127278219,
+      "method_count": 27,
+      "suite_count": 4,
+      "binding_status": "MATCHED_SAVED_SAME_JOB_EVIDENCE",
+      "comparator_exit": 1,
+      "image_identity": "UNRESOLVED",
+      "machine_registry": "NOT_COLLECTED"
+    },
+    {
+      "id": "cont-20261104-row-3",
+      "group": "module-pr28",
+      "event": "push",
+      "run_id": 41591301054,
+      "job_id": 125768414375,
+      "attempt": 1,
+      "workflow_job_key": "native-foundation",
+      "branch_head": "8ec950f7ffbf7ece0d9192abc31a60f1c1aa2c29",
+      "checkout": "8ec950f7ffbf7ece0d9192abc31a60f1c1aa2c29",
+      "artifact_id": 13209843688,
+      "method_count": 34,
+      "suite_count": 5,
+      "lasttest_sha256": "602d427901f4ecfedeeaf6deb1a4e02397029686edf25348ebadcea9846430d2",
+      "junit_sha256": "5c3fa302bee6797a6b0978a733a096c8422f229e909b40742298cc245dc8f743",
+      "binding_status": "MATCHED_SAVED_SAME_JOB_EVIDENCE",
+      "comparator_exit": 1,
+      "image_identity": "UNRESOLVED",
+      "machine_registry": {
+        "ImageOS": "win22",
+        "ImageVersion": "20261026.347.1"
+      }
+    },
+    {
+      "id": "cont-20261104-row-4",
+      "group": "module-pr28",
+      "event": "pull_request",
+      "run_id": 41591416087,
+      "job_id": 125768769642,
+      "attempt": 1,
+      "workflow_job_key": "native-foundation",
+      "branch_head": "8ec950f7ffbf7ece0d9192abc31a60f1c1aa2c29",
+      "checkout": "349464b4bbb873a9fdca19dc4a4ab49b323f4d9e",
+      "merge_parents": [
+        "c2a5cea64aeea261b214cdfd9a968b53f491110a",
+        "8ec950f7ffbf7ece0d9192abc31a60f1c1aa2c29"
+      ],
+      "tree_same_as_head": true,
+      "artifact_id": 13209958713,
+      "method_count": 34,
+      "suite_count": 5,
+      "lasttest_sha256": "97e33a1fb36a0d6c0208a37a809a3327061a5b4fac1cb845b836256d317342f1",
+      "junit_sha256": "774060c913cddaf35e5daa1530f4736d2394770a68b59376f36c9da11cbc016a",
+      "binding_status": "MATCHED_SAVED_SAME_JOB_EVIDENCE",
+      "comparator_exit": 1,
+      "image_identity": "UNRESOLVED",
+      "machine_registry": {
+        "ImageOS": "win22",
+        "ImageVersion": "20261026.347.1"
+      }
+    },
+    {
+      "id": "cont-20261104-row-5",
+      "group": "integrated-pr31",
+      "event": "push",
+      "run_id": 41593459570,
+      "job_id": 125775278062,
+      "attempt": 1,
+      "workflow_job_key": "native-foundation",
+      "branch_head": "f15bf1a944a1ea5f6b9e5e9696b921caa48f04cc",
+      "checkout": "f15bf1a944a1ea5f6b9e5e9696b921caa48f04cc",
+      "artifact_id": 13211262916,
+      "method_count": 34,
+      "suite_count": 5,
+      "lasttest_sha256": "28352f775f0c9bbd79d1d45a7f2256543ba28d367cce3a53e983cb6c1348b346",
+      "junit_sha256": "6f8130b35a54032f257014f1c7f1dc5e3f117fc0108794fa6df5d3ac9e334d8b",
+      "binding_status": "MATCHED_SAVED_SAME_JOB_EVIDENCE",
+      "comparator_exit": 1,
+      "image_identity": "UNRESOLVED",
+      "machine_registry": {
+        "ImageOS": "win22",
+        "ImageVersion": "20261026.347.1"
+      }
+    },
+    {
+      "id": "cont-20261104-row-6",
+      "group": "integrated-pr31",
+      "event": "pull_request",
+      "run_id": 41593557500,
+      "job_id": 125775579900,
+      "attempt": 1,
+      "workflow_job_key": "native-foundation",
+      "branch_head": "f15bf1a944a1ea5f6b9e5e9696b921caa48f04cc",
+      "checkout": "a400da93f2bfcfacbf1dd7d937256bdeed21b2bd",
+      "merge_parents": [
+        "c2a5cea64aeea261b214cdfd9a968b53f491110a",
+        "f15bf1a944a1ea5f6b9e5e9696b921caa48f04cc"
+      ],
+      "tree_same_as_head": true,
+      "artifact_id": 13210704974,
+      "method_count": 34,
+      "suite_count": 5,
+      "lasttest_sha256": "0aa1972a747a98d06261247152fb61370841385ae87648da5ca3a86c7d72a358",
+      "junit_sha256": "61bebb580fbb60aab931140b189e0d478aba73b4f6ba961cb1dc27219e0df20d",
+      "binding_status": "MATCHED_SAVED_SAME_JOB_EVIDENCE",
+      "comparator_exit": 1,
+      "image_identity": "UNRESOLVED",
+      "machine_registry": {
+        "ImageOS": "win22",
+        "ImageVersion": "20261026.347.1"
+      }
+    },
+    {
+      "id": "cont-20261104-row-7",
+      "group": "candidate-pr32",
+      "event": "push",
+      "run_id": 41598903763,
+      "job_id": 125792707157,
+      "attempt": 1,
+      "workflow_job_key": "native-foundation",
+      "branch_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+      "checkout": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+      "artifact_id": 13214190750,
+      "method_count": 34,
+      "suite_count": 5,
+      "lasttest_sha256": "a4ca05218dbe39f41d705bf1ecd43981aa37390fffb975f16cb48486655e7041",
+      "junit_sha256": "408bab0d74ab5074b9124e7a9122df1a3d5981888489d9a47149ce61da1c2252",
+      "binding_status": "MATCHED_SAVED_SAME_JOB_EVIDENCE",
+      "comparator_exit": 1,
+      "image_identity": "UNRESOLVED",
+      "machine_registry": {
+        "ImageOS": "win22",
+        "ImageVersion": "20261026.347.1"
+      }
+    },
+    {
+      "id": "cont-20261104-row-8",
+      "group": "candidate-pr32",
+      "event": "pull_request",
+      "run_id": 41599060437,
+      "job_id": 125793198983,
+      "attempt": 1,
+      "workflow_job_key": "native-foundation",
+      "branch_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+      "checkout": "8390b9787296800be2cc886b25a53acb60c31aea",
+      "merge_parents": [
+        "f15bf1a944a1ea5f6b9e5e9696b921caa48f04cc",
+        "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123"
+      ],
+      "merge_tree": "6dab0e33e7ec9d05c32a65649ce9dfe086285282",
+      "tree_same_as_head": true,
+      "artifact_id": 13212864958,
+      "method_count": 34,
+      "suite_count": 5,
+      "lasttest_sha256": "c8349f289a9ff88fc7f6bc754646688886afde12eec3cf73fa928799ecf4f6cf",
+      "junit_sha256": "e8ee2653f8444f6380430150b8cc5b0f825d93bfb6c6f33c03366f302f9a9fbc",
+      "binding_status": "MATCHED_SAVED_SAME_JOB_EVIDENCE",
+      "comparator_exit": 1,
+      "image_identity": "UNRESOLVED",
+      "machine_registry": {
+        "ImageOS": "win22",
+        "ImageVersion": "20261026.347.1"
+      }
+    }
+  ],
+  "image_source_conclusion": {
+    "header_version_all_rows": "20261025.346.1",
+    "process_environment_all_rows": "ImageOS=win22, ImageVersion=20261026.347.1",
+    "registry_rows_3_to_8": "ImageOS=win22, ImageVersion=20261026.347.1 (separate query-only named capture)",
+    "registry_rows_1_to_2": "NOT_COLLECTED",
+    "process_equals_registry": "CONSISTENT_OBSERVATIONS_NOT_HOST_ATTESTATION",
+    "preferred_source": null,
+    "causal_root": "NOT_ESTABLISHED",
+    "exact_runner_image_identity": "UNRESOLVED",
+    "generation_paths_established_from_pinned_upstream_sources": "runner 2.338.2 prints header from .setup_info (imagedata from Configure-ImageDataFile.ps1); Configure-SystemEnvironment.ps1 sets machine registry and process environment; header-version tag query returned HTTP 404 (retained)",
+    "missing_causal_originals": [
+      "historical VM .setup_info NOT_CAPTURED",
+      "historical provisioning record NOT_CAPTURED",
+      "historical machine registry NOT_COLLECTED"
+    ]
+  },
+  "method_completeness": {
+    "rows_3_to_8": 34,
+    "breakdown": {
+      "native_modules": 3,
+      "native_platform": 4,
+      "native_cli": 14,
+      "native_bundle_capture": 6,
+      "native_readonly": "absent at that input"
+    },
+    "rows_1_to_2": 27,
+    "counting_rule": "C++ PASS lines + Python unittest ok lines recomputed from raw LastTest; equal in-archive registry on all rows; five green suites never substituted for method output",
+    "linux_native_30_methods_different_input_not_cross_filled": true,
+    "all_rows_terminal_state": "completed PASS; failure/timeout/interrupted retention not claimed"
+  },
+  "readonly_coverage_summary": {
+    "rows_total": 17,
+    "PORTABLE_EXECUTED": 3,
+    "WINDOWS_SERVER_COMPONENT_EXECUTED": 10,
+    "SOURCE_ONLY": 3,
+    "WINDOWS11_NOT_RUN": 1,
+    "distinct_admin_protections": "shared preflight S-1-5-32-544 owner/writer trust rejection (portable) separate from ordinary_token elevated-caller rejection (entry executed on Server; full profile source-only pending ordinary token)",
+    "deployment_limitation_retained": "default NTFS Administrators ancestor grants can refuse complete root capture; no host ACL/trusted_sids/assertion weakened",
+    "gaps_for_owner_routing": [
+      "ordinary-token full profile and policy-bound root chain need Windows 11 ordinary non-elevated machine with frozen build/MSVC/SDK/NTFS/SID inputs",
+      "no executed negative sample for ancestor-directory replacement race or mid-capture token LUID change"
+    ]
+  },
+  "defect_assessment": {
+    "code_change_required": false,
+    "deterministic_red": "NOT_APPLICABLE",
+    "tool_selfchecks_rerun": false,
+    "saved_selfcheck_results_retained": {
+      "runner_tool_methods": 27,
+      "provenance_tool_methods": 17
+    }
+  },
+  "states": {
+    "IMPLEMENTATION_COMPLETE": "true (limited evidence-continuation scope)",
+    "LOCAL_VALIDATION_COMPLETE": "false",
+    "PUSH_COMPLETE": "false at report freeze",
+    "REMOTE_CI_COMPLETE": "true for frozen head 3a872558 per saved PR #32 rollup receipts (captured 2026-11-03); not inherited by new files",
+    "PR_REVIEW_COMPLETE": "false",
+    "MERGED": "false"
+  },
+  "retained_open": [
+    "image source conflict UNRESOLVED",
+    "Windows 11 ordinary-user acceptance NOT_RUN",
+    "restricted private original hosting BLOCKED",
+    "historical local sanitizer and compatibility items owned by other directions"
+  ],
+  "private_evidence_identifiers": [
+    "windows-final-handoff-01.json",
+    "windows-original-conflict-recheck-01",
+    "windows-official-source-01/INDEX.json",
+    "windows-remote-native-02",
+    "windows-integrated-remote-native-01",
+    "future-candidate-collection-tools-01",
+    "stop-gate-windows-readback-handoff-01.json",
+    "implementation-01/w0-baseline-snapshot.json",
+    "implementation-01/w0-evidence-inventory-before.json",
+    "implementation-01/w1-image-chain-verification.json",
+    "implementation-01/w2-archive-method-verification.json",
+    "implementation-01/w3-readonly-coverage.json",
+    "implementation-01/w4-end-snapshot.json",
+    "implementation-01/implement-summary.json"
+  ],
+  "no_private_paths_no_raw_logs_no_credentials_in_this_index": true
+}

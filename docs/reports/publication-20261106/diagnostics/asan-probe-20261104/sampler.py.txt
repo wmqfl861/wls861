@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""S3 passive sampler: 0.5s /proc snapshots of the probe's own process tree.
+
+Read-only /proc observation (stat/state/wchan/syscall/exe) for processes in
+the ctest subtree; no ptrace, no environment or credential readback."""
+import json, os, sys, time
+
+root_pid = int(sys.argv[1])
+out_path = sys.argv[2]
+interval = 0.5
+deadline = time.monotonic() + 420  # bounded: both 180s registrations + margin
+
+def stat_of(pid):
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            raw = f.read()
+        end = raw.rfind(")")
+        head = raw[:end]; tail = raw[end + 2:].split()
+        return {"pid": pid, "comm": head[head.find("(") + 1:end], "state": tail[0],
+                "ppid": int(tail[1]), "start_ticks": int(tail[19]),
+                "utime": int(tail[11]), "stime": int(tail[12]), "threads": int(tail[17])}
+    except (OSError, ValueError, IndexError):
+        return None
+
+def small(pid, name):
+    try:
+        with open(f"/proc/{pid}/{name}") as f:
+            return f.read()[:256]
+    except OSError:
+        return "UNAVAILABLE"
+
+rows_out = open(out_path, "x", encoding="utf-8")
+os.chmod(out_path, 0o600)
+try:
+    while time.monotonic() < deadline:
+        table = {}
+        for entry in os.listdir("/proc"):
+            if entry.isdigit():
+                row = stat_of(int(entry))
+                if row and row["ppid"] in table or row and row["pid"] == root_pid:
+                    pass
+                if row:
+                    table[int(entry)] = row
+        owned = {root_pid}
+        while True:
+            grown = owned | {p for p, r in table.items() if r["ppid"] in owned}
+            if grown == owned:
+                break
+            owned = grown
+        sample = []
+        for pid in sorted(owned):
+            row = table.get(pid)
+            if not row or pid == root_pid and pid not in owned:
+                continue
+            row = dict(row)
+            row["wchan"] = small(pid, "wchan").strip()
+            row["syscall"] = small(pid, "syscall").strip()
+            try:
+                row["exe"] = os.readlink(f"/proc/{pid}/exe")
+            except OSError:
+                row["exe"] = "UNAVAILABLE"
+            sample.append(row)
+        rows_out.write(json.dumps({"at": time.time(), "monotonic": time.monotonic(),
+                                   "processes": sample}) + "\n")
+        rows_out.flush()
+        # stop once the ctest root is gone
+        if stat_of(root_pid) is None:
+            time.sleep(2)
+            break
+        time.sleep(interval)
+finally:
+    rows_out.close()

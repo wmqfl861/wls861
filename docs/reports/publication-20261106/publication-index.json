@@ -1,0 +1,1267 @@
+{
+  "schema": "wls861-publication-backfill-index-20261106-v1",
+  "generated_at": "2026-11-06T10:58:14Z",
+  "nature": "Publication backfill index: existing-work publication only. Not new validation, not new fixes, not acceptance. Engineering conclusion of the backfill task itself: PUBLICATION_READY, subject to the separate independent hard review and the root publishing step.",
+  "baseline": {
+    "branch": "docs/publication-backfill-corrected-20261106-vwxs6crc",
+    "head": "a90d96fc3e47ecb6397e07fd926bcb7e874f90a5",
+    "tree": "56f8be2665b10686a2f11f65f1acaf8c417c112a"
+  },
+  "branch_inventory_summary": {
+    "local_branches": 61,
+    "without_same_named_remote": 18,
+    "tips_not_origin_reachable": 9,
+    "unpublished_commit_identities": 19,
+    "note": "counts recomputed read-only during implementation and equal to the frozen inventory"
+  },
+  "commit_patch_equivalence": {
+    "note": "Stable patch-id equality is contextual evidence that each increment already has a historical integration counterpart on the remote. It is not commit/source-snapshot equivalence, not acceptance, and not credit for 19 new fixes.",
+    "rows": [
+      {
+        "commit": "392040107362d89bccc3b03139ec2340129edbe3",
+        "subject": "Add local private validation evidence capture and bundles",
+        "stable_patch_id": "76241e77807abdba29a5ce766021b958438ed48c",
+        "origin_peer": "4c6377e09fd7b5c4b957ad1a6c6149c702e4770c",
+        "origin_peer_subject": "Add local private validation evidence capture and bundles",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "e23f5d13385b3512d857be34b6003a782965979e",
+        "subject": "test: normalize Windows image capture fixture paths",
+        "stable_patch_id": "5ff72e185e007f07199e8568a14c0a012cc3d48f",
+        "origin_peer": "b58f7b0e63ad68f67f124eddd303825ade817791",
+        "origin_peer_subject": "test: normalize Windows image capture fixture paths",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "6f20bf8aff74114d060dfa38f2fee6f76e5c0298",
+        "subject": "fix: preserve checked CTest failure status projections",
+        "stable_patch_id": "2f020950e08bdb5236aed3157fa3dc732d1ee62d",
+        "origin_peer": "7bf3a16d9683ed6a8de65d88023bae9687abd20d",
+        "origin_peer_subject": "fix: preserve checked CTest failure status projections",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "bdc35045d899c2579bc84ad2ef9f75c2620749f8",
+        "subject": "docs: record focused N1 diagnostics and preserved open failures",
+        "stable_patch_id": "1ec1dd8774c62fcf6710d675a285e7fbecd087d0",
+        "origin_peer": "13eff8a23d6b0b4c2e4f3835c01f4f117b8bd126",
+        "origin_peer_subject": "docs: record focused N1 diagnostics and preserved open failures",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "8eadf8df31320db6dea56de5377acaeedad47243",
+        "subject": "fix: retain failure receipts when public quarantine fails",
+        "stable_patch_id": "0dbdae81bd777f3446e2889dcbd97e2b35e209d0",
+        "origin_peer": "f959f33c8b0c2ed9ca5ab6c6c4e94c7a1cf632da",
+        "origin_peer_subject": "fix: retain failure receipts when public quarantine fails",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "d9eb6e8983775fb7874a3181910cb6b3b4f7ec62",
+        "subject": "fix: reject hidden syntax in public JSON and XML evidence",
+        "stable_patch_id": "42c7d58696931c6451afaa25f389c8a3234afd54",
+        "origin_peer": "db536dad6ab75d4f67ce4f2f84be30ef67e14873",
+        "origin_peer_subject": "fix: reject hidden syntax in public JSON and XML evidence",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "47451537f1d7cc8d19a953777eb072fe2171ad68",
+        "subject": "fix: finalize validation receipts only after checked publication",
+        "stable_patch_id": "dde3431b00f00988e02f964625804aa13a342d6c",
+        "origin_peer": "a79597a396e46e20aba4079005b0e673893b3638",
+        "origin_peer_subject": "fix: finalize validation receipts only after checked publication",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "756946d2a812de3d3a22d800beb244e943c7f47e",
+        "subject": "test: compare SSE evidence hashes through the JSON string accessor",
+        "stable_patch_id": "4d3e428ed3f442fedfaa514eb45c3ec6512ab30d",
+        "origin_peer": "abd880e10711c13c90e9a9de22b530d740abd9c1",
+        "origin_peer_subject": "test: compare SSE evidence hashes through the JSON string accessor",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "79c268e58721270e1f0bba9e304daf3bf9f84a80",
+        "subject": "docs: distinguish hosted projections from durable private originals",
+        "stable_patch_id": "877066a42f4def7ee008e361b371ebd29fe8bc1a",
+        "origin_peer": "81a7e00f5b6e95d9db19d736945f6f3167194b63",
+        "origin_peer_subject": "docs: distinguish hosted projections from durable private originals",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "e132b98c3a6ec29268bbd6a260c05f1106964d2c",
+        "subject": "docs: record N2 targeted Release regression results",
+        "stable_patch_id": "07f62a7bb5a9481365b24b04821cdd66b00dabab",
+        "origin_peer": "5014e139c5771d37391e7b29493e4e36dafffb9c",
+        "origin_peer_subject": "docs: record N2 targeted Release regression results",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "2ff3b759469152d20ceb4a45a120f699189c4ee0",
+        "subject": "perf: allocate SSE limit messages only on rejection",
+        "stable_patch_id": "757c36f9856f619870974d706feb88cb46fdbe83",
+        "origin_peer": "4f37ef367439750cf93dcd3e833e539a2026febd",
+        "origin_peer_subject": "perf: allocate SSE limit messages only on rejection",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "97cf68a1ce92823be303a2246ec95da85e5d0245",
+        "subject": "fix: retain complete private CTest evidence and publish checked projections",
+        "stable_patch_id": "1a2441a5188119079ef64f63a771f463a92f14c2",
+        "origin_peer": "51a4548980869ee9632211f6ebe56eafa4fe2962",
+        "origin_peer_subject": "fix: retain complete private CTest evidence and publish checked projections",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "78faa75f998da709e55d2f14c2c0f25229469120",
+        "subject": "docs: define proposed async inbox DAG and Windows follow-up cards",
+        "stable_patch_id": "669bb12ba541e12b10dc6a36a889e0c1755c7407",
+        "origin_peer": "4e433ac6fd4629b2e212fca49eedba6242c28ad6",
+        "origin_peer_subject": "docs: define proposed async inbox DAG and Windows follow-up cards",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "ce7798d7979801f5319ae7a79636dfdd002af2d2",
+        "subject": "test: retain async exception and Store event compatibility coverage",
+        "stable_patch_id": "854aa176b2adcc70e4d34ed651c5e162d984ee41",
+        "origin_peer": "b1e52364baf45b2665d5f45fa1eab84dc27d0228",
+        "origin_peer_subject": "test: retain async exception and Store event compatibility coverage",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "c262943670eb32a13e4e6d22b9b68f390f71756d",
+        "subject": "Bind Windows image observations and add ordinary Win11 component entry",
+        "stable_patch_id": "e7bd122f9c1e3d3eb9862064a5f720b0e5d0f0bf",
+        "origin_peer": "2b741c0e44b891676ba26be50f8f4682ea5ccb2e",
+        "origin_peer_subject": "Bind Windows image observations and add ordinary Win11 component entry",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "951990071c24fb812569d03d8903e643d52f53b9",
+        "subject": "test: add bounded opt-in transport failure observations",
+        "stable_patch_id": "9568eb579c76e12d99ed9a78cf23ead078017a6a",
+        "origin_peer": "9f7059642dbc9c1c32dd247d35a49c4f804391a5",
+        "origin_peer_subject": "test: add bounded opt-in transport failure observations",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "065503e862f3147f3db1ee9e34a129c8091607e4",
+        "subject": "fix(async): keep control replays from stopping current calls",
+        "stable_patch_id": "e61425f212abef5aa971018a5c02579849e79bba",
+        "origin_peer": "876c4b90f8a8b146b432a7f808d6d149c3b80ca0",
+        "origin_peer_subject": "fix(async): keep control replays from stopping current calls",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "a018d727445def59d7e0f81799793eccc6f23dd4",
+        "subject": "fix(async): admit resource heads before pool execution",
+        "stable_patch_id": "711ca0457dc714a448a2f50b50618df3a708652d",
+        "origin_peer": "053ab2b2b1010651c3ac0b5d4e7adde02035743c",
+        "origin_peer_subject": "fix(async): admit resource heads before pool execution",
+        "patch_ids_equal": true
+      },
+      {
+        "commit": "6558ed5570080a6e020227f56a4243ee60e428bf",
+        "subject": "fix(native): retain complete CTest method evidence",
+        "stable_patch_id": "cca96c77189815ccdb490c4cddd4f81074544623",
+        "origin_peer": "88d08499df3c21051720696623a6b8d1c3e7746e",
+        "origin_peer_subject": "fix(native): retain complete CTest method evidence",
+        "patch_ids_equal": true
+      }
+    ]
+  },
+  "minimum_branch_cover": [
+    {
+      "branch": "docs/n4-next-cards-20261102-0k9",
+      "head": "bdc35045d899c2579bc84ad2ef9f75c2620749f8",
+      "covers_count": 2,
+      "covers": [
+        "78faa75f998da709e55d2f14c2c0f25229469120",
+        "bdc35045d899c2579bc84ad2ef9f75c2620749f8"
+      ]
+    },
+    {
+      "branch": "fix/amend-replay-stop-20261031",
+      "head": "065503e862f3147f3db1ee9e34a129c8091607e4",
+      "covers_count": 1,
+      "covers": [
+        "065503e862f3147f3db1ee9e34a129c8091607e4"
+      ]
+    },
+    {
+      "branch": "fix/cross-pool-resource-fifo-20261031",
+      "head": "a018d727445def59d7e0f81799793eccc6f23dd4",
+      "covers_count": 1,
+      "covers": [
+        "a018d727445def59d7e0f81799793eccc6f23dd4"
+      ]
+    },
+    {
+      "branch": "fix/n1-sse-guard-allocation-20261102-0k9",
+      "head": "756946d2a812de3d3a22d800beb244e943c7f47e",
+      "covers_count": 2,
+      "covers": [
+        "2ff3b759469152d20ceb4a45a120f699189c4ee0",
+        "756946d2a812de3d3a22d800beb244e943c7f47e"
+      ]
+    },
+    {
+      "branch": "fix/n3-capture-canonical-path-20261102-0k9",
+      "head": "e23f5d13385b3512d857be34b6003a782965979e",
+      "covers_count": 2,
+      "covers": [
+        "c262943670eb32a13e4e6d22b9b68f390f71756d",
+        "e23f5d13385b3512d857be34b6003a782965979e"
+      ]
+    },
+    {
+      "branch": "fix/n5-0-private-evidence-20261102-csj777e9",
+      "head": "392040107362d89bccc3b03139ec2340129edbe3",
+      "covers_count": 1,
+      "covers": [
+        "392040107362d89bccc3b03139ec2340129edbe3"
+      ]
+    },
+    {
+      "branch": "fix/native-logs-review-20261031",
+      "head": "951990071c24fb812569d03d8903e643d52f53b9",
+      "covers_count": 2,
+      "covers": [
+        "6558ed5570080a6e020227f56a4243ee60e428bf",
+        "951990071c24fb812569d03d8903e643d52f53b9"
+      ]
+    },
+    {
+      "branch": "test/n2-permanent-evidence-20261102-0k9",
+      "head": "6f20bf8aff74114d060dfa38f2fee6f76e5c0298",
+      "covers_count": 8,
+      "covers": [
+        "47451537f1d7cc8d19a953777eb072fe2171ad68",
+        "6f20bf8aff74114d060dfa38f2fee6f76e5c0298",
+        "79c268e58721270e1f0bba9e304daf3bf9f84a80",
+        "8eadf8df31320db6dea56de5377acaeedad47243",
+        "97cf68a1ce92823be303a2246ec95da85e5d0245",
+        "ce7798d7979801f5319ae7a79636dfdd002af2d2",
+        "d9eb6e8983775fb7874a3181910cb6b3b4f7ec62",
+        "e132b98c3a6ec29268bbd6a260c05f1106964d2c"
+      ]
+    }
+  ],
+  "branches_without_same_named_remote": [
+    {
+      "branch": "diag/n5-persistent-runtime-timeout-20261102-csj777e9",
+      "head": "79654ca9cca80d5ae8f5204df580797b04963460",
+      "disposition": "ALREADY_ORIGIN_REACHABLE",
+      "detail": "tip already reachable from existing origin refs"
+    },
+    {
+      "branch": "docs/n4-next-cards-20261102-0k9",
+      "head": "bdc35045d899c2579bc84ad2ef9f75c2620749f8",
+      "disposition": "EXACT_PUSH_SELECTED_BY_ROOT",
+      "detail": "tip pushed as-is by the publishing step for archival commit-identity coverage"
+    },
+    {
+      "branch": "docs/n5-0-validation-20261102-csj777e9",
+      "head": "6af0fcb7d95547a4a12d8f9bf0c7e4bba678db3c",
+      "disposition": "ALREADY_ORIGIN_REACHABLE",
+      "detail": "tip already reachable from existing origin refs"
+    },
+    {
+      "branch": "docs/n5-review-delivery-20261103-74bnxwj5",
+      "head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+      "disposition": "ALREADY_ORIGIN_REACHABLE",
+      "detail": "tip already reachable from existing origin refs"
+    },
+    {
+      "branch": "docs/zcode-diagnostics-report-20261101",
+      "head": "579e3c7675bc2abb336dde6a95bfddf2139f47cd",
+      "disposition": "ALREADY_ORIGIN_REACHABLE",
+      "detail": "tip already reachable from existing origin refs (also an ancestor of push-set branch docs/n4-next-cards-20261102-0k9)"
+    },
+    {
+      "branch": "fix/amend-replay-stop-20261031",
+      "head": "065503e862f3147f3db1ee9e34a129c8091607e4",
+      "disposition": "EXACT_PUSH_SELECTED_BY_ROOT",
+      "detail": "tip pushed as-is by the publishing step for archival commit-identity coverage"
+    },
+    {
+      "branch": "fix/cross-pool-resource-fifo-20261031",
+      "head": "a018d727445def59d7e0f81799793eccc6f23dd4",
+      "disposition": "EXACT_PUSH_SELECTED_BY_ROOT",
+      "detail": "tip pushed as-is by the publishing step for archival commit-identity coverage"
+    },
+    {
+      "branch": "fix/n1-sse-guard-allocation-20261102-0k9",
+      "head": "756946d2a812de3d3a22d800beb244e943c7f47e",
+      "disposition": "EXACT_PUSH_SELECTED_BY_ROOT",
+      "detail": "tip pushed as-is by the publishing step for archival commit-identity coverage"
+    },
+    {
+      "branch": "fix/n3-capture-canonical-path-20261102-0k9",
+      "head": "e23f5d13385b3512d857be34b6003a782965979e",
+      "disposition": "EXACT_PUSH_SELECTED_BY_ROOT",
+      "detail": "tip pushed as-is by the publishing step for archival commit-identity coverage"
+    },
+    {
+      "branch": "fix/n3-windows-provenance-20261102-0k9",
+      "head": "c262943670eb32a13e4e6d22b9b68f390f71756d",
+      "disposition": "ANCESTOR_COVERED_BY_EXACT_PUSH",
+      "detail": "unpublished tip covered by an exact-push branch that contains it"
+    },
+    {
+      "branch": "fix/n5-0-private-evidence-20261102-csj777e9",
+      "head": "392040107362d89bccc3b03139ec2340129edbe3",
+      "disposition": "EXACT_PUSH_SELECTED_BY_ROOT",
+      "detail": "tip pushed as-is by the publishing step for archival commit-identity coverage"
+    },
+    {
+      "branch": "fix/n5-1-store411-evaluator-compat-20261102-csj777e9",
+      "head": "cfd9074f1b420774ddb126757010a0e306cac699",
+      "disposition": "ALREADY_ORIGIN_REACHABLE",
+      "detail": "tip already reachable from existing origin refs"
+    },
+    {
+      "branch": "fix/n5-diagnostics-20261104-_7wxnkyn",
+      "head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+      "disposition": "ALREADY_ORIGIN_REACHABLE",
+      "detail": "tip already reachable from existing origin refs"
+    },
+    {
+      "branch": "fix/n5-event-validation-local-reuse-20261102-csj777e9",
+      "head": "2637d415246e2b1b93c3710ea3f3e3f9fb922bc8",
+      "disposition": "ALREADY_ORIGIN_REACHABLE",
+      "detail": "tip already reachable from existing origin refs"
+    },
+    {
+      "branch": "fix/native-logs-review-20261031",
+      "head": "951990071c24fb812569d03d8903e643d52f53b9",
+      "disposition": "EXACT_PUSH_SELECTED_BY_ROOT",
+      "detail": "tip pushed as-is by the publishing step for archival commit-identity coverage"
+    },
+    {
+      "branch": "test/n2-permanent-evidence-20261102-0k9",
+      "head": "6f20bf8aff74114d060dfa38f2fee6f76e5c0298",
+      "disposition": "EXACT_PUSH_SELECTED_BY_ROOT",
+      "detail": "tip pushed as-is by the publishing step for archival commit-identity coverage"
+    },
+    {
+      "branch": "test/n5-crash-stage-20261104-_7wxnkyn",
+      "head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+      "disposition": "ALREADY_ORIGIN_REACHABLE",
+      "detail": "tip already reachable from existing origin refs"
+    },
+    {
+      "branch": "work/next-cycle-20261031-065247",
+      "head": "772feaee62086ddb0e7f605a7472721d3bc61406",
+      "disposition": "ALREADY_ORIGIN_REACHABLE",
+      "detail": "tip already reachable from existing origin refs (also an ancestor of push-set branch docs/n4-next-cards-20261102-0k9)"
+    }
+  ],
+  "novel_objects": {
+    "method": "set difference of all objects reachable from local branches against all objects reachable from refs/remotes/origin (explicit set subtraction; rev-list --not candidate output was not used as the blob count)",
+    "origin_object_count": 3540,
+    "counts": {
+      "commit": 19,
+      "tree": 47,
+      "blob": 2
+    },
+    "novel_blobs": [
+      {
+        "git_blob": "41c98571f7c7fa47e2a4af60cc4303b3f7dbe1af",
+        "path": "src/async_coordinator.cpp",
+        "bytes": 28791,
+        "sha256": "19278fc63f13175b3220a80dfec2233bf1ecf760ac1b574d45cfd4214e1407a0",
+        "commit": "a018d727445def59d7e0f81799793eccc6f23dd4",
+        "mode": "100644",
+        "classification": "historical branch snapshot of fix/cross-pool-resource-fifo-20261031; relative to its same-patch-id origin successor it lacks the AMEND-replay refinement and tests another branch added later; do not cherry-pick or merge onto the current product; not a security upgrade and not a current candidate; not re-tested for archiving"
+      },
+      {
+        "git_blob": "f198b220f28da60e67fe213cc8c15478d9f08e23",
+        "path": "tests/async_coordinator_tests.cpp",
+        "bytes": 48261,
+        "sha256": "4e499a6ea51420fadab092d52e0f7c814da48b8f24de4b3f092a03f708b0864f",
+        "commit": "a018d727445def59d7e0f81799793eccc6f23dd4",
+        "mode": "100644",
+        "classification": "historical branch snapshot accompanying 41c98571; same restrictions"
+      }
+    ],
+    "content_review": "both blobs verified UTF-8, no NUL bytes, no credential patterns and no private local paths; novel-tree entries are all regular files/directories (no symlinks or executables)"
+  },
+  "old_files": {
+    "total": 29,
+    "distinct_byte_contents": 26,
+    "duplicate_note": "three empty files share the empty-byte SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; the two build-tree inventory files share SHA-256 3cf32f4d7d28bae24e478e58d546c96de093a242ad44ada59d78134fe7f0e235 (2,412,873 bytes each); file entries count 29, independent byte contents 26",
+    "by_disposition": {
+      "ALREADY_PUBLIC_REFERENCE_ONLY": 2,
+      "REDACTED_HISTORICAL_REPORT_NOT_CURRENT_ACCEPTANCE": 8,
+      "EXACT_BYTES_DIAGNOSTIC_TEXT_NOT_ACCEPTED": 3,
+      "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY": 16
+    },
+    "items": [
+      {
+        "source_id": "legacy-01",
+        "source_locator": {
+          "workspace_head": "79654ca9cca80d5ae8f5204df580797b04963460",
+          "relative_path": "tests/persistent_event_runtime_tests.cpp"
+        },
+        "bytes": 37873,
+        "sha256": "8c70b13dd3141ad5bbeec4fd5a58ce5e0fe4ddcb5b96a47a81a46c347947999b",
+        "git_status_then": " M",
+        "disposition": "EXACT_BYTES_DIAGNOSTIC_TEXT_NOT_ACCEPTED",
+        "publication": {
+          "path": "diagnostics/runtime-timeout-20261102/persistent_event_runtime_tests.cpp.txt",
+          "nature": "exact byte copy, stored as non-executable .txt, NOT_ACCEPTED historical diagnostic",
+          "copy_sha256": "8c70b13dd3141ad5bbeec4fd5a58ce5e0fe4ddcb5b96a47a81a46c347947999b"
+        }
+      },
+      {
+        "source_id": "legacy-02",
+        "source_locator": {
+          "workspace_head": "79654ca9cca80d5ae8f5204df580797b04963460",
+          "relative_path": "tests/persistent_event_runtime_diagnostics.inc"
+        },
+        "bytes": 6372,
+        "sha256": "35c334cf784ea68b0acb8f4821c4f7c712500ca306d73ae6815d3ae57565079e",
+        "git_status_then": "??",
+        "disposition": "EXACT_BYTES_DIAGNOSTIC_TEXT_NOT_ACCEPTED",
+        "publication": {
+          "path": "diagnostics/runtime-timeout-20261102/persistent_event_runtime_diagnostics.inc.txt",
+          "nature": "exact byte copy, stored as non-executable .txt, NOT_ACCEPTED historical diagnostic",
+          "copy_sha256": "35c334cf784ea68b0acb8f4821c4f7c712500ca306d73ae6815d3ae57565079e"
+        }
+      },
+      {
+        "source_id": "legacy-03",
+        "source_locator": {
+          "workspace_head": "efcd4547bd7627fa821a4b7bce097e633b514982",
+          "relative_path": "docs/reports/n5-compatibility-strict-20261104-v1.json"
+        },
+        "bytes": 7951,
+        "sha256": "2344b88c2e98449ceddb0ecd6aafd3efdcce666874709a26b859e228cf5f1460",
+        "git_status_then": "??",
+        "disposition": "REDACTED_HISTORICAL_REPORT_NOT_CURRENT_ACCEPTANCE",
+        "publication": {
+          "path": "historical-reports/compatibility-20261104/n5-compatibility-strict-20261104-v1.json",
+          "nature": "redacted public projection, not a byte copy; see its _projection/header metadata",
+          "copy_sha256": "7bfdbd6dd18cd117942ddf6576666e7b211c4f4d22b397cd302186f8ffa2d4c0"
+        }
+      },
+      {
+        "source_id": "legacy-04",
+        "source_locator": {
+          "workspace_head": "efcd4547bd7627fa821a4b7bce097e633b514982",
+          "relative_path": "docs/reports/n5-compatibility-strict-20261104-v1.md"
+        },
+        "bytes": 13867,
+        "sha256": "7bc3a8dce5632cf87015e69778a5439a39229a24e4a2e05f26ee1ca5e5a84cba",
+        "git_status_then": "??",
+        "disposition": "REDACTED_HISTORICAL_REPORT_NOT_CURRENT_ACCEPTANCE",
+        "publication": {
+          "path": "historical-reports/compatibility-20261104/n5-compatibility-strict-20261104-v1.md",
+          "nature": "redacted public projection, not a byte copy; see its _projection/header metadata",
+          "copy_sha256": "9ca743582cb6c6bb8104421b0a5ea19f6455912cea4cfd984125e30026252624"
+        }
+      },
+      {
+        "source_id": "legacy-05",
+        "source_locator": {
+          "workspace_head": "efcd4547bd7627fa821a4b7bce097e633b514982",
+          "relative_path": "docs/reports/n5-compatibility-strict-20261104-v2.json"
+        },
+        "bytes": 14910,
+        "sha256": "22c8efcf35f64966bfb944625b541a41d3106c4883335b897d34726bc8843d05",
+        "git_status_then": "??",
+        "disposition": "REDACTED_HISTORICAL_REPORT_NOT_CURRENT_ACCEPTANCE",
+        "publication": {
+          "path": "historical-reports/compatibility-20261104/n5-compatibility-strict-20261104-v2.json",
+          "nature": "redacted public projection, not a byte copy; see its _projection/header metadata",
+          "copy_sha256": "b011c5cd6fcc3dbdbb0b658c45b362b01cfb189dd533301e9e1b3607020a20b7"
+        }
+      },
+      {
+        "source_id": "legacy-06",
+        "source_locator": {
+          "workspace_head": "efcd4547bd7627fa821a4b7bce097e633b514982",
+          "relative_path": "docs/reports/n5-compatibility-strict-20261104-v2.md"
+        },
+        "bytes": 12309,
+        "sha256": "2bb7758c7a6c9674ce37147569097aaf0f2faf17ab57bc7209b233c0ea7055a3",
+        "git_status_then": "??",
+        "disposition": "REDACTED_HISTORICAL_REPORT_NOT_CURRENT_ACCEPTANCE",
+        "publication": {
+          "path": "historical-reports/compatibility-20261104/n5-compatibility-strict-20261104-v2.md",
+          "nature": "redacted public projection, not a byte copy; see its _projection/header metadata",
+          "copy_sha256": "0905e3d3058d8ae366d1927ef2b12bca62838c7647f25aa9110bfe02de1c0627"
+        }
+      },
+      {
+        "source_id": "legacy-07",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "P/P-failure-stages-and-coverage-mapping-v1.md"
+        },
+        "bytes": 13756,
+        "sha256": "1cab85eac225df769a0bfa87accc6ccc3b4644d5e58610b70b3006dea58fb89d",
+        "git_status_then": "??",
+        "disposition": "REDACTED_HISTORICAL_REPORT_NOT_CURRENT_ACCEPTANCE",
+        "publication": {
+          "path": "historical-reports/diagnostics-20261104/P-failure-stages-and-coverage-mapping-v1.md",
+          "nature": "redacted public projection, not a byte copy; see its _projection/header metadata",
+          "copy_sha256": "dcc0ffe00a9f5ce433e45a4196bfdfe8052e1b5b5ab5f7c0dc9179783b855fdd"
+        }
+      },
+      {
+        "source_id": "legacy-08",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/S0-identity-receipt-01.json"
+        },
+        "bytes": 4983,
+        "sha256": "fad7a72310adb9b496bdae06ffa2e1e8d86ad1a34fe78b0f0087423ae7cacb0f",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "private S0 stage receipt (internal attachment-gate hashes, local workspace facts); safe summary in historical-diagnostics-summary.md"
+        }
+      },
+      {
+        "source_id": "legacy-09",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/S1-ubsan-old-new-01-receipt.json"
+        },
+        "bytes": 2934,
+        "sha256": "caaf68a03567db8c036a5a93b8674ed3cda9a3ba2273c5be9f0b1266cf087838",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "private S1 stage receipt (internal runner identities and evidence layout); safe summary published"
+        }
+      },
+      {
+        "source_id": "legacy-10",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/S2-make-passive-01-receipt.json"
+        },
+        "bytes": 3985,
+        "sha256": "af3a88ef5800ac742429bcaa88eb449a03aa67b6fbf65637e62e3e4b50d7d4fe",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "private S2 stage receipt (local output-dir layout); safe summary published"
+        }
+      },
+      {
+        "source_id": "legacy-11",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/S3-asan-probe-01-receipt.json"
+        },
+        "bytes": 3790,
+        "sha256": "43fdcaf764ea67376a5689093360eda675ea35266a98796030c4b07124409cf3",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "private S3 stage receipt (probe layout details); safe summary published"
+        }
+      },
+      {
+        "source_id": "legacy-12",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/manifest-implementation-01.txt"
+        },
+        "bytes": 16856,
+        "sha256": "133809e67bba4fabad00c346a713f6f0326e3d6b17da2e8351b4fa9fb304b93a",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "private implementation manifest enumerating the local evidence directory layout"
+        }
+      },
+      {
+        "source_id": "legacy-13",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/s3-asan-probe-01/evidence/buildtree-inventory-after.errors"
+        },
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "empty byte stream; recorded for inventory completeness only"
+        }
+      },
+      {
+        "source_id": "legacy-14",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/s3-asan-probe-01/evidence/buildtree-inventory-after.sha256"
+        },
+        "bytes": 2412873,
+        "sha256": "3cf32f4d7d28bae24e478e58d546c96de093a242ad44ada59d78134fe7f0e235",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "2,412,873-byte local build-tree content inventory; build-tree content not published; hash/size recorded"
+        }
+      },
+      {
+        "source_id": "legacy-15",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/s3-asan-probe-01/evidence/buildtree-inventory-before.errors"
+        },
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "empty byte stream; recorded for inventory completeness only"
+        }
+      },
+      {
+        "source_id": "legacy-16",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/s3-asan-probe-01/evidence/buildtree-inventory-before.sha256"
+        },
+        "bytes": 2412873,
+        "sha256": "3cf32f4d7d28bae24e478e58d546c96de093a242ad44ada59d78134fe7f0e235",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "2,412,873-byte local build-tree content inventory (duplicate of legacy-14 bytes); hash/size recorded"
+        }
+      },
+      {
+        "source_id": "legacy-17",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/s3-asan-probe-01/evidence/ctest.xml"
+        },
+        "bytes": 5144,
+        "sha256": "d899c038d7b87bb98b2f4794abdfc250e6d86d639266428e4c715c9e516bafc7",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "private original JUnit XML of the diagnostic probe; safe counts projected in the summary"
+        }
+      },
+      {
+        "source_id": "legacy-18",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/s3-asan-probe-01/evidence/fixture-listing.json"
+        },
+        "bytes": 1541,
+        "sha256": "55d9ba1324567bbf82da6024f25b8c3b293cd8d95f450cbf87b992c08e0d8518",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "private fixture listing containing local build-tree paths"
+        }
+      },
+      {
+        "source_id": "legacy-19",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/s3-asan-probe-01/evidence/fixture-listing.stderr"
+        },
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "empty byte stream; recorded for inventory completeness only"
+        }
+      },
+      {
+        "source_id": "legacy-20",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/s3-asan-probe-01/evidence/probe-launch.json"
+        },
+        "bytes": 18,
+        "sha256": "521aad3e1e54c084592bfaa8a6a0cd1003f45c6fc76338ed85679fb1dfa1e721",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "raw probe launcher record (local provenance)"
+        }
+      },
+      {
+        "source_id": "legacy-21",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/s3-asan-probe-01/evidence/process-observations.jsonl"
+        },
+        "bytes": 105033,
+        "sha256": "3d9c6df848e8d9ee9886afb501d58dcc5d030d5a5b8e913d4ff83ab8854436ab",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "raw dynamic /proc sampler output (105,033 bytes); dynamic logs not published; the sampler source itself is published as an inert .txt copy"
+        }
+      },
+      {
+        "source_id": "legacy-22",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/s3-asan-probe-01/evidence/sampler.py"
+        },
+        "bytes": 2570,
+        "sha256": "c084d65208d7757e3ed380bd4736cda6d518bb6a0bb98397461e60d0b675a3ea",
+        "git_status_then": "??",
+        "disposition": "EXACT_BYTES_DIAGNOSTIC_TEXT_NOT_ACCEPTED",
+        "publication": {
+          "path": "diagnostics/asan-probe-20261104/sampler.py.txt",
+          "nature": "exact byte copy, stored as non-executable .txt, NOT_ACCEPTED historical diagnostic",
+          "copy_sha256": "c084d65208d7757e3ed380bd4736cda6d518bb6a0bb98397461e60d0b675a3ea"
+        }
+      },
+      {
+        "source_id": "legacy-23",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/s3-asan-probe-01/fixture/CTestTestfile.cmake"
+        },
+        "bytes": 979,
+        "sha256": "b4228888fb4802fb2c242fb04718ea8529a1b8cbdf022d594890470c2c6b964b",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "CTest fixture file (build-tree artifact)"
+        }
+      },
+      {
+        "source_id": "legacy-24",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "S/s3-asan-probe-01/fixture/Testing/Temporary/CTestCostData.txt"
+        },
+        "bytes": 89,
+        "sha256": "98b9f843f1c78c3f7e291d06d6d4ecebf417b5f2d9ba3a8aa257afaca71f5f0b",
+        "git_status_then": "??",
+        "disposition": "WITHHOLD_PRIVATE_ORIGINAL_HASH_AND_SUMMARY_ONLY",
+        "withheld": {
+          "reason": "CTest cost cache (build-tree artifact)"
+        }
+      },
+      {
+        "source_id": "legacy-25",
+        "source_locator": {
+          "workspace_head": "9cd526130609a8eb0187f1ee65cf0b28aa4e182c",
+          "relative_path": "docs/reports/n5-windows-evidence-continuation-20261104-v1.json"
+        },
+        "bytes": 11197,
+        "sha256": "ad2b86f8d7e8e6b4e56ba2b0be834d32635c8c58f7257201e9e9e9d1231aebc6",
+        "git_status_then": "??",
+        "disposition": "REDACTED_HISTORICAL_REPORT_NOT_CURRENT_ACCEPTANCE",
+        "publication": {
+          "path": "historical-reports/windows-20261104/n5-windows-evidence-continuation-20261104-v1.json",
+          "nature": "redacted public projection, not a byte copy; see its _projection/header metadata",
+          "copy_sha256": "b24ff61252d1119d91411e24260ba4a93bd0c2badb2bef1bbad0837c8242ea2f"
+        }
+      },
+      {
+        "source_id": "legacy-26",
+        "source_locator": {
+          "workspace_head": "9cd526130609a8eb0187f1ee65cf0b28aa4e182c",
+          "relative_path": "docs/reports/n5-windows-evidence-continuation-20261104-v1.md"
+        },
+        "bytes": 12893,
+        "sha256": "e89f8f32da1672b84886af6ec17df26314185fbf1438954900c73f0aa6394bf7",
+        "git_status_then": "??",
+        "disposition": "REDACTED_HISTORICAL_REPORT_NOT_CURRENT_ACCEPTANCE",
+        "publication": {
+          "path": "historical-reports/windows-20261104/n5-windows-evidence-continuation-20261104-v1.md",
+          "nature": "redacted public projection, not a byte copy; see its _projection/header metadata",
+          "copy_sha256": "37a9bf6962c509d6356afcf26e4e6a45198bbf9d1c68f9c56b3f28665cb4332e"
+        }
+      },
+      {
+        "source_id": "legacy-27",
+        "source_locator": {
+          "workspace_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+          "relative_path": "docs/reports/n5-review-final-delivery-20261103.md"
+        },
+        "bytes": 23403,
+        "sha256": "d9452d6cda66f6060cdc8bfe9f58cfeb4c53c657044ebaf4921c9e0a5ddffd39",
+        "git_status_then": "??",
+        "disposition": "REDACTED_HISTORICAL_REPORT_NOT_CURRENT_ACCEPTANCE",
+        "publication": {
+          "path": "historical-reports/delivery-20261103/n5-review-final-delivery-20261103.md",
+          "nature": "redacted public projection, not a byte copy; see its _projection/header metadata",
+          "copy_sha256": "31ff677b66e93ae8504721ce8caa1c05b6ff094c50f05c199e3f13a00f65a9ab"
+        }
+      },
+      {
+        "source_id": "legacy-28",
+        "source_locator": {
+          "workspace_head": "579e3c7675bc2abb336dde6a95bfddf2139f47cd",
+          "relative_path": "docs/reports/store-event-command-bytes-validation-20261101.md"
+        },
+        "bytes": 31850,
+        "sha256": "b29aef5290199c86f0af91bcf4166461f8a7d683d2ecaea379dc9125d5177d7c",
+        "git_status_then": "??",
+        "disposition": "ALREADY_PUBLIC_REFERENCE_ONLY",
+        "publication": {
+          "path": null,
+          "nature": "reference only; identical bytes already reachable from origin; not copied"
+        }
+      },
+      {
+        "source_id": "legacy-29",
+        "source_locator": {
+          "workspace_head": "579e3c7675bc2abb336dde6a95bfddf2139f47cd",
+          "relative_path": "docs/reports/zcode-native-diagnostics-followup-20261101.md"
+        },
+        "bytes": 18017,
+        "sha256": "884f85ad1cef8f3e4c2dfc1fecad1cff16c21cbbea23f545822e70d27b9f68c1",
+        "git_status_then": "??",
+        "disposition": "ALREADY_PUBLIC_REFERENCE_ONLY",
+        "publication": {
+          "path": null,
+          "nature": "reference only; identical bytes already reachable from origin; not copied"
+        }
+      }
+    ]
+  },
+  "already_public_references": [
+    {
+      "source_id": "legacy-28",
+      "git_blob": "f6bf20d7466eb80365b0976541700bb7d05611f1",
+      "path": "docs/reports/store-event-command-bytes-validation-20261101.md",
+      "origin_commit": "4289589384d75f29d42233cbaad256ceb711e9bf",
+      "url": "https://github.com/wmqfl861/wls861/blob/4289589384d75f29d42233cbaad256ceb711e9bf/docs/reports/store-event-command-bytes-validation-20261101.md",
+      "sha256": "b29aef5290199c86f0af91bcf4166461f8a7d683d2ecaea379dc9125d5177d7c",
+      "note": "identical bytes verified reachable from origin at the pinned commit; referenced only, no copy made and no commit created"
+    },
+    {
+      "source_id": "legacy-29",
+      "git_blob": "67e8c8eef751dc362310153af239d752a394102e",
+      "path": "docs/reports/zcode-native-diagnostics-followup-20261101.md",
+      "origin_commit": "4289589384d75f29d42233cbaad256ceb711e9bf",
+      "url": "https://github.com/wmqfl861/wls861/blob/4289589384d75f29d42233cbaad256ceb711e9bf/docs/reports/zcode-native-diagnostics-followup-20261101.md",
+      "sha256": "884f85ad1cef8f3e4c2dfc1fecad1cff16c21cbbea23f545822e70d27b9f68c1",
+      "note": "identical bytes verified reachable from origin at the pinned commit; referenced only, no copy made and no commit created"
+    }
+  ],
+  "current_six_branches": {
+    "verified_at": "2026-11-06T09:24:40.213311+00:00",
+    "status": "ALL_SIX_EXPLICIT_PUSH_UP_TO_DATE_AND_READBACK_MATCHED",
+    "rows": [
+      {
+        "branch": "fix/audit-product-20261105-adp35vg4",
+        "head": "2326e521b483bf0a910bc8cac3c96accd38f59f2",
+        "remote_readback_matches": true
+      },
+      {
+        "branch": "fix/audit-validation-20261105-adp35vg4",
+        "head": "a90d96fc3e47ecb6397e07fd926bcb7e874f90a5",
+        "remote_readback_matches": true
+      },
+      {
+        "branch": "fix/audit-windows-evidence-20261105-adp35vg4",
+        "head": "2719f7103e07a4efb331c1ef2a826329f0ac26fc",
+        "remote_readback_matches": true
+      },
+      {
+        "branch": "fix/audit-proc-evidence-20261105-adp35vg4",
+        "head": "60aafac565b152ee2a8373f74bb860b2ccf24fdb",
+        "remote_readback_matches": true
+      },
+      {
+        "branch": "fix/audit-compat-evidence-20261105-adp35vg4",
+        "head": "7cf8216fd29d72973951b97e312db47bb59624fb",
+        "remote_readback_matches": true
+      },
+      {
+        "branch": "test/audit-core-integration-20261105-adp35vg4",
+        "head": "aa24f1dd02d4a6856aa812b83c64fc7b1407c4a7",
+        "remote_readback_matches": true
+      }
+    ]
+  },
+  "current_modules": {
+    "scope": "safety-projected fields of the authorized audit-fix batch; the private execution index is not published",
+    "modules": {
+      "product": {
+        "pr": {
+          "url": "https://github.com/wmqfl861/wls861/pull/40",
+          "head": "2326e521b483bf0a910bc8cac3c96accd38f59f2",
+          "draft": true,
+          "state": "OPEN",
+          "merged": false
+        },
+        "head": "2326e521b483bf0a910bc8cac3c96accd38f59f2",
+        "tree": "c9b68fc5be43051a8d2800b2ff43460e03f45121",
+        "reports": [
+          {
+            "path": "docs/reports/audit-product-fixes-20261105-v2.md",
+            "bytes": 20221,
+            "sha256": "272192a78488e2b4d2c991e1f1075e2ece1d0e97e6b701b031d27641fde8c7ca",
+            "url": "https://github.com/wmqfl861/wls861/blob/2326e521b483bf0a910bc8cac3c96accd38f59f2/docs/reports/audit-product-fixes-20261105-v2.md"
+          },
+          {
+            "path": "docs/reports/audit-product-fixes-20261105-v2.json",
+            "bytes": 24247,
+            "sha256": "da39c533838125cde62cf36cfbcd2eaca067e16439bfb965bb4063a0e957cc22",
+            "url": "https://github.com/wmqfl861/wls861/blob/2326e521b483bf0a910bc8cac3c96accd38f59f2/docs/reports/audit-product-fixes-20261105-v2.json"
+          }
+        ],
+        "remote_ci": {
+          "linux_push_url": "https://github.com/wmqfl861/wls861/actions/runs/42161624516",
+          "linux_PR_url": "https://github.com/wmqfl861/wls861/actions/runs/42161628548",
+          "source_snapshot_url": "https://github.com/wmqfl861/wls861/actions/runs/42161624519",
+          "scope": "Exact published module input; not one all-module integration result."
+        },
+        "six_states": {
+          "IMPLEMENTATION_COMPLETE": true,
+          "LOCAL_VALIDATION_COMPLETE": false,
+          "PUSH_COMPLETE": true,
+          "REMOTE_CI_COMPLETE": true,
+          "PR_REVIEW_COMPLETE": false,
+          "MERGED": false
+        },
+        "state_scope": "Implementation complete; full local combined matrix not passing. Remote state is exact leaf Linux six-lane gate and snapshot only."
+      },
+      "validation": {
+        "pr": {
+          "url": "https://github.com/wmqfl861/wls861/pull/41",
+          "head": "a90d96fc3e47ecb6397e07fd926bcb7e874f90a5",
+          "draft": true,
+          "state": "OPEN",
+          "merged": false
+        },
+        "head": "a90d96fc3e47ecb6397e07fd926bcb7e874f90a5",
+        "tree": "56f8be2665b10686a2f11f65f1acaf8c417c112a",
+        "reports": [
+          {
+            "path": "docs/reports/audit-validation-fixes-20261105-v2.md",
+            "bytes": 39151,
+            "sha256": "5de000f5929a65fc6bdb1dccd2657411012cd599cead4367b45291ff73ec695b",
+            "url": "https://github.com/wmqfl861/wls861/blob/a90d96fc3e47ecb6397e07fd926bcb7e874f90a5/docs/reports/audit-validation-fixes-20261105-v2.md"
+          },
+          {
+            "path": "docs/reports/audit-validation-fixes-20261105-v2.json",
+            "bytes": 24419,
+            "sha256": "7f3974dbffa526628b5d883f4fae628254bdde5374924992c102fdf5ebbeb21b",
+            "url": "https://github.com/wmqfl861/wls861/blob/a90d96fc3e47ecb6397e07fd926bcb7e874f90a5/docs/reports/audit-validation-fixes-20261105-v2.json"
+          },
+          {
+            "path": "docs/reports/audit-validation-fixes-20261105-v3.md",
+            "bytes": 8360,
+            "sha256": "c4b7cefbf880f7e9a2faf73e866c1acc3171d11e22477c688c31a6615eed1271",
+            "url": "https://github.com/wmqfl861/wls861/blob/a90d96fc3e47ecb6397e07fd926bcb7e874f90a5/docs/reports/audit-validation-fixes-20261105-v3.md"
+          },
+          {
+            "path": "docs/reports/audit-validation-fixes-20261105-v3.json",
+            "bytes": 10496,
+            "sha256": "9ce27a7e77ae057c079424687e102281b69167da45b7793e9b542f17c66cb741",
+            "url": "https://github.com/wmqfl861/wls861/blob/a90d96fc3e47ecb6397e07fd926bcb7e874f90a5/docs/reports/audit-validation-fixes-20261105-v3.json"
+          }
+        ],
+        "remote_ci": {
+          "linux_push_url": "https://github.com/wmqfl861/wls861/actions/runs/42167565910",
+          "linux_PR_url": "https://github.com/wmqfl861/wls861/actions/runs/42167572884",
+          "source_snapshot_url": "https://github.com/wmqfl861/wls861/actions/runs/42167565917",
+          "scope": "Exact published module input; not one all-module integration result."
+        },
+        "six_states": {
+          "IMPLEMENTATION_COMPLETE": true,
+          "LOCAL_VALIDATION_COMPLETE": false,
+          "PUSH_COMPLETE": true,
+          "REMOTE_CI_COMPLETE": true,
+          "PR_REVIEW_COMPLETE": false,
+          "MERGED": false
+        },
+        "state_scope": "Implementation complete; full local combined matrix not passing. Remote state is exact leaf Linux six-lane gate and snapshot only."
+      },
+      "windows": {
+        "pr": {
+          "url": "https://github.com/wmqfl861/wls861/pull/39",
+          "head": "2719f7103e07a4efb331c1ef2a826329f0ac26fc",
+          "draft": true,
+          "state": "OPEN",
+          "merged": false
+        },
+        "head": "2719f7103e07a4efb331c1ef2a826329f0ac26fc",
+        "tree": "7e439f35967ca3bd65e5c6fc2f47b4a2ad55ca27",
+        "reports": [
+          {
+            "path": "docs/reports/audit-windows-runner-validation-20261105-v6.md",
+            "bytes": 12181,
+            "sha256": "03e76c835824813efd5f1bc95e25d4336f8ec5b435bdd86822e218a1b288b92a",
+            "url": "https://github.com/wmqfl861/wls861/blob/2719f7103e07a4efb331c1ef2a826329f0ac26fc/docs/reports/audit-windows-runner-validation-20261105-v6.md"
+          },
+          {
+            "path": "docs/reports/audit-windows-runner-validation-20261105-v6.json",
+            "bytes": 7918,
+            "sha256": "43a30944271480ae71a9271ed3e1d42e48fb6144b606763cc14dfc9dd6f80f7e",
+            "url": "https://github.com/wmqfl861/wls861/blob/2719f7103e07a4efb331c1ef2a826329f0ac26fc/docs/reports/audit-windows-runner-validation-20261105-v6.json"
+          },
+          {
+            "path": "docs/reports/audit-windows-runner-validation-20261105-v7.md",
+            "bytes": 13885,
+            "sha256": "0260838aa810cd65e65aa69b0a34c496ffb313a222372475b1a11985e27f5156",
+            "url": "https://github.com/wmqfl861/wls861/blob/2719f7103e07a4efb331c1ef2a826329f0ac26fc/docs/reports/audit-windows-runner-validation-20261105-v7.md"
+          },
+          {
+            "path": "docs/reports/audit-windows-runner-validation-20261105-v7.json",
+            "bytes": 12030,
+            "sha256": "8637d7ef13c51afe9b12ee1d3b4762b1d87f9775bcf21ffeb4af12b1f890e9ea",
+            "url": "https://github.com/wmqfl861/wls861/blob/2719f7103e07a4efb331c1ef2a826329f0ac26fc/docs/reports/audit-windows-runner-validation-20261105-v7.json"
+          }
+        ],
+        "remote_ci": {
+          "linux_push_url": "https://github.com/wmqfl861/wls861/actions/runs/42142877417",
+          "linux_PR_url": "https://github.com/wmqfl861/wls861/actions/runs/42142883790",
+          "source_snapshot_url": "https://github.com/wmqfl861/wls861/actions/runs/42142877345",
+          "scope": "Exact published module input; not one all-module integration result."
+        },
+        "six_states": {
+          "IMPLEMENTATION_COMPLETE": true,
+          "LOCAL_VALIDATION_COMPLETE": false,
+          "PUSH_COMPLETE": true,
+          "REMOTE_CI_COMPLETE": false,
+          "PR_REVIEW_COMPLETE": false,
+          "MERGED": false
+        },
+        "state_scope": "Evidence-runner implementation complete; full native/local gate remains failed."
+      },
+      "proc": {
+        "pr": {
+          "url": "https://github.com/wmqfl861/wls861/pull/38",
+          "head": "60aafac565b152ee2a8373f74bb860b2ccf24fdb",
+          "draft": true,
+          "state": "OPEN",
+          "merged": false
+        },
+        "head": "60aafac565b152ee2a8373f74bb860b2ccf24fdb",
+        "tree": "d2f63494d6e0da50345e5094c1be063f99983851",
+        "reports": [
+          {
+            "path": "docs/reports/audit-proc-evidence-fixes-20261105-v2.md",
+            "bytes": 12348,
+            "sha256": "9536f8c84c1e2f5fc6dbf2a376d0d79b7fa27b59df0d1aeccbc50c26760a0a61",
+            "url": "https://github.com/wmqfl861/wls861/blob/60aafac565b152ee2a8373f74bb860b2ccf24fdb/docs/reports/audit-proc-evidence-fixes-20261105-v2.md"
+          },
+          {
+            "path": "docs/reports/audit-proc-evidence-fixes-20261105-v2.json",
+            "bytes": 11246,
+            "sha256": "9f9b0ce2cec827dca7c9553f847748c2d529a0bc72a965122db75e1ad7e324e0",
+            "url": "https://github.com/wmqfl861/wls861/blob/60aafac565b152ee2a8373f74bb860b2ccf24fdb/docs/reports/audit-proc-evidence-fixes-20261105-v2.json"
+          }
+        ],
+        "remote_ci": {
+          "linux_push_url": "https://github.com/wmqfl861/wls861/actions/runs/42028103251",
+          "linux_PR_url": "https://github.com/wmqfl861/wls861/actions/runs/42028326190",
+          "source_snapshot_url": "https://github.com/wmqfl861/wls861/actions/runs/42028103370",
+          "scope": "Exact published module input; not one all-module integration result."
+        },
+        "six_states": {
+          "IMPLEMENTATION_COMPLETE": true,
+          "LOCAL_VALIDATION_COMPLETE": true,
+          "PUSH_COMPLETE": true,
+          "REMOTE_CI_COMPLETE": true,
+          "PR_REVIEW_COMPLETE": false,
+          "MERGED": false
+        },
+        "state_scope": "Tool selfchecks and exact leaf Linux CI only; no strict WAL/SHM product acceptance."
+      },
+      "compatibility": {
+        "pr": {
+          "url": "https://github.com/wmqfl861/wls861/pull/37",
+          "head": "7cf8216fd29d72973951b97e312db47bb59624fb",
+          "draft": true,
+          "state": "OPEN",
+          "merged": false
+        },
+        "head": "7cf8216fd29d72973951b97e312db47bb59624fb",
+        "tree": "aa53a589896313ddd2be9e0a7bcc522d5a96c994",
+        "reports": [
+          {
+            "path": "docs/reports/audit-compatibility-evidence-fixes-20261105-v1.md",
+            "bytes": 12162,
+            "sha256": "e2c6f642ec1ce65e4c7246e1efb126992f8b81b57defeb5a805c8773e10b141c",
+            "url": "https://github.com/wmqfl861/wls861/blob/7cf8216fd29d72973951b97e312db47bb59624fb/docs/reports/audit-compatibility-evidence-fixes-20261105-v1.md"
+          },
+          {
+            "path": "docs/reports/audit-compatibility-evidence-fixes-20261105-v1.json",
+            "bytes": 8518,
+            "sha256": "b2a5f9827b62228527bb15978d5fd9ba4ac7813b1c6373851307abb618a94faf",
+            "url": "https://github.com/wmqfl861/wls861/blob/7cf8216fd29d72973951b97e312db47bb59624fb/docs/reports/audit-compatibility-evidence-fixes-20261105-v1.json"
+          }
+        ],
+        "remote_ci": {
+          "linux_push_url": "https://github.com/wmqfl861/wls861/actions/runs/42024384737",
+          "linux_PR_url": "https://github.com/wmqfl861/wls861/actions/runs/42024749996",
+          "source_snapshot_url": "https://github.com/wmqfl861/wls861/actions/runs/42024382999",
+          "scope": "Exact published module input; not one all-module integration result."
+        },
+        "six_states": {
+          "IMPLEMENTATION_COMPLETE": true,
+          "LOCAL_VALIDATION_COMPLETE": true,
+          "PUSH_COMPLETE": true,
+          "REMOTE_CI_COMPLETE": true,
+          "PR_REVIEW_COMPLETE": false,
+          "MERGED": false
+        },
+        "state_scope": "Tool selfchecks and exact leaf Linux CI only; no strict WAL/SHM product acceptance."
+      }
+    },
+    "joint_core": {
+      "branch": "test/audit-core-integration-20261105-adp35vg4",
+      "head": "aa24f1dd02d4a6856aa812b83c64fc7b1407c4a7",
+      "scope": "Product+validation code only; excludes proc/compatibility/Windows modules; final leaf report-only commits do not change tested code.",
+      "not_a_complete_all_module_integration": true
+    },
+    "local_matrix": [
+      {
+        "configuration": "GCC Release umask0022",
+        "passed": 95,
+        "failed": 0,
+        "timeout": 0,
+        "skipped": 0,
+        "notrun": 0
+      },
+      {
+        "configuration": "Same Release ELF umask0002",
+        "passed": 95,
+        "failed": 0,
+        "timeout": 0,
+        "skipped": 0,
+        "notrun": 0
+      },
+      {
+        "configuration": "Strict Clang18 Release",
+        "passed": 95,
+        "failed": 0,
+        "timeout": 0,
+        "skipped": 0,
+        "notrun": 0
+      },
+      {
+        "configuration": "Original UBSan",
+        "status": "INTERRUPTED",
+        "passed": 70,
+        "failed": 1,
+        "timeout": 15,
+        "skipped_observed": 0,
+        "started_without_terminal": 1,
+        "not_started": 8,
+        "outer_exit_and_interruption_cause": "UNKNOWN",
+        "JUnit": "NOT_RETAINED"
+      },
+      {
+        "configuration": "Separate UBSan supplement suites87-95",
+        "passed": 9,
+        "failed": 0,
+        "timeout": 0,
+        "skipped": 0,
+        "notrun_in_selected_set": 0,
+        "other_tests_not_selected": 86,
+        "not_one_complete_95_suite_run": true
+      },
+      {
+        "configuration": "Shared GCC ASan/LSan",
+        "passed": 67,
+        "failed": 1,
+        "timeout": 27,
+        "skipped": 0,
+        "notrun": 0,
+        "status": "NOT_COMPLETE",
+        "independently_recorded_inner_CTest_exit": 8,
+        "sole_failed_suite": "persistent_event_runtime;14methodsPASS/3FAIL at original5s waits; cause UNKNOWN"
+      },
+      {
+        "configuration": "Original Make-ASan",
+        "unit": "Executable RESULT lines / method subcases, not CTest suites",
+        "terminal_result_lines": 16,
+        "first_zero_failure_result_lines": 15,
+        "sixteenth_async_result": {
+          "passed": 33,
+          "failed": 1
+        },
+        "failure": "Original cross-pool FIFO5s assertion; cause UNKNOWN",
+        "later_targets": "NOT_RUN; not counted as pass",
+        "outer_exit": "UNKNOWN"
+      }
+    ],
+    "matrix_qualification": "JUnit/LastTest support listed counts independently. Eleven outer helper exit/signal/normal-cleanup statuses remain UNKNOWN; recorded0/null/true are not proof. No combined95/95claim for interruptedUBSan+supplement.",
+    "windows_environment": {
+      "native_CI_OS": "Windows-2022Server-10.0.20348-SP0",
+      "native_toolset": "MSVC14.44.35207/compiler19.44.35229.0",
+      "native_SDK": "10.0.26100.0",
+      "Win11_ordinary_user_NTFS": "NOT_RUN"
+    },
+    "blockers": [
+      {
+        "id": "LOCAL_SANITIZER_GATES",
+        "status": "OPEN / VALIDATION_BLOCKED",
+        "scope": "Local UBSan/GCC ASan/Make and historical Clang/live_workflow/IPC failures",
+        "minimum_next_step": "Coordinator chooses bounded hypotheses using retained per-method logs; no unplanned full reruns or deadline/guard weakening."
+      },
+      {
+        "id": "OUTER_WRAPPER_STATUS",
+        "status": "UNKNOWN",
+        "scope": "11 outer exit/signal/normal-cleanup records affected by waitpid-before-Popen.wait; historical statuses cannot be restored"
+      },
+      {
+        "id": "STRICT_WAL_SHM",
+        "status": "BLOCKED_NOT_COMPLETE",
+        "scope": "Compatibility evidence-tool fixes do not complete strict product sidecar compatibility."
+      },
+      {
+        "id": "W8-VCTIP-INVOCATION-ENV-CONTRACT-MISSING",
+        "status": "BLOCKED_NO_NEW_DRAFT",
+        "scope": "Final native configure root0 with live same-Job vctip.exe after1s settle; cleanup PROVEN_ZERO; downstream NOT_STARTED",
+        "minimum_next_step": "Evidence-backed exact-toolchain invocation-local remedy requires new bounded planner decision; no speculative switches/global configuration changes."
+      },
+      {
+        "id": "WIN11_ORDINARY_NTFS",
+        "status": "NOT_RUN",
+        "scope": "No authorized Windows11 x64 ordinary non-elevated NTFS machine; Server2022 CI is a separate environment."
+      },
+      {
+        "id": "HISTORICAL_IMAGE_SOURCE_CONFLICT",
+        "status": "UNRESOLVED",
+        "scope": "Latest two runs agree on ImageVersion20261101.353.1; old conflict remains"
+      },
+      {
+        "id": "PRIVATE_ORIGINAL_HOSTING",
+        "status": "BLOCKED",
+        "scope": "User chose local private originals; no restricted remote hosting configured."
+      },
+      {
+        "id": "FULL_WINDOWS_RUNTIME",
+        "status": "NOT_IMPLEMENTED",
+        "scope": "Full Store/file/process/sandbox/cleanup support outside this batch."
+      },
+      {
+        "id": "FORMAL_COORDINATOR_REVIEW",
+        "status": "PENDING",
+        "scope": "All five PRs Draft/OPEN/unmerged; engineering PASS is not final acceptance."
+      }
+    ],
+    "overall": {
+      "all_five_module_code_tests_reports_pushed": true,
+      "all_five_engineering_result_reviews": "PASS within their recorded scopes; not main coordinator approval",
+      "overall_product_acceptance": "VALIDATION_BLOCKED",
+      "formal_PR_REVIEW_COMPLETE": false,
+      "MERGED": false
+    }
+  },
+  "boundaries": [
+    "This backfill publishes no private originals; 16 withheld items stay local with hashes, sizes, categories and reasons recorded here.",
+    "The 8 historical branches are pushed at exact tips for archival commit-identity coverage only: no new PRs for them, their old gate conclusions are not adopted.",
+    "CI runs auto-triggered by those pushes are recorded separately by the publishing step; push completion is not REMOTE_CI_COMPLETE.",
+    "This backfill added 0 product tests, performed 0 product builds, sanitizer runs or archived-code execution, and made 0 real or paid model calls to a WLS product supplier for acceptance. The engineering assistant model requests that produced and checked this documentation did occur and were non-zero; no free-of-charge or zero-model-request claim is made for those engineering requests.",
+    "Each module's Linux CI success belongs to its own exact input; no five-module joint pass is claimed."
+  ]
+}

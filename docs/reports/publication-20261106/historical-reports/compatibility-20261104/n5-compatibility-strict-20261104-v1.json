@@ -1,0 +1,174 @@
+{
+  "_projection": {
+    "nature": "REDACTED_HISTORICAL_REPORT_NOT_CURRENT_ACCEPTANCE",
+    "not_exact_copy": true,
+    "original_retained_locally_not_in_git": true,
+    "projected_at": "2026-11-06T10:21:09Z",
+    "original": {
+      "workspace_head": "efcd4547bd7627fa821a4b7bce097e633b514982",
+      "branch": "test/n5-compatibility-20261104-_7wxnkyn",
+      "relative_path": "docs/reports/n5-compatibility-strict-20261104-v1.json",
+      "bytes": 7951,
+      "sha256": "2344b88c2e98449ceddb0ecd6aafd3efdcce666874709a26b859e228cf5f1460"
+    },
+    "redaction_categories": [
+      "absolute local workspace/evidence-root paths",
+      "local task plan / version-record / plan-review references",
+      "internal session identifiers"
+    ],
+    "fields_transformed": [
+      "rows.*.row_json / row_corrected_json (absolute local paths -> local-only logical references)",
+      "evidence_root_local_only (value redacted)"
+    ],
+    "historical_qualification": "This v1 report is corrected by the v2 projection in this directory: C4 controlled-kill capability NOT_ESTABLISHED, C4 NOT_RUN by design from the corrected runner on; aggregate claims hold only with v2's per-row / observed-sample scoping. Historical statements preserved as history."
+  },
+  "schema": "n5-compatibility-strict-20261104-v1.machine-index-projection",
+  "note": "sanitized public projection of the local machine index; the private full inventory (fixtures, copies, traces, holder journals) stays local and this file is not a substitute for the originals",
+  "generated_at": "2026-11-04T18:56:48.450136+00:00",
+  "baseline_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+  "branch": "test/n5-compatibility-20261104-_7wxnkyn",
+  "pr_dependency_note": "candidate chain per FINAL plan: PR32 depends on PR31 f15bf1a9..., includes PR29 3888d95a...; remote re-fetch before publication is the root agent duty",
+  "tools_final_sha256": {
+    "tests/store_compatibility_observer.py": "50d8efa0c595c63c759f45318dbfd668537b5edc2e31f823c09b5e74bb0d47f6",
+    "tests/store_compatibility_observer_selfcheck.py": "38fa9422d164a010ce21e3c40e287db6fff800d5530fe1861404ca01563f9999",
+    "scripts/run_store_compatibility_lifecycle.py": "fa090d81eb5843e132dfa2c106c122541c194c7a932d6a1eb0e9878a1add2de7"
+  },
+  "identity": {
+    "old_elf": {
+      "sha256": "b048a449ecdc22cd53ccf2813804bd36c720a26870732f03ebe9c066ed5d407e",
+      "bytes": 4733672,
+      "sha_matches_plan": true,
+      "ldd_libsqlite3": [
+        "libsqlite3.so.0 => /lib/x86_64-linux-gnu/libsqlite3.so.0 (0x000073a9d2898000)"
+      ]
+    },
+    "current_binary": {
+      "sha256": "fab236410c7e39cef14e5f18733aefe85b291a72cb5b30fc74726425d5bd9673",
+      "source_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+      "build": "cmake target wls, out-of-tree in evidence root"
+    },
+    "python": {
+      "realpath": "/usr/bin/python3.12",
+      "version": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "file_sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f"
+    },
+    "sqlite": {
+      "runtime_version": "3.45.1",
+      "library_path": "/usr/lib/x86_64-linux-gnu/libsqlite3.so.0.8.6",
+      "library_sha256": "85265a9d4afca6f4b325ceb078b669c754fb881abed4cafe91ccebe9d625d975",
+      "identity_source": "records/identity-supplement.json"
+    },
+    "mount_regime": "rw,relatime",
+    "execution_uid": 1000,
+    "umask": "0077"
+  },
+  "rows": {
+    "c0-r1": {
+      "row_json": "local-only: records/c0-r1/row.json",
+      "row_json_sha256": "7d499497f22669e9f67f651a4d5020cee44fdd817ceb22de64919cecdc7c442c",
+      "status": "PASS"
+    },
+    "c1-r2": {
+      "row_json": "local-only: records/c1-r2/row.json",
+      "row_json_sha256": "c4c72992291759902c02b992f186088ac1b428c01398d1ffaf24d940f441e719",
+      "status": "STRICT_FAIL"
+    },
+    "c2a-r3": {
+      "row_json": "local-only: records/c2a-r3/row.json",
+      "row_json_sha256": "87b0b8f99ae909abeedbae0220dd25430e564af7d6d54f0f5464c322eedfe2cb",
+      "status": "STRICT_FAIL"
+    },
+    "c2b-r3": {
+      "row_json": "local-only: records/c2b-r3/row.json",
+      "row_json_sha256": "30b014dc72dd4454a34e366e6f898580855587e70fd1f3e9bc3a9c5b8bdaf3e1",
+      "status": "STRICT_FAIL"
+    },
+    "c3a-r3": {
+      "row_json": "local-only: records/c3a-r3/row.json",
+      "row_json_sha256": "8c77afc6c9c7fc14520dca8bc522cd92ef4f5e592f445065446cfa7ba2e33b03",
+      "status": "STRICT_FAIL"
+    },
+    "c3b-r3": {
+      "row_json": "local-only: records/c3b-r3/row.json",
+      "row_json_sha256": "25784a0d5708b63aa8517a83763adc1fbe6846cf740e32d0630605dff3a09be5",
+      "status": "STRICT_FAIL"
+    },
+    "c4-r4": {
+      "row_json": "local-only: records/c4-r4/row.json",
+      "row_json_sha256": "46c958f8267e1a6359766167e975c515ace0e5745b877c7942f28e1732e15eab",
+      "status": "RECORDED"
+    },
+    "c4receipt-r4": {
+      "row_json": "local-only: records/c4receipt-r4/row.json",
+      "row_json_sha256": "c8a027f6be3df533650f2cbc205607102a096fbf91b3689b0acf9da730321bdf",
+      "status": "PASS"
+    },
+    "c5-r4": {
+      "row_json": "local-only: records/c5-r4/row.json",
+      "row_json_sha256": "9bdb03dfbda65a9320fec054defa6429cf68b33dc61df7df4b5ab8ddb1def0ec",
+      "status": "RECORDED_OK"
+    },
+    "c6-r5": {
+      "row_json": "local-only: records/c6-r5/row.json",
+      "row_json_sha256": "1713493c9e4fc7210dcf3136d4ca91c280e3507ce316d8c972e6fbd6e97b8748",
+      "status": "SUITE_FAIL",
+      "row_corrected_json": "local-only: records/c6-r5/row-corrected.json",
+      "row_corrected_sha256": "0fd2a15e58eab715ea516d1997545a797b080cf33cc937531829ad7b5a528f21",
+      "status_after_correction": "SUITE_PASS"
+    },
+    "c7a-r5": {
+      "row_json": "local-only: records/c7a-r5/row.json",
+      "row_json_sha256": "bd3c11da29d5c307b1e552ea4fd87bad42063a6f14ec26bb47cee8a3df612f58",
+      "status": "SUPPORT_CONTROL_PASS"
+    },
+    "c7b-r5": {
+      "row_json": "local-only: records/c7b-r5/row.json",
+      "row_json_sha256": "d6146a88ab0d069a6ccdfaa5bd0417df29d63d1a21f3c3f9f4902fb42c2b9e54",
+      "status": "SUPPORT_CONTROL_PASS"
+    }
+  },
+  "selfcheck": {
+    "v1": "records/observer-selfcheck.json (17/22 pass, retained as failure evidence)",
+    "v2": "records/observer-selfcheck-v2.json (22/22 PASS)"
+  },
+  "overall_strict_compatibility": "BLOCKED_NOT_COMPLETE",
+  "overall_rationale": "All necessary old-410 rows produced the correct refusals (unsupported/conflict) and preserved every business row and main/WAL/SHM content byte, but the frozen old ELF leaves unavoidable metadata deltas (atime via its normal reads under relatime, ctime via same-mode fchmod) and on static fixtures creates/removes WAL/SHM sidecars, so the strict raw+metadata equality required by Compatibility02/03 is not met; the current candidate passes all nine methods at the current SHA.",
+  "denominators": {
+    "selfcheck_cases": 22,
+    "selfcheck_passed": 22,
+    "matrix_rows_executed": [
+      "c0",
+      "c1(c1a,c1b)",
+      "c2a",
+      "c2b",
+      "c3a",
+      "c3b",
+      "c4receipt",
+      "c4",
+      "c5",
+      "c7a",
+      "c7b",
+      "c6"
+    ],
+    "nine_method_suite_methods": 9,
+    "product_ctest_registrations_added": 0,
+    "product_ctest_catalog_total_unchanged": 95
+  },
+  "end_states": {
+    "windows11_ordinary_user_ntfs": "NOT_RUN",
+    "restricted_private_hosting": "BLOCKED_LOCAL_ORIGINALS_RETAINED",
+    "historical_clang_asan_failures_closed": false
+  },
+  "registration": {
+    "IMPLEMENTATION_COMPLETE": true,
+    "LOCAL_VALIDATION_COMPLETE": "true for the executed evidence only",
+    "PUSH_COMPLETE": false,
+    "REMOTE_CI_COMPLETE": false,
+    "PR_REVIEW_COMPLETE": false,
+    "MERGED": false
+  },
+  "evidence_root_local_only": "[REDACTED: local-only path]",
+  "local_machine_index": "records/machine-index.json",
+  "local_machine_index_sha256": "810538510856b85830a60040a0468749f18ac7bb207d19648994f1cd572e7791",
+  "evidence_inventory_file_count": 190
+}

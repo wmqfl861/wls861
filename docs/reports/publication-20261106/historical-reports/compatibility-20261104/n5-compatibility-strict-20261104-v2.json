@@ -1,0 +1,263 @@
+{
+  "_projection": {
+    "nature": "REDACTED_HISTORICAL_REPORT_NOT_CURRENT_ACCEPTANCE",
+    "not_exact_copy": true,
+    "original_retained_locally_not_in_git": true,
+    "projected_at": "2026-11-06T10:21:09Z",
+    "original": {
+      "workspace_head": "efcd4547bd7627fa821a4b7bce097e633b514982",
+      "branch": "test/n5-compatibility-20261104-_7wxnkyn",
+      "relative_path": "docs/reports/n5-compatibility-strict-20261104-v2.json",
+      "bytes": 14910,
+      "sha256": "22c8efcf35f64966bfb944625b541a41d3106c4883335b897d34726bc8843d05"
+    },
+    "redaction_categories": [
+      "absolute local workspace/evidence-root paths",
+      "local task plan / version-record / plan-review references",
+      "internal session identifiers"
+    ],
+    "fields_transformed": [
+      "note (absolute local path redacted)",
+      "preserved_history.*.session (session identifiers redacted)",
+      "corrected_claims.*.source (embedded session identifiers redacted)",
+      "pending.independent_hard_review_of_this_correction (rewritten without session ids)",
+      "local_only_evidence (value redacted)"
+    ],
+    "historical_qualification": "This v2 report is itself the correction of v1; the later 2026-11-05 audit-fix batch is a separate scope and neither inherits nor alters these 2026-11-04 conclusions."
+  },
+  "schema": "n5-compatibility-strict-20261104-v2.correction-projection",
+  "generated_at": "2026-11-04T21:13:52.405018+00:00",
+  "note": "Correction projection for the frozen task strict-compatibility-observer-and-lifecycle. The v1 md/json files stay in place unmodified as historical source; this projection supersedes only the claims listed in corrected_claims. Private full correction evidence is local-only under [REDACTED: local-only path] (adjudication-v1.json, harness, red/green/data records); this file is a projection, not the originals.",
+  "headline": {
+    "c4_controlled_kill_capability": "NOT_ESTABLISHED_AND_NOT_EXECUTED",
+    "c4_execution_from_this_correction_on": "NOT_RUN_BY_DESIGN",
+    "overall_strict_compatibility": "BLOCKED_NOT_COMPLETE",
+    "v1_aggregate_assertions": "CORRECTED (see corrected_claims)"
+  },
+  "baseline_head": "3a8725584fa5d8ea0f8fe3e108e0d4fbcb5ec123",
+  "branch": "test/n5-compatibility-20261104-_7wxnkyn",
+  "runner_identities": {
+    "executed_r4_runner_sha256": "e83beb5593b83d47956da4b6623253343474de61573589b45b1c1eaa1f29a1e7",
+    "delivered_pre_correction_runner_sha256": "fa090d81eb5843e132dfa2c106c122541c194c7a932d6a1eb0e9878a1add2de7",
+    "corrected_runner_sha256": "3ca64e26d8816961e77907e6585ac4b90f31c351151f276ab68ba6c01ac330fc",
+    "observer_sha256_unchanged": "50d8efa0c595c63c759f45318dbfd668537b5edc2e31f823c09b5e74bb0d47f6",
+    "selfcheck_sha256_unchanged": "38fa9422d164a010ce21e3c40e287db6fff800d5530fe1861404ca01563f9999",
+    "note": "the historical matrix was executed by e83beb55... (manifest-r4); the first delivery was fa090d81... (C6 parser fix after capture); this correction delivers 3ca64e26...; the old matrix must not be represented as a run of any corrected runner"
+  },
+  "correction_execution": {
+    "product_matrix_runs": 0,
+    "product_compiles": 0,
+    "old_elf_invocations": 0,
+    "strace_or_ptrace_experiments": 0,
+    "real_sqlite_fixtures": 0,
+    "ctest_registrations_added": 0,
+    "catalog_total_unchanged": 95,
+    "harness_local_only": "evidence/n5-compatibility-corrections-20261104-v1/harness/correction_harness.py (pure in-memory mocks; forged C4receipt never written to disk; path guards exclude the original v1 evidence tree)",
+    "harness_iterations_preserved": "red-run-failed1 (harness TypeError), red-run-failed2 (inverted assertion), red-run-failed3 (invalid red attempt against the already-corrected runner), green-run-failed1 (green-check definitions); canonical red 12/12 at harness a67f23aa... on the on-site unmodified runner fa090d81..., canonical green 23/23 at harness 203d6c19...; post-red harness edits touched green-mode checks only",
+    "verification_scope": "deterministic mock red/green, per-function source preservation, syntax parse, original-hash preservation and data-level consistency; NOT a product regression and NOT C4 coverage"
+  },
+  "corrected_claims": [
+    {
+      "source": "v1 md, C4 row",
+      "quote": "SIGSTOP 34 µs after the traced `-shm` open",
+      "correction": "the 34,419 ns value (1766747342156736 - 1766747342122317) is the host's gap between receiving trace text that contains the SHM path and sending SIGSTOP to the strace tracer; it is not a tracee syscall-stop position and not a ptrace rendezvous proof",
+      "basis": "records/c4-r4/row.json OLD_OPEN.rendezvous with argv[0]=strace, pid 830993"
+    },
+    {
+      "source": "v1 md, C4 row",
+      "quote": "stopped state confirmed, SIGKILL, exit −9, reaped",
+      "correction": "the stopped/confirmed/killed/reaped process was the strace tracer (pid 830993, exit -9); the old-ELF tracee's identity, exit and reap are UNKNOWN / NOT_ESTABLISHED",
+      "basis": "records/c4-r4/row.json OLD_OPEN; no tracee pid/start_ticks/wait exists anywhere in the row"
+    },
+    {
+      "source": "v1 md, C4 row",
+      "quote": "WAL/SHM **retained** (killed before cleanup unlink)",
+      "correction": "sidecar retention is equally explained by the online holder keeping its SQLite connection open across the entire row (HOLDER_CLOSE happens only after the AFTER window); kill-before-cleanup-unlink is NOT_ESTABLISHED",
+      "basis": "records/c4-r4/row.json phases order; holder connection semantics"
+    },
+    {
+      "source": "v1 md, C4 row",
+      "quote": "process kill never classified as unsupported",
+      "correction": "the same row records the complete Unsupported JSON on stderr with error_classification=unsupported; the sentence contradicts the row. The capture proves only that the refusal text was seen; it says nothing about the tracee's final outcome",
+      "basis": "OLD_OPEN.stderr_sha256 acc8151d... and stderr_text; error_classification=unsupported"
+    },
+    {
+      "source": "v1 md, overall determination",
+      "quote": "preserved **all business rows and all main/WAL/SHM content bytes**",
+      "correction": "hold only per-row: C1a ADDED a new empty WAL (0 bytes) and a new 32768-byte SHM (member set changed; new members content_equal=false; only the original main content equal); C5's WAL/SHM content changed (authorized holder commit; WAL 20632->24752, SHM sha changed); C2a/C2b/C3a/C3b/C4 content equal on all pre-existing members",
+      "basis": "c1/c2a/c2b/c3a/c3b/c4/c5 row raw comparisons"
+    },
+    {
+      "source": "v1 md, overall determination",
+      "quote": "the frozen old ELF always leaves metadata deltas",
+      "correction": "deltas were observed on this machine (ext4, rw,relatime), these fixture initial states and these sampled windows; C5's main had no metadata delta; sampled boundaries do not exclude unsampled instants; 'always' is not established",
+      "basis": "per-file metadata_changed_fields across rows, incl. c5 main metadata_equal=true"
+    },
+    {
+      "source": "v1 json, overall_rationale",
+      "quote": "unavoidable metadata deltas",
+      "correction": "same correction as the md aggregate: observed-sample scoped facts, not a general law",
+      "basis": "as above"
+    },
+    {
+      "source": "original hard-review stdout ([session id redacted]) — OLD HARD-REVIEW WORDING, not a v1 sentence",
+      "quote": "relatime 下必改 atime、fchmod 必改 ctime",
+      "correction": "labeled as old-hard-review wording and not adopted: same-mode fchmod ctime changes were observed on this machine/window (C1b/C3b/C4 mains and writer locks) and atime deltas under rw,relatime; '必改/never avoids' is not established beyond those observations. Neither v1 file ever contained this exact wording",
+      "basis": "hard-review-01 stdout vs v1 md/json text"
+    },
+    {
+      "source": "v1 md, limitations",
+      "quote": "the raw traces bound the C4/C5 windows",
+      "correction": "C5 has no raw trace at all; its window is bounded by row timestamps only. C4's trace is tracer-side output that ends at the SHM open and bounds nothing about the tracee",
+      "basis": "no trace artifact exists for c5-r4; c4 trace belongs to the tracer"
+    }
+  ],
+  "rows": {
+    "c0": {
+      "v1_status_preserved": "PASS",
+      "correction": "none"
+    },
+    "c1a": {
+      "v1_status_preserved": "STRICT_FAIL",
+      "limited_result": "correct unsupported refusal; original main content equal (atime changed); new empty WAL + 32768-byte SHM added (member set changed)"
+    },
+    "c1b": {
+      "v1_status_preserved": "STRICT_FAIL",
+      "limited_result": "correct unsupported refusal; no net sidecar change; main atime+ctime and writer-lock ctime changed"
+    },
+    "c2a": {
+      "v1_status_preserved": "STRICT_FAIL",
+      "limited_result": "correct unsupported refusal; all member contents equal; only WAL/SHM atime changed"
+    },
+    "c2b": {
+      "v1_status_preserved": "STRICT_FAIL",
+      "limited_result": "correct unsupported refusal from the WAL-visible version; state 2 built by the real 013 migration under a live keeper (main user_version stayed 410, WAL-only 411, copy reads 411); all member contents equal; WAL/SHM atime only"
+    },
+    "c3a": {
+      "v1_status_preserved": "STRICT_FAIL",
+      "limited_result": "correct conflict (exit 3) under the real Store lifecycle flock, independent of user_version refusal; main/WAL/SHM raw equal; only writer-lock ctime changed"
+    },
+    "c3b": {
+      "v1_status_preserved": "STRICT_FAIL",
+      "limited_result": "correct unsupported refusal; all member contents equal; main atime+ctime, WAL/SHM atime, lock ctime changed; sidecars retained (holder connection)"
+    },
+    "c4receipt": {
+      "v1_status_preserved": "PASS",
+      "scope": "normal-comparison receipt only: uninterrupted traced vs untraced refusal classification equivalence plus SHM-text visibility; verifies no kill rendezvous, identifies no tracee, and must never gate controlled-kill execution; normal equivalence does not imply non-perturbation under interruption",
+      "runner_note_added": true
+    },
+    "c4": {
+      "v1_status_preserved": "RECORDED (historical row bytes untouched)",
+      "corrected_adjudication": "the stop/confirm/kill/reap chain acted on the strace tracer; tracee identity/exit/reap UNKNOWN or NOT_ESTABLISHED; 34,419 ns is a host-side interval; sidecar retention also explained by the live holder; the captured Unsupported text contradicts v1's 'never classified' sentence",
+      "capability": "c4_product_crash_coverage = NOT_ESTABLISHED; qualified controlled abnormal-exit rows = 0",
+      "from_this_correction_on": "row_c4 returns a structured NOT_RUN before any fixture/holder/product/signal/observer effect and reads no receipt; _trace_old rejects kill=True before any effect",
+      "historical_row_sha256": "46c958f8267e1a6359766167e975c515ace0e5745b877c7942f28e1732e15eab",
+      "historical_trace_sha256": "58b7859b3601df112ff1702b2f803b9d3eeb1907180bfa04b18388da099ed3e4"
+    },
+    "c5": {
+      "v1_status_preserved": "RECORDED_OK (historical row bytes untouched)",
+      "supported": "old-program process-lifetime overlap: one authorized holder commit provably committed while the direct old-ELF child (pid 831032, no tracer) was SIGSTOP-confirmed, before SIGCONT and its exit 2/unsupported",
+      "not_established": [
+        "which SQLite/DB-access stage the old process had reached when stopped",
+        "simultaneous SQLite access by both sides",
+        "any raw trace for this row"
+      ],
+      "retained_facts": "business rows unchanged; compat_controlled_facts 1->2 authorized; WAL/SHM content_equal=false retained with raw_equality_claimed=false; main raw_equal=true",
+      "historical_row_sha256": "9bdb03dfbda65a9320fec054defa6429cf68b33dc61df7df4b5ab8ddb1def0ec"
+    },
+    "c7a": {
+      "v1_status_preserved": "SUPPORT_CONTROL_PASS",
+      "correction": "none"
+    },
+    "c7b": {
+      "v1_status_preserved": "SUPPORT_CONTROL_PASS",
+      "correction": "none"
+    },
+    "c6": {
+      "v1_status_preserved": "SUITE_FAIL corrected in place by row-corrected.json to SUITE_PASS from the same captured bytes (suite not re-run; stderr sha 54afa6ea...)",
+      "correction": "none; the corrected verdict was already the v1 delivery's own correction"
+    }
+  },
+  "coverage": {
+    "original_matrix_coverage_complete": false,
+    "c4_product_crash_coverage": "NOT_ESTABLISHED",
+    "c4_qualified_controlled_abnormal_exit_rows": 0,
+    "c5_scope": "process-lifetime overlap only",
+    "simultaneous_sqlite_access": "NOT_ESTABLISHED"
+  },
+  "denominators": {
+    "selfcheck_cases": 22,
+    "historical_matrix_attempts": 12,
+    "historical_matrix_attempt_rows": [
+      "c0",
+      "c1a",
+      "c1b",
+      "c2a",
+      "c2b",
+      "c3a",
+      "c3b",
+      "c4receipt",
+      "c4",
+      "c5",
+      "c7a",
+      "c7b"
+    ],
+    "c4_attempt_count_in_denominator": 1,
+    "nine_method_suite_runs": 1,
+    "nine_method_suite_methods": 9,
+    "correction_product_matrix_runs": 0,
+    "correction_product_compiles": 0,
+    "correction_old_elf_invocations": 0,
+    "correction_mock_tool_checks": 35,
+    "correction_mock_tool_sources": "red-run.result.json (12) + green-run.result.json (23); local-only; not product registration, not product regression, not C4 coverage",
+    "product_ctest_registrations_added": 0,
+    "product_ctest_catalog_total_unchanged": 95
+  },
+  "registration": {
+    "IMPLEMENTATION_COMPLETE": true,
+    "IMPLEMENTATION_COMPLETE_scope": "this minimal correction only: runner C4/kill disablement with limited C4receipt/C5 notes, v2 md/json, private mock verification and private adjudication; delivered 2026-11-04",
+    "LOCAL_VALIDATION_COMPLETE": true,
+    "LOCAL_VALIDATION_COMPLETE_scope": "mock red 12/12 and green 23/23 on frozen source identities, per-function source preservation vs the archived pre-correction runner, syntax parse, original-hash preservation and data-level consistency checks; no product regression executed or claimed",
+    "original_matrix_coverage_complete": false,
+    "c4_product_crash_coverage": "NOT_ESTABLISHED",
+    "overall_strict_compatibility": "BLOCKED_NOT_COMPLETE",
+    "PUSH_COMPLETE": false,
+    "REMOTE_CI_COMPLETE": false,
+    "PR_REVIEW_COMPLETE": false,
+    "MERGED": false,
+    "as_of": "2026-11-04T21:13:52.405018+00:00"
+  },
+  "preserved_history": {
+    "v1_files": {
+      "md_sha256": "7bc3a8dce5632cf87015e69778a5439a39229a24e4a2e05f26ee1ca5e5a84cba",
+      "json_sha256": "2344b88c2e98449ceddb0ecd6aafd3efdcce666874709a26b859e228cf5f1460",
+      "modified": false,
+      "deleted": false
+    },
+    "original_independent_hard_review": {
+      "session": "[REDACTED]",
+      "conclusion": "PASS",
+      "stdout_sha256": "0cc4da278f6fbec85b70c9471760bb227237823691d06fe023b48fb10eb2e415",
+      "preserved": true,
+      "author_disposition": "CORRECTION_REQUIRED; the PASS, its independence and its capability limits are retained; its C4 controlled-kill attribution and aggregate content/metadata conclusions are not adopted (see corrected_claims)"
+    },
+    "correction_plan_review": {
+      "session": "[REDACTED]",
+      "conclusion": "PASS",
+      "stdout_sha256": "907e2b3182ace656c3978a2bc5d4ff8e95d73b451c92ac6d6f3d3e8a46f6dd19"
+    },
+    "original_rows_traces_receipts": "unmodified; full hashes in the local adjudication-v1.json inputs list",
+    "scope_freeze": "958a0083078b1e24a1b7094219700eb8ba68ea9ccae7ac3319fa610019ef315e unchanged"
+  },
+  "pending": {
+    "independent_hard_review_of_this_correction": "PENDING (a fresh independent hard review of this correction had not yet occurred as of generated_at; it must differ from the correction plan review, the implement session and the original hard review; session identities redacted; no result pre-filled here)",
+    "publication": "no git write, commit, push or PR performed by the implement stage; publication is the root agent's step after the hard review PASS, under the existing task authorization"
+  },
+  "end_states": {
+    "windows11_ordinary_user_ntfs": "NOT_RUN",
+    "restricted_private_hosting": "BLOCKED_LOCAL_ORIGINALS_RETAINED",
+    "historical_clang_asan_failures_closed": false,
+    "n5_2_items_014_412": "UNAUTHORIZED_UNCHANGED"
+  },
+  "local_only_evidence": "[REDACTED: local-only path]"
+}
