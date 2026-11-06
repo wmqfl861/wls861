@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "report": "audit-validation-fixes-20261105-v2",
+  "module": "validation",
+  "defects": ["B-001", "E001", "F-01", "C-01"],
+  "generated_by": "report-implementation-01 (REPORT_ONLY, fresh ZCode implement session) under FINAL v2 and same-author closeout/wrapper adjudications; only repository writes are the exclusive creation of this .md/.json pair; no Git writes",
+  "facts_cutoff_utc": "2026-11-06T04:09:33Z",
+  "future_binding_note": "the report-only commit's final head SHA/CI and the final independent result hard-review are bound by later external receipts; no self-referential future SHA or approval is claimed here",
+  "plan": {
+    "path": "plan-final-v2.md (module private evidence root)",
+    "sha256": "3536c676cb03f2bfc03b06f1d04da520b06e55178c4dc25ed9740203b90505e7"
+  },
+  "planner_record_sha256": "9a7877158af0167ab7f33d78995cf84057342ebc13000f43ce0037bab075ab79",
+  "workflow_sha256": "f49ff366cacb15df96ade89e4aa3d4412cb50836e4f11f3be407713a844bf990",
+  "v1_reports_immutable": [
+    {"path": "docs/reports/audit-validation-fixes-20261105-v1.md", "sha256": "c78cfd7da4e32c460241100ba381679b22dcb7ce84d101fb14ac4c1db324411d"},
+    {"path": "docs/reports/audit-validation-fixes-20261105-v1.json", "sha256": "3cd040285373980d776ab6398c09fb3c66c0ca5592049653ec5ef07a1d549d67"}
+  ],
+  "identities": {
+    "baseline": {"sha": "a5675e1245bebba41c499e56bd2c8a16be2d5dae", "tree": "fac6f4451f8d95998ce9a22a0d228f33c582dc50"},
+    "validation_leaf": {
+      "branch": "fix/audit-validation-20261105-adp35vg4",
+      "sha": "b9cd31cd084b2411589128e7268d39eacac83741",
+      "tree": "56048157bcf095b80b9ec7c13aa64ec362f09cab",
+      "base": "a5675e1245bebba41c499e56bd2c8a16be2d5dae",
+      "porcelain_clean_at_report_creation": true
+    },
+    "joint_input": {
+      "branch": "test/audit-core-integration-20261105-adp35vg4",
+      "sha": "aa24f1dd02d4a6856aa812b83c64fc7b1407c4a7",
+      "tree": "3a6fffc1c5017a6124207e61a8504d1cccc2fc3",
+      "composition": "a5675e1 + product leaf 0542d38dac86d51642d1095c77f7901b3de26c9e + validation leaf b9cd31cd (sequential cherry-picks)",
+      "manifest": "core-integration-01/core-integration-input-v1.json",
+      "manifest_sha256": "e443fabf906e847caea263526dc45b81eb35069a6a1224a04ed0dda39823bebe",
+      "porcelain_clean_at_report_creation": true
+    },
+    "registry_binding": {
+      "gcc_asan_public_methods_sha256": "75fde02a7b479c44acf29c19fc68b756723627596d7b6345efaac814d473e31b",
+      "locked_sources_recorded_methods": {"tests/doctor_diagnostics_tests.cpp": 32, "tests/single_agent_tests.cpp": 14, "tests/r24_recovery_predicates_tests.cpp": 6, "tests/r24_concurrency_tests.cpp": 7},
+      "record": "core-integration-01/registry-hash-binding-v1.json",
+      "record_sha256": "674709d82def5b1baf49dc51b06dac39fe4f63612c6b21b73b86866bc6e93b67",
+      "catalog_95_names_and_deadlines_match": true
+    },
+    "leaf_standalone_tested": false
+  },
+  "changed_files_13": [
+    {"path": "tests/async_coordinator_tests.cpp", "sha256": "73160b1b9c5f69a976974cc936b7e85f8c982b8e151a292ddee51913ef925d51"},
+    {"path": "scripts/run_gcc_asan.py", "sha256": "46866558cb0865bd06a1367569cb8c96c968ad167c9fdc7874a59fc2f745f32f"},
+    {"path": "tests/test_run_gcc_asan.py", "sha256": "5de8be03b37dc2fdc6cb0d321c8b03cfbd88ad8dee4d2702f51339db863584c8"},
+    {"path": "scripts/evaluate_r3.py", "sha256": "e3f35aa2ff93de9181fbb7ab448914f1006bb0accf7a9ba55e82bfd52ebcfc2a"},
+    {"path": "scripts/r3_offline_acceptance.py", "sha256": "11e447bc1126aaf71522c00cc27eb0eb1a08d2534219b26881a1e111acd3d6544"},
+    {"path": "tests/r3_evaluation_tests.py", "sha256": "f589d87ea02ef80bcb49a8821f5cc57b4ba3a598f739af0b57f8447f0d00855c"},
+    {"path": "tests/r3_offline_acceptance_tests.py", "sha256": "b9bda6d4eb2026e0daeb18a28589933997f60a3cc4b9bb7ddd256fb088e3112f"},
+    {"path": "tests/r3_offline_acceptance_cli_tests.py", "sha256": "e618358b9a46ce968ed36b528082a30b85e1b5f83b54c268d2aeb3ae220886dc"},
+    {"path": "tests/test_billing_baseline_e2e.py", "sha256": "c6365be4ef3450713935f258ee220a8e951532c7d214a230c7a97439ec46e42f"},
+    {"path": "tests/sandbox_tests.cpp", "sha256": "e0dfc5cd1a558da1a579e3951c2aadbc27ed64af412b80f7692ced47613f12a1"},
+    {"path": "tests/owned_capacity_baseline_repro.cpp", "sha256": "b57d8a7bd1f3766e7c5cc50fd9eb6455725e3070a51811d1ee85025f1e079199"},
+    {"path": "docs/reports/audit-validation-fixes-20261105-v1.md", "sha256": "c78cfd7da4e32c460241100ba381679b22dcb7ce84d101fb14ac4c1db324411d"},
+    {"path": "docs/reports/audit-validation-fixes-20261105-v1.json", "sha256": "3cd040285373980d776ab6398c09fb3c66c0ca5592049653ec5ef07a1d549d67"}
+  ],
+  "protected_files_verified_baseline_identical": {
+    "CMakeLists.txt": "2d69686302a4458e842314507892b8173c9a7584d04fe04967fa52727fe8ff8e",
+    "Makefile": "8a3b629296d9cfa807923f100abb5b0fdb73abbf123183d2d68726e89ee3fdf8",
+    ".github/workflows/ci.yml": "d15850cce2ea0ca94688723503110a87973aae9cf5b8b8dd061d3bb28bb4a6f8",
+    "tests/gcc_asan_expected_tests.json": "620fe97b1d0b502b26f6ffd64977e9e7292423b78283467fd49ffe2816427efd",
+    "tests/gcc_asan_public_methods.json": "75fde02a7b479c44acf29c19fc68b756723627596d7b6345efaac814d473e31b",
+    "tests/doctor_diagnostics_tests.cpp": "5fac599a8952f1795d0df5131357701da22273b2bc4544cfc20eee5343bb4cbe",
+    "tests/single_agent_tests.cpp": "597cd5c41ecff2b86bd57c25477cd20088bb011d1b63e81b2ec9e015996a21c8",
+    "tests/r24_recovery_predicates_tests.cpp": "b66c4d7b13bfb5fa6f03943b0c2909ec2dfd8b42d8c909d8a84aa93f58010ad6",
+    "tests/r24_concurrency_tests.cpp": "a6e8d29629f8a10622e19c564d89924ac7f6ece948f2851baa88fc5cf8aa62a7",
+    "tests/test_support.hpp": "5b44c995a3c1a8e93774aa5d4f3a672a23d49571e34e6f45fd8ea197aad20922"
+  },
+  "v1_fact_corrections": [
+    "f01-red-driver-v2 exit0 was a leak observation only, not a success-oracle RED; red-offline-suite-original-scripts had one genuine marker assertion failure plus 4 unrelated import ERRORs listed separately; red-oldstyle-outcomes-test was usage-only, not a defect RED",
+    "duration semantics: E001 selfcheck unittest 37.179s internal vs 38.200156582s command wall; F-01 15 tests 3.307s internal vs 8.506169648s wall",
+    "v1 markdown authoritative sha256 c78cfd7da4e32c460241100ba381679b22dcb7ce84d101fb14ac4c1db324411d (stdout transcription differed)",
+    "implementation-01 evidence index had 188 entries including 8 preexisting plan-review files, not 188 new files",
+    "modes recorded per actual stat at observation time (8 python 0664, 2 v1 reports 0644; authored receipt captured 0600 creation); no fabricated permission history",
+    "CODEX_SESSION_ID=01a18545-80f9-7ee3-993f-0e49f338e3ac is a process environment identifier; authoritative impl-01 session is sess_cb431329-7507-4fc1-ba1c-466eb89bec14",
+    "session chain: plan review sess_d14cd3b3…; impl sess_cb431329/sess_dac41ed7/sess_d08951be/sess_d1f0f755; joint-targeted-02 sess_1cd40211; full-matrix-01 session UNKNOWN (no terminal receipt; tool session 56991 is not a ZCode session); full-matrix-02 sess_de64dcb9; first hard review sess_a4270998; impl-02 entry receipt conclusion=unknown (stdout lacked the required marker)"
+  ],
+  "outer_receipt_qualification": {
+    "adjudication": "planner-adjudication-wrapper-exit-and-cleanup-evidence-v1.json",
+    "adjudication_sha256": "a29224f91123851c1e42d9de498f197b2559db8660e753ba59a874752f06bc27",
+    "mechanism": "run-cmd-01/02 waitpid(WNOHANG) reaps the direct child, then Popen.wait() on CPython 3.12 substitutes status 0 on ECHILD; helpers are not byte-identical (docstring/usage differ only)",
+    "affected_metadata_count": 11,
+    "affected": ["full-matrix-01: build-clang-01, build-release-verify-01, build-ubsan-01, configure-clang-01, configure-ubsan-01, ctest-clang-0002-v1, ctest-release-0002-v1, ctest-release-0022-v1", "full-matrix-02: ctest-ubsan-supplement-01, make-asan-01, runner-gcc-asan-01"],
+    "effective_direct_child_exit": "UNKNOWN",
+    "effective_direct_child_signal": "UNKNOWN",
+    "effective_normal_path_owned_group_cleanup": "UNKNOWN (cleanup_complete=true and empty member arrays are initialization defaults; no normal-path group census; escaped_members never populated)",
+    "applies_to_green_lanes_too": true,
+    "raw_originals_unchanged": true,
+    "withdrawn_statements": "true_exit_code=1/2/0 claims in stage sidecars and earlier author messages are withdrawn; make Error 1/Error 2 are make log text, not recovered waitstatus",
+    "independent_results_retained": "JUnit/LastTest facts for the three Release/Clang lanes, the UBSan supplement, and the inner GCC ASan CTest/Recorder evidence (frozen runner mechanism, separate scope, not extrapolated to machine-wide descendant proof)"
+  },
+  "defect_details": {
+    "B-001_gate_lost_stop_wakeup": {
+      "original_level": "STATIC_CONFIRMED at tests/async_coordinator_tests.cpp:68 (a567) + equivalent-algorithm probe REPRODUCED; not a historical CTest-timeout cause",
+      "fix": "condition_variable_any; stop-aware wait(lock,stop,pred) for respect_stop=true; plain wait for false; removed separate stop_callback; one-shot before_wait seam; test-fixture only; original 180s deadline kept",
+      "red": {"source_sha256": "a38113dba04ba79e68346845c11073a3c96dbc7b8366907f6301bbee8abc0302", "elf_sha256": "58a49676a5b0b6836073a83bb1e044623cc4bc9a0e324f34dd4e239a99ad2215", "result": "34 cases: 33 passed / 1 failed at 'stop between false predicate and wait cannot lose its wakeup' CHECK(completed_from_stop); exit 1; 44.5s; unconditional release+join before assertions"},
+      "green": {"source_sha256": "73160b1b9c5f69a976974cc936b7e85f8c982b8e151a292ddee51913ef925d51", "result": "34/34 passed; green-vs-red.diff = Gate algorithm only"},
+      "linked_libraries": {"libwls_s1.a": "6cf0984c28956d3c5a4d18df0ac1e5d1385cd77bce31d25b6dc9aa9d8207c9ff", "libwls_kernel.a": "a780803a40cb241a40454fad86b7ec19da7e28babb66110aa49ce6f0f2e1767f"},
+      "matrix_notes": "joint targeted async 38.92s PASS; Release/Clang 95/95 include async; GCC ASan async timeout_at_deadline 180.42s (cause UNKNOWN); Make-ASan async 33 passed/1 failed on 'cross-pool resource heads progress before slot admission' (async_coordinator_tests.cpp:191 checked_at<deadline, original 5s internal wait) aborting the make sequence; recorded as facts, not closed"
+    },
+    "E001_grandchild_cleanup": {
+      "original_level": "REPRODUCED with a real parent/grandchild process tree; original runner a567 sha256 70f860bd3e0952a8620ce958a17c66d70e3d8ccd0405cc41a7492abb1aed6e14",
+      "fix_sha256": "46866558cb0865bd06a1367569cb8c96c968ad167c9fdc7874a59fc2f745f32f",
+      "contract": "owned leader identity pid==pgid==session; waitid(WNOWAIT) leader observation without early reap; TERM 5s + KILL 5s bounded proof budget; killpg only to verified owned groups; fail-closed cleanup; Popen.wait only after group settlement; public summary/step whitelist unchanged, new process fields private-only",
+      "red": "e001/red-01: real parent exits -15, TERM-ignoring grandchild still S/live when recorder returns; success oracle exit 1",
+      "green": "e001/green-01: full selfcheck 68 methods OK (60 original + 8 new); 37.179s internal / 38.200156582s wall",
+      "later_use": "frozen runner used by full-matrix-02 GCC ASan gate with hash-bound selfcheck reuse (no rerun)"
+    },
+    "F-01_public_error_projection": {
+      "original_level": "REPRODUCED via real build_report with a synthetic missing path carrying a customer-identifier marker; original evaluate_r3.py a567 sha256 770d2200a9086e53552c39458d0f57e880843b89ed45925a7994d9679d73348e",
+      "fix": {"scripts/evaluate_r3.py": "e3f35aa2ff93de9181fbb7ab448914f1006bb0accf7a9ba55e82bfd52ebcfc2a", "scripts/r3_offline_acceptance.py": "11e447bc1126aaf71522c00cc27eb0eb1a08d2534219b26881a1e111acd3d6544"},
+      "contract": "stable public reason codes (reviewed-constant mapping, errno/sqlite/Key/Type/Value fallbacks); four outlets projected; runner_outcomes per-line explicit projection with whitelists and hash-only references, original outcomes bytes unchanged; internal optional private_error_sink (O_EXCL/0600); read-only report defaults retain nothing and label fingerprints as fingerprints; ten-cell denominator and canonical algorithms unchanged",
+      "clean_dual_input_oracle": {"evidence": "f01/oracle-02-v1", "driver_sha256": "5d08c3044b914f683ec1097c892f3ad8e9f46ce5dfaf7cbaf005a8c53340c9bc", "plan_fixture_sha256": "f938f2cb5784726d5c4880ead21d292959bf7453d3b0ce719bdddb8d657e8b3c", "baseline": "exit 1 at 'public canonical contains no marker' assertion (RED)", "candidate": "exit 0; counts invalid_evidence=1/not_executed=9; expected_cells=10; row0_reason=evidence_missing"},
+      "tests_and_runs": "r3_evaluation_tests 11 reason assertions to codes; cli tests 3; billing exactly 2 hunks; offline suite 15 selfchecks OK; joint targeted full suites: r3_offline_acceptance 2.98s/30s, r3_offline_acceptance_cli 76.62s/600s, r3_evaluation 80.51s/180s, billing_baseline_e2e 248.51s/900s"
+    },
+    "C-01_tmpdir_governance": {
+      "original_level": "STATIC_CONFIRMED (sandbox_tests.cpp:18-28, owned_capacity_baseline_repro.cpp:11-15 literal /tmp templates), upgraded to executable location-violation observation",
+      "fix": {"tests/sandbox_tests.cpp": "e0dfc5cd1a558da1a579e3951c2aadbc27ed64af412b80f7692ced47613f12a1 (Temp via test::TempDir)", "tests/owned_capacity_baseline_repro.cpp": "b57d8a7bd1f3766e7c5cc50fd9eb6455725e3070a51811d1ee85025f1e079199 (TempDir holder, return-8 early exit preserved)"}
+      ,
+      "observer_red_green": "mkdtemp --wrap observer (fixture-only): two literal /tmp templates REJECTED_OUTSIDE_PRIVATE_ROOT with nothing created under /tmp; candidate templates ALLOWED under private data-disk root",
+      "same_success_oracle": {"manifest": "implementation-04/oracle-01/oracle-manifest-v2.json", "manifest_sha256": "b0edad4e62b4afdc9551e8befb61e7c82e92228477b5bdb92be8e3261c05648e", "original": "oracle exit 1 at records_allowed_and_inside_tmpdir (child exit 0 preserved first)", "candidate": "oracle exit 0; two ALLOWED inside exclusive 176-byte spaced TMPDIR; mode 700; zero residue"},
+      "suite_runs": "impl-03 candidate sandbox 19/19 clean 10.1s + observer-linked 9/9 ALLOWED 4.8s (identical stdout hash), zero residue; joint run B full sandbox 19/19 under 158-byte spaced data-disk TMPDIR; owned suites passed in run A; owned_capacity_baseline_repro not in the 95 registrations; historical capacity probe semantics preserved"
+    }
+  },
+  "targeted_validation": {
+    "source": "joint aa24f1dd, GCC13.3 Release",
+    "run_a_10_suites": "10/10 Passed, 527.32s total, all within original deadlines",
+    "run_b_sandbox_spaced_tmpdir": "1/1 Passed, 19/19 methods, 158-byte spaced 0700 data-disk TMPDIR, zero residue",
+    "total": "11/11 PASS (includes config regression)",
+    "label": "validation_under_product_plus_validation_input",
+    "evidence": "joint-targeted-02/evidence-joint-targeted-02-v1.json (76c80bb04505ae0b5ea35701e026b3eab03d06121c5c529feeacd01042176169)",
+    "known_gaps": ["runA LastTest overwritten before preservation (method-level output 9/10 NOT_RETAINED)", "9/10 JUnit system-outs truncated at the CTest 1024-byte threshold", "targeted build --parallel 1 (memory-limited routing)"]
+  },
+  "full_matrix_on_joint_aa24f1dd": {
+    "gcc_release_umask0022": {"result": "95/95 PASS", "junit": "22098aadfe27b5f4ab225e0cefb35982c21b8bbfa369865f00f4fe3eca382851", "lasttest": "a4d78f735d31a9d925d306d2aece77319aee5a02cc78f34e7f8629d332f7c249", "total_real_seconds": 714.41, "outer_exit_and_cleanup": "UNKNOWN"},
+    "gcc_release_umask0002_same_binaries": {"result": "95/95 PASS", "junit": "b03aa17a08b38c8dd889a426497630a0fec4a0bd331a3794d58449e74a9f0ee7", "lasttest": "7b155f36e8793bda51c9cd4d9968224da38dae993763a59880bb2927ca7b3daa", "total_real_seconds": 688.69, "elf_identity_after_matches_before": true, "outer_exit_and_cleanup": "UNKNOWN"},
+    "clang18_release_umask0002": {"result": "95/95 PASS", "junit": "87c5f3377c09fd09e244ec1cb7e2ab0d1acb1e0182b8f22f2f891c8ae0d3cfe2", "lasttest": "2ec7944353bdc746add94d0cfdf7c09e76dcb7039e0c65c82dfaeb28109a8030", "build_seconds_parallel1": 1004.87, "total_real_seconds": 1439.78, "outer_exit_and_cleanup": "UNKNOWN"},
+    "ubsan_full95_original": {"status": "INTERRUPTED", "terminal_86": {"passed": 70, "timeout": 15, "failed": 1}, "failed_suite": "persistent_event_runtime (two_requests_two_nodes_advance_without_callback_wave_barrier exceeded original 5s wait; checked<deadline at persistent_event_runtime_tests.cpp:262; RESULT 16 passed/1 failed)", "number87_state": "STARTED_WITHOUT_TERMINAL", "interruption_cause_session_exit": "UNKNOWN", "preservation": "interruption-recovery-01/preservation-v1.json (e57787a8b8c027beb1db19522308c1bd7e742d142508dad80d6b072480a5905b)", "original_testing_temporary_untouched": true},
+    "ubsan_nine_supplement": {"status": "9/9 PASSED, separate label UBSAN_UNFINISHED_REGISTRATIONS_SUPPLEMENT_01_ONLY, not a formal full-95 run", "junit": "9741188ad3c38c202ef7c2d7d7c0eebd347614c33c3c69a2bf49e6fdcd563484", "lasttest": "b9b7330d6e21b6f9c79882a293ad53f2565c63c3aa1827e4b4ae8d33ad1cae79", "wall_seconds": 264.16, "evidence": "5ce1ecb4dd0f8a99598def12ca4b148a249ce3d65c474bab9ece8fe48a9e7d9b"},
+    "gcc_asan_lsan_full95": {"status": "NOT_COMPLETE", "inner_ctest_exit_code": 8, "counts": {"passed": 67, "timeout_at_deadline": 27, "failed": 1}, "failed_suite": "persistent_event_runtime 103.99s<180s (author read-only check: 14 passed/3 failed methods; original 5s wait assertion; cause UNKNOWN; same suite failed in the interrupted UBSan run)", "summary_status_sha256": "29a38ce3038c9d7c3599961d6fcd905d911c7fc038e49d39b37ca991aef287bc", "ctest_xml": "6541461800a3b0076468bd5420ef37a4096fea1577891b606d00851a56f26459 (95 cases/28 failures)", "evidence_complete": true, "inner_scope": "frozen-runner owned-process-group records kept in their own scope", "outer_exit_and_cleanup": "UNKNOWN"},
+    "make_asan": {"status": "ABORTED_AT_FIRST_FAILING_TEST_BINARY", "build_and_verify_contract_checks": "passed", "result_lines": "16 total: first 15 with failed=0; 16th = async_coordinator_tests 33 passed/1 failed", "failed_case": "cross-pool resource heads progress before slot admission (tests/async_coordinator_tests.cpp:191 checked_at < deadline, original 5s internal wait)", "make_log_errors": ["make[1]: *** [Makefile:106: test] Error 1", "make: *** [Makefile:194: asan] Error 2"], "error_semantics": "observed make log text, not recovered waitstatus", "later_binaries": "NOT_RUN; no full Make-95 claim", "stdout_sha256": "4bde5d3e9d8083dd5ca79942d7488f22464b654fc1a4e8d6fe23444f72679181", "stderr_sha256": "6ba4927b40a4a4c3f10ac6e64c5b874147e353253eaf029a2f2ee7b321947877", "wall_seconds": 2404.81, "outer_exit_and_cleanup": "UNKNOWN"},
+    "notes": ["method/subcase counts are separate from the 95 CTest registrations", "full-matrix-01 build-release-full-01.meta.json is 0 bytes (not a valid receipt); original UBSan ctest meta missing", "no resource reclamation performed; stage-owned build trees retained per manifest", "minimum free space observed ~2.0GiB"]
+  },
+  "publication_and_ci_pre_report": {
+    "first_independent_code_reviews": {"validation": "HARD_REVIEW: PASS, sess_a4270998-8056-4dd3-851e-d9b7bc0f94e8 (stdout 8ab9f256c4853d0d3c95a2a1f6370b1c3a3812c81b5c18c452ddb64201de850d, receipt 45f2e51674842459cac9ecb14a209a8802fd1a245c0bfe66aff2dc103c941c82)", "product": "HARD_REVIEW: PASS, sess_8917d049-a875-4b78-b321-4b73dc890aea", "scope": "prepublication source + local targeted evidence only"},
+    "joint_push": {"branch": "test/audit-core-integration-20261105-adp35vg4", "head": "aa24f1dd02d4a6856aa812b83c64fc7b1407c4a7", "ci_run": 42058523307, "event": "push", "six_linux_lanes": "all success", "source_snapshot_run": 42058523351, "snapshot_entries_verified": 969},
+    "validation_leaf_push": {"branch": "fix/audit-validation-20261105-adp35vg4", "head": "b9cd31cd084b2411589128e7268d39eacac83741", "ci_run": 42058508989, "event": "push", "six_linux_lanes": "all success", "source_snapshot_run": 42058508932, "snapshot_entries_verified": 967, "pr_event_run": 42058840265, "pr_event_merge_checkout": "509151da5f3c1318e8d642afef5efbe4c739bd02 (tree equals leaf tree; registered separately, not substituted for the push run)"},
+    "draft_pr": {"number": 41, "base": "test/n5-persistent-workflow-20261104-_7wxnkyn @ a5675e1245bebba41c499e56bd2c8a16be2d5dae", "state": "OPEN draft"},
+    "readiness_check": "report-readiness-01/ready-v1.json (3dcca844f3800e2f2a19e61af29c095a6a2851c6a4a74c36a107ab6633d0226c, 2026-11-06T03:43Z): PRs clean/expected heads, report paths absent",
+    "binding_limit": "pre-report code-head CI only; final report-head CI and result review bound by later external receipts; new green CI closes no historical OPEN state"
+  },
+  "process_deviations": [
+    "impl-01: stray empty /tmp/x created by a sed comparison, self-reported deleted same session; deletion not independently verifiable",
+    "impl-03: stage-evidence-manifest-v3.json same-path rewrite once (first draft not retained, UNKNOWN); out-of-scope harness persistent-memory write of one line (not authorized, not rolled back; later tasks do not proactively update global memory)",
+    "impl-03: first fixture versions had two compile defects; fixed as new versioned files, failed runs preserved (c01/fixture-run-01/02)",
+    "impl-04: candidate first run rejected by identity gate on a 63-hex hand-copied hash (preserved); oracle-manifest-v1 hand-typed constants false (preserved), v2 derives programmatically",
+    "joint-targeted-01: early BLOCKED waiting for build slot; prebuild static-gate CMake hash one-character transcription error corrected in new evidence (historical file unchanged)",
+    "joint-targeted-02: runA LastTest NOT_RETAINED (overwritten by runB); 9/10 JUnit system-outs truncated at 1024 bytes; build --parallel 1 (memory); two ctest invocations (sandbox isolation)",
+    "full-matrix-01: UBSan run interrupted (cause/session/exit UNKNOWN); 0-byte build-release-full-01.meta.json; missing original UBSan JUnit/ctest meta",
+    "full-matrix-02: intake script two failed attempts (01/01b) preserved; run-cmd exit-code capture defect disclosed via sidecar and adjudicated to UNKNOWN; three minimal probe temp files deleted after recording (originals not retained, implementer self-report only); runner selfcheck reused per hash binding instead of rerun",
+    "impl-02 entry receipt conclusion=unknown (stdout lacked required marker); joint-targeted-02 receipt missing plan_review_session_id, supplied by unchanged-original sidecar",
+    "earlier author/stage statements claiming measured outer exit 0 / true_exit_code 1/2 withdrawn by the wrapper adjudication (effective UNKNOWN)"
+  ],
+  "gates": {
+    "IMPLEMENTATION_COMPLETE": true,
+    "TARGETED_VALIDATION_COMPLETE": true,
+    "INDEPENDENT_CODE_REVIEW_COMPLETE": true,
+    "LOCAL_VALIDATION_COMPLETE": false,
+    "PUSH_COMPLETE": "true for code heads (leaf b9cd31cd, joint aa24f1dd, Draft PR #41); report-only commit publication is a later root-routed step",
+    "REMOTE_CI_COMPLETE": false,
+    "INDEPENDENT_RESULT_REVIEW_COMPLETE": false,
+    "PR_REVIEW_COMPLETE": false,
+    "MERGED": false,
+    "leaf_standalone_tested": false,
+    "historical_clang_asan_failures_closed": false
+  },
+  "preserved_open_states": {
+    "historical_clang_live_workflow_makeipc_sanitizer": "OPEN",
+    "strict_wal_shm_compatibility": "BLOCKED_NOT_COMPLETE",
+    "windows_image_conflict": "UNRESOLVED",
+    "windows11_ordinary_user_ntfs": "NOT_RUN",
+    "private_original_hosting": "BLOCKED"
+  },
+  "non_claims": [
+    "no real WLS model/supplier/paid API calls (synthetic + loopback TLS); engineering ZCode model requests happened; zero-engineering-call not claimed",
+    "persistent_event_runtime failed in both the interrupted UBSan run and GCC ASan; async_coordinator timed out at the ASan deadline and failed Make-ASan on the original 5s internal wait: recorded facts, causes UNKNOWN, not closed",
+    "joint results prove only the aa24f1dd combination; not validation-leaf standalone 95-item claims",
+    "agent hard review is not formal PR approval; no merge authorized"
+  ],
+  "evidence_index_note": "EV/ = module private evidence root (local data disk, not in Git); key entries with SHA-256 are listed in audit-validation-fixes-20261105-v2.md section 10 and in the stage receipt report-implementation-01/"
+}

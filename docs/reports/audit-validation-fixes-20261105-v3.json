@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "report": "audit-validation-fixes-20261105-v3",
+  "module": "validation",
+  "document_kind": "bounded_correction_appendix",
+  "generated_by": "report-correction-01 (REPORT_CORRECTION_ONLY, fresh ZCode implement session) under plan-final-report-correction-v1.md and its bound planner record; the only repository writes are the exclusive O_CREAT|O_EXCL|O_NOFOLLOW single-pass creation of this .md/.json pair; no Git writes, no product programs/builds/sanitizers/CTest",
+  "facts_cutoff_utc": "2026-11-06T05:04:26.783426+00:00",
+  "corrects": {
+    "v2_markdown": {
+      "path": "docs/reports/audit-validation-fixes-20261105-v2.md",
+      "bytes": 39151,
+      "sha256": "5de000f5929a65fc6bdb1dccd2657411012cd599cead4367b45291ff73ec695b",
+      "immutable_unchanged": true
+    },
+    "v2_json": {
+      "path": "docs/reports/audit-validation-fixes-20261105-v2.json",
+      "bytes": 24419,
+      "sha256": "7f3974dbffa526628b5d883f4fae628254bdde5374924992c102fdf5ebbeb21b",
+      "immutable_unchanged": true
+    }
+  },
+  "precedence": "this appendix takes precedence over v2 ONLY for the three corrected values in corrections[] and the process_qualifications[] below; every other v2 fact, recorded test result and effective UNKNOWN remains per its existing v2 scope",
+  "corrections": [
+    {
+      "id": 1,
+      "subject": "SHA-256 of scripts/r3_offline_acceptance.py as printed in v2",
+      "wrong_value_in_v2": "11e447bc1126aaf71522c00cc27eb0eb1a08d2534219b26881a1e111acd3d6544",
+      "wrong_value_length": 65,
+      "corrected_value": "11e447bc1126aaf71522c00cc27f0eb1a08d2534219b26881a1e111acd3d6544",
+      "corrected_value_length": 64,
+      "basis": "freshly measured this correction stage; character-for-character identical in local-freeze-01/frozen-input-v1.json and report-implementation-01/root-report-mechanical-v1.json",
+      "locations": [
+        "docs/reports/audit-validation-fixes-20261105-v2.md:33 (changed-files table row for scripts/r3_offline_acceptance.py)",
+        "docs/reports/audit-validation-fixes-20261105-v2.json:51 (changed_files_13[4].sha256, path scripts/r3_offline_acceptance.py)",
+        "docs/reports/audit-validation-fixes-20261105-v2.json:115 (defect_details.F-01_public_error_projection.fix[scripts/r3_offline_acceptance.py])"
+      ]
+    },
+    {
+      "id": 2,
+      "subject": "SHA-256 of tests/gcc_asan_expected_tests.json (95-item catalog) as printed in v2",
+      "wrong_value_in_v2": "620fe97b1d0b502b26f6ffd64977e9e7292423b78283467fd49ffe2816427efd",
+      "wrong_value_length": 64,
+      "corrected_value": "620fe97b1d0b502b26f6ffd6497769e7292423b78283467fd49ffe2816427efd",
+      "corrected_value_length": 64,
+      "basis": "freshly measured this correction stage; identical in local-freeze-01/frozen-input-v1.json and report-implementation-01/root-report-mechanical-v1.json",
+      "locations": [
+        "docs/reports/audit-validation-fixes-20261105-v2.md:23 (95-item catalog row)",
+        "docs/reports/audit-validation-fixes-20261105-v2.json:65 (protected_files_verified_baseline_identical[tests/gcc_asan_expected_tests.json])"
+      ]
+    },
+    {
+      "id": 3,
+      "subject": "validation-leaf short commit SHA in the v2 PUSH_COMPLETE note",
+      "wrong_value_in_v2": "b9cd31dd",
+      "corrected_value": "b9cd31cd",
+      "full_commit": "b9cd31cd084b2411589128e7268d39eacac83741",
+      "basis": "equals frozen-input-v1.json leaf sha, root-report-mechanical-v1.json observed_code_head and the git HEAD re-measured this stage",
+      "limit": "pre-report validation-leaf code head; must not be presented as the SHA of any future correction-report commit",
+      "locations": [
+        "docs/reports/audit-validation-fixes-20261105-v2.md:149 (PUSH_COMPLETE note)"
+      ],
+      "json_note": "all v2.json occurrences (identities/gates) already carry the correct value; no JSON correction needed"
+    }
+  ],
+  "process_qualifications": [
+    "排他创建证明等级：v2 阶段的“目标路径先确认不存在后 Write”与原子 O_EXCL 不是同一证明；v2 报告与作者回执中的排他创建/exclusive_create=true 只能保留为实施者自述，原子防覆盖保证为 NOT_ESTABLISHED，不以“单用户所以等效”消除该缺口。",
+    "创建后单点 Edit：实施者自述在 v2 JSON 创建后以 Edit 修改一处 tests/r24_recovery_predicates_tests.cpp 哈希，初稿未保留；这是“新建后不覆盖”规则的过程偏差，不以“定稿前”豁免。初稿字节与实际改动完整范围 NOT_RETAINED/UNKNOWN；当前最终值 b66c4d7b13bfb5fa6f03943b0c2909ec2dfd8b42d8c909d8a84aa93f58010ad6 与实际源一致只证明最终值，不证明过去仅发生该单点更改。",
+    "核验记录口径：report-input-verification-v1.json 只含归纳与摘录，其 commands_used 是描述性条目；“all outputs preserved in this record”不能称为完整原命令 stdout/stderr。原阶段未单独保全完整工具原输出，入口最终回答 JSON 不能补替；根 2026-11-06T04:23:10Z 的 root-report-mechanical-v1.json 是带新时点的独立机械观测，不能回填为实施时原件。",
+    "附件读取范围：v2 最终响应/核验记录明确给出 3 项必须附件、3 项二进制附加材料与 5 项阶段输入共 11 项哈希；其余附加文件的实际完整读取/逐项核验未获独立证明，附件清单中的哈希不证明模型已读内容。candidate.diff 仅做 hash+13 路径结构核验、未全文重读，如实列明；此前首次硬审有其自身范围，不冒称 v2 报告阶段又做了全文代码审查。",
+    "入口回执语义：真实入口回执 receipt-implement-9da6efb5.json（session sess_b96b2bae-918a-4861-b901-ce3cb23f57df，12 次模型请求，结论 DONE）是 v2 报告阶段的终态记录，不是最终结果硬审 PASS；作者自写 implement-receipt-v1.json 不代替入口会话身份。",
+    "门禁与开放状态不变：LOCAL_VALIDATION_COMPLETE=false、leaf_standalone_tested=false、historical_clang_asan_failures_closed=false 维持；原失败/超时/UBSan 中断与历史 Clang/live_workflow/Make-IPC/sanitizer OPEN、Windows 11 实机 NTFS NOT_RUN、私有原件托管 BLOCKED 不变；GCC 内层 CTest exit 8 与外层 11 份回执 UNKNOWN 的既有裁定继续适用；不得补造执行或批准。"
+  ],
+  "measurement_basis": {
+    "measured_at_utc": "2026-11-06T05:04:26.783426+00:00",
+    "method": "fresh sha256 of the two source files measured by this correction stage (not copied from the 04:23Z root record)",
+    "fresh_scripts_r3_offline_acceptance_py_sha256": "11e447bc1126aaf71522c00cc27f0eb1a08d2534219b26881a1e111acd3d6544",
+    "fresh_tests_gcc_asan_expected_tests_json_sha256": "620fe97b1d0b502b26f6ffd6497769e7292423b78283467fd49ffe2816427efd",
+    "consistent_with": [
+      {
+        "source": "local-freeze-01/frozen-input-v1.json",
+        "sha256": "a254897777332c34b1ba3a46b122fc8e5c2fa4d0060366f815227580e2705cba"
+      },
+      {
+        "source": "report-implementation-01/root-report-mechanical-v1.json",
+        "sha256": "02a108785ba259fb71dd952aa558c7cccf0e0e56e37e10f8b76ba885e7456cc0",
+        "observed_at": "2026-11-06T04:23:10.291204+00:00",
+        "note": "new-timepoint independent mechanical observation; not a restoration of v2-stage raw command outputs"
+      }
+    ],
+    "validation_leaf_head_remeasured": "b9cd31cd084b2411589128e7268d39eacac83741"
+  },
+  "gates_unchanged": {
+    "LOCAL_VALIDATION_COMPLETE": false,
+    "leaf_standalone_tested": false,
+    "historical_clang_asan_failures_closed": false,
+    "REMOTE_CI_COMPLETE": false,
+    "INDEPENDENT_RESULT_REVIEW_COMPLETE": false,
+    "PR_REVIEW_COMPLETE": false,
+    "MERGED": false,
+    "note": "IMPLEMENTATION_COMPLETE / TARGETED_VALIDATION_COMPLETE / INDEPENDENT_CODE_REVIEW_COMPLETE remain true and PUSH_COMPLETE remains 'true for code heads only' exactly as in v2; this appendix changes no gate"
+  },
+  "preserved_open_states": {
+    "historical_clang_live_workflow_makeipc_sanitizer": "OPEN",
+    "strict_wal_shm_compatibility": "BLOCKED_NOT_COMPLETE",
+    "windows_image_conflict": "UNRESOLVED",
+    "windows11_ordinary_user_ntfs": "NOT_RUN",
+    "private_original_hosting": "BLOCKED",
+    "ubsan_interrupted_gcc_asan_not_complete_make_aborted": "per v2, causes UNKNOWN, not closed"
+  },
+  "stage_binding": {
+    "plan_file": "plan-final-report-correction-v1.md (module private evidence root)",
+    "plan_sha256": "b0e3fb57bef479ca83e8d2427fb8c9c13bda47c6d51f479dd17c594cf1fdd097",
+    "planner_record_sha256": "aa971e1412311bdfd309d94478b82c6870e5461109daf49a5b80fe3acdb49944",
+    "plan_review_session_id": "sess_cba34d79-f6d6-4704-a8a5-7845bb7f4d45",
+    "plan_review_conclusion": "PASS",
+    "review_model_request_count": 3,
+    "workflow_sha256": "f49ff366cacb15df96ade89e4aa3d4412cb50836e4f11f3be407713a844bf990"
+  },
+  "repository_state_at_creation": {
+    "validation_leaf_head": "b9cd31cd084b2411589128e7268d39eacac83741",
+    "branch": "fix/audit-validation-20261105-adp35vg4",
+    "porcelain_before": [
+      "?? docs/reports/audit-validation-fixes-20261105-v2.md",
+      "?? docs/reports/audit-validation-fixes-20261105-v2.json"
+    ],
+    "porcelain_after_expected": [
+      "?? docs/reports/audit-validation-fixes-20261105-v2.md",
+      "?? docs/reports/audit-validation-fixes-20261105-v2.json",
+      "?? docs/reports/audit-validation-fixes-20261105-v3.md",
+      "?? docs/reports/audit-validation-fixes-20261105-v3.json"
+    ]
+  },
+  "non_claims": [
+    "no full re-audit of the remaining v2 hashes or facts beyond the three corrections and the listed process qualifications; absence of further findings is not claimed",
+    "this stage's mechanical verification (source SHA / JSON parsing / content location / status checks) is report-correction mechanical verification, not product revalidation; no product program, build, sanitizer/CTest or selfcheck was run",
+    "no self-reference to any future commit SHA or its CI; no pre-signed final result hard-review conclusion"
+  ],
+  "no_git_writes": true,
+  "future_binding_note": "the report-only publication commit, its final-head CI/source-snapshot and the fresh independent final-result hard-review are bound by later external receipts; this file claims neither; the authoritative entry implement receipt for this stage is generated by run-zcode.sh after the session and bound externally by the root (with a hash-bound sidecar if plan_review_session_id is missing, per the FINAL)"
+}
