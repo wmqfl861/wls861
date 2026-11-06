@@ -1,0 +1,174 @@
+{
+  "schema_version": 2,
+  "report": "audit-product-fixes-20261105-v2",
+  "stage": "report-implementation-01 (REPORT_ONLY; exclusive creation)",
+  "created_at": "2026-11-06T04:02:00Z",
+  "time_scope": "facts through 2026-11-06T03:56Z inputs; matrix recovery terminal at 2026-11-06T02:09Z",
+  "plan_file": "/mnt/d/codex-workspace/.wls861-local/audit-fixes-20261105-81xzfrt5/product/plan-final-v2.md",
+  "plan_sha256": "81c40cc3a1de83f1e7d23465a24eb6168f764697151c3f318f3c60718134688f",
+  "planner_record_sha256": "cbea48bf649b1d77472b1655e3d1b6c3d6946599b7af29e3ccebb24a72e94f62",
+  "workflow_sha256": "f49ff366cacb15df96ade89e4aa3d4412cb50836e4f11f3be407713a844bf990",
+  "prior_report": {
+    "docs/reports/audit-product-fixes-20261105-v1.md": "fbac95508a798385bb3cc3e7525a22c3777fd4cbf85913eac87d0883eda0a2bf",
+    "docs/reports/audit-product-fixes-20261105-v1.json": "d632822887a3ac533e1faa50985c618a53470b54cb64e4675d4a5cd8b41c226a",
+    "note": "v1 is an immutable historical snapshot of the implementation-02 stage; this v2 report supersedes its gate summary only with facts recorded through the matrix recovery terminal state"
+  },
+  "audit_input": {
+    "report": "/mnt/d/codex-workspace/.wls861-local/astra-audit-20261105-kze8b3ss/AUDIT-REPORT-v1.md",
+    "sha256": "6b3fab12f69bd6b6752699ef1cc4adad695aff0618d8a75f68858ccc00f358de",
+    "module_findings": ["ASTRA-A-001 (P2)", "D-CLI-001 (P2)"]
+  },
+  "identity": {
+    "baseline_head": "a5675e1245bebba41c499e56bd2c8a16be2d5dae",
+    "baseline_tree": "fac6f4451f8d95998ce9a22a0d228f33c582dc50",
+    "product_leaf_commit": "0542d38dac86d51642d1095c77f7901b3de26c9e",
+    "product_leaf_tree": "ee2ee413932c9d3fc4c36313e4fc2619c24254da",
+    "branch": "fix/audit-product-20261105-adp35vg4",
+    "joint_integration_commit": "aa24f1dd02d4a6856aa812b83c64fc7b1407c4a7",
+    "joint_integration_tree": "3a6fffc1c5017a6124207be61a8504d1cccc2fc3",
+    "joint_integration_branch": "test/audit-core-integration-20261105-adp35vg4",
+    "validation_leaf_commit": "b9cd31cd084b2411589128e7268d39eacac83741",
+    "at_report_write": "worktree clean; 8 source/test files byte-identical to local-freeze-01/frozen-input-v1.json and core-integration-input-v1.json (re-hashed this stage)",
+    "attribution_rule": "full-matrix results were produced on the joint product+validation source aa24f1dd; they prove that combination only and are never counted as a standalone leaf run"
+  },
+  "changed_files_sha256": {
+    "src/store.cpp": "807b2fd766ee2e253872cf08e26ad858081f9bfdce046394eb6ae62e8148d5b3",
+    "src/store_cleanup.inc": "4ab028e5a053533e0080d79ea8fc0130d60480a2c87ae39cb6af33ad401cbec1",
+    "src/cli.cpp": "b426f64c4c4ae0fd4ad760f9b7e9916d2439af83fd2253f12ba1f78ae4d68a04",
+    "src/offline_runtime.cpp": "717602a52293cc8428d1f103debfe11c69ea45760828dc5da12dcc1b62ec258f",
+    "tests/allocation_recovery_tests.cpp": "173b2389bb166482aeb9a661631b87373e7070b69c020af24b1adedc36a679b8",
+    "tests/test_s1_allocation_recovery_cli.py": "2d3c20165369659a1bd432fc4430e7c22ed0fe59a11375015726b5e49cf0741a",
+    "tests/offline_runtime_tests.cpp": "e33a1db1277864f06f47ea4bb8000b7d38fbf910ba4974628dd709cb64e95075",
+    "tests/s1_cli_smoke.py": "5d7bf3789dfab988a6fa62d477399a74bab43aa020a12796cffada89be0498c1",
+    "candidate_diff_vs_a567": "d40afbb2f536abf16699bd083859ac1a82631005619d8026864f966d7038aec3"
+  },
+  "findings": [
+    {
+      "id": "ASTRA-A-001",
+      "original_counterexample": {
+        "source": "astra-audit-20261105-kze8b3ss/A_store/tmp/path-probe-01",
+        "facts": "parent=346/final=377/stage=379 bytes; prepare+preflight accepted, abandon threw invalid tool identifier, record stayed PREPARED, new allocation key conflicted; short-path control succeeded",
+        "evidence_level": "REPRODUCED on the real old library (compile/run/stdout preserved; run log did not separately list a binary hash - limitation retained, not upgraded)"
+      },
+      "minimal_fix": "owned_path_strings helper in src/store.cpp applies the existing path domain text_field(value, 'owned path', 4096) with nonempty/NUL checks, stable dictionary order and duplicate rejection ('duplicate owned path'); exactly two call sites replaced in src/store_cleanup.inc (abandon_owned_workspace retained_paths; cleanup_status retained-allocation paths); tool-name strings domain and its 256-byte limit unchanged; json_text UTF-8/JSON/byte budgets and the prepare protected_path+'/work'<4096 gate unchanged; abandonment remains metadata-only (filesystem_observed=false, deletion_performed=false)",
+      "final_red_green": {
+        "shared_test_object": "89f604b1bf7f4d835486c36ce8407417cd4b8901f66125ccfad0590b5481e937 compiled once from final test bytes with the exact candidate-build flags (-O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)",
+        "red_old_library": {"elf": "ceb7a4af73dc88ad85aa8b3295fb45133640f9dd935b6711b43e03110f58159d", "linked_against": "f614 libwls_s1.a 6cf0984c... + libwls_kernel.a a780803a...", "exit": 1, "result": "31 passed, 3 failed (two long-path abandon cases -> invalid tool identifier; path-specific message CHECK at allocation_recovery_tests.cpp:752)", "wall_seconds": 16},
+        "green_candidate": {"elf": "c7fe98e755045617b798ca0a4a8b4ce62e2b4323f475b1a0a3d1d675bf865c8f", "linked_against": "candidate libwls_s1.a 5bc7ee89... + libwls_kernel.a a780803a...", "exit": 0, "result": "34 passed, 0 failed", "wall_seconds": 15, "bit_identity": "byte-identical to the existing candidate build ELF, upgrading the prior mtime inference to byte-identity proof"},
+        "output_byte_identity": "RED/GREEN stdout+stderr byte-identical to the implementation-02 12:45/12:47 runs",
+        "cli_long_path": {"old_cli": "exit 1, 9 passed / 1 failed: legal long-path abandon rejected invalid_input/invalid tool identifier", "note": "the audit had not dynamically reproduced this CLI branch; recorded as new evidence, not as the original audit level"}
+      },
+      "coverage": "final and stage exact 256/257 absolute-byte boundaries; >256-byte multi-component UTF-8/space paths with byte-preserved marker/receipt, no-allocation-files assertion for unstaged abandonment, ABANDONED/proof=null, idempotent exact replay, conflict on changed reason, no key revival, active=1/history=2 slot release; workspace_cleanup_status and CLI closeout/owned-workspaces display both retained paths; nesting rejection ordered before replacement allocation; forged 5000-byte path -> path-specific error without tool-identifier wording",
+      "tool_name_domain_evidence_layers": {
+        "static": "text_field (default maximum=256) and strings byte-identical to a567 (pair-extracted hashes 2e53456e.../1f2f0c0d...; extraction boundary differs from the planner author's, equality plus the single diff hunk is the substantive proof); 256-byte tool-name limit not enlarged",
+        "dynamic": "admission of an unregistered 257/256-byte tool name is rejected Unauthorized at the frozen template authorization (store.cpp:3027) before strings() (:3035); duplicates InvalidInput; the existing admission fixture does NOT dynamically hit the 256-length guard and is not claimed to"
+      }
+    },
+    {
+      "id": "D-CLI-001",
+      "original_counterexample": {
+        "source": "astra-audit-20261105-kze8b3ss/D_protocol_config/repro_disposition_fresh_v2",
+        "facts": "fresh run-fake --disposition invalid-enum exited 0; attempts 0->3, events 1->17, tasks/plans/ops 0->1, request RECEIVED->RUNNING",
+        "evidence_level": "REPRODUCED on the existing exact CLI build (exact-source provenance preserved in the audit originals)"
+      },
+      "minimal_fix": "src/cli.cpp validates empty|update|keep|cancel after reading --disposition and before options.finish()/any Takeover Store, using the existing bounded error JSON without echoing arbitrary enum text; src/offline_runtime.cpp validates the same enum at run entry, then computes pending_amend from a read-only tasks/request snapshot and requires a valid value iff pending AMEND (empty otherwise) before any rebind_task, reserve_call, model completion, ack or business effect; downstream defensive checks retained; task-count/questions/submission/wait guards and final Actor/CAS admission unchanged",
+      "behavior_tightening": "the existing non-fresh 'empty when no pending AMEND' rule is extended to fresh requests: fresh + update/keep/cancel (legal literals) is newly rejected; disclosed as an intentional tightening, not a no-change fix",
+      "final_red_green": {
+        "cli_s1_cli_smoke": {"red_old_cli": "13 tests, exit 1, exactly 2 failures: fresh case AssertionError 0 == 0 (illegal enum accepted and advanced - the audit counterexample) and absent-db case 'storage' != 'invalid_input' (old CLI opened the Takeover writer)", "green_candidate": "13 tests OK"},
+        "direct_runner_offline_runtime": {"red_old_library": {"elf": "55b03ac4471c2151c2d486d575011a9c923a131c38f2653fae45d804b13ac07b", "exit": 1, "result": "11 passed, 2 failed (fresh :54 caught; published-plan rebind advanced task plan before rejection :293)"}, "green_candidate": {"elf": "33657f68b06dc6eeca3f7fb4038c9e608cdaa296276d4de1c1582f223bcbe3c1", "result": "13 passed, 0 failed"}},
+        "pending_amend_supplement": "FINALv2-required subcase test_run_fake_pending_amend_invalid_enum_rejected_without_store_effects: submit -> legal initial run -> sibling request with attempts -> amend -> asserts a genuinely pending task (based_on_requirements_revision==1, paused_for_change) -> illegal literals with a valid amended script -> bounded invalid_input, empty stdout, full sorted logical snapshot of every user table (BLOB-safe, sibling included) equal before/after each call, both budgets unchanged; PASSED on the OLD CLI as well (the pre-existing non-fresh check already rejected it) - honestly recorded as candidate hardening regression, not relabeled as an audit dynamic counterexample",
+        "absent_db": "illegal literals create no DB/WAL/SHM/writer-lock; legal-but-inapplicable values are runner-checked after the caller's Store open and keep existing recovery semantics (not asserted in the absent-db loop)"
+      }
+    }
+  ],
+  "targeted_validation": {
+    "product_own_12_suites": {
+      "command_regex": "^(allocation_recovery|allocation_recovery_cli|offline_runtime|s1_cli_smoke|r2_amend|r2_amend_cli_smoke|cleanup|cleanup_runtime|owned_capacity|owned_capacity_runtime|r24_recovery|r24_cleanup_recovery)$",
+      "first_attempt": "11/12 FAILED at allocation_recovery_cli ('conflict' != 'unauthorized'): the new CLI long-path fixture created its replacement allocation before the nesting check, so the original Unauthorized assertion never reached the intended guard; failure original preserved (implementation-02/green-candidate/ctest-targeted.stdout, sha256 2d1a024e5ada425808370180d184d73a72d9324264ec998c632024e5aa72a9ed5)",
+      "fixture_order_correction": "nesting check moved before the replacement allocation creation - a valid fixture ordering fix; the guard itself was NOT relaxed and no Conflict was accepted to turn the test green",
+      "final_bytes_run": "ctest-targeted-final2 (2026-11-05T12:52Z) 12/12 Passed, 280.79s, on final bytes 173b2389/2d3c2016/5d7bf378/e33a1db1; intermediate 12:43 12/12 (ctest-targeted-final.stdout) belongs to the pre-final bytes window 83e0280b and is retained as history only",
+      "registered_tests_in_candidate_build": 95
+    },
+    "joint_targeted_11_suites": {
+      "source": "aa24f1dd (both leaves), validation-side stage joint-targeted-02",
+      "result": "11/11 PASSED (run A 10 suites + run B sandbox under a spaced >64-byte TMPDIR, 19/19 methods)",
+      "log_limitations": "run A LastTest was overwritten by run B before preservation (recorded violation); 9 of 10 run-A JUnit system-outs carry the CTest 1024-byte truncation marker (only config retained full output); suite results rest on JUnit/ctest stdout, not on per-method logs"
+    }
+  },
+  "full_local_matrix": {
+    "scope": "executed on the joint source aa24f1dd only; never counted as standalone leaf runs",
+    "release_gcc13_umask0022": {"tests": "95/95 passed", "basis": "complete JUnit (95 cases, 0 failures) + preserved LastTest + ctest stdout '100% tests passed'; junit sha256 22098aadfe27b5f4ab225e0cefb35982c21b8bbfa369865f00f4fe3eca382851", "outer_exit_and_cleanup": "UNKNOWN (run-cmd helper waitstatus defect)"},
+    "release_gcc13_umask0002": {"tests": "95/95 passed (same ELF batch as 0022)", "basis": "junit b03aa17a08b38c8dd889a426497630a0fec4a0bd331a3794d58449e74a9f0ee7 + preserved LastTest", "outer_exit_and_cleanup": "UNKNOWN"},
+    "clang18_release_umask0002": {"tests": "95/95 passed", "basis": "junit 87c5f3377c09fd09e244ec1cb7e2ab0d1acb1e0182b8f22f2f891c8ae0d3cfe2 + preserved LastTest", "outer_exit_and_cleanup": "UNKNOWN"},
+    "ubsan_debug_umask0002_original": {"status": "INTERRUPTED_WITH_OBSERVED_FAILURES", "terminal_results": "86 of 95: 70 passed / 15 timeout / 1 failed; #87 r1_structured_cli_smoke started without terminal result", "failed_suite": "persistent_event_runtime CHECK checked < deadline (two_requests_two_nodes_advance_without_callback_wave_barrier, original 5s wait) at persistent_event_runtime_tests.cpp:262; cause not established", "missing": "JUnit, ctest meta, terminal ZCode receipt; interruption cause UNKNOWN; original Testing/Temporary, LastTest.log.tmp and checkpoint preserved untouched"},
+    "ubsan_nine_registration_supplement": {"status": "9/9 PASSED (264.16s, original binaries, new private ctest driver with only an explicitly authorized WORKING_DIRECTORY addition)", "label": "UBSAN_UNFINISHED_REGISTRATIONS_SUPPLEMENT_01_ONLY; not a formal full-95 run; original interrupted run status unchanged"},
+    "gcc13_debug_asan_lsan": {"runner": "frozen scripts/run_gcc_asan.py sha256 46866558cb0865bd06a1367569cb8c96c968ad167c9fdc7874a59fc2f745f32f (Debug, -O0, halt_on_error=1, detect_leaks=1, all 95, no filtering, original deadlines)", "status": "NOT_COMPLETE", "counts": "67 passed / 27 timeout_at_deadline / 1 test_failure", "failed_suite": "persistent_event_runtime 103.99s < 180s deadline (same suite as the interrupted UBSan failure); 14 passed / 3 failed inside the suite", "inner_ctest": "exit 8 (recorded by the runner's own Recorder/waitid mechanism, independent of the run-cmd helpers); evidence collection complete; source/binary identities unchanged", "outer_exit_and_cleanup": "UNKNOWN (source-level expectation of runner exit 1 is not a measured waitstatus)"},
+    "original_make_asan": {"command": "make -j2 asan BUILD_DIR=.../build-audit-joint-make-asan-v1 CPPFLAGS=-DWLS_CI_USER_CPPFLAGS=1 PYTHON=/usr/bin/python3 (effective dir ...-asan; ASAN_OPTIONS=halt_on_error=1:detect_leaks=1; umask 0002)", "status": "ABORTED_AT_FIRST_FAILING_TEST_BINARY - sequence incomplete, later binaries NOT_RUN; no full Make-95 claim", "observed": "build succeeded; verify/contract checks passed; 16 RESULT lines of which the first 15 report failed=0 and the 16th reports async_coordinator_tests '33 passed, 1 failed' (cross-pool FIFO case exceeded its original 5s internal wait, async_coordinator_tests.cpp:191); make[1] Error 1 / make Error 2 are make's reported target-error text, not a recovered kernel waitstatus", "allocation_recovery_in_sequence": "RESULT 34 passed, 0 failed (line 398 of the preserved stdout)", "outer_exit_and_cleanup": "UNKNOWN"},
+    "wrapper_exit_and_cleanup_adjudication": {
+      "file": "/mnt/d/codex-workspace/.wls861-local/audit-fixes-20261105-81xzfrt5/validation/planner-adjudication-wrapper-exit-and-cleanup-evidence-v1.json",
+      "sha256": "a29224f91123851c1e42d9de498f197b2559db8660e753ba59a874752f06bc27",
+      "applied": "11 run-cmd-01/02 outer meta files (recorded exit_code=0/signal=null/cleanup_complete=true) are interpreted with effective direct-child exit/signal/normal-path cleanup = UNKNOWN (CPython ECHILD substitutes 0 after the helper's WNOHANG reap); applies to green-lane receipts too; raw originals unchanged; earlier true-exit claims in stage summaries (true_exit_code 1/2/0) are retracted to UNKNOWN per this adjudication; the runner's independent inner records (waitid-based ctest.step.json) keep their separate, narrower scope"
+    },
+    "cross_environment_signal": "persistent_event_runtime failed in two independent environments (interrupted UBSan run and GCC ASan gate); a genuine recorded signal, cause not established, not attributed to this module's fix",
+    "LOCAL_VALIDATION_COMPLETE": false
+  },
+  "first_independent_code_hard_review": {
+    "session": "sess_8917d049-a875-4b78-b321-4b73dc890aea (fresh; distinct from plan review sess_068223e5, implement sessions sess_5df50839/sess_16606cda/sess_a902f49f, joint targeted sess_1cd40211)",
+    "conclusion": "PASS",
+    "scope": "PREPUBLICATION_SOURCE_AND_LOCAL_TARGETED_EVIDENCE only (frozen source/minimal fix/real red-green/targeted evidence/combination dependency/deviation review); explicitly NOT full matrix, NOT final CI, NOT formal PR review",
+    "receipt": "hard-review-01/receipt-hard-review-729dca28.json sha256 3f919426f8cd499292a6da93bce21386a44846414d62c9cc75015bdce5f0f15f",
+    "response": "hard-review-01/hard-review-20261105T152854Z-7616b6.stdout.json sha256 68170fe2fbee90c9136a5ac885f000eec88b28a1c1e6b440dd3fc7cae8bc7b2e"
+  },
+  "publication_state": {
+    "local_freeze_commit": "0542d38dac86d51642d1095c77f7901b3de26c9e by root (ordinary commit after exclusive-file-list and git diff --check review)",
+    "push": {"by": "root (ZCode performs no Git writes)", "argv": ["git", "push", "-u", "origin", "fix/audit-product-20261105-adp35vg4"], "exit_code": 0},
+    "draft_pr": {"number": 40, "state": "OPEN", "is_draft": true, "base": "test/n5-persistent-workflow-20261104-_7wxnkyn (a5675e1, PR #36)", "head": "0542d38dac86d51642d1095c77f7901b3de26c9e", "url": "https://github.com/wmqfl861/wls861/pull/40"},
+    "remote_ci_at_head": {"push_run": 42058494031, "event": "push", "head_sha": "0542d38dac86d51642d1095c77f7901b3de26c9e", "conclusion": "success", "jobs": "six Linux lanes (strict, strict-umask-0002, Clang-18, ASan, UBSan, Make-ASan) all success; checkout logs agree on head"},
+    "remote_ci_pr_event": {"run": 42058826214, "event": "pull_request", "actual_checkout": "merge commit 9cea9790b23661c83d084a5f7850b737491b0330 (parents a5675e1 + 0542d38)", "note": "PR-event merge run registered separately; never counted as the push-head result"},
+    "source_snapshot": {"run": 42058494066, "commit": "0542d38dac86d51642d1095c77f7901b3de26c9e", "artifact_digest": "0c2ca84bc1e8f33c00ec28dcd1d3e6b22009597aa8011b8fc6f82e5a46c40a72", "entries": 967, "all_paths_types_modes_links_and_regular_bytes_match": true, "archives_not_executed": true},
+    "joint_branch": {"push": "test/audit-core-integration-20261105-adp35vg4 = aa24f1dd (ordinary push, no force, no Draft PR needed per adjudication)", "ci_run": 42058523307, "conclusion": "success (six lanes)", "source_snapshot_run": 42058523351, "entries": 969, "all_match": true},
+    "final_report_head_binding": "the report-only commit and its final leaf SHA, final-head CI and the second independent result hard review are bound by later external receipts; this report does not self-reference a future SHA"
+  },
+  "process_deviations_and_evidence_gaps": [
+    "implementation-01 was an infrastructure failure (exit 1, no terminal model response); not counted as a product RED",
+    "/tmp/rebuild-alloc3.log written outside the data disk by implementation-02: preserved copy sha256 ec835ee5ced71cc0f57d4da94e40913aaaea113c1c474a0f45ef6159b322a0df; original untouched; violation stands, not rewritten as compliant",
+    "implementation-02 reused log paths (run-alloc-final.stdout/.stderr, green-candidate/run-alloc.stdout): final bytes hashed and archived; intermediate bytes UNKNOWN",
+    "12:47Z relink argv not separately logged and intermediate test bytes 83e0280b not preserved: closed for the NEW chain by implementation-04's byte-identity dual-link proof; historical gap remains UNKNOWN and was not backfilled",
+    "implementation-02 implement-summary-v1.json created_at anomaly: not used as a fact; ordering taken from real entry/command receipts",
+    "candidate build used -j1 (measured ~1.4GiB free RAM, no swap): recorded, not silent",
+    "first targeted run 11/12 (fixture ordering) followed by 12/12: both originals preserved with causes; guard not relaxed",
+    "implementation-04 compile-01 quoting failure preserved; authoritative argv in compile-02.meta",
+    "implementation-04 receipt lacked plan_review_session_id; root sidecar session-linkage-sidecar-v1.json records it (missing_original_field=true; original unchanged)",
+    "validation-side deviations disclosed for the joint evidence chain: self-reported /tmp/x use, overwritten early manifest draft, out-of-scope agent memory write, run-A LastTest overwritten before preservation, 9 JUnit system-outs truncated at 1024 bytes, prebuild-static-gate CMake hash transcription typo (corrected in a new record, historical file unchanged), joint-targeted-01 early BLOCKED then granted the slot",
+    "full-matrix-01 UBSan run interrupted (86 terminal results; cause UNKNOWN; missing JUnit/meta/receipt); full-matrix-01 build-release-full-01.meta.json is a 0-byte file, not a valid receipt",
+    "run-cmd-01/02 outer exit-code capture defect (helper WNOHANG reap then Popen ECHILD -> recorded 0): 11 receipts interpreted as UNKNOWN for outer exit/signal/normal-path cleanup per the wrapper-exit adjudication; raw originals unchanged; these helpers are no longer used for new product tests",
+    "GCC ASan NOT_COMPLETE and Make-ASan abort are real recorded test outcomes: no rerun, no suite filtering, no deadline or assertion relaxation; make-sequence counts are method-level RESULT lines, separate from the 95 CTest registrations",
+    "this report stage wrote only the two v2 report files; no source/test/build/CI/registry edits, no Git writes, no product test runs, no new helper experiments; run-cmd-01/02 not used"
+  ],
+  "gates": {
+    "plan_review": "PASS (existing, sess_068223e5-9735-45f0-abd0-abba23a67b08; DRAFT-v1 review with same-author FINALv2 continuation decisions)",
+    "production_code": "leaf 0542d38 pushed; PR #40 Draft OPEN",
+    "targeted_validation": "product own 12/12 on final bytes (first 11/12 preserved); joint 11/11 on aa24f1dd",
+    "first_independent_code_hard_review": "PASS (scope-limited)",
+    "full_local_matrix": "NOT PASSED (three Release/Clang lanes 95/95; UBSan original interrupted 70/15/1 + supplement 9/9; GCC ASan NOT_COMPLETE 67/27/1; Make-ASan aborted at first failing binary); LOCAL_VALIDATION_COMPLETE=false",
+    "push": "COMPLETE (by root, not by executor)",
+    "remote_ci": "pre-report head 0542d38 push CI green; PR-event merge CI green (registered separately); joint aa24f1dd push CI green; final report-commit-head CI PENDING (later external receipt)",
+    "independent_result_hard_review": "NOT_RUN",
+    "formal_pr_review": "NOT_RUN (PR_REVIEW_COMPLETE=false)",
+    "merged": false
+  },
+  "still_open": [
+    "historical Clang/live_workflow/Make IPC/sanitizer issues remain OPEN; historical_clang_asan_failures_closed=false (not edited into success)",
+    "persistent_event_runtime failures in UBSan(interrupted)/GCC-ASan environments: recorded, cause UNKNOWN, not attributed and not closed",
+    "Windows 11 ordinary-user NTFS NOT_RUN",
+    "private original hosting BLOCKED",
+    "strict WAL/SHM compatibility limits retained as originally recorded"
+  ],
+  "evidence_roots": {
+    "module_evidence": "/mnt/d/codex-workspace/.wls861-local/audit-fixes-20261105-81xzfrt5/product (implementation-02/03/04, hard-review-01, local-freeze-01, publication-01, remote-results-01, report-implementation-01)",
+    "joint_and_matrix_evidence": "/mnt/d/codex-workspace/.wls861-local/audit-fixes-20261105-81xzfrt5/core-integration-01 and .../validation (joint-targeted-02, full-matrix-01, full-matrix-02, interruption-recovery-01, planner adjudications)",
+    "audit_originals": "/mnt/d/codex-workspace/.wls861-local/astra-audit-20261105-kze8b3ss (read-only)"
+  },
+  "model_calls": "engineering ZCode sessions only; zero real/paid provider calls; not WLS supplier acceptance",
+  "no_secrets_or_private_logs_in_report": true
+}
