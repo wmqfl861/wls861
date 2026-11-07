@@ -5,6 +5,7 @@
 #include "wls/worker_history.hpp"
 #include "wls/management_context.hpp"
 #include "runtime_config_internal.hpp"
+#include "amendment_disposition.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -33,14 +34,6 @@ std::string string_at(const Json& value, std::string_view key) {
     require(value.is_object() && value.as_object().contains(key) && value.at(key).is_string(),
             ErrorCode::InvalidInput, "string field missing: " + std::string(key));
     return std::string(value.at(key).as_string());
-}
-std::int64_t integer_at(const Json& value, std::string_view key) {
-    require(value.is_object() && value.as_object().contains(key), ErrorCode::InvalidInput, "integer field missing: " + std::string(key));
-    const auto& number = value.at(key);
-    if (number.is_int64()) return number.as_int64();
-    if (number.is_uint64() && number.as_uint64() <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
-        return static_cast<std::int64_t>(number.as_uint64());
-    throw Error(ErrorCode::InvalidInput, "invalid integer field: " + std::string(key));
 }
 std::int64_t increment(std::int64_t value) {
     require(value < std::numeric_limits<std::int64_t>::max(), ErrorCode::Quota, "revision exhausted");
@@ -925,7 +918,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         check_plan_supported(tool.arguments, config, worker_tools_ != nullptr, store_.workflow_runtime_enabled());
         const auto existing = store_.tasks(captured.binding.request_id);
         require(existing.size() <= 1, ErrorCode::Unsupported, "offline runner cannot replace an existing multi-task plan");
-        if (!existing.empty()) require(disposition == "update" || disposition == "keep" || disposition == "cancel",
+        if (!existing.empty()) require(is_amendment_disposition(disposition),
             ErrorCode::InvalidInput, "existing AMEND task needs explicit update, keep, or cancel");
         Json plan = tool.arguments;
         plan.as_object()["plan_revision"] = increment(captured.binding.plan_revision);
@@ -1006,13 +999,12 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
                         std::int64_t max_worker_calls) {
     require(max_worker_calls >= 1 && max_worker_calls <= 16 && (worker_tools_ || max_worker_calls == 1),
         ErrorCode::InvalidInput, "Worker calls must be 1..16 and multiple calls require an explicit workspace");
-    require(disposition.empty() || disposition == "update" || disposition == "keep" || disposition == "cancel",
+    require(disposition.empty() || is_amendment_disposition(disposition),
         ErrorCode::InvalidInput, "disposition must be empty or one of update, keep, or cancel");
     auto tasks = store_.tasks(id);
     require(tasks.size() <= 1, ErrorCode::Unsupported, "offline runner supports one task per request");
     const auto record = store_.request(id);
-    const bool pending_amend = !tasks.empty() &&
-        integer_at(tasks.front(), "based_on_requirements_revision") != integer_at(record, "requirements_revision");
+    const bool pending_amend = has_pending_amendment(tasks, record);
     // Applicability is decided on this read-only snapshot before any rebind,
     // reservation, acknowledgment or business effect, so an unusable
     // disposition leaves the durable state untouched.
@@ -1070,7 +1062,7 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
     };
     Array calls;
     if (tasks.empty() || integer_at(tasks.front(), "based_on_requirements_revision") != integer_at(record, "requirements_revision")) {
-        if (!tasks.empty()) require(disposition == "update" || disposition == "keep" || disposition == "cancel",
+        if (!tasks.empty()) require(is_amendment_disposition(disposition),
             ErrorCode::InvalidInput, "AMEND requires --disposition update, keep, or cancel before another model call");
         calls.push_back(invoke(Role::Dispatcher, {}));
         tasks = store_.tasks(id);
