@@ -1,6 +1,6 @@
 # 原始 43 项 PR 收敛表（历史队列）与当前状态
 
-**状态：2026-11-06 方案已获 owner 确认并执行——原始队列 #1–#42 已全部关闭（该原始队列 42 个 PR 合并数为 0，仅指此历史队列而非仓库当前合并总数，关闭不等于合并）；#43/#44/#45 已于 2026-11-07 获 owner 对三个精确 head 的按序合并批准并全部正常合并（三项 MERGED，原分支保留），main 现为 [f2a92275ed02b3786777b3b46882dff1e8180ad5](https://github.com/wmqfl861/wls861/commit/f2a92275ed02b3786777b3b46882dff1e8180ad5)；G0 仍 NOT_COMPLETE（G0-4 文档收口与最终 main 完整门禁未完成），phase1 未启动。**
+**状态：2026-11-06 方案已获 owner 确认并执行——原始队列 #1–#42 已全部关闭（该原始队列 42 个 PR 合并数为 0，仅指此历史队列而非仓库当前合并总数，关闭不等于合并）；#43/#44/#45 已于 2026-11-07 获 owner 对三个精确 head 的按序合并批准并全部正常合并（三项 MERGED，原分支保留），main 现为 [f2a92275ed02b3786777b3b46882dff1e8180ad5](https://github.com/wmqfl861/wls861/commit/f2a92275ed02b3786777b3b46882dff1e8180ad5)；该 main 的完整六配置+source 门禁已于 2026-11-07T15:59Z 全部成功（Linux run [42385790587](https://github.com/wmqfl861/wls861/actions/runs/42385790587)、source run [42385790585](https://github.com/wmqfl861/wls861/actions/runs/42385790585)）；G0 仍 NOT_COMPLETE——G0-4 文档收口已开出为 PR #47（Draft、直接 main），其最终合并与合并后对应 main 门禁未完成；#47 内的 phase1（纯文档首批）已执行、phase2（契约迁移）进行中，二者均为文档步骤，不是 G1 开发阶段。**
 
 - 合并前状态快照（2026-11-07T11:24–11:26Z UTC，只读刷新 PR 列表、检查汇总与远端 ref 清单；历史保留）：原始队列 #1–#42 全部 CLOSED；[#43](https://github.com/wmqfl861/wls861/pull/43) OPEN Draft，head [`4d8e28f08c1ce7242fcf3863cd49675f05f1663e`](https://github.com/wmqfl861/wls861/commit/4d8e28f08c1ce7242fcf3863cd49675f05f1663e)，base 为 main [`a6b8559018a599d7a806b05942857a56d69a00ce`](https://github.com/wmqfl861/wls861/commit/a6b8559018a599d7a806b05942857a56d69a00ce)，待 owner 合并。
 - 原 43 个 head ref 仍全部保存：#1–#42 的远端原分支 ref 42/42 存在且仍指向表内精确 head（无缺失、无漂移）；#43 分支 `fix/g0-s1-backport-20261106-wwmxqbtd` 存在并指向当前 head，其前一 head [`8c3087e26cab84b20579f42892d127b9242b2e84`](https://github.com/wmqfl861/wls861/commit/8c3087e26cab84b20579f42892d127b9242b2e84) 作为其父提交仍可达。
@@ -8,7 +8,7 @@
 - main 仍为 [`a6b8559`](https://github.com/wmqfl861/wls861/commit/a6b8559018a599d7a806b05942857a56d69a00ce)，未包含 #43 修复；后继 PR 的存在不改变 G0 未完成的状态。
 - 合并后状态（2026-11-07，按 owner 批准与合并/验证记录更新）：owner 批准 #43→#44→#45 依次正常合并（普通 merge commit，无 squash/rebase/admin/auto，原分支与提交保留）：#43 → [d28c4a54520338d00e9e3b09ea362aefcbc2df6c](https://github.com/wmqfl861/wls861/commit/d28c4a54520338d00e9e3b09ea362aefcbc2df6c)（2026-11-07T14:25:13Z，父 a6b8559 + 4d8e28f，实际 tree 1df4b257c1afae2a75ed3d0221b2cf9c466e04a9，与此前已通过完整检查的合并候选 af091295d623c0c351eeec57f16bdead75bd4d03 的 tree 一致）；#44 → [11d83eba931bb62f3a45cdaf19633d7384feff5d](https://github.com/wmqfl861/wls861/commit/11d83eba931bb62f3a45cdaf19633d7384feff5d)（15:17:26Z，父 d28c4a5 + 1628364，tree 31f33108d5c45e73e4e3738cd7871b6be507b1fd）；#45 → [f2a92275ed02b3786777b3b46882dff1e8180ad5](https://github.com/wmqfl861/wls861/commit/f2a92275ed02b3786777b3b46882dff1e8180ad5)（15:19:07Z，父 11d83eb + 2159746，tree fcd279d029f1dea93bb4a7f90d6c2bf7e1ce4119 即当前 main tree）。
 - #44/#45 合并前的新组合验证：验证分支上的既有 ci.yml 手动完整六配置运行（#44 组合 run 42382158615、#45 组合 run 42382170789，各 5 个 CTest 配置 × 78 项注册测试通过）与 source 归档（run 42382161297 / 42382173458）全部成功；#45 实际合并输入与验证候选 f2381e5a… 等价（tree 相同）；两个新组合由同一次 fresh 组合独立硬审一并覆盖并 PASS（单次审核覆盖两个组合，区别于此前各模块各自的独立硬审）。三项批准所依据的事实为其当前提交均已推送、独立硬审核与 CI 通过。
-- 最终 main 的完整六配置+source 门禁截至 2026-11-07T15:22Z 证据时点尚未完成，不提前记 PASS；仓库 OPEN 归零（G0-4 docs PR 与 disposition helper PR 尚未创建，二者开出后直接基于 main，最终合并各需 owner 单独确认）。
+- 最终 main 的完整六配置+source 门禁已于 2026-11-07T15:59Z 全部成功：Linux run [42385790587](https://github.com/wmqfl861/wls861/actions/runs/42385790587)（六产品配置、5 个 CTest 配置 × 78 项注册测试、0 失败/超时/跳过）与 source run [42385790585](https://github.com/wmqfl861/wls861/actions/runs/42385790585)（归档与 commit/tree/字节核对一致）。#44 合并后的中间 main Linux run 42385652115 因后续 main 推送自然 CANCELLED（取消不算通过；其 source run 42385652162 成功），精确组合验证已全部通过的事实不变。仓库当前 OPEN 为 2（后继 #46/#47，均 Draft、直接基于 main），最终合并各需 owner 单独确认。
 
 ## 历史快照（2026-11-06 方案制定时点，仅作历史语境保留）
 
@@ -106,15 +106,15 @@ R2.4 不属用户明确冻结的 Windows/411/异步类别。#1/#3 暂归档仅�
 - main 基线：`a6b8559` + G0-1…G0-3 之后串行。
 - 验证：文档 review；`docs/**` 仅轻量检查。
 - owner 关口：合并 main 前具体确认。
-- 当前状态（2026-11-07）：第一批已执行——本两份处置/收敛文档以已发布原件（分支 `docs/claude-s1-convergence-20261106-svddnu4h`，[`a442b4b95525064e3af949e4c31b15bbb4fb8f72`](https://github.com/wmqfl861/wls861/commit/a442b4b95525064e3af949e4c31b15bbb4fb8f72)）为底本，按 2026-11-07 合并与验证证据更新，进入 G0-4 docs 分支；docs PR 尚未创建，其真实检查行为（按 #44 后的 CI 分类预期为同名轻量检查 + source，无 push 全矩阵）待创建后如实记录，不提前记 PASS。AGENTS/STATUS/CHANGELOG/development-contract 契约迁移随后在同一 PR 追加。
+- 当前状态（2026-11-07）：第一批已执行并发布——本两份处置/收敛文档以已发布原件（分支 `docs/claude-s1-convergence-20261106-svddnu4h`，[`a442b4b95525064e3af949e4c31b15bbb4fb8f72`](https://github.com/wmqfl861/wls861/commit/a442b4b95525064e3af949e4c31b15bbb4fb8f72)）为底本，按 2026-11-07 合并与验证证据更新，提交 f119933 进入 G0-4 docs 分支并已创建为 PR [#47](https://github.com/wmqfl861/wls861/pull/47)（Draft、直接 main）。其纯文档头真实检查行为已如实记录：Linux run [42388742503](https://github.com/wmqfl861/wls861/actions/runs/42388742503) 三个同名轻量作业成功、产品构建/CTest 按既定分类 NOT_RUN（轻量不等于产品 78/78 通过），source run [42388742522](https://github.com/wmqfl861/wls861/actions/runs/42388742522) 成功（检出 b34d47c2 / tree bf43de04），无 push 运行。AGENTS/STATUS/CHANGELOG/development-contract 契约迁移为第二批，正在同一 PR 追加；追加后的最终 head 按分类预期走三核心编译配置，其证据与纯文档头轻量证据分开记录，最终 head 的远端检查与独立硬审完成后才向 owner 请求该新 PR 的合并确认。
 
 ### G0 完成门禁（五项；2026-11-07 #43/#44/#45 合并后更新）
 
 1. 主干含 #40 两项修复（经 G0-1 摘取）——已达成：#43 已于 2026-11-07 合并（merge commit d28c4a54520338d00e9e3b09ea362aefcbc2df6c），main 含两项修复。
-2. 打开的 PR 不超过 3 个，且没有 PR 以未合并 PR 为基础——当前 0 OPEN（#43、#44、#45 均 MERGED）；G0-4 docs PR 与 helper PR 尚未创建，开出后直接基于 main、不堆叠。
-3. 一次 PR 推送只触发一套 Linux 运行——CI 政策已随 #44 进入 main；真实行为待下一个实际 PR 推送验证（首个即 G0-4 docs PR，尚未创建）。
-4. 纯文档提交不跑约 40 分钟门禁——待 G0-4 docs PR 创建后以其真实检查行为记录，不提前记 PASS。
-5. 默认构建能不升级地打开已有请求的 410 库——#45 已合并；其一致性回归已在 #44+#45 组合验证（tree fcd279d029f1dea93bb4a7f90d6c2bf7e1ce4119，即当前 main tree；5 个 CTest 配置 × 78 项注册测试通过）中通过；最终 main checkout 的完整六配置+source 门禁截至 2026-11-07T15:22Z 证据时点尚未完成。
+2. 打开的 PR 不超过 3 个，且没有 PR 以未合并 PR 为基础——2026-11-07T16:04Z 只读复核：当前 2 OPEN（后继 #46/#47 均 Draft、直接基于 main、不堆叠），满足。
+3. 一次 PR 推送只触发一套 Linux 运行——已由实际新产品 PR 推送验证：#46 head 5073527 推送仅触发一套 Linux pull_request 运行（run [42388192709](https://github.com/wmqfl861/wls861/actions/runs/42388192709)，3 个 CTest 配置 × 78 项注册测试）加一项 source 归档（run [42388192705](https://github.com/wmqfl861/wls861/actions/runs/42388192705)），无 push 运行。
+4. 纯文档提交不跑约 40 分钟门禁——已由 #47 纯文档头 f119933 记录：run [42388742503](https://github.com/wmqfl861/wls861/actions/runs/42388742503) 仅三个同名轻量作业（产品构建/CTest 按分类 NOT_RUN）+ source run 42388742522；追加契约文件后的最终 head 走三核心编译配置属既定分类预期，非门禁回退。
+5. 默认构建能不升级地打开已有请求的 410 库——#45 已合并；其一致性回归已在 #44+#45 组合验证（tree fcd279d029f1dea93bb4a7f90d6c2bf7e1ce4119，即当前 main tree；5 个 CTest 配置 × 78 项注册测试通过）中通过；最终 main checkout 的完整六配置+source 门禁已于 2026-11-07T15:59Z 全部成功（Linux [42385790587](https://github.com/wmqfl861/wls861/actions/runs/42385790587) + source [42385790585](https://github.com/wmqfl861/wls861/actions/runs/42385790585)）。
 
 本文两份文档的完成不等于 G0 完成。
 
@@ -140,15 +140,17 @@ R2.4 不属用户明确冻结的 Windows/411/异步类别。#1/#3 暂归档仅�
 | PR | 角色 | head（完整 SHA） | base | 状态（2026-11-07 合并后更新） | 下一步 |
 | --- | --- | --- | --- | --- | --- |
 | [#44](https://github.com/wmqfl861/wls861/pull/44) | CI 减负（G0-2） | [`162836443d69e2b532867bfbdd61899cd4521a10`](https://github.com/wmqfl861/wls861/commit/162836443d69e2b532867bfbdd61899cd4521a10) | main | MERGED（2026-11-07T15:17:26Z，merge commit [`11d83eba`](https://github.com/wmqfl861/wls861/commit/11d83eba931bb62f3a45cdaf19633d7384feff5d)，父 d28c4a5 + 1628364；组合验证 run 42382158615 完整六配置 + source run 42382161297 成功，组合独立硬审 PASS；原分支保留） | 已合并；后续新 PR 各需 owner 单独确认 |
-| [#45](https://github.com/wmqfl861/wls861/pull/45) | Store 当前版本常量集中（G0-3） | [`2159746c849fa1d8a86c0998c1235c94d031aa1f`](https://github.com/wmqfl861/wls861/commit/2159746c849fa1d8a86c0998c1235c94d031aa1f) | main | MERGED（2026-11-07T15:19:07Z，merge commit [`f2a9227`](https://github.com/wmqfl861/wls861/commit/f2a92275ed02b3786777b3b46882dff1e8180ad5)，父 11d83eb + 2159746；组合验证 run 42382170789 + source run 42382173458 成功，实际输入与验证候选等价（tree fcd279d），组合独立硬审 PASS；原分支保留） | 已合并；main 现为 f2a9227，最终 main 完整门禁待完成 |
+| [#45](https://github.com/wmqfl861/wls861/pull/45) | Store 当前版本常量集中（G0-3） | [`2159746c849fa1d8a86c0998c1235c94d031aa1f`](https://github.com/wmqfl861/wls861/commit/2159746c849fa1d8a86c0998c1235c94d031aa1f) | main | MERGED（2026-11-07T15:19:07Z，merge commit [`f2a9227`](https://github.com/wmqfl861/wls861/commit/f2a92275ed02b3786777b3b46882dff1e8180ad5)，父 11d83eb + 2159746；组合验证 run 42382170789 + source run 42382173458 成功，实际输入与验证候选等价（tree fcd279d），组合独立硬审 PASS；原分支保留） | 已合并；main 现为 f2a9227，最终 main 完整门禁已于 2026-11-07T15:59Z 全部成功 |
+| [#46](https://github.com/wmqfl861/wls861/pull/46) | disposition 词表/整数取值共用 helper（#43 后续维护，非 G0 门禁项） | [`5073527ffc9052f648cf00785ae5230e1b7c78ad`](https://github.com/wmqfl861/wls861/commit/5073527ffc9052f648cf00785ae5230e1b7c78ad) | main | OPEN Draft（未合并；本地注册 CTest 4/4、offline 子例 16/16；远端 PR 核心三配置 run [42388192709](https://github.com/wmqfl861/wls861/actions/runs/42388192709)（3 × 78 项注册测试，0 失败）与 source run [42388192705](https://github.com/wmqfl861/wls861/actions/runs/42388192705) 成功；独立硬审 PASS（2026-11-07T16:00Z 收据）） | 待 owner 最终合并确认 |
+| [#47](https://github.com/wmqfl861/wls861/pull/47) | G0-4 文档收口（处置/收敛两表 + AGENTS/STATUS/CHANGELOG/development-contract 契约迁移） | 纯文档头 [`f119933e5629dce5abe022ba67a847dfaa22b95d`](https://github.com/wmqfl861/wls861/commit/f119933e5629dce5abe022ba67a847dfaa22b95d)（第二批追加后 head 将前移） | main | OPEN Draft（未合并；纯文档头 docs-only run [42388742503](https://github.com/wmqfl861/wls861/actions/runs/42388742503) 与 source run [42388742522](https://github.com/wmqfl861/wls861/actions/runs/42388742522) 成功） | 待最终 head 的远端检查与独立硬审后，向 owner 请求该新 PR 合并确认 |
 
-- 后继顺序与 owner 门禁（2026-11-07 更新）：owner 已批准 #43→#44→#45 三个精确 head 按序合并并执行完毕；同项答复批准继续 G0 文档收口与 disposition helper 去重（update/keep/cancel 词表共用函数，#43 已合并故可规划），但两个后续新 PR 的开出（普通 commit/push 与 Draft PR 创建）已在同项批准的后续开发范围内、无需再请示；其最终合并仍各需在具体 head/CI/硬审齐备后单独请示 owner，本次批准不自动延伸。G0 在 G0-4 进入 main 且最终 main 完整门禁成功前保持 NOT_COMPLETE，phase1 不启动。
+- 后继顺序与 owner 门禁（2026-11-07T16:04Z 更新）：owner 已批准 #43→#44→#45 三个精确 head 按序合并并执行完毕；同项答复批准继续 G0 文档收口与 disposition helper 去重，两个后续新 PR 的开出（普通 commit/push 与 Draft PR 创建）属已批准的后续开发范围、无需再请示——#46 与 #47 现已开出（均 Draft、直接基于 main）。二者最终合并仍各需在具体 head/CI/硬审齐备后单独请示 owner，三项精确 PR 批准不自动延伸。G0 在 G0-4（#47）进入 main 且合并后对应 main 完整门禁成功前保持 NOT_COMPLETE；#47 内的 phase1/phase2 均为该 PR 的文档步骤，不是 G1 开发阶段。
 
 ## 执行边界
 
 - 已执行（owner 确认收敛方案后）：按表关闭 #1–#42，全部保留原远端 ref 与精确 head（2026-11-07 复核 42/42 存在且无漂移）；开出 #43（G0-1）、#44（G0-2）、#45（G0-3）；2026-11-07 owner 批准后按 #43→#44→#45 顺序以普通 merge commit 正常合并（d28c4a5 / 11d83eb / f2a9227，原分支保留），main 推进至 f2a92275ed02b3786777b3b46882dff1e8180ad5。未强推、未删除分支、未改 Git 配置、未改数据库版本或 SQL。
-- 可自主推进（已批准的后续开发范围，无需 owner 再确认）：G0-4 其余文档工作与 docs PR 发布（普通 commit/push 与 Draft PR 创建，PR 尚未创建）；helper 去重 PR 的规划、实施与开出（#43 已合并）。
-- 待 CI（非 owner 审批项）：最终 main 的完整六配置+source 门禁（截至 2026-11-07T15:22Z 证据时点未完成，不提前记 PASS）。
+- 可自主推进（已批准的后续开发范围，无需 owner 再确认）：G0-4 docs PR #47 与 helper PR #46 均已发布为 Draft（直接 main）；剩余可自主推进项为 #47 第二批契约迁移追加提交的普通 commit/push。
+- 待 CI（非 owner 审批项）：最终 main 完整门禁已成功（2026-11-07T15:59Z）；尚待：#47 追加后最终 head 的三核心检查与独立硬审、#46/#47 合并后对应 main 门禁。
 - 待 owner：后续两个新 PR（G0-4 docs、disposition helper）的最终 main 合并各需 owner 具体确认。
 - #43 新头的远端完整检查、#44/#45 的检查与独立硬审核均已在合并前完成通过；各时点的运行中/待验证表述为当时快照。不以旧头结果、本地套件或单次成功记录替代整体判定的原则继续适用于后续新 PR 与最终 main 门禁。
 - 本轮更新仅改写本文件与同目录处置表两份文档；无产品代码、测试、Git 写入或数据库变更。
