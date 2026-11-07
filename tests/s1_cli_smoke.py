@@ -268,10 +268,11 @@ class OfflineCliSmoke(unittest.TestCase):
 
     def test_run_fake_disposition_rejected_before_writer_initialization(self):
         absent = self.directory / "absent-runtime.sqlite"
-        # Only an illegal literal is rejected by the CLI before any Takeover
-        # Store. A legal-but-inapplicable value is checked by the runner after
-        # the caller's Store open, whose existing recovery semantics (including
-        # failing absent databases) this fix does not change.
+        # An illegal literal is rejected by the CLI before any Store. A legal
+        # disposition is first preflighted through a read-only Store that must
+        # observe a pending AMEND, and the runtime rechecks applicability again
+        # after the Takeover writer is acquired. A missing database therefore
+        # fails that read-only open, which never creates the file.
         for bad in ("invalid-enum", "unknown-disposition"):
             self.invoke("run-fake", "--db", absent, "--request", "req_missing",
                         "--script", FIXTURES / "s1_fake_initial.json",
@@ -279,6 +280,21 @@ class OfflineCliSmoke(unittest.TestCase):
             self.assertFalse(absent.exists(), "disposition validation must precede writer initialization")
             for suffix in ("-wal", "-shm", ".writer-lock"):
                 self.assertFalse(Path(str(absent) + suffix).exists())
+
+    def test_run_fake_legal_dispositions_on_missing_db_fail_storage_open(self):
+        # Each legal disposition reaches the real read-only preflight open: the
+        # structured Storage error is the existing mapping, and no database,
+        # -wal, -shm or .writer-lock file is ever created.
+        for kind in ("update", "keep", "cancel"):
+            with self.subTest(disposition=kind):
+                absent = self.directory / f"absent-{kind}-runtime.sqlite"
+                self.invoke("run-fake", "--db", absent, "--request", "req_missing",
+                            "--script", FIXTURES / "s1_fake_initial.json",
+                            "--disposition", kind, error="storage")
+                self.assertFalse(absent.exists(),
+                                 "the read-only open must not create the database")
+                for suffix in ("-wal", "-shm", ".writer-lock"):
+                    self.assertFalse(Path(str(absent) + suffix).exists())
 
     def test_run_fake_disposition_on_current_task_keeps_logical_state(self):
         request_id = self.submit()["request"]["request_id"]
