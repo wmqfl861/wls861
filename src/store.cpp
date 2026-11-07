@@ -500,11 +500,13 @@ public:
                 exec(base_sql);
                 version = number(one("PRAGMA user_version"), "user_version");
             }
-            require(version >= 401 && version <= 410, ErrorCode::Unsupported, "unknown database version; explicit migration required");
+            require(version >= 401 && version <= MigrationRegistry::latest_version, ErrorCode::Unsupported,
+                    "unknown database version; explicit migration required");
             require(str(one("SELECT schema_version FROM contract_metadata WHERE singleton=1"), "schema_version") == "0.4.1",
                     ErrorCode::Unsupported, "unsupported base contract metadata");
             if (recovery_scope.kind != Kind::AllRequests) {
-                const auto target = !reconciliation_migration_sql.empty() ? 410 : !live_migration_sql.empty() ? 409 :
+                const auto target = !reconciliation_migration_sql.empty() ? MigrationRegistry::latest_version :
+                    !live_migration_sql.empty() ? 409 :
                     !allocation_migration_sql.empty() ? 408 : !cleanup_migration_sql.empty() ? 407 : !acceptance_migration_sql.empty() ? 406 :
                     !workflow_migration_sql.empty() ? 405 : !events_migration_sql.empty() ? 404 :
                     !tools_migration_sql.empty() ? 403 : 402;
