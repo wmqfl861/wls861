@@ -299,6 +299,62 @@ void populated_upgrades_need_explicit_all_request_maintenance() {
     }
 }
 
+void current_store_version_identity_derives_from_registry_latest() {
+    CHECK(MigrationRegistry::latest_version == 410);
+    const MigrationRegistry migrations(resources());
+    CHECK(migrations.target_version() == MigrationRegistry::latest_version);
+    CHECK(migrations.diagnostics().at("target_version") == MigrationRegistry::latest_version);
+    CHECK(resources().diagnostics().at("store_version") == MigrationRegistry::latest_version);
+    const auto manifest = parse_json_strict(read_fixture(source_root / "resources/runtime-manifest.json"));
+    CHECK(manifest.at("store_version") == MigrationRegistry::latest_version);
+    Bundle copy;
+    const auto bundle = RuntimeResources::from_bundle(copy.root);
+    CHECK(bundle.diagnostics().at("store_version") == MigrationRegistry::latest_version);
+    CHECK(bundle.diagnostics().at("bundle_sha256") == resources().diagnostics().at("bundle_sha256"));
+    const MigrationRegistry installed(bundle);
+    CHECK(installed.target_version() == MigrationRegistry::latest_version);
+    test::TempDir temporary;
+    const auto path = temporary.path / "current.sqlite";
+    {
+        Store created(path, migrations);
+        CHECK(created.diagnostics().at("user_version") == MigrationRegistry::latest_version);
+    }
+    CHECK(sql_number(path, "PRAGMA user_version") == MigrationRegistry::latest_version);
+}
+
+void populated_current_store_reopens_without_migration() {
+    test::TempDir temporary;
+    const auto path = temporary.path / "populated-current.sqlite";
+    const MigrationRegistry migrations(resources());
+    std::string request_id;
+    Json original, original_snapshot, original_events;
+    {
+        Store store(path, migrations);
+        CHECK(store.diagnostics().at("user_version") == MigrationRegistry::latest_version);
+        request_id = std::string(store.admit(admission()).at("request_id").as_string());
+        original = store.request(request_id); original_snapshot = store.request_snapshot(request_id);
+        Array events; for (const auto& event : store.events(request_id)) events.push_back(event); original_events = std::move(events);
+    }
+    {
+        Store reader(path, migrations, StoreOpenMode::ReadOnly);
+        CHECK(reader.diagnostics().at("user_version") == MigrationRegistry::latest_version);
+        CHECK(reader.request(request_id) == original);
+        CHECK(reader.request_snapshot(request_id) == original_snapshot);
+        Array events; for (const auto& event : reader.events(request_id)) events.push_back(event);
+        CHECK(events == original_events);
+    }
+    {
+        // Request-scoped takeover may record its own recovery epoch/event and
+        // bump dispatcher/state bookkeeping; frozen request facts must not change.
+        Store recovered(path, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request_id));
+        CHECK(recovered.diagnostics().at("user_version") == MigrationRegistry::latest_version);
+        CHECK(recovered.request(request_id).at("status") == original.at("status"));
+        CHECK(recovered.request(request_id).at("config_snapshot") == original.at("config_snapshot"));
+        CHECK(recovered.request_snapshot(request_id) == original_snapshot);
+    }
+    CHECK(sql_number(path, "PRAGMA user_version") == MigrationRegistry::latest_version);
+}
+
 void legacy_failure_rolls_back_then_registered_upgrade_succeeds() {
     test::TempDir temporary;
     const auto path = temporary.path / "rollback.sqlite";
@@ -360,6 +416,8 @@ int main() { return test::run({
     {"invalid preferred bundle never falls back to another location", corrupt_preferred_bundle_does_not_fall_back},
     {"all registered prefixes retain original version and durable SQL hashes", registered_prefixes_preserve_old_versions_and_metadata},
     {"populated legacy Store requires explicit all-request upgrade", populated_upgrades_need_explicit_all_request_maintenance},
+    {"current store version identity derives from the registry latest constant", current_store_version_identity_derives_from_registry_latest},
+    {"populated current Store reopens without migration", populated_current_store_reopens_without_migration},
     {"legacy failing migration rolls back before registered retry", legacy_failure_rolls_back_then_registered_upgrade_succeeds},
     {"registry entry retains writer exclusivity and unknown-version refusal", new_entry_keeps_writer_lock_and_unknown_version_guards},
     {"distributed prompt identity stays separate from external frozen config", default_prompt_identity_is_separate_from_external_config}
