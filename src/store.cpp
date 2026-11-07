@@ -6,6 +6,7 @@
 #include "wls/model.hpp"
 #include "wls/live_model.hpp"
 #include "wls/owned_capacity.hpp"
+#include "amendment_disposition.hpp"
 
 #include <sqlite3.h>
 
@@ -1592,7 +1593,7 @@ public:
             require(decision.size() == 2 && decision.contains("disposition") && decision.at("disposition").is_string() &&
                 decision.contains("rationale") && decision.at("rationale").is_string(), ErrorCode::InvalidInput, "disposition requires exactly disposition and rationale");
             const auto kind = str(decision, "disposition"); const auto reason = str(decision, "rationale");
-            require(kind == "update" || kind == "keep" || kind == "cancel", ErrorCode::InvalidInput, "unknown AMEND disposition");
+            require(is_amendment_disposition(kind), ErrorCode::InvalidInput, "unknown AMEND disposition");
             text_field(reason, "AMEND disposition rationale", 4096);
             require(reason.find_first_not_of(" \t\r\n") != std::string::npos, ErrorCode::InvalidInput, "AMEND disposition rationale is blank");
         }
@@ -3038,7 +3039,7 @@ Json Store::set_amendment_disposition(const StoreActor& actor, const std::string
         const std::string& command_id) {
     const std::lock_guard lock(impl_->mutex);
     text_field(rationale, "disposition rationale", 4096);
-    require(disposition == "update" || disposition == "keep" || disposition == "cancel", ErrorCode::InvalidInput, "unknown amendment disposition");
+    require(is_amendment_disposition(disposition), ErrorCode::InvalidInput, "unknown amendment disposition");
     const auto command = payload(actor, "disposition", Row{{"task_id", task_id}, {"expected_task_version", expected},
         {"based_on_requirements_revision", requirements}, {"target_plan_revision", plan}, {"disposition", disposition}, {"rationale", rationale}, {"brief", brief}});
     Impl::Transaction tx(*impl_);
