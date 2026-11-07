@@ -1,299 +1,90 @@
 # WLS861 development contract
 
 Current implementation: **0.11.1-r3.3c-audit**, blueprint **v0.4.1**, Store **410**.
-The whole-code review and minimal fixes are specified in ADR-090 and
-`docs/reviews/code-audit-20261027.md`; actual results belong in
-`docs/reports/code-audit-20261027-validation.md`. Preserve inherited writer
-leases across child destruction, one read snapshot during ledger reconstruction,
-effective five-dimensional settlement capacity, original pre-spawn cancellation
-evidence, pinned type-before-read and EOF checks, and evaluation source identity
-bound to the original frozen configuration and live admission. Preserve captured
-C++ number spellings when reconstructing original facts without changing the
-historical Python plan/report fingerprints. Never relabel a local fixture as
-provider evidence or rewrite original nullable usage to release capacity.
-Keep request restoration and canonical-history reuse local to one function
-invocation. Public mutable-request APIs and every Store admission/send boundary
-must retain full validation; prefix reuse must preserve aggregate array depth,
-UTF-8, finite numbers and the exact original byte budget.
-The preceding two-module continuation is specified in
-`docs/implementation/two-module-billing-baseline.md`. Read ADR-088/089 and
-`docs/implementation/R3-signed-billing.md` plus
-`docs/implementation/R3-single-agent-baseline.md` before modifying these paths.
-Billing is an explicit versioned trusted-gateway contract, not proof that a real
-vendor supports it. Freeze the unique challenge opt-in, bind captured policy bytes
-to v2 host authorization, verify independent Ed25519 receipts against the original
-wire identity and settlement, and enforce one source owner inside the Store transaction.
-Read all authorization, policy and receipt files only after full-Store workspace
-path guards. Exact late reconciliation replay is read-only; unknown values remain
-unknown, and accounting never restores business authority or sends again.
-The single-Agent runner requires a frozen single-agent-role-broker-v1 policy,
-one model/reasoning, complete cross-role original response/feedback history and
-transactional continuity validation. Store authority roles remain separate scopes;
-shared names or labels alone do not establish one Agent. R3 v3 independently checks
-actual native input and original history. Preserve v1/v2 historical identity rules.
-Actual results for this continuation belong in
-`docs/reports/billing-baseline-validation.md`; earlier reports retain their source scope.
 
-The preceding 0.10.0 two-module continuation is specified in
-`docs/implementation/two-module-continuation.md`. Read ADR-085/086/087 and
-`docs/implementation/R3-live-workflow.md` plus
-`docs/implementation/runtime-resources-and-migrations.md` before modifying these paths.
-The controlled live event pump uses original captured targets, Store reservations,
-unique sends, original settlement and model feedback. CLI `pump-live` requires an
-explicit request/config/profile-bound host authorization; `live-status` only returns
-a disabled template. Defaults remain offline and no actual provider spending is
-authorized by this development task. Tests use disposable SQLite/files and loopback
-TLS with synthetic credentials. Unknown accounting stops the entire batch; the CLI
-cannot import a generic JSON billing attestation. A trusted library evidence hook
-must match the original attempt and settlement before any application or next call.
-The versioned resource bundle captures verified SQL, Schema and common prompt bytes;
-configuration and credentials remain external. Keep old Store constructor/API and
-published SQL bytes. Resource discovery is executable-relative, never ambient cwd.
-R3 v2 evaluation requires original model/target/feedback provenance. Preserve v1's
-structural-only meaning and its existing single-Worker identity rule; do not rename
-multiple Store Workers to claim a completed single-Agent baseline.
-That earlier batch's results belong in `docs/reports/two-module-validation.md`.
-Earlier reports retain their original source scope. Check final-SHA CI; implemented
-interfaces and planned acceptance cases are not evidence of a completed live product.
+Entry point only: the complete, still-binding contract is preserved
+verbatim in `docs/implementation/development-contract.md` — current,
+normative, not archived history; read it before changing runtime behavior.
 
-Preserve the R3.3a transport contract: exact original encoding, explicit trust/route,
-one monotonic deadline, bounded cancellation, private raw evidence and separate safe
-summaries. Preserve original Store attempts and settlements, immutable unique send
-claims, explicit host observations after response loss, and independently versioned
-usage projections. Missing observations and zero-sized unknown reservations remain
-unknown. Reconciliation cannot restore business authority, dispatch tools, erase
-UNKNOWN, overwrite original usage or grant another send. All new attempts consume
-original request budgets. Original fake settlements and old snapshot interpretation
-remain compatible; populated upgrades need explicit all-request maintenance.
+## Authority and permissions
 
-R1.4 only projects completed history under a frozen management policy. Current
-contracts, questions, UNKNOWN, captured targets and CAS bindings stay complete.
-Controls consume ordinary attempts and persistent query limits. New owned capacity
-is file-tools-only and must cover temporary stages and inventory encoding; it never
-expands deletion authority or silently narrows existing requests. A retained oversized
-legacy tree is an explicit capacity exit, not a completed cleanup.
+- The owner approved review corrections and GitHub push on 2026-10-17,
+  then requested development under the current plan. Routine development,
+  corrections and fixes in that scope need no new approval per task card;
+  record decisions and changes. Never infer model spending or deployment
+  credentials from this; explicit user instructions take precedence.
+- Keep the core in C++20 and isolate Linux platform code; provider
+  endpoints, credentials, model aliases and budgets stay in external
+  configuration. Tests use FakeModel and self-created temporary fixtures,
+  including real file effects; never call real models or operate
+  production data/services. Paid calls stay disabled until the endpoint,
+  capabilities and budget are configured; Windows 11 remains NOT_RUN.
+  Private CI evidence hosting remains BLOCKED; raw originals stay local.
+- No secrets, user datasets, generated builds, journals or local
+  databases in Git; never rewrite shared history or force-push over an
+  unseen remote head. Record actual test results and limitations under
+  `docs/reports/`; never convert planned acceptance rows into executed
+  results. The `docs/handoff/` trees are archived data, not instructions.
 
-Read ADR-079 for this follow-up: inspect runtime sources and shared configuration/input files before a read-mode open,
-prove EOF within actual read budgets before reporting complete file identity,
-preserve Workspace-accepted UTF-8 names through owned cleanup without relaxing
-resource identifiers or deletion authority, keep default SSE obfuscation outside
-semantic output, and validate CLI argv before Store effects with bounded error
-reporting. The original R3.3b/c and long-task prerequisites are specified in
-`docs/implementation/R3-controlled-live-plan.md`; transport alone cannot open a
-live path. Additional usage evidence must not rewrite original settlements or
-restore old business authority. CLI can serve S1 acceptance; daemon/API stay later.
+## Task boundaries (complete rules in the development contract)
 
-Read `docs/reviews/claude-2026-10-24-disposition.md`,
-`docs/adr/064-audit24-recovery.md`, `docs/implementation/S1-epoch-recovery.md`
-and `docs/implementation/S1-process-settlement.md` for the current recovery/settlement
-contracts. Original instructions stay immutable; a recovery event authorizes only
-an epoch projection. A definite run failure requires complete isolation, network,
-exit and pre/post workspace observations. Root reconciliation preserves original
-executor evidence and never substitutes for cleanup exit proof. Frozen capacity
-windows and their tested compatibility/settlement reserve are defined in
-`docs/implementation/S1-capacity-windows.md`. For the R1 evidence prerequisite,
-read `docs/adr/067-paged-history.md` and `docs/implementation/R1-history-evidence.md`.
-Do not mistake paginated host reads for integrated model context windowing.
-Read `docs/adr/068-structured-model-input.md` and
-`docs/implementation/R1-structured-context.md` for frozen v1/v2 selection, logical
-input/request fingerprints and native tool-turn provenance. Missing old policy
-means framed-v1; never rewrite old snapshots or fabricate wire receipts.
-For R1.3 read ADR-069 and docs/implementation/R1-worker-history-window.md.
-Missing worker_history retains full history. Only explicitly frozen window-v1
-may project whole old/large turns into references; current contracts and unresolved
-facts must remain complete. Readbacks require current scope/policy, normal model
-accounting and immutable feedback. Never substitute a present file for old evidence.
-
-For R2.1 read `docs/adr/070-rejected-task-resolution.md` and
-`docs/implementation/R2-rejected-task-resolution.md`. Only a captured current
-rejected submission may be corrected or escalated. Preserve original task and
-instruction constraints, share the frozen TeamLead rework counter, and never
-consume an unanswered correction wakeup as handled. User answers do not grant
-more rework, accept a candidate, or clear UNKNOWN. Scoped recovery applies to
-these management paths too. Model AMEND uses the separate ADR-073 contract.
-
-Read `docs/adr/071-request-scoped-recovery.md` and
-`docs/implementation/S1-request-recovery.md` for scoped writer recovery. CLI
-request writes take over only their target; admission-only cannot execute. The
-database writer lock remains exclusive. Recover a selected request before issuing
-its actors; preserve all unknown/late/AMEND/wait and post-terminal job fences.
-Populated structural upgrades require explicit all-request init maintenance.
-Read ADR-072 for the integration: corrective commands and exact replay obey the
-same scope guards; owner answers cannot perturb sibling requests or clear fences.
-
-Read `docs/adr/073-model-amendment-dispositions.md` and
-`docs/implementation/R2-model-amendments.md` for model-produced AMEND decisions.
-Capture target tasks before a Dispatcher call; both request CAS and affected
-task CAS/team epochs must match inside the committing transaction. Missing
-decisions remain paused and pending. A same-plan follow-up must not revise or
-fence already-current siblings. Keep the explicit host disposition path and
-original response/usage replay behavior compatible.
-
-Read `docs/adr/074-bounded-directory-tool.md` and
-`docs/implementation/R2a-directory-tool.md` for fs_mkdir. Create only one absent
-0700 leaf under an existing parent; validate projected traversal depth/entry
-capacity before mkdir. Preserve the first-dispatch/UNKNOWN/replay boundary and
-old frozen grants/execution policies. Business mkdir does not grant runtime-owned
-allocation or cleanup authority; PREPARED allocation recovery is a separate slice.
-
-Read `docs/adr/075-owned-allocation-recovery.md` and
-`docs/implementation/R2a-allocation-recovery.md` for Store 408 allocation.
-Persist v2 staging receipt before no-overwrite publication; validate original
-filesystem generations and resource CAS on recovery. Abandonment is metadata
-only for unbound PREPARED records, including terminal/retired/held requests.
-Preserve all history, protect both retained paths, select active cleanup targets,
-and keep lifetime limits separate from windowed event settlement reserves.
-Populated upgrades need explicit all-request init; never edit published SQL.
-
-Read `docs/adr/076-doctor-deployment-diagnostics.md` and
-`docs/implementation/R2a-deployment-diagnostics.md` for R2a.3. Doctor uses current
-explicit configuration, not an existing request snapshot. Preserve input origins,
-typed reasons, per-object observations, shared read budgets and explicit truncation.
-It never opens Store, executes launcher/environment checks, writes cgroup controls
-or adopts allocations. A future operation control path is only a not_checked
-pattern. Complete/readiness flags do not replace real isolation or exit evidence;
-keep all original production path, permission, frozen-byte and strong-only guards.
-
-Read `docs/adr/077-responses-offline-codec.md`,
-`docs/adr/078-responses-sse-replay.md` and
-`docs/implementation/R3-offline-responses.md` for R3.1/R3.2. Provider profiles,
-HTTP coding and bounded SSE replay are offline. The independent encode-model and
-replay-model CLI commands only read local fixtures: no Store, network, credential
-resolution, paid attempts or tool dispatch. Keep real_calls_enabled=false and
-max_paid_retries=0. Preserve the original structured-v2 host tuple, raw bytes,
-separate local/wire fingerprints and nullable usage; never retag a FakeModel
-reservation as real protocol evidence. Schemas and decoded Completed do not grant
-business authority. Partial streams, cancellation, deadline and protocol errors
-must not release partial tools. R3.3a/b now add transport and original Store integration. Approved real small tasks
-and provider quality/cost acceptance remain open; the codec itself grants no authority.
-
-Read `docs/STATUS.md` and `docs/reviews/claude-disposition.md` for the current
-review fixes and priority changes. Model contract/context/rework and an approved
-small real loop now precede expanding private-data purge or daemon/API. Keep
-paid calls disabled until the endpoint, capabilities and budget are configured.
-New code must preserve ordinary-user, permissive-umask, ASan/UBSan and Clang
-regressions; private fixtures do not relax production workspace permissions.
-
-
-Read the current blueprint at `docs/spec/v0.4.1/01_实施规格_v0.4.1.md`,
-`docs/ROADMAP.md`, and `docs/implementation/M1-contract.md` before changing
-runtime behavior. Also read `docs/implementation/S1-foundation.md` for the new
-foundation, and `docs/implementation/S1-worker-tools.md` for the file/process boundary,
-then `docs/implementation/S1-event-runtime.md` for the event foundation and
-`docs/implementation/S1-workflow-runtime.md` for the submission foundation,
-then `docs/implementation/S1-acceptance-delivery.md` for acceptance and
-`docs/implementation/S1-owned-cleanup.md` for the current 0.7.0-s1.6 library/CLI. The blueprint defines the target; implementation
-contracts and actual reports define what this checkout can execute. M1 remains
-its original kernel; S1.2 adds bounded real files and a strong-only process
-entry point; S1.3 adds a bounded durable event pump, isolated independent tasks,
-explicit waits and original cross-run feedback. S1.4 adds Worker questions,
-upward routing/answers, immutable bounded submission bytes and local TeamLead
-checking/rework. S1.5 adds explicit Dispatcher acceptance, immutable local
-delivery, exact receipts and recoverable experience records. Actual
-private-row purge, a completed daemon and positive deployment sandbox acceptance remain
-separate task cards. S1.6 only deletes explicitly allocated runtime-owned workspaces
-after the exact success-receipt, experience, accounting and original process-exit gates.
-
-The owner approved review corrections, documentation/code updates and GitHub
-push on 2026-10-17, then explicitly requested development under the new plan.
-Implement routine development, corrections and fixes within that
-scope without requiring a new approval for each task card. Record decisions
-and changes; do not infer model spending or deployment credentials from this
-development authorization. Explicit user instructions take precedence.
-
-- Keep the core in C++20 and isolate Linux platform code. Keep provider
-  endpoints, credentials, model aliases and budgets in external configuration.
-  Tests use FakeModel and self-created temporary fixtures, including real
-  file effects. Do not call real models or operate production data/services.
-- Preserve Root -> Dispatcher -> TeamLead -> Worker. Only Workers execute
-  business tools. Each independent request has its own fenced Dispatcher.
+- Root -> Dispatcher -> TeamLead -> Worker. Only Workers execute business
+  tools; each independent request has its own fenced Dispatcher.
 - Keep request requirements, task revisions, plans, TeamLead instructions,
-  applied versions, state versions, and execution epochs distinct. Check their
-  bindings at state commit and operation dispatch; a model response is not an
-  authorization. Unhandled AMEND tasks remain blocked.
-- Control acknowledgments, cancellation, queries and outcome reconciliation
-  have their own guards. Do not put the business readiness gate on the control
-  action needed to restore readiness. Preserve bounded settlement capacity.
-- Unknown non-idempotent outcomes require reconciliation, including effects
-  inside a workspace. Never infer that cancellation undid an effect.
-- Real tools must obtain a durable first-dispatch claim. Command replay is
-  never execution permission. Persist original operation facts and raw output;
-  a settlement failure must stop new business, even if storage is unavailable.
-- Consume only the explicitly completed IDs from a captured event claim.
-  Omitted AMEND subjects, errors and exhausted batches retain pending work.
-  Worker waits are Store dispatch gates; waking cannot clear AMEND, applied
-  versions or UNKNOWN. A takeover releases claims without executing them.
-- Preserve every original attempt/feedback binding when rebuilding history.
-  Missing observations stay explicit; never reread a file to invent old output
-  or recursively embed prior compiled contexts. Context overflow blocks before
-  another reservation. Independent plan allocation is one bounded transaction.
-- Capture each question/submission target and its version before the management
-  model call. Preserve original question text, file bytes and bindings; forwarding
-  only appends notes. An answer ends only its own exact wait, and neither ordinary
-  wake nor automatic instruction reissue may bypass pending workflow state.
-- Worker submissions require current grants, complete captured file bytes and
-  settled operations. TeamLead checking uses the original immutable snapshot;
-  contradictory self-check/evidence cannot pass. Rework is bounded by the frozen
-  team limit, increments task/instruction revisions and requires a new ack.
-  CANDIDATE_READY is not independent review, business acceptance or delivery.
-- Dispatcher acceptance captures one current candidate with its task/submission
-  CAS and complete original evidence. Root only assembles already accepted bytes
-  and handles technical publication/receipts. Required independent review cannot
-  be replaced by a local check or a model manifest.
-- Persist exact delivery intent before filesystem publication. Verify every
-  original byte, file set and pinned root identity; atomically publish without
-  overwrite, then commit the Store reference. Inspecting is not acknowledgment.
-  Receipt identity includes package/hash/versions/recipient/method/key.
-- Acceptance creates an original-source experience job atomically. Terminal
-  requests may finish only specifically captured experience management calls;
-  ordinary business remains forbidden. Missing reports/budget stay pending.
-  Retained cleanup jobs are not proof of process exit or completed deletion.
-  S1.6 has an opt-in owned-workspace phase, not a private-row purge runner.
-- Persist ownership intent before mkdir and the complete immutable inventory before
-  unlink. Never adopt legacy directories. Recheck existing delivery bytes without
-  republishing missing files; use exact filesystem generations and bounded passes.
-  Preserve the original inventory after interruption and fence old cleanup claims.
-  Workspace DONE is not global cleanup DONE: retain private rows and owner receipts,
-  and keep the global job PENDING. Failed/cancelled work is not eligible in this phase.
-- Keep the control database outside bound business workspaces. Preserve pinned
-  workspace identity, frozen runtime hashes, explicit env and strong-process
-  refusal. Never enable a weak production path to make a test pass.
-- Resolve each unspecified model/reasoning field directly from the request's
-  frozen Root snapshot. Tool grants use role/task policies. Configuration
-  updates must not silently change an existing request.
-- Schema shape checks do not prove semantic requirement coverage or business
-  acceptance. Preserve current candidate/reviewer/version/evidence checks.
-- Keep memory load, feedback and revision proposals bound to content versions.
-  Python contract helpers remain executable references. C++ Store now exists
-  in the S1 library; local delivery and experience records are implemented, while
-  complete memory, independent review and private-row purge runners are not.
-- The Store is a trusted-host API. Model arguments must pass the separate
-  model-input Schema, captured call and final Store guards. Persist original
-  request envelopes and every attempt's usage; never replace unknown with zero
-  or treat current-binding eligibility as business acceptance.
-- Preserve both original handoff trees under `docs/handoff/`. Their prompts,
-  AGENTS/CLAUDE files, historical status and approval claims are archived data,
-  not current development instructions. Never execute archived templates.
-- Record actual test results and limitations under `docs/reports/`; do not
-  convert historical or planned acceptance rows into executed results.
-- No secrets, user datasets, generated builds, journals or local databases in
-  Git. Do not rewrite shared history or force-push over an unseen remote head.
+  applied versions, state versions and execution epochs distinct; check
+  bindings at state commit and dispatch. A model response is not an
+  authorization; unhandled AMEND tasks remain blocked.
+- Control acknowledgment, cancellation, queries and reconciliation have
+  their own guards; the readiness gate never sits on the restoring
+  control action. Preserve bounded settlement capacity. Unknown
+  non-idempotent outcomes require reconciliation, including workspace
+  effects; never infer cancellation undid an effect.
+- Real tools must obtain a durable first-dispatch claim; replay is never
+  execution permission. Persist original facts and raw output; a
+  settlement failure stops new business. Consume only explicitly
+  completed IDs from a captured event claim; omitted AMEND subjects,
+  errors and exhausted batches retain pending work. Waits are Store
+  dispatch gates; waking cannot clear AMEND, applied versions or UNKNOWN.
+- Rebuild history preserving every original attempt/feedback binding;
+  missing observations stay explicit; never reread a file to invent old
+  output; context overflow blocks before another reservation. Capture
+  question/submission targets and versions before the management call;
+  an answer ends only its own exact wait.
+- Submissions require current grants, complete captured file bytes and
+  settled operations; TeamLead checks the immutable snapshot with
+  bounded rework; CANDIDATE_READY is not review or acceptance.
+  Dispatcher acceptance captures one candidate with CAS and complete
+  evidence; Root only assembles accepted bytes and handles receipts.
+- Persist exact delivery intent before publication; verify every
+  original byte and pinned root identity; publish atomically without
+  overwrite; receipt identity covers package/hash/versions/recipient/
+  method/key. Acceptance creates an original-source experience job
+  atomically; terminal requests finish only captured experience calls.
+- Persist ownership intent before mkdir and the immutable inventory
+  before unlink; never adopt legacy directories; workspace DONE is not
+  global cleanup DONE. Keep the control database outside bound workspaces
+  with pinned identity, frozen runtime hashes and strong-process refusal;
+  never enable a weak production path to make a test pass.
+- The Store is a trusted-host API: model arguments pass the model-input
+  Schema, captured call and final Store guards; persist original request
+  envelopes and every attempt's usage; never replace unknown with zero.
+  Resolve model/reasoning from the frozen Root snapshot; tool grants use
+  role/task policies; configuration updates never silently change an
+  existing request; schema shape checks do not prove semantic coverage.
+
+## Required reading
+
+Blueprint `docs/spec/v0.4.1/01_实施规格_v0.4.1.md`, `docs/ROADMAP.md`,
+`docs/implementation/M1-contract.md`; the S1 chain in `docs/implementation/`
+(from `S1-foundation.md` through `S1-owned-cleanup.md`); `docs/STATUS.md`
+and `docs/reviews/claude-disposition.md`; then every R1/R2/R3
+ADR/implementation chain in the complete contract.
 
 ## Build and verification
 
-Run release and sanitizer tests as a non-root user. The hosted CI checks its
-UID explicitly. Fault-injection tests must arrange damage only in their own
-throwaway fixtures, restore published modes, and verify the injected fault
-before invoking the runtime guard. Never relax production permissions or skip
-a safety assertion to make a fixture pass under an unprivileged account.
-
-M1's kernel remains independent of third-party libraries. The S1 library needs
-Boost 1.83+, SQLite 3.37+, OpenSSL 3+, libcurl 7.88+ and LibYAML 0.2.5.
-Local TLS test fixtures also need the openssl executable. Fixed upstream headers,
-licenses and hashes are recorded in `third_party/README.md`; do not edit vendor
-bytes without an explicit dependency update. Contract tests use `jsonschema`
-from `requirements-test.txt`. Install test dependencies in a virtual environment
-if the chosen Python does not already provide them.
+Run release and sanitizer tests as a non-root user (the hosted CI checks
+its UID). Fault-injection tests damage only their own throwaway fixtures
+and never relax production permissions or safety assertions to pass.
 
 ```sh
 make -j2 test PYTHON=/path/to/python-with-test-dependencies
@@ -303,8 +94,7 @@ cmake --build build-cmake --parallel 2
 ctest --test-dir build-cmake --output-on-failure
 ```
 
-For a development virtual environment use `.local/test-venv/bin/python`; this
-batch may use an already provisioned compatible test interpreter; report its actual version. Add meaningful
-regression coverage for changed
-state, concurrency, persistence or permission semantics; report synthetic,
+M1's kernel stays third-party-free; the S1 library needs Boost 1.83+,
+SQLite 3.37+, OpenSSL 3+, libcurl 7.88+ and LibYAML 0.2.5. Contract tests
+use `jsonschema`; dev venv `.local/test-venv/bin/python`. Report synthetic,
 contract-reference and real integration results separately.

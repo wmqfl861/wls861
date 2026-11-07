@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased — G0 closeout (2026-11-07, in progress; no version cut)
+
+- Merge the owner-approved G0 engineering PRs into main in order with normal
+  merge commits: #43 restore the S1 disposition/retained-path guards on
+  Store 410 (`d28c4a5`), #44 consolidate CI to one Linux PR gate with the
+  full six-configuration validation on main push, nightly and manual
+  dispatch (`11d83eb`), and #45 derive the current Store version constant
+  centrally while retaining Store 410 compatibility (`f2a9227`). Exact
+  combination validation (runs 42382158615/42382170789 with source runs
+  42382161297/42382173458) and one fresh combination hard review passed;
+  the final main gates are green (Linux run 42385790587: six product
+  configurations, five CTest configurations × 78 registered tests, zero
+  failures; source run 42385790585 archive verified byte-exact).
+- Close the historical 43-item PR queue as recorded in
+  `docs/reviews/claude-2026-11-06-disposition.md` and
+  `docs/reviews/claude-2026-11-06-pr-convergence.md`: #1–#42 closed with
+  original refs and heads preserved (that historical queue has zero
+  merges); #43 was the replacement extraction PR.
+- Preserve the complete development contract verbatim in the new
+  `docs/implementation/development-contract.md` and reduce the root
+  `AGENTS.md` to a short entry point; restructure `docs/STATUS.md` to
+  current capabilities/gaps and link batch history here (PR #47, draft,
+  not merged).
+- Share the update/keep/cancel disposition word list and bounded integer
+  field access across the CLI, offline runtime and Store, with explicit
+  InvalidInput error semantics and regression coverage (PR #46, draft,
+  not merged; remote PR core CI 42388192709 and source 42388192705 green,
+  local registered CTest 4/4, independent hard review PASS; merge awaits
+  separate owner confirmation).
+- Store stays 410; real provider calls remain zero/NOT_RUN, Windows 11
+  NOT_RUN; private CI evidence hosting remains BLOCKED, with raw originals
+  retained locally. No new observability tool chains.
+
 ## 0.11.1-r3.3c-audit — whole-code review and boundary corrections
 
 - Preserve the parent Store writer lease when a forked child destroys its inherited descriptor; release the flock only when its final descriptor closes.
