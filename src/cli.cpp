@@ -1146,6 +1146,13 @@ int run_cli(int argc, char** argv) {
     }
     const auto script = fake_model_steps_from_json(parse_json_strict(read_runtime_file(options.required("--script"))));
     const auto disposition = options.take("--disposition");
+    // Validate the bounded disposition vocabulary before any Takeover Store or
+    // scripted effect, then preflight any supplied disposition through a
+    // read-only Store requiring a pending AMEND. Applicability to the current
+    // task state is still rechecked by the runtime; an absent database keeps
+    // its existing open semantics and is never created by the read-only open.
+    if (!(disposition.empty() || disposition == "update" || disposition == "keep" || disposition == "cancel"))
+        throw Error(ErrorCode::InvalidInput, "disposition must be empty or one of update, keep, or cancel");
     const auto workspace = options.take("--workspace");
     const auto manifest_path = options.take("--sandbox-manifest");
     const auto worker_calls = options.number("--worker-calls", 1, 1);
@@ -1154,6 +1161,18 @@ int run_cli(int argc, char** argv) {
     const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(read_runtime_file(manifest_path, 262144));
     options.finish();
     const SchemaRegistry schemas(resources.schema_documents());
+    if (!disposition.empty()) {
+        Store inspect(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
+        const auto tasks = inspect.tasks(request);
+        if (tasks.size() > 1)
+            throw Error(ErrorCode::Unsupported, "offline runner supports one task per request");
+        const auto record = inspect.request(request);
+        const bool pending_amend = !tasks.empty() &&
+            integer(tasks.front().at("based_on_requirements_revision")) !=
+            integer(record.at("requirements_revision"));
+        if (!pending_amend)
+            throw Error(ErrorCode::InvalidInput, "disposition supplied without a pending AMEND");
+    }
     Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
     std::unique_ptr<WorkerTools> worker_tools;
     if (!workspace.empty()) worker_tools = std::make_unique<WorkerTools>(store, workspace, manifest);

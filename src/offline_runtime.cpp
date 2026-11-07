@@ -1006,8 +1006,19 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
                         std::int64_t max_worker_calls) {
     require(max_worker_calls >= 1 && max_worker_calls <= 16 && (worker_tools_ || max_worker_calls == 1),
         ErrorCode::InvalidInput, "Worker calls must be 1..16 and multiple calls require an explicit workspace");
+    require(disposition.empty() || disposition == "update" || disposition == "keep" || disposition == "cancel",
+        ErrorCode::InvalidInput, "disposition must be empty or one of update, keep, or cancel");
     auto tasks = store_.tasks(id);
     require(tasks.size() <= 1, ErrorCode::Unsupported, "offline runner supports one task per request");
+    const auto record = store_.request(id);
+    const bool pending_amend = !tasks.empty() &&
+        integer_at(tasks.front(), "based_on_requirements_revision") != integer_at(record, "requirements_revision");
+    // Applicability is decided on this read-only snapshot before any rebind,
+    // reservation, acknowledgment or business effect, so an unusable
+    // disposition leaves the durable state untouched.
+    require(pending_amend == !disposition.empty(), ErrorCode::InvalidInput,
+        pending_amend ? "AMEND requires --disposition update, keep, or cancel before another model call"
+                      : "disposition supplied without a pending AMEND");
     if (store_.workflow_runtime_enabled() && !tasks.empty()) {
         const auto task_id = string_at(tasks.front(), "task_id");
         const auto questions = visible_management_questions(store_, Role::TeamLead, id, task_id);
@@ -1025,7 +1036,6 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
         require(waiting.is_null() || string_at(waiting, "status") != "WAITING", ErrorCode::NotReady,
                 "Worker is durably waiting; an explicit wake is required before the offline runner resumes");
     }
-    auto record = store_.request(id);
     const auto config = restore_request_config(record);
     if (!tasks.empty() && integer_at(tasks.front(), "based_on_requirements_revision") == integer_at(record, "requirements_revision") &&
         integer_at(tasks.front(), "plan_revision") != integer_at(record, "plan_revision")) {

@@ -85,6 +85,14 @@ class OfflineCliSmoke(unittest.TestCase):
             connection.row_factory = sqlite3.Row
             return [dict(row) for row in connection.execute(query, arguments)]
 
+    def table_snapshot(self):
+        """Complete sorted logical snapshot of every user table, BLOB-safe."""
+        with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True)) as connection:
+            names = [row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+            return {name: sorted(repr(row) for row in connection.execute(f'SELECT * FROM "{name}"'))
+                    for name in names}
+
     def test_config_and_schema_commands_run_from_another_directory(self):
         checked = self.invoke("config", "check")
         self.assertTrue(checked["valid"])
@@ -243,6 +251,101 @@ class OfflineCliSmoke(unittest.TestCase):
         self.invoke("submit", "--db", self.database, "--key", "bad",
                     "--text-file", FIXTURES / "s1_request.txt", "--max-attempts", "nan", error="invalid_input")
         self.assertFalse(self.database.exists(), "option validation must precede writer initialization")
+
+    def test_run_fake_fresh_disposition_rejected_without_store_effects(self):
+        request_id = self.submit()["request"]["request_id"]
+        before = self.table_snapshot()
+        for bad in ("invalid-enum", "unknown-disposition"):
+            self.run_fake(request_id, disposition=bad, error="invalid_input")
+        # Legal enum values are newly inapplicable to a fresh request without
+        # tasks: this is an intentional tightening, not a no-change fix.
+        for legal in ("update", "keep", "cancel"):
+            self.run_fake(request_id, disposition=legal, error="invalid_input")
+        self.assertEqual(self.table_snapshot(), before)
+        self.assertEqual(self.budget(request_id)["attempts"], 0)
+        result = self.run_fake(request_id)
+        self.assertEqual(result["budget"]["attempts"], 3)
+
+    def test_run_fake_disposition_rejected_before_writer_initialization(self):
+        absent = self.directory / "absent-runtime.sqlite"
+        # An illegal literal is rejected by the CLI before any Store. A legal
+        # disposition is first preflighted through a read-only Store that must
+        # observe a pending AMEND, and the runtime rechecks applicability again
+        # after the Takeover writer is acquired. A missing database therefore
+        # fails that read-only open, which never creates the file.
+        for bad in ("invalid-enum", "unknown-disposition"):
+            self.invoke("run-fake", "--db", absent, "--request", "req_missing",
+                        "--script", FIXTURES / "s1_fake_initial.json",
+                        "--disposition", bad, error="invalid_input")
+            self.assertFalse(absent.exists(), "disposition validation must precede writer initialization")
+            for suffix in ("-wal", "-shm", ".writer-lock"):
+                self.assertFalse(Path(str(absent) + suffix).exists())
+
+    def test_run_fake_legal_dispositions_on_missing_db_fail_storage_open(self):
+        # Each legal disposition reaches the real read-only preflight open: the
+        # structured Storage error is the existing mapping, and no database,
+        # -wal, -shm or .writer-lock file is ever created.
+        for kind in ("update", "keep", "cancel"):
+            with self.subTest(disposition=kind):
+                absent = self.directory / f"absent-{kind}-runtime.sqlite"
+                self.invoke("run-fake", "--db", absent, "--request", "req_missing",
+                            "--script", FIXTURES / "s1_fake_initial.json",
+                            "--disposition", kind, error="storage")
+                self.assertFalse(absent.exists(),
+                                 "the read-only open must not create the database")
+                for suffix in ("-wal", "-shm", ".writer-lock"):
+                    self.assertFalse(Path(str(absent) + suffix).exists())
+
+    def test_run_fake_disposition_on_current_task_keeps_logical_state(self):
+        request_id = self.submit()["request"]["request_id"]
+        self.run_fake(request_id)
+        before = self.table_snapshot()
+        self.run_fake(request_id, disposition="invalid-enum", error="invalid_input")
+        self.assertEqual(self.table_snapshot(), before)
+        for legal in ("update", "keep", "cancel"):
+            self.run_fake(request_id, disposition=legal, error="invalid_input")
+        self.assertEqual(self.table_snapshot(), before)
+        self.assertEqual(self.budget(request_id)["attempts"], 3)
+
+    def test_run_fake_pending_amend_invalid_enum_rejected_without_store_effects(self):
+        request_id = self.submit()["request"]["request_id"]
+        self.run_fake(request_id)
+        sibling_text = self.directory / "sibling-request.txt"
+        sibling_text.write_text((FIXTURES / "s1_request.txt").read_text() + "新增兄弟请求目标。", encoding="utf-8")
+        sibling_id = self.invoke("submit", "--db", self.database, "--key", "request-two",
+                                 "--text-file", sibling_text,
+                                 "--constraints-file", FIXTURES / "s1_constraints.json")["request"]["request_id"]
+        self.run_fake(sibling_id)
+        self.amend(request_id)
+        pending = self.show(request_id)
+        self.assertEqual(pending["request"]["requirements_revision"], 2)
+        # The rejected branch must be a genuinely pending AMEND task; a missing
+        # script, wrong database or absent disposition may not stand in for it.
+        self.assertTrue(any(task["based_on_requirements_revision"] == 1 and task["paused_for_change"]
+                            for task in pending["tasks"]))
+        before = self.table_snapshot()
+        for bad in ("invalid-enum", "unknown-disposition"):
+            self.run_fake(request_id, amended=True, disposition=bad, error="invalid_input")
+            self.assertEqual(self.table_snapshot(), before)
+        self.assertEqual(self.budget(request_id)["attempts"], 3)
+        self.assertEqual(self.budget(sibling_id)["attempts"], 3)
+
+    def test_amend_keep_and_cancel_dispositions_apply(self):
+        request_id = self.submit()["request"]["request_id"]
+        self.run_fake(request_id)
+        self.amend(request_id)
+        kept = self.run_fake(request_id, amended=True, disposition="keep")
+        self.assertEqual(len(kept["calls"]), 3)
+        task = self.show(request_id)["tasks"][0]
+        self.assertEqual(task["based_on_requirements_revision"], 2)
+        self.assertEqual(task["applied_task_revision"], task["task_revision"])
+        self.assertEqual(task["applied_plan_revision"], task["plan_revision"])
+        self.assertEqual(task["applied_instruction_revision"], task["instruction_revision"])
+        self.assertFalse(task["paused_for_change"])
+        self.amend(request_id)
+        cancelled = self.run_fake(request_id, amended=True, disposition="cancel")
+        self.assertEqual(len(cancelled["calls"]), 1)
+        self.assertEqual(self.show(request_id)["tasks"][0]["status"], "CANCELLED")
 
 
 if __name__ == "__main__":
