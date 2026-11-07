@@ -2,15 +2,116 @@ name: C++20 runtime and specification contracts
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+  schedule:
+    # Nightly full-matrix verification at 03:17 UTC; GitHub cron is UTC.
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  # One run per workflow per ref: a newer run for the same pull request or
+  # branch cancels the superseded run, and different pull requests never
+  # cancel each other. A cancelled run reports CANCELLED, never a pass.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  classify:
+    name: Classify changed paths
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.classify.outputs.mode }}
+      matrix: ${{ steps.classify.outputs.matrix }}
+    steps:
+      - name: Check out the full history for a trusted base/head diff
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Classify the change set with a conservative fallback
+        id: classify
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # The pull-request compile matrix keeps exactly the three existing
+          # core configurations; main pushes, the nightly UTC schedule and
+          # manual dispatches keep the complete six-entry matrix below.
+          pr_matrix='{"include":[
+          {"name":"strict","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0022"},
+          {"name":"strict-umask-0002","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0002"},
+          {"name":"Clang-18","compiler":"clang++-18","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0002"}
+          ]}'
+          full_matrix='{"include":[
+          {"name":"strict","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0022"},
+          {"name":"strict-umask-0002","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0002"},
+          {"name":"UBSan","compiler":"g++","build_type":"Debug","ubsan":"ON","asan":"OFF","test_umask":"0002"},
+          {"name":"ASan","compiler":"g++","build_type":"Debug","ubsan":"OFF","asan":"ON","test_umask":"0002"},
+          {"name":"Make-ASan","compiler":"g++","build_type":"Debug","ubsan":"OFF","asan":"ON","test_umask":"0002"},
+          {"name":"Clang-18","compiler":"clang++-18","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0002"}
+          ]}'
+          base_sha=''
+          changed=0
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            mode=full
+            matrix="$full_matrix"
+          else
+            mode=core
+            matrix="$pr_matrix"
+            base_tip="$(git rev-parse --verify -q "origin/${GITHUB_BASE_REF}^{commit}" || true)"
+            if [ -n "$base_tip" ] && [ -n "$PR_HEAD_SHA" ]; then
+              base_sha="$(git merge-base "$base_tip" "$PR_HEAD_SHA" 2>/dev/null || true)"
+            fi
+            # List changes NUL-separated against the real merge base. Renames
+            # are split into their two paths, so a rename always classifies
+            # like its worst side. A missing base, shallow history or failing
+            # diff can never classify as docs-only.
+            if [ -n "$base_sha" ] && git diff --name-only --no-renames -z "$base_sha" "$PR_HEAD_SHA" > "$RUNNER_TEMP/changed-paths.z" 2>/dev/null; then
+              mode=docs-only
+              while IFS= read -r -d '' path; do
+                changed=$((changed + 1))
+                case "$path" in
+                  README.md|docs/STATUS.md|docs/ROADMAP.md|docs/REVISION-v0.4.1.md) ;;
+                  docs/reviews/*.md|docs/reports/*.md|docs/adr/*.md|docs/implementation/*.md) ;;
+                  *)
+                    # docs/handoff, docs/spec, sources, tests, SQL, schemas,
+                    # build/CI configuration, scripts, generated inputs and
+                    # every unknown path stay on the core compile path.
+                    mode=core
+                    ;;
+                esac
+              done < "$RUNNER_TEMP/changed-paths.z"
+              if [ "$changed" -eq 0 ]; then
+                # An empty change list is not evidence of a docs-only change.
+                mode=core
+              fi
+            fi
+          fi
+          {
+            echo "mode=$mode"
+            echo "matrix<<MATRIX_JSON_EOF"
+            printf '%s\n' "$matrix"
+            echo "MATRIX_JSON_EOF"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Change classification: \`$mode\`"
+            echo "- event: $GITHUB_EVENT_NAME, matrix entries: $(printf '%s' "$matrix" | grep -c '"name"')"
+            if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+              echo "- PR head: \`$PR_HEAD_SHA\`; diff merge base: \`${base_sha:-unavailable, fell back to core}\`"
+              echo "- changed paths counted: $changed"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build-and-test:
     name: Linux C++20 (${{ matrix.name }})
+    needs: classify
     runs-on: ubuntu-24.04
     # The 78-suite ASan jobs exhausted the former 40-minute total budget.
     # Make reached the final integration suite after almost 39 minutes; the
@@ -20,53 +121,17 @@ jobs:
     timeout-minutes: ${{ matrix.asan == 'ON' && 55 || 40 }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: strict
-            compiler: g++
-            build_type: Release
-            ubsan: "OFF"
-            asan: "OFF"
-            test_umask: "0022"
-          - name: strict-umask-0002
-            compiler: g++
-            build_type: Release
-            ubsan: "OFF"
-            asan: "OFF"
-            test_umask: "0002"
-          - name: UBSan
-            compiler: g++
-            build_type: Debug
-            ubsan: "ON"
-            asan: "OFF"
-            test_umask: "0002"
-          - name: ASan
-            compiler: g++
-            build_type: Debug
-            ubsan: "OFF"
-            asan: "ON"
-            test_umask: "0002"
-          - name: Make-ASan
-            compiler: g++
-            build_type: Debug
-            ubsan: "OFF"
-            asan: "ON"
-            test_umask: "0002"
-          - name: Clang-18
-            compiler: clang++-18
-            build_type: Release
-            ubsan: "OFF"
-            asan: "OFF"
-            test_umask: "0002"
+      matrix: ${{ fromJSON(needs.classify.outputs.matrix) }}
     env:
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
       ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
     steps:
       - name: Check out the requested revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - name: Install C++ development dependencies
+        if: needs.classify.outputs.mode != 'docs-only'
         run: |
           sudo apt-get update
           sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libcurl4-openssl-dev libyaml-dev openssl
@@ -74,25 +139,43 @@ jobs:
             sudo apt-get install --yes clang-18
           fi
       - name: Prepare contract-test environment
+        if: needs.classify.outputs.mode != 'docs-only'
         run: |
           python3 -m venv .local/test-venv
           .local/test-venv/bin/python -m pip install -r requirements-test.txt
       - name: Configure CMake
-        if: matrix.name != 'Make-ASan'
+        if: needs.classify.outputs.mode != 'docs-only' && matrix.name != 'Make-ASan'
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }} -DWLS_ENABLE_ASAN=${{ matrix.asan }} -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
       - name: Build with warnings as errors
-        if: matrix.name != 'Make-ASan'
+        if: needs.classify.outputs.mode != 'docs-only' && matrix.name != 'Make-ASan'
         run: cmake --build build --parallel 2
       - name: Run complete CTest as an ordinary user
-        if: matrix.name != 'Make-ASan'
+        if: needs.classify.outputs.mode != 'docs-only' && matrix.name != 'Make-ASan'
         run: |
           test "$(id -u)" -ne 0
           umask "${{ matrix.test_umask }}"
           ctest --test-dir build --output-on-failure
       - name: Verify the original GCC ASan Make target and user CPPFLAGS
-        if: matrix.name == 'Make-ASan'
+        if: needs.classify.outputs.mode != 'docs-only' && matrix.name == 'Make-ASan'
         run: |
           test "$(id -u)" -ne 0
           umask 0002
           make -j2 asan BUILD_DIR=build-make CPPFLAGS=-DWLS_CI_USER_CPPFLAGS=1 PYTHON="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
+      - name: Docs-only frozen-material check (no product build or tests)
+        if: needs.classify.outputs.mode == 'docs-only'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          # Reuse the exact commands CMake registers for the handoff_integrity
+          # and review_source_integrity tests; both scripts use only the
+          # Python standard library and no build products.
+          python3 "$GITHUB_WORKSPACE/scripts/verify_handoff.py"
+          python3 "$GITHUB_WORKSPACE/scripts/verify_review_source.py"
+          {
+            echo '### Docs-only lightweight verification'
+            echo '- Changed paths all matched the explicit Markdown documentation whitelist.'
+            echo '- Frozen-material integrity used the CMake-registered verify_handoff.py and verify_review_source.py commands.'
+            echo '- No product code was compiled and no product tests were executed in this run.'
+          } >> "$GITHUB_STEP_SUMMARY"
