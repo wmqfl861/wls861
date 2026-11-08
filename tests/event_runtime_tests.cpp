@@ -23,7 +23,7 @@ using Object = boost::json::object;
 using Array = boost::json::array;
 const std::filesystem::path source(WLS_SOURCE_DIR);
 std::unique_ptr<SchemaRegistry> schemas;
-std::string base_sql, store_sql, tools_sql, events_sql;
+std::string base_sql, store_sql, tools_sql, events_sql, workflow_sql;
 
 std::string text(const Json& value) { return std::string(value.as_string()); }
 std::int64_t number(const Json& value) { return value.is_int64() ? value.as_int64() : static_cast<std::int64_t>(value.as_uint64()); }
@@ -113,6 +113,79 @@ struct Fixture {
         return runtime().pump(id, initial_script(), options);
     }
 };
+
+// G1-3 correction regressions: a structured-v2 frozen request on the event
+// Store, an alpha-only plan and explicit per-index Worker steps. The same test
+// bytes run unchanged against the exact baseline (behavioral RED) and the
+// candidate (GREEN); no candidate-only symbols are referenced.
+AdmissionInput structured_input(const char* schema_retry = "2") {
+    test::TempDir configuration;
+    auto system = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string original_format = "request_format: framed-v1";
+    const auto format_position = system.find(original_format);
+    CHECK(format_position != std::string::npos);
+    system.replace(format_position, original_format.size(), "request_format: structured-v2");
+    if (std::string_view(schema_retry) != "2") {
+        const std::string original_retry = "schema_retry_max: 2";
+        const auto retry_position = system.find(original_retry);
+        CHECK(retry_position != std::string::npos);
+        system.replace(retry_position, original_retry.size(), std::string("schema_retry_max: ") + schema_retry);
+    }
+    write(configuration.path / "system.yaml", system);
+    auto result = input();
+    result.config_snapshot = load_config_catalog(configuration.path / "system.yaml",
+        source / "config/examples/functions", source / "prompts").freeze("general").json();
+    return result;
+}
+FakeModelStep worker_step(std::int64_t index, const std::string& body, std::vector<ModelToolCall> calls) {
+    FakeModelStep step;
+    step.role = Role::Worker; step.role_call_index = index; step.text = body;
+    step.tool_calls = std::move(calls); step.usage = ModelUsage{100, 20, 0, 0, 0};
+    return step;
+}
+EventFakeScript alpha_script(std::vector<FakeModelStep> steps) {
+    auto script = initial_script();
+    script.default_steps.front().tool_calls.front().arguments.at("nodes").as_array().pop_back();
+    auto order = script.by_node.at("alpha").front();
+    script.by_node["alpha"] = {order};
+    for (auto& step : steps) script.by_node["alpha"].push_back(std::move(step));
+    script.by_node.erase("beta");
+    return script;
+}
+std::vector<Json> worker_calls(const Json& result, std::string_view node) {
+    std::vector<Json> found;
+    for (const auto& call : result.at("calls").as_array())
+        if (call.at("role") == "worker" && call.at("node_id").as_string() == node) found.push_back(call);
+    return found;
+}
+void expect_correction_feedback(const Json& result, std::string_view reason, std::string_view layer) {
+    CHECK(result.at("format").as_string() == "wls-correction-feedback-v1");
+    CHECK(result.at("reason").as_string() == reason);
+    CHECK(result.at("failure_layer").as_string() == layer);
+    CHECK(result.at("correction_eligible") == true);
+    CHECK(result.at("observation_complete") == true);
+    CHECK(result.at("effect_count") == 0);
+    const auto* runtime_error = result.as_object().if_contains("runtime_error");
+    CHECK(!(runtime_error && *runtime_error == true));
+}
+const Json& native_messages(const ModelRequest& request) {
+    return request.context.logical_input.at("messages");
+}
+const Json* paired_assistant(const ModelRequest& request, std::string_view original_call_id) {
+    for (const auto& message : native_messages(request).as_array())
+        if (message.at("role").as_string() == "assistant" && message.at("source").is_object() &&
+            message.at("source").as_object().contains("original_tool_call_id") &&
+            message.at("source").at("original_tool_call_id").as_string() == original_call_id)
+            return &message;
+    return nullptr;
+}
+const Json* paired_tool_result(const ModelRequest& request, const Json& assistant) {
+    const auto id = text(assistant.at("tool_calls").as_array().front().at("call_id"));
+    for (const auto& message : native_messages(request).as_array())
+        if (message.at("role").as_string() == "tool" && message.at("tool_call_id").as_string() == id)
+            return &message;
+    return nullptr;
+}
 
 void strict_script_groups_and_host_mapping() {
     CHECK(event_fake_script_from_json(Array{}).default_steps.empty());
@@ -468,6 +541,601 @@ void legacy_single_task_runner_cannot_supersede_a_durable_wait() {
     CHECK(f.store.task(binding.task_id).at("applied_instruction_revision") == 1);
     CHECK(read_runtime_file(f.directory.path / "alpha/after-wake.txt") == "explicit wake permits this new effect\n");
 }
+
+void text_only_response_gets_one_correction_within_the_same_pump() {
+    Fixture f(structured_input());
+    const auto script = alpha_script({
+        worker_step(1, "only text without any tool call", {}),
+        worker_step(2, "", {{"write-fixed", "fs_write", Object{{"path", "corrected.txt"}, {"content", "fixed content\n"}}}}),
+    });
+    EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+    const auto result = f.runtime().pump(f.id, script, options);
+    const auto workers = worker_calls(result, "alpha");
+    CHECK(workers.size() == 2);
+    const auto feedback = f.store.tool_feedback(text(workers.front().at("attempt_id")));
+    CHECK(!feedback.is_null());
+    expect_correction_feedback(feedback.at("result"), "missing_tool_call", "model_schema");
+    CHECK(read_runtime_file(f.directory.path / "alpha/corrected.txt") == "fixed content\n");
+    CHECK(number(f.store.budget(f.id).at("attempts")) == 4);
+    const auto alpha = task(f.store, f.id, "alpha");
+    const auto actor = f.store.host_actor(Role::Worker, f.id, text(alpha.at("team_id")));
+    const auto history = f.store.attempt_history(actor);
+    CHECK(history.size() == 2);
+    CHECK(history.front().at("feedback_missing") == false && history.back().at("feedback_missing") == false);
+    // The next capture observes the original failure as data only: no synthetic
+    // function_call or orphan function_call_output is invented for text output.
+    const auto envelope = model_request_from_json(
+        f.store.attempt(text(workers.back().at("attempt_id"))).at("request_envelope"));
+    const auto& messages = native_messages(envelope).as_array();
+    CHECK(messages.size() == 1);
+    const auto& observation = messages.front();
+    CHECK(observation.at("role").as_string() == "user");
+    CHECK(observation.at("source").at("kind").as_string() == "unapplied_or_missing_observation");
+    CHECK(observation.at("source").at("not_execution_authority") == true);
+    CHECK(observation.at("content").as_string().find("only text without any tool call") != std::string::npos);
+    CHECK(observation.at("content").as_string().find("missing_tool_call") != std::string::npos);
+}
+
+void invalid_tool_arguments_settle_as_feedback_without_operation_and_correct() {
+    Fixture f(structured_input());
+    const Json bad_arguments = Object{{"path", "args.txt"}};
+    const auto script = alpha_script({
+        worker_step(1, "", {{"bad-write", "fs_write", bad_arguments}}),
+        worker_step(2, "", {{"fixed-write", "fs_write", Object{{"path", "args.txt"}, {"content", "second attempt valid\n"}}}}),
+    });
+    EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+    const auto result = f.runtime().pump(f.id, script, options);
+    const auto workers = worker_calls(result, "alpha");
+    CHECK(workers.size() == 2);
+    const auto feedback = f.store.tool_feedback(text(workers.front().at("attempt_id")));
+    expect_correction_feedback(feedback.at("result"), "invalid_arguments", "model_schema");
+    const auto alpha = task(f.store, f.id, "alpha");
+    const auto binding = f.store.binding(text(alpha.at("task_id")));
+    const auto actor = f.store.host_actor(Role::Worker, f.id, text(alpha.at("team_id")));
+    CHECK(f.store.operation_for_key(actor, binding,
+        text(workers.front().at("attempt_id")), "fs_write", bad_arguments).is_null());
+    CHECK(read_runtime_file(f.directory.path / "alpha/args.txt") == "second attempt valid\n");
+    CHECK(number(f.store.budget(f.id).at("attempts")) == 4);
+    // The schema-invalid original arguments survive verbatim as history data and
+    // pair natively with their ordinary failure observation.
+    const auto envelope = model_request_from_json(
+        f.store.attempt(text(workers.back().at("attempt_id"))).at("request_envelope"));
+    const auto* assistant = paired_assistant(envelope, "bad-write");
+    CHECK(assistant != nullptr);
+    if (assistant) {
+        CHECK(assistant->at("tool_calls").as_array().size() == 1);
+        CHECK(assistant->at("tool_calls").as_array().front().at("name").as_string() == "fs_write");
+        CHECK(assistant->at("tool_calls").as_array().front().at("arguments") == bad_arguments);
+        const auto* observation = paired_tool_result(envelope, *assistant);
+        CHECK(observation != nullptr);
+        if (observation)
+            CHECK(parse_json_strict(text(observation->at("content")), 1048576).at("reason").as_string() == "invalid_arguments");
+    }
+}
+
+void missing_file_read_becomes_ordinary_tool_result_and_corrects() {
+    Fixture f(structured_input());
+    write(f.directory.path / "alpha/present.txt", "present bytes\n");
+    const auto script = alpha_script({
+        worker_step(1, "", {{"missing-read", "fs_read", Object{{"path", "absent.txt"}, {"max_bytes", 16}}}}),
+        worker_step(2, "", {{"present-read", "fs_read", Object{{"path", "present.txt"}, {"max_bytes", 64}}}}),
+    });
+    EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+    const auto result = f.runtime().pump(f.id, script, options);
+    const auto workers = worker_calls(result, "alpha");
+    CHECK(workers.size() == 2);
+    const auto feedback = f.store.tool_feedback(text(workers.front().at("attempt_id")));
+    const auto& failure = feedback.at("result");
+    expect_correction_feedback(failure, "not_found", "tool_result");
+    CHECK(!failure.as_object().contains("content"));
+    // A diagnostic read never creates an operation row by design (Store
+    // operation keys exist only for business tools); the SQL-level zero-op
+    // assertion for fs_read lives in the TLS L3 regression.
+    CHECK(workers.back().at("result").at("content") == "present bytes\n");
+    CHECK(number(f.store.budget(f.id).at("attempts")) == 4);
+    // The deterministic missing leaf is an ordinary failed tool turn in history.
+    const auto envelope = model_request_from_json(
+        f.store.attempt(text(workers.back().at("attempt_id"))).at("request_envelope"));
+    const auto* assistant = paired_assistant(envelope, "missing-read");
+    CHECK(assistant != nullptr);
+    if (assistant) {
+        const auto* observation = paired_tool_result(envelope, *assistant);
+        CHECK(observation != nullptr);
+        if (observation)
+            CHECK(parse_json_strict(text(observation->at("content")), 1048576).at("reason").as_string() == "not_found");
+    }
+}
+
+void settled_creation_precondition_failure_corrects_with_cas() {
+    Fixture f(structured_input());
+    write(f.directory.path / "alpha/exists.txt", "original bytes\n");
+    const auto script = alpha_script({
+        worker_step(1, "", {{"create-existing", "fs_write", Object{{"path", "exists.txt"}, {"content", "must not overwrite\n"}}}}),
+        worker_step(2, "", {{"cas-write", "fs_write", Object{{"path", "exists.txt"}, {"content", "cas corrected\n"},
+            {"expected_sha256", sha256_hex("original bytes\n")}}}}),
+    });
+    EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+    const auto result = f.runtime().pump(f.id, script, options);
+    const auto workers = worker_calls(result, "alpha");
+    CHECK(workers.size() == 2);
+    const auto& first = workers.front().at("result");
+    CHECK(first.at("operation").at("status") == "FAILED");
+    CHECK(first.at("execution_result").at("observed_outcome") == "FAILED");
+    const auto& evidence = first.at("execution_result").at("evidence");
+    CHECK(evidence.at("cause_code").as_string() == "conflict");
+    CHECK(evidence.at("rename_attempted") == false);
+    CHECK(evidence.at("renamed") == false);
+    CHECK(evidence.at("temporary_remaining") == false);
+    CHECK(evidence.at("temporary_cleanup_complete") == true);
+    CHECK(evidence.at("failure_kind").as_string() == "content_precondition");
+    const auto& correction = first.at("correction_feedback");
+    CHECK(correction.at("format").as_string() == "wls-correction-feedback-v1");
+    CHECK(correction.at("reason").as_string() == "content_precondition");
+    CHECK(correction.at("correction_eligible") == true);
+    CHECK(read_runtime_file(f.directory.path / "alpha/exists.txt") == "cas corrected\n");
+    CHECK(number(f.store.budget(f.id).at("attempts")) == 4);
+    CHECK(!blocked(result, "operation_incomplete", "alpha"));
+    // The original FAILED operation and its result stay visible and immutable.
+    CHECK(f.store.operation(text(first.at("operation").at("op_id"))).at("status") == "FAILED");
+}
+
+void schema_retry_exhaustion_keeps_exact_attempts_and_last_feedback() {
+    {
+        Fixture f(structured_input());
+        const auto script = alpha_script({
+            worker_step(1, "text-only failure one", {}),
+            worker_step(2, "text-only failure two", {}),
+            worker_step(3, "text-only failure three", {}),
+        });
+        EventPumpOptions options; options.max_worker_calls_per_task = 16; options.max_calls = 16;
+        const auto result = f.runtime().pump(f.id, script, options);
+        const auto workers = worker_calls(result, "alpha");
+        CHECK(workers.size() == 3);
+        const auto last = f.store.tool_feedback(text(workers.back().at("attempt_id")));
+        expect_correction_feedback(last.at("result"), "missing_tool_call", "model_schema");
+        CHECK(number(f.store.budget(f.id).at("attempts")) == 5);
+        CHECK(!result.at("pending").as_array().empty());
+        CHECK(!std::filesystem::exists(f.directory.path / "alpha/corrected.txt"));
+    }
+    {
+        // schema_retry_max=0 still classifies and persists the failure; no retry.
+        Fixture f(structured_input("0"));
+        const auto script = alpha_script({
+            worker_step(1, "text-only failure without retries", {}),
+            worker_step(2, "", {{"never-used", "fs_write", Object{{"path", "never.txt"}, {"content", "x"}}}}),
+        });
+        EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+        const auto result = f.runtime().pump(f.id, script, options);
+        const auto workers = worker_calls(result, "alpha");
+        CHECK(workers.size() == 1);
+        const auto feedback = f.store.tool_feedback(text(workers.front().at("attempt_id")));
+        expect_correction_feedback(feedback.at("result"), "missing_tool_call", "model_schema");
+        CHECK(number(f.store.budget(f.id).at("attempts")) == 3);
+        CHECK(!std::filesystem::exists(f.directory.path / "alpha/never.txt"));
+        CHECK(!result.at("pending").as_array().empty());
+    }
+}
+
+void correction_admission_respects_worker_call_call_and_script_gates() {
+    const auto failing_then_fixed = [] {
+        return std::vector<FakeModelStep>{
+            worker_step(1, "text-only failure before a gate", {}),
+            worker_step(2, "", {{"gated-write", "fs_write", Object{{"path", "gated.txt"}, {"content", "never written\n"}}}}),
+        };
+    };
+    {
+        // The correction consumes the remaining per-task Worker call slot.
+        Fixture f(structured_input());
+        EventPumpOptions options; options.max_worker_calls_per_task = 1; options.max_calls = 12;
+        const auto result = f.runtime().pump(f.id, alpha_script(failing_then_fixed()), options);
+        const auto workers = worker_calls(result, "alpha");
+        CHECK(workers.size() == 1);
+        expect_correction_feedback(f.store.tool_feedback(text(workers.front().at("attempt_id"))).at("result"),
+            "missing_tool_call", "model_schema");
+        CHECK(number(f.store.budget(f.id).at("attempts")) == 3);
+        CHECK(!std::filesystem::exists(f.directory.path / "alpha/gated.txt"));
+    }
+    {
+        // The pump's total call cap bounds correction admissions identically.
+        Fixture f(structured_input());
+        EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 3;
+        const auto result = f.runtime().pump(f.id, alpha_script(failing_then_fixed()), options);
+        const auto workers = worker_calls(result, "alpha");
+        CHECK(workers.size() == 1);
+        expect_correction_feedback(f.store.tool_feedback(text(workers.front().at("attempt_id"))).at("result"),
+            "missing_tool_call", "model_schema");
+        CHECK(number(f.store.budget(f.id).at("attempts")) == 3);
+        CHECK(!std::filesystem::exists(f.directory.path / "alpha/gated.txt"));
+    }
+    {
+        // A missing next script step stops before reserving a nonexistent action.
+        Fixture f(structured_input());
+        EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+        const auto result = f.runtime().pump(f.id,
+            alpha_script({worker_step(1, "text-only failure without a next step", {})}), options);
+        const auto workers = worker_calls(result, "alpha");
+        CHECK(workers.size() == 1);
+        expect_correction_feedback(f.store.tool_feedback(text(workers.front().at("attempt_id"))).at("result"),
+            "missing_tool_call", "model_schema");
+        CHECK(number(f.store.budget(f.id).at("attempts")) == 3);
+        CHECK(!result.at("pending").as_array().empty());
+    }
+}
+
+void tight_request_budget_admits_exactly_one_correction_round() {
+    auto admission = structured_input();
+    admission.budget.max_attempts = 4;
+    Fixture f(admission);
+    const auto script = alpha_script({
+        worker_step(1, "text-only failure inside the last admitted round", {}),
+        worker_step(2, "", {{"budgeted-write", "fs_write", Object{{"path", "budgeted.txt"}, {"content", "within budget\n"}}}}),
+    });
+    EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+    (void)f.runtime().pump(f.id, script, options);
+    CHECK(number(f.store.budget(f.id).at("attempts")) == 4);
+    CHECK(read_runtime_file(f.directory.path / "alpha/budgeted.txt") == "within budget\n");
+}
+
+void recapture_overflow_closes_the_chain_before_any_reservation() {
+    Fixture f(structured_input());
+    write(f.directory.path / "alpha/big.txt", std::string(65536, 'x'));
+    OfflineRuntime probe_host(f.store, *schemas, f.alpha.get());
+    // Load successful 64 KiB reads until the next Worker capture sits close to
+    // the 1 MiB structured-context limit, so one more bounded observation
+    // crosses it during the correction recapture.
+    std::size_t captured_bytes = 0;
+    for (int round = 0; round < 16; ++round) {
+        const auto script = alpha_script({worker_step(1, "", {{"probe-read", "fs_read",
+            Object{{"path", "big.txt"}, {"max_bytes", 65536}}}})});
+        EventPumpOptions options; options.max_worker_calls_per_task = 1; options.max_calls = 12;
+        const auto result = f.runtime().pump(f.id, script, options);
+        CHECK(worker_calls(result, "alpha").size() == 1);
+        const auto alpha = task(f.store, f.id, "alpha");
+        const auto probe = probe_host.capture_call(f.id, Role::Worker, text(alpha.at("task_id")));
+        captured_bytes = probe.request.context.prompt().size();
+        if (captured_bytes >= 820 * 1024) break;
+    }
+    CHECK(captured_bytes >= 820 * 1024 && captured_bytes < 1024 * 1024);
+    const auto attempts_before = number(f.store.budget(f.id).at("attempts"));
+    const auto script = alpha_script({
+        worker_step(1, std::string(250 * 1024, 't'), {}),
+        worker_step(2, "", {{"overflow-write", "fs_write", Object{{"path", "overflow.txt"}, {"content", "never\n"}}}}),
+    });
+    EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+    const auto result = f.runtime().pump(f.id, script, options);
+    const auto workers = worker_calls(result, "alpha");
+    CHECK(workers.size() == 1);
+    CHECK(number(f.store.budget(f.id).at("attempts")) == attempts_before + 1);
+    CHECK(blocked(result, "quota", "alpha"));
+    const auto feedback = f.store.tool_feedback(text(workers.front().at("attempt_id")));
+    expect_correction_feedback(feedback.at("result"), "missing_tool_call", "model_schema");
+    CHECK(feedback.at("response").at("text").as_string().size() == 250 * 1024);
+    CHECK(!std::filesystem::exists(f.directory.path / "alpha/overflow.txt"));
+    CHECK(!result.at("pending").as_array().empty());
+}
+
+void multi_tool_undeclared_and_management_failures_stay_stopped() {
+    {
+        // Two declared calls never authorize a subset dispatch.
+        Fixture f(structured_input());
+        const auto script = alpha_script({worker_step(1, "", {
+            {"left-write", "fs_write", Object{{"path", "left.txt"}, {"content", "left\n"}}},
+            {"right-write", "fs_write", Object{{"path", "right.txt"}, {"content", "right\n"}}}})});
+        EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+        const auto result = f.runtime().pump(f.id, script, options);
+        const auto workers = worker_calls(result, "alpha");
+        CHECK(workers.size() == 1);
+        CHECK(f.store.tool_feedback(text(workers.front().at("attempt_id"))).at("result").at("runtime_error") == true);
+        CHECK(!std::filesystem::exists(f.directory.path / "alpha/left.txt"));
+        CHECK(!std::filesystem::exists(f.directory.path / "alpha/right.txt"));
+        CHECK(number(f.store.budget(f.id).at("attempts")) == 3);
+        CHECK(!result.at("pending").as_array().empty());
+    }
+    {
+        // Text plus one legal declared tool keeps the existing single execution.
+        Fixture f(structured_input());
+        const auto script = alpha_script({worker_step(1, "progress narrative before the tool", {
+            {"legal-write", "fs_write", Object{{"path", "legal.txt"}, {"content", "legal once\n"}}}})});
+        EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+        const auto result = f.runtime().pump(f.id, script, options);
+        const auto workers = worker_calls(result, "alpha");
+        CHECK(workers.size() == 1);
+        CHECK(read_runtime_file(f.directory.path / "alpha/legal.txt") == "legal once\n");
+        const auto& single = workers.front().at("result");
+        CHECK(single.at("operation").at("status") == "SUCCEEDED");
+        CHECK(!single.as_object().contains("correction_eligible"));
+        CHECK(number(f.store.budget(f.id).at("attempts")) == 3);
+    }
+    {
+        // An undeclared tool name stays refused even when text is present.
+        Fixture f(structured_input());
+        const auto script = alpha_script({worker_step(1, "narrative with a foreign call", {
+            {"foreign-call", "submit_plan", Object{{"summary", "x"}}}})});
+        EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+        const auto result = f.runtime().pump(f.id, script, options);
+        const auto workers = worker_calls(result, "alpha");
+        CHECK(workers.size() == 1);
+        CHECK(f.store.tool_feedback(text(workers.front().at("attempt_id"))).at("result").at("runtime_error") == true);
+        CHECK(number(f.store.budget(f.id).at("attempts")) == 3);
+        CHECK(!result.at("pending").as_array().empty());
+    }
+    {
+        // Management-role failures never gain Worker-style correction.
+        Fixture f(structured_input());
+        auto script = alpha_script({worker_step(1, "", {{"after-order", "fs_write",
+            Object{{"path", "after.txt"}, {"content", "x\n"}}}})});
+        script.by_node["alpha"].front().tool_calls.front().arguments.as_object()["steps"] = "must be an array";
+        EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+        const auto result = f.runtime().pump(f.id, script, options);
+        CHECK(worker_calls(result, "alpha").empty());
+        CHECK(number(f.store.budget(f.id).at("attempts")) == 2);
+        CHECK(!std::filesystem::exists(f.directory.path / "alpha/after.txt"));
+    }
+}
+
+void duplicate_accept_returns_the_identical_original_receipt() {
+    Fixture f(structured_input());
+    (void)f.run(1);
+    const auto alpha = task(f.store, f.id, "alpha");
+    OfflineRuntime runtime(f.store, *schemas, f.alpha.get());
+    const FakeModel fake({worker_step(1, "text-only duplicate delivery", {})});
+    const auto captured = runtime.reserve_call(fake, f.id, Role::Worker, text(alpha.at("task_id")));
+    const auto response = fake.complete(captured.request);
+    Json first;
+    bool rejected = false;
+    try { first = runtime.accept_response(captured, response); }
+    catch (const Error& error) { rejected = true; CHECK(error.code() == ErrorCode::InvalidInput); }
+    const auto saved = f.store.tool_feedback(captured.request.attempt_id);
+    const auto budget = f.store.budget(f.id);
+    Json second;
+    bool rejected_again = false;
+    try { second = runtime.accept_response(captured, response); }
+    catch (const Error& error) { rejected_again = true; CHECK(error.code() == ErrorCode::InvalidInput); }
+    CHECK(rejected == rejected_again);
+    CHECK(f.store.tool_feedback(captured.request.attempt_id) == saved);
+    CHECK(f.store.budget(f.id) == budget);
+    if (!rejected) {
+        CHECK(second == first);
+        CHECK(first.at("format").as_string() == "wls-correction-feedback-v1");
+    }
+}
+
+void sibling_node_keeps_its_own_history_and_budget_during_correction() {
+    Fixture f(structured_input());
+    auto script = initial_script();
+    script.by_node["alpha"] = {
+        script.by_node.at("alpha").front(),
+        worker_step(1, "alpha text-only failure one", {}),
+        worker_step(2, "alpha text-only failure two", {}),
+        worker_step(3, "alpha text-only failure three", {}),
+    };
+    EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 16;
+    const auto result = f.runtime().pump(f.id, script, options);
+    const auto alpha_workers = worker_calls(result, "alpha");
+    const auto beta_workers = worker_calls(result, "beta");
+    CHECK(alpha_workers.size() == 3);
+    CHECK(beta_workers.size() == 2);
+    expect_correction_feedback(f.store.tool_feedback(text(alpha_workers.back().at("attempt_id"))).at("result"),
+        "missing_tool_call", "model_schema");
+    // The untouched sibling keeps its exact original facts and progress.
+    CHECK(read_runtime_file(f.directory.path / "beta/r1.txt") == "beta original\n");
+    const auto beta = task(f.store, f.id, "beta");
+    const auto beta_actor = f.store.host_actor(Role::Worker, f.id, text(beta.at("team_id")));
+    const auto beta_history = f.store.attempt_history(beta_actor);
+    CHECK(beta_history.size() == 2);
+    for (const auto& row : beta_history) CHECK(row.at("feedback_missing") == false);
+    CHECK(f.store.tool_feedback(text(beta_workers.back().at("attempt_id")))
+        .at("result").at("content").as_string().size() == 6);
+    CHECK(number(f.store.budget(f.id).at("attempts")) == 8);
+    CHECK(!std::filesystem::exists(f.directory.path / "alpha/r1.txt"));
+    CHECK(!result.at("pending").as_array().empty());
+}
+
+void feedback_persistence_failure_stops_the_actor_without_correction() {
+    Fixture f(structured_input());
+    const auto script = alpha_script({
+        worker_step(1, "text-only failure before a feedback outage", {}),
+        worker_step(2, "", {{"unwritten", "fs_write", Object{{"path", "unwritten.txt"}, {"content", "x\n"}}}}),
+    });
+    sql(f.directory.path / "control.db",
+        "CREATE TRIGGER fail_feedback BEFORE INSERT ON events WHEN NEW.type='tool_feedback' AND EXISTS ("
+        "SELECT 1 FROM call_attempts WHERE 'feedback:'||attempt_id = NEW.command_id AND role='worker') "
+        "BEGIN SELECT RAISE(ABORT,'injected feedback failure'); END");
+    EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+    const auto result = f.runtime().pump(f.id, script, options);
+    const auto workers = worker_calls(result, "alpha");
+    CHECK(workers.size() == 1);
+    CHECK(f.store.tool_feedback(text(workers.front().at("attempt_id"))).is_null());
+    CHECK(number(f.store.budget(f.id).at("attempts")) == 3);
+    CHECK(!std::filesystem::exists(f.directory.path / "alpha/unwritten.txt"));
+    CHECK(!result.at("pending").as_array().empty());
+}
+
+// G1-3 third Fake entry: a workflow-enabled Store (base schema plus 004/005/
+// 006/007, schema 405) routes EventRuntime::pump into pump_workflow, the same
+// bounded Worker claim loop pump_live later drives. The same test bytes are a
+// behavioral RED on the exact baseline and GREEN on the correction candidate;
+// no candidate-only symbol is referenced.
+struct WorkflowFixture {
+    test::TempDir directory;
+    Store store;
+    std::unique_ptr<WorkerTools> alpha;
+    std::string id;
+    explicit WorkflowFixture(const AdmissionInput& admission = structured_input())
+        : store(directory.path / "workflow.db", base_sql, store_sql, StoreOpenMode::Takeover,
+                tools_sql, events_sql, workflow_sql) {
+        std::filesystem::create_directory(directory.path / "alpha");
+        alpha = std::make_unique<WorkerTools>(store, directory.path / "alpha");
+        id = text(store.admit(admission).at("request_id"));
+    }
+    EventRuntime runtime() { return EventRuntime(store, *schemas, {{"alpha", alpha.get()}}); }
+    Json run(const EventFakeScript& script, std::int64_t worker_calls = 4) {
+        EventPumpOptions options;
+        options.max_worker_calls_per_task = worker_calls;
+        options.max_calls = 16;
+        return runtime().pump(id, script, options);
+    }
+};
+
+void workflow_pump_text_only_failure_corrects_within_one_pump() {
+    WorkflowFixture f;
+    const auto script = alpha_script({
+        worker_step(1, "workflow text-only failure", {}),
+        worker_step(2, "", {{"workflow-fixed", "fs_write", Object{{"path", "corrected.txt"}, {"content", "workflow fixed\n"}}}}),
+    });
+    const auto result = f.run(script);
+    const auto workers = worker_calls(result, "alpha");
+    CHECK(workers.size() == 2);
+    const auto feedback = f.store.tool_feedback(text(workers.front().at("attempt_id")));
+    expect_correction_feedback(feedback.at("result"), "missing_tool_call", "model_schema");
+    CHECK(read_runtime_file(f.directory.path / "alpha/corrected.txt") == "workflow fixed\n");
+    CHECK(number(f.store.budget(f.id).at("attempts")) == 4);
+    // The corrected capture observes the failed round as data only: no invented
+    // function_call or orphan function_call_output for text output.
+    const auto envelope = model_request_from_json(
+        f.store.attempt(text(workers.back().at("attempt_id"))).at("request_envelope"));
+    const auto& messages = native_messages(envelope).as_array();
+    CHECK(messages.size() == 1);
+    CHECK(messages.front().at("role").as_string() == "user");
+    CHECK(messages.front().at("source").at("kind").as_string() == "unapplied_or_missing_observation");
+    CHECK(messages.front().at("source").at("not_execution_authority") == true);
+}
+
+void workflow_pump_invalid_arguments_correct_within_one_pump() {
+    WorkflowFixture f;
+    const Json bad_arguments = Object{{"path", "args.txt"}};
+    const auto script = alpha_script({
+        worker_step(1, "", {{"workflow-bad-write", "fs_write", bad_arguments}}),
+        worker_step(2, "", {{"workflow-fixed-write", "fs_write", Object{{"path", "args.txt"}, {"content", "workflow args fixed\n"}}}}),
+    });
+    const auto result = f.run(script);
+    const auto workers = worker_calls(result, "alpha");
+    CHECK(workers.size() == 2);
+    expect_correction_feedback(f.store.tool_feedback(text(workers.front().at("attempt_id"))).at("result"),
+        "invalid_arguments", "model_schema");
+    const auto alpha = task(f.store, f.id, "alpha");
+    const auto binding = f.store.binding(text(alpha.at("task_id")));
+    const auto actor = f.store.host_actor(Role::Worker, f.id, text(alpha.at("team_id")));
+    CHECK(f.store.operation_for_key(actor, binding,
+        text(workers.front().at("attempt_id")), "fs_write", bad_arguments).is_null());
+    CHECK(read_runtime_file(f.directory.path / "alpha/args.txt") == "workflow args fixed\n");
+    CHECK(number(f.store.budget(f.id).at("attempts")) == 4);
+    // The schema-invalid original arguments survive verbatim in native history
+    // and pair with their ordinary failure observation.
+    const auto envelope = model_request_from_json(
+        f.store.attempt(text(workers.back().at("attempt_id"))).at("request_envelope"));
+    const auto* assistant = paired_assistant(envelope, "workflow-bad-write");
+    CHECK(assistant != nullptr);
+    if (assistant) {
+        CHECK(assistant->at("tool_calls").as_array().front().at("arguments") == bad_arguments);
+        const auto* observation = paired_tool_result(envelope, *assistant);
+        CHECK(observation != nullptr);
+        if (observation)
+            CHECK(parse_json_strict(text(observation->at("content")), 1048576).at("reason").as_string() == "invalid_arguments");
+    }
+}
+
+void workflow_pump_missing_read_corrects_within_one_pump() {
+    WorkflowFixture f;
+    write(f.directory.path / "alpha/present.txt", "workflow present bytes\n");
+    const auto script = alpha_script({
+        worker_step(1, "", {{"workflow-missing-read", "fs_read", Object{{"path", "absent.txt"}, {"max_bytes", 16}}}}),
+        worker_step(2, "", {{"workflow-present-read", "fs_read", Object{{"path", "present.txt"}, {"max_bytes", 64}}}}),
+    });
+    const auto result = f.run(script);
+    const auto workers = worker_calls(result, "alpha");
+    CHECK(workers.size() == 2);
+    const auto feedback = f.store.tool_feedback(text(workers.front().at("attempt_id")));
+    expect_correction_feedback(feedback.at("result"), "not_found", "tool_result");
+    CHECK(!feedback.at("result").as_object().contains("content"));
+    CHECK(workers.back().at("result").at("content") == "workflow present bytes\n");
+    CHECK(number(f.store.budget(f.id).at("attempts")) == 4);
+}
+
+void workflow_pump_precondition_failure_corrects_within_one_pump() {
+    WorkflowFixture f;
+    write(f.directory.path / "alpha/exists.txt", "workflow original bytes\n");
+    const auto script = alpha_script({
+        worker_step(1, "", {{"workflow-create-existing", "fs_write", Object{{"path", "exists.txt"}, {"content", "must not overwrite\n"}}}}),
+        worker_step(2, "", {{"workflow-cas-write", "fs_write", Object{{"path", "exists.txt"}, {"content", "workflow cas corrected\n"},
+            {"expected_sha256", sha256_hex("workflow original bytes\n")}}}}),
+    });
+    const auto result = f.run(script);
+    const auto workers = worker_calls(result, "alpha");
+    CHECK(workers.size() == 2);
+    const auto& first = workers.front().at("result");
+    CHECK(first.at("operation").at("status") == "FAILED");
+    CHECK(first.at("execution_result").at("evidence").at("failure_kind").as_string() == "content_precondition");
+    CHECK(first.at("correction_feedback").at("reason").as_string() == "content_precondition");
+    CHECK(first.at("correction_feedback").at("correction_eligible") == true);
+    CHECK(read_runtime_file(f.directory.path / "alpha/exists.txt") == "workflow cas corrected\n");
+    CHECK(number(f.store.budget(f.id).at("attempts")) == 4);
+    CHECK(!blocked(result, "operation_incomplete", "alpha"));
+    CHECK(f.store.operation(text(first.at("operation").at("op_id"))).at("status") == "FAILED");
+}
+
+// The workflow-entry correction consumes the same explicit per-task Worker cap
+// as an ordinary call; both the baseline stop and the exhausted chain keep one
+// worker attempt, durable feedback and unacknowledged pending work.
+void workflow_pump_correction_uses_the_same_worker_call_cap() {
+    WorkflowFixture f;
+    const auto script = alpha_script({
+        worker_step(1, "workflow text-only before the cap", {}),
+        worker_step(2, "", {{"workflow-capped-write", "fs_write", Object{{"path", "capped.txt"}, {"content", "never\n"}}}}),
+    });
+    const auto result = f.run(script, 1);
+    const auto workers = worker_calls(result, "alpha");
+    CHECK(workers.size() == 1);
+    CHECK(!f.store.tool_feedback(text(workers.front().at("attempt_id"))).is_null());
+    CHECK(number(f.store.budget(f.id).at("attempts")) == 3);
+    CHECK(!std::filesystem::exists(f.directory.path / "alpha/capped.txt"));
+    CHECK(!result.at("pending").as_array().empty());
+}
+
+void non_precondition_conflicts_and_missing_parents_stay_failed_without_correction() {
+    const auto pump_once = [](Fixture& f, const std::vector<FakeModelStep>& steps) {
+        EventPumpOptions options; options.max_worker_calls_per_task = 4; options.max_calls = 12;
+        return f.runtime().pump(f.id, alpha_script(steps), options);
+    };
+    {
+        // A missing parent directory is a deterministic pre-write failure that
+        // is not a creation/CAS/patch-content precondition.
+        Fixture f(structured_input());
+        const auto result = pump_once(f, {
+            worker_step(1, "", {{"orphan-write", "fs_write", Object{{"path", "missing-dir/out.txt"}, {"content", "x\n"}}}}),
+            worker_step(2, "", {{"later-write", "fs_write", Object{{"path", "later.txt"}, {"content", "y\n"}}}}),
+        });
+        const auto workers = worker_calls(result, "alpha");
+        CHECK(workers.size() == 1);
+        const auto& failed = workers.front().at("result");
+        CHECK(failed.at("operation").at("status") == "FAILED");
+        CHECK(failed.at("execution_result").at("evidence").at("cause_code").as_string() == "invalid_input");
+        CHECK(failed.at("execution_result").at("evidence").at("rename_attempted") == false);
+        CHECK(!failed.as_object().contains("correction_feedback"));
+        CHECK(blocked(result, "operation_incomplete", "alpha"));
+        CHECK(number(f.store.budget(f.id).at("attempts")) == 3);
+        CHECK(!std::filesystem::exists(f.directory.path / "alpha/later.txt"));
+    }
+    {
+        // A directory destination is an unauthorized ordinary file target, also
+        // never eligible for automatic correction.
+        Fixture f(structured_input());
+        std::filesystem::create_directory(f.directory.path / "alpha/sub");
+        const auto result = pump_once(f, {
+            worker_step(1, "", {{"directory-write", "fs_write", Object{{"path", "sub"}, {"content", "x\n"}}}}),
+            worker_step(2, "", {{"later-write", "fs_write", Object{{"path", "later.txt"}, {"content", "y\n"}}}}),
+        });
+        const auto workers = worker_calls(result, "alpha");
+        CHECK(workers.size() == 1);
+        const auto& failed = workers.front().at("result");
+        CHECK(failed.at("operation").at("status") == "FAILED");
+        CHECK(failed.at("execution_result").at("evidence").at("cause_code").as_string() == "unauthorized");
+        CHECK(!failed.as_object().contains("correction_feedback"));
+        CHECK(blocked(result, "operation_incomplete", "alpha"));
+        CHECK(number(f.store.budget(f.id).at("attempts")) == 3);
+        CHECK(!std::filesystem::exists(f.directory.path / "alpha/later.txt"));
+    }
+}
 } // namespace
 
 int main() {
@@ -476,6 +1144,7 @@ int main() {
     store_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");
     tools_sql = read_runtime_file(source / "db/migrations/005_worker_tools.sql");
     events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
+    workflow_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
     return test::run({
         {"strict grouped scripts reject ambiguity and workspace host aliasing", strict_script_groups_and_host_mapping},
         {"independent tasks persist real files and scoped original feedback", independent_real_files_and_original_feedback},
@@ -490,6 +1159,24 @@ int main() {
         {"full history overflow blocks before creating a new reservation", context_overflow_blocks_before_another_attempt},
         {"frozen manager and attempt budgets preserve unprocessed work", frozen_manager_capacity_and_budget_keep_unprocessed_work},
         {"terminal actors retain visible unprocessed event history", terminal_tasks_remain_visible_as_unprocessed_history},
-        {"legacy single-task runner cannot supersede a durable Worker wait", legacy_single_task_runner_cannot_supersede_a_durable_wait}
+        {"legacy single-task runner cannot supersede a durable Worker wait", legacy_single_task_runner_cannot_supersede_a_durable_wait},
+        {"text-only response gets one bounded correction within the same pump", text_only_response_gets_one_correction_within_the_same_pump},
+        {"invalid tool arguments settle as feedback without an operation and correct", invalid_tool_arguments_settle_as_feedback_without_operation_and_correct},
+        {"missing file read becomes an ordinary tool result and corrects", missing_file_read_becomes_ordinary_tool_result_and_corrects},
+        {"settled creation precondition failure corrects with CAS", settled_creation_precondition_failure_corrects_with_cas},
+        {"schema retry exhaustion keeps exact attempts and last feedback", schema_retry_exhaustion_keeps_exact_attempts_and_last_feedback},
+        {"correction admission respects worker call, call and script gates", correction_admission_respects_worker_call_call_and_script_gates},
+        {"tight request budget admits exactly one correction round", tight_request_budget_admits_exactly_one_correction_round},
+        {"recapture overflow closes the chain before any reservation", recapture_overflow_closes_the_chain_before_any_reservation},
+        {"multi-tool, undeclared and management failures stay stopped; text plus one tool executes once", multi_tool_undeclared_and_management_failures_stay_stopped},
+        {"duplicate accept returns the identical original receipt", duplicate_accept_returns_the_identical_original_receipt},
+        {"sibling node keeps its own history and budget during correction", sibling_node_keeps_its_own_history_and_budget_during_correction},
+        {"feedback persistence failure stops the actor without correction", feedback_persistence_failure_stops_the_actor_without_correction},
+        {"non-precondition conflicts and missing parents stay failed without correction", non_precondition_conflicts_and_missing_parents_stay_failed_without_correction},
+        {"workflow pump text-only failure corrects within one pump", workflow_pump_text_only_failure_corrects_within_one_pump},
+        {"workflow pump invalid arguments correct within one pump", workflow_pump_invalid_arguments_correct_within_one_pump},
+        {"workflow pump missing read corrects within one pump", workflow_pump_missing_read_corrects_within_one_pump},
+        {"workflow pump precondition failure corrects within one pump", workflow_pump_precondition_failure_corrects_within_one_pump},
+        {"workflow pump correction uses the same worker call cap", workflow_pump_correction_uses_the_same_worker_call_cap}
     });
 }

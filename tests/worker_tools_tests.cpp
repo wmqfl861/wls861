@@ -46,6 +46,7 @@ std::unique_ptr<FrozenRequestConfig> frozen;
 std::string base_sql;
 std::string migration_sql;
 std::string tools_sql;
+std::string events_sql;
 Json original_script;
 Json constraints;
 constexpr std::string_view original_text = "请在自有临时 workspace 测试文件工具，保留原始需求；不要调用外部服务。";
@@ -199,6 +200,217 @@ std::vector<Json> feedback_frames(const CompiledContext& context) {
         remaining.remove_prefix(size + 1);
     }
     return result;
+}
+
+// G1-3 correction regressions on the OfflineRuntime::run host. The legacy 403
+// Session above stays byte-identical; these tests use a separate event-enabled
+// structured-v2 fixture so durable feedback exists. The same test bytes run
+// against the exact baseline (behavioral RED) and the candidate (GREEN).
+FrozenRequestConfig correction_config(const char* schema_retry = "2") {
+    test::TempDir configuration;
+    auto system = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string original_format = "request_format: framed-v1";
+    const auto format_position = system.find(original_format);
+    CHECK(format_position != std::string::npos);
+    system.replace(format_position, original_format.size(), "request_format: structured-v2");
+    if (std::string_view(schema_retry) != "2") {
+        const std::string original_retry = "schema_retry_max: 2";
+        const auto retry_position = system.find(original_retry);
+        CHECK(retry_position != std::string::npos);
+        system.replace(retry_position, original_retry.size(), std::string("schema_retry_max: ") + schema_retry);
+    }
+    host_write(configuration.path / "system.yaml", system);
+    return load_config_catalog(configuration.path / "system.yaml",
+        source / "config/examples/functions", source / "prompts").freeze("general");
+}
+FakeModelStep worker_step(std::int64_t index, const std::string& body, std::vector<ModelToolCall> calls) {
+    FakeModelStep step;
+    step.role = Role::Worker; step.role_call_index = index; step.text = body;
+    step.tool_calls = std::move(calls); step.usage = ModelUsage{100, 20, 0, 0, 0};
+    return step;
+}
+std::vector<FakeModelStep> correction_steps(const std::vector<FakeModelStep>& worker_steps) {
+    auto result = fake_model_steps_from_json(original_script);
+    auto& plan = result[0].tool_calls.front().arguments;
+    plan.as_object()["summary"] = "在开发夹具中执行有界文件工具，并保留完整需求与结果。";
+    auto& node = plan.at("nodes").as_array().front();
+    node.as_object()["node_id"] = "workspace-test";
+    node.as_object()["title"] = "开发文件工具验证";
+    auto& brief = node.at("brief").as_object();
+    brief["goal"] = "通过已声明的文件工具验证持久化效果、权限和版本边界。";
+    brief["acceptance_criteria"] = Array{Object{{"id", "ac1"}, {"text", "文件和执行证据一致；不声称业务交付完成。"}}};
+    auto& order = result[1].tool_calls.front().arguments.as_object();
+    order["approach"] = "确认当前说明后，仅使用已经声明的有界 Worker 工具。";
+    order["steps"] = Array{Object{{"id", "s1"}, {"text", "读取原始需求，按明确脚本执行开发验证。"}}};
+    order["done_definition"] = "记录实际文件结果；业务交付仍待后续验收。";
+    const auto prototype = result[2];
+    result.resize(2);
+    std::int64_t index = 0;
+    for (const auto& source_step : worker_steps) {
+        auto step = prototype;
+        step.role_call_index = ++index;
+        step.status = source_step.status;
+        step.text = source_step.text;
+        step.tool_calls = source_step.tool_calls;
+        step.usage = source_step.usage;
+        step.error_code = source_step.error_code;
+        step.error_message = source_step.error_message;
+        result.push_back(std::move(step));
+    }
+    return result;
+}
+void expect_correction_feedback(const Json& result, std::string_view reason, std::string_view layer) {
+    CHECK(result.at("format").as_string() == "wls-correction-feedback-v1");
+    CHECK(result.at("reason").as_string() == reason);
+    CHECK(result.at("failure_layer").as_string() == layer);
+    CHECK(result.at("correction_eligible") == true);
+    CHECK(result.at("observation_complete") == true);
+    CHECK(result.at("effect_count") == 0);
+    const auto* runtime_error = result.as_object().if_contains("runtime_error");
+    CHECK(!(runtime_error && *runtime_error == true));
+}
+struct EventSession {
+    test::TempDir directory;
+    std::filesystem::path database = directory.path / "event-runtime.db";
+    std::filesystem::path work = directory.path / "work";
+    std::unique_ptr<Store> store;
+    std::unique_ptr<WorkerTools> tools;
+    std::unique_ptr<OfflineRuntime> runtime;
+    std::string request_id;
+
+    explicit EventSession(const char* schema_retry = "2") {
+        std::filesystem::create_directory(work);
+        store = std::make_unique<Store>(database, base_sql, migration_sql, StoreOpenMode::Takeover, tools_sql, events_sql);
+        const auto correction_frozen = correction_config(schema_retry);
+        AdmissionInput admission_input;
+        admission_input.tenant_id = "worker-tool-test"; admission_input.project_id = "temporary-fixtures"; admission_input.root_id = "test-root";
+        admission_input.function_id = correction_frozen.function_id(); admission_input.idempotency_key = new_id("key");
+        admission_input.original_text = original_text; admission_input.config_snapshot = correction_frozen.json();
+        admission_input.constraint_catalog = constraints;
+        const auto grants = correction_frozen.worker_tools();
+        admission_input.tool_allowlist.assign(grants.begin(), grants.end());
+        request_id = text(store->admit(admission_input).at("request_id"));
+        tools = std::make_unique<WorkerTools>(*store, work);
+        runtime = std::make_unique<OfflineRuntime>(*store, *schemas, tools.get());
+    }
+    std::string task_id() const { return text(store->tasks(request_id).front().at("task_id")); }
+    ExecutionBinding binding() const { return store->binding(task_id()); }
+    StoreActor actor() const { return store->host_actor(Role::Worker, request_id, binding().team_id); }
+};
+
+void run_text_only_failure_corrects_within_one_invocation() {
+    EventSession session;
+    const auto script = correction_steps({
+        worker_step(1, "text-only response without a tool call", {}),
+        worker_step(2, "", {{"fixed-write", "fs_write", Object{{"path", "corrected.txt"}, {"content", "run host fixed\n"}}}}),
+    });
+    Json result;
+    bool rejected = false;
+    try { result = session.runtime->run(session.request_id, script, "", 2); }
+    catch (const Error& error) { rejected = true; CHECK(error.code() == ErrorCode::InvalidInput); }
+    CHECK(!rejected);
+    const auto& calls = result.at("calls").as_array();
+    CHECK(calls.size() == 4);
+    CHECK(calls[2].at("role").as_string() == "worker" && calls[3].at("role").as_string() == "worker");
+    const auto feedback = session.store->tool_feedback(text(calls[2].at("attempt_id")));
+    expect_correction_feedback(feedback.at("result"), "missing_tool_call", "model_schema");
+    CHECK(host_read(session.work / "corrected.txt") == "run host fixed\n");
+    CHECK(number(session.store->budget(session.request_id).at("attempts")) == 4);
+    // The corrected capture observes the failure as data, never a paired tool output.
+    const auto envelope = model_request_from_json(
+        session.store->attempt(text(calls[3].at("attempt_id"))).at("request_envelope"));
+    const auto& messages = envelope.context.logical_input.at("messages").as_array();
+    CHECK(messages.size() == 1);
+    CHECK(messages.front().at("role").as_string() == "user");
+    CHECK(messages.front().at("source").at("kind").as_string() == "unapplied_or_missing_observation");
+    CHECK(messages.front().at("source").at("not_execution_authority") == true);
+}
+
+void run_invalid_arguments_correct_without_dispatch() {
+    EventSession session;
+    const Json bad_arguments = Object{{"path", "args.txt"}};
+    const auto script = correction_steps({
+        worker_step(1, "", {{"bad-write", "fs_write", bad_arguments}}),
+        worker_step(2, "", {{"fixed-write", "fs_write", Object{{"path", "args.txt"}, {"content", "run args fixed\n"}}}}),
+    });
+    Json result;
+    bool rejected = false;
+    try { result = session.runtime->run(session.request_id, script, "", 2); }
+    catch (const Error& error) { rejected = true; CHECK(error.code() == ErrorCode::InvalidInput); }
+    CHECK(!rejected);
+    const auto& calls = result.at("calls").as_array();
+    CHECK(calls.size() == 4);
+    const auto feedback = session.store->tool_feedback(text(calls[2].at("attempt_id")));
+    expect_correction_feedback(feedback.at("result"), "invalid_arguments", "model_schema");
+    CHECK(session.store->operation_for_key(session.actor(), session.binding(),
+        text(calls[2].at("attempt_id")), "fs_write", bad_arguments).is_null());
+    CHECK(host_read(session.work / "args.txt") == "run args fixed\n");
+    CHECK(number(session.store->budget(session.request_id).at("attempts")) == 4);
+}
+
+void run_missing_read_returns_result_and_corrects() {
+    EventSession session;
+    host_write(session.work / "present.txt", "present bytes\n");
+    const auto script = correction_steps({
+        worker_step(1, "", {{"missing-read", "fs_read", Object{{"path", "absent.txt"}, {"max_bytes", 16}}}}),
+        worker_step(2, "", {{"present-read", "fs_read", Object{{"path", "present.txt"}, {"max_bytes", 64}}}}),
+    });
+    Json result;
+    bool rejected = false;
+    try { result = session.runtime->run(session.request_id, script, "", 2); }
+    catch (const Error& error) { rejected = true; CHECK(error.code() == ErrorCode::InvalidInput); }
+    CHECK(!rejected);
+    const auto& calls = result.at("calls").as_array();
+    CHECK(calls.size() == 4);
+    const auto feedback = session.store->tool_feedback(text(calls[2].at("attempt_id")));
+    expect_correction_feedback(feedback.at("result"), "not_found", "tool_result");
+    CHECK(!feedback.at("result").as_object().contains("content"));
+    CHECK(calls[3].at("result").at("content") == "present bytes\n");
+    // A diagnostic read never creates an operation row by design (Store
+    // operation keys exist only for business tools); the SQL-level zero-op
+    // assertion for fs_read lives in the TLS L3 regression.
+    CHECK(number(session.store->budget(session.request_id).at("attempts")) == 4);
+}
+
+void run_precondition_failure_corrects_with_cas() {
+    EventSession session;
+    host_write(session.work / "exists.txt", "original bytes\n");
+    const auto script = correction_steps({
+        worker_step(1, "", {{"create-existing", "fs_write", Object{{"path", "exists.txt"}, {"content", "must not overwrite\n"}}}}),
+        worker_step(2, "", {{"cas-write", "fs_write", Object{{"path", "exists.txt"}, {"content", "cas corrected\n"},
+            {"expected_sha256", sha256_hex("original bytes\n")}}}}),
+    });
+    const auto result = session.runtime->run(session.request_id, script, "", 2);
+    const auto& calls = result.at("calls").as_array();
+    CHECK(calls.size() == 4);
+    const auto& first = calls[2].at("result");
+    CHECK(first.at("operation").at("status") == "FAILED");
+    CHECK(first.at("execution_result").at("observed_outcome") == "FAILED");
+    CHECK(first.at("execution_result").at("evidence").at("failure_kind").as_string() == "content_precondition");
+    CHECK(first.at("correction_feedback").at("reason").as_string() == "content_precondition");
+    CHECK(first.at("correction_feedback").at("correction_eligible") == true);
+    CHECK(host_read(session.work / "exists.txt") == "cas corrected\n");
+    CHECK(number(session.store->budget(session.request_id).at("attempts")) == 4);
+    CHECK(session.store->operation(text(first.at("operation").at("op_id"))).at("status") == "FAILED");
+}
+
+void run_zero_schema_retry_saves_feedback_without_second_attempt() {
+    EventSession session("0");
+    const auto script = correction_steps({
+        worker_step(1, "text-only failure with retries disabled", {}),
+        worker_step(2, "", {{"never-used", "fs_write", Object{{"path", "never.txt"}, {"content", "x\n"}}}}),
+    });
+    Json result;
+    bool rejected = false;
+    try { result = session.runtime->run(session.request_id, script, "", 2); }
+    catch (const Error& error) { rejected = true; CHECK(error.code() == ErrorCode::InvalidInput); }
+    CHECK(!rejected);
+    const auto& calls = result.at("calls").as_array();
+    CHECK(calls.size() == 3);
+    const auto feedback = session.store->tool_feedback(text(calls[2].at("attempt_id")));
+    expect_correction_feedback(feedback.at("result"), "missing_tool_call", "model_schema");
+    CHECK(!std::filesystem::exists(session.work / "never.txt"));
+    CHECK(number(session.store->budget(session.request_id).at("attempts")) == 3);
 }
 
 void registry_and_request_permissions() {
@@ -710,10 +922,16 @@ int main() {
     base_sql = read_runtime_file(source / "db/schema.sql");
     migration_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");
     tools_sql = read_runtime_file(source / "db/migrations/005_worker_tools.sql");
+    events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     original_script = parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_fake_initial.json"));
     constraints = parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_constraints.json"));
     return test::run({
         {"static registration and frozen request tool grants", registry_and_request_permissions},
+        {"run-host text-only failure corrects within one invocation", run_text_only_failure_corrects_within_one_invocation},
+        {"run-host invalid arguments correct without dispatch", run_invalid_arguments_correct_without_dispatch},
+        {"run-host missing read returns a result and corrects", run_missing_read_returns_result_and_corrects},
+        {"run-host precondition failure corrects with CAS", run_precondition_failure_corrects_with_cas},
+        {"run-host zero schema retry saves feedback without a second attempt", run_zero_schema_retry_saves_feedback_without_second_attempt},
         {"durable real file write/read/patch and side-effect-free business replay", durable_write_patch_and_business_replay},
         {"AMEND rejects old model file effects while retaining usage", late_model_response_after_amend_cannot_write},
         {"old business key only reads its fact during a pending new instruction", old_key_is_only_a_read_during_new_instruction},
