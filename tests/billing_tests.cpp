@@ -422,6 +422,22 @@ void estimate_math_and_minimum_reservation_vectors() {
     CHECK(dominated.available && dominated.cost_micro_usd == 10);  // max applicable input rate
     CHECK(!minimum_cost_reservation(raised, -1, 0).available);
 }
+void public_json_api_carries_pricing_and_responses_compatibility_together() {
+    // Portable dual-extension subcase: one explicit public provider document
+    // carries a complete frozen price table and a complete Responses
+    // compatibility declaration. It uses only the shared public profile API
+    // (provider_profile_from_json, to_json, provider_profile_sha256), so the
+    // same bytes build on either parent and fail there until the union
+    // accepts both sections together.
+    auto document = to_json(settings().provider);
+    document.as_object()["pricing"] = to_json(example_pricing());
+    document.as_object()["responses_compatibility"] = Object{{"format", "wls-responses-compat-v1"},
+        {"reference", "openai-responses-2026-11-08"},
+        {"model_aliases", Object{{settings().provider.model, fixture::Array{"snapshot-2026-11-08"}}}}};
+    const auto parsed = provider_profile_from_json(document);
+    CHECK(to_json(parsed) == document);
+    CHECK(provider_profile_sha256(parsed) == sha256_hex(canonical_json(document)));
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -441,6 +457,7 @@ int main(int argc, char** argv) {
         {"read-only exact replay survives writer epoch without effects", exact_readonly_replay_survives_writer_epoch_without_new_authority},
         {"no claim or proven no network cannot consume signed charge", no_claim_or_proven_no_network_cannot_consume_issuer_receipt},
         {"strict token pricing parse, bounds and frozen profile hash", strict_token_pricing_parse_and_frozen_profile_hash},
-        {"deterministic estimate math and minimum reservation vectors", estimate_math_and_minimum_reservation_vectors}
+        {"deterministic estimate math and minimum reservation vectors", estimate_math_and_minimum_reservation_vectors},
+        {"public JSON API carries pricing and responses compatibility together", public_json_api_carries_pricing_and_responses_compatibility_together}
     });
 }

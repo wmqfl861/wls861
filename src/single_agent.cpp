@@ -58,8 +58,11 @@ Json single_agent_messages_json(const std::vector<StructuredContextMessage>& mes
         Array calls;
         for (const auto& call : message.tool_calls)
             calls.emplace_back(Object{{"call_id", call.call_id}, {"name", call.name}, {"arguments", call.arguments}});
-        result.emplace_back(Object{{"role", message.role}, {"content", message.content},
-            {"tool_calls", calls}, {"tool_call_id", message.tool_call_id}, {"source", message.source}});
+        auto encoded = Object{{"role", message.role}, {"content", message.content},
+            {"tool_calls", calls}, {"tool_call_id", message.tool_call_id}, {"source", message.source}};
+        // Integrity measurement includes the opaque original, never a summary.
+        if (!message.responses_output.is_null()) encoded["responses_output"] = message.responses_output;
+        result.emplace_back(std::move(encoded));
     }
     return result;
 }

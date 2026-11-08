@@ -112,6 +112,8 @@ void fail(HttpsTransportResult& result, HttpsTransportStatus status,
     result.response.error_message = "HTTPS result is not usable; no automatic retry or tool dispatch";
     result.response.text.clear();
     result.response.tool_calls.clear();
+    // An unusable transport outcome never keeps a replayable opaque original.
+    result.response.responses_output = nullptr;
 }
 
 Json time_json(const std::optional<Microseconds>& time) {
@@ -810,7 +812,18 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     } else if (result.http_status != 200) {
         fail(result, HttpsTransportStatus::HttpError, "http_error");
     } else if (result.response.status != ModelResultStatus::Completed) {
-        fail(result, HttpsTransportStatus::ProtocolError, "protocol_error");
+        // Narrow classification only: a fully framed HTTP 200 refusal validated
+        // by the shared decoder under the compatibility profile. The response
+        // stays Error; no downstream may treat it as usable or dispatchable.
+        if (result.response.error_code == "model_refusal" &&
+            transfer.profile.responses_compatibility.has_value() &&
+            result.protocol_evidence.is_object() &&
+            result.protocol_evidence.as_object().contains("decoder")) {
+            result.status = HttpsTransportStatus::Completed;
+            result.reason = "model_refusal";
+        } else {
+            fail(result, HttpsTransportStatus::ProtocolError, "protocol_error");
+        }
     } else {
         result.status = HttpsTransportStatus::Completed;
         result.reason = "completed";

@@ -3,6 +3,8 @@
 #include "wls/protocol_codec.hpp"
 #include "wls/structured_context.hpp"
 
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -88,5 +90,34 @@ inline Json tool_response() {
         {"type", "function_call"}, {"call_id", "call_provider_fixture"},
         {"name", "note"}, {"arguments", "{\"message\":\"fixture\"}"},
         {"status", "completed"}}});
+}
+
+// G1-2 wls-responses-compat-v1 fixtures: official-schema/example-derived
+// synthetic originals under tests/fixtures/responses (see the provenance note
+// there). Never a provider transcript; the alias model is a deprecated
+// official snapshot used for offline compatibility replay only.
+inline std::string compat_bytes(const std::string& name) {
+    std::ifstream input(std::string(WLS_SOURCE_DIR) + "/tests/fixtures/responses/" + name,
+                        std::ios::binary);
+    if (!input) throw std::runtime_error("cannot read compat fixture: " + name);
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+inline Json compat_json(const std::string& name) {
+    return s1::parse_json_strict(compat_bytes(name));
+}
+inline Json compat_profile_json() {
+    auto j = to_json(profile());
+    j.as_object()["model"] = "o3";
+    j.as_object()["responses_compatibility"] = Object{{"format", "wls-responses-compat-v1"},
+        {"reference", "openai-responses-2026-11-08"},
+        {"model_aliases", Object{{"o3", Array{"o3-2025-04-16"}}}}};
+    return j;
+}
+inline s1::ProviderProfile compat_profile() {
+    return s1::provider_profile_from_json(compat_profile_json());
+}
+inline Json compat_output_payload(const std::string& model, Array output) {
+    return Object{{"format", "wls-responses-output-v1"},
+        {"reference", "openai-responses-2026-11-08"}, {"model", model}, {"output", std::move(output)}};
 }
 } // namespace wls::test::protocol

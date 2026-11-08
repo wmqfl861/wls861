@@ -46,6 +46,8 @@ ISSUER = 'independent-local-tls-issuer'
 ACCOUNT = 'independent-local-tls-account'
 KEY_ID = 'independent-ed25519-key'
 CONTEXT_WINDOW = 262144
+DUAL_ALIAS = 'independent-dual-alias'
+DUAL_SNAPSHOT = 'independent-dual-snapshot-1'
 USAGE = {'input_tokens': 9, 'output_tokens': 3, 'cache_read_tokens': 2,
          'cache_write_tokens': 1, 'cost_micro_usd': 17}
 # Unsigned frozen price table for host-side estimation. Reported usage shape is
@@ -259,6 +261,45 @@ class PricingFlowEndpoint:
         value['id'] = f'resp_priced_{len(self.actions)}'
         value['output'][0].update(call_id=f'pricing-call-{len(self.actions)}', name=name,
                                   arguments=json.dumps(arguments, ensure_ascii=False))
+        value['usage'].update(input_tokens=11, output_tokens=7, total_tokens=18)
+        value['usage']['input_tokens_details'] = {'cached_tokens': 3}
+        encoded = tls.encoded(value)
+        connection.sendall(tls.headers(len(encoded)) + encoded)
+
+
+class DualExtensionEndpoint(PricingFlowEndpoint):
+    """Dual-extension priced loopback peer: the identical 31-call tool plan of
+    the pricing-only flow, answered in the Responses compatibility subset.
+
+    Every response is generated once, at its original generation time, with its
+    own provider item/call IDs, its own bounded opaque reasoning original and
+    the profile alias model; nothing rewrites or remaps stored originals, and
+    no extra model call is added to fabricate reasoning."""
+
+    def __init__(self):
+        super().__init__()
+        self.ciphertexts = []
+
+    def __call__(self, peer, connection):
+        observed = peer.request(connection)
+        body = json.loads(observed['body'])
+        name, arguments = self.choose(body)
+        if name not in {tool['name'] for tool in body['tools']}:
+            raise AssertionError(f'{name} was not declared')
+        self.actions.append(name)
+        number = len(self.actions)
+        value = json.loads(tls.response_body(tool=True))
+        value['id'] = f'resp_dual_{number}'
+        value['model'] = DUAL_ALIAS
+        opaque = f'gAAAAABdual-synthetic-opaque-round-{number:02d}-wls861'
+        self.ciphertexts.append(opaque)
+        value['output'] = [
+            {'id': f'rs_dual_{number}', 'type': 'reasoning', 'summary': [
+                {'type': 'summary_text', 'text': f'Synthetic dual round {number} summary.'}],
+             'encrypted_content': opaque, 'status': 'completed'},
+            {'id': f'fc_dual_{number}', 'type': 'function_call',
+             'call_id': f'dual-call-{number}', 'name': name,
+             'arguments': json.dumps(arguments, ensure_ascii=False), 'status': 'completed'}]
         value['usage'].update(input_tokens=11, output_tokens=7, total_tokens=18)
         value['usage']['input_tokens_details'] = {'cached_tokens': 3}
         encoded = tls.encoded(value)
@@ -641,6 +682,137 @@ class BillingBaselineIntegration(unittest.TestCase):
                                 not row['disputed'] and not row['over_reserved'] for row in
                                 rows(case['database'], 'SELECT cost_micro_usd,cache_write_tokens,'
                                      'disputed,over_reserved FROM live_usage_projection')))
+            budget = self.command('budget', '--db', case['database'], '--request', case['request'])
+            expected_total = PRICING_CALLS * PRICED_UNIT_MICRO_USD
+            self.assertEqual(budget['spent_cost'], expected_total)
+            self.assertEqual(budget['reserved_cost'], 0)
+            self.assertEqual(budget['unknown_cost'], 0)
+            self.assertEqual(budget['accounting_format'], 'wls-estimated-budget-v1')
+            self.assertEqual(budget['cost_breakdown']['estimated_micro_usd'], expected_total)
+            self.assertEqual(budget['cost_breakdown']['reported_micro_usd'], 0)
+            self.assertEqual(budget['cost_breakdown']['unknown_reserved_micro_usd'], 0)
+            status = self.command('live-status', '--db', case['database'], '--request', case['request'])
+            self.assertTrue(status['accounting']['ready'], status['accounting'])
+            self.assertEqual(status['accounting']['blocked_count'], 0)
+            self.assertEqual(status['accounting']['estimated_cost_micro_usd'], expected_total)
+            self.assertEqual(status['accounting']['reported_cost_micro_usd'], 0)
+            self.assertNotIn('actual', json.dumps(status['accounting']))
+            self.assertNotIn('actual', json.dumps(budget['cost_breakdown']))
+
+    def test_11_dual_extension_thirty_one_calls_replay_native_rounds_with_estimates(self):
+        """One authorization, one dual profile: the same 31-call tool plan as
+        test_10 with both the frozen price table and the Responses
+        compatibility extension. Native rounds replay their own opaque
+        originals; progression stays the explicit bounded loop under the known
+        manager cap (first pump 30 calls, explicit second pump the 31st) and
+        this test never claims a single pump, delivery or provider identity."""
+        endpoint = DualExtensionEndpoint()
+        with tls.Peer(self.contexts['server'], endpoint) as peer:
+            profile = copy.deepcopy(self.profile)
+            provider = profile['responses']['provider_profile']
+            provider.update(base_url=f'https://localhost:{peer.port}',
+                            profile_id='independent-dual-extension-loopback',
+                            model=DUAL_ALIAS)
+            provider.pop('billing_challenge', None)
+            provider['pricing'] = PRICING
+            provider['responses_compatibility'] = {
+                'format': 'wls-responses-compat-v1', 'reference': 'openai-responses-2026-11-08',
+                'model_aliases': {DUAL_ALIAS: [DUAL_SNAPSHOT]}}
+            profile['model'] = DUAL_ALIAS
+            case = self.admit_case('dual-extension-billing', 0, 'multi_agent', register=False,
+                                   profile=profile, cost_budget=8000000,
+                                   nodes=('alpha', 'beta', 'gamma'))
+            for node in ('alpha', 'beta', 'gamma'):
+                (Path(case['workspaces'][node]) / 'seed.txt').write_bytes(b'alpha\nbeta\n')
+            status = self.command('live-status', '--db', case['database'], '--request', case['request'])
+            authorization = status['authorization_template']
+            self.assertEqual(authorization['schema_version'], 1)
+            authorization.update(network_enabled=True, reserved_cost_micro_usd=200000,
+                max_calls=64, max_worker_calls_per_task=16, max_batch_duration_ms=120000)
+            write_json(case['authorization'], authorization)
+            reports = []
+            report = None
+            for _ in range(10):
+                report = self.command('pump-live', '--db', case['database'], '--request', case['request'],
+                    '--authorization-file', case['authorization'], '--workspaces-file', case['mapping'])
+                reports.append({'stop_reason': report['stop_reason'], 'blocked': report.get('blocked', []),
+                                'wire_calls_after': len(endpoint.actions)})
+                tasks = rows(case['database'], 'SELECT status FROM tasks WHERE request_id=?', (case['request'],))
+                jobs = rows(case['database'], 'SELECT status FROM experience_jobs WHERE request_id=?', (case['request'],))
+                if tasks and jobs and all(row['status'] == 'ACCEPTED' for row in tasks) and \
+                        all(row['status'] == 'DONE' for row in jobs):
+                    break
+            else:
+                self.fail({'reports': reports})
+            self.assertEqual(report['stop_reason'], 'quiescent', report)
+            # The known frozen manager cap (12) splits the identical plan into
+            # 30 calls in the first explicit pump and the 31st in the next.
+            self.assertGreaterEqual(len(reports), 2)
+            self.assertEqual(reports[0]['wire_calls_after'], 30)
+            self.assertTrue(any(item['code'] == 'manager_limit' for item in reports[0]['blocked']), reports[0])
+            self.assertEqual(len(endpoint.actions), PRICING_CALLS)
+            self.assertEqual(len(peer.requests), PRICING_CALLS)
+            for request in peer.requests:
+                self.assertNotIn(b'x-wls-billing-challenge', request['headers'])
+                body = json.loads(request['body'])
+                self.assertEqual(body['model'], DUAL_ALIAS)
+                self.assertEqual(body['store'], False)
+                self.assertEqual(body['include'], ['reasoning.encrypted_content'])
+                with self.assertRaises(json.JSONDecodeError):
+                    json.loads(body['instructions'])
+                self.assertNotIn('wls-token-pricing-v1', request['body'].decode())
+                ids = [item['id'] for item in body['input'] if item.get('type') in ('reasoning', 'function_call')]
+                self.assertEqual(len(ids), len(set(ids)), 'provider IDs must never repeat in one transcript')
+            for index, request in enumerate(peer.requests):
+                replayed = json.loads(request['body'])['input']
+                for item in replayed:
+                    if item.get('type') == 'reasoning':
+                        self.assertIn(item['encrypted_content'], endpoint.ciphertexts[:index])
+            attempts = rows(case['database'],
+                "SELECT a.attempt_id,a.role,a.team_id,a.status,a.input_tokens,a.output_tokens,"
+                "a.cache_read_tokens,a.cache_write_tokens,a.cost_micro_usd,a.settlement_sha256,"
+                "json_extract(a.response,'$.responses_output.output[0].encrypted_content') AS opaque,"
+                "json_extract(a.response,'$.tool_calls[0].name') AS tool FROM call_attempts a "
+                "WHERE a.request_id=? ORDER BY rowid", (case['request'],))
+            self.assertEqual(len(attempts), PRICING_CALLS)
+            self.assertTrue(all(row['settlement_sha256'] for row in attempts))
+            self.assertTrue(all(row['input_tokens'] == 11 and row['output_tokens'] == 7 and
+                                row['cache_read_tokens'] == 3 for row in attempts))
+            self.assertTrue(all(row['cache_write_tokens'] is None and row['cost_micro_usd'] is None
+                                for row in attempts))
+            self.assertEqual(sorted(row['opaque'] for row in attempts), sorted(endpoint.ciphertexts))
+            roles = {}
+            for row in attempts:
+                roles[row['role']] = roles.get(row['role'], 0) + 1
+            self.assertEqual(roles, {'dispatcher': 4, 'team_lead': 9, 'worker': 18})
+            self.assertEqual([row['tool'] for row in attempts], endpoint.actions)
+            nodes = {row['team_id']: row['node_id'] for row in
+                     rows(case['database'], 'SELECT t.team_id,k.node_id FROM teams t '
+                          'JOIN tasks k ON k.task_id=t.task_id WHERE t.request_id=?',
+                          (case['request'],))}
+            for node in ('alpha', 'beta', 'gamma'):
+                own = [row for row in attempts if nodes.get(row['team_id']) == node]
+                self.assertEqual([row['tool'] for row in own if row['role'] == 'team_lead'],
+                                 ['issue_work_order', 'check_submission', 'report_experience'])
+                self.assertEqual([row['tool'] for row in own if row['role'] == 'worker'],
+                                 ['fs_read', 'fs_write', 'fs_read', 'fs_write', 'fs_read', 'submit'])
+            for table, expected in (('live_send_claims', PRICING_CALLS),
+                                    ('live_transport_observations', PRICING_CALLS),
+                                    ('model_tool_feedback', PRICING_CALLS),
+                                    ('usage_reconciliations', 0),
+                                    ('live_usage_projection', PRICING_CALLS)):
+                self.assertEqual(rows(case['database'], f'SELECT count(*) AS n FROM {table}')[0]['n'],
+                                 expected, table)
+            self.assertEqual([row['status'] for row in
+                              rows(case['database'], 'SELECT status FROM tasks WHERE request_id=?',
+                                   (case['request'],))], ['ACCEPTED'] * 3)
+            self.assertEqual([row['status'] for row in
+                              rows(case['database'], 'SELECT status FROM experience_jobs WHERE request_id=?',
+                                   (case['request'],))], ['DONE'] * 3)
+            request_row = rows(case['database'], 'SELECT status,delivery_status FROM requests WHERE request_id=?',
+                               (case['request'],))[0]
+            self.assertEqual(request_row['status'], 'RUNNING')
+            self.assertEqual(request_row['delivery_status'], 'NONE')
             budget = self.command('budget', '--db', case['database'], '--request', case['request'])
             expected_total = PRICING_CALLS * PRICED_UNIT_MICRO_USD
             self.assertEqual(budget['spent_cost'], expected_total)

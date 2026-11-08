@@ -1,5 +1,7 @@
 #include "wls/model.hpp"
 
+#include "responses_compat.hpp"
+
 #include <algorithm>
 #include <condition_variable>
 #include <limits>
@@ -179,6 +181,21 @@ void validate_response_shape(const ModelResponse& response) {
                 "a completed model response cannot be empty");
     } else {
         require(!response.error_code.empty(), "failed model responses require an error code");
+    }
+    if (!response.responses_output.is_null()) {
+        const auto projection = responses_compat::validate_payload(response.responses_output);
+        const bool tools_equal = projection.tool_calls.size() == response.tool_calls.size() &&
+            std::equal(projection.tool_calls.begin(), projection.tool_calls.end(), response.tool_calls.begin(),
+                       [](const ModelToolCall& l, const ModelToolCall& r) {
+                           return l.call_id == r.call_id && l.name == r.name && l.arguments == r.arguments; });
+        if (response.status == ModelResultStatus::Completed)
+            require(projection.text == response.text && tools_equal,
+                    "completed responses output must project to the public text and tool calls");
+        else if (response.error_code != "model_refusal")
+            require(false, "opaque responses output is only legal on completed or refusal responses");
+        else
+            require(projection.refusal && response.text.empty() && response.tool_calls.empty(),
+                    "a model refusal must keep its original payload without executable output");
     }
 }
 
@@ -368,7 +385,7 @@ ModelRequest model_request_from_json(const Json& value) {
 
 Json to_json(const ModelResponse& response) {
     validate_response_shape(response);
-    return boost::json::object{
+    auto result = boost::json::object{
         {"format", "wls-model-response-v1"}, {"call_id", response.call_id},
         {"attempt_id", response.attempt_id}, {"role_call_index", response.role_call_index},
         {"role", role_name(response.role)}, {"binding", to_json(response.binding)},
@@ -376,12 +393,16 @@ Json to_json(const ModelResponse& response) {
         {"status", status_text(response.status)}, {"text", response.text},
         {"tool_calls", tools_json(response.tool_calls)}, {"usage", to_json(response.usage)},
         {"error_code", response.error_code}, {"error_message", response.error_message}};
+    if (!response.responses_output.is_null()) result["responses_output"] = response.responses_output;
+    return result;
 }
 
 ModelResponse model_response_from_json(const Json& value) {
     const auto& source = object(value, "model response");
-    exact_fields(source, {"format", "call_id", "attempt_id", "role_call_index", "role", "binding",
-        "config_snapshot_id", "status", "text", "tool_calls", "usage", "error_code", "error_message"});
+    auto fields = std::set<std::string>{"format", "call_id", "attempt_id", "role_call_index", "role", "binding",
+        "config_snapshot_id", "status", "text", "tool_calls", "usage", "error_code", "error_message"};
+    if (source.contains("responses_output")) fields.insert("responses_output");
+    exact_fields(source, fields);
     require(string_field(source, "format") == "wls-model-response-v1", "unsupported model response format");
     ModelResponse response;
     response.call_id = string_field(source, "call_id");
@@ -396,6 +417,10 @@ ModelResponse model_response_from_json(const Json& value) {
     response.usage = model_usage_from_json(field(source, "usage"));
     response.error_code = string_field(source, "error_code");
     response.error_message = string_field(source, "error_message");
+    if (source.contains("responses_output")) {
+        response.responses_output = field(source, "responses_output");
+        (void)responses_compat::validate_payload(response.responses_output);
+    }
     validate_response_shape(response);
     return response;
 }

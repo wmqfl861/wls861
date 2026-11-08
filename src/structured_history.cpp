@@ -1,6 +1,8 @@
 #include "wls/structured_context.hpp"
 #include "wls/model.hpp"
 
+#include "responses_compat.hpp"
+
 #include <algorithm>
 
 namespace wls::s1 {
@@ -71,7 +73,17 @@ std::vector<StructuredContextMessage> structured_attempt_history(const std::vect
         source["record_sha256"] = feedback.at("record_sha256");
         source["original_tool_call_id"] = call.call_id;
         source["kind"] = "recorded_tool_turn"; source["not_execution_authority"] = true;
-        messages.push_back({"assistant", response.text, {{id, call.name, call.arguments}}, {}, source});
+        // Replay requires a replay-ready payload; anything else refuses loudly
+        // rather than degrading into a reasoning-less continuation.
+        Json payload = nullptr;
+        if (!response.responses_output.is_null()) {
+            const auto projection = responses_compat::validate_payload(response.responses_output);
+            if (!projection.reasoning_replay_ready)
+                throw Error(ErrorCode::Corrupt, "native history reasoning lacks replayable encrypted content");
+            responses_compat::require_projection_match(projection, response.text, response.tool_calls);
+            payload = response.responses_output;
+        }
+        messages.push_back({"assistant", response.text, {{id, call.name, call.arguments}}, {}, source, payload});
         messages.push_back({"tool", canonical_json(feedback.at("result")), {}, id, source});
     }
     return messages;

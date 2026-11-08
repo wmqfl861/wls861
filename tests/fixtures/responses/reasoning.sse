@@ -1,0 +1,48 @@
+event: response.created
+data: {"response":{"id":"resp_compat_fixture_text","object":"response","status":"in_progress","model":"o3-2025-04-16","output":[],"usage":null,"error":null,"incomplete_details":null},"type":"response.created","sequence_number":0}
+
+event: response.in_progress
+data: {"response":{"id":"resp_compat_fixture_text","object":"response","status":"in_progress","model":"o3-2025-04-16","output":[],"usage":null,"error":null,"incomplete_details":null},"type":"response.in_progress","sequence_number":1}
+
+event: response.output_item.added
+data: {"output_index":0,"item":{"id":"rs_6806bfca0b2481918a5748308061a2600d3ce51bdffd5476","type":"reasoning","summary":[],"encrypted_content":"gAAAAAB3bHlzLXN5bnRoZXRpYy1lbmNyeXB0ZWQtcmVhc2","status":"in_progress"},"type":"response.output_item.added","sequence_number":2}
+
+event: response.reasoning_summary_part.added
+data: {"output_index":0,"item_id":"rs_6806bfca0b2481918a5748308061a2600d3ce51bdffd5476","summary_index":0,"part":{"type":"summary_text","text":""},"type":"response.reasoning_summary_part.added","sequence_number":3}
+
+event: response.reasoning_summary_text.delta
+data: {"output_index":0,"item_id":"rs_6806bfca0b2481918a5748308061a2600d3ce51bdffd5476","summary_index":0,"delta":"**Responding to a greeting**\n\nThe user just said, \"Hello!\" So, it seems I need to engage. I'll greet them back and offer help since they're looking to chat. I could say something like, \"Hello! ","type":"response.reasoning_summary_text.delta","sequence_number":4}
+
+event: response.reasoning_summary_text.delta
+data: {"output_index":0,"item_id":"rs_6806bfca0b2481918a5748308061a2600d3ce51bdffd5476","summary_index":0,"delta":"How can I assist you today?\" That feels friendly and open. They didn't ask a specific question, so this approach will work well for starting a conversation. Let's see where it goes from there!","type":"response.reasoning_summary_text.delta","sequence_number":5}
+
+event: response.reasoning_summary_text.done
+data: {"output_index":0,"item_id":"rs_6806bfca0b2481918a5748308061a2600d3ce51bdffd5476","summary_index":0,"text":"**Responding to a greeting**\n\nThe user just said, \"Hello!\" So, it seems I need to engage. I'll greet them back and offer help since they're looking to chat. I could say something like, \"Hello! How can I assist you today?\" That feels friendly and open. They didn't ask a specific question, so this approach will work well for starting a conversation. Let's see where it goes from there!","type":"response.reasoning_summary_text.done","sequence_number":6}
+
+event: response.reasoning_summary_part.done
+data: {"output_index":0,"item_id":"rs_6806bfca0b2481918a5748308061a2600d3ce51bdffd5476","summary_index":0,"part":{"type":"summary_text","text":"**Responding to a greeting**\n\nThe user just said, \"Hello!\" So, it seems I need to engage. I'll greet them back and offer help since they're looking to chat. I could say something like, \"Hello! How can I assist you today?\" That feels friendly and open. They didn't ask a specific question, so this approach will work well for starting a conversation. Let's see where it goes from there!"},"type":"response.reasoning_summary_part.done","sequence_number":7}
+
+event: response.output_item.done
+data: {"output_index":0,"item":{"id":"rs_6806bfca0b2481918a5748308061a2600d3ce51bdffd5476","type":"reasoning","summary":[{"type":"summary_text","text":"**Responding to a greeting**\n\nThe user just said, \"Hello!\" So, it seems I need to engage. I'll greet them back and offer help since they're looking to chat. I could say something like, \"Hello! How can I assist you today?\" That feels friendly and open. They didn't ask a specific question, so this approach will work well for starting a conversation. Let's see where it goes from there!"}],"encrypted_content":"gAAAAAB3bHlzLXN5bnRoZXRpYy1lbmNyeXB0ZWQtcmVhc29uaW5nLW8zLTAwMDE=","status":"completed"},"type":"response.output_item.done","sequence_number":8}
+
+event: response.output_item.added
+data: {"output_index":1,"item":{"id":"msg_compat_fixture","type":"message","role":"assistant","status":"in_progress","content":[]},"type":"response.output_item.added","sequence_number":9}
+
+event: response.content_part.added
+data: {"output_index":1,"item_id":"msg_compat_fixture","content_index":0,"part":{"type":"output_text","text":"","annotations":[]},"type":"response.content_part.added","sequence_number":10}
+
+event: response.output_text.delta
+data: {"output_index":1,"item_id":"msg_compat_fixture","content_index":0,"delta":"compat fixture text 原文😀","type":"response.output_text.delta","sequence_number":11}
+
+event: response.output_text.done
+data: {"output_index":1,"item_id":"msg_compat_fixture","content_index":0,"text":"compat fixture text 原文😀","type":"response.output_text.done","sequence_number":12}
+
+event: response.content_part.done
+data: {"output_index":1,"item_id":"msg_compat_fixture","content_index":0,"part":{"type":"output_text","text":"compat fixture text 原文😀","annotations":[]},"type":"response.content_part.done","sequence_number":13}
+
+event: response.output_item.done
+data: {"output_index":1,"item":{"id":"msg_compat_fixture","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"compat fixture text 原文😀","annotations":[]}]},"type":"response.output_item.done","sequence_number":14}
+
+event: response.completed
+data: {"response":{"id":"resp_compat_fixture_text","object":"response","status":"completed","model":"o3-2025-04-16","output":[{"id":"rs_6806bfca0b2481918a5748308061a2600d3ce51bdffd5476","type":"reasoning","summary":[{"type":"summary_text","text":"**Responding to a greeting**\n\nThe user just said, \"Hello!\" So, it seems I need to engage. I'll greet them back and offer help since they're looking to chat. I could say something like, \"Hello! How can I assist you today?\" That feels friendly and open. They didn't ask a specific question, so this approach will work well for starting a conversation. Let's see where it goes from there!"}],"encrypted_content":"gAAAAAB3bHlzLXN5bnRoZXRpYy1lbmNyeXB0ZWQtcmVhc29uaW5nLW8zLTAwMDE=","status":"completed"},{"id":"msg_compat_fixture","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"compat fixture text 原文😀","annotations":[]}]}],"error":null,"incomplete_details":null,"usage":{"input_tokens":11,"output_tokens":5,"total_tokens":16,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0},"output_tokens_details":{"reasoning_tokens":2}}},"type":"response.completed","sequence_number":15}
+

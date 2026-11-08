@@ -40,3 +40,23 @@ delta 与终态冲突、断流/取消/deadline边界、终态后迟到、工具�
 不模拟第三方服务通过率，不开启真实调用；真实传输与供应商现场能力另行验收。
 官方事件依据为[Responses streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events)，
 核验日期与支持子集见 ADR-077；没有声称支持文档列出的全部事件。
+
+## G1-2 追加：reasoning 摘要与 refusal 事件生命周期（2026-11-08）
+
+兼容 profile（wls-responses-compat-v1）下，SSE 状态机新增 reasoning 项目与六类事件：
+`response.reasoning_summary_part.added/done`（`part:{type:"summary_text",text}`，
+`summary_index` 顺序引入、added 必须为空文本）、
+`response.reasoning_summary_text.delta/done`（累计一致才接受 done）、
+`response.refusal.delta/done`（复用 message content part 生命周期，done 与
+content_part.done 的 refusal 全文一致）。summary/refusal delta 仅接受官方 schema 列出的
+字段，不接受 obfuscation；其字节计入既有 aggregate 文本预算，密文计入原
+item/event/response/stream 预算。
+
+reasoning 的 `output_item.added` 必须携带空 summary，encrypted_content 允许缺失/null/
+空/部分字符串且不作为原件；只有 `output_item.done` 的完整 reasoning（summary 与累计
+事件一致、终态一致）成为原件，terminal 的 reasoning 完整值必须与 done 原件一致，密文/
+字段/顺序篡改拒绝。非空 summary 需要完整 added/delta/done/part.done 链；空 summary 允许
+added→done 直接完成。summary 的非常终态 status 不得进入 completed 流。终态仍统一经共享
+HTTP 解码器验证（refusal → `model_refusal`、缺密文 → `reasoning_replay_unavailable`），
+合法终态 usage（含 refusal）在后续流错误下按既有规则保留。无扩展 profile 对上述事件与
+reasoning/refusal 项目保持原有 unsupported 拒绝，不改变旧字节行为。

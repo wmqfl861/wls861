@@ -611,6 +611,74 @@ void estimated_budget_accounting_and_late_actual_evidence() {
         CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
     }
 }
+LiveModelSettings dual_extension_settings() {
+    auto live = pricing_settings();
+    auto document = to_json(live.provider);
+    document.as_object()["responses_compatibility"] = Object{{"format", "wls-responses-compat-v1"},
+        {"reference", "openai-responses-2026-11-08"},
+        {"model_aliases", Object{{live.provider.model, Array{"fixture-responses-snapshot"}}}}};
+    live.provider = provider_profile_from_json(document);
+    return live;
+}
+
+void dual_extensions_freeze_together_and_pricing_guards_keep_blocking() {
+    // Both extensions freeze into one admitted config snapshot, join the
+    // profile hash, and later external profile edits cannot reinterpret the
+    // frozen request; the price table never reaches the wire or the model
+    // arguments, and the pricing budget guards keep blocking under the dual
+    // profile exactly as under the pricing-only one.
+    const auto dual = dual_extension_settings();
+    CHECK(dual.provider.pricing.has_value() && dual.provider.responses_compatibility.has_value());
+    const auto dual_hash = provider_profile_sha256(dual.provider);
+    CHECK(dual_hash != provider_profile_sha256(fixture::settings()));
+    CHECK(dual_hash != provider_profile_sha256(pricing_settings()));
+    fixture::Fixture f(*assets, dual);
+    const auto row = f.store->request(f.request_id);
+    const auto frozen = FrozenRequestConfig::restore(canonical_json(row.at("config_snapshot")), text(row, "config_snapshot_sha256"));
+    const auto restored = live_model_settings_from_json(frozen.model_profile(Role::Dispatcher), dual.provider.model_ref);
+    CHECK(restored.provider.pricing.has_value() && restored.provider.responses_compatibility.has_value());
+    CHECK(provider_profile_sha256(restored.provider) == dual_hash);
+    // The wire keeps its compatibility shape and never embeds the price table;
+    // the frozen request envelope carries no pricing in its model parameters.
+    const auto request = f.request();
+    const auto encoded = encode_responses_request(restored.provider, request, false);
+    const auto body = parse_json_strict(encoded.body);
+    CHECK(body.at("store") == false);
+    CHECK(body.at("include") == Json(Array{"reasoning.encrypted_content"}));
+    CHECK(body.at("instructions").is_string());
+    CHECK(encoded.body.find("wls-token-pricing-v1") == std::string::npos);
+    CHECK(canonical_json(to_json(request)).find("wls-token-pricing-v1") == std::string::npos);
+    // Mutating the in-memory profile after admission cannot reinterpret the
+    // frozen request: the snapshot still restores the exact dual original.
+    auto changed = dual; changed.provider.pricing->output_micro_usd_per_million_tokens = 4000001;
+    CHECK(provider_profile_sha256(changed.provider) != dual_hash);
+    CHECK(provider_profile_sha256(live_model_settings_from_json(
+        frozen.model_profile(Role::Dispatcher), dual.provider.model_ref).provider) == dual_hash);
+    // The frozen cost minimum still guards the send claim: 100 < ceil(1900).
+    // This check owns its disposable fixture so its dangling reservation never
+    // feeds the budget assertions below.
+    {
+        fixture::Fixture guard(*assets, dual);
+        const auto under = guard.request("dual-under-reserved");
+        (void)guard.reserve(under);
+        error(ErrorCode::Quota, [&] { (void)guard.claim(under); });
+        CHECK(guard.store->live_attempt(under.attempt_id).at("send_claim").is_null());
+    }
+    // A sufficient reservation completes, books only the deterministic
+    // estimate and keeps every original cost fact null.
+    const auto settled = settle_completed(f, priced_request(f, "dual-priced"), priced_usage());
+    CHECK(settled.at("cost_micro_usd").is_null() && settled.at("cache_write_tokens").is_null());
+    CHECK(number(f.store->budget(f.request_id), "spent_cost") == 41);
+    CHECK(f.store->budget(f.request_id).at("accounting_format") == "wls-estimated-budget-v1");
+    CHECK(f.store->live_accounting_status(f.request_id).at("ready").as_bool());
+    // A frozen not-applicable cache dimension the response nevertheless
+    // reported stays a policy mismatch that blocks new paid business.
+    auto mismatched = priced_usage(); mismatched.cache_write_tokens = 1;
+    (void)settle_completed(f, priced_request(f, "dual-mismatch"), mismatched);
+    CHECK(!f.store->live_accounting_status(f.request_id).at("ready").as_bool());
+    error(ErrorCode::UnknownOutcome, [&] { (void)f.reserve(priced_request(f, "dual-blocked")); });
+    CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -637,6 +705,7 @@ int main(int argc, char** argv) {
         {"explicit migration preserves original fake snapshots, attempts, settlement and budget", scoped_upgrade_and_fake_bytes_stay_original},
         {"policy and cross-request identity are rechecked before first send", policy_and_identity_fences_before_claim},
         {"host verifier, original settlement, Root role and evidence kind remain mandatory", source_verifier_and_role_are_mandatory},
-        {"estimated budget accounting completes without actual cost and late evidence adjusts only the difference", estimated_budget_accounting_and_late_actual_evidence}
+        {"estimated budget accounting completes without actual cost and late evidence adjusts only the difference", estimated_budget_accounting_and_late_actual_evidence},
+        {"dual extensions freeze together and pricing guards keep blocking", dual_extensions_freeze_together_and_pricing_guards_keep_blocking}
     });
 }

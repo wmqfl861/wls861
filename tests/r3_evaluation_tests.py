@@ -715,6 +715,57 @@ class Evaluation(unittest.TestCase):
                 e.rows(db, 'WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<100) SELECT bounded_payload(x) AS payload FROM n')
         self.assertLess(len(seen), 35)
 
+    def test_logical_agent_projection_covers_opaque_responses_output(self):
+        payload = {'format': 'wls-responses-output-v1', 'reference': 'openai-responses-2026-11-08',
+                   'model': 'o3-2025-04-16', 'output': [
+                       {'id': 'rs_1', 'type': 'reasoning', 'summary': [],
+                        'encrypted_content': 'gAAAAABoriginal-opaque-bytes', 'status': 'completed'},
+                       {'id': 'fc_1', 'type': 'function_call', 'call_id': 'call_provider_1',
+                        'name': 'note', 'arguments': '{"m":1}', 'status': 'completed'}]}
+        base = {'format': 'wls-model-response-v1', 'call_id': 'call-1', 'attempt_id': 'attempt-1',
+                'role_call_index': 1, 'role': 'worker', 'binding': {'request_id': 'req-1'},
+                'config_snapshot_id': 'c', 'status': 'completed', 'text': '',
+                'tool_calls': [{'call_id': 'history_1', 'name': 'note', 'arguments': {'m': 1}}],
+                'usage': {'input_tokens': 1, 'output_tokens': 1, 'cache_read_tokens': None,
+                          'cache_write_tokens': None, 'cost_micro_usd': None},
+                'error_code': '', 'error_message': ''}
+        response = dict(base, responses_output=copy.deepcopy(payload))
+
+        def record(value):
+            return {'attempt_id': value['attempt_id'], 'call_id': value['call_id'], 'request_id': 'req-1',
+                    'task_id': 'task-1', 'team_id': 'team-1', 'role': 'worker', 'principal_id': 'p1',
+                    'config_snapshot_sha256': 'c', 'model_ref': 'm', 'reservation_sha256': 'r',
+                    'status': 'COMPLETED', 'accepted': 1, 'settlement_sha256': 's',
+                    'frozen_binding': {'request_id': 'req-1'}, 'role_call_index': 1,
+                    'response': value,
+                    'feedback': {'original_binding': {'request_id': 'req-1'}, 'response': value,
+                                 'result': {'ok': True}, 'record_sha256': '0' * 64},
+                    'history_sequence': 1, 'feedback_missing': False, 'usage': None,
+                    'logical_agent_execution': {}}
+
+        projected = e.logical_agent_messages([record(response)])
+        assistant, tool = projected[0], projected[1]
+        self.assertEqual(assistant['role'], 'assistant')
+        self.assertEqual(assistant['responses_output'], payload)
+        self.assertEqual(assistant['tool_calls'][0]['name'], 'note')
+        self.assertEqual(tool['tool_call_id'], assistant['tool_calls'][0]['call_id'])
+        legacy = e.logical_agent_messages([record(dict(base))])
+        self.assertNotIn('responses_output', legacy[0])
+        # Missing, empty or tampered replay ciphertext is invalid evidence.
+        for mutation in ('empty', 'removed', 'unknown', 'envelope'):
+            broken = copy.deepcopy(response)
+            item = broken['responses_output']['output'][0]
+            if mutation == 'empty':
+                item['encrypted_content'] = ''
+            elif mutation == 'removed':
+                item.pop('encrypted_content')
+            elif mutation == 'unknown':
+                item['future_field'] = 1
+            else:
+                broken['responses_output']['extra'] = 1
+            with self.assertRaises(e.InvalidEvidence):
+                e.logical_agent_messages([record(broken)])
+
 
 if __name__ == '__main__':
     if os.geteuid() == 0:

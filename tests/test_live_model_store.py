@@ -75,6 +75,41 @@ class LiveStore(unittest.TestCase):
             self.assertTrue(parsed["ledger"]["consistent"])
         return parsed, database
 
+    def compat_profile(self):
+        path = self.directory / "compat-profile.json"
+        if not path.exists():
+            path.write_text(json.dumps({
+                "format": "wls-responses-compat-v1",
+                "reference": "openai-responses-2026-11-08",
+                "model_aliases": {"o3": ["o3-2025-04-16"]}}))
+            path.chmod(0o600)
+        return path
+
+    def pricing_profile(self):
+        # Both cache dimensions are "reported" so the compat fixtures that
+        # report cache writes stay inside the frozen policy. Hand rates:
+        # input 1.5, output 4.0, cache read 0.25, cache write 0.15 micro USD
+        # per million tokens; all estimates below use one final ceil.
+        path = self.directory / "pricing-profile.json"
+        path.write_text(json.dumps({
+            "format": "wls-token-pricing-v1", "currency": "USD",
+            "unit": "micro_usd_per_million_tokens",
+            "input_micro_usd_per_million_tokens": 1500000,
+            "output_micro_usd_per_million_tokens": 4000000,
+            "cache_read": {"applicability": "reported", "micro_usd_per_million_tokens": 250000},
+            "cache_write": {"applicability": "reported", "micro_usd_per_million_tokens": 150000}}))
+        path.chmod(0o600)
+        return path
+
+    def run_raw(self, peer=None, **options):
+        # Driver actions with their own result document (no ledger key).
+        path, database = self.configuration(peer, **options)
+        result = subprocess.run([str(DRIVER), str(path), str(SOURCE)], cwd=self.directory,
+                                capture_output=True, text=True, encoding="utf-8", timeout=18, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertEqual(result.stderr, "")
+        return json.loads(result.stdout), database
+
     def assert_original(self, result):
         attempt = result["attempt"]
         response = attempt["response"]
@@ -118,6 +153,289 @@ class LiveStore(unittest.TestCase):
         self.assertEqual(len(result["attempt"]["response"]["tool_calls"]), 1)
         with sqlite3.connect(database) as connection:
             self.assertEqual(connection.execute("SELECT count(*) FROM ops").fetchone()[0], 0)
+
+    def test_compat_two_round_reasoning_replay_over_tls(self):
+        compat = self.compat_profile()
+        first_body = (SOURCE / "tests/fixtures/responses/reasoning-tool-response.json").read_bytes()
+        second_body = (SOURCE / "tests/fixtures/responses/reasoning-text-response.json").read_bytes()
+        remaining = iter((first_body, second_body))
+
+        def sequenced(peer, connection):
+            peer.request(connection)
+            body = next(remaining)
+            connection.sendall(tls.headers(len(body)) + body)
+
+        with self.peer(sequenced) as peer:
+            result, database = self.run_raw(peer, action="compat-two-round",
+                                            compat_profile=str(compat), reopen=True, reconcile=True)
+            self.assertEqual(len(peer.requests), 2)
+            captured = peer.requests[1]["body"]
+        self.assertEqual(captured.decode(), result["second_request_body"])
+        original = json.loads(first_body)
+        reasoning, call = original["output"][0], original["output"][1]
+        body = json.loads(result["second_request_body"])
+        self.assertEqual(body["model"], "o3")
+        self.assertEqual(body["include"], ["reasoning.encrypted_content"])
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(body["instructions"])
+        items = body["input"]
+        self.assertEqual(len(items), 4)  # task contract, reasoning, call, result
+        self.assertEqual(items[1], reasoning)  # opaque value replayed unchanged
+        self.assertEqual(items[2]["type"], "function_call")
+        self.assertEqual(items[2]["call_id"], "call_compat_fixture")
+        self.assertEqual(items[2]["arguments"], call["arguments"])
+        self.assertEqual(items[3]["type"], "function_call_output")
+        self.assertEqual(items[3]["call_id"], "call_compat_fixture")
+        self.assertEqual(json.loads(items[3]["output"]), {"ok": True, "round": 1})
+        self.assertFalse(any(item.get("role") == "assistant" for item in items))
+        self.assertEqual(result["first_settlement"]["accepted"], 1)
+        first = result["first_response"]
+        self.assertEqual(first["status"], "completed")
+        self.assertEqual(first["tool_calls"][0]["call_id"], "call_compat_fixture")
+        self.assertEqual(first["responses_output"]["output"][0]["encrypted_content"],
+                         reasoning["encrypted_content"])
+        second = result["second_response"]
+        self.assertEqual(second["status"], "completed")
+        self.assertEqual(second["text"], "compat fixture text 原文😀")
+        self.assertEqual(second["responses_output"]["output"][0]["summary"], [])
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 410)
+            self.assertEqual(connection.execute("SELECT count(*) FROM live_send_claims").fetchone()[0], 2)
+            self.assertEqual(connection.execute("SELECT count(*) FROM ops").fetchone()[0], 0)
+
+    def test_compat_two_native_rounds_persist_reopen_and_third_request_body(self):
+        compat = self.compat_profile()
+        first_body = (SOURCE / "tests/fixtures/responses/reasoning-tool-response.json").read_bytes()
+        # Round B serves the same supported shape with distinct provider
+        # item/call IDs, a distinct opaque reasoning original and its own
+        # arguments; it stays an official-schema-derived synthetic fixture.
+        second_original = json.loads(first_body)
+        second_original["id"] = "resp_compat_fixture_tool_b"
+        second_original["output"][0]["id"] = "rs_compat_fixture_round_b"
+        second_original["output"][0]["summary"][0]["text"] = "Round B synthetic summary for distinct opaque history."
+        second_original["output"][0]["encrypted_content"] = (
+            "gAAAAAB3bHlzLXN5bnRoZXRpYy1lbmNyeXB0ZWQtcmVhc29uaW5nLW8zLTAwMDM=")
+        second_original["output"][1]["id"] = "fc_compat_fixture_b"
+        second_original["output"][1]["call_id"] = "call_compat_fixture_b"
+        second_original["output"][1]["arguments"] = '{"message":"compat fixture round B"}'
+        second_body = tls.encoded(second_original)
+        third_body = (SOURCE / "tests/fixtures/responses/reasoning-text-response.json").read_bytes()
+        remaining = iter((first_body, second_body, third_body))
+
+        def sequenced(peer, connection):
+            peer.request(connection)
+            body = next(remaining)
+            connection.sendall(tls.headers(len(body)) + body)
+
+        with self.peer(sequenced) as peer:
+            result, database = self.run_raw(peer, action="compat-native-two-reopen-third",
+                                            compat_profile=str(compat), reconcile=True)
+            self.assertEqual(len(peer.requests), 3)
+            captured = peer.requests[2]["body"]
+        self.assertEqual(captured.decode(), result["third_request_body"])
+        # The persisted originals, settlements and immutable feedback
+        # fingerprints are identical before and after the Store reopen.
+        self.assertEqual(result["before_reopen"], result["after_reopen"])
+        for settlement in ("first_settlement", "second_settlement", "third_settlement"):
+            self.assertEqual(result[settlement]["accepted"], 1)
+        first = result["after_reopen"]["first"]["attempt"]["response"]
+        second = result["after_reopen"]["second"]["attempt"]["response"]
+        self.assertEqual(first["tool_calls"][0]["call_id"], "call_compat_fixture")
+        self.assertEqual(second["tool_calls"][0]["call_id"], "call_compat_fixture_b")
+        original = json.loads(first_body)
+        body = json.loads(result["third_request_body"])
+        self.assertEqual(body["model"], "o3")
+        self.assertEqual(body["include"], ["reasoning.encrypted_content"])
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(body["instructions"])
+        items = body["input"]
+        self.assertEqual(len(items), 7)  # task contract, then A and B reasoning/call/result
+        self.assertEqual([item["type"] for item in items[1:]],
+                         ["reasoning", "function_call", "function_call_output"] * 2)
+        # Opaque reasoning originals and their calls replay unchanged, in
+        # original order, exactly as persisted across the reopen.
+        self.assertEqual(items[1], first["responses_output"]["output"][0])
+        self.assertEqual(items[2], first["responses_output"]["output"][1])
+        self.assertEqual(items[4], second["responses_output"]["output"][0])
+        self.assertEqual(items[5], second["responses_output"]["output"][1])
+        self.assertEqual(items[1], original["output"][0])
+        self.assertEqual(items[2]["call_id"], "call_compat_fixture")
+        self.assertEqual(json.loads(items[2]["arguments"]), json.loads(original["output"][1]["arguments"]))
+        self.assertEqual(items[4], second_original["output"][0])
+        self.assertEqual(items[5]["call_id"], "call_compat_fixture_b")
+        self.assertEqual(json.loads(items[5]["arguments"]), json.loads(second_original["output"][1]["arguments"]))
+        # Each function_call_output pairs with its own exact provider call ID
+        # and the distinguishable A/B feedback result recorded for that round.
+        self.assertEqual(items[3]["type"], "function_call_output")
+        self.assertEqual(items[3]["call_id"], "call_compat_fixture")
+        self.assertEqual(json.loads(items[3]["output"]), {"ok": True, "round": 1, "result": "tool-result-A"})
+        self.assertEqual(items[6]["type"], "function_call_output")
+        self.assertEqual(items[6]["call_id"], "call_compat_fixture_b")
+        self.assertEqual(json.loads(items[6]["output"]), {"ok": True, "round": 2, "result": "tool-result-B"})
+        self.assertFalse(any(item.get("role") == "assistant" for item in items))
+        self.assertEqual(result["third_response"]["status"], "completed")
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 410)
+            self.assertEqual(connection.execute("SELECT count(*) FROM live_send_claims").fetchone()[0], 3)
+            self.assertEqual(connection.execute("SELECT count(*) FROM ops").fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT count(*) FROM model_tool_feedback").fetchone()[0], 2)
+            self.assertEqual(sorted(row[0] for row in connection.execute("SELECT attempt_id FROM model_tool_feedback")),
+                             ["attempt-fixture", "attempt-fixture-2"])
+
+    def test_compat_refusal_classifies_transport_completed_without_dispatch(self):
+        compat = self.compat_profile()
+        body = (SOURCE / "tests/fixtures/responses/refusal-response.json").read_bytes()
+        with self.peer(tls.fixed_response(body)) as peer:
+            result, database = self.run_raw(peer, action="refusal-transport",
+                                            compat_profile=str(compat))
+            self.assertEqual(len(peer.requests), 1)  # no automatic retry
+        summary = result["transport_summary"]
+        self.assertEqual(summary["status"], "completed")
+        self.assertEqual(summary["reason"], "model_refusal")
+        self.assertEqual(summary["response_usable"], False)
+        self.assertEqual(summary["http_status"], 200)
+        attempt = result["attempt"]
+        self.assertEqual(attempt["status"], "ERROR")
+        self.assertEqual(attempt["accepted"], 0)
+        response = attempt["response"]
+        self.assertEqual(response["status"], "error")
+        self.assertEqual(response["error_code"], "model_refusal")
+        self.assertEqual(response["text"], "")
+        self.assertEqual(response["tool_calls"], [])
+        self.assertEqual(response["usage"]["input_tokens"], 11)
+        self.assertEqual(response["responses_output"]["output"][1]["content"][0]["type"], "refusal")
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(connection.execute("SELECT count(*) FROM ops").fetchone()[0], 0)
+        # Transport-layer failures still override the model-layer classification.
+        with self.peer(tls.fixed_response(body, status=500)) as peer:
+            failure, _ = self.run_raw(peer, action="refusal-transport", compat_profile=str(compat))
+        self.assertEqual(failure["transport_summary"]["status"], "http_error")
+        self.assertEqual(failure["attempt"]["response"]["error_code"], "http_error")
+        self.assertIsNone(failure["attempt"]["response"].get("responses_output"))
+
+    def test_compat_native_priced_pair_reopens_without_receipts_or_reconciliation(self):
+        compat, pricing = self.compat_profile(), self.pricing_profile()
+        first_body = (SOURCE / "tests/fixtures/responses/reasoning-tool-response.json").read_bytes()
+        # Round B is generated once, here, with its own distinct provider IDs,
+        # opaque original and arguments; nothing rewrites the stored originals.
+        second_original = json.loads(first_body)
+        second_original["id"] = "resp_compat_fixture_tool_b"
+        second_original["output"][0]["id"] = "rs_compat_fixture_round_b"
+        second_original["output"][0]["summary"][0]["text"] = "Round B synthetic summary for distinct opaque history."
+        second_original["output"][0]["encrypted_content"] = (
+            "gAAAAAB3bHlzLXN5bnRoZXRpYy1lbmNyeXB0ZWQtcmVhc29uaW5nLW8zLTAwMDM=")
+        second_original["output"][1]["id"] = "fc_compat_fixture_b"
+        second_original["output"][1]["call_id"] = "call_compat_fixture_b"
+        second_original["output"][1]["arguments"] = '{"message":"compat fixture round B"}'
+        second_body = tls.encoded(second_original)
+        third_body = (SOURCE / "tests/fixtures/responses/reasoning-text-response.json").read_bytes()
+        remaining = iter((first_body, second_body, third_body))
+
+        def sequenced(peer, connection):
+            peer.request(connection)
+            body = next(remaining)
+            connection.sendall(tls.headers(len(body)) + body)
+
+        with self.peer(sequenced) as peer:
+            result, database = self.run_raw(peer, action="compat-native-priced-two-reopen-third",
+                                            compat_profile=str(compat), pricing_profile=str(pricing),
+                                            reserved_cost=2000)
+            self.assertEqual(len(peer.requests), 3)
+            captured = peer.requests[2]["body"]
+            for request in peer.requests:
+                self.assertNotIn(b"x-wls-billing-challenge", request["headers"])  # no signed challenge
+        self.assertEqual(captured.decode(), result["third_request_body"])
+        self.assertEqual(result["before_reopen"], result["after_reopen"])
+        # Hand-computed per-round estimates with one final ceil each:
+        #   A/B report 11 in / 7 out / 2 cached-read / 1 cache-write:
+        #     ceil(8*1.5 + 2*0.25 + 1*0.15 + 7*4.0) = ceil(40.65) = 41
+        #   C reports 11 in / 5 out / no cache: ceil(11*1.5 + 5*4.0) = 37
+        # The frozen minimum reservation is ceil(1000*1.5 + 100*4.0) = 1900,
+        # so every round reserves 2000 and stays fully covered.
+        expected_usage = {"first_settlement": (11, 7, 2, 1, 41),
+                          "second_settlement": (11, 7, 2, 1, 41),
+                          "third_settlement": (11, 5, 0, 0, 37)}
+        for settlement, (in_tokens, out_tokens, cached, cache_write, estimate) in expected_usage.items():
+            row = result[settlement]
+            self.assertEqual(row["accepted"], 1)
+            self.assertEqual((row["input_tokens"], row["output_tokens"], row["cache_read_tokens"],
+                              row["cache_write_tokens"]), (in_tokens, out_tokens, cached, cache_write))
+            self.assertIsNone(row["cost_micro_usd"])  # original cost stays null
+        self.assertEqual(result["budget"]["spent_cost"], 41 + 41 + 37)
+        self.assertEqual(result["budget"]["accounting_format"], "wls-estimated-budget-v1")
+        self.assertEqual(result["budget"]["cost_breakdown"]["estimated_micro_usd"], 119)
+        self.assertEqual(result["budget"]["cost_breakdown"]["reported_micro_usd"], 0)
+        self.assertTrue(result["accounting"]["ready"], result["accounting"])
+        self.assertTrue(result["ledger"]["consistent"])
+        first = result["after_reopen"]["first"]["attempt"]["response"]
+        second = result["after_reopen"]["second"]["attempt"]["response"]
+        self.assertEqual(first["tool_calls"][0]["call_id"], "call_compat_fixture")
+        self.assertEqual(second["tool_calls"][0]["call_id"], "call_compat_fixture_b")
+        original = json.loads(first_body)
+        body = json.loads(result["third_request_body"])
+        self.assertEqual(body["model"], "o3")
+        self.assertEqual(body["include"], ["reasoning.encrypted_content"])
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(body["instructions"])
+        items = body["input"]
+        self.assertEqual(len(items), 7)  # task contract, then A and B reasoning/call/result
+        self.assertEqual([item["type"] for item in items[1:]],
+                         ["reasoning", "function_call", "function_call_output"] * 2)
+        self.assertEqual(items[1], first["responses_output"]["output"][0])
+        self.assertEqual(items[2], first["responses_output"]["output"][1])
+        self.assertEqual(items[4], second["responses_output"]["output"][0])
+        self.assertEqual(items[5], second["responses_output"]["output"][1])
+        self.assertEqual(items[1], original["output"][0])
+        self.assertEqual(items[2]["call_id"], "call_compat_fixture")
+        self.assertEqual(json.loads(items[3]["output"]), {"ok": True, "round": 1, "result": "tool-result-A"})
+        self.assertEqual(items[4], second_original["output"][0])
+        self.assertEqual(items[5]["call_id"], "call_compat_fixture_b")
+        self.assertEqual(json.loads(items[6]["output"]), {"ok": True, "round": 2, "result": "tool-result-B"})
+        self.assertEqual(result["third_response"]["status"], "completed")
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 410)
+            self.assertEqual(connection.execute("SELECT count(*) FROM live_send_claims").fetchone()[0], 3)
+            self.assertEqual(connection.execute("SELECT count(*) FROM ops").fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT count(*) FROM model_tool_feedback").fetchone()[0], 2)
+            self.assertEqual(connection.execute("SELECT count(*) FROM usage_reconciliations").fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT count(*) FROM live_usage_projection").fetchone()[0], 3)
+
+    def test_dual_priced_refusal_never_becomes_an_estimate_or_second_send(self):
+        compat, pricing = self.compat_profile(), self.pricing_profile()
+        body = (SOURCE / "tests/fixtures/responses/refusal-response.json").read_bytes()
+        with self.peer(tls.fixed_response(body)) as peer:
+            result, database = self.run_raw(peer, action="refusal-transport",
+                                            compat_profile=str(compat), pricing_profile=str(pricing),
+                                            reserved_cost=2000)
+            self.assertEqual(len(peer.requests), 1)  # first send only, no automatic retry
+            for request in peer.requests:
+                self.assertNotIn(b"x-wls-billing-challenge", request["headers"])
+        summary = result["transport_summary"]
+        self.assertEqual(summary["status"], "completed")
+        self.assertEqual(summary["reason"], "model_refusal")
+        self.assertEqual(summary["response_usable"], False)
+        attempt = result["attempt"]
+        self.assertEqual(attempt["status"], "ERROR")
+        self.assertEqual(attempt["accepted"], 0)
+        response = attempt["response"]
+        self.assertEqual(response["error_code"], "model_refusal")
+        self.assertEqual(response["text"], "")
+        self.assertEqual(response["tool_calls"], [])
+        self.assertEqual(response["usage"]["input_tokens"], 11)  # complete usage stays reported
+        self.assertEqual(response["responses_output"]["output"][1]["content"][0]["type"], "refusal")
+        # An Error attempt never books the deterministic estimate: its whole
+        # reservation stays unknown and nothing is spent or reconciled.
+        self.assertIsNone(attempt["usage"]["cost_micro_usd"])
+        self.assertEqual(result["budget"]["spent_cost"], 0)
+        self.assertEqual(result["budget"]["unknown_cost"], 2000)
+        self.assertTrue(result["ledger"]["consistent"])
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(connection.execute("SELECT count(*) FROM ops").fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT count(*) FROM live_send_claims").fetchone()[0], 1)
+            self.assertEqual(connection.execute("SELECT count(*) FROM usage_reconciliations").fetchone()[0], 0)
+            projection = connection.execute("SELECT cost_micro_usd FROM live_usage_projection").fetchall()
+            self.assertTrue(projection)
+            self.assertTrue(all(row[0] is None for row in projection))
 
     def test_private_echo_never_enters_safe_query_or_events(self):
         body = tls.response_body(BEARER + " synthetic secret echo")
