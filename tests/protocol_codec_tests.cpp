@@ -750,6 +750,44 @@ void compat_next_round_wire_replays_original_items_verbatim() {
     CHECK(!legacy_input[1].as_object().contains("encrypted_content"));
     CHECK(!legacy_body.as_object().contains("include"));
 }
+void compat_two_native_rounds_pair_results_with_their_own_provider_calls() {
+    const auto p = fixture::compat_profile();
+    const auto first = decode_responses_response(p, fixture::request(), 200,
+        fixture::compat_bytes("reasoning-tool-response.json"));
+    CHECK(first.response.status == ModelResultStatus::Completed);
+    auto second_value = fixture::compat_json("reasoning-tool-response.json");
+    auto& second_output = second_value.at("output").as_array();
+    second_output[0].as_object()["id"] = "rs_compat_round_b";
+    second_output[1].as_object()["id"] = "fc_compat_round_b";
+    second_output[1].as_object()["call_id"] = "call_compat_round_b";
+    const auto second = decode_responses_response(p, fixture::request(), 200,
+        canonical_json(second_value));
+    CHECK(second.response.status == ModelResultStatus::Completed);
+    CHECK(second.response.tool_calls[0].call_id == "call_compat_round_b");
+    auto second_response = to_json(second.response);
+    second_response.as_object()["attempt_id"] = "attempt_compat_round_b";
+    second_response.as_object()["call_id"] = "call_compat_round_b";
+    auto messages = structured_attempt_history(
+        {compat_history_record(to_json(first.response)), compat_history_record(second_response)});
+    CHECK(messages.size() == 4);
+    messages.push_back({"user", "next question", {}, {}, nullptr});
+    const auto body = parse_json_strict(encode_responses_request(p, fixture::request(messages)).body);
+    const auto& input = body.at("input").as_array();
+    CHECK(input.size() == 8);
+    const Array round_a = to_json(first.response).at("responses_output").at("output").as_array();
+    const Array round_b = second_response.at("responses_output").at("output").as_array();
+    // Each native round owns its provider identities: its reasoning original
+    // precedes its own call, and each result carries its own round's call ID.
+    CHECK(input[1] == round_a[0]);
+    CHECK(input[2].at("type") == "function_call" && input[2].at("call_id") == "call_compat_fixture");
+    CHECK(input[3].at("type") == "function_call_output" && input[3].at("call_id") == "call_compat_fixture");
+    CHECK(input[3].at("output") == Json(canonical_json(Object{{"ok", true}})));
+    CHECK(input[4] == round_b[0]);
+    CHECK(input[5].at("type") == "function_call" && input[5].at("call_id") == "call_compat_round_b");
+    CHECK(input[6].at("type") == "function_call_output" && input[6].at("call_id") == "call_compat_round_b");
+    CHECK(input[6].at("output") == Json(canonical_json(Object{{"ok", true}})));
+    CHECK(input[7].at("role") == "user" && input[7].at("content") == "next question");
+}
 } // namespace
 
 int main() {
@@ -791,6 +829,7 @@ int main() {
         {"compat refusal is a model-layer error with kept payload and usage", compat_refusal_is_model_layer_error_with_kept_payload_and_usage},
         {"compat alias model acceptance covers the explicit snapshot list", compat_alias_model_acceptance},
         {"compat reasoning item subset boundaries reject unknown shapes", compat_reasoning_item_subset_boundaries},
-        {"compat next-round wire replays original items with provider IDs", compat_next_round_wire_replays_original_items_verbatim}
+        {"compat next-round wire replays original items with provider IDs", compat_next_round_wire_replays_original_items_verbatim},
+        {"compat two native rounds pair results with their own provider calls", compat_two_native_rounds_pair_results_with_their_own_provider_calls}
     });
 }

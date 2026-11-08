@@ -369,6 +369,7 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
             const auto& calls = array(message.at("tool_calls"));
             require(!calls.empty(), ErrorCode::InvalidInput,
                     "an opaque native round must retain its tool projection");
+            native_provider_call_ids.clear();  // each native round pairs only its own provider IDs
             const auto projection = responses_compat::validate_payload(*payload);
             std::vector<ContextToolInvocation> logical_calls;
             for (const auto& call : calls)

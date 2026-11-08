@@ -66,6 +66,33 @@
   224 行新内部头 `src/responses_compat.hpp` + 3 行 CMakeLists 测试 driver，≤800 上限；
   分项如实列示，不以重贴标签规避上限（逐文件 numstat 见私有证据 numstat-final.txt）。
 
+## 下游发现复验（2026-11-08 12:41 UTC 起，首轮硬审核之后）
+
+- 发现：下游规划审查静态提出多 native 轮次编码风险——`src/protocol_codec.cpp`
+  每轮 provider call_id 向量在消息循环外累积而 `native_consumed` 每轮清零，两个
+  不同合法 native 历史轮时第二轮 `function_call_output` 可能拿到第一轮的 provider
+  call_id。静态发现不是 RED，须在当前候选（commit `4c66e41`、
+  `protocol_codec.cpp` sha256 `6f4a97b…`）上确定性复现。
+- RED（生产零改动）：`tests/protocol_codec_tests.cpp` 新增双轮正例（rs/fc/provider
+  三类 ID 与 host attempt/call 全不同，其余绑定、工具声明与原件事实保持合法）。
+  首次构建仅测试源编译失败（GCC dangling-reference，改按值拷贝；编译失败非 RED）；
+  修正后同目标同命令 exit=1、38 通过/1 失败，失败断言恰为第二轮
+  `function_call_output.call_id == "call_compat_round_b"`（实得第一轮
+  `call_compat_fixture`）；A 轮配对与 B 轮 reasoning/function_call 原样回放断言
+  全部通过。RED 测试字节 `92db8d0e…`，完整日志在
+  `protocol-native-pair-fix-01/evidence/`。
+- 修复：`src/protocol_codec.cpp` 单行——每个 native round 开始处清空该轮专用
+  provider call_id 向量（跨轮重复 provider item/call ID 的拒绝集合不变），修复后
+  源码 `85bbdfc1…`。
+- GREEN：同测试字节、同命令 exit=0，39 通过/0 失败；受影响套件重跑（protocol_codec、
+  model、sse_replay、r1_structured、live_model_store、https_transport、
+  live_model_store_tls、live_workflow、r3_evaluation 共 9 项注册）9/9 通过，未增删
+  CTest 注册（新用例为 protocol_codec 套件内子例，38→39）。
+- 产品 delta：src/include/scripts 口径 792 行（756+36）；含 CMakeLists 3 行的
+  本报告原口径 795 行，均 ≤800 上限。
+- 局限：首轮 hard-review PASS 早于本发现，是历史结论，不覆盖本双轮条件；新源码
+  须另经全新独立硬审核。全量 78 注册与六配置 CI 仍在最终精确 SHA 上 PENDING。
+
 ## 未执行范围
 
 - 真实供应商/付费请求 0；fixture 端点仅 `.invalid` 与本地 loopback TLS。
