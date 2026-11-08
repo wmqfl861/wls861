@@ -2,7 +2,9 @@
 
 一页当前报告：记录本批 G1-1（billing）在本工作区的实际实施与本地验证结果。
 基线 `4987f2c6a6fc0da4b91e53d3689019ba3f0e8631`（main，G0 #43–47 已并入）；
-分支 `feat/g1-billing-20261108-y1wf1f4k`。Store 保持 **410**，未改任何已发布 SQL、
+分支 `feat/g1-billing-20261108-y1wf1f4k`，本批产品提交
+`50e85fa26486e00cf19eea0e190fc67581cea2de`（已由根普通推送至该分支；无 PR、无
+合并、无强推）。Store 保持 **410**，未改任何已发布 SQL、
 迁移注册或 `docs/handoff/` 历史证据。
 
 ## 实施内容
@@ -44,12 +46,15 @@
     `live_model_store_tests` 21 子例通过（新增严格解析/整数向量/最低预留、有效账目
     完成、A==E/A>E/A<E 差额、超预留停止、cancelled/N-A-mismatch 不定价、重开/只读、
     有估算+迟到收据的读快照竞争、settings 漂移 Corrupt、容量释放）。
-  - **31 次真实调用门禁**（`tests/test_billing_baseline_e2e.py`
+  - **31 次受控本地合成调用门禁**（`tests/test_billing_baseline_e2e.py`
     `test_10_unsigned_estimated_billing_completes_thirty_one_original_calls`）：一次
-    授权、无签名 policy，真实 `submit → live-status → pump-live → Store → TLS →
-    settlement` 链路。断言 Dispatcher `submit_plan`×1 + `accept_candidate`×3（4）、
+    授权、无签名 policy，`submit → live-status → pump-live → Store → TLS →
+    settlement` 链路在本地真实执行；这 31 次调用全部是发往**本机受控合成 TLS peer**
+    的「模型形状」HTTP 请求，**不是真实供应商/模型评估，也没有任何付费调用**。
+    断言 Dispatcher `submit_plan`×1 + `accept_candidate`×3（4）、
     每任务 TeamLead `issue_work_order`/`check_submission`/`report_experience`（9）、
-    每任务 Worker 5 次文件工具 + `submit`（18），合计 31 个实际模型调用；
+    每任务 Worker 5 次文件工具 + `submit`（18），合计 31 个实际链路调用（对端为本机
+    合成 peer）；
     `call_attempts`/`live_send_claims`/`live_transport_observations`/settlement/反馈
     各 31 行、peer 请求数 31；每调用 I=11/O=7/Cr=3、Cw 缺失，价格 1.5M/4M/0.25M/NA，
     手算 `ceil((8*1.5+3*0.25+7*4))=41µUSD`、总计 31×41=1271µUSD，与
@@ -60,12 +65,22 @@
     估算分项为 0（`test_91_pricing_does_not_replace_a_required_signed_receipt`）。
   - 专项 ctest 12/12 通过（billing、live_model_store(_tls)、live_workflow(_cli)、
     billing_baseline_e2e、single_agent(_runtime) 等，712s）。
-  - **全量本地 Release ctest：78/78 注册目标全部通过**（2056s；树内 `build-g1-release`
-    布局，日志 `billing-implement-01/evidence/13-green-full-ctest-intree.log`）。
-    说明：`doctor_diagnostics_cli` 与 `review_cli_smoke` 依赖"构建目录父级＝源码树根"
-    的可执行相对资源发现；在源码树外的外部构建目录（计划建议的 `billing-build-release-v1`）
-    中运行同一套件时这两个目标因该布局差异失败（76/78，
-    `evidence/10-green-full-ctest.log`），产品行为本身不受影响。
+  - **全量本地 Release ctest：78/78 注册目标全部通过**（日志头 12:08:07Z 起、
+    总时长 2056.28s；树内 `build-g1-release`
+    布局，日志 `billing-implement-01/evidence/13-green-full-ctest-intree.log`；该次
+    运行于全量构建完成后单独执行，与下列首跑事实分开记录、不混同）。
+  - 首次全量运行（源码树外外部构建目录 `billing-build-release-v1`，即计划建议布局）
+    为 **76/78**（exit 8）：`doctor_diagnostics_cli`、`review_cli_smoke` 失败于错误
+    路径断言 `unsupported != invalid_input`；首跑原始日志保留于
+    `evidence/10-green-full-ctest.log`（日志头 10:55:16Z、总时长 2444.29s、stdout
+    末次写入 11:36:01Z）。根 11:43:57Z 的路由观察记录该首跑日志已终结稳定，当时
+    并发活跃的是**后续本树内编译**（为第二次全量运行准备）与 **Protocol 模块的
+    CTest**（其 full-ctest 证据 11:43:55Z 仍在写入）。该观察证明的是首跑结束后、
+    两跑之间这一时点的跨模块资源并发，**不是**首跑 CTest 批次内部的并发；首跑
+    自身是否严格串行现有证据不足以判定，该观察也不与第二次 78/78 混同。两目标
+    在同源码树内构建下通过，失败证据与「构建目录父级＝源码树根」的可执行相对
+    资源发现布局差异**一致**；但该资源/布局成因**未经独立证明**，本报告不宣称
+    其为已证实的唯一原因，也不据此断言产品行为不受影响。
 
 ## 规模与边界
 
@@ -78,7 +93,12 @@
 ## 限制（如实）
 
 - Windows 11 保持 `NOT_RUN`；私有托管 CI 证据保持 `BLOCKED`（原始日志仅本地）。
-- 远端 CI（三核心 + 完整六配置 + source-snapshot）尚未运行：本批到具体 PR 可审为止，
-  未合并、未推送；main 侧完整验证列为待授权后的门禁。
+- 发布与远端状态（2026-11-08 报告修正时点）：本地 Release 78/78 与独立硬审
+  **PASS**（全新会话，区别于计划审核与实施会话）已完成；提交 `50e85fa` 已由根
+  普通推送至 `feat/g1-billing-20261108-y1wf1f4k`，无 PR、无合并、无强推。PR、
+  远端 CI（三核心 + 完整六配置 strict/umask0002/UBSan/ASan/Make-ASan/Clang18 +
+  source-snapshot）以及本地 Clang/sanitizer/Make 变体、严格串行复跑组合仍为
+  PENDING/NOT_RUN；远端将按既有 workflow_dispatch 在目标 ref 执行，属常规 CI、
+  无需新授权。main 合并授权仍缺失，main 侧完整验证保持待授权后的门禁。
 - 估算不是供应商报价或签名收据；真实 provider 计价、付费调用与 411/013 语义仍按
   冻结边界留给后续批次（G1-2/G1-5 由其各自计划与作者分区）。
