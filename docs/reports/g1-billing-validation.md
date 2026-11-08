@@ -102,3 +102,57 @@
   无需新授权。main 合并授权仍缺失，main 侧完整验证保持待授权后的门禁。
 - 估算不是供应商报价或签名收据；真实 provider 计价、付费调用与 411/013 语义仍按
   冻结边界留给后续批次（G1-2/G1-5 由其各自计划与作者分区）。
+
+## 补充单次 pump 观察（2026-11-08 14:14:48Z—14:15:29Z，HEAD `febd6c0`）
+
+- 受控观察（原 ELF `build-g1-release/wls`，SHA-256
+  `df3dddf7995cb3a75576afdf4fd3bf7644ca182937dc191eba090ab0b4da93b2`、原 test_10、原
+  fixture/参数）下，单个原 unittest 通过（`Ran 1 test in 39.888s`，exit 0），期间**实际
+  开始并完成 2 次 pump**；原 CLI 输出完整留存于私有证据 `billing-pump-observation-01/`
+  （结果 JSON SHA-256
+  `39e5b5452b3077b98a5bfeb1c39494a1317181fd7c2372cccd2a5654dbee0d2d`）。**历史其他运行的
+  pump 次数仍 unknown**。
+- 第一轮：30 次调用（Dispatcher 4/TeamLead 8/Worker 18）、`spent_cost` 1230µUSD、
+  `manager_calls` 12；三任务 ACCEPTED、alpha/beta 经验作业 DONE、**gamma 经验作业
+  PENDING**；顶层 `blocked` 恰 1 条 `manager_limit`（gamma TeamLead），而
+  `accounting.ready=true`、`accounting.blocked_count=0`（管理额度阻塞不等于计费未知）；
+  `stop_reason=quiescent`；没有为第 31 次调用产生任何预约或发送。第二轮只新增 gamma
+  经验调用 1 次（`workflow_kind=experience`）：累计 31 次/1271µUSD、经验作业全 DONE、
+  `blocked` 空。两轮 `request_status=RUNNING`、`business_delivered=false`。
+- **原 FINAL（`plan-final-v1.md` §7）的「一次 pump 完成 31 次调用」条款维持
+  NOT_MET**：本观察是该条款的明确反例。上述 31 次计费证据本身（30+1、手算一致、账目
+  ready）不受影响；观察硬审仅 PASS 诊断完整性，不批准 full G1-1、不追认全量门禁或历史
+  pump 次数。
+- 同一授权文件（一次创建、两轮前后字节哈希一致）被显式复用于两个 `pump-live` CLI
+  调用；**续批由测试代码执行，不是产品自动跨批推进**，两轮请求均 RUNNING 且未交付。
+- 自动跨批推进、单入口多 batch、全请求墙钟与累计预算归 Controls/集成批次审定；原每
+  batch 经理上限 12（`system.limits.manager_max_tool_calls_per_wake`，
+  `config/examples/system.yaml:65`，`src/config_loader.cpp` 1..12 校验）与保留工作规则
+  在 Billing 中继续有效，未放宽。
+
+## 本轮 test_10 回归改写与状态（准备阶段，2026-11-08）
+
+- 依据补充 FINAL `plan-pump-regression-final-v1.md`（独立计划审核 PASS，六项建议均采
+  纳），现有 test_10 的至多十次重试循环改写为**两次显式 `pump-live`**：首批断言从本请
+  求冻结 config_snapshot 只读取经理上限 12、30 次调用/1230µUSD/角色 4/8/18、gamma 经验
+  作业 PENDING、无第 31 次预约或发送、30 条原 attempt 的逐角色逐节点工具序列、accounting
+  与顶层 blocked 的区分及请求/配置/授权哈希绑定；第二次以完全同一 request/db/授权/工作区
+  文件仅新增 gamma 经验调用，保留原全部终态断言，并把原循环退出条件改为显式三任务
+  ACCEPTED、三经验作业 DONE。两轮 RUNNING/未交付断言保持。
+- **本轮新测试执行状态：NOT_RUN——等待 root 明确移交本补充任务的独占产品构建/测试
+  槽**（当前槽由 Correction76420 持有；准备阶段未运行任何产品/测试/CTest/构建/语法执
+  行）。获槽后最小验证为串行三个既有 CTest 注册（`billing_baseline_e2e`/`config_loader`/
+  `event_runtime`，原 900 秒期限不变），绑定原产品 ELF + 新测试源；真实命令、目标数、退
+  出码、精确 HEAD/差异与证据绑定只在实际执行后追加。
+- 此前本地 78/78（12:08:07Z 树内复跑）与上文各时点结果均为**旧测试源**的历史陈述，不覆
+  盖本轮新测试源；本报告上文原时点记载（配置 RED、首跑 76/78、专项 12/12、11:43:57Z 资
+  源观察等）保持原样不改写。
+- 旧 head 远端终态（root 2026-11-08T14:29:40Z 保存的
+  `billing-ci-febd6c0-terminal-zeidnfpn/observation.json`，SHA-256
+  `c2f8df5700bfdfbea5d3f647b8a30b9e5849079ed2b39a88308e919c8c879481`）：run
+  `42485945254`（workflow_dispatch）在精确 head `febd6c0366a9744c20077fea114f13eea48fbc4c`
+  六配置（strict、strict-umask-0002、UBSan、ASan、Make-ASan、Clang18）terminal
+  success；ASan 走 CTest 注册（78/78，2155.52s），Make-ASan 走**直接 Make 测试路径**且
+  用户 `CPPFLAGS=-DWLS_CI_USER_CPPFLAGS=1` 传入成功，两者按不同路径分别记账、不混同。
+  该证据只覆盖旧 head 与旧测试源，**不验证本轮新测试源，也不关闭原 single-pump
+  NOT_MET 或 G1 总门禁**；上文更早时点的 CI PENDING 记载为当时事实，保持原样。

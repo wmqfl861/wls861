@@ -558,13 +558,17 @@ class BillingBaselineIntegration(unittest.TestCase):
         self.run_pair(4)
 
     def test_10_unsigned_estimated_billing_completes_thirty_one_original_calls(self):
-        """One authorization, no signed policy: 31 real wire calls finish priced accounting.
+        """One authorization: the first batch hits the frozen manager cap; an explicit second call completes 31 billings.
 
         Dispatcher serves submit_plan plus three accept_candidate (4), each task's
         TeamLead serves issue_work_order/check_submission/report_experience (9),
-        and each task's Worker performs five file tools then submit (18). Every
-        call must be one reserved, claimed, observed, settled attempt whose
-        effective budget cost is the deterministic estimate, never actual usage.
+        and each task's Worker performs five file tools then submit (18). The
+        frozen limit of 12 manager tool calls per wake retains gamma's final
+        experience call after 30 settled wire calls; the unchanged
+        authorization then drives one further explicit CLI batch that settles
+        the 31st call. This test itself performs the continuation across two
+        pump-live invocations: it is not single-pump completion and not
+        product-side automatic multi-batch progress.
         """
         endpoint = PricingFlowEndpoint()
         with tls.Peer(self.contexts['server'], endpoint) as peer:
@@ -585,19 +589,94 @@ class BillingBaselineIntegration(unittest.TestCase):
             authorization.update(network_enabled=True, reserved_cost_micro_usd=200000,
                 max_calls=64, max_worker_calls_per_task=16, max_batch_duration_ms=120000)
             write_json(case['authorization'], authorization)
-            report = None
-            for _ in range(10):
-                report = self.command('pump-live', '--db', case['database'], '--request', case['request'],
-                    '--authorization-file', case['authorization'], '--workspaces-file', case['mapping'])
-                tasks = rows(case['database'], 'SELECT status FROM tasks WHERE request_id=?', (case['request'],))
-                jobs = rows(case['database'], 'SELECT status FROM experience_jobs WHERE request_id=?', (case['request'],))
-                if tasks and jobs and all(row['status'] == 'ACCEPTED' for row in tasks) and \
-                        all(row['status'] == 'DONE' for row in jobs):
-                    break
-            else:
-                self.fail({'stop_reason': report and report.get('stop_reason'),
-                           'blocked': report and report.get('blocked')})
-            self.assertEqual(report['stop_reason'], 'quiescent', report)
+            authorization_sha256 = hashlib.sha256(case['authorization'].read_bytes()).hexdigest()
+            frozen = json.loads(rows(case['database'], 'SELECT config_snapshot FROM requests '
+                'WHERE request_id=?', (case['request'],))[0]['config_snapshot'])
+            self.assertEqual(frozen['system']['limits']['manager_max_tool_calls_per_wake'], 12)
+            first = self.command('pump-live', '--db', case['database'], '--request', case['request'],
+                '--authorization-file', case['authorization'], '--workspaces-file', case['mapping'])
+            # First batch: the frozen manager cap retains gamma's experience work.
+            self.assertEqual(first['stop_reason'], 'quiescent', first['blocked'])
+            self.assertEqual(len(first['calls']), 30)
+            self.assertEqual(first['network_started_calls'], 30)
+            self.assertEqual(first['manager_calls'], 12)
+            first_roles = {}
+            for call in first['calls']:
+                first_roles[call['role']] = first_roles.get(call['role'], 0) + 1
+            self.assertEqual(first_roles, {'dispatcher': 4, 'team_lead': 8, 'worker': 18})
+            self.assertEqual(len(peer.requests), 30)
+            self.assertEqual(len(endpoint.actions), 30)
+            self.assertEqual(first['budget']['attempts'], 30)
+            self.assertEqual(first['budget']['spent_cost'], 30 * PRICED_UNIT_MICRO_USD)
+            self.assertEqual(first['budget']['reserved_cost'], 0)
+            self.assertEqual(first['budget']['unknown_cost'], 0)
+            self.assertTrue(first['accounting']['ready'], first['accounting'])
+            self.assertEqual(first['accounting']['blocked_count'], 0)
+            self.assertEqual(first['accounting']['blocked_attempts'], [])
+            self.assertEqual(len(first['blocked']), 1)
+            self.assertEqual((first['blocked'][0]['code'], first['blocked'][0]['role'],
+                              first['blocked'][0]['node_id']), ('manager_limit', 'team_lead', 'gamma'))
+            self.assertEqual((first['request_id'], first['config_snapshot_sha256'],
+                              first['host_authorization_sha256']),
+                             (case['request'], status['config_snapshot_sha256'], authorization_sha256))
+            self.assertEqual(first['request_status'], 'RUNNING')
+            self.assertFalse(first['business_delivered'])
+            task_rows = rows(case['database'], 'SELECT task_id,node_id,status FROM tasks '
+                             'WHERE request_id=?', (case['request'],))
+            node_tasks = {row['node_id']: row['task_id'] for row in task_rows}
+            task_nodes = {task: node for node, task in node_tasks.items()}
+            self.assertEqual({row['node_id']: row['status'] for row in task_rows},
+                             {'alpha': 'ACCEPTED', 'beta': 'ACCEPTED', 'gamma': 'ACCEPTED'})
+            self.assertEqual(first['blocked'][0]['task_id'], node_tasks['gamma'])
+            self.assertEqual({task_nodes[row['task_id']]: row['status'] for row in rows(case['database'],
+                'SELECT task_id,status FROM experience_jobs WHERE request_id=?', (case['request'],))},
+                {'alpha': 'DONE', 'beta': 'DONE', 'gamma': 'PENDING'})
+            self.assertEqual([call['node_id'] for call in first['calls']
+                              if call['workflow_kind'] == 'experience'], ['alpha', 'beta'])
+            for table in ('call_attempts', 'live_send_claims', 'live_transport_observations',
+                          'model_tool_feedback'):
+                self.assertEqual(rows(case['database'], f'SELECT count(*) AS n FROM {table}')[0]['n'],
+                                 30, table)
+            batch_one = rows(case['database'],
+                "SELECT a.attempt_id,a.role,a.team_id,"
+                "json_extract(a.response,'$.tool_calls[0].name') AS tool FROM call_attempts a "
+                "WHERE a.request_id=? ORDER BY rowid", (case['request'],))
+            self.assertEqual(len(batch_one), 30)
+            self.assertEqual([row['tool'] for row in batch_one], endpoint.actions)
+            self.assertEqual([row['tool'] for row in batch_one if row['role'] == 'dispatcher'],
+                             ['submit_plan', 'accept_candidate', 'accept_candidate', 'accept_candidate'])
+            nodes = {row['team_id']: row['node_id'] for row in
+                     rows(case['database'], 'SELECT t.team_id,k.node_id FROM teams t '
+                          'JOIN tasks k ON k.task_id=t.task_id WHERE t.request_id=?',
+                          (case['request'],))}
+            for node in ('alpha', 'beta'):
+                own = [row for row in batch_one if nodes.get(row['team_id']) == node]
+                self.assertEqual([row['tool'] for row in own if row['role'] == 'team_lead'],
+                                 ['issue_work_order', 'check_submission', 'report_experience'])
+                self.assertEqual([row['tool'] for row in own if row['role'] == 'worker'],
+                                 ['fs_read', 'fs_write', 'fs_read', 'fs_write', 'fs_read', 'submit'])
+            own = [row for row in batch_one if nodes.get(row['team_id']) == 'gamma']
+            self.assertEqual([row['tool'] for row in own if row['role'] == 'team_lead'],
+                             ['issue_work_order', 'check_submission'])
+            self.assertEqual([row['tool'] for row in own if row['role'] == 'worker'],
+                             ['fs_read', 'fs_write', 'fs_read', 'fs_write', 'fs_read', 'submit'])
+            # Explicit second batch: same request, database, authorization and workspaces.
+            second = self.command('pump-live', '--db', case['database'], '--request', case['request'],
+                '--authorization-file', case['authorization'], '--workspaces-file', case['mapping'])
+            self.assertEqual(hashlib.sha256(case['authorization'].read_bytes()).hexdigest(),
+                             authorization_sha256)
+            self.assertEqual(len(second['calls']), 1)
+            completion = second['calls'][0]
+            self.assertEqual((completion['role'], completion['node_id'], completion['workflow_kind']),
+                             ('team_lead', 'gamma', 'experience'))
+            self.assertNotIn(completion['attempt_id'], {row['attempt_id'] for row in batch_one})
+            self.assertEqual(second['manager_calls'], 1)
+            self.assertEqual(second['network_started_calls'], 1)
+            self.assertEqual(second['blocked'], [])
+            self.assertEqual(second['stop_reason'], 'quiescent')
+            self.assertEqual(second['host_authorization_sha256'], authorization_sha256)
+            self.assertEqual(second['request_status'], 'RUNNING')
+            self.assertFalse(second['business_delivered'])
             self.assertEqual(len(endpoint.actions), PRICING_CALLS)
             self.assertEqual(len(peer.requests), PRICING_CALLS)
             for request in peer.requests:
@@ -608,6 +687,8 @@ class BillingBaselineIntegration(unittest.TestCase):
                 "json_extract(a.response,'$.tool_calls[0].name') AS tool FROM call_attempts a "
                 "WHERE a.request_id=? ORDER BY rowid", (case['request'],))
             self.assertEqual(len(attempts), PRICING_CALLS)
+            self.assertLess({row['attempt_id'] for row in batch_one},
+                            {row['attempt_id'] for row in attempts})
             self.assertTrue(all(row['settlement_sha256'] for row in attempts))
             self.assertTrue(all(row['input_tokens'] == 11 and row['output_tokens'] == 7 and
                                 row['cache_read_tokens'] == 3 for row in attempts))
@@ -657,6 +738,20 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(status['accounting']['reported_cost_micro_usd'], 0)
             self.assertNotIn('actual', json.dumps(status['accounting']))
             self.assertNotIn('actual', json.dumps(budget['cost_breakdown']))
+            # The removed retry loop's exit conditions stay explicit assertions.
+            self.assertEqual([row['status'] for row in rows(case['database'],
+                'SELECT status FROM tasks WHERE request_id=? ORDER BY rowid', (case['request'],))],
+                ['ACCEPTED'] * 3)
+            self.assertEqual([row['status'] for row in rows(case['database'],
+                'SELECT status FROM experience_jobs WHERE request_id=? ORDER BY rowid',
+                (case['request'],))], ['DONE'] * 3)
+            print('INDEPENDENT_PRICED_BATCH_SUMMARY ' + json.dumps({'first_calls': len(first['calls']),
+                'second_calls': len(second['calls']), 'first_manager_calls': first['manager_calls'],
+                'first_spent_micro_usd': first['budget']['spent_cost'],
+                'final_spent_micro_usd': second['budget']['spent_cost'],
+                'first_blocked': [entry['code'] for entry in first['blocked']],
+                'final_request_status': second['request_status'],
+                'final_business_delivered': second['business_delivered']}, sort_keys=True))
 
     def test_90_invalid_signed_sources_never_advance_business_or_repeat_send(self):
         for variant in ('bad_signature', 'wrong_challenge', 'wrong_response_hash', 'duplicate_header'):
