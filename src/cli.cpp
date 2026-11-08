@@ -9,6 +9,7 @@
 #include "wls/migrations.hpp"
 #include "wls/billing.hpp"
 #include "wls/single_agent.hpp"
+#include "amendment_disposition.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -273,7 +274,7 @@ void validate_dispositions(const Json& value) {
             throw Error(ErrorCode::InvalidInput, "each disposition requires exactly disposition and rationale");
         const auto kind = text(decision.at("disposition"));
         const auto rationale = text(decision.at("rationale"));
-        if ((kind != "update" && kind != "keep" && kind != "cancel") || rationale.empty() ||
+        if (!is_amendment_disposition(kind) || rationale.empty() ||
             rationale.size() > 4096 || rationale.find('\0') != std::string::npos ||
             rationale.find_first_not_of(" \t\r\n") == std::string::npos)
             throw Error(ErrorCode::InvalidInput, "invalid disposition or rationale");
@@ -1151,7 +1152,7 @@ int run_cli(int argc, char** argv) {
     // read-only Store requiring a pending AMEND. Applicability to the current
     // task state is still rechecked by the runtime; an absent database keeps
     // its existing open semantics and is never created by the read-only open.
-    if (!(disposition.empty() || disposition == "update" || disposition == "keep" || disposition == "cancel"))
+    if (!(disposition.empty() || is_amendment_disposition(disposition)))
         throw Error(ErrorCode::InvalidInput, "disposition must be empty or one of update, keep, or cancel");
     const auto workspace = options.take("--workspace");
     const auto manifest_path = options.take("--sandbox-manifest");
@@ -1167,9 +1168,7 @@ int run_cli(int argc, char** argv) {
         if (tasks.size() > 1)
             throw Error(ErrorCode::Unsupported, "offline runner supports one task per request");
         const auto record = inspect.request(request);
-        const bool pending_amend = !tasks.empty() &&
-            integer(tasks.front().at("based_on_requirements_revision")) !=
-            integer(record.at("requirements_revision"));
+        const bool pending_amend = has_pending_amendment(tasks, record);
         if (!pending_amend)
             throw Error(ErrorCode::InvalidInput, "disposition supplied without a pending AMEND");
     }
