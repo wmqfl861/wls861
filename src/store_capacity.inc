@@ -143,8 +143,14 @@
         // Original nullable settlements are immutable. For reconciled live
         // calls, the current five-dimensional projection determines whether
         // settlement controls are still needed; Fake/legacy calls retain
-        // their original three-dimensional accounting rule.
-        const auto pending_calls = number(one(reconciliation_schema ?
+        // their original three-dimensional accounting rule. Priced requests
+        // share the same completion definition through the effective view.
+        std::int64_t pending_calls = -1;
+        if (reconciliation_schema)
+            if (const auto priced = pricing_accounting_scan(id); !priced.is_null())
+                pending_calls = number(priced.as_object(), "blocked_count");
+        if (pending_calls < 0)
+            pending_calls = number(one(reconciliation_schema ?
             "SELECT COUNT(*) AS n FROM call_attempts c LEFT JOIN live_attempt_execution l USING(attempt_id) "
             "LEFT JOIN live_usage_projection p USING(attempt_id) WHERE c.request_id=? AND "
             "(c.status IN ('PENDING','UNKNOWN') OR "

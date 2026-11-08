@@ -107,7 +107,38 @@ Schemas、HTTP 成功或 decoded Completed 不授予工具或交付权限。
 `VerifiedUsageEvidence` 只能由宿主 verifier factory 构造有效内容。verifier 负责来源认证、
 解析和单位；Store 再校验原 attempt/settlement、来源种类、证据 hash 和投影 CAS。
 host_no_dispatch 只用于无发送权的原恢复标记，且必须五维明确为0；不能清除已发送未决。
-当前没有通用供应商账单抓取、数字签名实现或自动价格估算。
+签名收据是可选的更高等级证据（见 [签名账单](R3-signed-billing.md)）；不含 pricing 的
+旧 profile 语义原样适用，费用保持 UNKNOWN。
+
+## 冻结价格估算（G1-1）
+
+provider profile 可携带唯一可选 `pricing` 对象（`wls-token-pricing-v1`，USD，
+`micro_usd_per_million_tokens`；rate 为 0…10^12 的整数）。input/output 必为 reported；
+cache read/write 各自声明 `reported`（必须带 rate 并要求原 token 观察）或
+`not_applicable`（禁止 rate，也不得出现原计数，否则 policy_mismatch 并停新业务）。
+不接受未知键/版本/币种/单位、null、空对象、float、负数或溢出。pricing 随 admission
+原快照冻结，进入完整 profile/config 指纹；`pricing_sha256 = SHA256(canonical_json(pricing))`。
+
+估算 `estimate_token_cost` 只用原结算 usage（input−cache 子集 + output），全部整数
+checked 运算、仅在总和末尾向上取整；缺维度保持 UNKNOWN 不填 0，溢出返回
+unavailable。只有已结算且原 transport 响应为 Completed 的 attempt 才能把估算计入
+有效账目；取消、deadline、HTTP 错误、部分 SSE、host unobserved 都不能定价。
+STALE 但原响应完整时仍可计算。
+
+有效账目不新增表：`call_attempts` 五列、`live_usage_projection` 初始链、
+`012` 的 source_kind 均不变。settlement 在原事务把有效 cost 记为估算 E（原始 usage
+仍写 null）；后到可信实际 A 只调整差额（A==E 差额0；A>E 全额入账并在超限时停新
+预约；A<E 减少有效预算），原预留不二次释放。无 pricing 请求逐字保留旧三维/五维
+差额路径。`verify_usage_ledger` 在同一读快照内先验证冻结价格身份（settings 原字节
+SHA、完整 profile SHA、与请求冻结角色 provider 一致），再重放链、逐条核对有效差额
+并重建预算；不符报 Corrupt。`has_unsettled_model`、`live_accounting_ready/status`
+和 capacity `pending_calls` 对 pricing 请求改用同一有效完成判断（完整但超预留与
+未知不同：前者仍允许原必要收尾）；`live_accounting_status` 以完整读快照枚举并给出
+estimated/reported/unknown 分项。`Store::budget` 对 pricing 请求追加
+`accounting_format=wls-estimated-budget-v1` 与 cost breakdown，裸 `spent_cost`
+不得再被当作 actual。最低预留 `minimum_cost_reservation`（输入侧取适用 rate 最大值）
+在 EventRuntime 捕获后、encode/凭据前，以及 Store reserve（INSERT/预算 CAS 前）与
+claim 首发前复核；host 正数预留必须覆盖它，价表全 0 时仍保留原 live 正预留要求。
 
 `usage_projection` 同时返回原结算身份/usage、独立 projection、unknown dimensions 和核对链。
 `verify_usage_ledger(request_id)` 按原预约/结算和每条核对记录重建预算；对记录/hash/链/差额/

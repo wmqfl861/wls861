@@ -453,6 +453,164 @@ void source_verifier_and_role_are_mandatory() {
     error(ErrorCode::Unauthorized, [&] { (void)execute_live_attempt(*p.store, p.actor(), p.request("new-provider"), "SYNTHETIC", {true, false}); });
     CHECK(number(p.store->budget(p.request_id), "attempts") == 1);
 }
+
+LiveModelSettings pricing_settings() {
+    auto live = fixture::settings();
+    live.provider.pricing.emplace();
+    live.provider.pricing->input_micro_usd_per_million_tokens = 1500000;
+    live.provider.pricing->output_micro_usd_per_million_tokens = 4000000;
+    live.provider.pricing->cache_read_applicable = true;
+    live.provider.pricing->cache_read_micro_usd_per_million_tokens = 250000;
+    return live;  // cache write stays frozen not-applicable
+}
+ModelUsage priced_usage() {
+    ModelUsage usage; usage.input_tokens = 11; usage.output_tokens = 7; usage.cache_read_tokens = 3;
+    return usage;
+}
+// Reservation above ceil(1.5*1000 + 4*100)=1900 so the priced minimum holds.
+ModelRequest priced_request(fixture::Fixture& f, std::string id = "attempt-priced") {
+    auto request = f.request(std::move(id));
+    request.reserved_cost_micro_usd = 2000;
+    return request;
+}
+// Test-only completed observation inside this fixture's own disposable
+// database; the response tuple is the exact one admitted for this attempt.
+Json settle_completed(fixture::Fixture& f, const ModelRequest& request, const ModelUsage& usage) {
+    (void)f.reserve(request);
+    const auto claim = f.claim(request);
+    ModelResponse response;
+    response.call_id = request.call_id; response.attempt_id = request.attempt_id;
+    response.role_call_index = request.role_call_index; response.role = request.role;
+    response.binding = request.binding; response.config_snapshot_id = request.config_snapshot_id;
+    response.status = ModelResultStatus::Completed;
+    response.text = "synthetic priced completion";
+    response.usage = usage;
+    const auto body = canonical_json(to_json(response));
+    fixture::sql(f.path, "INSERT INTO live_transport_observations VALUES ('" + request.attempt_id + "','" +
+        text(claim, "claim_id") + "','" + sha256_hex("synthetic-priced-observation") + "','{}','" + body +
+        "','','', '{}','2026-01-01T00:00:00Z')");
+    return f.store->settle_attempt(request.attempt_id, request.binding, request.config_snapshot_id,
+        "COMPLETED", to_json(usage), to_json(response));
+}
+
+void priced_status_observes_one_budget_snapshot_across_late_receipt() {
+    fixture::Fixture f(*assets, pricing_settings());
+    const auto request = priced_request(f, "interleaved-priced");
+    const auto settled = settle_completed(f, request, priced_usage());
+    BudgetReadInterleave interleave;
+    auto reader = assets->open(f.path, {}, 410, StoreOpenMode::ReadOnly);
+    bool committed = false;
+    auto late = priced_usage(); late.cost_micro_usd = 60;
+    after_budget_read = [&] {
+        (void)f.store->reconcile_usage(f.actor(Role::Root),
+            fixture::evidence(settled, late, "late"), {"late", "late", 1});
+        committed = true;
+    };
+    const auto observed = reader->live_accounting_status(f.request_id);
+    if (budget_read_failure) std::rethrow_exception(budget_read_failure);
+    CHECK(committed);
+    // One snapshot: the reported summary and its reported basis never mix.
+    const auto estimated = number(observed, "estimated_cost_micro_usd");
+    const auto reported = number(observed, "reported_cost_micro_usd");
+    CHECK(estimated + reported == 41 || estimated + reported == 60);
+    CHECK(number(f.store->budget(f.request_id), "spent_cost") == 60);
+    const auto refreshed = reader->live_accounting_status(f.request_id);
+    CHECK(number(refreshed, "reported_cost_micro_usd") == 60);
+    CHECK(number(refreshed, "estimated_cost_micro_usd") == 0);
+    CHECK(reader->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+}
+
+void estimated_budget_accounting_and_late_actual_evidence() {
+    const auto priced = priced_usage();  // 11/7/3 reported, no cache write: estimate 41
+    {   // The deterministic estimate completes budget accounting and releases
+        // settlement capacity while every original row keeps its null cost.
+        fixture::Fixture f(*assets, pricing_settings());
+        const auto request = priced_request(f);
+        const auto settled = settle_completed(f, request, priced);
+        CHECK(settled.at("cost_micro_usd").is_null() && settled.at("cache_write_tokens").is_null());
+        CHECK(number(settled, "input_tokens") == 11 && number(settled, "cache_read_tokens") == 3);
+        auto budget = f.store->budget(f.request_id);
+        CHECK(number(budget, "spent_cost") == 41 && number(budget, "reserved_cost") == 0 &&
+              number(budget, "unknown_cost") == 0);
+        CHECK(budget.at("accounting_format") == "wls-estimated-budget-v1");
+        CHECK(number(budget.at("cost_breakdown").as_object(), "estimated_micro_usd") == 41);
+        const auto status = f.store->live_accounting_status(f.request_id);
+        CHECK(status.at("ready").as_bool() && number(status, "blocked_count") == 0);
+        CHECK(number(status, "estimated_cost_micro_usd") == 41);
+        CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 16);
+        const auto projection = f.store->usage_projection(request.attempt_id);
+        CHECK(!projection.at("accounting_complete").as_bool());
+        CHECK(projection.at("budget_accounting_complete").as_bool());
+        CHECK(projection.at("estimated_cost").at("amount_micro_usd") == 41);
+        const auto& frozen_budget = f.store->budget(f.request_id);
+        CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+        f.reopen();  // a reopened or read-only observer cannot change the frozen price
+        CHECK(f.store->budget(f.request_id) == frozen_budget);
+        auto reader = assets->open(f.path, {}, 410, StoreOpenMode::ReadOnly);
+        CHECK(reader->live_accounting_status(f.request_id).at("ready").as_bool());
+        CHECK(reader->budget(f.request_id) == frozen_budget);
+        CHECK(reader->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+        fixture::sql(f.path, "DROP TRIGGER live_execution_no_update;");
+        fixture::sql(f.path, "UPDATE live_attempt_execution SET settings=replace(settings,'1500000','1500001');");
+        fixture::sql(f.path, "CREATE TRIGGER live_execution_no_update BEFORE UPDATE ON live_attempt_execution "
+                             "BEGIN SELECT RAISE(ABORT,'immutable live attempt identity'); END;");
+        error(ErrorCode::Corrupt, [&] { (void)f.store->live_accounting_status(f.request_id); });
+        error(ErrorCode::Corrupt, [&] { (void)f.store->verify_usage_ledger(f.request_id); });
+    }
+    for (const auto& [actual, expected, ready] : {std::tuple<std::int64_t, std::int64_t, bool>{41, 41, true},
+            {60, 60, true}, {20, 20, true}}) {
+        fixture::Fixture f(*assets, pricing_settings());
+        const auto request = priced_request(f, "attempt-actual");
+        const auto settled = settle_completed(f, request, priced);
+        auto confirmed = priced; confirmed.cost_micro_usd = actual;
+        const auto result = f.store->reconcile_usage(f.actor(Role::Root),
+            fixture::evidence(settled, confirmed, "actual"), {"actual", "actual", 1});
+        CHECK(result.at("budget_delta").at("cost").at("spent") == actual - 41);
+        CHECK(number(f.store->budget(f.request_id), "spent_cost") == expected);
+        CHECK(number(f.store->budget(f.request_id), "unknown_cost") == 0);
+        CHECK(f.store->live_accounting_status(f.request_id).at("ready").as_bool() == ready);
+        CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+        CHECK(f.store->attempt(request.attempt_id) == settled);
+    }
+    {   // An actual above the original reservation blocks new paid business.
+        fixture::Fixture f(*assets, pricing_settings());
+        const auto request = priced_request(f, "attempt-excess");
+        const auto settled = settle_completed(f, request, priced);
+        auto excess = priced; excess.cost_micro_usd = 2500;
+        (void)f.store->reconcile_usage(f.actor(Role::Root), fixture::evidence(settled, excess, "excess"),
+            {"excess", "excess", 1});
+        const auto status = f.store->live_accounting_status(f.request_id);
+        CHECK(!status.at("ready").as_bool() && number(status, "over_reserved_count") == 1);
+        error(ErrorCode::UnknownOutcome, [&] { (void)f.reserve(priced_request(f, "excess-blocked")); });
+        CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 16);
+        CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+    }
+    {   // A cancelled response never gains an estimate; its reservation stays.
+        fixture::Fixture f(*assets, pricing_settings());
+        (void)f.interrupted(priced_request(f, "attempt-cancelled"));
+        CHECK(number(f.store->budget(f.request_id), "spent_cost") == 0);
+        CHECK(number(f.store->budget(f.request_id), "reserved_cost") == 2000);
+        CHECK(number(f.store->budget(f.request_id), "unknown_cost") == 2000);
+        CHECK(!f.store->live_accounting_status(f.request_id).at("ready").as_bool());
+        error(ErrorCode::UnknownOutcome, [&] { (void)f.reserve(priced_request(f, "cancel-blocked")); });
+        CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+    }
+    {   // A frozen not-applicable count the response reported is a mismatch.
+        fixture::Fixture f(*assets, pricing_settings());
+        auto mismatched = priced; mismatched.cache_write_tokens = 1;
+        const auto settled = settle_completed(f, priced_request(f, "attempt-mismatch"), mismatched);
+        CHECK(number(settled, "cache_write_tokens") == 1);  // original bytes stay
+        CHECK(number(f.store->budget(f.request_id), "spent_cost") == 0);
+        const auto status = f.store->live_accounting_status(f.request_id);
+        CHECK(!status.at("ready").as_bool());
+        bool mismatch = false;
+        for (const auto& item : status.at("blocked_attempts").as_array())
+            mismatch = mismatch || (item.at("reason") == "policy_mismatch");
+        CHECK(mismatch);
+        error(ErrorCode::UnknownOutcome, [&] { (void)f.reserve(priced_request(f, "mismatch-blocked")); });
+        CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+    }
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -460,6 +618,7 @@ int main(int argc, char** argv) {
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     return test::run({
         {"read-only ledger reconstruction uses one snapshot across a separate writer commit", readonly_ledger_observes_one_snapshot},
+        {"priced accounting status observes one budget snapshot across a late receipt", priced_status_observes_one_budget_snapshot_across_late_receipt},
         {"completed usage reconciliation releases settlement capacity while missing cache stays reserved", reconciled_usage_releases_settlement_capacity},
         {"Fake and legacy calls retain three-dimensional settlement capacity rules", fake_and_legacy_capacity_keep_original_usage_rules},
         {"disabled, credential authorization and full frozen envelope reject before reservation", disabled_and_complete_envelope},
@@ -477,6 +636,7 @@ int main(int argc, char** argv) {
         {"terminal scoped reconciliation cannot alter sibling or restore business", terminal_scoped_reconciliation_and_sibling_isolation},
         {"explicit migration preserves original fake snapshots, attempts, settlement and budget", scoped_upgrade_and_fake_bytes_stay_original},
         {"policy and cross-request identity are rechecked before first send", policy_and_identity_fences_before_claim},
-        {"host verifier, original settlement, Root role and evidence kind remain mandatory", source_verifier_and_role_are_mandatory}
+        {"host verifier, original settlement, Root role and evidence kind remain mandatory", source_verifier_and_role_are_mandatory},
+        {"estimated budget accounting completes without actual cost and late evidence adjusts only the difference", estimated_budget_accounting_and_late_actual_evidence}
     });
 }
