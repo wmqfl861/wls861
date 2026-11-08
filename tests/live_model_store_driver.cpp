@@ -206,6 +206,64 @@ int main(int argc, char** argv) {
                 {"second_request_body", before_reopen.body}};
             std::cout << canonical_json(result) << '\n'; return 0;
         }
+        if (action == "compat-native-two-reopen-third") {
+            // Two distinct accepted native tool rounds (A then B) persisted
+            // through the real loopback TLS path and immutable feedback, one
+            // Store close/reopen, then a real third request whose captured
+            // wire body must carry both opaque originals in original order.
+            const auto snapshot = [](Store& open, const std::string& id) {
+                return Object{{"attempt", open.attempt(id)}, {"feedback", open.tool_feedback(id)}};
+            };
+            const auto first = execute_live_attempt(*store, actor, request, bearer, {true, false});
+            CHECK(first.sent && first.response_accepted);
+            auto first_record = store->attempt(request.attempt_id);
+            (void)store->record_tool_feedback(request.attempt_id, request.binding,
+                first_record.at("response"), Object{{"ok", true}, {"round", 1}, {"result", "tool-result-A"}});
+            // Unknown cost blocks the next paid round by design; resolve each
+            // round with the independent loopback usage verifier, not a waiver.
+            (void)store->reconcile_usage(store->host_actor(Role::Root, request_id),
+                fixture::evidence(first.settlement, fixture::complete_usage(11, 7), "compat-native-a"),
+                {"compat-native-a", "compat-native-a", 1});
+            first_record.as_object()["feedback"] = store->tool_feedback(request.attempt_id);
+            auto second = request_for(*store, request_id, structured_attempt_history({first_record}));
+            second.call_id = "call-fixture-2"; second.attempt_id = "attempt-fixture-2"; second.role_call_index = 2;
+            const auto executed = execute_live_attempt(*store, store->host_actor(Role::Dispatcher, request_id),
+                                                       second, bearer, {true, false});
+            CHECK(executed.sent && executed.response_accepted);
+            auto second_record = store->attempt(second.attempt_id);
+            (void)store->record_tool_feedback(second.attempt_id, second.binding,
+                second_record.at("response"), Object{{"ok", true}, {"round", 2}, {"result", "tool-result-B"}});
+            (void)store->reconcile_usage(store->host_actor(Role::Root, request_id),
+                fixture::evidence(executed.settlement, fixture::complete_usage(11, 7), "compat-native-b"),
+                {"compat-native-b", "compat-native-b", 1});
+            const Object before_reopen{{"first", snapshot(*store, request.attempt_id)},
+                {"second", snapshot(*store, second.attempt_id)}};
+            store.reset();
+            store = assets.open(database);
+            const Object after_reopen{{"first", snapshot(*store, request.attempt_id)},
+                {"second", snapshot(*store, second.attempt_id)}};
+            CHECK(after_reopen == before_reopen);
+            // Continue only with the reopened store's own current binding.
+            auto first_reopened = store->attempt(request.attempt_id);
+            first_reopened.as_object()["feedback"] = store->tool_feedback(request.attempt_id);
+            auto second_reopened = store->attempt(second.attempt_id);
+            second_reopened.as_object()["feedback"] = store->tool_feedback(second.attempt_id);
+            auto third = request_for(*store, request_id,
+                structured_attempt_history({first_reopened, second_reopened}));
+            third.call_id = "call-fixture-3"; third.attempt_id = "attempt-fixture-3"; third.role_call_index = 3;
+            const auto third_encoded = encode_responses_request(live.provider, third, false);
+            const auto closing = execute_live_attempt(*store, store->host_actor(Role::Dispatcher, request_id),
+                                                       third, bearer, {true, false});
+            CHECK(closing.sent && closing.response_accepted);
+            Object result{{"request_id", request_id}, {"first_settlement", first.settlement},
+                {"second_settlement", executed.settlement}, {"third_settlement", closing.settlement},
+                {"before_reopen", before_reopen}, {"after_reopen", after_reopen},
+                {"first_response", store->attempt(request.attempt_id).at("response")},
+                {"second_response", store->attempt(second.attempt_id).at("response")},
+                {"third_response", store->attempt(third.attempt_id).at("response")},
+                {"third_request_body", third_encoded.body}};
+            std::cout << canonical_json(result) << '\n'; return 0;
+        }
         if (action == "run") {
             try {
                 const auto executed = execute_live_attempt(*store, actor, request, bearer, {true, false});

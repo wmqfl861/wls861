@@ -93,6 +93,31 @@
 - 局限：首轮 hard-review PASS 早于本发现，是历史结论，不覆盖本双轮条件；新源码
   须另经全新独立硬审核。全量 78 注册与六配置 CI 仍在最终精确 SHA 上 PENDING。
 
+## 两轮原生持久化 + 重开 + 第三次真实请求覆盖（2026-11-08 13:4x UTC，固定候选 6ff4e13 之上）
+
+- 补充链路（依赖裁定 v7 第 5 项要求）：既有 `live_model_store_tls` 注册内新增子例
+  `test_compat_two_native_rounds_persist_reopen_and_third_request_body`，driver 新动作
+  `compat-native-two-reopen-third`。两轮已接受 native 工具轮（A/B provider item/call ID、
+  不透明 reasoning 原件与参数互不相同）各经一次**真实 loopback TLS 发送**、原 settlement、
+  immutable tool feedback（可区分 A/B 结果）与既有 loopback 计量 verifier 落库；随后 Store
+  close/reopen，以重开后的当前 Actor/binding 发起**第三次真实 TLS 请求**并捕获其对端原始
+  body。断言：第三次 body 与编码 body 逐字节一致；A/B reasoning 原件按原顺序原值回放（与
+  重开后 Store 持久化原件及官方 schema 派生 fixture 双向相等）；每个
+  `function_call_output` 携带本轮精确 provider call_id 与对应 A/B 结果；重开前后 attempt
+  （含 settlement_sha256/response）与 feedback（含 record_sha256）完全一致；user_version
+  410、3 条 send claim、0 ops、2 条 feedback。未伪造内存双轮、未止步于第二次发送。
+- 定位：固定候选（commit `6ff4e13`）上的 GREEN 覆盖，非新 RED——首次运行即通过，无产品
+  缺陷暴露，产品零改动；原 codec RED/GREEN 原件保持（测试字节 `92db8d0e…` 未动，直跑
+  `protocol_codec_tests` 复核 39 通过/0 失败，含双轮配对子例）。
+- 本轮结果（Release、UID 1000、独占槽位）：直跑 `test_live_model_store.py` 13/13 子例通过
+  （原 12 + 新 1）；ctest 串行 `live_model_store_tls`、`live_model_store`、`protocol_codec`
+  3/3 注册通过，未增删 CTest 注册。测试前既有 LastTest/LastTestsFailed/CTestCostData 已另存
+  （`protocol-persistent-rounds-01/evidence/`）。产品 delta 保持 795（含 CMake）不变；本阶段
+  仅改 `tests/live_model_store_driver.cpp`、`tests/test_live_model_store.py` 与本报告，B 轮
+  响应由 Python 侧从既有官方 schema 派生 fixture 就地改 ID/密文合成，未新增 fixture 文件。
+- 边界与状态：无真实供应商调用；新测试字节尚未经远端 CI（不得将 `6ff4e13` 的 78/78 计入
+  新字节）；最终候选的完整 78 注册 + 两 umask + 六配置矩阵与全新独立硬审核仍 PENDING。
+
 ## 未执行范围
 
 - 真实供应商/付费请求 0；fixture 端点仅 `.invalid` 与本地 loopback TLS。

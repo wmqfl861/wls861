@@ -187,6 +187,85 @@ class LiveStore(unittest.TestCase):
             self.assertEqual(connection.execute("SELECT count(*) FROM live_send_claims").fetchone()[0], 2)
             self.assertEqual(connection.execute("SELECT count(*) FROM ops").fetchone()[0], 0)
 
+    def test_compat_two_native_rounds_persist_reopen_and_third_request_body(self):
+        compat = self.compat_profile()
+        first_body = (SOURCE / "tests/fixtures/responses/reasoning-tool-response.json").read_bytes()
+        # Round B serves the same supported shape with distinct provider
+        # item/call IDs, a distinct opaque reasoning original and its own
+        # arguments; it stays an official-schema-derived synthetic fixture.
+        second_original = json.loads(first_body)
+        second_original["id"] = "resp_compat_fixture_tool_b"
+        second_original["output"][0]["id"] = "rs_compat_fixture_round_b"
+        second_original["output"][0]["summary"][0]["text"] = "Round B synthetic summary for distinct opaque history."
+        second_original["output"][0]["encrypted_content"] = (
+            "gAAAAAB3bHlzLXN5bnRoZXRpYy1lbmNyeXB0ZWQtcmVhc29uaW5nLW8zLTAwMDM=")
+        second_original["output"][1]["id"] = "fc_compat_fixture_b"
+        second_original["output"][1]["call_id"] = "call_compat_fixture_b"
+        second_original["output"][1]["arguments"] = '{"message":"compat fixture round B"}'
+        second_body = tls.encoded(second_original)
+        third_body = (SOURCE / "tests/fixtures/responses/reasoning-text-response.json").read_bytes()
+        remaining = iter((first_body, second_body, third_body))
+
+        def sequenced(peer, connection):
+            peer.request(connection)
+            body = next(remaining)
+            connection.sendall(tls.headers(len(body)) + body)
+
+        with self.peer(sequenced) as peer:
+            result, database = self.run_raw(peer, action="compat-native-two-reopen-third",
+                                            compat_profile=str(compat), reconcile=True)
+            self.assertEqual(len(peer.requests), 3)
+            captured = peer.requests[2]["body"]
+        self.assertEqual(captured.decode(), result["third_request_body"])
+        # The persisted originals, settlements and immutable feedback
+        # fingerprints are identical before and after the Store reopen.
+        self.assertEqual(result["before_reopen"], result["after_reopen"])
+        for settlement in ("first_settlement", "second_settlement", "third_settlement"):
+            self.assertEqual(result[settlement]["accepted"], 1)
+        first = result["after_reopen"]["first"]["attempt"]["response"]
+        second = result["after_reopen"]["second"]["attempt"]["response"]
+        self.assertEqual(first["tool_calls"][0]["call_id"], "call_compat_fixture")
+        self.assertEqual(second["tool_calls"][0]["call_id"], "call_compat_fixture_b")
+        original = json.loads(first_body)
+        body = json.loads(result["third_request_body"])
+        self.assertEqual(body["model"], "o3")
+        self.assertEqual(body["include"], ["reasoning.encrypted_content"])
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(body["instructions"])
+        items = body["input"]
+        self.assertEqual(len(items), 7)  # task contract, then A and B reasoning/call/result
+        self.assertEqual([item["type"] for item in items[1:]],
+                         ["reasoning", "function_call", "function_call_output"] * 2)
+        # Opaque reasoning originals and their calls replay unchanged, in
+        # original order, exactly as persisted across the reopen.
+        self.assertEqual(items[1], first["responses_output"]["output"][0])
+        self.assertEqual(items[2], first["responses_output"]["output"][1])
+        self.assertEqual(items[4], second["responses_output"]["output"][0])
+        self.assertEqual(items[5], second["responses_output"]["output"][1])
+        self.assertEqual(items[1], original["output"][0])
+        self.assertEqual(items[2]["call_id"], "call_compat_fixture")
+        self.assertEqual(json.loads(items[2]["arguments"]), json.loads(original["output"][1]["arguments"]))
+        self.assertEqual(items[4], second_original["output"][0])
+        self.assertEqual(items[5]["call_id"], "call_compat_fixture_b")
+        self.assertEqual(json.loads(items[5]["arguments"]), json.loads(second_original["output"][1]["arguments"]))
+        # Each function_call_output pairs with its own exact provider call ID
+        # and the distinguishable A/B feedback result recorded for that round.
+        self.assertEqual(items[3]["type"], "function_call_output")
+        self.assertEqual(items[3]["call_id"], "call_compat_fixture")
+        self.assertEqual(json.loads(items[3]["output"]), {"ok": True, "round": 1, "result": "tool-result-A"})
+        self.assertEqual(items[6]["type"], "function_call_output")
+        self.assertEqual(items[6]["call_id"], "call_compat_fixture_b")
+        self.assertEqual(json.loads(items[6]["output"]), {"ok": True, "round": 2, "result": "tool-result-B"})
+        self.assertFalse(any(item.get("role") == "assistant" for item in items))
+        self.assertEqual(result["third_response"]["status"], "completed")
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 410)
+            self.assertEqual(connection.execute("SELECT count(*) FROM live_send_claims").fetchone()[0], 3)
+            self.assertEqual(connection.execute("SELECT count(*) FROM ops").fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT count(*) FROM model_tool_feedback").fetchone()[0], 2)
+            self.assertEqual(sorted(row[0] for row in connection.execute("SELECT attempt_id FROM model_tool_feedback")),
+                             ["attempt-fixture", "attempt-fixture-2"])
+
     def test_compat_refusal_classifies_transport_completed_without_dispatch(self):
         compat = self.compat_profile()
         body = (SOURCE / "tests/fixtures/responses/refusal-response.json").read_bytes()
