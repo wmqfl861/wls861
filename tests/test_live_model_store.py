@@ -75,6 +75,25 @@ class LiveStore(unittest.TestCase):
             self.assertTrue(parsed["ledger"]["consistent"])
         return parsed, database
 
+    def compat_profile(self):
+        path = self.directory / "compat-profile.json"
+        if not path.exists():
+            path.write_text(json.dumps({
+                "format": "wls-responses-compat-v1",
+                "reference": "openai-responses-2026-11-08",
+                "model_aliases": {"o3": ["o3-2025-04-16"]}}))
+            path.chmod(0o600)
+        return path
+
+    def run_raw(self, peer=None, **options):
+        # Driver actions with their own result document (no ledger key).
+        path, database = self.configuration(peer, **options)
+        result = subprocess.run([str(DRIVER), str(path), str(SOURCE)], cwd=self.directory,
+                                capture_output=True, text=True, encoding="utf-8", timeout=18, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertEqual(result.stderr, "")
+        return json.loads(result.stdout), database
+
     def assert_original(self, result):
         attempt = result["attempt"]
         response = attempt["response"]
@@ -118,6 +137,86 @@ class LiveStore(unittest.TestCase):
         self.assertEqual(len(result["attempt"]["response"]["tool_calls"]), 1)
         with sqlite3.connect(database) as connection:
             self.assertEqual(connection.execute("SELECT count(*) FROM ops").fetchone()[0], 0)
+
+    def test_compat_two_round_reasoning_replay_over_tls(self):
+        compat = self.compat_profile()
+        first_body = (SOURCE / "tests/fixtures/responses/reasoning-tool-response.json").read_bytes()
+        second_body = (SOURCE / "tests/fixtures/responses/reasoning-text-response.json").read_bytes()
+        remaining = iter((first_body, second_body))
+
+        def sequenced(peer, connection):
+            peer.request(connection)
+            body = next(remaining)
+            connection.sendall(tls.headers(len(body)) + body)
+
+        with self.peer(sequenced) as peer:
+            result, database = self.run_raw(peer, action="compat-two-round",
+                                            compat_profile=str(compat), reopen=True, reconcile=True)
+            self.assertEqual(len(peer.requests), 2)
+            captured = peer.requests[1]["body"]
+        self.assertEqual(captured.decode(), result["second_request_body"])
+        original = json.loads(first_body)
+        reasoning, call = original["output"][0], original["output"][1]
+        body = json.loads(result["second_request_body"])
+        self.assertEqual(body["model"], "o3")
+        self.assertEqual(body["include"], ["reasoning.encrypted_content"])
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(body["instructions"])
+        items = body["input"]
+        self.assertEqual(len(items), 4)  # task contract, reasoning, call, result
+        self.assertEqual(items[1], reasoning)  # opaque value replayed unchanged
+        self.assertEqual(items[2]["type"], "function_call")
+        self.assertEqual(items[2]["call_id"], "call_compat_fixture")
+        self.assertEqual(items[2]["arguments"], call["arguments"])
+        self.assertEqual(items[3]["type"], "function_call_output")
+        self.assertEqual(items[3]["call_id"], "call_compat_fixture")
+        self.assertEqual(json.loads(items[3]["output"]), {"ok": True, "round": 1})
+        self.assertFalse(any(item.get("role") == "assistant" for item in items))
+        self.assertEqual(result["first_settlement"]["accepted"], 1)
+        first = result["first_response"]
+        self.assertEqual(first["status"], "completed")
+        self.assertEqual(first["tool_calls"][0]["call_id"], "call_compat_fixture")
+        self.assertEqual(first["responses_output"]["output"][0]["encrypted_content"],
+                         reasoning["encrypted_content"])
+        second = result["second_response"]
+        self.assertEqual(second["status"], "completed")
+        self.assertEqual(second["text"], "compat fixture text 原文😀")
+        self.assertEqual(second["responses_output"]["output"][0]["summary"], [])
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 410)
+            self.assertEqual(connection.execute("SELECT count(*) FROM live_send_claims").fetchone()[0], 2)
+            self.assertEqual(connection.execute("SELECT count(*) FROM ops").fetchone()[0], 0)
+
+    def test_compat_refusal_classifies_transport_completed_without_dispatch(self):
+        compat = self.compat_profile()
+        body = (SOURCE / "tests/fixtures/responses/refusal-response.json").read_bytes()
+        with self.peer(tls.fixed_response(body)) as peer:
+            result, database = self.run_raw(peer, action="refusal-transport",
+                                            compat_profile=str(compat))
+            self.assertEqual(len(peer.requests), 1)  # no automatic retry
+        summary = result["transport_summary"]
+        self.assertEqual(summary["status"], "completed")
+        self.assertEqual(summary["reason"], "model_refusal")
+        self.assertEqual(summary["response_usable"], False)
+        self.assertEqual(summary["http_status"], 200)
+        attempt = result["attempt"]
+        self.assertEqual(attempt["status"], "ERROR")
+        self.assertEqual(attempt["accepted"], 0)
+        response = attempt["response"]
+        self.assertEqual(response["status"], "error")
+        self.assertEqual(response["error_code"], "model_refusal")
+        self.assertEqual(response["text"], "")
+        self.assertEqual(response["tool_calls"], [])
+        self.assertEqual(response["usage"]["input_tokens"], 11)
+        self.assertEqual(response["responses_output"]["output"][1]["content"][0]["type"], "refusal")
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(connection.execute("SELECT count(*) FROM ops").fetchone()[0], 0)
+        # Transport-layer failures still override the model-layer classification.
+        with self.peer(tls.fixed_response(body, status=500)) as peer:
+            failure, _ = self.run_raw(peer, action="refusal-transport", compat_profile=str(compat))
+        self.assertEqual(failure["transport_summary"]["status"], "http_error")
+        self.assertEqual(failure["attempt"]["response"]["error_code"], "http_error")
+        self.assertIsNone(failure["attempt"]["response"].get("responses_output"))
 
     def test_private_echo_never_enters_safe_query_or_events(self):
         body = tls.response_body(BEARER + " synthetic secret echo")

@@ -165,6 +165,20 @@ void validate_provider_profile(const ProviderProfile& p) {
     require(environment_name(p.api_key_env), "authentication must be a valid environment reference name");
     require(p.billing_challenge.empty() || p.billing_challenge == "wls-billing-challenge-v1",
             "unsupported frozen billing challenge extension");
+    if (p.responses_compatibility) {
+        const auto& compat = *p.responses_compatibility;
+        require(compat.format == "wls-responses-compat-v1" && compat.reference == "openai-responses-2026-11-08",
+                "unsupported Responses compatibility format or reference");
+        require(compat.model_aliases.size() >= 1 && compat.model_aliases.size() <= 8,
+                "Responses compatibility needs 1..8 explicit model snapshots");
+        std::set<std::string> seen;
+        for (const auto& alias : compat.model_aliases) {
+            require(ascii_token(alias, 128) && seen.insert(alias).second,
+                    "Responses compatibility model snapshots must be unique bounded ASCII tokens");
+        }
+        require(std::is_sorted(compat.model_aliases.begin(), compat.model_aliases.end()),
+                "Responses compatibility model snapshots must be stored normalized");
+    }
     require(!p.parallel_tool_calls || p.tool_calling, "parallel tool calls require tool calling capability");
     require(p.reasoning_provider_default || p.reasoning_off || !p.reasoning_efforts.empty(),
             "provider must explicitly declare a reasoning mode");
@@ -194,6 +208,7 @@ ProviderProfile provider_profile_from_json(const Json& value) {
         "responses_path", "model_ref", "model", "api_key_env", "real_calls_enabled", "max_paid_retries",
         "capabilities", "limits"};
     if (object(value).contains("billing_challenge")) keys.insert("billing_challenge");
+    if (object(value).contains("responses_compatibility")) keys.insert("responses_compatibility");
     exact(value, keys);
     if (text(value, "format") != "wls-provider-profile-v1" || text(value, "adapter") != "openai-responses")
         throw Error(ErrorCode::Unsupported, "unsupported offline provider profile format or adapter");
@@ -207,6 +222,32 @@ ProviderProfile provider_profile_from_json(const Json& value) {
     if (object(value).contains("billing_challenge")) {
         p.billing_challenge = text(value, "billing_challenge");
         require(p.billing_challenge == "wls-billing-challenge-v1", "unsupported frozen billing challenge extension");
+    }
+    if (const auto* compat = object(value).if_contains("responses_compatibility")) {
+        if (!compat->is_object())
+            throw Error(ErrorCode::Unsupported, "Responses compatibility extension must be an object");
+        const auto& source = compat->as_object();
+        for (const auto& entry : source)
+            if (entry.key() != "format" && entry.key() != "reference" && entry.key() != "model_aliases")
+                throw Error(ErrorCode::Unsupported, "unknown Responses compatibility field");
+        if (source.size() != 3)
+            throw Error(ErrorCode::Unsupported, "Responses compatibility needs its exact three fields");
+        if (text(*compat, "format") != "wls-responses-compat-v1" ||
+            text(*compat, "reference") != "openai-responses-2026-11-08")
+            throw Error(ErrorCode::Unsupported, "unsupported Responses compatibility format or reference");
+        const auto& aliases = field(*compat, "model_aliases");
+        require(aliases.is_object() && aliases.as_object().size() == 1 &&
+                aliases.as_object().begin()->value().is_array(),
+                "Responses compatibility declares exactly one model alias array");
+        const auto& mapping = *aliases.as_object().begin();
+        require(std::string(mapping.key()) == p.model,
+                "Responses compatibility alias key must be the exact profile model");
+        p.responses_compatibility.emplace();
+        for (const auto& alias : mapping.value().as_array()) {
+            require(alias.is_string(), "Responses compatibility model snapshot must be text");
+            p.responses_compatibility->model_aliases.emplace_back(alias.as_string());
+        }
+        std::sort(p.responses_compatibility->model_aliases.begin(), p.responses_compatibility->model_aliases.end());
     }
     const auto& caps = field(value, "capabilities");
     exact(caps, {"streaming", "tool_calling", "parallel_tool_calls", "reasoning_modes", "reasoning_efforts",
@@ -254,6 +295,13 @@ Json to_json(const ProviderProfile& p) {
             {"context_window", p.context_window}, {"max_output_tokens", p.max_output_tokens}}},
         {"limits", limits_json(p.limits)}};
     if (!p.billing_challenge.empty()) result["billing_challenge"] = p.billing_challenge;
+    if (p.responses_compatibility) {
+        Array snapshots;
+        for (const auto& alias : p.responses_compatibility->model_aliases) snapshots.emplace_back(alias);
+        result["responses_compatibility"] = Object{{"format", p.responses_compatibility->format},
+            {"reference", p.responses_compatibility->reference},
+            {"model_aliases", Object{{p.model, std::move(snapshots)}}}};
+    }
     return result;
 }
 

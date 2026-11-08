@@ -660,6 +660,173 @@ void replay_record_detects_mutated_response_evidence_and_raw_bytes() {
     CHECK(parse_json_strict(canonical_json(to_json(interrupted))).is_object());
 }
 
+// ---- G1-2 reasoning summary / refusal SSE lifecycle -----------------------
+
+const std::string compat_summary_text() {
+    return "**Responding to a greeting**\n\nThe user just said, \"Hello!\" So, it seems I need to engage. "
+           "I'll greet them back and offer help since they're looking to chat. I could say something like, "
+           "\"Hello! How can I assist you today?\" That feels friendly and open. They didn't ask a specific "
+           "question, so this approach will work well for starting a conversation. Let's see where it goes from there!";
+}
+Json compat_reasoning_item(const std::string& ciphertext, Json summary, std::string status = "completed") {
+    return Object{{"id", "rs_6806bfca0b2481918a5748308061a2600d3ce51bdffd5476"},
+        {"type", "reasoning"}, {"summary", std::move(summary)},
+        {"encrypted_content", ciphertext}, {"status", std::move(status)}};
+}
+Json compat_message_item(Json content) {
+    return Object{{"id", "msg_compat_fixture"}, {"type", "message"}, {"role", "assistant"},
+        {"status", "completed"}, {"content", std::move(content)}};
+}
+Json compat_start(const Json& output = Json(Array{})) {
+    auto response = fixture::response_with_output(Array{});
+    response.as_object()["output"] = output;
+    response.as_object()["status"] = "in_progress";
+    response.as_object()["model"] = "o3-2025-04-16";
+    response.as_object()["usage"] = nullptr;
+    return response;
+}
+EventList compat_reasoning_events() {
+    EventList events;
+    const std::string summary = compat_summary_text();
+    const auto full = "gAAAAAB3bHlzLXN5bnRoZXRpYy1lbmNyeXB0ZWQtcmVhc29uaW5nLW8zLTAwMDE=";
+    add(events, "response.created", {{"response", compat_start()}});
+    add(events, "response.in_progress", {{"response", compat_start()}});
+    add(events, "response.output_item.added", {{"output_index", 0},
+        {"item", compat_reasoning_item("gAAAABpartial", Array{}, "in_progress")}});
+    const Object location{{"item_id", "rs_6806bfca0b2481918a5748308061a2600d3ce51bdffd5476"}, {"output_index", 0}, {"summary_index", 0}};
+    auto data = location; data["part"] = Object{{"type", "summary_text"}, {"text", ""}};
+    add(events, "response.reasoning_summary_part.added", data);
+    data = location; data["delta"] = summary.substr(0, summary.size() / 2);
+    add(events, "response.reasoning_summary_text.delta", data);
+    data = location; data["delta"] = summary.substr(summary.size() / 2);
+    add(events, "response.reasoning_summary_text.delta", data);
+    data = location; data["text"] = summary;
+    add(events, "response.reasoning_summary_text.done", data);
+    data = location; data["part"] = Object{{"type", "summary_text"}, {"text", summary}};
+    add(events, "response.reasoning_summary_part.done", data);
+    add(events, "response.output_item.done", {{"output_index", 0},
+        {"item", compat_reasoning_item(full, Array{Object{{"type", "summary_text"}, {"text", summary}}})}});
+    add(events, "response.output_item.added", {{"output_index", 1}, {"item", Object{
+        {"id", "msg_compat_fixture"}, {"type", "message"}, {"role", "assistant"},
+        {"status", "in_progress"}, {"content", Array{}}}}});
+    const Object text_location{{"item_id", "msg_compat_fixture"}, {"output_index", 1}, {"content_index", 0}};
+    auto item = text_location; item["part"] = part("");
+    add(events, "response.content_part.added", item);
+    item = text_location; item["delta"] = "compat fixture text 原文😀";
+    add(events, "response.output_text.delta", item);
+    item = text_location; item["text"] = "compat fixture text 原文😀";
+    add(events, "response.output_text.done", item);
+    item = text_location; item["part"] = part("compat fixture text 原文😀");
+    add(events, "response.content_part.done", item);
+    add(events, "response.output_item.done", {{"output_index", 1},
+        {"item", compat_message_item(Array{part("compat fixture text 原文😀")})}});
+    auto terminal = fixture::response_with_output(Array{compat_reasoning_item(full,
+        Array{Object{{"type", "summary_text"}, {"text", summary}}}), compat_message_item(Array{part("compat fixture text 原文😀")})});
+    terminal.as_object()["model"] = "o3-2025-04-16";
+    terminal.as_object()["usage"] = Object{{"input_tokens", 11}, {"output_tokens", 5},
+        {"total_tokens", 16}, {"input_tokens_details", Object{{"cached_tokens", 0}, {"cache_write_tokens", 0}}},
+        {"output_tokens_details", Object{{"reasoning_tokens", 2}}}};
+    add(events, "response.completed", {{"response", terminal}});
+    return events;
+}
+ResponsesSseReplay compat_replay(const EventList& events, SseReplayLimits limits = {}) {
+    return replay_responses_sse(fixture::compat_profile(), fixture::request(), {{stream(events), 0ms}}, limits);
+}
+
+void compat_reasoning_summary_stream_completes_with_original() {
+    const auto fixture_stream = replay_responses_sse(fixture::compat_profile(), fixture::request(),
+        {{fixture::compat_bytes("reasoning.sse"), 0ms}});
+    const auto reference = compat_replay(compat_reasoning_events());
+    CHECK(to_json(fixture_stream.response) == to_json(reference.response));
+    CHECK(reference.response.status == ModelResultStatus::Completed);
+    CHECK(reference.response.text == "compat fixture text 原文😀");
+    const auto payload = to_json(reference.response).at("responses_output");
+    CHECK(payload.at("model") == Json("o3-2025-04-16"));
+    CHECK(payload.at("output").as_array()[0].at("encrypted_content") ==
+        Json("gAAAAAB3bHlzLXN5bnRoZXRpYy1lbmNyeXB0ZWQtcmVhc29uaW5nLW8zLTAwMDE="));
+    CHECK(payload.at("output").as_array()[0].at("summary").as_array().size() == 1);
+    CHECK(reference.evidence.at("response_usable") == true);
+    CHECK(reference.evidence.at("terminal_received") == true);
+    // The added event's partial ciphertext never becomes the replay original.
+    CHECK(payload.at("output").as_array()[0].at("encrypted_content").as_string().size() > 20);
+    const std::string bytes = fixture::compat_bytes("reasoning.sse");
+    for (std::size_t offset = 0; offset <= bytes.size(); offset += 97) {
+        const auto split = replay_responses_sse(fixture::compat_profile(), fixture::request(),
+            {{bytes.substr(0, offset), 0ms}, {bytes.substr(offset), 1ms}});
+        CHECK(to_json(split.response) == to_json(reference.response));
+        CHECK(split.raw_stream == bytes);
+    }
+}
+void compat_empty_summary_and_tool_reasoning_stream_completes() {
+    const auto result = replay_responses_sse(fixture::compat_profile(), fixture::request(),
+        {{fixture::compat_bytes("reasoning-empty-summary.sse"), 0ms}});
+    CHECK(result.response.status == ModelResultStatus::Completed);
+    CHECK(result.response.tool_calls.size() == 1);
+    CHECK(result.response.tool_calls[0].call_id == "call_compat_fixture");
+    const auto payload = to_json(result.response).at("responses_output");
+    CHECK(payload.at("output").as_array()[0].at("summary").as_array().empty());
+    require_complete_response(fixture::request(), result.response);
+}
+void compat_reasoning_snapshot_mismatches_refuse() {
+    auto mismatch = compat_reasoning_events();
+    mismatch[8].at("item").as_object()["encrypted_content"] = "gAAAAABtampered";
+    CHECK(compat_replay(mismatch).response.error_code == "invalid_sse");
+    mismatch = compat_reasoning_events();
+    mismatch[6].as_object()["text"] = compat_summary_text() + " changed";
+    CHECK(compat_replay(mismatch).response.error_code == "invalid_sse");
+    mismatch = compat_reasoning_events();
+    mismatch[7].at("part").at("text") = "changed";
+    CHECK(compat_replay(mismatch).response.error_code == "invalid_sse");
+    // A nonempty summary needs its complete added/delta/done/part.done chain.
+    auto missing = compat_reasoning_events();
+    const auto erased = missing.erase(missing.begin() + 3, missing.begin() + 8);
+    (void)erased;
+    resequence(missing);
+    CHECK(compat_replay(missing).response.error_code == "invalid_sse");
+    // Duplicate summary part completion refuses.
+    auto duplicated = compat_reasoning_events();
+    auto part_done = duplicated[7];
+    part_done.as_object()["sequence_number"] = 100;
+    duplicated.insert(duplicated.begin() + 8, part_done);
+    resequence(duplicated);
+    CHECK(compat_replay(duplicated).response.status != ModelResultStatus::Completed);
+}
+void compat_refusal_stream_is_model_refusal_without_dispatch() {
+    const auto result = replay_responses_sse(fixture::compat_profile(), fixture::request(),
+        {{fixture::compat_bytes("refusal.sse"), 0ms}});
+    CHECK(result.response.status == ModelResultStatus::Error);
+    CHECK(result.response.error_code == "model_refusal");
+    CHECK(result.response.text.empty() && result.response.tool_calls.empty());
+    CHECK(result.response.usage.input_tokens == 11 && result.response.usage.output_tokens == 4);
+    CHECK(to_json(result.response).as_object().contains("responses_output"));
+    CHECK(result.evidence.at("response_usable") == false);
+    CHECK(result.evidence.at("tools_dispatched") == 0);
+    CHECK(!result.evidence.at("terminal_codec").as_object().at("protocol_complete").as_bool());
+}
+void compat_summary_and_refusal_event_fields_and_budgets() {
+    auto unknown = compat_reasoning_events();
+    unknown[4].as_object()["future_field"] = 1;
+    CHECK(compat_replay(unknown).response.error_code == "unsupported_event");
+    auto padded = compat_reasoning_events();
+    padded[4].as_object()["obfuscation"] = "padding";
+    CHECK(compat_replay(padded).response.error_code == "unsupported_event");
+    // A refusal delta cannot target a reasoning summary part.
+    auto wrong_target = compat_reasoning_events();
+    wrong_target[4] = Object{{"type", "response.refusal.delta"},
+        {"item_id", "rs_6806bfca0b2481918a5748308061a2600d3ce51bdffd5476"},
+        {"output_index", 0}, {"content_index", 0}, {"delta", "no"}};
+    resequence(wrong_target);
+    CHECK(compat_replay(wrong_target).response.status != ModelResultStatus::Completed);
+    SseReplayLimits narrow;
+    narrow.max_text_bytes = 64;
+    CHECK(compat_replay(compat_reasoning_events(), narrow).response.error_code == "stream_limit");
+    // The legacy profile keeps refusing reasoning items with its original code.
+    const auto legacy = replay_responses_sse(fixture::profile(), fixture::request(),
+        {{fixture::compat_bytes("reasoning.sse"), 0ms}});
+    CHECK(legacy.response.status == ModelResultStatus::Error);
+    CHECK(legacy.response.error_code == "unsupported_output");
+}
+
 } // namespace
 
 int main() {
@@ -694,7 +861,12 @@ int main() {
         {"SSE obfuscation is string-only on supported deltas and keeps unknown-field refusal", delta_obfuscation_is_typed_and_does_not_open_unknown_fields},
         {"SSE obfuscation consumes wire limits rather than semantic text capacity", delta_obfuscation_uses_wire_budgets_without_spending_text_budget},
         {"SSE validated terminal usage survives later data, cancel and deadline errors", validated_terminal_usage_survives_later_stream_rejection},
-        {"SSE local record detects later changes to response, tuple, evidence and bytes", replay_record_detects_mutated_response_evidence_and_raw_bytes}
+        {"SSE local record detects later changes to response, tuple, evidence and bytes", replay_record_detects_mutated_response_evidence_and_raw_bytes},
+        {"compat reasoning summary stream completes with the original ciphertext", compat_reasoning_summary_stream_completes_with_original},
+        {"compat empty summary reasoning stream completes a tool round", compat_empty_summary_and_tool_reasoning_stream_completes},
+        {"compat reasoning snapshot and summary mismatches refuse", compat_reasoning_snapshot_mismatches_refuse},
+        {"compat refusal stream is a model refusal without dispatch", compat_refusal_stream_is_model_refusal_without_dispatch},
+        {"compat summary and refusal events keep strict fields and budgets", compat_summary_and_refusal_event_fields_and_budgets}
     });
 }
 

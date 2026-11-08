@@ -207,6 +207,35 @@ class LiveWorkflow(unittest.TestCase):
                         'raw_body_hex', 'raw_headers_hex', 'Synthetic candidate task revision'):
             self.assertNotIn(private, encoded)
 
+    def test_model_refusal_records_model_layer_feedback_without_dispatch(self):
+        compat = self.directory / 'compat-profile.json'
+        compat.write_text(json.dumps({
+            'format': 'wls-responses-compat-v1', 'reference': 'openai-responses-2026-11-08',
+            'model_aliases': {'o3': ['o3-2025-04-16']}}))
+        body = (SOURCE / 'tests/fixtures/responses/refusal-response.json').read_bytes()
+
+        def refusal(peer, connection):
+            peer.request(connection)
+            connection.sendall(tls.headers(len(body)) + body)
+
+        with tls.Peer(self.contexts['server'], refusal) as peer:
+            result = self.invoke(peer, action='refusal', compat_profile=str(compat))
+            self.assertEqual(len(peer.requests), 1)  # no automatic retry
+        feedback = result['refusal_feedback']
+        self.assertEqual(feedback['result']['failure_layer'], 'model')
+        self.assertEqual(feedback['result']['model_error_code'], 'model_refusal')
+        self.assertTrue(feedback['result']['runtime_error'])
+        self.assertEqual(feedback['result']['observation_complete'], False)
+        self.assertEqual(feedback['response']['error_code'], 'model_refusal')
+        self.assertEqual(feedback['response']['tool_calls'], [])
+        self.assertEqual(feedback['response']['responses_output']['output'][1]['content'][0]['type'],
+                         'refusal')
+        self.assertEqual(result['ops'], '0')
+        self.assertEqual(result['refusal_attempt']['accepted'], 0)
+        self.assertEqual(result['transport_summary']['status'], 'completed')
+        self.assertEqual(result['transport_summary']['reason'], 'model_refusal')
+        self.assertEqual(result['transport_summary']['response_usable'], False)
+
     def test_original_native_workflow_acceptance_experience_and_safe_summary(self):
         model = ModelPeer(self.directory)
         with tls.Peer(self.contexts['server'], model) as peer:

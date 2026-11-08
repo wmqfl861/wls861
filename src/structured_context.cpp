@@ -1,5 +1,7 @@
 #include "wls/structured_context.hpp"
 
+#include "responses_compat.hpp"
+
 #include <algorithm>
 #include <map>
 #include <set>
@@ -99,6 +101,13 @@ Array encode_messages(const std::vector<StructuredContextMessage>& messages,
         }
         result.push_back(Object{{"role", message.role}, {"content", message.content},
             {"tool_calls", calls}, {"tool_call_id", message.tool_call_id}, {"source", message.source}});
+        // The opaque original joins the same logical bytes, hashes and caps.
+        if (!message.responses_output.is_null()) {
+            require(message.role == "assistant", "only assistant messages carry opaque responses output");
+            const auto projection = responses_compat::validate_payload(message.responses_output);
+            responses_compat::require_projection_match(projection, message.content, message.tool_calls);
+            result.back().as_object()["responses_output"] = message.responses_output;
+        }
     }
     require(pending.empty(), "structured transcript ends with an unpaired tool call");
     return result;
@@ -205,7 +214,9 @@ CompiledContext structured_context_from_json(const Json& value) {
     std::vector<StructuredContextMessage> messages;
     capacity(array(field(input, "messages")).size() <= limits.max_messages, "structured restore exceeds message capacity");
     for (const auto& item : array(field(input, "messages"))) {
-        exact(item, {"role", "content", "tool_calls", "tool_call_id", "source"});
+        auto expected = std::set<std::string>{"role", "content", "tool_calls", "tool_call_id", "source"};
+        if (item.as_object().contains("responses_output")) expected.insert("responses_output");
+        exact(item, expected);
         StructuredContextMessage message;
         message.role = text(item, "role"); message.content = text(item, "content");
         message.tool_call_id = text(item, "tool_call_id"); message.source = field(item, "source");
@@ -214,6 +225,8 @@ CompiledContext structured_context_from_json(const Json& value) {
             exact(call, {"call_id", "name", "arguments"});
             message.tool_calls.push_back({text(call, "call_id"), text(call, "name"), field(call, "arguments")});
         }
+        if (item.as_object().contains("responses_output"))
+            message.responses_output = field(item, "responses_output");
         messages.push_back(std::move(message));
     }
     auto result = compile_structured_context(base, messages);

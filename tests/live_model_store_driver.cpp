@@ -37,7 +37,8 @@ void pause(const Json& config, const std::string& request_id, const std::string&
     std::cout << canonical_json(Object{{"ready", stage}, {"request_id", request_id}}) << std::endl;
     wait_marker(text(config, "continue_marker"));
 }
-ModelRequest request_for(Store& store, const std::string& request_id) {
+ModelRequest request_for(Store& store, const std::string& request_id,
+                          const std::vector<StructuredContextMessage>& messages = {}) {
     const auto row = store.request(request_id);
     const auto frozen = FrozenRequestConfig::restore(canonical_json(row.at("config_snapshot")), text(row, "config_snapshot_sha256"));
     const auto profile = frozen.model_profile(Role::Dispatcher);
@@ -53,7 +54,7 @@ ModelRequest request_for(Store& store, const std::string& request_id) {
     request.call_id = "call-fixture"; request.attempt_id = "attempt-fixture"; request.role = Role::Dispatcher;
     request.role_call_index = 1; request.binding = store.request_binding(request_id);
     request.config_snapshot_id = text(row, "config_snapshot_sha256"); request.model = context.model;
-    request.context = compile_structured_context(context, {});
+    request.context = compile_structured_context(context, messages);
     request.reserved_input_tokens = 1000; request.reserved_output_tokens = 100; request.reserved_cost_micro_usd = 100;
     request.max_output_tokens = 100; request.timeout = 3s;
     return request;
@@ -128,6 +129,15 @@ int main(int argc, char** argv) {
         CHECK(port > 0 && port <= 65535);
         auto live = fixture::settings(fixture::read(text(config, "ca_path")), static_cast<int>(port));
         live.stream = flag(config, "stream");
+        // Compatibility profile is applied through the public JSON boundary
+        // only; the frozen admission then carries the same original profile.
+        if (const auto* compat = config.as_object().if_contains("compat_profile")) {
+            auto provider_document = to_json(live.provider);
+            provider_document.as_object()["model"] = "o3";
+            provider_document.as_object()["responses_compatibility"] =
+                parse_json_strict(fixture::read(std::string(compat->as_string())));
+            live.provider = provider_profile_from_json(provider_document);
+        }
         auto store = assets.open(database);
         const auto request_id = text(store->admit(fixture::admission(assets, live, "tls-store", !flag(config, "disabled"))), "request_id");
         auto request = request_for(*store, request_id);
@@ -135,6 +145,67 @@ int main(int argc, char** argv) {
         const auto actor = store->host_actor(Role::Dispatcher, request_id);
         if (flag(config, "admission_fault")) fixture::sql(database,
             "CREATE TRIGGER fail_live_admission BEFORE INSERT ON live_attempt_execution BEGIN SELECT RAISE(ABORT,'injected admission failure'); END;");
+        if (action == "compat-two-round") {
+            const auto trace = [&config](const char* stage) {
+                if (config.as_object().contains("trace"))
+                    std::cerr << "compat-two-round:" << stage << '\n';
+            };
+            // Round 1: reasoning + tool over loopback TLS, settled with the
+            // original opaque output; feedback makes it a native round.
+            trace("begin");
+            const auto first = execute_live_attempt(*store, actor, request, bearer, {true, false});
+            trace("round1");
+            CHECK(first.sent && first.response_accepted);
+            auto record = store->attempt(request.attempt_id);
+            trace("attempt");
+            (void)store->record_tool_feedback(request.attempt_id, request.binding,
+                record.at("response"), Object{{"ok", true}, {"round", 1}});
+            trace("feedback");
+            if (flag(config, "reconcile")) {
+                // Unknown cost blocks the next paid round by design; resolve it
+                // with the independent loopback usage verifier before round 2.
+                (void)store->reconcile_usage(store->host_actor(Role::Root, request_id),
+                    fixture::evidence(first.settlement, fixture::complete_usage(11, 7), "compat-round-1"),
+                    {"compat-round-1", "compat-round-1", 1});
+                trace("reconcile");
+            }
+            record.as_object()["feedback"] = store->tool_feedback(request.attempt_id);
+            const auto history = structured_attempt_history({record});
+            trace("history");
+            auto second = request_for(*store, request_id, history);
+            trace("request2");
+            second.call_id = "call-fixture-2"; second.attempt_id = "attempt-fixture-2"; second.role_call_index = 2;
+            const auto before_reopen = encode_responses_request(live.provider, second, false);
+            trace("encode2");
+            if (flag(config, "reopen")) {
+                store.reset();
+                store = assets.open(database);
+                trace("reopen");
+                auto reopened = store->attempt(request.attempt_id);
+                reopened.as_object()["feedback"] = store->tool_feedback(request.attempt_id);
+                auto reopened_history = structured_attempt_history({reopened});
+                auto rebuilt = request_for(*store, request_id, reopened_history);
+                rebuilt.call_id = second.call_id; rebuilt.attempt_id = second.attempt_id;
+                rebuilt.role_call_index = second.role_call_index;
+                const auto after_reopen = encode_responses_request(live.provider, rebuilt, false);
+                trace("reencode2");
+                CHECK(after_reopen.body == before_reopen.body);
+                // A takeover reopen advances the dispatch epoch; continue with
+                // the reopened store's own current binding, not a stale copy.
+                second = rebuilt;
+            }
+            const auto second_actor = store->host_actor(Role::Dispatcher, request_id);
+            trace("actor2");
+            const auto executed = execute_live_attempt(*store, second_actor, second, bearer, {true, false});
+            trace("round2");
+            CHECK(executed.sent);
+            Object result{{"request_id", request_id}, {"first_settlement", first.settlement},
+                {"second_settlement", executed.settlement},
+                {"first_response", store->attempt(request.attempt_id).at("response")},
+                {"second_response", store->attempt(second.attempt_id).at("response")},
+                {"second_request_body", before_reopen.body}};
+            std::cout << canonical_json(result) << '\n'; return 0;
+        }
         if (action == "run") {
             try {
                 const auto executed = execute_live_attempt(*store, actor, request, bearer, {true, false});
