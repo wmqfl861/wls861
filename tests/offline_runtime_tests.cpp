@@ -1,5 +1,6 @@
 #include "wls/offline_runtime.hpp"
 #include "test_support.hpp"
+#include "../src/amendment_disposition.hpp"
 
 #include <array>
 #include <cerrno>
@@ -51,6 +52,16 @@ void amend(Store& store, const std::string& id) {
 void expect(ErrorCode code, const std::function<void()>& action) {
     bool caught = false;
     try { action(); } catch (const Error& error) { CHECK(error.code() == code); caught = true; }
+    CHECK(caught);
+}
+void expect_message(ErrorCode code, const std::string& message, const std::function<void()>& action) {
+    bool caught = false;
+    try { action(); }
+    catch (const Error& error) {
+        CHECK(error.code() == code);
+        CHECK(error.what() == message);
+        caught = true;
+    }
     CHECK(caught);
 }
 void write(const std::filesystem::path& path, const std::string& bytes) {
@@ -344,6 +355,54 @@ void runtime_file_rejects_fifo_before_opening_it() {
     CHECK(::close(watcher) == 0);
     CHECK(received < 0 && saved_errno == EAGAIN);
 }
+
+void shared_accessors_keep_runtime_integer_error_boundaries() {
+    // The shared header is the production accessor: check its exact original
+    // runtime spellings for every rejected input shape, not only the code.
+    CHECK(integer_at(Json(Object{{"based_on_requirements_revision", 1}}), "based_on_requirements_revision") == 1);
+    CHECK(integer_at(Json(Object{{"requirements_revision", std::int64_t{9223372036854775807LL}}}),
+                     "requirements_revision") == 9223372036854775807LL);
+    CHECK(integer_at(Json(Object{{"plan_revision", std::uint64_t{9223372036854775807ULL}}}),
+                     "plan_revision") == 9223372036854775807LL);
+    expect_message(ErrorCode::InvalidInput, "integer field missing: requirements_revision",
+        [&] { (void)integer_at(Json(Object{{"based_on_requirements_revision", 1}}), "requirements_revision"); });
+    expect_message(ErrorCode::InvalidInput, "integer field missing: based_on_requirements_revision",
+        [&] { (void)integer_at(Json(Array{}), "based_on_requirements_revision"); });
+    for (const Json& bad : {Json("2"), Json(true), Json(1.5), Json(std::uint64_t{9223372036854775808ULL})}) {
+        expect_message(ErrorCode::InvalidInput, "invalid integer field: requirements_revision",
+            [&] { (void)integer_at(Json(Object{{"requirements_revision", bad}}), "requirements_revision"); });
+    }
+}
+
+void shared_pending_amendment_predicate_short_circuits_and_validates() {
+    const Json request(Object{{"requirements_revision", 2}});
+    const Json pending_task(Object{{"based_on_requirements_revision", 1}});
+    CHECK(has_pending_amendment({pending_task}, request) == true);
+    CHECK(has_pending_amendment({Json(Object{{"based_on_requirements_revision", 2}})}, request) == false);
+    // Empty captured tasks never read the request row, even without the field.
+    CHECK(has_pending_amendment({}, Json(Object{})) == false);
+    expect_message(ErrorCode::InvalidInput, "integer field missing: based_on_requirements_revision",
+        [&] { (void)has_pending_amendment({Json(Object{})}, request); });
+    expect_message(ErrorCode::InvalidInput, "integer field missing: based_on_requirements_revision",
+        [&] { (void)has_pending_amendment({Json(7)}, request); });
+    expect_message(ErrorCode::InvalidInput, "integer field missing: requirements_revision",
+        [&] { (void)has_pending_amendment({pending_task}, Json(Object{})); });
+    expect_message(ErrorCode::InvalidInput, "invalid integer field: requirements_revision",
+        [&] { (void)has_pending_amendment({pending_task}, Json(Object{{"requirements_revision", "2"}})); });
+}
+
+void shared_pending_amendment_predicate_reads_real_store_rows() {
+    test::TempDir directory;
+    Store store(directory.path / "request.db", base_sql, migration_sql);
+    const auto id = admit(store);
+    CHECK(has_pending_amendment(store.tasks(id), store.request(id)) == false);
+    static_cast<void>(OfflineRuntime(store, *schemas).run(id, initial_steps()));
+    CHECK(has_pending_amendment(store.tasks(id), store.request(id)) == false);
+    amend(store, id);
+    CHECK(has_pending_amendment(store.tasks(id), store.request(id)) == true);
+    static_cast<void>(OfflineRuntime(store, *schemas).run(id, amended_steps(), "cancel"));
+    CHECK(has_pending_amendment(store.tasks(id), store.request(id)) == false);
+}
 } // namespace
 
 int main() {
@@ -363,6 +422,9 @@ int main() {
         {"inapplicable disposition is rejected before the published plan rebind", inapplicable_disposition_is_rejected_before_published_plan_rebind},
         {"current task without AMEND still requires an empty disposition", current_task_disposition_still_requires_empty_value},
         {"bounded input reads reject parent/leaf symlinks and special files", runtime_file_reads_reject_symlink_and_special_input},
-        {"runtime input rejects FIFO before any observable open", runtime_file_rejects_fifo_before_opening_it}
+        {"runtime input rejects FIFO before any observable open", runtime_file_rejects_fifo_before_opening_it},
+        {"shared accessors keep runtime integer error boundaries", shared_accessors_keep_runtime_integer_error_boundaries},
+        {"shared pending-AMEND predicate short-circuits and validates", shared_pending_amendment_predicate_short_circuits_and_validates},
+        {"shared pending-AMEND predicate reads real Store rows", shared_pending_amendment_predicate_reads_real_store_rows}
     });
 }
