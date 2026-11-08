@@ -630,8 +630,8 @@ void dual_extensions_freeze_together_and_pricing_guards_keep_blocking() {
     const auto dual = dual_extension_settings();
     CHECK(dual.provider.pricing.has_value() && dual.provider.responses_compatibility.has_value());
     const auto dual_hash = provider_profile_sha256(dual.provider);
-    CHECK(dual_hash != provider_profile_sha256(fixture::settings()));
-    CHECK(dual_hash != provider_profile_sha256(pricing_settings()));
+    CHECK(dual_hash != provider_profile_sha256(fixture::settings().provider));
+    CHECK(dual_hash != provider_profile_sha256(pricing_settings().provider));
     fixture::Fixture f(*assets, dual);
     const auto row = f.store->request(f.request_id);
     const auto frozen = FrozenRequestConfig::restore(canonical_json(row.at("config_snapshot")), text(row, "config_snapshot_sha256"));
