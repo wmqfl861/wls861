@@ -552,6 +552,42 @@ void management_and_owned_capacity_policies_are_opt_in_and_frozen() {
     expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.freeze(); });
 }
 
+// G1-3 correction: schema_retry_max is frozen non-negative data whose bounded
+// same-call Fake Worker support is stated separately; it never silently stays
+// in the unconditional deferred list, and the frozen value itself never moves.
+void schema_retry_max_values_validate_and_freeze() {
+    Fixture fixture;
+    const auto original = read(fixture.system_path());
+    for (const auto& [text_value, frozen_value] : {std::pair{"0", 0}, std::pair{"3", 3}}) {
+        auto bytes = original;
+        replace_once(bytes, "schema_retry_max: 2", "schema_retry_max: " + std::string(text_value));
+        write(fixture.system_path(), bytes);
+        const auto frozen = fixture.freeze();
+        CHECK(frozen.json().at("system").at("context").at("schema_retry_max") == frozen_value);
+        const auto restored = FrozenRequestConfig::restore(frozen.serialize(), frozen.sha256());
+        CHECK(restored.json().at("system").at("context").at("schema_retry_max") == frozen_value);
+    }
+    for (const auto* bad : {"schema_retry_max: -1", "schema_retry_max: 1.5", "schema_retry_max: \"2\""}) {
+        auto bytes = original;
+        replace_once(bytes, "schema_retry_max: 2", bad);
+        write(fixture.system_path(), bytes);
+        expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
+    }
+}
+
+void schema_retry_max_support_leaves_the_unconditional_deferred_list() {
+    Fixture fixture;
+    const auto frozen = fixture.freeze();
+    const auto support = frozen.runtime_support();
+    bool unconditionally_deferred = false;
+    for (const auto& entry : support.at("unenforced_settings").as_array())
+        if (entry.at("path").as_string() == "system.context.schema_retry_max") unconditionally_deferred = true;
+    CHECK(!unconditionally_deferred);
+    CHECK(frozen.json().at("system").at("context").at("schema_retry_max") == 2);
+    CHECK(FrozenRequestConfig::restore(frozen.serialize(), frozen.sha256())
+        .json().at("system").at("context").at("schema_retry_max") == 2);
+}
+
 } // namespace
 
 int main() {
@@ -575,6 +611,8 @@ int main() {
         {"validated but unenforced settings are explicit and do not change frozen config", unsupported_enforcement_is_visible_without_changing_frozen_bytes},
         {"unknown functions capabilities roles and tools reject", unknown_functions_capabilities_and_tools_are_rejected},
         {"configuration FIFO is rejected before any observable open", configuration_fifo_is_rejected_without_open_side_effects},
-        {"management and owned capacity policies preserve old frozen semantics", management_and_owned_capacity_policies_are_opt_in_and_frozen}
+        {"management and owned capacity policies preserve old frozen semantics", management_and_owned_capacity_policies_are_opt_in_and_frozen},
+        {"schema_retry_max values validate and freeze as non-negative integers", schema_retry_max_values_validate_and_freeze},
+        {"schema_retry_max support leaves the unconditional deferred list", schema_retry_max_support_leaves_the_unconditional_deferred_list}
     });
 }

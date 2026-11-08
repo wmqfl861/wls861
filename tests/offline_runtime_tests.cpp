@@ -1,4 +1,5 @@
 #include "wls/offline_runtime.hpp"
+#include "wls/worker_tools.hpp"
 #include "test_support.hpp"
 #include "../src/amendment_disposition.hpp"
 
@@ -23,6 +24,8 @@ const std::filesystem::path source(WLS_SOURCE_DIR);
 std::unique_ptr<SchemaRegistry> schemas;
 std::string base_sql;
 std::string migration_sql;
+std::string tools_sql;
+std::string events_sql;
 
 std::string text(const Json& value) { return std::string(value.as_string()); }
 std::int64_t number(const Json& value) { return value.is_int64() ? value.as_int64() : static_cast<std::int64_t>(value.as_uint64()); }
@@ -403,12 +406,228 @@ void shared_pending_amendment_predicate_reads_real_store_rows() {
     static_cast<void>(OfflineRuntime(store, *schemas).run(id, amended_steps(), "cancel"));
     CHECK(has_pending_amendment(store.tasks(id), store.request(id)) == false);
 }
+
+void untenable_envelope_settles_and_keeps_reservation_without_retry() {
+    test::TempDir directory;
+    Store store(directory.path / "request.db", base_sql, migration_sql);
+    const auto id = admit(store);
+    OfflineRuntime runtime(store, *schemas);
+    static_cast<void>(runtime.run(id, initial_steps()));
+    const FakeModel fake(initial_steps());
+    const auto call = runtime.reserve_call(fake, id, Role::Worker, task_id(store, id));
+    ModelResponse empty;
+    empty.call_id = call.request.call_id;
+    empty.attempt_id = call.request.attempt_id;
+    empty.role_call_index = call.request.role_call_index;
+    empty.role = call.request.role;
+    empty.binding = call.request.binding;
+    empty.config_snapshot_id = call.request.config_snapshot_id;
+    empty.status = ModelResultStatus::Completed;
+    empty.usage = ModelUsage{100, 20, 0, 0, 0};
+    // A Completed envelope with neither text nor a tool call cannot be legally
+    // serialized, so no settlement is fabricated for it (FINAL v6 §3): the
+    // InvalidInput keeps the original reservation held and schedules no retry.
+    // The prepared variant compared to_json(empty), which the model layer
+    // refuses to produce for this shape by design; see the execute-stage log.
+    expect(ErrorCode::InvalidInput, [&] { (void)runtime.accept_response(call, empty); });
+    CHECK(store.attempt(call.request.attempt_id).at("response").is_null());
+    CHECK(store.attempt(call.request.attempt_id).at("settlement_sha256").is_null());
+    CHECK(store.budget(id).at("attempts") == 4);
+    CHECK(store.budget(id).at("spent_input") == 300);
+    CHECK(number(store.budget(id).at("reserved_input")) > 0);
+}
+
+// G1-3 v8 C2 regressions on the OfflineRuntime::run correction host. The
+// legacy no-workspace fixtures above stay byte-identical; this fixture
+// actually enables the correction host (structured-v2 frozen configuration,
+// Store 004/005/006 plus WorkerTools) following the established run-host
+// pattern in worker_tools_tests.cpp. The same bytes are behavioral RED on the
+// frozen v6 candidate (run() stops silently at exhaustion) and GREEN on the
+// C2 repair; the compatibility runner's success output keeps its signature.
+FrozenRequestConfig correction_config(const char* schema_retry = "2") {
+    test::TempDir configuration;
+    auto system = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string original_format = "request_format: framed-v1";
+    const auto format_position = system.find(original_format);
+    CHECK(format_position != std::string::npos);
+    system.replace(format_position, original_format.size(), "request_format: structured-v2");
+    if (std::string_view(schema_retry) != "2") {
+        const std::string original_retry = "schema_retry_max: 2";
+        const auto retry_position = system.find(original_retry);
+        CHECK(retry_position != std::string::npos);
+        system.replace(retry_position, original_retry.size(), std::string("schema_retry_max: ") + schema_retry);
+    }
+    write(configuration.path / "system.yaml", system);
+    return load_config_catalog(configuration.path / "system.yaml",
+        source / "config/examples/functions", source / "prompts").freeze("general");
+}
+FakeModelStep correction_worker_step(std::int64_t index, const std::string& body, std::vector<ModelToolCall> calls) {
+    FakeModelStep step;
+    step.role = Role::Worker; step.role_call_index = index; step.text = body;
+    step.tool_calls = std::move(calls); step.usage = ModelUsage{100, 20, 0, 0, 0};
+    return step;
+}
+std::vector<FakeModelStep> correction_steps(const std::vector<FakeModelStep>& worker_steps) {
+    auto result = initial_steps();
+    const auto prototype = result.back();
+    result.resize(2);
+    std::int64_t index = 0;
+    for (const auto& source_step : worker_steps) {
+        auto step = prototype;
+        step.role_call_index = ++index;
+        step.status = source_step.status;
+        step.text = source_step.text;
+        step.tool_calls = source_step.tool_calls;
+        step.usage = source_step.usage;
+        step.error_code = source_step.error_code;
+        step.error_message = source_step.error_message;
+        result.push_back(std::move(step));
+    }
+    return result;
+}
+void expect_correction_feedback(const Json& result, std::string_view reason, std::string_view layer) {
+    CHECK(result.at("format").as_string() == "wls-correction-feedback-v1");
+    CHECK(result.at("reason").as_string() == reason);
+    CHECK(result.at("failure_layer").as_string() == layer);
+    CHECK(result.at("correction_eligible") == true);
+    CHECK(result.at("observation_complete") == true);
+    CHECK(result.at("effect_count") == 0);
+    const auto* runtime_error = result.as_object().if_contains("runtime_error");
+    CHECK(!(runtime_error && *runtime_error == true));
+}
+struct CorrectionRunSession {
+    test::TempDir directory;
+    std::filesystem::path work;
+    std::unique_ptr<Store> store;
+    std::unique_ptr<WorkerTools> tools;
+    std::unique_ptr<OfflineRuntime> runtime;
+    std::string request_id;
+    explicit CorrectionRunSession(const char* schema_retry = "2")
+        : work(directory.path / "work") {
+        std::filesystem::create_directory(work);
+        store = std::make_unique<Store>(directory.path / "run-host.db", base_sql, migration_sql,
+            StoreOpenMode::Takeover, tools_sql, events_sql);
+        request_id = text(store->admit(input(correction_config(schema_retry))).at("request_id"));
+        tools = std::make_unique<WorkerTools>(*store, work);
+        runtime = std::make_unique<OfflineRuntime>(*store, *schemas, tools.get());
+    }
+    std::string task_id() const { return text(store->tasks(request_id).front().at("task_id")); }
+};
+
+void run_host_reports_correction_limit_only_at_real_exhaustion() {
+    {
+        // cap two: initial plus two admitted failures, never a fourth call.
+        CorrectionRunSession session("2");
+        const auto result = session.runtime->run(session.request_id, correction_steps({
+            correction_worker_step(1, "run-host text-only failure one", {}),
+            correction_worker_step(2, "run-host text-only failure two", {}),
+            correction_worker_step(3, "run-host text-only failure three", {}),
+            correction_worker_step(4, "", {{"never-fourth", "fs_write", Object{{"path", "never.txt"}, {"content", "x\n"}}}}),
+        }), "", 8);
+        const auto& calls = result.at("calls").as_array();
+        std::size_t workers = 0;
+        for (const auto& call : calls) if (call.at("role").as_string() == "worker") ++workers;
+        CHECK(workers == 3);
+        // Exhaustion adds a bounded blocked entry plus the dedicated
+        // stop_reason; both identify this run's original task.
+        bool reported = false;
+        for (const auto& entry : result.at("blocked").as_array())
+            if (entry.at("code").as_string() == "correction_limit") {
+                reported = true;
+                CHECK(entry.at("task_id").as_string() == result.at("task_id").as_string());
+            }
+        CHECK(reported);
+        CHECK(result.at("stop_reason").as_string() == "correction_limit");
+        const auto& last = calls.at(4);
+        expect_correction_feedback(session.store->tool_feedback(text(last.at("attempt_id"))).at("result"),
+            "missing_tool_call", "model_schema");
+        CHECK(!std::filesystem::exists(session.work / "never.txt"));
+        CHECK(number(session.store->budget(session.request_id).at("attempts")) == 5);
+    }
+    {
+        // cap zero: the first ordinary failure is classified and persisted,
+        // then the chain ends without any second Worker call.
+        CorrectionRunSession session("0");
+        const auto result = session.runtime->run(session.request_id, correction_steps({
+            correction_worker_step(1, "run-host text-only failure with cap zero", {}),
+            correction_worker_step(2, "", {{"never-used", "fs_write", Object{{"path", "never.txt"}, {"content", "x\n"}}}}),
+        }), "", 4);
+        const auto& calls = result.at("calls").as_array();
+        CHECK(calls.size() == 3);
+        bool reported = false;
+        for (const auto& entry : result.at("blocked").as_array())
+            if (entry.at("code").as_string() == "correction_limit") reported = true;
+        CHECK(reported);
+        CHECK(result.at("stop_reason").as_string() == "correction_limit");
+        expect_correction_feedback(session.store->tool_feedback(text(calls.at(2).at("attempt_id"))).at("result"),
+            "missing_tool_call", "model_schema");
+        CHECK(!std::filesystem::exists(session.work / "never.txt"));
+        CHECK(number(session.store->budget(session.request_id).at("attempts")) == 3);
+    }
+    {
+        // An ordinary success keeps the run host's original output shape: no
+        // exhaustion happened, so no correction_limit may be reported.
+        CorrectionRunSession session("2");
+        const auto result = session.runtime->run(session.request_id, correction_steps({
+            correction_worker_step(1, "text-only failure before a successful correction", {}),
+            correction_worker_step(2, "", {{"fixed-write", "fs_write", Object{{"path", "fixed.txt"}, {"content", "run host fixed\n"}}}}),
+        }), "", 2);
+        CHECK(result.at("calls").as_array().size() == 4);
+        if (const auto* blocked_entries = result.as_object().if_contains("blocked"))
+            for (const auto& entry : blocked_entries->as_array())
+                CHECK(entry.at("code").as_string() != "correction_limit");
+        CHECK(result.at("request_status").as_string() == "RUNNING");
+        CHECK(read_runtime_file(session.work / "fixed.txt") == "run host fixed\n");
+        CHECK(number(session.store->budget(session.request_id).at("attempts")) == 4);
+    }
+}
+
+// Admissions already span the whole run() invocation; a success between two
+// ordinary failures must not reset that accumulated count, and a host call
+// bound that stops the chain before any denial must not be reported as
+// schema exhaustion.
+void run_host_accumulation_and_host_caps_stay_exact() {
+    {
+        CorrectionRunSession session("1");
+        const auto result = session.runtime->run(session.request_id, correction_steps({
+            correction_worker_step(1, "text-only failure before a successful correction", {}),
+            correction_worker_step(2, "", {{"fixed-write", "fs_write", Object{{"path", "fixed.txt"}, {"content", "fixed once\n"}}}}),
+            correction_worker_step(3, "text-only failure after the admitted round", {}),
+            correction_worker_step(4, "", {{"never-fourth", "fs_write", Object{{"path", "fourth.txt"}, {"content", "never\n"}}}}),
+        }), "", 8);
+        const auto& calls = result.at("calls").as_array();
+        CHECK(calls.size() == 5);
+        expect_correction_feedback(session.store->tool_feedback(text(calls.at(4).at("attempt_id"))).at("result"),
+            "missing_tool_call", "model_schema");
+        CHECK(read_runtime_file(session.work / "fixed.txt") == "fixed once\n");
+        CHECK(!std::filesystem::exists(session.work / "fourth.txt"));
+        CHECK(number(session.store->budget(session.request_id).at("attempts")) == 5);
+    }
+    {
+        // The explicit max_worker_calls bound ends the loop before a third
+        // failure is denied admission: the dedicated report must stay absent.
+        CorrectionRunSession session("2");
+        const auto result = session.runtime->run(session.request_id, correction_steps({
+            correction_worker_step(1, "text-only failure under a tighter host cap", {}),
+            correction_worker_step(2, "second text-only failure under a tighter host cap", {}),
+            correction_worker_step(3, "", {{"unreached", "fs_write", Object{{"path", "unreached.txt"}, {"content", "x\n"}}}}),
+        }), "", 2);
+        CHECK(result.at("calls").as_array().size() == 4);
+        if (const auto* blocked_entries = result.as_object().if_contains("blocked"))
+            for (const auto& entry : blocked_entries->as_array())
+                CHECK(entry.at("code").as_string() != "correction_limit");
+        CHECK(!std::filesystem::exists(session.work / "unreached.txt"));
+        CHECK(number(session.store->budget(session.request_id).at("attempts")) == 4);
+    }
+}
 } // namespace
 
 int main() {
     schemas = std::make_unique<SchemaRegistry>(source / "schemas");
     base_sql = read_runtime_file(source / "db/schema.sql");
     migration_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");
+    tools_sql = read_runtime_file(source / "db/migrations/005_worker_tools.sql");
+    events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     return test::run({
         {"offline chain persists exact model input, instructions and note evidence", complete_offline_chain_and_persisted_input},
         {"invalid plan constraints keep accounting but do not change the plan", invalid_plan_is_accounted_without_plan_mutation},
@@ -425,6 +644,9 @@ int main() {
         {"runtime input rejects FIFO before any observable open", runtime_file_rejects_fifo_before_opening_it},
         {"shared accessors keep runtime integer error boundaries", shared_accessors_keep_runtime_integer_error_boundaries},
         {"shared pending-AMEND predicate short-circuits and validates", shared_pending_amendment_predicate_short_circuits_and_validates},
-        {"shared pending-AMEND predicate reads real Store rows", shared_pending_amendment_predicate_reads_real_store_rows}
+        {"shared pending-AMEND predicate reads real Store rows", shared_pending_amendment_predicate_reads_real_store_rows},
+        {"untenable envelope settles and keeps its reservation without retry", untenable_envelope_settles_and_keeps_reservation_without_retry},
+        {"run host reports correction_limit only at real exhaustion", run_host_reports_correction_limit_only_at_real_exhaustion},
+        {"run host accumulation and host caps stay exact", run_host_accumulation_and_host_caps_stay_exact}
     });
 }

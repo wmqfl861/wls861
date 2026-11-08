@@ -972,6 +972,12 @@ Json FrozenRequestConfig::logical_agent_policy() const {
     return policy ? *policy : Json(nullptr);
 }
 
+std::int64_t FrozenRequestConfig::schema_retry_max() const {
+    const auto& context = required(required(document_, "system", "snapshot"), "context", "system");
+    return integer_value(required(context, "schema_retry_max", "system.context"),
+                         "system.context.schema_retry_max", 0);
+}
+
 Json FrozenRequestConfig::runtime_support() const {
     Array deferred;
     const auto add = [&](std::string_view section, std::string_view key, std::string_view reason) {
@@ -982,7 +988,7 @@ Json FrozenRequestConfig::runtime_support() const {
     };
     for (const auto key : {"max_wall_minutes", "warn_at_fraction"})
         add("budget_defaults", key, "requires persistent request-lifetime deadlines and warnings; live batches have separate host deadlines");
-    for (const auto key : {"compaction_at_fraction", "schema_retry_max", "snapshot_decision_log_entries"})
+    for (const auto key : {"compaction_at_fraction", "snapshot_decision_log_entries"})
         add("context", key, "requires bounded structured history/compaction; no automatic retry");
     for (const auto key : {"max_active_dispatchers", "max_active_workers", "reserve_dispatchers_for_review",
                           "reserve_workers_for_review", "review_reservation_policy", "release_slots_while_waiting",
@@ -994,6 +1000,14 @@ Json FrozenRequestConfig::runtime_support() const {
     return Object{{"validation_scope", "configuration_shape_references_and_policies"},
         {"execution_mode", "explicit_host_selected"},
         {"available_execution_modes", Array{"offline_fake", "controlled_live"}},
+        {"same_call_schema_retry", Object{
+            {"bounded_worker_failure_retry", true},
+            {"fake_worker", true}, {"local_tls_worker", true},
+            {"provider", false}, {"legacy_store_without_durable_feedback", false},
+            {"scope", "one explicit run/pump Worker actor on a durable-feedback Store; "
+                      "ordinary model_schema/tool_result failures only; STOP categories unchanged"},
+            {"schema_retry_max", schema_retry_max()}},
+        },
         {"live_workflow_available", true}, {"context_request_format", context_request_format()},
         {"history_window_integrated", !worker_history_policy().is_null()}, {"worker_history_policy", worker_history_policy()},
         {"management_window_integrated", !management_history_policy().is_null()},

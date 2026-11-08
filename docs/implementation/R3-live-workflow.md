@@ -141,3 +141,39 @@ hook 位于应用之前，以满足原验收和收尾的完整账目门禁，但
 
 `--workspaces-file` 沿原节点工作区映射与原 `WorkerTools` 守卫；只有显式工作区时才接受
 `--sandbox-manifest`。命令不自动发布或签收交付；这些仍使用原独立命令和精确回执。
+
+## 0.11.1-r3.3c 有界纠错（G1-3）
+
+`OfflineRuntime` 共享 accept 与两类 `EventRuntime` 泵（event-only 404 与 workflow/live）
+现在把四类明确的普通Worker失败转换为有界反馈并在同一次显式调用内续行：
+完成且非空text但0个工具调用（`model_schema/missing_tool_call`）、
+本次已声明且已注册Worker工具的纯参数Schema校验失败（`model_schema/invalid_arguments`，
+无任何dispatch/operation）、fs_read在全部权限/路径/祖先检查后仅缺最终叶节点
+（`tool_result/not_found`，私有 `MissingWorkspaceLeaf` 子类型对外仍是InvalidInput）、
+以及仅由workspace_posix写入前creation/CAS/patch-content确定拒绝点标记的
+`failure_kind=content_precondition`（须同时满足operation FAILED、observed_outcome FAILED、
+rename_attempted/renamed/temporary_remaining=false且temporary_cleanup_complete=true）。
+
+反馈为固定格式 `wls-correction-feedback-v1`（status=FAILED、correction_eligible=true、
+observation_complete=true、effect_status=NONE、effect_count=0、固定有界message）；
+已结算工具失败的原operation/execution_result全保留并另加 `correction_feedback` 子对象。
+分类只在受信wrapper推导的资格内生效：durable-feedback Store、Worker角色、
+无共享单Agent transcript、且为Fake预约或原live尝试的冻结 `execution_kind=local_tls`
+（provider类型不获本阶段续行）。分类前仍先完成原settle、after_settlement hook与
+账目核验；不合法envelope不强造settlement、未知预留不释放。
+
+续行受冻结 `system.context.schema_retry_max`（新 `FrozenRequestConfig::schema_retry_max()`
+访问器；该设置离开runtime_support的无条件validated_only列表，改由
+`same_call_schema_retry` 明确列出fake_worker/local_tls_worker=true、provider/legacy=false）
+与既有 per-task Worker/call/预算/容量/claim/deadline 门共同限制；每次纠正消耗一个
+admission并占原名额，成功之间不重置。workflow/live 入口的续行保持在原Worker claim内
+（不重新claim、不提前finish）；耗尽或守卫停止时claim以completed_ids={}释放，
+最后失败反馈保留、pending可见。显式pump返回即关闭链；无自动repump、无跨泵持久计数表。
+
+STOP 语义不变：2+工具调用、未声明/未知工具、空Completed、refusal、传输/协议错误、
+UNKNOWN/CANCELLED、提交期竞态Conflict、父目录缺失、越界/symlink/权限/Quota、
+Store/feedback/invariant失败、管理角色业务语义错误、text+单个合法工具的既有单次执行。
+wire侧仅冻结 `tool_calling=true且parallel_tool_calls=false` 的profile增加
+`tool_choice:"required"`（logical hash不变）；true-profile原样。
+
+实测与NOT_RUN项见 [docs/reports/g1-correction-validation.md](../reports/g1-correction-validation.md)。
