@@ -178,6 +178,21 @@ class StructuredCli(unittest.TestCase):
         self.call('config', 'check', '--config', self.config,
             '--functions-dir', SOURCE / 'config/examples/functions', error='invalid_input')
 
+    def test_new_request_sample_selects_structured_v2_window_and_readback(self):
+        # G1-4: a separate tracked example for new requests. It is not a
+        # migration: the legacy framed-v1 sample stays byte-for-byte in place.
+        sample = SOURCE / 'config/examples/system-structured-v2.yaml'
+        self.assertTrue(sample.is_file(), 'new tracked sample must exist')
+        checked = self.call('config', 'check', '--config', sample,
+            '--functions-dir', SOURCE / 'config/examples/functions')
+        self.assertIn('structured-v2', json.dumps(checked))
+        self.assertIn('window-v1', json.dumps(checked))
+        self.assertIn('utf8-token-v1', json.dumps(checked))
+        legacy = self.call('config', 'check', '--config', SOURCE / 'config/examples/system.yaml',
+            '--functions-dir', SOURCE / 'config/examples/functions')
+        self.assertIn('framed-v1', json.dumps(legacy))
+        self.assertIn('"history_window_integrated": false', json.dumps(legacy))
+
     def test_capacity_still_blocks_without_silent_truncation(self):
         self.work_file('x' * 61100)
         request = self.admit()

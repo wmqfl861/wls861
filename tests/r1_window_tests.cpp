@@ -1,10 +1,13 @@
 #include "wls/worker_history.hpp"
 #include "wls/offline_runtime.hpp"
 #include "test_support.hpp"
+#include <cstdint>
 #include <exception>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <sqlite3.h>
+#include <string>
 
 namespace {
 using namespace wls::s1;
@@ -60,6 +63,114 @@ struct Fixture {
         FakeModelStep step; step.role=Role::Worker; step.role_call_index=1;
         step.tool_calls={{"lookup",std::move(name),std::move(args)}}; step.usage={1,1,0,0,0};
         return FakeModel({step});
+    }
+};
+
+// ---- G1-4 preparation: frozen utf8-token-v1 readback (Worker side) --------
+// These cases drive the new contract only through existing public boundaries
+// (frozen configuration, FakeModel control calls, Store receipts). They fail
+// today at the frozen configuration load because `readback` is still an
+// unknown context key; that rejection is the recorded RED for this suite.
+
+std::filesystem::path write_readback_system_yaml(const std::filesystem::path& directory,
+        std::int64_t input_budget, std::int64_t page_tokens, std::int64_t output_budget) {
+    auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string marker = "  request_format: framed-v1\n";
+    const auto at = yaml.find(marker); CHECK(at != std::string::npos);
+    yaml.replace(at, marker.size(), "  request_format: structured-v2\n"
+        "  worker_history: {mode: window-v1, recent_attempts: 3, inline_bytes: 65536}\n"
+        "  readback: {mode: utf8-token-v1, token_estimator: utf8-byte-v1, max_page_tokens: " +
+        std::to_string(page_tokens) + "}\n");
+    const std::string input_marker = "  max_input_tokens: null\n";
+    const auto input_at = yaml.find(input_marker); CHECK(input_at != std::string::npos);
+    yaml.replace(input_at, input_marker.size(), "  max_input_tokens: " + std::to_string(input_budget) + "\n");
+    const std::string output_marker = "  max_output_tokens: null\n";
+    const auto output_at = yaml.find(output_marker); CHECK(output_at != std::string::npos);
+    yaml.replace(output_at, output_marker.size(), "  max_output_tokens: " + std::to_string(output_budget) + "\n");
+    { std::ofstream file(directory / "system.yaml"); file << yaml; CHECK(file.good()); }
+    return directory / "system.yaml";
+}
+
+Json v2_read_arguments(const std::string& attempt, const std::string& hash,
+                       std::int64_t offset, std::int64_t max_tokens) {
+    return Object{{"attempt_id", attempt}, {"record_sha256", hash}, {"section", "result"},
+        {"offset", offset}, {"max_tokens", max_tokens}};
+}
+
+FakeModel v2_control(const std::string& name, const Json& arguments) {
+    FakeModelStep step; step.role=Role::Worker; step.role_call_index=1;
+    step.tool_calls={{"lookup", name, arguments}}; step.usage={1,1,0,0,0};
+    return FakeModel({step});
+}
+
+FakeModel worker_note(const std::string& message) {
+    FakeModelStep step; step.role=Role::Worker; step.role_call_index=1;
+    step.tool_calls={{"probe", "note", Object{{"text", message}}}}; step.usage={1,1,0,0,0};
+    return FakeModel({step});
+}
+
+struct ReadbackFixture {
+    test::TempDir temp;
+    SchemaRegistry schemas{source / "schemas"};
+    std::int64_t input_budget, page_tokens, output_budget;
+    std::filesystem::path yaml{write_readback_system_yaml(temp.path, input_budget, page_tokens, output_budget)};
+    FrozenRequestConfig config{load_config_catalog(yaml, source / "config/examples/functions",
+        source / "prompts").freeze("general")};
+    std::unique_ptr<Store> store;
+    std::unique_ptr<OfflineRuntime> runner;
+    std::string request, task;
+    std::filesystem::path db{temp.path / "state.db"};
+    explicit ReadbackFixture(std::int64_t input = 120000, std::int64_t page = 24576,
+                             std::int64_t output = 8192)
+        : input_budget(input), page_tokens(page), output_budget(output) {
+        reopen();
+        AdmissionInput a; a.tenant_id="test"; a.project_id="test"; a.root_id="root"; a.function_id="general";
+        a.idempotency_key="test"; a.original_text=read_runtime_file(source/"tests/fixtures/s1_request.txt");
+        a.constraint_catalog=parse_json_strict(read_runtime_file(source/"tests/fixtures/s1_constraints.json"));
+        a.config_snapshot=config.json(); const auto tools=config.worker_tools(); a.tool_allowlist.assign(tools.begin(),tools.end());
+        a.budget={500, 8000000, 800000, 0}; request=text(store->admit(a),"request_id");
+        runner=std::make_unique<OfflineRuntime>(*store,schemas);
+        const auto steps=fake_model_steps_from_json(parse_json_strict(read_runtime_file(source/"tests/fixtures/s1_fake_initial.json")));
+        runner->run(request,steps); task=text(store->tasks(request).front(),"task_id");
+    }
+    void reopen() {
+        store.reset();
+        store = std::make_unique<Store>(db, read_runtime_file(source / "db/schema.sql"),
+            read_runtime_file(source / "db/migrations/004_s1_store.sql"), StoreOpenMode::Takeover,
+            read_runtime_file(source / "db/migrations/005_worker_tools.sql"),
+            read_runtime_file(source / "db/migrations/006_event_runtime.sql"),
+            read_runtime_file(source / "db/migrations/007_workflow_runtime.sql"),
+            read_runtime_file(source / "db/migrations/008_acceptance_runtime.sql"),
+            read_runtime_file(source / "db/migrations/009_owned_cleanup.sql"));
+        if (!request.empty()) runner=std::make_unique<OfflineRuntime>(*store,schemas);
+    }
+    StoreActor actor() { return store->host_actor(Role::Worker,request,store->binding(task).team_id); }
+    // A settled Worker attempt with an immutable original result, admitted
+    // through the same public Store reservation path as production attempts.
+    std::string add_result(const Json& result) {
+        const auto a = actor(); const auto b = store->binding(task);
+        ContextInput context; context.role = Role::Worker; context.model = config.resolve(Role::Worker);
+        const auto profile = config.model_profile(Role::Worker);
+        context.adapter_version = text(profile, "adapter_version");
+        context.protocol_version = text(profile, "protocol");
+        context.system_prompt = "readback fixture"; context.role_prompt = "Worker";
+        context.function_prompt = "preserve originals"; context.task_contract = "complete original test contract";
+        ModelRequest call; call.call_id = new_id("call"); call.attempt_id = new_id("attempt");
+        call.role = Role::Worker; call.binding = b; call.config_snapshot_id = config.sha256();
+        call.model = context.model; call.context = compile_structured_context(context, {});
+        call.max_output_tokens = 50;
+        call.reserved_input_tokens = static_cast<std::int64_t>(call.context.prompt().size());
+        call.reserved_output_tokens = 50;
+        AttemptReservation reserve; reserve.call_id = call.call_id; reserve.attempt_id = call.attempt_id;
+        reserve.config_snapshot_sha256 = config.sha256(); reserve.model_ref = call.model.model;
+        reserve.max_output_tokens = 50; reserve.reserved_input_tokens = call.reserved_input_tokens;
+        reserve.reserved_output_tokens = 50;
+        reserve.request_envelope = to_json(call); store->reserve_attempt(a, b, reserve);
+        const Json response = Object{{"text", "original model output"}, {"tool_call_id", "readback-source-id"}};
+        store->settle_attempt(call.attempt_id, b, config.sha256(), "COMPLETED",
+            Object{{"input_tokens", 1}, {"output_tokens", 1}, {"cost_micro_usd", 0}}, response);
+        store->record_tool_feedback(call.attempt_id, b, response, result);
+        return call.attempt_id;
     }
 };
 // Deterministic, test-only interleaving on a separate read-only connection.
@@ -240,6 +351,150 @@ void original_corruption_is_not_hidden_by_windowing() {
     for(const auto& [name,definition]:triggers) { (void)name;sql(f.db,definition); }
     expect(ErrorCode::Corrupt,[&]{f.store->attempt_history_tail(f.actor(),4);});
 }
+
+void readback_freezes_v2_control_declarations_and_continuation_prompt() {
+    ReadbackFixture f;
+    const auto call = f.runner->reserve_call(worker_note("probe v2 declarations"),
+        f.request, Role::Worker, f.task);
+    const auto& prompt = call.request.context.prompt();
+    CHECK(prompt.find("wls-history-control-v2") != std::string::npos);
+    CHECK(prompt.find("max_tokens") != std::string::npos);
+    CHECK(prompt.find("wls-history-control-v1") == std::string::npos);
+    CHECK(prompt.find("decode base64") == std::string::npos);
+    const auto contract = canonical_json(parse_json_strict(compiled_task_contract(call.request.context)));
+    CHECK(contract.find("utf8-token-v1") != std::string::npos);
+    // The existing v1 byte/base64 window keeps its identifiers and notices.
+    Fixture legacy;
+    const auto legacy_call = legacy.runner->reserve_call(legacy.fake(), legacy.request, Role::Worker, legacy.task);
+    const auto& legacy_prompt = legacy_call.request.context.prompt();
+    CHECK(legacy_prompt.find("wls-history-control-v1") != std::string::npos);
+    CHECK(legacy_prompt.find("decode base64") != std::string::npos);
+}
+
+void v2_history_read_returns_host_verified_utf8_pages() {
+    ReadbackFixture f;
+    const Json result = Object{{"text", "中文原文😀 \"quoted\" \\slash\nline"},
+        {"payload", "证据" + std::string(4000, 'a') + "😀"}};
+    const auto id = f.add_result(result);
+    const auto hash = text(f.store->tool_feedback(id), "record_sha256");
+    const auto original = canonical_json(f.store->tool_feedback(id).at("result"));
+    std::string reassembled; std::int64_t offset = 0;
+    while (true) {
+        const auto model = v2_control("history_read", v2_read_arguments(id, hash, offset, 512));
+        const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+        const auto page = f.runner->accept_response(call, model.complete(call.request));
+        CHECK(text(page, "format") == "wls-history-text-v1");
+        CHECK(page.at("host_verified") == true);
+        CHECK(text(page, "encoding") == "utf8-canonical-json");
+        CHECK(text(page, "record_id") == id);
+        CHECK(text(page, "record_sha256") == hash);
+        CHECK(text(page, "section") == "result");
+        CHECK(text(page, "section_sha256") == sha256_hex(original));
+        CHECK(num(page, "size_bytes") == static_cast<std::int64_t>(original.size()));
+        CHECK(num(page, "offset") == offset);
+        const auto content = text(page, "content");
+        CHECK(num(page, "bytes_returned") == static_cast<std::int64_t>(content.size()));
+        reassembled += content;
+        if (page.at("eof").as_bool()) { CHECK(page.at("next_offset").is_null()); break; }
+        CHECK(page.at("next_offset").is_int64());
+        CHECK(offset + num(page, "bytes_returned") == num(page, "next_offset"));
+        offset = num(page, "next_offset");
+        CHECK(offset <= static_cast<std::int64_t>(original.size()));
+    }
+    CHECK(reassembled == original);
+    const auto end_model = v2_control("history_read", v2_read_arguments(id, hash,
+        static_cast<std::int64_t>(original.size()), 64));
+    const auto end_call = f.runner->reserve_call(end_model, f.request, Role::Worker, f.task);
+    const auto end_response = end_model.complete(end_call.request);
+    const auto end = f.runner->accept_response(end_call, end_response);
+    CHECK(end.at("eof").as_bool() && text(end, "content").empty());
+    // An exact replay of the same captured response is not a second read or
+    // charge: the durable receipt is returned unchanged.
+    const auto attempts_before_replay = num(f.store->budget(f.request), "attempts");
+    CHECK(f.runner->accept_response(end_call, end_response) == end);
+    CHECK(num(f.store->budget(f.request), "attempts") == attempts_before_replay);
+    std::int64_t mid = -1;
+    for (std::size_t index = 1; index < original.size(); ++index)
+        if ((static_cast<unsigned char>(original[index]) & 0xC0) == 0x80) { mid = static_cast<std::int64_t>(index); break; }
+    CHECK(mid > 0);
+    for (const auto bad : {mid, static_cast<std::int64_t>(original.size()) + 1,
+                           std::int64_t(-1), INT64_MAX}) {
+        const auto model = v2_control("history_read", v2_read_arguments(id, hash, bad, 64));
+        const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+        expect(ErrorCode::InvalidInput, [&] {
+            (void)f.runner->accept_response(call, model.complete(call.request)); });
+    }
+}
+
+void sixty_kb_originals_close_within_three_v2_reads_across_reopen() {
+    for (int variant = 0; variant < 2; ++variant) {
+        ReadbackFixture f;
+        std::string body;
+        for (int index = 0; index < 5120; ++index) body += "历史证据";
+        Json result;
+        if (variant == 0) result = Object{{"text", body + "结尾😀"}, {"kind", "canonical-utf8"}};
+        else result = Object{{"content", body.substr(0, 26040)},
+            {"content_base64", std::string(34720, 'g')}, {"kind", "legacy-double-field"}};
+        const auto id = f.add_result(result);
+        const auto hash = text(f.store->tool_feedback(id), "record_sha256");
+        const auto original = canonical_json(f.store->tool_feedback(id).at("result"));
+        CHECK(original.size() >= 60000 && original.size() <= 65536);
+        std::int64_t offset = 0; int reads = 0; std::string fragment;
+        while (true) {
+            const auto model = v2_control("history_read", v2_read_arguments(id, hash, offset, 24576));
+            const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+            if (!fragment.empty())
+                CHECK(call.request.context.prompt().find(fragment) != std::string::npos);
+            const auto page = f.runner->accept_response(call, model.complete(call.request));
+            ++reads;
+            CHECK(reads <= 3);
+            const auto content = text(page, "content");
+            fragment = content.substr(0, std::min<std::size_t>(36, content.size()));
+            if (page.at("eof").as_bool()) break;
+            offset = num(page, "next_offset");
+            if (reads == 2) f.reopen();
+        }
+        CHECK(reads <= 3);
+    }
+}
+
+void readback_input_budget_shrinks_pages_before_reservation() {
+    std::string body;
+    for (int index = 0; index < 22000; ++index) body += "证据";
+    const Json result = Object{{"text", body}};
+    ReadbackFixture ample(4000000, 24576, 8192);
+    // Measure one plain worker envelope before any page feedback exists.
+    const auto plain = ample.runner->reserve_call(worker_note("measure plain envelope"),
+        ample.request, Role::Worker, ample.task);
+    const auto envelope = plain.request.context.prompt().size();
+    const auto wide_id = ample.add_result(result);
+    const auto wide_hash = text(ample.store->tool_feedback(wide_id), "record_sha256");
+    const auto wide_model = v2_control("history_read", v2_read_arguments(wide_id, wide_hash, 0, 24576));
+    const auto wide_call = ample.runner->reserve_call(wide_model, ample.request, Role::Worker, ample.task);
+    const auto wide = ample.runner->accept_response(wide_call, wide_model.complete(wide_call.request));
+    const auto wide_bytes = num(wide, "bytes_returned");
+    CHECK(wide_bytes > 24000 && wide_bytes <= 24576);
+    // The 66000-byte section is referenced, not inline: only the returned page
+    // adds request bytes, so a budget of envelope + half a page must shrink it.
+    ReadbackFixture tight(static_cast<std::int64_t>(envelope) + wide_bytes / 2, 24576, 8192);
+    const auto id = tight.add_result(result);
+    const auto hash = text(tight.store->tool_feedback(id), "record_sha256");
+    const auto model = v2_control("history_read", v2_read_arguments(id, hash, 0, 24576));
+    std::optional<CapturedModelCall> call;
+    try {
+        call = tight.runner->reserve_call(model, tight.request, Role::Worker, tight.task);
+    } catch (const Error& error) {
+        CHECK(error.code() == ErrorCode::Quota);
+    }
+    if (call) {
+        try {
+            const auto narrow = tight.runner->accept_response(*call, model.complete(call->request));
+            CHECK(num(narrow, "bytes_returned") < wide_bytes);
+        } catch (const Error& error) {
+            CHECK(error.code() == ErrorCode::Quota);
+        }
+    }
+}
 } // namespace
 int main() {return test::run({
     {"tail capture excludes an interleaved later insert",tail_capture_excludes_a_later_insert},
@@ -253,5 +508,9 @@ int main() {return test::run({
     {"UNKNOWN is pinned and still blocks reservation",waiting_and_unknown_survive_window_projection},
     {"missing old attempt remains pinned outside tail",missing_attempt_outside_tail_remains_pinned},
     {"policy revocation fences captured read",policy_revocation_fences_an_already_captured_read},
-    {"recent corruption remains fail closed",original_corruption_is_not_hidden_by_windowing}
+    {"recent corruption remains fail closed",original_corruption_is_not_hidden_by_windowing},
+    {"readback freezes v2 control declarations and continuation prompt",readback_freezes_v2_control_declarations_and_continuation_prompt},
+    {"v2 history_read returns host-verified utf8 pages",v2_history_read_returns_host_verified_utf8_pages},
+    {"sixty KB originals close within three v2 reads across reopen",sixty_kb_originals_close_within_three_v2_reads_across_reopen},
+    {"readback input budget shrinks pages before reservation",readback_input_budget_shrinks_pages_before_reservation}
 });}

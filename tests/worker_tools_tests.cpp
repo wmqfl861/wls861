@@ -46,6 +46,8 @@ std::unique_ptr<FrozenRequestConfig> frozen;
 std::string base_sql;
 std::string migration_sql;
 std::string tools_sql;
+std::string events_sql;
+std::string workflow_sql;
 Json original_script;
 Json constraints;
 constexpr std::string_view original_text = "请在自有临时 workspace 测试文件工具，保留原始需求；不要调用外部服务。";
@@ -159,6 +161,64 @@ struct Session {
         static_cast<void>(store->issue_instruction(store->host_actor(Role::TeamLead, request_id, binding().team_id),
             binding(), version(), order, new_id("instruction")));
     }
+};
+
+// ---- G1-4 preparation: fs_read projection under frozen utf8-token-v1 readback
+// These cases fail today at readback_config's frozen configuration load
+// (`readback` is an unknown system.context key); that rejection is the
+// recorded RED for this suite.
+
+FrozenRequestConfig readback_config(const std::filesystem::path& directory) {
+    auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string marker = "  request_format: framed-v1\n";
+    const auto at = yaml.find(marker); CHECK(at != std::string::npos);
+    yaml.replace(at, marker.size(), "  request_format: structured-v2\n"
+        "  worker_history: {mode: window-v1, recent_attempts: 3, inline_bytes: 65536}\n"
+        "  readback: {mode: utf8-token-v1, token_estimator: utf8-byte-v1, max_page_tokens: 24576}\n");
+    const std::string input_marker = "  max_input_tokens: null\n";
+    const auto input_at = yaml.find(input_marker); CHECK(input_at != std::string::npos);
+    yaml.replace(input_at, input_marker.size(), "  max_input_tokens: 4000000\n");
+    const std::string output_marker = "  max_output_tokens: null\n";
+    const auto output_at = yaml.find(output_marker); CHECK(output_at != std::string::npos);
+    yaml.replace(output_at, output_marker.size(), "  max_output_tokens: 8192\n");
+    { std::ofstream file(directory / "system.yaml"); file << yaml; CHECK(file.good()); }
+    return load_config_catalog(directory / "system.yaml", source / "config/examples/functions",
+        source / "prompts").freeze("general");
+}
+
+struct ReadbackSession {
+    test::TempDir directory;
+    std::filesystem::path database = directory.path / "runtime.db";
+    std::filesystem::path work = directory.path / "work";
+    std::unique_ptr<Store> store;
+    std::unique_ptr<WorkerTools> tools;
+    std::unique_ptr<OfflineRuntime> runtime;
+    std::string request_id;
+    FrozenRequestConfig config{readback_config(directory.path)};
+
+    explicit ReadbackSession(std::optional<AdmissionInput> input = std::nullopt) {
+        std::filesystem::create_directory(work);
+        store = std::make_unique<Store>(database, base_sql, migration_sql, StoreOpenMode::Takeover,
+            tools_sql, events_sql, workflow_sql);
+        AdmissionInput admitted;
+        if (input) admitted = *input;
+        else {
+            admitted.tenant_id = "worker-tool-test"; admitted.project_id = "temporary-fixtures";
+            admitted.root_id = "test-root"; admitted.function_id = config.function_id();
+            admitted.idempotency_key = new_id("key"); admitted.original_text = original_text;
+            admitted.config_snapshot = config.json(); admitted.constraint_catalog = constraints;
+            const auto grants = config.worker_tools();
+            admitted.tool_allowlist.assign(grants.begin(), grants.end());
+        }
+        request_id = text(store->admit(admitted).at("request_id"));
+        tools = std::make_unique<WorkerTools>(*store, work);
+        runtime = std::make_unique<OfflineRuntime>(*store, *schemas, tools.get());
+        static_cast<void>(runtime->run(request_id, steps()));
+    }
+    std::string task_id() const { return text(store->tasks(request_id).front().at("task_id")); }
+    ExecutionBinding binding() const { return store->binding(task_id()); }
+    StoreActor actor() const { return store->host_actor(Role::Worker, request_id, binding().team_id); }
+    std::int64_t version() const { return number(store->task(task_id()).at("state_version")); }
 };
 
 const Json& operation(const Json& result) { return result.at("operation"); }
@@ -701,6 +761,94 @@ void exact_old_ack_replays_without_acknowledging_new_order() {
     expect(ErrorCode::NotReady, [&] { (void)session.execute("fs_write", Object{{"path", "old-ack-cannot-enable"}, {"content", "x"}}); });
     CHECK(!std::filesystem::exists(session.work / "old-ack-cannot-enable"));
 }
+
+void fs_read_v2_text_projection_and_persisted_feedback() {
+    ReadbackSession session;
+    const std::string expected = "原始文本观察😀\nsecond line";
+    host_write(session.work / "notes.txt", expected);
+    // The tool name stays fs_read; under the frozen readback policy the
+    // declaration identifier is wls-fs-read-v2 (there is no fs_read_v2 name).
+    const auto list = session.tools->declarations(session.actor());
+    const auto entry = std::find_if(list.begin(), list.end(),
+        [](const ContextTool& tool) { return tool.name == "fs_read"; });
+    CHECK(entry != list.end() && entry->version == "wls-fs-read-v2");
+    for (const auto& tool : list) CHECK(tool.name != "fs_read_v2");
+    // The legacy request keeps its dual-field diagnostic and its grants.
+    Session legacy;
+    host_write(legacy.work / "legacy.txt", "legacy bytes");
+    const auto legacy_list = legacy.tools->declarations(legacy.actor());
+    const auto legacy_entry = std::find_if(legacy_list.begin(), legacy_list.end(),
+        [](const ContextTool& tool) { return tool.name == "fs_read"; });
+    CHECK(legacy_entry != legacy_list.end());
+    const auto legacy_read = legacy.diagnostic("fs_read", Object{{"path", "legacy.txt"}});
+    CHECK(legacy_read.as_object().contains("content_base64"));
+    CHECK(legacy_read.at("content") == "legacy bytes");
+    // Model-facing projection: exactly one text content field, no base64 twin.
+    const FakeModel fake(steps({{"text-read", "fs_read", Object{{"path", "notes.txt"}, {"offset", 0}, {"max_bytes", 65536}}}}));
+    const auto call = session.runtime->reserve_call(fake, session.request_id, Role::Worker, session.task_id());
+    const auto result = session.runtime->accept_response(call, fake.complete(call.request));
+    CHECK(text(result.at("content")) == expected);
+    CHECK(result.at("encoding") == "utf8");
+    CHECK(!result.as_object().contains("content_base64"));
+    CHECK(text(result.at("sha256")) == sha256_hex(expected));
+    CHECK(num(result.at("bytes_returned")) == static_cast<std::int64_t>(expected.size()));
+    // The persisted feedback keeps the projection and feeds the next request.
+    const auto receipt = session.store->tool_feedback(call.request.attempt_id);
+    CHECK(receipt.at("result") == result);
+    FakeModelStep follow; follow.role = Role::Worker; follow.role_call_index = 1;
+    follow.tool_calls = {{"after-read", "note", Object{{"text", "continue after projected read"}}}};
+    follow.usage = {1, 1, 0, 0, 0};
+    const auto next = session.runtime->reserve_call(FakeModel({follow}), session.request_id, Role::Worker, session.task_id());
+    CHECK(next.request.context.prompt().find(expected) != std::string::npos);
+    CHECK(next.request.context.prompt().find("content_base64") == std::string::npos);
+    // A changed current file cannot alter the settled response.
+    host_write(session.work / "notes.txt", "rewritten after settlement");
+    CHECK(session.store->tool_feedback(call.request.attempt_id) == receipt);
+}
+
+void fs_read_v2_binary_stays_strict_base64() {
+    ReadbackSession session;
+    std::string bytes = "text-prefix";
+    bytes.push_back('\xFF'); bytes.push_back('\x00'); bytes.push_back('\x80'); bytes.push_back('!');
+    host_write(session.work / "blob.bin", bytes);
+    const FakeModel fake(steps({{"bin-read", "fs_read", Object{{"path", "blob.bin"}, {"offset", 0}, {"max_bytes", 65536}}}}));
+    const auto call = session.runtime->reserve_call(fake, session.request_id, Role::Worker, session.task_id());
+    const auto result = session.runtime->accept_response(call, fake.complete(call.request));
+    CHECK(result.as_object().contains("content_base64"));
+    CHECK(text(result.at("encoding")) == "base64");
+    const auto* content = result.as_object().if_contains("content");
+    CHECK(!content || content->is_null());
+    CHECK(text(result.at("sha256")) == sha256_hex(bytes));
+    CHECK(num(result.at("bytes_returned")) == static_cast<std::int64_t>(bytes.size()));
+    CHECK(result.at("eof") == true);
+}
+
+void fs_read_v2_denial_and_missing_grant_fence() {
+    ReadbackSession session;
+    fixture_sql(session.database, "UPDATE runtime_policy SET denied_tools='[\"fs_read\"]',policy_epoch=policy_epoch+1,state_version=state_version+1 WHERE singleton=1");
+    const auto names = declared(session.tools->declarations(session.actor()));
+    CHECK(!names.contains("fs_read"));
+    host_write(session.work / "kept.txt", "still here");
+    const FakeModel fake(steps({{"denied-read", "fs_read", Object{{"path", "kept.txt"}}}}));
+    const auto call = session.runtime->reserve_call(fake, session.request_id, Role::Worker, session.task_id());
+    expect(ErrorCode::Unauthorized, [&] { (void)session.runtime->accept_response(call, fake.complete(call.request)); });
+    // A frozen request without an fs_read grant never declares it.
+    AdmissionInput denied;
+    denied.tenant_id = "worker-tool-test"; denied.project_id = "temporary-fixtures";
+    denied.root_id = "test-root"; denied.function_id = session.config.function_id();
+    denied.idempotency_key = new_id("key"); denied.original_text = original_text;
+    denied.config_snapshot = session.config.json(); denied.constraint_catalog = constraints;
+    const auto grants = session.config.worker_tools();
+    denied.tool_allowlist.assign(grants.begin(), grants.end());
+    std::erase(denied.tool_allowlist, "fs_read");
+    ReadbackSession missing(denied);
+    const auto missing_names = declared(missing.tools->declarations(missing.actor()));
+    CHECK(!missing_names.contains("fs_read"));
+    host_write(missing.work / "absent.txt", "never readable");
+    const FakeModel blocked(steps({{"blocked-read", "fs_read", Object{{"path", "absent.txt"}}}}));
+    const auto blocked_call = missing.runtime->reserve_call(blocked, missing.request_id, Role::Worker, missing.task_id());
+    expect(ErrorCode::Unauthorized, [&] { (void)missing.runtime->accept_response(blocked_call, blocked.complete(blocked_call.request)); });
+}
 } // namespace
 
 int main() {
@@ -710,6 +858,8 @@ int main() {
     base_sql = read_runtime_file(source / "db/schema.sql");
     migration_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");
     tools_sql = read_runtime_file(source / "db/migrations/005_worker_tools.sql");
+    events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
+    workflow_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
     original_script = parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_fake_initial.json"));
     constraints = parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_constraints.json"));
     return test::run({
@@ -730,6 +880,9 @@ int main() {
         {"current policy revocation removes tools from new model contexts", revoked_tool_is_removed_from_new_model_context},
         {"SQLite result-event failure after file effect blocks further business", result_commit_failure_blocks_new_business},
         {"prepared concurrent call cannot claim after another result and all fallbacks fail", prepared_call_cannot_claim_after_another_settlement_fails},
-        {"exact old ack replay cannot acknowledge a newer instruction", exact_old_ack_replays_without_acknowledging_new_order}
+        {"exact old ack replay cannot acknowledge a newer instruction", exact_old_ack_replays_without_acknowledging_new_order},
+        {"fs_read v2 text projection keeps one content field and original feedback", fs_read_v2_text_projection_and_persisted_feedback},
+        {"fs_read v2 binary results stay strict base64", fs_read_v2_binary_stays_strict_base64},
+        {"fs_read v2 denial by name and missing grant fence reads", fs_read_v2_denial_and_missing_grant_fence}
     });
 }

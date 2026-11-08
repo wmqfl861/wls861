@@ -89,10 +89,18 @@ struct Fixture {
     std::unique_ptr<Store> store;
     Json frozen;
     std::string request, task;
-    explicit Fixture(bool window = true, std::int64_t query_limit = 60) {
+    explicit Fixture(bool window = true, std::int64_t query_limit = 60,
+                     bool readback = false, std::int64_t page_tokens = 24576) {
         auto yaml = read_runtime_file(source / "config/examples/system.yaml");
         if (window) replace(yaml, "  request_format: framed-v1\n", "  request_format: structured-v2\n"
             "  management_history: {mode: window-v1, recent_attempts: 2, inline_bytes: 32768, max_context_bytes: 131072}\n");
+        if (readback) {
+            replace(yaml, "  request_format: structured-v2\n", "  request_format: structured-v2\n"
+                "  readback: {mode: utf8-token-v1, token_estimator: utf8-byte-v1, max_page_tokens: " +
+                std::to_string(page_tokens) + "}\n");
+            replace(yaml, "  max_input_tokens: null\n", "  max_input_tokens: 4000000\n");
+            replace(yaml, "  max_output_tokens: null\n", "  max_output_tokens: 8192\n");
+        }
         replace(yaml, "    questions: 128\n", "    questions: 512\n");
         replace(yaml, "    open_questions: 32\n", "    open_questions: 64\n");
         replace(yaml, "  max_queries_per_minute: 60\n", "  max_queries_per_minute: " + std::to_string(query_limit) + "\n");
@@ -235,6 +243,56 @@ void old_complete_history_still_stops_without_a_frozen_window() {
     expect(ErrorCode::Quota, [&] { f.capture(Role::TeamLead, model); });
     CHECK(f.store->budget(f.request) == before);
     CHECK(restore_request_config(f.store->request(f.request)).management_history_policy().is_null());
+}
+
+// ---- G1-4 preparation: management utf8-token-v1 readback ------------------
+// Fails today at the fixture's frozen configuration load (`readback` is an
+// unknown system.context key); that rejection is this suite's recorded RED.
+
+void management_v2_reads_return_host_verified_utf8_originals() {
+    Fixture f(true, 60, true);
+    f.host_answer(f.ask(6000));
+    const auto entry = f.page().at("items").as_array().front();
+    Json arguments = Object{{"kind", text(entry, "kind")}, {"record_id", entry.at("record_id")},
+        {"record_sha256", entry.at("record_sha256")}, {"record_version", entry.at("record_version")},
+        {"offset", 0}, {"max_tokens", 4096}};
+    const auto before = num(f.store->budget(f.request), "attempts");
+    std::string original; std::int64_t offset = 0; std::int64_t calls = 0;
+    while (true) {
+        arguments.as_object()["offset"] = offset;
+        const auto page = f.invoke(Role::TeamLead, "management_history_read", arguments);
+        ++calls;
+        CHECK(text(page, "format") == "wls-management-history-text-v1");
+        CHECK(page.at("host_verified") == true);
+        CHECK(text(page, "encoding") == "utf8-canonical-json");
+        CHECK(text(page, "record_sha256") == text(entry, "record_sha256"));
+        const auto content = text(page, "content");
+        CHECK(num(page, "bytes_returned") == static_cast<std::int64_t>(content.size()));
+        original += content;
+        if (page.at("eof").as_bool()) break;
+        CHECK(page.at("next_offset").is_int64());
+        offset = num(page, "next_offset");
+    }
+    CHECK(sha256_hex(original) == text(entry, "record_sha256"));
+    CHECK(num(f.store->budget(f.request), "attempts") == before + calls);
+    CHECK(calls >= 2);
+    // The persisted originals survive a close/reopen and keep paging exactly.
+    f.reopen();
+    arguments.as_object()["offset"] = 0;
+    const auto reopened = f.invoke(Role::TeamLead, "management_history_read", arguments);
+    CHECK(text(reopened, "content") == original.substr(0,
+        static_cast<std::size_t>(num(reopened, "bytes_returned"))));
+    // A v2 read rejects the v1 byte field and out-of-range token values.
+    Json legacy = arguments; legacy.as_object()["max_bytes"] = 4096; legacy.as_object().erase("max_tokens");
+    expect(ErrorCode::InvalidInput, [&] { f.invoke(Role::TeamLead, "management_history_read", legacy); });
+    for (const auto bad : {std::int64_t(0), std::int64_t(24577), std::int64_t(-1)}) {
+        Json wrong = arguments; wrong.as_object()["max_tokens"] = bad;
+        expect(ErrorCode::InvalidInput, [&] { f.invoke(Role::TeamLead, "management_history_read", wrong); });
+    }
+    Json boolean = arguments; boolean.as_object()["max_tokens"] = true;
+    expect(ErrorCode::InvalidInput, [&] { f.invoke(Role::TeamLead, "management_history_read", boolean); });
+    Json fractional = arguments; fractional.as_object()["max_tokens"] = 1.5;
+    expect(ErrorCode::InvalidInput, [&] { f.invoke(Role::TeamLead, "management_history_read", fractional); });
 }
 
 void exact_query_replay_preserves_the_original_feedback_and_charge() {
@@ -543,6 +601,7 @@ void live_usage_projection_keeps_cache_unknown_without_rewriting_originals() {
 int main() { return test::run({
     {"management policy is explicit frozen and legacy-compatible", legacy_policy_is_unchanged_and_frozen_selection_is_explicit},
     {"130 management turns cross restart with exact original readback", long_management_workflows_cross_restart_and_keep_original_readback},
+    {"management v2 reads return host-verified utf8 originals", management_v2_reads_return_host_verified_utf8_originals},
     {"legacy full management history still stops explicitly", old_complete_history_still_stops_without_a_frozen_window},
     {"exact management query replay keeps receipt and budget", exact_query_replay_preserves_the_original_feedback_and_charge},
     {"management reader scope hash version and epoch guards", scope_hash_original_version_and_current_epoch_are_checked},

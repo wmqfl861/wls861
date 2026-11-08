@@ -552,6 +552,51 @@ void management_and_owned_capacity_policies_are_opt_in_and_frozen() {
     expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.freeze(); });
 }
 
+void readback_policy_is_closed_opt_in_and_frozen_with_a_window() {
+    Fixture fixture;
+    const auto legacy = fixture.freeze();
+    CHECK(!legacy.json().at("system").at("context").as_object().contains("readback"));
+    auto system = legacy.json().at("system");
+    auto& context = field(system, "context").as_object();
+    context["request_format"] = "structured-v2";
+    context["worker_history"] = Object{{"mode", "window-v1"}, {"recent_attempts", 3},
+        {"inline_bytes", 65536}};
+    context["readback"] = Object{{"mode", "utf8-token-v1"}, {"token_estimator", "utf8-byte-v1"},
+        {"max_page_tokens", 24576}};
+    field(field(system, "budget_defaults"), "max_input_tokens") = 120000;
+    field(field(system, "budget_defaults"), "max_output_tokens") = 8192;
+    fixture.system(system);
+    const auto frozen = fixture.freeze();
+    CHECK(frozen.json().at("system").at("context").at("readback") == context.at("readback"));
+    CHECK(frozen.json().at("system").at("budget_defaults").at("max_input_tokens") == 120000);
+    CHECK(frozen.json().at("system").at("budget_defaults").at("max_output_tokens") == 8192);
+    CHECK(frozen.sha256() != legacy.sha256());
+    const auto restored = FrozenRequestConfig::restore(frozen.serialize(), frozen.sha256());
+    CHECK(restored.serialize() == frozen.serialize());
+    for (int change = 0; change < 11; ++change) {
+        auto rejected = system;
+        auto& bad = field(rejected, "context").as_object();
+        switch (change) {
+        case 0: bad["request_format"] = "framed-v1"; break;
+        case 1: bad.erase("worker_history"); break;
+        case 2: bad.at("readback").as_object()["version"] = 1; break;
+        case 3: bad.at("readback").as_object()["mode"] = "utf8-token-v2"; break;
+        case 4: bad.at("readback").as_object()["token_estimator"] = "tiktoken-v1"; break;
+        case 5: bad.at("readback").as_object()["max_page_tokens"] = 1023; break;
+        case 6: bad.at("readback").as_object()["max_page_tokens"] = 65537; break;
+        case 7: bad.at("readback").as_object()["max_page_tokens"] = "24576"; break;
+        case 8: bad.at("readback").as_object()["max_page_tokens"] = 3.5; break;
+        case 9: bad.at("readback").as_object().erase("token_estimator"); break;
+        case 10: bad.at("readback").as_object()["max_page_tokens"] = true; break;
+        default: CHECK(false);
+        }
+        fixture.system(rejected);
+        expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.freeze(); });
+    }
+    fixture.system(system);
+    (void)fixture.freeze();
+}
+
 } // namespace
 
 int main() {
@@ -575,6 +620,7 @@ int main() {
         {"validated but unenforced settings are explicit and do not change frozen config", unsupported_enforcement_is_visible_without_changing_frozen_bytes},
         {"unknown functions capabilities roles and tools reject", unknown_functions_capabilities_and_tools_are_rejected},
         {"configuration FIFO is rejected before any observable open", configuration_fifo_is_rejected_without_open_side_effects},
-        {"management and owned capacity policies preserve old frozen semantics", management_and_owned_capacity_policies_are_opt_in_and_frozen}
+        {"management and owned capacity policies preserve old frozen semantics", management_and_owned_capacity_policies_are_opt_in_and_frozen},
+        {"readback policy is closed opt-in and frozen with a structured-v2 window", readback_policy_is_closed_opt_in_and_frozen_with_a_window}
     });
 }
