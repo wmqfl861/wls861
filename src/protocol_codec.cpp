@@ -312,6 +312,10 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         {"input", input}, {"tools", tools}, {"max_output_tokens", request.max_output_tokens},
         {"parallel_tool_calls", profile.parallel_tool_calls}, {"stream", stream},
         {"store", false}, {"background", false}, {"truncation", "disabled"}};
+    // A frozen tool-calling profile with parallel calls disabled pins each
+    // response to one tool call; logical identity stays independent of the wire.
+    if (profile.tool_calling && !profile.parallel_tool_calls)
+        body["tool_choice"] = "required";
     if (request.model.reasoning.mode == ReasoningMode::Disabled)
         body["reasoning"] = Object{{"effort", "none"}};
     else if (request.model.reasoning.mode == ReasoningMode::Explicit)

@@ -487,6 +487,79 @@ void empty_completed_and_contradictory_terminal_states_refuse() {
     value = fixture::text_response(); value.as_object()["status"] = "failed"; refused(value);
     value = fixture::text_response(); value.at("output").as_array()[0].as_object()["role"] = "user"; refused(value);
 }
+
+// G1-3 wire policy: only a frozen tool_calling profile with explicit
+// parallel_tool_calls=false adds tool_choice=required; the parallel default
+// keeps its original body untouched and logical identity stays wire-independent.
+void false_parallel_profile_requires_tool_choice_and_keeps_true_profile_wire() {
+    auto strict = fixture::profile();
+    strict.parallel_tool_calls = false;
+    const auto r = fixture::request();
+    const auto original = to_json(r);
+    const auto encoded = encode_responses_request(strict, r);
+    CHECK(to_json(r) == original);
+    const auto body = parse_json_strict(encoded.body);
+    CHECK(body.at("tool_choice").as_string() == "required");
+    CHECK(body.at("parallel_tool_calls") == false);
+    CHECK(encoded.profile_sha256 == provider_profile_sha256(strict));
+    CHECK(encoded.body_sha256 == sha256_hex(encoded.body));
+    auto record = to_json(encoded);
+    record.as_object().erase("record_sha256");
+    CHECK(sha256_hex(canonical_json(record)) == encoded.record_sha256);
+    CHECK(encoded.evidence.at("encoded_body_sha256") == Json(encoded.body_sha256));
+    CHECK(encoded.evidence.at("encoded_body_bytes") == Json(encoded.body.size()));
+    CHECK(encoded.evidence.at("network_dispatched") == false);
+    CHECK(encoded.evidence.at("credentials_resolved") == false);
+    const auto parallel = fixture::profile();
+    const auto parallel_encoded = encode_responses_request(parallel, r);
+    const auto parallel_body = parse_json_strict(parallel_encoded.body);
+    CHECK(!parallel_body.as_object().contains("tool_choice"));
+    CHECK(parallel_body.at("parallel_tool_calls") == true);
+    CHECK(parallel_encoded.logical_request_sha256 == encoded.logical_request_sha256);
+    CHECK(parallel_encoded.profile_sha256 != encoded.profile_sha256);
+}
+
+// G1-3 history projection on the wire: a text-only failure stays an explicit
+// user observation and a settled single-tool failure keeps its native pairing;
+// neither shape ever emits an orphan function_call_output.
+void correction_history_observations_encode_without_orphan_outputs() {
+    auto strict = fixture::profile();
+    strict.parallel_tool_calls = false;
+    const Json observation_source = Object{{"kind", "unapplied_or_missing_observation"},
+        {"not_execution_authority", true}};
+    const Json turn_source = Object{{"kind", "recorded_tool_turn"}, {"not_execution_authority", true},
+        {"original_tool_call_id", "bad-write"}};
+    const Json failure_result = Object{{"format", "wls-correction-feedback-v1"}, {"status", "FAILED"},
+        {"correction_eligible", true}, {"failure_layer", "model_schema"}, {"reason", "invalid_arguments"},
+        {"observation_complete", true}, {"effect_status", "NONE"}, {"effect_count", 0}};
+    const Json bad_arguments = Object{{"path", "args.txt"}};
+    const std::vector<StructuredContextMessage> messages{
+        {"user", R"({"response":{"text":"only text"}})", {}, {}, observation_source},
+        {"assistant", "", {{"bad-write", "fs_write", bad_arguments}}, {}, turn_source},
+        {"tool", canonical_json(failure_result), {}, "bad-write", turn_source}};
+    const auto r = fixture::request(messages);
+    const auto body = parse_json_strict(encode_responses_request(strict, r).body);
+    std::vector<std::string> call_ids;
+    std::size_t user_observations = 0, outputs = 0;
+    bool saw_bad_arguments = false, saw_failure_result = false;
+    for (const auto& item : body.at("input").as_array()) {
+        if (item.as_object().contains("type") && item.at("type") == "function_call") {
+            call_ids.push_back(std::string(item.at("call_id").as_string()));
+            if (item.at("name").as_string() == "fs_write" &&
+                parse_json_strict(std::string(item.at("arguments").as_string())) == bad_arguments)
+                saw_bad_arguments = true;
+        } else if (item.as_object().contains("type") && item.at("type") == "function_call_output") {
+            ++outputs;
+            const auto id = std::string(item.at("call_id").as_string());
+            CHECK(std::find(call_ids.begin(), call_ids.end(), id) != call_ids.end());
+            if (parse_json_strict(std::string(item.at("output").as_string())) == failure_result)
+                saw_failure_result = true;
+        } else if (item.as_object().contains("role") && item.at("role") == "user") ++user_observations;
+    }
+    CHECK(user_observations == 2);
+    CHECK(call_ids.size() == 1 && outputs == 1);
+    CHECK(saw_bad_arguments && saw_failure_result);
+}
 } // namespace
 
 int main() {
@@ -520,6 +593,8 @@ int main() {
         {"raw fingerprints preserve exact bytes and detect later mutation", raw_fingerprint_preserves_whitespace_and_result_hashes_detect_tampering},
         {"encoding record binds URL stream identity and evidence", encoded_record_binds_transport_description_identity_and_evidence},
         {"decoding record binds tuple result usage and raw evidence", decoded_record_binds_original_tuple_result_usage_and_raw_evidence},
-        {"empty completed and contradictory terminal results reject", empty_completed_and_contradictory_terminal_states_refuse}
+        {"empty completed and contradictory terminal results reject", empty_completed_and_contradictory_terminal_states_refuse},
+        {"false parallel profile requires tool choice and keeps true-profile wire", false_parallel_profile_requires_tool_choice_and_keeps_true_profile_wire},
+        {"correction history observations encode without orphan outputs", correction_history_observations_encode_without_orphan_outputs}
     });
 }

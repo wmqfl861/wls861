@@ -64,20 +64,48 @@ Json accounting_cases(const fixture::Assets& assets) {
     CHECK(excess.store->verify_usage_ledger(excess.request_id).at("consistent").as_bool());
     return result;
 }
-VerifiedUsageEvidence receipt(const Json& config, const LiveModelSettings& live,
-                             const ModelRequest& request, const ModelResponse& response, const Json& settlement) {
-    CHECK(response.tool_calls.size() == 1);
-    const auto key = response.tool_calls.front().call_id;
-    CHECK(!key.empty() && key.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-") == std::string::npos);
-    const auto independent = parse_json_strict(read_runtime_file(
-        std::filesystem::path(text(config, "receipts")) / (key + ".json"), 16384));
-    // The separate loopback server persisted this receipt before sending its
-    // response. The hook validates its observed request bytes and response key;
-    // it does not reinterpret missing protocol usage as zero or a price guess.
-    CHECK(independent.at("fixture") == "loopback-workflow-billing-v1");
-    CHECK(text(independent, "call_id") == key);
-    CHECK(text(independent, "request_body_sha256") == encode_responses_request(live.provider, request, live.stream).body_sha256);
+VerifiedUsageEvidence receipt(Store& store, const Json& config, const LiveModelSettings& live,
+                              const ModelRequest& request, const ModelResponse& response, const Json& settlement) {
+    const auto encoded_body = encode_responses_request(live.provider, request, live.stream);
+    Json independent;
+    std::string source_reference;
+    if (response.tool_calls.size() == 1) {
+        const auto key = response.tool_calls.front().call_id;
+        CHECK(!key.empty() && key.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-") == std::string::npos);
+        independent = parse_json_strict(read_runtime_file(
+            std::filesystem::path(text(config, "receipts")) / (key + ".json"), 16384));
+        // The separate loopback server persisted this receipt before sending its
+        // response. The hook validates its observed request bytes and response key;
+        // it does not reinterpret missing protocol usage as zero or a price guess.
+        CHECK(independent.at("fixture") == "loopback-workflow-billing-v1");
+        CHECK(text(independent, "call_id") == key);
+        source_reference = "private-server-receipt:" + key;
+    } else {
+        // A zero-tool round has no call ID to key a receipt on. The independent
+        // receipt is keyed by the exact original request body hash and binds the
+        // original transport response identity and full byte digest instead; a
+        // missing or mismatched receipt still refuses to settle accounting.
+        CHECK(response.tool_calls.empty());
+        const auto observation = store.live_attempt(request.attempt_id, true).at("private_observation");
+        const auto hex = text(observation, "raw_body_hex");
+        CHECK(hex.size() % 2 == 0);
+        std::string raw(hex.size() / 2, '\0');
+        for (std::size_t index = 0; index < raw.size(); ++index)
+            raw[index] = static_cast<char>(std::stoi(hex.substr(index * 2, 2), nullptr, 16));
+        independent = parse_json_strict(read_runtime_file(
+            std::filesystem::path(text(config, "receipts")) / (encoded_body.body_sha256 + ".json"), 16384));
+        CHECK(independent.at("fixture") == "loopback-workflow-billing-v1");
+        CHECK(text(independent, "kind") == "text_only_zero_tool");
+        CHECK(text(independent, "request_body_sha256") == encoded_body.body_sha256);
+        CHECK(text(independent, "response_body_sha256") == sha256_hex(raw));
+        CHECK(text(independent, "response_id") == text(parse_json_strict(raw), "id"));
+        source_reference = "private-server-receipt:text:" + encoded_body.body_sha256.substr(0, 16);
+    }
+    CHECK(text(independent, "request_body_sha256") == encoded_body.body_sha256);
     auto usage = model_usage_from_json(independent.at("usage"));
+    CHECK(usage.input_tokens.has_value() && *usage.input_tokens > 0 &&
+          usage.output_tokens.has_value() && *usage.output_tokens > 0 &&
+          usage.cost_micro_usd.has_value() && *usage.cost_micro_usd > 0);
     if (flag(config, "partial_evidence")) usage.cache_write_tokens.reset();
     Object statement{{"independent_receipt", independent},
         {"attempt_id", request.attempt_id}, {"settlement_sha256", settlement.at("settlement_sha256")},
@@ -85,7 +113,7 @@ VerifiedUsageEvidence receipt(const Json& config, const LiveModelSettings& live,
     if (flag(config, "wrong_evidence_attempt")) statement["attempt_id"] = "attempt-other-original";
     if (flag(config, "wrong_evidence_settlement")) statement["settlement_sha256"] = std::string(64, '0');
     const auto proof = canonical_json(statement);
-    return verify_usage_evidence("loopback_fixture", "private-server-receipt:" + key, proof,
+    return verify_usage_evidence("loopback_fixture", source_reference, proof,
         [](std::string_view bytes) {
             const auto value = parse_json_strict(bytes);
             return UsageEvidenceStatement{text(value, "attempt_id"), text(value, "settlement_sha256"), model_usage_from_json(value.at("usage"))};
@@ -109,7 +137,34 @@ int main(int argc, char** argv) {
         input.constraint_catalog = Array{};
         const auto frozen = FrozenRequestConfig::restore(canonical_json(input.config_snapshot), sha256_hex(canonical_json(input.config_snapshot)));
         const auto grants = frozen.worker_tools(); input.tool_allowlist.assign(grants.begin(), grants.end());
-        input.budget = BudgetLimits{64, 4000000, 1000000, 100000};
+        input.budget = BudgetLimits{64, 4000000, 1000000, number_option(config, "cost_budget", 100000)};
+        // The synthetic host can freeze a tighter same-call correction cap or
+        // cost budget per request. Both travel through the ordinary frozen
+        // configuration snapshot; no production default or global setting moves.
+        // The cap is injected at the configuration file level and the catalog is
+        // reloaded, mirroring fixture::admission: mutating the already frozen
+        // JSON would break its pinned system.yaml dependency hash on any build.
+        if (const auto* retry_cap = config.as_object().if_contains("schema_retry_cap")) {
+            CHECK(retry_cap->is_int64() && retry_cap->as_int64() >= 0);
+            test::TempDir configuration;
+            std::filesystem::copy(assets.source / "config/examples", configuration.path / "config",
+                std::filesystem::copy_options::recursive);
+            std::filesystem::copy(assets.source / "prompts", configuration.path / "prompts",
+                std::filesystem::copy_options::recursive);
+            const auto system_path = configuration.path / "config/system.yaml";
+            auto catalog = load_config_catalog(system_path, configuration.path / "config/functions",
+                configuration.path / "prompts");
+            auto system = catalog.freeze("general").json().at("system");
+            system.at("models").as_object()[live.provider.model_ref] = fixture::model_profile(live);
+            system.at("defaults").at("model_ref") = live.provider.model_ref;
+            system.at("model_calls").at("real_calls_enabled") = !flag(config, "disabled");
+            system.at("context").at("request_format") = "structured-v2";
+            system.at("context").at("schema_retry_max") = *retry_cap;
+            { std::ofstream output(system_path); output << canonical_json(system); }
+            catalog = load_config_catalog(system_path, configuration.path / "config/functions",
+                configuration.path / "prompts");
+            input.config_snapshot = catalog.freeze("general").json();
+        }
         const auto id = text(store->admit(input), "request_id");
         SchemaRegistry schemas(assets.source / "schemas");
         std::map<std::string, std::unique_ptr<WorkerTools>> owned;
@@ -137,7 +192,7 @@ int main(int argc, char** argv) {
             return std::string(bearer);
         };
         if (flag(config, "reconcile")) options.usage_evidence = [&](const ModelRequest& request, const ModelResponse& response, const Json& settlement) {
-            ++evidence_calls; return std::optional<VerifiedUsageEvidence>(receipt(config, live, request, response, settlement));
+            ++evidence_calls; return std::optional<VerifiedUsageEvidence>(receipt(*store, config, live, request, response, settlement));
         };
         if (flag(config, "host_dispositions")) options.limits.amendment_dispositions = Object{{"alpha", Object{{"disposition", "keep"}, {"rationale", "fixture refusal"}}}};
         Object result{{"request_id", id}, {"initial_accounting", store->live_accounting_status(id)}};
@@ -151,7 +206,7 @@ int main(int argc, char** argv) {
                 std::int64_t hook_calls = 0;
                 const auto hook = [&](const Json& settlement) {
                     ++hook_calls;
-                    (void)store->reconcile_usage(store->host_actor(Role::Root, id), receipt(config, live, call.request, *observed.response, settlement), {"original", "original", 1});
+                    (void)store->reconcile_usage(store->host_actor(Role::Root, id), receipt(*store, config, live, call.request, *observed.response, settlement), {"original", "original", 1});
                 };
                 if (action == "settled_without_feedback") {
                     (void)store->settle_attempt(call.request.attempt_id, call.request.binding, call.request.config_snapshot_id,

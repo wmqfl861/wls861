@@ -1,5 +1,6 @@
 #include "wls/workspace.hpp"
 #include "wls/owned_capacity.hpp"
+#include "correction_detail.hpp"
 
 #include <linux/fs.h>
 #include <linux/openat2.h>
@@ -518,6 +519,7 @@ struct Workspace::Impl {
         bool stage_exists = false;
         bool rename_attempted = false;
         bool renamed = false;
+        bool content_precondition_rejected = false;
         bool durable = false;
         std::string phase = "validate";
         std::string logical;
@@ -547,17 +549,25 @@ struct Workspace::Impl {
             parent = open_resolved(root.get(), parent_name, O_RDONLY | O_DIRECTORY);
             if (!same_inode(parent_identity, stat_fd(parent.get()))) throw Error(ErrorCode::Conflict, "workspace parent changed");
             previous = snapshot(logical, true);
-            if ((!expected && previous.exists) || (expected && (!previous.exists || previous.digest != *expected)))
+            if ((!expected && previous.exists) || (expected && (!previous.exists || previous.digest != *expected))) {
+                // Deterministic pre-write content refusal: creation on an
+                // existing destination or a CAS digest mismatch.
+                content_precondition_rejected = true;
                 throw Error(ErrorCode::Conflict, "workspace destination does not match creation/CAS precondition");
+            }
             if (patch_spec) {
                 if (!previous.exists || patch_spec->offset > previous.bytes.size() ||
                     patch_spec->expected.size() > previous.bytes.size() - static_cast<std::size_t>(patch_spec->offset) ||
-                    previous.bytes.compare(static_cast<std::size_t>(patch_spec->offset), patch_spec->expected.size(), patch_spec->expected) != 0)
+                    previous.bytes.compare(static_cast<std::size_t>(patch_spec->offset), patch_spec->expected.size(), patch_spec->expected) != 0) {
+                    content_precondition_rejected = true;
                     throw Error(ErrorCode::Conflict, "patch byte range does not match expected bytes");
+                }
                 const auto first_match = previous.bytes.find(patch_spec->expected);
                 if (first_match != static_cast<std::size_t>(patch_spec->offset) ||
-                    previous.bytes.find(patch_spec->expected, first_match + 1) != std::string::npos)
+                    previous.bytes.find(patch_spec->expected, first_match + 1) != std::string::npos) {
+                    content_precondition_rejected = true;
                     throw Error(ErrorCode::Conflict, "patch expected bytes must have exactly one match in the complete file");
+                }
                 const auto remainder = previous.bytes.size() - patch_spec->expected.size();
                 if (remainder > limits.max_write_bytes || supplied_bytes.size() > limits.max_write_bytes - remainder ||
                     remainder > limits.max_file_bytes || supplied_bytes.size() > limits.max_file_bytes - remainder)
@@ -675,6 +685,11 @@ struct Workspace::Impl {
             evidence["durable"] = durable;
             evidence["temporary_remaining"] = stage_exists;
             evidence["temporary_cleanup_complete"] = cleanup_complete;
+            // Only the deterministic pre-write creation/CAS/patch-content
+            // refusal points above set this label; a shared Conflict catch must
+            // never retrofit it onto commit-time races or unrelated failures.
+            if (content_precondition_rejected)
+                evidence["failure_kind"] = "content_precondition";
             output.evidence = std::move(evidence);
             output.result = nullptr;
             return output;
@@ -735,7 +750,11 @@ Json Workspace::read(std::string_view path, std::uint64_t offset, std::size_t ma
     std::lock_guard lock(impl_->mutex);
     const DirectoryLock directory_lock(impl_->root.get(), false);
     impl_->check_root();
-    const auto data = impl_->snapshot(logical);
+    // The path, page bound, root and lock checks above passed; only a missing
+    // final leaf (with every ancestor present and valid) raises the private
+    // correction subtype so a Worker read can settle as an ordinary result.
+    const auto data = impl_->snapshot(logical, true);
+    if (!data.exists) throw correction_detail::MissingWorkspaceLeaf(logical);
     if (offset > data.bytes.size()) throw Error(ErrorCode::InvalidInput, "read offset is past end of file");
     const auto begin = static_cast<std::size_t>(offset);
     const auto page = std::string_view(data.bytes).substr(begin, std::min(max_bytes, data.bytes.size() - begin));

@@ -385,6 +385,39 @@ void script_shape_and_bounds() {
     });
 }
 
+// G1-3 correction boundaries: the adapter layer keeps accepting a non-empty
+// text-only Completed response and multi-call shapes; whether exactly one tool
+// call is required stays a host decision, never a FakeModel invention.
+void text_only_and_multi_call_completed_shapes_pass_model_validation() {
+    const auto request = request_fixture();
+    const auto response = FakeModel({text_step(Role::Worker, 1, "narrative only")}).complete(request);
+    validate_response(request, response);
+    require_complete_response(request, response);
+    CHECK(response.tool_calls.empty() && response.text == "narrative only");
+
+    auto multi = text_step(Role::Worker, 1, "plan narrative");
+    multi.tool_calls = {{"call-a", "submit", boost::json::object{{"text", "a"}}},
+                        {"call-b", "submit", boost::json::object{{"text", "b"}}}};
+    const auto multi_response = FakeModel({multi}).complete(request);
+    CHECK(multi_response.tool_calls.size() == 2);
+    validate_response(request, multi_response);
+    // A subset dispatch or a silent single-call reduction is never chosen here.
+    CHECK(multi_response.tool_calls[0].call_id == "call-a" && multi_response.tool_calls[1].call_id == "call-b");
+}
+
+void fake_construction_rejects_empty_duplicate_and_nonobject_calls() {
+    auto empty = text_step();
+    empty.text.clear();
+    expect_error(ErrorCode::InvalidInput, [&] { (void)FakeModel({empty}).complete(request_fixture()); });
+    auto duplicate = text_step();
+    duplicate.tool_calls = {{"same-id", "submit", boost::json::object{{"text", "a"}}},
+                            {"same-id", "submit", boost::json::object{{"text", "b"}}}};
+    expect_error(ErrorCode::InvalidInput, [&] { (void)FakeModel({duplicate}).complete(request_fixture()); });
+    auto nonobject = text_step();
+    nonobject.tool_calls = {{"call-x", "submit", boost::json::array{"not", "an", "object"}}};
+    expect_error(ErrorCode::InvalidInput, [&] { (void)FakeModel({nonobject}).complete(request_fixture()); });
+}
+
 } // namespace
 
 int main() {
@@ -403,6 +436,8 @@ int main() {
         {"missing usage remains null rather than zero", nullable_usage_does_not_invent_zero},
         {"request and response round trips preserve separate attempt identity", independent_attempt_identity_and_frozen_round_trip},
         {"invalid reservations and frozen-context mismatches reject", reservations_and_context_mismatches_reject_before_call},
-        {"fake script shape, sequences and delay limits are bounded", script_shape_and_bounds}
+        {"fake script shape, sequences and delay limits are bounded", script_shape_and_bounds},
+        {"text-only and multi-call completed shapes pass model validation", text_only_and_multi_call_completed_shapes_pass_model_validation},
+        {"fake construction rejects empty, duplicate and non-object calls", fake_construction_rejects_empty_duplicate_and_nonobject_calls}
     });
 }

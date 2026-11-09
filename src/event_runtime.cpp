@@ -2,6 +2,7 @@
 #include "wls/worker_tools.hpp"
 #include "wls/management_context.hpp"
 #include "runtime_config_internal.hpp"
+#include "correction_detail.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -360,14 +361,31 @@ Json EventRuntime::pump(const std::string& id, const EventFakeScript& script,
             auto current_task = store_.task(task_id);
             active_actor = store_.host_actor(Role::Worker, id, binding.team_id);
             if (number(current_task, "applied_task_revision") != binding.task_revision ||
-                    number(current_task, "applied_plan_revision") != binding.plan_revision ||
-                    number(current_task, "applied_instruction_revision") != binding.instruction_revision)
+                number(current_task, "applied_plan_revision") != binding.plan_revision ||
+                number(current_task, "applied_instruction_revision") != binding.instruction_revision)
                 static_cast<void>(store_.acknowledge(active_actor, binding, number(current_task, "state_version"), new_id("ack")));
+            std::int64_t correction_admissions = 0;
             for (std::int64_t turn = 0; turn < options.max_worker_calls_per_task; ++turn) {
                 active_claim = store_.claim_events(active_actor);
                 if (active_claim.at("items").as_array().empty()) { active_claim = nullptr; break; }
                 const auto result = invoke(Role::Worker, node, task_id, tools);
                 if (!result) { finish(active_actor, active_claim, {}); active_claim = nullptr; break; }
+                // Ordinary bounded failure with durable feedback: release the
+                // claim uncompleted and spend one admitted corrective round
+                // under the same per-task, call and budget caps.
+                if (correction_detail::correction_eligible_result(*result)) {
+                    finish(active_actor, active_claim, {}); active_claim = nullptr;
+                    if (correction_admissions >= config.schema_retry_max()) {
+                        // G1-3 FINAL v12 §3 C2: real eligible exhaustion emits the
+                        // bounded dedicated report carrying the real role, node
+                        // and task of this Worker; no other signature moves.
+                        block(Role::Worker, node, task_id, correction_detail::correction_limit_code,
+                              std::string(correction_detail::correction_limit_reason));
+                        break;
+                    }
+                    ++correction_admissions;
+                    continue;
+                }
                 const auto* operation = result->is_object() ? result->as_object().if_contains("operation") : nullptr;
                 const bool failed_operation = operation && text(*operation, "status") != "SUCCEEDED";
                 if (failed_operation) {
@@ -447,6 +465,14 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     using ActorKey = std::pair<Role, std::string>;
     std::map<ActorKey, std::int64_t> indices;
     std::set<ActorKey> stopped;
+    // G1-3 FINAL v12 §3 C1: this pump's Worker correction admissions live for
+    // the whole invocation, keyed only by the trusted Worker node plus the
+    // frozen ExecutionBinding and config identity. A completed claim, an
+    // ordinary success, or any state_version/claim/attempt/call-index change
+    // never resets a chain; only a new semantic binding or a new explicit
+    // pump invocation starts a fresh chain. No Store state or SQL is involved.
+    std::map<std::string, std::int64_t> worker_correction_admissions;
+    std::string refused_guard;
     std::set<std::string> block_keys;
     Array calls, blocked;
     std::int64_t manager_calls = 0;
@@ -567,6 +593,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     };
     const auto invoke = [&](Role role, const std::string& node, const std::string& task,
                             WorkerTools* tools, const Json& claim) -> std::optional<Json> {
+        refused_guard.clear();
         if (!live_continue() || !accounting_ready()) return std::nullopt;
         const ActorKey key{role, node};
         if (stopped.contains(key)) return std::nullopt;
@@ -587,6 +614,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             stopped.insert(key); return std::nullopt;
         }
         if (role == Role::Worker && indices[key] >= options.max_worker_calls_per_task) {
+            refused_guard = "worker_limit";
             block(role, node, task, "worker_limit", "this task reached the explicit per-pump Worker call limit");
             stopped.insert(key); return std::nullopt;
         }
@@ -765,7 +793,12 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 invocation["result"] = live_record_summary(result);
                 static_cast<void>(accounting_ready());
                 const auto* operation = result.is_object() ? result.as_object().if_contains("operation") : nullptr;
-                if (operation && text(*operation, "status") != "SUCCEEDED") {
+                // Only the recognized ordinary bounded failure bypasses the
+                // blanket failed-operation halt; its continuation is decided
+                // by the bounded same-claim Worker loop, still gated on live
+                // continuation and accounting readiness above.
+                if (operation && text(*operation, "status") != "SUCCEEDED" &&
+                        !correction_detail::correction_eligible_result(result)) {
                     live_halted = true; stop_reason = "error";
                     block(role, node, task, "operation_incomplete", "failed or unknown operation stops the live batch");
                 }
@@ -996,16 +1029,62 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 if (stopped.contains({Role::Worker, node})) continue;
                 active_claim = store_.claim_events(active_actor);
                 if (active_claim.at("items").as_array().empty()) { active_claim = nullptr; continue; }
-                const auto result = invoke(Role::Worker, node, task_id, tools, active_claim);
-                if (!result) { finish(active_actor, active_claim, {}); active_claim = nullptr; continue; }
-                const auto* operation = result->is_object() ? result->as_object().if_contains("operation") : nullptr;
-                if (operation && text(*operation, "status") != "SUCCEEDED") {
-                    block(Role::Worker, node, task_id, "operation_incomplete", "a failed or unknown operation stops this task's batch");
-                    stopped.insert({Role::Worker, node});
-                    finish(active_actor, active_claim, {}); active_claim = nullptr; continue;
+                // Bounded same-claim corrective continuation: an admitted
+                // ordinary failure keeps this original Worker claim open (no
+                // re-claim, no early completion) until the actor succeeds,
+                // stops or exhausts the frozen schema-retry bound. The
+                // admission counter is the whole-invocation C1 chain above, so
+                // a success or completed claim never refreshes its quota.
+                const auto chain_key = node + ":" + config.sha256() + ":" +
+                    canonical_json(to_json(binding));
+                auto& correction_admissions = worker_correction_admissions[chain_key];
+                bool correction_pending = false;
+                while (true) {
+                    const auto result = invoke(Role::Worker, node, task_id, tools, active_claim);
+                    if (!result) {
+                        // An admitted corrective continuation refused by the
+                        // original per-task Worker cap ends the whole live batch
+                        // under that real guard reason; the Fake entry keeps its
+                        // actor-local stop and sibling isolation.
+                        if (correction_pending && live && refused_guard == "worker_limit") {
+                            live_halted = true;
+                            if (stop_reason == "quiescent") stop_reason = "worker_limit";
+                        }
+                        finish(active_actor, active_claim, {}); active_claim = nullptr; break;
+                    }
+                    if (correction_detail::correction_eligible_result(*result)) {
+                        if (correction_admissions >= config.schema_retry_max()) {
+                            // G1-3 FINAL v12 §3 C2: real eligible exhaustion emits
+                            // the bounded dedicated report and halts every live
+                            // role; the claim is released empty and its events
+                            // stay pending. A stronger existing stop reason is
+                            // never overwritten.
+                            block(Role::Worker, node, task_id, correction_detail::correction_limit_code,
+                                  std::string(correction_detail::correction_limit_reason));
+                            stopped.insert({Role::Worker, node});
+                            finish(active_actor, active_claim, {}); active_claim = nullptr;
+                            if (live) {
+                                live_halted = true;
+                                if (stop_reason == "quiescent") stop_reason = "correction_limit";
+                            }
+                            break;
+                        }
+                        ++correction_admissions;
+                        correction_pending = true;
+                        continue;
+                    }
+                    const auto* operation = result->is_object() ? result->as_object().if_contains("operation") : nullptr;
+                    if (operation && text(*operation, "status") != "SUCCEEDED") {
+                        block(Role::Worker, node, task_id, "operation_incomplete", "a failed or unknown operation stops this task's batch");
+                        stopped.insert({Role::Worker, node});
+                        finish(active_actor, active_claim, {}); active_claim = nullptr;
+                        break;
+                    }
+                    finish(active_actor, active_claim, ids(active_claim)); active_claim = nullptr;
+                    progress = true;
+                    break;
                 }
-                finish(active_actor, active_claim, ids(active_claim)); active_claim = nullptr;
-                progress = true;
+                continue;
             } catch (const Error& error) {
                 const auto role = active_actor.role == Role::Root ? Role::Worker : active_actor.role;
                 if (live) { live_halted = true; if (stop_reason == "quiescent") stop_reason = "error"; }

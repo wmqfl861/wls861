@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 
 
 if len(sys.argv) != 3:
@@ -109,6 +110,61 @@ class MkdirCliSmoke(unittest.TestCase):
             "FROM requests r JOIN request_runtime rr USING(request_id) WHERE request_id=?",
             (request,))[0]
 
+    # G1-3 FINAL v14 3 (D2) local original capture (r2a denial contract).
+    # The enable state is frozen by the execution environment's
+    # WLS_G1_EVIDENCE_ROOT key and is constant for one test process: a
+    # completely absent key disables only this optional capture I/O while
+    # every business action, assertion and fixture cleanup still runs (such a
+    # run never counts as retained evidence); a present value must name this
+    # run's bound owner-only directory -- absolute, a real directory rather
+    # than a symlink, owned by the current user, mode 0o700 -- and any other
+    # present value is an explicit evidence failure, never a silent fallback
+    # to a default location.
+    def evidence_root(self):
+        if "WLS_G1_EVIDENCE_ROOT" not in os.environ:
+            return None
+        root = os.environ["WLS_G1_EVIDENCE_ROOT"]
+        if not root.startswith("/"):
+            raise AssertionError(f"G1 evidence root must be absolute: {root!r}")
+        try:
+            info = os.lstat(root)
+        except OSError as error:
+            raise AssertionError(f"G1 evidence root not usable: {root!r}: {error}") from error
+        if (os.path.islink(root) or not stat.S_ISDIR(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o700):
+            raise AssertionError("G1 evidence root is not a bound absolute "
+                                 f"owner-only 0700 directory: {root!r}")
+        return Path(root)
+
+    def capture_evidence(self, name, payload):
+        root = self.evidence_root()
+        if root is None:
+            return None
+        target = root / f"r2a_mkdir_cli_smoke-{self._testMethodName}-{uuid.uuid4().hex}-{name}"
+        try:
+            descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                                 | os.O_NOFOLLOW, 0o600)
+        except OSError as error:
+            raise AssertionError("G1 evidence target cannot be created "
+                                 f"exclusively: {target}: {error}") from error
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            os.fchmod(stream.fileno(), 0o600)
+        return target
+
+    def capture_database(self, tag):
+        # Called only after the CLI subprocesses exited and this suite's
+        # read-only connections closed; copies the physical database plus any
+        # WAL/SHM sidecars that still exist at this capture point. The
+        # absent-key branch returns before any of these capture-only reads.
+        if self.evidence_root() is None:
+            return
+        for suffix, label in (("", "-database"), ("-wal", "-wal"), ("-shm", "-shm")):
+            source = Path(str(self.database) + suffix)
+            if source.exists():
+                self.capture_evidence(f"{tag}{label}", source.read_bytes())
+
     def test_new_frozen_grant_creates_private_directory_then_writes_and_reads(self):
         request = self.submit()
         run = self.run_calls(request, [
@@ -195,16 +251,59 @@ class MkdirCliSmoke(unittest.TestCase):
 
     def test_model_cannot_request_recursive_creation_or_supply_authority(self):
         request = self.submit()
-        self.run_calls(request, [("fs_mkdir", {"path": "forged", "parents": True, "mode": 0o777})],
-                       error="invalid_input")
-        self.assertFalse((self.workspace / "forged").exists())
-        self.assertEqual(self.rows("SELECT * FROM ops"), [])
-        budget = self.rows("SELECT attempts,spent_input,spent_output FROM request_budgets")[0]
-        self.assertEqual(budget, {"attempts": 3, "spent_input": 300, "spent_output": 60})
-        worker_attempt = self.rows("SELECT request_envelope,response FROM call_attempts WHERE role='worker'")[0]
-        self.assertIn("fs_mkdir", json.loads(worker_attempt["request_envelope"])["context"]["tool_names"])
-        response = json.loads(worker_attempt["response"])
-        self.assertTrue(response["tool_calls"][0]["arguments"]["parents"])
+        run = self.run_calls(request, [("fs_mkdir", {"path": "forged", "parents": True, "mode": 0o777})])
+        try:
+            # The command-level exit contract moved to a zero-exit bounded
+            # ordinary failure report; the refusal itself must stay explicit
+            # in the actual returned Worker result, not merely "some error".
+            denial = run["calls"][-1]["result"]
+            self.assertEqual(denial["format"], "wls-correction-feedback-v1")
+            self.assertEqual(denial["status"], "FAILED")
+            self.assertEqual(denial["reason"], "invalid_arguments")
+            self.assertEqual(denial["failure_layer"], "model_schema")
+            self.assertEqual(denial["message"],
+                             "worker tool arguments failed the declared parameter schema")
+            self.assertTrue(denial["correction_eligible"])
+            self.assertTrue(denial["observation_complete"])
+            self.assertEqual(denial["effect_status"], "NONE")
+            self.assertEqual(denial["effect_count"], 0)
+            self.assertNotIn("operation", denial)
+            # The refused recursive creation and any authority injection left
+            # no directory, operation, result or effect behind.
+            self.assertFalse((self.workspace / "forged").exists())
+            self.assertEqual(list(self.workspace.iterdir()), [])
+            self.assertEqual(self.rows("SELECT * FROM ops"), [])
+            self.assertEqual(self.rows("SELECT * FROM operation_results"), [])
+            # Exactly two management calls plus the one refused Worker call;
+            # no fourth call exists on any path.
+            budget = self.rows("SELECT attempts,spent_input,spent_output FROM request_budgets")[0]
+            self.assertEqual(budget, {"attempts": 3, "spent_input": 300, "spent_output": 60})
+            self.assertEqual(len(self.rows("SELECT attempt_id FROM call_attempts")), 3)
+            # The original request declared fs_mkdir and the model-supplied
+            # parents/mode forgeries survive verbatim in the stored response,
+            # never sanitized or rewritten to satisfy this assertion.
+            worker_attempt = self.rows(
+                "SELECT request_envelope,response FROM call_attempts WHERE role='worker'")[0]
+            self.assertIn("fs_mkdir",
+                          json.loads(worker_attempt["request_envelope"])["context"]["tool_names"])
+            response = json.loads(worker_attempt["response"])
+            self.assertEqual(response["tool_calls"][0]["name"], "fs_mkdir")
+            self.assertTrue(response["tool_calls"][0]["arguments"]["parents"])
+            self.assertEqual(response["tool_calls"][0]["arguments"]["mode"], 0o777)
+            # No model-supplied authority changed the frozen policy: the grant
+            # stays the bounded fs_mkdir tool itself and the snapshot hash
+            # still covers its exact bytes.
+            frozen = self.frozen_rows(request)
+            self.assertIn("fs_mkdir", json.loads(frozen["tool_allowlist"]))
+            self.assertEqual(hashlib.sha256(frozen["config_snapshot"].encode()).hexdigest(),
+                             frozen["config_snapshot_sha256"])
+        finally:
+            # G1-3 FINAL v12 6.4: preserve the original command output and the
+            # physical database even on the RED/failure path, before
+            # TemporaryDirectory cleanup runs.
+            self.capture_evidence("denial-run-result.json",
+                                  json.dumps(run, ensure_ascii=False, indent=1).encode())
+            self.capture_database("denial")
 
     def test_upgrading_template_does_not_grant_mkdir_to_existing_frozen_request(self):
         functions = self.directory / "functions"
