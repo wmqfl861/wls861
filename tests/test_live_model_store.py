@@ -392,6 +392,138 @@ class LiveStore(unittest.TestCase):
             self.assertEqual(connection.execute('SELECT count(*) FROM call_attempts').fetchone()[0], 2)
             self.assertEqual(connection.execute('SELECT count(*) FROM model_tool_feedback').fetchone()[0], 2)
 
+    def test_logical_agent_readback_opaque_third_request_is_shared_transcript(self):
+        # Same-capture live row: one logical Agent admitted through the public
+        # fixture boundary with frozen utf8-token-v1 readback, an explicit
+        # worker window, the compatibility profile and explicit input/output
+        # budgets; two settled accepted native rounds with distinct provider
+        # IDs and distinct opaque originals, one real Store close/reopen after
+        # both originals are complete, then a third continuation captured by
+        # production OfflineRuntime::capture_call and executed over the same
+        # loopback TLS peer. This row proves shared-transcript representation
+        # only; it does not claim the worker/management paging rows ran.
+        compat = self.compat_profile()
+        first_body = (SOURCE / 'tests/fixtures/responses/reasoning-tool-response.json').read_bytes()
+        # Round B keeps the supported shape with distinct provider item/call
+        # IDs and its own opaque reasoning original, like the native-two-rounds
+        # fixture; still an official-schema-derived synthetic original.
+        second_original = json.loads(first_body)
+        second_original['id'] = 'resp_logical_agent_tool_b'
+        second_original['output'][0]['id'] = 'rs_logical_agent_round_b'
+        second_original['output'][0]['summary'][0]['text'] = 'Logical Agent round B synthetic summary.'
+        second_original['output'][0]['encrypted_content'] = (
+            'gAAAAABBbG9naWNhbC1hZ2VudC1yZWFkYmFjay1vcGFxdWUtcm91bmQtQg==')
+        second_original['output'][1]['id'] = 'fc_logical_agent_b'
+        second_original['output'][1]['call_id'] = 'call_logical_agent_b'
+        second_original['output'][1]['arguments'] = '{"message":"logical agent round B"}'
+        second_body = tls.encoded(second_original)
+        third_body = (SOURCE / 'tests/fixtures/responses/reasoning-text-response.json').read_bytes()
+        remaining = iter((first_body, second_body, third_body))
+
+        def sequenced(peer, connection):
+            peer.request(connection)
+            body = next(remaining)
+            connection.sendall(tls.headers(len(body)) + body)
+
+        with self.peer(sequenced) as peer:
+            result, database = self.run_raw(peer, action='logical-agent-readback-opaque',
+                                            compat_profile=str(compat), readback=True)
+            self.assertEqual(len(peer.requests), 3)
+            captured = peer.requests[2]['body']
+        # The reported third wire body is the encode of the same unmodified
+        # captured request with its frozen live provider, and it byte-equals
+        # the actual third HTTP request body observed by the TLS peer.
+        self.assertEqual(captured.decode(), result['third_request_body'])
+        # The persisted originals, settlements and immutable feedback are
+        # identical before and after the Store reopen.
+        self.assertEqual(result['before_reopen'], result['after_reopen'])
+        for settlement in ('first_settlement', 'second_settlement', 'third_settlement'):
+            self.assertEqual(result[settlement]['accepted'], 1)
+        # The reopened Store's own history drives the shared transcript.
+        self.assertEqual(result['history_count'], 2)
+        self.assertEqual(result['logical_agent_execution']['global_step'], 3)
+        self.assertEqual(result['logical_agent_execution']['history_count'], 2)
+        first = result['first_response']
+        second = result['second_response']
+        self.assertEqual(first['tool_calls'][0]['call_id'], 'call_compat_fixture')
+        self.assertEqual(second['tool_calls'][0]['call_id'], 'call_logical_agent_b')
+        self.assertNotEqual(first['responses_output']['output'][0]['encrypted_content'],
+                            second['responses_output']['output'][0]['encrypted_content'])
+        # Carrying two complete native rounds grows the measured envelopes.
+        self.assertGreater(result['second_envelope_bytes'], result['first_envelope_bytes'])
+        self.assertGreater(result['third_envelope_bytes'], result['second_envelope_bytes'])
+        self.assertEqual(result['third_reserved_input_units'], result['third_envelope_bytes'])
+        self.assertEqual(result['third_reserved_output_units'], result['third_max_output_tokens'])
+        body = json.loads(result['third_request_body'])
+        self.assertEqual(body['model'], 'o3')
+        self.assertEqual(body['include'], ['reasoning.encrypted_content'])
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(body['instructions'])
+        items = body['input']
+        measured = result['third_logical_messages']
+        # Each settled native round contributes one assistant opaque original
+        # plus its tool result, in original persisted order.
+        self.assertEqual(len(measured), 4)
+        self.assertEqual([message['role'] for message in measured],
+                         ['assistant', 'tool', 'assistant', 'tool'])
+        # Independently rebuild the expected entire input from the measured
+        # transcript messages: the task contract (with message_sources derived
+        # here from the same messages) plus every native/tool item, preserving
+        # complete order, provider IDs, source metadata and escaping.
+        sources = [{'message_index': index, 'source': message['source']}
+                   for index, message in enumerate(measured)
+                   if message.get('source') is not None]
+        self.assertEqual(json.loads(items[0]['content']),
+                         {'format': 'wls-responses-task-v1',
+                          'task_contract': result['third_task_contract'],
+                          'message_sources': sources})
+        self.assertEqual(items[0]['role'], 'user')
+        expected_rest = []
+        provider_call_ids = []
+        consumed = 0
+        for message in measured:
+            payload = message.get('responses_output')
+            if message['role'] == 'assistant' and payload is not None:
+                provider_call_ids = [item['call_id'] for item in payload['output']
+                                     if item['type'] == 'function_call']
+                expected_rest.extend(payload['output'])
+                consumed = 0
+                continue
+            if message['role'] == 'tool':
+                # A native round's tool results pair positionally with the
+                # provider call IDs of that same round, not the logical IDs.
+                expected_rest.append({'type': 'function_call_output',
+                                      'call_id': provider_call_ids[consumed],
+                                      'output': message['content']})
+                consumed += 1
+                continue
+            if message['content'] or not message['tool_calls']:
+                expected_rest.append({'role': message['role'], 'content': message['content']})
+            for call in message['tool_calls']:
+                expected_rest.append({'type': 'function_call', 'call_id': call['call_id'],
+                                      'name': call['name'], 'arguments': call['arguments']})
+        self.assertEqual(items[1:], expected_rest)
+        # The two opaque originals replay unchanged inside the third input.
+        self.assertEqual(items[1], first['responses_output']['output'][0])
+        self.assertEqual(items[2], first['responses_output']['output'][1])
+        self.assertEqual(items[4], second['responses_output']['output'][0])
+        self.assertEqual(items[5], second['responses_output']['output'][1])
+        self.assertEqual(json.loads(items[3]['output']),
+                         {'ok': True, 'round': 1, 'result': 'logical-agent-round-A'})
+        self.assertEqual(json.loads(items[6]['output']),
+                         {'ok': True, 'round': 2, 'result': 'logical-agent-round-B'})
+        self.assertFalse(any(item.get('role') == 'assistant' for item in items))
+        self.assertEqual(result['third_response']['status'], 'completed')
+        self.assertEqual(result['budget']['attempts'], 3)
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], 410)
+            self.assertEqual(connection.execute('SELECT count(*) FROM live_send_claims').fetchone()[0], 3)
+            self.assertEqual(connection.execute('SELECT count(*) FROM ops').fetchone()[0], 0)
+            self.assertEqual(connection.execute('SELECT count(*) FROM model_tool_feedback').fetchone()[0], 2)
+            self.assertEqual(sorted(row[0] for row in connection.execute(
+                'SELECT attempt_id FROM model_tool_feedback')),
+                sorted((result['first_attempt_id'], result['second_attempt_id'])))
+
     def test_readback_config_late_response_fences_preserve_original_identity(self):
         # The live AMEND/cancel/policy/recover fences keep their exact original
         # semantics under a frozen readback configuration as well.

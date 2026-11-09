@@ -2,6 +2,7 @@
 // disposable database and no business tool dispatch or credential environment.
 #include "live_test_support.hpp"
 #include "wls/offline_runtime.hpp"
+#include "wls/single_agent.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -482,6 +483,135 @@ int main(int argc, char** argv) {
             report["paired_settlement"] = paired_executed.settlement;
             std::cout << canonical_json(report) << '\n';
             return 0;
+        }
+        if (action == "logical-agent-readback-opaque") {
+            // One logical Agent under a frozen utf8-token-v1 readback, an
+            // explicit worker window and the compatibility profile: two
+            // settled accepted native rounds with distinct provider IDs and
+            // distinct opaque originals, one real Store close/reopen after
+            // both originals are complete, then a third continuation captured
+            // through the production OfflineRuntime path and executed over the
+            // same loopback TLS peer. The reported logical representation is
+            // the production single-Agent transcript rebuilt from the reopened
+            // Store's own history and frozen configuration, and the reported
+            // wire body is the encode of that same unmodified captured request
+            // with its frozen live provider.
+            const Json selection = Object{{"readback", Object{{"mode", "utf8-token-v1"},
+                {"token_estimator", "utf8-byte-v1"}, {"max_page_tokens", 24576}}},
+                {"worker_history", Object{{"mode", "window-v1"}, {"recent_attempts", 3},
+                    {"inline_bytes", 65536}}},
+                {"logical_agent", Object{{"mode", "single-agent-role-broker-v1"},
+                    {"max_attempts", 128}, {"max_history_bytes", 524288}}}};
+            const auto input_budget = config.as_object().contains("input_budget")
+                ? number(config, "input_budget") : std::int64_t(1000000);
+            const auto output_budget = config.as_object().contains("output_budget")
+                ? number(config, "output_budget") : std::int64_t(65536);
+            auto admitted = fixture::admission(assets, live, "logical-agent-readback",
+                !flag(config, "disabled"), false, selection, input_budget, output_budget);
+            admitted.original_text = "Logical agent readback opaque continuation fixture; preserve originals.";
+            admitted.constraint_catalog = fixture::Array{Object{{"constraint_id", "c1"},
+                {"text", admitted.original_text}, {"source_revision", 1}}};
+            const auto logical_request = text(store->admit(admitted), "request_id");
+            SchemaRegistry schemas(assets.source / "schemas");
+            const Json brief = Object{{"goal", admitted.original_text},
+                {"constraint_refs", fixture::Array{"c1"}},
+                {"constraints_verbatim", fixture::Array{admitted.original_text}}};
+            (void)store->apply_independent_plan(store->host_actor(Role::Dispatcher, logical_request),
+                number(store->request(logical_request), "state_version"), 1,
+                Object{{"nodes", fixture::Array{Object{{"node_id", "logical-readback"}, {"kind", "team_task"},
+                    {"required", true}, {"depends_on", fixture::Array{}}, {"brief", brief}}}}},
+                Object{}, "logical-readback-plan");
+            const auto task_id = text(store->tasks(logical_request).front(), "task_id");
+            const auto team = store->binding(task_id).team_id;
+            (void)store->issue_instruction(store->host_actor(Role::TeamLead, logical_request, team),
+                store->binding(task_id), number(store->task(task_id), "state_version"),
+                brief, "logical-readback-order");
+            (void)store->acknowledge(store->host_actor(Role::Worker, logical_request, team),
+                store->binding(task_id), number(store->task(task_id), "state_version"), "logical-readback-ack");
+            OfflineRuntime runtime(*store, schemas);
+            // Two settled accepted native rounds with distinct provider IDs
+            // (served by the peer), complete immutable feedback and distinct
+            // opaque originals, each reconciled through the independent
+            // loopback usage verifier.
+            const auto native_round = [&](std::int64_t index, const char* result_text) {
+                const auto call = runtime.capture_call(logical_request, Role::Worker, task_id, index);
+                const auto executed = execute_live_attempt(*store, call.actor, call.request, bearer, {true, false});
+                CHECK(executed.sent && executed.response_accepted);
+                auto record = store->attempt(call.request.attempt_id);
+                (void)store->record_tool_feedback(call.request.attempt_id, call.request.binding,
+                    record.at("response"), Object{{"ok", true}, {"round", index}, {"result", result_text}});
+                (void)store->reconcile_usage(store->host_actor(Role::Root, logical_request),
+                    fixture::evidence(executed.settlement, fixture::complete_usage(11, 7),
+                        std::string("logical-readback-") + result_text),
+                    {"logical-readback", "logical-readback", 1});
+                return Object{{"attempt_id", call.request.attempt_id}, {"call_id", call.request.call_id},
+                    {"settlement", executed.settlement},
+                    {"response", store->attempt(call.request.attempt_id).at("response")},
+                    {"envelope_bytes", static_cast<std::int64_t>(call.request.context.prompt().size())}};
+            };
+            const auto first = native_round(1, "logical-agent-round-A");
+            const auto second = native_round(2, "logical-agent-round-B");
+            // Close/reopen the Store only after both originals are complete;
+            // the persisted attempt/feedback snapshots must survive unchanged.
+            const auto snapshot = [&](const std::string& id) {
+                return Object{{"attempt", store->attempt(id)}, {"feedback", store->tool_feedback(id)}};
+            };
+            const Object before_reopen{{"first", snapshot(text(first, "attempt_id"))},
+                {"second", snapshot(text(second, "attempt_id"))}};
+            store.reset();
+            store = assets.open(database);
+            const Object after_reopen{{"first", snapshot(text(first, "attempt_id"))},
+                {"second", snapshot(text(second, "attempt_id"))}};
+            CHECK(after_reopen == before_reopen);
+            // Reconstruct the actual logical-Agent history from the reopened
+            // Store's own actor/binding and frozen configuration snapshot.
+            const auto persisted = store->request(logical_request);
+            const auto frozen = FrozenRequestConfig::restore(
+                canonical_json(persisted.at("config_snapshot")), text(persisted, "config_snapshot_sha256"));
+            const auto history = store->logical_agent_history(
+                store->host_actor(Role::Worker, logical_request, store->binding(task_id).team_id));
+            const auto transcript = single_agent_transcript(logical_request, frozen, history);
+            // The third continuation is the production capture over the
+            // reopened Store, never a hand-built request_for/protocol request.
+            OfflineRuntime reopened_runtime(*store, schemas);
+            const auto third = reopened_runtime.capture_call(logical_request, Role::Worker, task_id, 3);
+            CHECK(single_agent_messages_json(transcript.messages) ==
+                  third.request.context.logical_input.at("messages"));
+            // The frozen live provider of this exact request is the only
+            // encoder used for the reported third wire body.
+            const auto settings = live_model_settings_from_json(frozen.model_profile(Role::Worker),
+                                                                third.request.model.model);
+            const auto third_encoded = encode_responses_request(settings.provider, third.request, settings.stream);
+            const auto closing = execute_live_attempt(*store, third.actor, third.request, bearer, {true, false});
+            CHECK(closing.sent && closing.response_accepted);
+            Object report{{"request_id", logical_request},
+                {"config_snapshot_sha256", text(persisted, "config_snapshot_sha256")},
+                {"history_count", static_cast<std::int64_t>(history.size())},
+                {"logical_agent_execution", transcript.execution},
+                {"first_settlement", first.at("settlement")},
+                {"second_settlement", second.at("settlement")},
+                {"third_settlement", closing.settlement},
+                {"first_attempt_id", first.at("attempt_id")},
+                {"second_attempt_id", second.at("attempt_id")},
+                {"third_attempt_id", third.request.attempt_id},
+                {"third_call_id", third.request.call_id},
+                {"first_envelope_bytes", first.at("envelope_bytes")},
+                {"second_envelope_bytes", second.at("envelope_bytes")},
+                {"third_envelope_bytes", static_cast<std::int64_t>(third.request.context.prompt().size())},
+                {"third_logical_input_sha256", third.request.context.logical_input_sha256},
+                {"third_reserved_input_units", third.request.reserved_input_tokens},
+                {"third_reserved_output_units", third.request.reserved_output_tokens},
+                {"third_max_output_tokens", third.request.max_output_tokens},
+                {"third_logical_messages", third.request.context.logical_input.at("messages")},
+                {"third_task_contract", third.request.context.logical_input.at("task_contract")},
+                {"before_reopen", before_reopen},
+                {"after_reopen", after_reopen},
+                {"first_response", first.at("response")},
+                {"second_response", second.at("response")},
+                {"third_response", store->attempt(third.request.attempt_id).at("response")},
+                {"third_request_body", third_encoded.body},
+                {"budget", store->budget(logical_request)}};
+            std::cout << canonical_json(report) << '\n'; return 0;
         }
         if (action == "run") {
             try {

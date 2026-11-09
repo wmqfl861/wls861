@@ -29,6 +29,16 @@ void sql(const std::filesystem::path& path, const std::string& query) {
     const std::string error = sqlite3_errmsg(db); sqlite3_close(db);
     if (code != SQLITE_OK) throw std::runtime_error(error);
 }
+// Read-only single-value probe used only to prove that deliberate disposable
+// fixture damage actually changed the persisted bytes under observation.
+std::string sql_value(const std::filesystem::path& path, const std::string& query) {
+    sqlite3* db{}; CHECK(sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+    sqlite3_stmt* stmt{}; CHECK(sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(stmt) == SQLITE_ROW);
+    const auto* bytes = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+    std::string value(bytes, static_cast<std::size_t>(sqlite3_column_bytes(stmt, 0)));
+    sqlite3_finalize(stmt); sqlite3_close(db); return value;
+}
 struct Fixture {
     test::TempDir temp;
     SchemaRegistry schemas{source / "schemas"};
@@ -477,19 +487,41 @@ void v2_history_read_returns_host_verified_utf8_pages() {
         expect(ErrorCode::InvalidInput, [&] {
             (void)f.runner->accept_response(call, model.complete(call.request)); });
     }
-    // A well-formed but mismatched record hash, and another record's hash,
-    // are both rejected while the immutable original stays unchanged.
+    // A well-formed but mismatched record hash is exactly Conflict, never an
+    // InvalidInput fallback for a well-formed mismatch. The second record is
+    // distinct and its fingerprint actually differs from the target before it
+    // is used as a wrong-hash input; the immutable original stays unchanged.
     const auto other_id = f.add_result(Object{{"text", "second original"}});
     const auto other_hash = text(f.store->tool_feedback(other_id), "record_sha256");
+    CHECK(other_id != id);
+    CHECK(other_hash != hash);
+    CHECK(other_hash.size() == 64);
     for (const auto& wrong : {std::string(64, '0'), other_hash}) {
+        CHECK(wrong != hash);
         const auto model = v2_control("history_read", v2_read_arguments(id, wrong, 0, 64));
         const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
-        bool rejected = false;
-        try { (void)f.runner->accept_response(call, model.complete(call.request)); }
-        catch (const Error& error) {
-            rejected = error.code() == ErrorCode::InvalidInput || error.code() == ErrorCode::Conflict;
-        }
-        CHECK(rejected);
+        expect(ErrorCode::Conflict, [&] {
+            (void)f.runner->accept_response(call, model.complete(call.request)); });
+    }
+    CHECK(canonical_json(f.store->tool_feedback(id).at("result")) == original);
+}
+
+void v2_read_malformed_fingerprints_are_invalid_input() {
+    ReadbackFixture f;
+    const auto id = f.add_result(Object{{"text", "malformed hash target"}});
+    const auto hash = text(f.store->tool_feedback(id), "record_sha256");
+    const auto original = canonical_json(f.store->tool_feedback(id).at("result"));
+    // Malformed fingerprints are a separate InvalidInput class: uppercase hex,
+    // non-hex characters and wrong lengths never fall back to Conflict, and a
+    // valid mismatch never falls back to InvalidInput.
+    const std::vector<std::string> malformed{std::string(64, 'A'), std::string(63, '0'),
+        std::string(65, '0'), std::string(64, 'g'), "not-a-hash"};
+    for (const auto& bad : malformed) {
+        CHECK(bad != hash);
+        const auto model = v2_control("history_read", v2_read_arguments(id, bad, 0, 64));
+        const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+        expect(ErrorCode::InvalidInput, [&] {
+            (void)f.runner->accept_response(call, model.complete(call.request)); });
     }
     CHECK(canonical_json(f.store->tool_feedback(id).at("result")) == original);
 }
@@ -647,49 +679,86 @@ void readback_no_progress_quota_adds_no_attempt_or_charge() {
     CHECK(starved.store->budget(starved.request) == before);
 }
 
-void v2_read_guards_and_fences() {
+// Each former case of v2_read_guards_and_fences runs in its own fresh runnable
+// fixture: a wait left behind in a shared fixture could make a later case fail
+// at readiness before its intended guard. No wait is ever SQL-cleared, no
+// accepted code is broadened and no actual guard is skipped.
+
+void v2_read_wait_gate_refuses_with_exactly_not_ready() {
     ReadbackFixture f;
-    const Json result = Object{{"text", "guarded original"}};
-    const auto id = f.add_result(result);
+    const auto id = f.add_result(Object{{"text", "wait gated original"}});
     const auto hash = text(f.store->tool_feedback(id), "record_sha256");
-    const auto arguments = v2_read_arguments(id, hash, 0, 64);
-    // A Worker wait is a dispatch gate: no new v2 read may be reserved while
-    // the worker is waiting, and the wait survives unchanged.
+    // An otherwise ready Worker: verify there is no UNKNOWN operation or
+    // pending/unknown attempt anywhere in the captured scope first.
+    const auto tail_before = f.store->attempt_history_tail(f.actor(), 4);
+    CHECK(tail_before.at("unresolved_operations").as_array().empty());
+    CHECK(tail_before.at("unresolved_attempts").as_array().empty());
     const auto wait = f.store->wait_worker(f.actor(), f.store->binding(f.task),
         num(f.store->task(f.task), "state_version"), "explicit wait during readback", new_id("wait"));
-    bool wait_blocked = false;
-    try {
-        (void)f.runner->reserve_call(v2_control("history_read", arguments), f.request, Role::Worker, f.task);
-    } catch (const Error& error) {
-        wait_blocked = error.code() == ErrorCode::NotReady || error.code() == ErrorCode::UnknownOutcome;
-    }
-    CHECK(wait_blocked);
+    const auto wait_before = f.store->worker_wait(f.task);
+    const auto budget_before = f.store->budget(f.request);
+    const auto attempts_before = num(tail_before, "total_count");
+    // One ordinary durable WAITING row is exactly NotReady — never the broad
+    // NotReady||UnknownOutcome disjunction; the real UNKNOWN case is separate.
+    expect(ErrorCode::NotReady, [&] {
+        (void)f.runner->reserve_call(v2_control("history_read", v2_read_arguments(id, hash, 0, 64)),
+            f.request, Role::Worker, f.task); });
+    // The refusal adds nothing: the wait row, attempts, budget and control
+    // query accounting all stay exactly as captured before the call.
     CHECK(f.store->worker_wait(f.task) == wait);
-    // Denied by name before reservation: no attempt, no charge.
+    CHECK(f.store->worker_wait(f.task) == wait_before);
+    const auto tail_after = f.store->attempt_history_tail(f.actor(), 4);
+    CHECK(num(tail_after, "total_count") == attempts_before);
+    CHECK(tail_after.at("unresolved_attempts").as_array().empty());
+    CHECK(f.store->budget(f.request) == budget_before);
+}
+
+void v2_read_denied_before_reservation_adds_no_attempt() {
+    ReadbackFixture f;
+    const auto id = f.add_result(Object{{"text", "denied original"}});
+    const auto hash = text(f.store->tool_feedback(id), "record_sha256");
     sql(f.db, "UPDATE runtime_policy SET denied_tools='[\"history_read\"]',state_version=state_version+1");
     const auto before = f.store->budget(f.request);
     expect(ErrorCode::Unauthorized, [&] {
-        (void)f.runner->reserve_call(v2_control("history_read", arguments), f.request, Role::Worker, f.task); });
+        (void)f.runner->reserve_call(v2_control("history_read", v2_read_arguments(id, hash, 0, 64)),
+            f.request, Role::Worker, f.task); });
     CHECK(f.store->budget(f.request) == before);
-    // Read-then-revoke: a captured v2 read is fenced at settlement.
-    sql(f.db, "UPDATE runtime_policy SET denied_tools='[]',state_version=state_version+1");
-    auto model = v2_control("history_read", arguments);
+}
+
+void v2_read_revoked_after_capture_fences_settlement() {
+    ReadbackFixture f;
+    const auto id = f.add_result(Object{{"text", "revoked original"}});
+    const auto hash = text(f.store->tool_feedback(id), "record_sha256");
+    auto model = v2_control("history_read", v2_read_arguments(id, hash, 0, 64));
     const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
     sql(f.db, "UPDATE runtime_policy SET denied_tools='[\"history_read\"]',state_version=state_version+1");
     expect(ErrorCode::Unauthorized, [&] {
         (void)f.runner->accept_response(call, model.complete(call.request)); });
     CHECK(f.store->tool_feedback(call.request.attempt_id).at("result").at("runtime_error") == true);
-    // AMEND after capture fences the read as stale original evidence.
-    sql(f.db, "UPDATE runtime_policy SET denied_tools='[]',state_version=state_version+1");
-    auto stale_model = v2_control("history_read", arguments);
-    const auto stale = f.runner->reserve_call(stale_model, f.request, Role::Worker, f.task);
+}
+
+void v2_read_amend_after_capture_fences_settlement() {
+    ReadbackFixture f;
+    const auto id = f.add_result(Object{{"text", "amend fenced original"}});
+    const auto hash = text(f.store->tool_feedback(id), "record_sha256");
+    auto model = v2_control("history_read", v2_read_arguments(id, hash, 0, 64));
+    const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
     f.store->amend(f.store->host_actor(Role::Root, f.request), num(f.store->request(f.request), "state_version"),
         read_runtime_file(source / "tests/fixtures/s1_amendment.txt"),
         parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_amended_constraints.json")), "amend-v2-read");
     expect(ErrorCode::Stale, [&] {
-        (void)f.runner->accept_response(stale, stale_model.complete(stale.request)); });
-    CHECK(f.store->tool_feedback(stale.request.attempt_id).at("result").at("runtime_error") == true);
-    // Corrupted persisted feedback fails closed on the v2 read path too.
+        (void)f.runner->accept_response(call, model.complete(call.request)); });
+    CHECK(f.store->tool_feedback(call.request.attempt_id).at("result").at("runtime_error") == true);
+}
+
+void v2_read_immutable_corruption_fails_closed() {
+    ReadbackFixture f;
+    const auto id = f.add_result(Object{{"text", "corrupt fenced original"}});
+    const auto hash = text(f.store->tool_feedback(id), "record_sha256");
+    const auto original = canonical_json(f.store->tool_feedback(id).at("result"));
+    // Deliberate disposable corruption on this throwaway fixture only: drop
+    // the immutability triggers, damage the persisted section, restore the
+    // triggers, then prove the fault before relying on it.
     sqlite3* db{}; CHECK(sqlite3_open(f.db.c_str(), &db) == SQLITE_OK); sqlite3_stmt* stmt{};
     CHECK(sqlite3_prepare_v2(db, "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND tbl_name='model_tool_feedback'", -1, &stmt, nullptr) == SQLITE_OK);
     std::vector<std::pair<std::string, std::string>> triggers;
@@ -698,8 +767,16 @@ void v2_read_guards_and_fences() {
     for (const auto& [name, definition] : triggers) { (void)definition; sql(f.db, "DROP TRIGGER " + name); }
     sql(f.db, "UPDATE model_tool_feedback SET result='{}' WHERE attempt_id='" + id + "'");
     for (const auto& [name, definition] : triggers) { (void)name; sql(f.db, definition); }
+    // Prove the fault before the Corrupt call: the persisted section bytes
+    // really differ from the immutable original, so the refusal below is
+    // caused by that observed damage, not by a stale or wrong-hash input.
+    const auto damaged = sql_value(f.db,
+        "SELECT result FROM model_tool_feedback WHERE attempt_id='" + id + "'");
+    CHECK(damaged != original);
+    CHECK(damaged == "{}");
     expect(ErrorCode::Corrupt, [&] {
-        (void)execute_history_control(*f.store, f.actor(), f.store->binding(f.task), "history_read", arguments); });
+        (void)execute_history_control(*f.store, f.actor(), f.store->binding(f.task), "history_read",
+            v2_read_arguments(id, hash, 0, 64)); });
 }
 } // namespace
 int main() {return test::run({
@@ -720,5 +797,10 @@ int main() {return test::run({
     {"sixty KB originals close within three v2 reads across reopen",sixty_kb_originals_close_within_three_v2_reads_across_reopen},
     {"readback budget mandates a successful smaller page",readback_budget_mandates_a_successful_smaller_page},
     {"readback no-progress Quota adds no attempt or charge",readback_no_progress_quota_adds_no_attempt_or_charge},
-    {"v2 read wait denial revocation AMEND and corruption fences",v2_read_guards_and_fences}
+    {"v2 read malformed fingerprints are InvalidInput",v2_read_malformed_fingerprints_are_invalid_input},
+    {"v2 read wait gate refuses with exactly NotReady",v2_read_wait_gate_refuses_with_exactly_not_ready},
+    {"v2 read denied before reservation adds no attempt",v2_read_denied_before_reservation_adds_no_attempt},
+    {"v2 read revoked after capture fences settlement",v2_read_revoked_after_capture_fences_settlement},
+    {"v2 read AMEND after capture fences settlement",v2_read_amend_after_capture_fences_settlement},
+    {"v2 read immutable corruption fails closed",v2_read_immutable_corruption_fails_closed}
 });}
