@@ -1,7 +1,10 @@
+#include "../src/controls_detail.hpp"
 #include "live_test_support.hpp"
 
 #include <barrier>
+#include <chrono>
 #include <future>
+#include <thread>
 
 using namespace wls::s1;
 using wls::Role;
@@ -453,6 +456,145 @@ void source_verifier_and_role_are_mandatory() {
     error(ErrorCode::Unauthorized, [&] { (void)execute_live_attempt(*p.store, p.actor(), p.request("new-provider"), "SYNTHETIC", {true, false}); });
     CHECK(number(p.store->budget(p.request_id), "attempts") == 1);
 }
+
+// --- W/D RED inputs prepared by the v16 test-only source stage ---
+// Prepared, not executed in that stage. They reuse only the existing public
+// Store 410 surface, the existing fixture assets and the S0 seam header; no
+// new support framework and no production change.
+
+namespace cd = wls::controls::detail;
+
+ModelRequest admitted_request(Store& store, const std::string& request_id, std::string attempt_id) {
+    const auto row = store.request(request_id);
+    const auto frozen = FrozenRequestConfig::restore(canonical_json(row.at("config_snapshot")),
+                                                     text(row, "config_snapshot_sha256"));
+    const auto profile = frozen.model_profile(Role::Dispatcher);
+    ContextInput context;
+    context.role = Role::Dispatcher; context.model = frozen.resolve(Role::Dispatcher);
+    context.adapter_version = text(profile, "adapter_version"); context.protocol_version = text(profile, "protocol");
+    context.system_prompt = "Synthetic Store fixture only."; context.role_prompt = "Preserve original captured identity.";
+    context.function_prompt = "Return a bounded note."; context.task_contract = canonical_json(store.request_snapshot(request_id));
+    ModelRequest output;
+    output.call_id = "call-" + attempt_id; output.attempt_id = std::move(attempt_id); output.role = Role::Dispatcher;
+    output.binding = store.request_binding(request_id); output.config_snapshot_id = text(row, "config_snapshot_sha256");
+    output.model = context.model;
+    output.context = frozen.context_request_format() == "structured-v2" ? compile_structured_context(context, {}) : ContextCompiler().compile(context);
+    output.reserved_input_tokens = 1000; output.reserved_output_tokens = 100; output.reserved_cost_micro_usd = 100;
+    output.max_output_tokens = 100; output.timeout = std::chrono::seconds(3);
+    return output;
+}
+
+AttemptReservation fake_reservation(const ModelRequest& request, std::int64_t reserved_cost_micro_usd) {
+    AttemptReservation result;
+    result.call_id = request.call_id; result.attempt_id = request.attempt_id;
+    result.config_snapshot_sha256 = request.config_snapshot_id; result.model_ref = request.model.model;
+    result.adapter_kind = "fake";
+    result.reserved_input_tokens = request.reserved_input_tokens; result.reserved_output_tokens = request.reserved_output_tokens;
+    result.reserved_cost_micro_usd = reserved_cost_micro_usd; result.max_output_tokens = request.max_output_tokens;
+    result.request_envelope = to_json(request); return result;
+}
+
+std::vector<Json> budget_warning_events(Store& store, const std::string& request_id) {
+    std::vector<Json> found;
+    std::int64_t offset = 0;
+    while (true) {
+        const auto page = store.events(request_id, offset, 64);
+        if (page.empty()) break;
+        offset += static_cast<std::int64_t>(page.size());
+        for (const auto& event : page)
+            if (event.at("type").as_string() == "budget_warning") found.push_back(event);
+    }
+    return found;
+}
+
+void w_red_budget_warning_missing_after_exact_crossing() {
+    // W-RED input: a legal Fake reservation moves E from 0 to exactly 100
+    // against the B = 125 micro-USD budget frozen at public admit; 100/125
+    // == 4/5 crosses the config-declared warn_at_fraction 0.8 exactly. The
+    // original permission/binding/ledger/capacity guards hold first. The
+    // business target is exactly one durable budget_warning event carrying
+    // the fixed request/config/B/unit/p/q identity, observed over the
+    // complete paginated event history. The old source admits the
+    // reservation with no warning at all: that and only that is the RED.
+    fixture::Fixture f(*assets, fixture::settings(), false, 410, true);
+    auto w_input = fixture::admission(*assets, f.live, "w-red-budget-125", false, true);
+    w_input.budget = BudgetLimits{8, 1000000, 100000, 125};
+    const std::string w_id = text(f.store->admit(w_input), "request_id");
+    const auto config_sha = text(f.store->request(w_id), "config_snapshot_sha256");
+    const auto actor = f.store->host_actor(Role::Dispatcher, w_id);
+    const auto request = admitted_request(*f.store, w_id, "w-red-crossing");
+    (void)f.store->reserve_attempt(actor, request.binding, fake_reservation(request, 100));
+    CHECK(f.store->verify_usage_ledger(w_id).at("consistent").as_bool());
+    CHECK(number(f.store->budget(w_id), "reserved_cost") == 100);
+    CHECK(number(f.store->budget(w_id), "cost_limit") == 125);
+    CHECK(number(f.store->capacity_status(w_id), "reserved_control") == 20);
+    CHECK(5 * 100 >= 4 * 125);  // exact integer crossing oracle for p/q = 4/5
+    const auto warnings = budget_warning_events(*f.store, w_id);
+    CHECK(warnings.size() == 1);
+    const auto& payload = warnings.front().at("payload");
+    CHECK(text(payload, "request_id") == w_id);
+    CHECK(text(payload, "config_snapshot_sha256") == config_sha);
+    CHECK(number(payload, "budget_micro_usd") == 125);
+    CHECK(text(payload, "unit") == "micro_usd");
+    CHECK(number(payload, "warn_numerator") == 4);
+    CHECK(number(payload, "warn_denominator") == 5);
+}
+
+void d_red_expired_wall_deadline_still_reserves() {
+    // D-RED input: a legal max_wall_minutes = 1 wall deadline is frozen
+    // through normal config loading and the public admit (the sample already
+    // declares budget_defaults.max_wall_minutes; the rewrite only narrows the
+    // value). After a REAL CLOCK_BOOTTIME wait past the one-minute bound the
+    // first new legal reservation must not create an attempt. No SQL time
+    // edit, no system-clock change; the sampler is only read for evidence.
+    // The old source has no request wallclock gate and still reserves:
+    // exactly that is the RED. Bounded plan against the unchanged 90-second
+    // suite bound: setup < 5s, one real wait <= 61.5s in 250ms slices,
+    // assertions < 5s.
+    ::test::TempDir directory;
+    std::filesystem::copy(assets->source / "config/examples", directory.path / "config",
+                          std::filesystem::copy_options::recursive);
+    std::filesystem::copy(assets->source / "prompts", directory.path / "prompts",
+                          std::filesystem::copy_options::recursive);
+    const auto system_path = directory.path / "config/system.yaml";
+    auto system = fixture::read(system_path);
+    const std::string existing = "max_wall_minutes: 120";
+    const auto position = system.find(existing);
+    CHECK(position != std::string::npos);
+    system.replace(position, existing.size(), "max_wall_minutes: 1");
+    { std::ofstream output(system_path); output << system; }
+    auto d_input = fixture::admission(*assets, fixture::settings(), "d-red-wall-1", false, true);
+    d_input.config_snapshot = load_config_catalog(system_path, directory.path / "config/functions",
+                                                  directory.path / "prompts").freeze("general").json();
+    const auto anchor = cd::sample_host_clock();
+    CHECK(anchor.status == cd::host_sample_status::ok);
+    const auto admission = cd::compute_admission_deadline(anchor.sample, 1);
+    CHECK(admission.status == cd::deadline_status::ok);
+    auto store = assets->open(directory.path / "d-wall.sqlite");
+    const std::string d_id = text(store->admit(d_input), "request_id");
+    // One real wait: poll the sampler until the admission boot limit has
+    // really passed (bounded 250ms slices with a 75s hard cap).
+    bool expired = false;
+    for (int slice = 0; slice < 300 && !expired; ++slice) {
+        const auto sample = cd::sample_host_clock();
+        CHECK(sample.status == cd::host_sample_status::ok);
+        expired = cd::compare_time(sample.sample.boot_after, admission.value.boot_limit) >= 0;
+        if (!expired) std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+    CHECK(expired);
+    // First new legal reservation after expiry: the future typed deadline
+    // stop must leave the attempt count untouched; the old source reserves,
+    // so the count check below is the D business RED.
+    const auto request = admitted_request(*store, d_id, "d-red-after-expiry");
+    const auto actor = store->host_actor(Role::Dispatcher, d_id);
+    try {
+        (void)store->reserve_attempt(actor, request.binding, fake_reservation(request, 100));
+    } catch (const Error&) {
+        // future Controls: typed request-wallclock stop before the reservation
+    }
+    CHECK(number(store->budget(d_id), "attempts") == 0);
+    CHECK(store->verify_usage_ledger(d_id).at("consistent").as_bool());
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -477,6 +619,8 @@ int main(int argc, char** argv) {
         {"terminal scoped reconciliation cannot alter sibling or restore business", terminal_scoped_reconciliation_and_sibling_isolation},
         {"explicit migration preserves original fake snapshots, attempts, settlement and budget", scoped_upgrade_and_fake_bytes_stay_original},
         {"policy and cross-request identity are rechecked before first send", policy_and_identity_fences_before_claim},
+        {"W-RED input: exact 4/5 crossing of B=125 leaves no durable budget warning", w_red_budget_warning_missing_after_exact_crossing},
+        {"D-RED input: expired one-minute wall deadline still creates a reservation", d_red_expired_wall_deadline_still_reserves},
         {"host verifier, original settlement, Root role and evidence kind remain mandatory", source_verifier_and_role_are_mandatory}
     });
 }

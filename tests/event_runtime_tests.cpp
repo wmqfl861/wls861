@@ -468,6 +468,58 @@ void legacy_single_task_runner_cannot_supersede_a_durable_wait() {
     CHECK(f.store.task(binding.task_id).at("applied_instruction_revision") == 1);
     CHECK(read_runtime_file(f.directory.path / "alpha/after-wake.txt") == "explicit wake permits this new effect\n");
 }
+
+// S-RED input prepared by the v16 test-only source stage.
+// DEPENDENCY_UNQUALIFIED: this case must not be executed or counted as a
+// Controls RED until root binds the qualified Correction classifier, frozen
+// source/feedback shape and qualification receipts; it is prepared here as
+// an existing-API input only. N = 3 consecutive eligible failures in one
+// Worker semantic scope stop the next reservation; the old source still
+// creates the fourth new reservation, and exactly that fact is the RED.
+// Stronger stops (UNKNOWN, permission, deadline, accounting, storage,
+// invariant) keep their own stop classes and stay ahead of the stagnation
+// stop; sibling success, replay, claim or state_version never reset the
+// streak.
+void s_red_third_same_error_stops_fourth_reservation() {
+    // Freeze N = 3 through the normal config loader (the sample already
+    // declares system stall_same_error_repeats; the rewrite pins it).
+    test::TempDir configuration;
+    auto system = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string existing = "stall_same_error_repeats: 3";
+    const auto position = system.find(existing);
+    CHECK(position != std::string::npos);
+    system.replace(position, existing.size(), "stall_same_error_repeats: 3");
+    write(configuration.path / "system.yaml", system);
+    auto scoped = input();
+    scoped.config_snapshot = load_config_catalog(configuration.path / "system.yaml",
+        source / "config/examples/functions", source / "prompts").freeze("general").json();
+    Fixture f(scoped);
+    EventPumpOptions options; options.max_calls = 2;
+    auto script = initial_script(); script.by_node["beta"].clear();
+    (void)f.runtime().pump(f.id, script, options);
+    // Trusted eligible-failure shape (final classification belongs to the
+    // qualified Correction classifier): the same fs_read tool class of the
+    // same Worker fails the same way on every attempt, each round with one
+    // new accepted/settled call and complete FAILED feedback, with no
+    // success and no replay in between.
+    script.by_node["alpha"][1].tool_calls.front().arguments.as_object()["path"] = "../outside.txt";
+    options.max_calls = 64; options.max_worker_calls_per_task = 16;
+    for (int round = 0; round < 3; ++round) {
+        const auto before = number(f.store.budget(f.id).at("attempts"));
+        const auto failed = f.runtime().pump(f.id, script, options);
+        CHECK(failed.at("calls").as_array().size() == 1);
+        CHECK(number(f.store.budget(f.id).at("attempts")) == before + 1);
+        const auto attempt_id = text(failed.at("calls").as_array().front().at("attempt_id"));
+        CHECK(f.store.tool_feedback(attempt_id).at("result").at("operation").at("status") == "FAILED");
+    }
+    // Fourth call target: the streak has reached N = 3, so no new reservation
+    // may appear (stagnation). The old source reserves again, so the check
+    // below is the S business RED once qualification is bound.
+    const auto before_fourth = number(f.store.budget(f.id).at("attempts"));
+    const auto fourth = f.runtime().pump(f.id, script, options);
+    (void)fourth;
+    CHECK(number(f.store.budget(f.id).at("attempts")) == before_fourth);
+}
 } // namespace
 
 int main() {
@@ -490,6 +542,7 @@ int main() {
         {"full history overflow blocks before creating a new reservation", context_overflow_blocks_before_another_attempt},
         {"frozen manager and attempt budgets preserve unprocessed work", frozen_manager_capacity_and_budget_keep_unprocessed_work},
         {"terminal actors retain visible unprocessed event history", terminal_tasks_remain_visible_as_unprocessed_history},
+        {"S-RED input: third consecutive same-scope eligible error must stop the fourth reservation (Correction qualification pending)", s_red_third_same_error_stops_fourth_reservation},
         {"legacy single-task runner cannot supersede a durable Worker wait", legacy_single_task_runner_cannot_supersede_a_durable_wait}
     });
 }

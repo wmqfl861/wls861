@@ -81,7 +81,8 @@ add_library(wls_s1 STATIC
     src/worker_tools.cpp
     src/delivery.cpp
     src/cleanup_posix.cpp
-    src/cleanup_runtime.cpp)
+    src/cleanup_runtime.cpp
+    src/controls_clock_posix.cpp)
 target_include_directories(wls_s1 SYSTEM PUBLIC
     ${Boost_INCLUDE_DIRS}
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/valijson/include"
@@ -111,7 +112,7 @@ if(BUILD_TESTING)
         add_test(NAME ${suite} COMMAND ${suite}_tests)
         set_tests_properties(${suite} PROPERTIES TIMEOUT 90)
     endforeach()
-    foreach(suite IN ITEMS runtime_types runtime_resources store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery cleanup cleanup_runtime audit24_reopen process_evidence audit24_reconcile audit24_capacity audit24_capacity_repro r1_history r1_structured r1_window r2_rework r2_recovery r2_amend r2a_mkdir allocation_recovery doctor_diagnostics protocol_codec sse_replay r1_management owned_capacity owned_capacity_runtime live_model_store billing single_agent)
+    foreach(suite IN ITEMS runtime_types runtime_resources store event_store workflow_store acceptance_store config_loader model schema offline_runtime event_runtime workflow_runtime acceptance_runtime workspace sandbox worker_tools delivery cleanup cleanup_runtime audit24_reopen process_evidence audit24_reconcile audit24_capacity audit24_capacity_repro r1_history r1_structured r1_window r2_rework r2_recovery r2_amend r2a_mkdir allocation_recovery doctor_diagnostics protocol_codec sse_replay r1_management owned_capacity owned_capacity_runtime live_model_store billing single_agent controls_detail)
         add_executable(${suite}_tests tests/${suite}_tests.cpp)
         target_link_libraries(${suite}_tests PRIVATE wls_s1)
         target_include_directories(${suite}_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")

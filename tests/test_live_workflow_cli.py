@@ -326,6 +326,84 @@ class LiveWorkflowCli(unittest.TestCase):
             self.assertEqual([self.rows(query, (sibling,)) for query in queries], before)
             self.assertEqual(len(peer.requests), 1)
 
+    def test_r_legacy_run_fake_script_and_worker_calls_entry_stays_compatible(self):
+        # R legacy compatibility input prepared by the v16 test-only source
+        # stage (prepared, not executed there): the original run-fake
+        # --script ... --worker-calls path keeps its exact original behavior
+        # (the legacy single-task OfflineRuntime; worker-calls 1..16, values
+        # above one requiring --workspace). Nothing here may widen it.
+        workspace = self.directory / 'legacy-workspace'
+        workspace.mkdir(mode=0o700)
+        result = self.invoke('submit', '--db', self.database, '--key', 'r-legacy-fake',
+                             '--text-file', SOURCE / 'tests/fixtures/s12_request.txt',
+                             '--constraints-file', SOURCE / 'tests/fixtures/s12_constraints.json')
+        request = result['request']['request_id']
+        report = self.invoke('run-fake', '--db', self.database, '--request', request,
+                             '--workspace', workspace, '--worker-calls', 1,
+                             '--script', SOURCE / 'tests/fixtures/s12_fake_workspace.json')
+        self.assertIn('task_id', report)
+        self.assertEqual(len(self.rows('SELECT task_id FROM tasks')), 1)
+        self.assertGreaterEqual(len(self.rows('SELECT * FROM call_attempts')), 1)
+        self.assertEqual((workspace / 'result.txt').read_bytes(), b'verified from S1.2\n')
+
+    def test_r_scripts_file_and_script_conflict_is_rejected_before_takeover(self):
+        # R new-entry contract input: --scripts-file together with --script
+        # must be rejected before any Store effect (Takeover), and --scripts-
+        # file alone must not silently fall back to the single-script path.
+        # On the old source --scripts-file is an unknown argument, so the
+        # same pre-Takeover rejection holds; the missing entry itself is an
+        # API gap and is never counted as a business RED.
+        with tls.Peer(self.contexts['server'], tls.fixed_response(plan_response())) as peer:
+            request = self.admit(peer.port)
+            self.authorize(request)
+            before = self.snapshot()
+            script = self.directory / 'one-script.json'
+            script.write_text((SOURCE / 'tests/fixtures/s12_fake_workspace.json').read_text())
+            batches = self.directory / 'batches.json'
+            batches.write_text(json.dumps({'format': 'wls-run-fake-v1',
+                                           'batches': [json.loads(script.read_text())]}))
+            self.invoke('run-fake', '--db', self.database, '--request', request,
+                        '--script', script, '--scripts-file', batches, error=True)
+            self.assertEqual(self.snapshot(), before)
+            self.invoke('run-fake', '--db', self.database, '--request', request,
+                        '--scripts-file', batches, error=True)
+            self.assertEqual(self.snapshot(), before)
+            self.assertEqual(peer.accepted, 0)
+
+    def test_r_clean31_run_live_single_pass_contract_input(self):
+        # R clean31 input: same authorization, three tasks, manager 12 and the
+        # original budget; the candidate invokes run-live exactly once with a
+        # two-script batches file and must show exactly 30+1 attempts, three
+        # source-bound experiences DONE, no third batch and
+        # business_delivered=false. The old command set has no run-live
+        # (verified: commands set in cli.cpp), so this fails as an unknown
+        # command on the old source: recorded as an API gap only, never a
+        # business RED. The historical contrasts stay unchanged: the old
+        # single pump 30/1230 with gamma experience PENDING was NOT_MET, and
+        # the two explicit pumps 31/1271 remain a manual contrast pair. The
+        # exact pricing-41 batch bodies and the run-live report schema
+        # (wls-controls-run-v1) are listed as SOURCE_INPUT_INCOMPLETE in
+        # source-case-mapping.json; this fixture injects no other errors that
+        # could pollute the 31 count.
+        with tls.Peer(self.contexts['server'], tls.fixed_response(plan_response())) as peer:
+            request = self.admit(peer.port)
+            authorization = self.authorize(request)
+            self.assertEqual(self.system['limits']['manager_max_tool_calls_per_wake'], 12)
+            self.assertEqual(authorization['max_calls'], 8)
+            batches = self.directory / 'clean31-batches.json'
+            first = json.loads((SOURCE / 'tests/fixtures/s15_fake_complete.json').read_text())
+            batches.write_text(json.dumps({'format': 'wls-run-fake-v1',
+                                           'batches': [first, first]}))
+            before = self.snapshot()
+            completed = subprocess.run([str(BINARY), 'run-live', '--db', str(self.database),
+                '--request', request, '--authorization-file', str(self.authorization_file),
+                '--scripts-file', str(batches), '--source-root', str(SOURCE)],
+                cwd=self.directory, env={**self.environment, REFERENCE: BEARER},
+                capture_output=True, text=True, encoding='utf-8', timeout=30, check=False)
+            self.assertNotEqual(completed.returncode, 0, completed.stdout)
+            self.assertEqual(self.snapshot(), before)
+            self.assertEqual(peer.accepted, 0)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
