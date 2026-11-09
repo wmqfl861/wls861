@@ -791,7 +791,7 @@ void fs_read_v2_text_projection_and_persisted_feedback() {
     CHECK(result.at("encoding") == "utf8");
     CHECK(!result.as_object().contains("content_base64"));
     CHECK(text(result.at("sha256")) == sha256_hex(expected));
-    CHECK(num(result.at("bytes_returned")) == static_cast<std::int64_t>(expected.size()));
+    CHECK(number(result.at("bytes_returned")) == static_cast<std::int64_t>(expected.size()));
     // The persisted feedback keeps the projection and feeds the next request.
     const auto receipt = session.store->tool_feedback(call.request.attempt_id);
     CHECK(receipt.at("result") == result);
@@ -819,7 +819,7 @@ void fs_read_v2_binary_stays_strict_base64() {
     const auto* content = result.as_object().if_contains("content");
     CHECK(!content || content->is_null());
     CHECK(text(result.at("sha256")) == sha256_hex(bytes));
-    CHECK(num(result.at("bytes_returned")) == static_cast<std::int64_t>(bytes.size()));
+    CHECK(number(result.at("bytes_returned")) == static_cast<std::int64_t>(bytes.size()));
     CHECK(result.at("eof") == true);
 }
 
