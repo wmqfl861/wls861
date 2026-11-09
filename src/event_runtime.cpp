@@ -701,6 +701,37 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 EphemeralCredential credential;
                 try { credential.bytes = live->credentials(settings->provider.api_key_env); }
                 catch (...) { throw Error(ErrorCode::InvalidInput, "trusted credential resolver failed"); }
+                // Frozen proxy references resolve through the same trusted
+                // callback and equally short-lived RAII values: after host
+                // authorization, frozen snapshot and budget checks, and before
+                // reservation, claim, DNS or any socket. A failed resolution
+                // or bounded-format check stops the batch before admission.
+                EphemeralCredential proxy_username, proxy_password;
+                if (settings->transport.network.proxy.enabled &&
+                    settings->transport.network.proxy.basic_auth) {
+                    try {
+                        proxy_username.bytes = live->credentials(
+                            settings->transport.network.proxy.basic_username_env);
+                        proxy_password.bytes = live->credentials(
+                            settings->transport.network.proxy.basic_password_env);
+                    } catch (...) {
+                        throw Error(ErrorCode::InvalidInput, "trusted proxy credential resolver failed");
+                    }
+                    require(!proxy_username.bytes.empty() && proxy_username.bytes.size() <= 1024 &&
+                            proxy_username.bytes.find(':') == std::string::npos &&
+                            std::all_of(proxy_username.bytes.begin(), proxy_username.bytes.end(),
+                                [](char c) {
+                                    const auto byte = static_cast<unsigned char>(c);
+                                    return byte >= 33U && byte <= 126U;
+                                }) &&
+                            !proxy_password.bytes.empty() && proxy_password.bytes.size() <= 8192 &&
+                            std::all_of(proxy_password.bytes.begin(), proxy_password.bytes.end(),
+                                [](char c) {
+                                    const auto byte = static_cast<unsigned char>(c);
+                                    return byte >= 33U && byte <= 126U;
+                                }), ErrorCode::InvalidInput,
+                            "resolved proxy credentials failed their bounded format check");
+                }
                 if (!live_continue()) return std::nullopt;
                 const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
                     live->max_batch_duration - (std::chrono::steady_clock::now() - batch_started));
@@ -715,8 +746,9 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                     experience.experience_source_sha256 = text(job, "source_sha256");
                 }
                 live_execution_started = true;
-                auto observed = observe_live_attempt(store_, captured.actor, captured.request, credential.bytes,
-                    live->authorization, experience, stop);
+                auto observed = observe_live_attempt(store_, captured.actor, captured.request,
+                    credential.bytes, live->authorization, experience, stop,
+                    proxy_username.bytes, proxy_password.bytes);
                 invocation["send_claim"] = live_record_summary(observed.send_claim);
                 invocation["transport"] = observed.transport_summary;
                 invocation["network_started"] = observed.sent;

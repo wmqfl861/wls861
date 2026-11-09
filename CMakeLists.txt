@@ -63,6 +63,7 @@ add_library(wls_s1 STATIC
     src/protocol_codec.cpp
     src/sse_replay.cpp
     src/https_transport.cpp
+    src/https_resolver_posix.cpp
     src/live_model.cpp
     src/billing.cpp
     src/single_agent.cpp
@@ -89,9 +90,15 @@ target_include_directories(wls_s1 SYSTEM PUBLIC
 target_link_libraries(wls_s1 PUBLIC wls_kernel SQLite::SQLite3 OpenSSL::Crypto CURL::libcurl ${WLS_YAML_LIBRARY})
 add_executable(wls src/cli.cpp)
 target_link_libraries(wls PRIVATE wls_s1)
+# Pinned host resolver helper: system resolver/C library only. It carries no
+# Store, provider, model or workspace data and is not a SQL/schema/resource
+# manifest asset; it is installed to the same bin directory as the wls tools.
+add_executable(wls861-resolve-ipv4 src/https_resolver_main.cpp)
+target_link_libraries(wls861-resolve-ipv4 PRIVATE wls_build_options)
+add_dependencies(wls wls861-resolve-ipv4)
 
 include(cmake/runtime_resources.cmake)
-wls_install_runtime_resources(wls wls861)
+wls_install_runtime_resources(wls wls861 wls861-resolve-ipv4)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -136,12 +143,18 @@ if(BUILD_TESTING)
         set_tests_properties(${suite}_cli PROPERTIES TIMEOUT 90)
     endforeach()
     # Local TLS fixture harness only: never installed or exposed by wls CLI.
+    # The resolver fixture is an explicitly labelled controlled-fault helper;
+    # the real pinned helper is wls861-resolve-ipv4 next to the executables.
     add_executable(https_transport_driver tests/https_transport_driver.cpp)
     target_link_libraries(https_transport_driver PRIVATE wls_s1)
     target_include_directories(https_transport_driver PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    add_executable(https_resolver_fixture tests/https_resolver_fixture.cpp)
+    target_link_libraries(https_resolver_fixture PRIVATE wls_build_options)
+    add_dependencies(https_transport_driver wls861-resolve-ipv4 https_resolver_fixture)
     add_test(NAME https_transport
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_https_transport.py"
-                "$<TARGET_FILE:https_transport_driver>" "${CMAKE_CURRENT_SOURCE_DIR}")
+                "$<TARGET_FILE:https_transport_driver>" "${CMAKE_CURRENT_SOURCE_DIR}"
+                "$<TARGET_FILE:https_resolver_fixture>" "$<TARGET_FILE:wls861-resolve-ipv4>")
     set_tests_properties(https_transport PROPERTIES TIMEOUT 180)
     add_executable(live_model_store_driver tests/live_model_store_driver.cpp)
     target_link_libraries(live_model_store_driver PRIVATE wls_s1)

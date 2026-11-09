@@ -67,14 +67,18 @@ struct ObservedLiveAttempt {
 ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
         const ModelRequest& request, std::string_view bearer_token,
         const LiveExecutionAuthorization& authorization = {},
-        const LiveExperienceBinding& experience = {}, std::stop_token stop = {});
+        const LiveExperienceBinding& experience = {}, std::stop_token stop = {},
+        std::string_view proxy_basic_username = {}, std::string_view proxy_basic_password = {});
 
 // The complete original Store path: reserve -> unique send claim -> HTTPS
 // outside any transaction -> private transport record -> original settlement.
 // An exception after the claim retains unresolved accounting and never retries.
+// The optional proxy secrets are call-time values resolved by the trusted
+// host from the frozen network references before any reservation or claim.
 LiveAttemptResult execute_live_attempt(Store& store, const StoreActor& actor,
         const ModelRequest& request, std::string_view bearer_token,
-        const LiveExecutionAuthorization& authorization = {}, std::stop_token stop = {});
+        const LiveExecutionAuthorization& authorization = {}, std::stop_token stop = {},
+        std::string_view proxy_basic_username = {}, std::string_view proxy_basic_password = {});
 
 struct UsageEvidenceStatement {
     std::string attempt_id;

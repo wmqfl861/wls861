@@ -119,6 +119,23 @@ class RuntimeResourceInstallation(unittest.TestCase):
         database = self.directory / 'state.sqlite'
         self.assertEqual(self.invoke('init', '--db', database)['user_version'], 410)
 
+    def test_resolver_helper_is_installed_as_a_program_not_a_resource(self):
+        if CMAKE_BUILD is None:
+            self.skipTest('helper target is only present in the real CMake install')
+        helper = self.template / 'bin/wls861-resolve-ipv4'
+        self.assertTrue(helper.is_file(), helper)
+        mode = stat.S_IMODE(helper.stat().st_mode)
+        self.assertEqual(mode & 0o111, 0o111)
+        self.assertEqual(mode & 0o022, 0)
+        with helper.open('rb') as stream:
+            self.assertEqual(stream.read(4), b'\x7fELF')
+        # The pinned helper is a program asset, never a SQL/schema/manifest
+        # resource: the resource bundle layout and asset count stay original.
+        for entry in self.manifest['assets']:
+            self.assertNotIn('wls861-resolve-ipv4', entry['path'])
+        observed = self.invoke('resources')
+        self.assertEqual(observed['resources']['asset_count'], len(self.manifest['assets']))
+
     def test_relocated_executable_ignores_cwd_and_environment_resource_poison(self):
         (self.cwd / 'resources').mkdir()
         (self.cwd / 'resources/runtime-manifest.json').write_text('untrusted cwd manifest')

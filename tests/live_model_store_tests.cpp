@@ -178,6 +178,93 @@ void live_profile_route_is_rejected_before_admission() {
     CHECK(live_model_settings_json(live_model_settings_from_json(dns, selected.provider.model_ref)) == dns.at("responses"));
 }
 
+void network_policy_hash_and_claim_bindings() {
+    auto selected = fixture::settings();
+    selected.transport.resolved_ipv4 = ""; // hostname path through the resolver
+    selected.transport.network.enabled = true;
+    selected.transport.network.proxy.enabled = true;
+    selected.transport.network.proxy.tls = true;
+    selected.transport.network.proxy.host = "localhost";
+    selected.transport.network.proxy.port = 8443;
+    selected.transport.network.proxy.basic_auth = true;
+    selected.transport.network.proxy.basic_username_env = "WLS_PROXY_USER_REF";
+    selected.transport.network.proxy.basic_password_env = "WLS_PROXY_PASS_REF";
+    selected.transport.network.proxy.ca_bundle_pem = "synthetic proxy trust";
+    const auto profile = fixture::model_profile(selected);
+    const auto parsed = live_model_settings_from_json(profile, selected.provider.model_ref);
+    CHECK(parsed.transport.network.enabled && parsed.transport.network.proxy.basic_auth);
+    CHECK(parsed.transport.network.proxy.port == 8443);
+    CHECK(live_model_settings_json(parsed) == profile.at("responses"));
+    const auto v2 = live_transport_options_sha256(parsed.transport);
+    auto plain = parsed; plain.transport.network = HttpsNetworkOptions{};
+    CHECK(v2 != live_transport_options_sha256(plain.transport));
+    CHECK(https_transport_options_sha256(parsed.transport) == v2);
+    for (const auto& change : {1, 2, 3, 4, 5}) {
+        auto altered = parsed;
+        if (change == 1) altered.transport.network.proxy.host = "proxy-fixture.invalid";
+        if (change == 2) altered.transport.network.proxy.port = 8444;
+        if (change == 3) altered.transport.network.proxy.basic_username_env = "WLS_PROXY_USER_ALT";
+        if (change == 4) altered.transport.network.proxy.ca_bundle_pem = "other trust";
+        if (change == 5) altered.transport.network.proxy.basic_auth = false;
+        CHECK(live_transport_options_sha256(altered.transport) != v2);
+    }
+    // A claim under a different frozen network policy is a different admission.
+    fixture::Fixture f(*assets, selected);
+    const auto request = f.request(); (void)f.reserve(request);
+    const auto encoded = encode_responses_request(f.live.provider, request, false);
+    auto altered = f.live.transport; altered.network.proxy.port = 8444;
+    error(ErrorCode::Conflict, [&] { (void)f.store->claim_live_send(f.actor(), request.attempt_id,
+        1, encoded, altered, "bad"); });
+    CHECK(f.store->live_attempt(request.attempt_id).at("send_claim").is_null());
+}
+
+void network_policy_admission_negatives() {
+    auto networked = fixture::settings();
+    networked.transport.resolved_ipv4 = "";
+    networked.transport.network.enabled = true;
+    const auto original = fixture::model_profile(networked);
+    const auto with_network = [&](const Json& proxy, std::string_view scope, int version,
+                                  std::string_view resolver) {
+        auto changed = original;
+        changed.at("responses").at("transport")["network"] = Object{{"version", version},
+            {"resolver", resolver}, {"address_scope", scope}, {"proxy", proxy}};
+        return changed;
+    };
+    const auto parse = [&](const Json& changed) {
+        return live_model_settings_from_json(changed, networked.provider.model_ref);
+    };
+    CHECK(parse(with_network(nullptr, "loopback-only", 1, "host-ipv4-v1"))
+          .transport.network.enabled);
+    error(ErrorCode::Unsupported, [&] { (void)parse(with_network(nullptr, "loopback-only", 2, "host-ipv4-v1")); });
+    error(ErrorCode::Unsupported, [&] { (void)parse(with_network(nullptr, "loopback-only", 1, "magic-resolver")); });
+    error(ErrorCode::InvalidInput, [&] { (void)parse(with_network(nullptr, "anywhere", 1, "host-ipv4-v1")); });
+    for (const auto& proxy : {Json(Object{{"url", "http://localhost:9"}, {"auth", "basic"},
+            {"ca_pem", ""}, {"username_env", "WLS_PROXY_USER_REF"}, {"password_env", "WLS_PROXY_PASS_REF"}}),
+            Json(Object{{"url", "https://localhost:9"}, {"auth", "basic"},
+            {"ca_pem", ""}, {"username_env", "WLS_PROXY_USER_REF"}, {"password_env", "WLS_PROXY_PASS_REF"}}),
+            Json(Object{{"url", "https://localhost"}, {"auth", "none"}, {"ca_pem", "trust"},
+            {"username_env", ""}, {"password_env", ""}}),
+            Json(Object{{"url", "http://user:pw@localhost:9"}, {"auth", "none"},
+            {"ca_pem", ""}, {"username_env", ""}, {"password_env", ""}}),
+            Json(Object{{"url", "http://[::1]:9"}, {"auth", "none"},
+            {"ca_pem", ""}, {"username_env", ""}, {"password_env", ""}}),
+            Json(Object{{"url", "http://2130706433:9"}, {"auth", "none"},
+            {"ca_pem", ""}, {"username_env", ""}, {"password_env", ""}}),
+            Json(Object{{"url", "http://localhost:9/some/path"}, {"auth", "none"},
+            {"ca_pem", ""}, {"username_env", ""}, {"password_env", ""}})}) {
+        error(ErrorCode::InvalidInput, [&] { (void)parse(with_network(proxy, "loopback-only", 1, "host-ipv4-v1")); });
+    }
+    // Legacy mappings and a hostname without the resolver policy keep the
+    // original local_tls admission rules byte-for-byte.
+    auto legacy = fixture::settings();
+    CHECK(live_model_settings_from_json(fixture::model_profile(legacy),
+          legacy.provider.model_ref).transport.resolved_ipv4 == "127.0.0.1");
+    auto unmapped = fixture::settings();
+    unmapped.transport.resolved_ipv4 = "";
+    error(ErrorCode::Unauthorized, [&] { (void)live_model_settings_from_json(
+        fixture::model_profile(unmapped), unmapped.provider.model_ref); });
+}
+
 void frozen_identity_and_one_claim() {
     fixture::Fixture f(*assets); const auto request = f.request();
     const auto reservation = f.reserve(request); CHECK(f.reserve(request) == reservation);
@@ -465,6 +552,8 @@ int main(int argc, char** argv) {
         {"disabled, credential authorization and full frozen envelope reject before reservation", disabled_and_complete_envelope},
         {"live profile capacity rejects impossible durable evidence before admission", live_profile_capacity_is_rejected_before_admission},
         {"invalid live routes reject before admission and valid DNS/numeric routes remain exact", live_profile_route_is_rejected_before_admission},
+        {"frozen network policy drives the shared v2 options hash and claim binding", network_policy_hash_and_claim_bindings},
+        {"network policy admission rejects unknown versions, scopes and unsafe proxy authorities", network_policy_admission_negatives},
         {"original encoding/options CAS and concurrent one-time durable send claim", frozen_identity_and_one_claim},
         {"reservation and send-claim faults roll back original budget and authority", reservation_and_claim_rollback},
         {"private observation and immutable original settlement faults are atomic", observation_and_original_settlement_rollback},

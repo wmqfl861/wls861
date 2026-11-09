@@ -24,7 +24,7 @@ KERNEL_OBJECTS := $(KERNEL_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_NAMES := journal_tests config_tests scheduler_tests task_engine_tests
 TEST_OBJECTS := $(addprefix $(BUILD_DIR)/tests/,$(addsuffix .o,$(TEST_NAMES)))
 TEST_BINARIES := $(addprefix $(BUILD_DIR)/,$(TEST_NAMES))
-S1_SOURCES := src/boost_json.cpp src/runtime_types.cpp src/runtime_resources.cpp src/migrations.cpp src/capacity.cpp src/store.cpp src/config_loader.cpp src/model.cpp src/provider_profile.cpp src/protocol_codec.cpp src/sse_replay.cpp src/https_transport.cpp src/live_model.cpp src/billing.cpp src/single_agent.cpp src/management_context.cpp src/owned_capacity.cpp src/context.cpp src/structured_context.cpp src/structured_history.cpp src/worker_history.cpp src/schema.cpp src/offline_runtime.cpp src/event_runtime.cpp src/workspace_posix.cpp src/sandbox_posix.cpp src/process_evidence.cpp src/worker_tools.cpp src/delivery.cpp src/cleanup_posix.cpp src/cleanup_runtime.cpp
+S1_SOURCES := src/boost_json.cpp src/runtime_types.cpp src/runtime_resources.cpp src/migrations.cpp src/capacity.cpp src/store.cpp src/config_loader.cpp src/model.cpp src/provider_profile.cpp src/protocol_codec.cpp src/sse_replay.cpp src/https_transport.cpp src/https_resolver_posix.cpp src/live_model.cpp src/billing.cpp src/single_agent.cpp src/management_context.cpp src/owned_capacity.cpp src/context.cpp src/structured_context.cpp src/structured_history.cpp src/worker_history.cpp src/schema.cpp src/offline_runtime.cpp src/event_runtime.cpp src/workspace_posix.cpp src/sandbox_posix.cpp src/process_evidence.cpp src/worker_tools.cpp src/delivery.cpp src/cleanup_posix.cpp src/cleanup_runtime.cpp
 S1_OBJECTS := $(S1_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 S1_TEST_NAMES := runtime_types_tests runtime_resources_tests store_tests event_store_tests workflow_store_tests acceptance_store_tests config_loader_tests model_tests schema_tests offline_runtime_tests event_runtime_tests workflow_runtime_tests acceptance_runtime_tests workspace_tests sandbox_tests worker_tools_tests delivery_tests cleanup_tests cleanup_runtime_tests audit24_reopen_tests process_evidence_tests audit24_reconcile_tests audit24_capacity_tests audit24_capacity_repro_tests r1_history_tests r1_structured_tests r1_window_tests r2_rework_tests r2_recovery_tests r2_amend_tests r2a_mkdir_tests allocation_recovery_tests doctor_diagnostics_tests protocol_codec_tests sse_replay_tests r1_management_tests owned_capacity_tests owned_capacity_runtime_tests live_model_store_tests billing_tests single_agent_tests
 S1_TEST_OBJECTS := $(addprefix $(BUILD_DIR)/tests/,$(addsuffix .o,$(S1_TEST_NAMES))) $(BUILD_DIR)/tests/https_transport_driver.o $(BUILD_DIR)/tests/live_model_store_driver.o $(BUILD_DIR)/tests/live_workflow_driver.o
@@ -32,6 +32,10 @@ S1_TEST_BINARIES := $(addprefix $(BUILD_DIR)/,$(S1_TEST_NAMES))
 HTTPS_TEST_DRIVER := $(BUILD_DIR)/https_transport_driver
 LIVE_TEST_DRIVER := $(BUILD_DIR)/live_model_store_driver
 WORKFLOW_TEST_DRIVER := $(BUILD_DIR)/live_workflow_driver
+# Pinned resolver helper and the controlled-fault fixture twin; installed with
+# the wls binaries via CMake, built here so the plain-Make flow stays complete.
+RESOLVER_HELPER := $(BUILD_DIR)/wls861-resolve-ipv4
+RESOLVER_FIXTURE := $(BUILD_DIR)/https_resolver_fixture
 S1_LIBRARY := $(BUILD_DIR)/libwls_s1.a
 S1_APPLICATION := $(BUILD_DIR)/wls
 S1_MAIN_OBJECT := $(BUILD_DIR)/src/cli.o
@@ -42,7 +46,7 @@ DEPENDENCIES := $(KERNEL_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d) $(MAIN_OBJECT:.o=.
 
 .PHONY: all test test-binaries verify-handoff verify-contracts sanitize ubsan asan
 
-all: $(APPLICATION) $(S1_APPLICATION)
+all: $(APPLICATION) $(S1_APPLICATION) $(RESOLVER_HELPER)
 
 $(S1_OBJECTS) $(S1_TEST_OBJECTS) $(S1_MAIN_OBJECT): override CPPFLAGS += $(S1_INCLUDES)
 $(S1_TEST_OBJECTS): override CPPFLAGS += -DWLS_SOURCE_DIR='"$(abspath .)"'
@@ -66,10 +70,16 @@ $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_DRIVER) $(WORKFLOW_TEST_DRI
 $(APPLICATION): $(MAIN_OBJECT) $(LIBRARY)
 	$(CXX) $(CXXFLAGS) $(REQUIRED_CXXFLAGS) $(LDFLAGS) "$(MAIN_OBJECT)" "$(LIBRARY)" $(LDLIBS) -o "$@"
 
+$(RESOLVER_HELPER): $(BUILD_DIR)/src/https_resolver_main.o
+	$(CXX) $(CXXFLAGS) $(REQUIRED_CXXFLAGS) $(LDFLAGS) "$<" -o "$@"
+
+$(RESOLVER_FIXTURE): $(BUILD_DIR)/tests/https_resolver_fixture.o
+	$(CXX) $(CXXFLAGS) $(REQUIRED_CXXFLAGS) $(LDFLAGS) "$<" -o "$@"
+
 $(TEST_BINARIES): $(BUILD_DIR)/%: $(BUILD_DIR)/tests/%.o $(LIBRARY)
 	$(CXX) $(CXXFLAGS) $(REQUIRED_CXXFLAGS) $(LDFLAGS) "$<" "$(LIBRARY)" $(LDLIBS) -o "$@"
 
-test-binaries: $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_DRIVER) $(WORKFLOW_TEST_DRIVER)
+test-binaries: $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_DRIVER) $(WORKFLOW_TEST_DRIVER) $(RESOLVER_HELPER) $(RESOLVER_FIXTURE)
 
 verify-handoff:
 	$(PYTHON) scripts/verify_handoff.py
@@ -78,7 +88,7 @@ verify-handoff:
 verify-contracts:
 	$(PYTHON) tests/contracts_tests.py
 
-test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_DRIVER) $(WORKFLOW_TEST_DRIVER)
+test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_DRIVER) $(WORKFLOW_TEST_DRIVER) $(RESOLVER_HELPER) $(RESOLVER_FIXTURE)
 	$(PYTHON) scripts/verify_handoff.py
 	$(PYTHON) scripts/verify_review_source.py
 	$(PYTHON) tests/contracts_tests.py
@@ -152,7 +162,7 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_
 	$(PYTHON) tests/test_doctor_diagnostics_cli.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/test_protocol_replay_cli.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/r3_evaluation_tests.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
-	$(PYTHON) tests/test_https_transport.py "$(abspath $(HTTPS_TEST_DRIVER))" "$(abspath .)"
+	$(PYTHON) tests/test_https_transport.py "$(abspath $(HTTPS_TEST_DRIVER))" "$(abspath .)" "$(RESOLVER_FIXTURE)" "$(abspath $(RESOLVER_HELPER))"
 	$(PYTHON) tests/test_live_model_store.py "$(abspath $(LIVE_TEST_DRIVER))" "$(abspath .)"
 	$(PYTHON) tests/test_live_workflow.py "$(abspath $(WORKFLOW_TEST_DRIVER))" "$(abspath .)"
 	$(PYTHON) tests/test_live_workflow_cli.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"

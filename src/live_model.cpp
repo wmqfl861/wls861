@@ -4,6 +4,7 @@
 #include "wls/store.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <set>
 #include <utility>
 
@@ -83,22 +84,35 @@ std::string endpoint_host(const ProviderProfile& provider) {
 
 Json live_transport_options_json(const HttpsTransportOptions& options) {
     validate_transport(options);
-    return Object{{"ca_bundle_pem", options.ca_bundle_pem}, {"resolved_ipv4", options.resolved_ipv4},
-        {"max_header_bytes", options.max_header_bytes}, {"max_header_line_bytes", options.max_header_line_bytes},
+    auto transport = Object{{"ca_bundle_pem", options.ca_bundle_pem},
+        {"resolved_ipv4", options.resolved_ipv4},
+        {"max_header_bytes", options.max_header_bytes},
+        {"max_header_line_bytes", options.max_header_line_bytes},
         {"max_total_response_bytes", options.max_total_response_bytes},
         {"poll_interval_ms", options.poll_interval.count()}};
+    if (options.network.enabled) {
+        Json proxy = nullptr;
+        if (options.network.proxy.enabled) {
+            proxy = Object{{"url", std::string(options.network.proxy.tls ? "https://" : "http://") +
+                options.network.proxy.host + ":" + std::to_string(options.network.proxy.port)},
+                {"auth", options.network.proxy.basic_auth ? "basic" : "none"},
+                {"ca_pem", options.network.proxy.ca_bundle_pem},
+                {"username_env", options.network.proxy.basic_username_env},
+                {"password_env", options.network.proxy.basic_password_env}};
+        }
+        transport["network"] = Object{{"version", 1}, {"resolver", "host-ipv4-v1"},
+            {"address_scope", options.network.loopback_only ? "loopback-only"
+                                                            : "configured-endpoint"},
+            {"proxy", proxy}};
+    }
+    return transport;
 }
 
 std::string live_transport_options_sha256(const HttpsTransportOptions& options) {
     validate_transport(options);
-    // The versioned transport observation uses this exact descriptor. Tests
-    // compare the helper to an executed local TLS result to detect drift.
-    return sha256_hex(canonical_json(Object{{"format", "wls-https-transport-options-v1"},
-        {"ca_bundle_sha256", sha256_hex(options.ca_bundle_pem)}, {"resolved_ipv4", options.resolved_ipv4},
-        {"max_header_bytes", options.max_header_bytes}, {"max_header_line_bytes", options.max_header_line_bytes},
-        {"max_total_response_bytes", options.max_total_response_bytes},
-        {"poll_interval_ms", options.poll_interval.count()}, {"socket_send_buffer_bytes", 64 * 1024},
-        {"upload_buffer_bytes", 16U * 1024U}, {"dns_policy", "strict_ipv4_or_explicit_mapping_or_cares"}}));
+    // Single shared descriptor: this helper and the executed transport must
+    // never carry two algorithms for the same frozen options identity.
+    return https_transport_options_sha256(options);
 }
 
 Json live_model_settings_json(const LiveModelSettings& settings) {
@@ -122,8 +136,58 @@ LiveModelSettings live_model_settings_from_json(const Json& profile, std::string
     require(settings.provider.model_ref == model_ref && settings.provider.model == text(profile, "model"),
             ErrorCode::Conflict, "live model registration differs from its embedded provider profile");
     const auto& transport = field(source, "transport");
-    exact(transport, {"ca_bundle_pem", "resolved_ipv4", "max_header_bytes", "max_header_line_bytes",
-                      "max_total_response_bytes", "poll_interval_ms"});
+    // The optional versioned network section is appended after the legacy
+    // fields; legacy entries stay byte-identical and hash to v1 as before.
+    const std::set<std::string> legacy{"ca_bundle_pem", "resolved_ipv4", "max_header_bytes",
+                                       "max_header_line_bytes", "max_total_response_bytes",
+                                       "poll_interval_ms"};
+    bool has_network = false;
+    for (const auto& entry : object(transport)) {
+        if (legacy.contains(std::string(entry.key()))) continue;
+        require(std::string_view(entry.key()) == "network" && !has_network,
+                ErrorCode::InvalidInput, "unknown live HTTPS transport field");
+        has_network = true;
+    }
+    if (has_network) {
+        const auto& network = field(transport, "network");
+        exact(network, {"version", "resolver", "address_scope", "proxy"});
+        require(number(network, "version") == 1 && text(network, "resolver") == "host-ipv4-v1",
+                ErrorCode::Unsupported, "the live network section must be the frozen v1 resolver policy");
+        const auto scope = text(network, "address_scope");
+        require(scope == "loopback-only" || scope == "configured-endpoint",
+                ErrorCode::InvalidInput, "the live network address scope is unknown");
+        settings.transport.network.enabled = true;
+        settings.transport.network.loopback_only = scope == "loopback-only";
+        const auto& proxy = field(network, "proxy");
+        if (!proxy.is_null()) {
+            exact(proxy, {"url", "auth", "ca_pem", "username_env", "password_env"});
+            auto& frozen = settings.transport.network.proxy;
+            const auto url = text(proxy, "url", 2048);
+            const auto scheme = url.starts_with("https://") ? "https://" :
+                                url.starts_with("http://") ? "http://" : "";
+            const auto auth = text(proxy, "auth");
+            require(!scheme.empty() && (auth == "none" || auth == "basic"),
+                    ErrorCode::InvalidInput, "the frozen proxy authority has an unsupported form");
+            const auto authority = url.substr(strlen(scheme));
+            const auto colon = authority.rfind(':');
+            const auto port_text = colon == std::string::npos ? "" : authority.substr(colon + 1);
+            require(!port_text.empty() && port_text.size() <= 5 &&
+                    std::all_of(port_text.begin(), port_text.end(), [](char c) {
+                        return c >= '0' && c <= '9';
+                    }), ErrorCode::InvalidInput, "the frozen proxy authority requires an explicit port");
+            const auto port = std::stoll(port_text);
+            require(port >= 1 && port <= 65535, ErrorCode::InvalidInput,
+                    "the frozen proxy authority requires an explicit port");
+            frozen.enabled = true;
+            frozen.tls = scheme == "https://";
+            frozen.host = authority.substr(0, colon);
+            frozen.port = static_cast<std::uint16_t>(port);
+            frozen.basic_auth = auth == "basic";
+            frozen.basic_username_env = text(proxy, "username_env", 128);
+            frozen.basic_password_env = text(proxy, "password_env", 128);
+            frozen.ca_bundle_pem = text(proxy, "ca_pem", 1024U * 1024U);
+        }
+    }
     settings.transport.ca_bundle_pem = text(transport, "ca_bundle_pem", 1024U * 1024U);
     settings.transport.resolved_ipv4 = text(transport, "resolved_ipv4", 15);
     const auto size = [&](std::string_view key) {
@@ -160,9 +224,16 @@ LiveModelSettings live_model_settings_from_json(const Json& profile, std::string
             ErrorCode::InvalidInput, "live execution kind must be explicit");
     if (settings.execution_kind == "local_tls") {
         const auto host = endpoint_host(settings.provider);
-        require((host == "127.0.0.1" && (settings.transport.resolved_ipv4.empty() ||
-                                        settings.transport.resolved_ipv4 == "127.0.0.1")) ||
-                (host == "localhost" && settings.transport.resolved_ipv4 == "127.0.0.1"),
+        const auto& mapping = settings.transport.resolved_ipv4;
+        const bool pinned_loopback = (host == "127.0.0.1" && (mapping.empty() ||
+                                        mapping == "127.0.0.1")) ||
+                (host == "localhost" && mapping == "127.0.0.1");
+        // The v1 resolver policy may carry a plain hostname; loopback scope is
+        // then enforced at run time on every selected target and proxy address.
+        const bool resolver_loopback = settings.transport.network.enabled &&
+                settings.transport.network.loopback_only && mapping.empty() &&
+                (host == "localhost" || host == "127.0.0.1");
+        require(pinned_loopback || resolver_loopback,
                 ErrorCode::Unauthorized, "local TLS profiles must use an explicit loopback destination");
     }
     settings.capability_evidence_source = text(source, "capability_evidence_source");
@@ -209,7 +280,8 @@ LiveModelSettings live_model_settings_from_json(const Json& profile, std::string
 ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
         const ModelRequest& request, std::string_view bearer_token,
         const LiveExecutionAuthorization& authorization,
-        const LiveExperienceBinding& experience, std::stop_token stop) {
+        const LiveExperienceBinding& experience, std::stop_token stop,
+        std::string_view proxy_basic_username, std::string_view proxy_basic_password) {
     require(authorization.network_enabled, ErrorCode::Unauthorized, "live network execution has no host authorization");
     require(!bearer_token.empty() && bearer_token.size() <= 8192 &&
             std::all_of(bearer_token.begin(), bearer_token.end(), [](char c) {
@@ -241,7 +313,8 @@ ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
         "send:" + request.attempt_id);
     if (!result.send_claim.at("new_send_authority").as_bool()) return result;
     const auto transport = perform_responses_https(settings.provider, request, encoded,
-                                                   settings.transport, bearer_token, stop);
+                                                   settings.transport, bearer_token, stop,
+                                                   proxy_basic_username, proxy_basic_password);
     result.sent = transport.network_started;
     result.transport_summary = https_transport_summary(transport);
     (void)store.record_live_transport(request.attempt_id,
@@ -252,8 +325,10 @@ ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
 
 LiveAttemptResult execute_live_attempt(Store& store, const StoreActor& actor,
         const ModelRequest& request, std::string_view bearer_token,
-        const LiveExecutionAuthorization& authorization, std::stop_token stop) {
-    auto observed = observe_live_attempt(store, actor, request, bearer_token, authorization, {}, stop);
+        const LiveExecutionAuthorization& authorization, std::stop_token stop,
+        std::string_view proxy_basic_username, std::string_view proxy_basic_password) {
+    auto observed = observe_live_attempt(store, actor, request, bearer_token, authorization, {},
+                                         stop, proxy_basic_username, proxy_basic_password);
     LiveAttemptResult result;
     result.reservation = std::move(observed.reservation);
     result.send_claim = std::move(observed.send_claim);

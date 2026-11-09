@@ -2,6 +2,7 @@
 // endpoint hosts are restricted to loopback, credentials are synthetic, and it
 // has no Store, model admission, tool execution or environment-secret lookup.
 #include "wls/https_transport.hpp"
+#include "../src/https_resolver_internal.hpp"
 #include "protocol_test_support.hpp"
 
 #include <curl/curl.h>
@@ -22,6 +23,7 @@
 namespace {
 using namespace wls::s1;
 using Object = boost::json::object;
+using Array = boost::json::array;
 using namespace std::chrono_literals;
 namespace fixture = wls::test::protocol;
 
@@ -70,6 +72,14 @@ bool boolean(const Object& object, std::string_view key, bool fallback = false) 
 
 Json micros(const std::optional<std::chrono::microseconds>& value) {
     return value ? Json(value->count()) : Json(nullptr);
+}
+
+std::size_t descriptor_count() {
+    std::size_t count = 0;
+    std::error_code ignored;
+    for (const auto& entry : std::filesystem::directory_iterator("/proc/self/fd", ignored))
+        ++count;
+    return count;
 }
 
 std::string hex(std::string_view bytes) {
@@ -127,8 +137,46 @@ int main(int argc, char** argv) {
                          *curl_version->ares != '\0';
         const auto host = text(config, "host", "127.0.0.1");
         const auto port = integer(config, "port", 0);
-        if ((host != "127.0.0.1" && host != "localhost") || port < 1 || port > 65535)
+        if ((host != "127.0.0.1" && host != "localhost" &&
+             !host.starts_with("wls-fault-")) || port < 1 || port > 65535)
             throw std::runtime_error("test transport endpoint must be loopback");
+
+        // Direct pinned-resolver lifecycle probe: no libcurl, TLS, Store or
+        // credential path is touched. Repeated normal and pre-cancelled calls
+        // must all reap their children and leave the descriptor baseline flat.
+        if (boolean(config, "resolver_probe")) {
+            const auto rounds = integer(config, "probe_rounds", 5);
+            const auto probe_host = text(config, "probe_host", "localhost");
+            const auto before = descriptor_count();
+            Array probe;
+            std::int64_t succeeded = 0, started = 0, cancelled_before_spawn = 0;
+            for (std::int64_t round = 0; round < rounds; ++round) {
+                std::stop_source interrupt;
+                if (round % 2 == 1) {
+                    interrupt.request_stop();
+                    ++cancelled_before_spawn;
+                }
+                const auto observation = wls::s1::resolver::resolve_ipv4(
+                    probe_host, "443",
+                    std::chrono::steady_clock::now() + std::chrono::seconds(5),
+                    interrupt.get_token());
+                if (observation.started) ++started;
+                if (observation.ok) ++succeeded;
+                probe.push_back(Object{{"round", round}, {"started", observation.started},
+                    {"ok", observation.ok}, {"cleanup_pending", observation.cleanup_pending},
+                    {"addresses", Array(observation.addresses.begin(), observation.addresses.end())},
+                    {"helper_identity_present", !observation.helper_identity.empty()}});
+            }
+            const auto after = descriptor_count();
+            const auto pending = wls::s1::resolver::cleanup_pending();
+            std::cout << canonical_json(Object{{"resolver_probe", true}, {"rounds", rounds},
+                {"succeeded", succeeded}, {"started", started},
+                {"cancelled_before_spawn", cancelled_before_spawn},
+                {"cleanup_pending_after", pending},
+                {"fd_before", before}, {"fd_after", after},
+                {"fd_baseline_stable", before == after}, {"probe", probe}}) << '\n';
+            return 0;
+        }
 
         auto profile = fixture::profile();
         profile.base_url = "https://" + host + ":" + std::to_string(port);
@@ -172,6 +220,38 @@ int main(int argc, char** argv) {
         options.max_header_line_bytes = size(config, "max_header_line_bytes", options.max_header_line_bytes);
         options.max_total_response_bytes = size(config, "max_total_bytes", options.max_total_response_bytes);
         options.poll_interval = std::chrono::milliseconds(integer(config, "poll_ms", 25));
+        std::string proxy_user, proxy_password;
+        if (boolean(config, "network_resolver")) {
+            options.network.enabled = true;
+            options.network.loopback_only =
+                text(config, "network_scope", "loopback-only") == "loopback-only";
+            const auto proxy_url = text(config, "proxy_url");
+            if (!proxy_url.empty()) {
+                auto& proxy = options.network.proxy;
+                proxy.enabled = true;
+                proxy.tls = proxy_url.starts_with("https://");
+                const auto authority = proxy_url.substr(proxy.tls ? 8 : 7);
+                const auto colon = authority.rfind(':');
+                if (colon == std::string::npos || authority.find('/', 0) != std::string::npos)
+                    throw std::runtime_error("test proxy authority must be host:port");
+                proxy.host = authority.substr(0, colon);
+                proxy.port = static_cast<std::uint16_t>(std::stoi(authority.substr(colon + 1)));
+                const auto auth = text(config, "proxy_auth", "none");
+                if (auth != "none" && auth != "basic")
+                    throw std::runtime_error("unknown test proxy auth");
+                proxy.basic_auth = auth == "basic";
+                if (proxy.tls) proxy.ca_bundle_pem =
+                    read_fixture(text(config, "proxy_ca_path"), 1024U * 1024U);
+                if (proxy.basic_auth) {
+                    // Test-only literal secrets; production values always come
+                    // from the trusted host resolver after authorization.
+                    proxy.basic_username_env = "WLS_TEST_PROXY_USER_REF";
+                    proxy.basic_password_env = "WLS_TEST_PROXY_PASS_REF";
+                    proxy_user = text(config, "proxy_user", "wls-test-proxy-user");
+                    proxy_password = text(config, "proxy_pass", "wls-test-proxy-pass");
+                }
+            }
+        }
 
         const auto mutation = text(config, "mutation");
         if (mutation == "body") encoded.body += " ";
@@ -212,7 +292,8 @@ int main(int argc, char** argv) {
         }
 
         const auto result = perform_responses_https(profile, request, encoded, options, bearer,
-                                                    cancellation.get_token());
+                                                    cancellation.get_token(), proxy_user,
+                                                    proxy_password);
         interruptor.request_stop();
         if (interruptor.joinable()) interruptor.join();
         Object integrity_checks;
@@ -240,6 +321,10 @@ int main(int argc, char** argv) {
             {"status", status_name(result.status)}, {"phase", phase_name(result.phase)},
             {"reason", result.reason}, {"http_status", result.http_status},
             {"network_started", result.network_started}, {"transfer_complete", result.transfer_complete},
+            {"dns_started", result.dns_started},
+            {"resolver_cleanup_pending", result.resolver_cleanup_pending},
+            {"network_route_sha256", result.network_route_sha256},
+            {"network_route", result.network_route},
             {"raw_headers_truncated", result.raw_headers_truncated},
             {"raw_body_truncated", result.raw_body_truncated},
             {"upload_may_have_occurred", result.upload_may_have_occurred},

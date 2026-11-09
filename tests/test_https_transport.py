@@ -11,6 +11,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import select
+import shutil
 import socket
 import ssl
 import subprocess
@@ -20,9 +22,14 @@ import threading
 import time
 import unittest
 
-if len(sys.argv) != 3:
-    raise SystemExit("usage: test_https_transport.py DRIVER SOURCE")
-DRIVER, SOURCE = (Path(value).resolve() for value in sys.argv[1:])
+if len(sys.argv) not in (3, 5):
+    raise SystemExit("usage: test_https_transport.py DRIVER SOURCE [FIXTURE_HELPER REAL_HELPER]")
+DRIVER, SOURCE = (Path(value).resolve() for value in sys.argv[1:3])
+# Controlled-fault resolver fixture and the real pinned helper; both optional
+# so plain manual runs keep working without the network-policy scenarios.
+FIXTURE_HELPER = Path(sys.argv[3]).resolve() if len(sys.argv) == 5 else None
+REAL_HELPER = Path(sys.argv[4]).resolve() if len(sys.argv) == 5 else None
+HELPER_NAME = "wls861-resolve-ipv4"
 sys.argv = [sys.argv[0]]
 FIXTURES = SOURCE / "tests/fixtures/responses"
 BEARER = "WLS_SYNTHETIC_BEARER_ONLY_31A7"
@@ -171,6 +178,139 @@ class Peer:
             worker.join(2)
         if self.thread.is_alive() or any(worker.is_alive() for worker in self.workers):
             raise AssertionError("fixture leaked a connection thread")
+        if self.errors:
+            raise AssertionError(self.errors)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+
+class ConnectProxy:
+    """Owned HTTP CONNECT proxy: one tunnel, then a blind byte relay.
+
+    Optional TLS wrapping models an https:// proxy; a non-200 status, extra
+    blocks or a hang after CONNECT model the bounded negative fixtures.
+    """
+
+    def __init__(self, *, status=200, extra=b"", prefix=b"", relay_port=None,
+                 context=None, hang_after_connect=False, truncate_reply=False):
+        self.status = status
+        self.extra = extra
+        self.prefix = prefix
+        self.relay_port = relay_port
+        self.context = context
+        self.hang_after_connect = hang_after_connect
+        self.truncate_reply = truncate_reply
+        self.stop = threading.Event()
+        self.lock = threading.Lock()
+        self.connects = []
+        self.sockets = []
+        self.workers = []
+        self.errors = []
+        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.listener.bind(("127.0.0.1", 0))
+        self.port = self.listener.getsockname()[1]
+        self.listener.listen(8)
+        self.listener.settimeout(0.05)
+        self.thread = threading.Thread(target=self._listen, name="wls-fixture-proxy")
+        self.thread.start()
+
+    def _listen(self):
+        while not self.stop.is_set():
+            try:
+                connection, _ = self.listener.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            with self.lock:
+                self.sockets.append(connection)
+            worker = threading.Thread(target=self._serve, args=(connection,),
+                                      name="wls-fixture-proxy-worker")
+            self.workers.append(worker)
+            worker.start()
+
+    def _read_connect(self, connection):
+        received = bytearray()
+        while b"\r\n\r\n" not in received:
+            chunk = connection.recv(4096)
+            if not chunk:
+                raise ConnectionError("fixture proxy connection ended before CONNECT")
+            received.extend(chunk)
+            if len(received) > 16384:
+                raise AssertionError("fixture proxy CONNECT header bound")
+        head = bytes(received).split(b"\r\n\r\n", 1)[0].decode("latin-1")
+        lines = head.split("\r\n")
+        headers = {}
+        for line in lines[1:]:
+            name, value = line.split(":", 1)
+            headers[name.lower()] = value.strip()
+        with self.lock:
+            self.connects.append({"line": lines[0], "headers": headers})
+
+    def _relay(self, first, second):
+        peers = [first, second]
+        while peers:
+            readable, _, _ = select.select(peers, [], [], 8)
+            if not readable:
+                return
+            for source in readable:
+                data = source.recv(65536)
+                if not data:
+                    return
+                (second if source is first else first).sendall(data)
+
+    def _serve(self, connection):
+        upstream = None
+        try:
+            connection.settimeout(8)
+            stream = self.context.wrap_socket(connection, server_side=True) if self.context \
+                else connection
+            with self.lock:
+                self.sockets.append(stream)
+            self._read_connect(stream)
+            if self.truncate_reply:
+                stream.sendall(b"HTTP/1.1 200 Conn")
+                return
+            if self.status != 200:
+                stream.sendall(f"HTTP/1.1 {self.status} Fixture Proxy\r\n".encode() + self.extra +
+                               b"\r\n")
+                self.stop.wait(8)
+                return
+            stream.sendall(self.prefix +
+                           b"HTTP/1.1 200 Connection established\r\n" + self.extra + b"\r\n")
+            if self.hang_after_connect or self.relay_port is None:
+                self.stop.wait(8)
+                return
+            upstream = socket.create_connection(("127.0.0.1", self.relay_port), timeout=8)
+            self._relay(stream, upstream)
+        except (ssl.SSLError, ConnectionError, socket.timeout, OSError, ValueError):
+            pass  # Expected for refused tunnels, cancellations and deadlines.
+        except BaseException as error:
+            self.errors.append(repr(error))
+        finally:
+            for closing in (upstream,):
+                if closing is not None:
+                    with contextlib.suppress(OSError):
+                        closing.close()
+
+    def close(self):
+        self.stop.set()
+        self.listener.close()
+        self.thread.join(2)
+        with self.lock:
+            for connection in self.sockets:
+                with contextlib.suppress(OSError):
+                    connection.shutdown(socket.SHUT_RDWR)
+                with contextlib.suppress(OSError):
+                    connection.close()
+        for worker in self.workers:
+            worker.join(2)
+        if self.thread.is_alive() or any(worker.is_alive() for worker in self.workers):
+            raise AssertionError("fixture proxy leaked a connection thread")
         if self.errors:
             raise AssertionError(self.errors)
 
@@ -776,6 +916,274 @@ class HttpsTransport(unittest.TestCase):
         self.assertEqual(result["uploaded_body_bytes_reported"], 0)
         self.assertEqual(result["request_body_bytes_supplied"], 0)
         self.assertFalse(result["upload_may_have_occurred"])
+
+    # --- G1-5 bounded host resolver and explicit proxy scenarios ---
+
+    def isolated_directory(self, helper_source, label):
+        """Private 0700 fixture directory with a driver copy and chosen helper."""
+        directory = self.directory / f"isolated-{self.invocations}-{label}"
+        directory.mkdir(mode=0o700)
+        shutil.copy2(DRIVER, directory / "driver")
+        os.chmod(directory / "driver", 0o700)
+        if helper_source is not None:
+            shutil.copy2(helper_source, directory / HELPER_NAME)
+            os.chmod(directory / HELPER_NAME, 0o755)
+        return directory
+
+    def invoke_isolated(self, directory, peer, **configuration):
+        self.invocations += 1
+        config = {"port": peer.port, "ca_path": str(self.certificates / "ca.pem"),
+                  **configuration}
+        path = directory / f"call-{self.invocations}.json"
+        path.write_text(json.dumps(config))
+        os.chmod(path, 0o600)
+        process = subprocess.run([str(directory / "driver"), str(path)], cwd=directory,
+                                 capture_output=True, text=True, encoding="utf-8",
+                                 timeout=15, check=False)
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
+        self.assertEqual(process.stderr, "")
+        result = json.loads(process.stdout)
+        if not result.get("threw"):
+            self.assert_original_tuple(result)
+            self.assert_observations(result)
+        return result
+
+    def test_resolver_probe_reaps_children_and_keeps_descriptor_baseline(self):
+        self.invocations += 1
+        path = self.directory / "probe.json"
+        path.write_text(json.dumps({"resolver_probe": True, "probe_rounds": 6}))
+        os.chmod(path, 0o600)
+        process = subprocess.run([str(DRIVER), str(path)], cwd=self.directory,
+                                 capture_output=True, text=True, encoding="utf-8",
+                                 timeout=15, check=False)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        probe = json.loads(process.stdout)
+        self.assertTrue(probe["resolver_probe"])
+        self.assertEqual(probe["succeeded"], 3)
+        self.assertEqual(probe["started"], 3)
+        self.assertEqual(probe["cancelled_before_spawn"], 3)
+        self.assertFalse(probe["cleanup_pending_after"])
+        self.assertTrue(probe["fd_baseline_stable"], probe)
+        for index, item in enumerate(probe["probe"]):
+            if index % 2 == 0:
+                self.assertTrue(item["ok"] and item["started"], item)
+                self.assertEqual(item["addresses"], ["127.0.0.1"])
+                self.assertTrue(item["helper_identity_present"])
+            else:
+                self.assertFalse(item["started"] or item["ok"], item)
+            self.assertFalse(item["cleanup_pending"], item)
+
+    def test_hostname_policy_resolves_and_posts_exactly_once(self):
+        # Same conditions under which the legacy guard refuses (see the
+        # unmapped-hostname test above): a hostname URL without a mapping on a
+        # threaded-resolver build must now resolve via the real pinned helper.
+        with self.peer() as peer:
+            result = self.invoke(peer, host="localhost", route_kind="none",
+                                 network_resolver=True)
+        self.assertEqual(result["status"], "completed")
+        self.assertTrue(result["dns_started"])
+        self.assertTrue(result["network_started"])
+        self.assertEqual(peer.accepted, 1)
+        self.assertEqual(result["request_body_bytes_supplied"], result["request_body_size"])
+        self.assertEqual(result["uploaded_body_bytes_reported"], result["request_body_size"])
+        self.assertEqual(result["network_route"]["target"]["selected"], "127.0.0.1")
+        self.assertIn("network_route_sha256", result["summary"])
+        self.assertIn("dns_started", result["summary"])
+        self.assertIn(result["network_route_sha256"], json.dumps(result["summary"]))
+
+    def test_resolver_controlled_faults_fail_closed(self):
+        if FIXTURE_HELPER is None:
+            self.skipTest("controlled-fault helper binary not supplied")
+        for fault in ("fail", "malformed", "partial", "invalid", "duplicate",
+                      "overlimit", "nonzero", "close"):
+            with self.subTest(fault=fault), self.peer() as peer:
+                directory = self.isolated_directory(FIXTURE_HELPER, fault)
+                result = self.invoke_isolated(directory, peer, network_resolver=True,
+                                              host=f"wls-fault-{fault}")
+                self.assert_failed(result, "connection_error")
+                self.assertEqual(result["reason"], "dns_resolution_failed")
+                self.assertTrue(result["dns_started"])
+                self.assertFalse(result["resolver_cleanup_pending"])
+                self.assertEqual(peer.accepted, 0)
+
+    def test_resolver_delay_consumes_the_single_deadline(self):
+        if FIXTURE_HELPER is None:
+            self.skipTest("controlled-fault helper binary not supplied")
+        directory = self.isolated_directory(FIXTURE_HELPER, "delay")
+        with self.peer() as peer:
+            result = self.invoke_isolated(directory, peer, network_resolver=True,
+                                          host="wls-fault-delay", timeout_ms=400)
+        self.assert_failed(result, "deadline")
+        self.assertTrue(result["dns_started"])
+        self.assertTrue(result["network_started"])
+        self.assertEqual(result["request_body_bytes_supplied"], 0)
+        self.assertEqual(peer.accepted, 0)
+        self.assertLess(result["elapsed_us"], 2_000_000)
+
+    def test_resolver_block_cancel_stops_without_free_retry(self):
+        if FIXTURE_HELPER is None:
+            self.skipTest("controlled-fault helper binary not supplied")
+        directory = self.isolated_directory(FIXTURE_HELPER, "block")
+        with self.peer() as peer:
+            result = self.invoke_isolated(directory, peer, network_resolver=True,
+                                          host="wls-fault-block", timeout_ms=4000,
+                                          cancel_after_ms=250)
+        self.assert_failed(result, "cancelled")
+        self.assertTrue(result["dns_started"])
+        self.assertTrue(result["network_started"])
+        self.assertEqual(result["request_body_bytes_supplied"], 0)
+        self.assertEqual(peer.accepted, 0)
+        self.assertLess(result["elapsed_us"], 3_000_000)
+
+    def test_unsafe_helper_executables_refuse_before_spawn(self):
+        if FIXTURE_HELPER is None:
+            self.skipTest("controlled-fault helper binary not supplied")
+        cases = {"missing": None, "symlink": "link", "fifo": "fifo",
+                 "world-writable": FIXTURE_HELPER}
+        for label, helper in cases.items():
+            with self.subTest(label=label), self.peer() as peer:
+                directory = self.isolated_directory(helper, label)
+                if helper == "link":
+                    (directory / HELPER_NAME).symlink_to("/nonexistent-wls-helper")
+                elif helper == "fifo":
+                    os.mkfifo(directory / HELPER_NAME)
+                elif label == "world-writable":
+                    os.chmod(directory / HELPER_NAME, 0o666)
+                result = self.invoke_isolated(directory, peer, network_resolver=True,
+                                              host="localhost")
+                self.assertTrue(result.get("threw"), result)
+                self.assertEqual(result["error"], "unsupported")
+                self.assertEqual(peer.accepted, 0)
+
+    def test_precancel_with_network_policy_spawns_nothing(self):
+        with self.peer() as peer:
+            result = self.invoke(peer, network_resolver=True, host="localhost",
+                                 route_kind="none", pre_cancel=True)
+        self.assert_failed(result, "cancelled")
+        self.assertFalse(result["dns_started"])
+        self.assertFalse(result["network_started"])
+        self.assertEqual(peer.accepted, 0)
+
+    def test_environment_proxies_stay_ignored_under_network_policy(self):
+        with self.peer() as proxy, self.peer() as peer:
+            address = f"http://127.0.0.1:{proxy.port}"
+            environment = dict(os.environ, https_proxy=address, HTTPS_PROXY=address,
+                               all_proxy=address, ALL_PROXY=address)
+            result = self.invoke(peer, environment=environment, network_resolver=True,
+                                 host="localhost", route_kind="none")
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(proxy.accepted, 0)
+        self.assertEqual(peer.accepted, 1)
+
+    def test_http_proxy_connect_no_auth_reaches_origin_once(self):
+        with self.peer() as origin:
+            with ConnectProxy(relay_port=origin.port) as proxy:
+                result = self.invoke(origin, network_resolver=True, host="localhost",
+                                     route_kind="none",
+                                     proxy_url=f"http://localhost:{proxy.port}")
+        self.assertEqual(result["status"], "completed")
+        connect = proxy.connects[0]
+        self.assertEqual(connect["line"], f"CONNECT 127.0.0.1:{origin.port} HTTP/1.1")
+        self.assertNotIn("proxy-authorization", connect["headers"])
+        self.assertEqual(len(proxy.connects), 1)
+        self.assertEqual(origin.accepted, 1)
+        self.assertEqual(origin.requests[0]["line"], b"POST /v1/responses HTTP/1.1")
+        self.assertEqual(origin.requests[0]["headers"][b"authorization"],
+                         f"Bearer {BEARER}".encode())
+        self.assertEqual(result["network_route"]["proxy"]["selected"], "127.0.0.1")
+        self.assertEqual(result["network_route"]["proxy"]["auth"], "none")
+
+    def test_https_proxy_connect_basic_scopes_credentials_to_proxy(self):
+        with self.peer() as origin:
+            with ConnectProxy(relay_port=origin.port, context=self.contexts["server"]) as proxy:
+                result = self.invoke(origin, network_resolver=True, host="localhost",
+                                     route_kind="none",
+                                     proxy_url=f"https://localhost:{proxy.port}",
+                                     proxy_ca_path=str(self.certificates / "ca.pem"),
+                                     proxy_auth="basic")
+        self.assertEqual(result["status"], "completed")
+        connect = proxy.connects[0]
+        self.assertTrue(connect["headers"].get("proxy-authorization", "").startswith("Basic "))
+        self.assertEqual(len(proxy.connects), 1)
+        self.assertEqual(origin.accepted, 1)
+        sent = origin.requests[0]["headers"]
+        self.assertNotIn(b"proxy-authorization", sent)
+        self.assertEqual(sent[b"authorization"], f"Bearer {BEARER}".encode())
+        self.assertEqual(result["network_route"]["proxy"]["auth"], "basic")
+
+    def test_proxy_failures_are_terminal_without_second_attempt(self):
+        with self.peer() as origin:
+            for label, options, expected in (
+                    ("status_407", dict(status=407,
+                                        extra=b"Proxy-Authenticate: Basic\r\n"), "connection_error"),
+                    ("status_302", dict(status=302,
+                                        extra=b"Location: https://127.0.0.1:1/\r\n"),
+                     "connection_error"),
+                    ("double_block", dict(prefix=b"HTTP/1.1 200 First\r\n\r\n"
+                                                  b"HTTP/1.1 200 Second\r\n\r\n",
+                                          relay_port=origin.port, hang_after_connect=True),
+                     "connection_error"),
+                    ("truncate_reply", dict(truncate_reply=True), "transfer_error")):
+                with self.subTest(label=label):
+                    with ConnectProxy(**options) as proxy:
+                        result = self.invoke(origin, network_resolver=True, host="localhost",
+                                             route_kind="none",
+                                             proxy_url=f"http://localhost:{proxy.port}")
+                    self.assert_failed(result, expected)
+                    self.assertEqual(len(proxy.connects), 1)
+                    self.assertEqual(origin.accepted, 0)
+
+    def test_proxy_deadline_and_cancellation_share_one_budget(self):
+        with self.peer() as origin:
+            with ConnectProxy(relay_port=origin.port, hang_after_connect=True) as proxy:
+                result = self.invoke(origin, network_resolver=True, host="localhost",
+                                     route_kind="none", timeout_ms=400,
+                                     proxy_url=f"http://localhost:{proxy.port}")
+                self.assert_failed(result, "deadline")
+                self.assertEqual(origin.accepted, 0)
+        with self.peer() as origin:
+            with ConnectProxy(relay_port=origin.port, hang_after_connect=True) as proxy:
+                result = self.invoke(origin, network_resolver=True, host="localhost",
+                                     route_kind="none", timeout_ms=4000, cancel_after_ms=250,
+                                     proxy_url=f"http://localhost:{proxy.port}")
+        self.assert_failed(result, "cancelled")
+        self.assertLess(result["elapsed_us"], 2_000_000)
+        self.assertEqual(origin.accepted, 0)
+
+    def test_proxy_dns_failure_precedes_any_proxy_socket(self):
+        if FIXTURE_HELPER is None:
+            self.skipTest("controlled-fault helper binary not supplied")
+        directory = self.isolated_directory(FIXTURE_HELPER, "proxy-dns")
+        with self.peer() as origin, ConnectProxy(relay_port=origin.port) as proxy:
+            result = self.invoke_isolated(directory, origin, network_resolver=True,
+                                          host="localhost", route_kind="none",
+                                          proxy_url="http://wls-fault-fail:8080")
+            self.assert_failed(result, "connection_error")
+            self.assertEqual(result["reason"], "dns_resolution_failed")
+            self.assertEqual(proxy.connects, [])
+            self.assertEqual(origin.accepted, 0)
+
+    def test_wrong_proxy_certificate_is_refused_before_origin(self):
+        with self.peer() as origin:
+            with ConnectProxy(relay_port=origin.port,
+                              context=self.contexts["server"]) as proxy:
+                result = self.invoke(origin, network_resolver=True, host="localhost",
+                                     route_kind="none",
+                                     proxy_url=f"https://localhost:{proxy.port}",
+                                     proxy_ca_path=str(self.certificates / "untrusted.pem"))
+        self.assert_failed(result, "certificate_error")
+        self.assertEqual(origin.accepted, 0)
+        self.assertEqual(result["request_body_bytes_supplied"], 0)
+
+    def test_cleartext_proxy_authentication_refuses_before_dns(self):
+        with self.peer() as origin:
+            result = self.invoke(origin, network_resolver=True, host="localhost",
+                                 route_kind="none",
+                                 proxy_url=f"http://localhost:{origin.port}",
+                                 proxy_auth="basic")
+        self.assertTrue(result.get("threw"), result)
+        self.assertEqual(result["error"], "invalid_input")
+        self.assertEqual(origin.accepted, 0)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 #include "wls/https_transport.hpp"
 
+#include "https_resolver_internal.hpp"
 #include "wls/sse_replay.hpp"
 
 #include <curl/curl.h>
@@ -59,6 +60,7 @@ struct Handles {
     CURLM* multi{curl_multi_init()};
     curl_slist* headers{};
     curl_slist* resolution{};
+    curl_slist* connect_to{};
     bool attached{false};
     Handles() = default;
     Handles(const Handles&) = delete;
@@ -75,11 +77,19 @@ struct Handles {
         headers = nullptr;
         if (resolution != nullptr) curl_slist_free_all(resolution);
         resolution = nullptr;
+        if (connect_to != nullptr) curl_slist_free_all(connect_to);
+        connect_to = nullptr;
     }
     void header(const std::string& line) {
         auto* appended = curl_slist_append(headers, line.c_str());
         require(appended != nullptr, ErrorCode::Storage, "HTTPS header allocation failed");
         headers = appended;
+    }
+    void resolve(const std::string& line) {
+        auto* appended = curl_slist_append(resolution != nullptr ? resolution : nullptr,
+                                           line.c_str());
+        require(appended != nullptr, ErrorCode::Storage, "HTTPS address pin allocation failed");
+        resolution = appended;
     }
 };
 
@@ -159,11 +169,20 @@ Object summary_record(const HttpsTransportResult& result) {
         {"provider_receipt_verified", false}, {"billing_verified", false},
         {"retry_attempts", 0}, {"tools_dispatched", 0}, {"business_accepted", false}
     };
+    // Legacy summaries stay byte-identical; network-policy calls additionally
+    // expose the bounded DNS facts and the private route evidence hash.
+    if (result.dns_started || result.resolver_cleanup_pending ||
+        !result.network_route_sha256.empty()) {
+        record["dns_started"] = result.dns_started;
+        record["resolver_cleanup_pending"] = result.resolver_cleanup_pending;
+        record["network_route_sha256"] = result.network_route_sha256;
+    }
+    return record;
 }
 
 enum class Abort {
     None, Cancelled, Deadline, HeaderLimit, BodyLimit, TotalLimit, ChunkLimit,
-    InvalidHeader, CallbackFailure, RepeatRequest, SocketOption
+    InvalidHeader, CallbackFailure, RepeatRequest, SocketOption, ProxyConnect
 };
 
 struct HeaderBlock {
@@ -187,6 +206,12 @@ struct Transfer {
     Clock::time_point deadline;
     Abort aborted{Abort::None};
     HeaderBlock header;
+    // Bounded proxy-CONNECT sub-state: through an explicit proxy the first
+    // response block belongs to the CONNECT, and only exactly one 200 block
+    // switches this parser to the origin response. Byte budgets are shared.
+    bool proxy_tunnel{false};
+    int proxy_status{0};
+    bool proxy_established{false};
     std::vector<SseReplayChunk> chunks;
     std::size_t request_offset{};
     unsigned prerequests{};
@@ -245,8 +270,12 @@ bool parse_header(Transfer& transfer, std::string_view bytes) {
         const auto value = static_cast<unsigned char>(character);
         if ((value < 32U && character != '\t') || value == 127U) return false;
     }
+    // While the proxy tunnel is not established every line belongs to the
+    // single CONNECT response block, which is never the origin HTTP status.
+    const bool connect_block = transfer.proxy_tunnel && !transfer.proxy_established;
     if (bytes.starts_with("HTTP/")) {
-        if (header.final || (header.status != 0 && !header.completed)) return false;
+        if (!connect_block && (header.final || (header.status != 0 && !header.completed)))
+            return false;
         if (!(bytes.starts_with("HTTP/1.1 ") || bytes.starts_with("HTTP/1.0 ")) || bytes.size() < 12)
             return false;
         if (bytes.size() > 12 && bytes[12] != ' ') return false;
@@ -255,13 +284,28 @@ bool parse_header(Transfer& transfer, std::string_view bytes) {
         const auto parsed = std::from_chars(number.data(), number.data() + number.size(), status);
         if (parsed.ec != std::errc{} || parsed.ptr != number.data() + number.size() ||
             status < 100 || status > 599 || status == 101) return false;
+        if (connect_block) {
+            if (transfer.proxy_status != 0) return false; // one block only
+            transfer.proxy_status = status;
+            return true;
+        }
         header = HeaderBlock{};
         header.status = status;
         transfer.result.http_status = status;
         return true;
     }
-    if (header.status == 0) return false;
+    if (!connect_block && header.status == 0) return false;
     if (bytes.empty()) {
+        if (connect_block) {
+            if (transfer.proxy_status == 0) return false;
+            if (transfer.proxy_status < 200) { // interim block; one final block follows
+                transfer.proxy_status = 0;
+                return true;
+            }
+            if (transfer.proxy_status != 200) return false; // 407/3xx/others fail now
+            transfer.proxy_established = true;
+            return true;
+        }
         if (header.completed) return header.final; // End of a trailer block.
         if (header.transfer_encoding_seen && header.content_length_seen) return false;
         header.completed = true;
@@ -280,6 +324,7 @@ bool parse_header(Transfer& transfer, std::string_view bytes) {
     if (!std::all_of(name.begin(), name.end(), token_character)) return false;
     const auto key = lower(name);
     const auto value = trim(bytes.substr(colon + 1));
+    if (connect_block) return true; // bounded syntax only; no origin semantics
     if (header.completed) {
         // HTTP trailers cannot rewrite the already selected response meaning
         // or its message framing. Other valid trailer fields stay raw only.
@@ -331,7 +376,8 @@ std::size_t receive_header(char* bytes, std::size_t size, std::size_t count, voi
         }
         if (transfer.interrupted()) return 0;
         if (!parse_header(transfer, std::string_view(bytes, length))) {
-            transfer.aborted = Abort::InvalidHeader;
+            transfer.aborted = transfer.proxy_tunnel && !transfer.proxy_established ?
+                Abort::ProxyConnect : Abort::InvalidHeader;
             return 0;
         }
         return length;
@@ -495,6 +541,105 @@ Endpoint endpoint_of(std::string_view validated_url, const HttpsTransportOptions
     return endpoint;
 }
 
+bool strict_ipv4_spelling(std::string_view host) {
+    if (host.empty() || host.size() > 15) return false;
+    std::size_t start = 0;
+    int parts = 0;
+    for (std::size_t index = 0; index <= host.size(); ++index) {
+        if (index != host.size() && host[index] != '.') continue;
+        const auto part = host.substr(start, index - start);
+        int value = 0;
+        if (++parts > 4 || part.empty() || part.size() > 3 ||
+            !std::all_of(part.begin(), part.end(), [](char c) {
+                return c >= '0' && c <= '9';
+            }) || (part.size() > 1 && part.front() == '0') ||
+            (value = std::stoi(std::string(part))) > 255)
+            return false;
+        start = index + 1;
+    }
+    return parts == 4;
+}
+
+bool strict_domain_name(std::string_view host) {
+    // RFC-style letter-first labels; numeric-looking spellings must instead be
+    // strict IPv4, so legacy numeric hosts never ride the resolver policy.
+    const auto label = [](std::string_view part) {
+        const auto letter = [](char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+        };
+        const auto inner = [&](char c) { return letter(c) || c == '-' || (c >= '0' && c <= '9'); };
+        return !part.empty() && part.size() <= 63 && letter(part.front()) &&
+            letter(part.back()) && std::all_of(part.begin(), part.end(), inner);
+    };
+    if (host.empty() || host.size() > 253) return false;
+    std::size_t start = 0;
+    int labels = 0;
+    for (std::size_t index = 0; index <= host.size(); ++index) {
+        if (index != host.size() && host[index] != '.') continue;
+        if (!label(host.substr(start, index - start))) return false;
+        ++labels;
+        start = index + 1;
+    }
+    return labels >= 1;
+}
+
+bool environment_reference(const std::string& name) {
+    const auto letter = [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+    };
+    return !name.empty() && name.size() <= 128 && letter(name.front()) &&
+        std::all_of(name.begin(), name.end(), [&](char c) {
+            return letter(c) || (c >= '0' && c <= '9');
+        });
+}
+
+// Pure preflight for the frozen network section: strict proxy authority
+// grammar, scheme-specific trust and reference rules, no DNS or sockets.
+void validate_network_policy(const HttpsNetworkOptions& network) {
+    if (!network.enabled) {
+        require(!network.proxy.enabled, ErrorCode::InvalidInput,
+                "an explicit proxy requires the frozen host resolver policy");
+        return;
+    }
+    const auto& proxy = network.proxy;
+    if (!proxy.enabled) return;
+    require(proxy.port != 0, ErrorCode::InvalidInput,
+            "the frozen proxy authority requires an explicit port");
+    require(strict_domain_name(proxy.host) || strict_ipv4_spelling(proxy.host),
+            ErrorCode::InvalidInput,
+            "the frozen proxy host must be a strict domain name or IPv4");
+    if (proxy.tls) {
+        require(!proxy.ca_bundle_pem.empty() && proxy.ca_bundle_pem.size() <= max_trust_bytes &&
+                proxy.ca_bundle_pem.find('\0') == std::string::npos, ErrorCode::InvalidInput,
+                "an HTTPS proxy requires its own bounded PEM trust");
+        require(!proxy.basic_auth ||
+                (environment_reference(proxy.basic_username_env) &&
+                 environment_reference(proxy.basic_password_env)), ErrorCode::InvalidInput,
+                "proxy authentication must use valid environment reference names");
+    } else {
+        require(proxy.ca_bundle_pem.empty() && !proxy.basic_auth, ErrorCode::InvalidInput,
+                "cleartext HTTP proxies cannot carry authentication or trust material");
+    }
+}
+
+Object network_policy_json(const HttpsNetworkOptions& network) {
+    Json proxy = nullptr;
+    if (network.proxy.enabled) {
+        proxy = Object{{"scheme", network.proxy.tls ? "https" : "http"},
+            {"host", network.proxy.host}, {"port", network.proxy.port},
+            {"auth", network.proxy.basic_auth ? "basic" : "none"},
+            {"ca_bundle_sha256", sha256_hex(network.proxy.ca_bundle_pem)},
+            {"basic_username_env", network.proxy.basic_username_env},
+            {"basic_password_env", network.proxy.basic_password_env}};
+    }
+    return Object{{"version", 1}, {"resolver", "host-ipv4-v1"},
+        {"address_scope", network.loopback_only ? "loopback-only" : "configured-endpoint"},
+        {"proxy", proxy}};
+}
+
+// Resolves one frozen hostname through the pinned helper under the shared
+// deadline, records the bounded observations, and applies the address scope.
+// Returns false only after the result is classified and ready to finalize.
 void collect_observations(CURL* easy, Transfer& transfer) noexcept {
     curl_off_t connected{};
     if (curl_easy_getinfo(easy, CURLINFO_CONNECT_TIME_T, &connected) == CURLE_OK && connected > 0) {
@@ -524,6 +669,7 @@ void classify_abort(HttpsTransportResult& result, Abort aborted, CURLcode code) 
     case Abort::CallbackFailure: return fail(result, HttpsTransportStatus::TransferError, "callback_failure");
     case Abort::RepeatRequest: return fail(result, HttpsTransportStatus::TransferError, "repeat_request_refused");
     case Abort::SocketOption: return fail(result, HttpsTransportStatus::ConnectionError, "socket_option_failed");
+    case Abort::ProxyConnect: return fail(result, HttpsTransportStatus::ConnectionError, "proxy_connect_refused");
     case Abort::None: break;
     }
     switch (code) {
@@ -536,6 +682,7 @@ void classify_abort(HttpsTransportResult& result, Abort aborted, CURLcode code) 
         return fail(result, HttpsTransportStatus::CertificateError, "certificate_error");
     case CURLE_COULDNT_CONNECT:
     case CURLE_COULDNT_RESOLVE_HOST:
+    case CURLE_PROXY:
         return fail(result, HttpsTransportStatus::ConnectionError, "connection_error");
     case CURLE_WEIRD_SERVER_REPLY:
     case CURLE_BAD_CONTENT_ENCODING:
@@ -543,6 +690,45 @@ void classify_abort(HttpsTransportResult& result, Abort aborted, CURLcode code) 
     default:
         return fail(result, HttpsTransportStatus::TransferError, "transfer_error");
     }
+}
+
+// Resolves one frozen hostname through the pinned helper under the shared
+// deadline, records the bounded observations, and applies the address scope.
+// Returns false only after the result is classified and ready to finalize.
+bool route_address(Transfer& transfer, const std::string& host, const std::string& port,
+                   std::string& selected, Object& route) {
+    auto& result = transfer.result;
+    auto dns = resolver::resolve_ipv4(host, port, transfer.deadline, transfer.stop);
+    if (dns.started) {
+        result.dns_started = true;
+        result.network_started = true;
+    }
+    result.resolver_cleanup_pending = result.resolver_cleanup_pending || dns.cleanup_pending;
+    route = Object{{"hostname", host}, {"helper_identity", dns.helper_identity},
+        {"addresses_returned", dns.addresses.size()},
+        {"resolver_elapsed_us", dns.elapsed.count()},
+        {"cleanup_pending", dns.cleanup_pending}};
+    if (!dns.ok) {
+        if (transfer.stop.stop_requested())
+            classify_abort(result, Abort::Cancelled, CURLE_ABORTED_BY_CALLBACK);
+        else if (Clock::now() >= transfer.deadline)
+            classify_abort(result, Abort::Deadline, CURLE_OPERATION_TIMEDOUT);
+        else
+            fail(result, HttpsTransportStatus::ConnectionError, "dns_resolution_failed");
+        return false;
+    }
+    if (transfer.options.network.loopback_only) {
+        const auto found = std::find(dns.addresses.begin(), dns.addresses.end(), "127.0.0.1");
+        if (found == dns.addresses.end()) {
+            fail(result, HttpsTransportStatus::ConnectionError, "address_scope_refused");
+            return false;
+        }
+        selected = *found; // A resolved address never widens loopback authority.
+    } else {
+        selected = dns.addresses.front();
+    }
+    route["selected"] = selected;
+    return true;
 }
 
 void decode_retained(Transfer& transfer, const ModelRequest& request) {
@@ -601,6 +787,30 @@ void validate_responses_https_target(const ProviderProfile& profile,
                                      const HttpsTransportOptions& options) {
     validate_provider_profile(profile);
     (void)endpoint_of(profile.base_url, options);
+    validate_network_policy(options.network);
+}
+
+Json https_transport_options_descriptor(const HttpsTransportOptions& options) {
+    validate_network_policy(options.network);
+    // Byte-identical to the legacy v1 descriptor whenever the optional
+    // network section is absent; the v2 form wraps the same v1 bytes.
+    Json descriptor = Object{{"format", "wls-https-transport-options-v1"},
+        {"ca_bundle_sha256", sha256_hex(options.ca_bundle_pem)},
+        {"resolved_ipv4", options.resolved_ipv4}, {"max_header_bytes", options.max_header_bytes},
+        {"max_header_line_bytes", options.max_header_line_bytes},
+        {"max_total_response_bytes", options.max_total_response_bytes},
+        {"poll_interval_ms", options.poll_interval.count()},
+        {"socket_send_buffer_bytes", socket_send_buffer}, {"upload_buffer_bytes", 16U * 1024U},
+        {"dns_policy", "strict_ipv4_or_explicit_mapping_or_cares"}};
+    if (options.network.enabled) {
+        descriptor = Object{{"format", "wls-https-transport-options-v2"},
+            {"base", descriptor}, {"network", network_policy_json(options.network)}};
+    }
+    return descriptor;
+}
+
+std::string https_transport_options_sha256(const HttpsTransportOptions& options) {
+    return sha256_hex(canonical_json(https_transport_options_descriptor(options)));
 }
 
 std::string to_string(HttpsTransportStatus status) {
@@ -633,7 +843,8 @@ std::string to_string(HttpsTransportPhase phase) {
 HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
         const ModelRequest& request, const EncodedResponsesRequest& encoded,
         const HttpsTransportOptions& options, std::string_view bearer_token,
-        std::stop_token stop) {
+        std::stop_token stop, std::string_view proxy_basic_username,
+        std::string_view proxy_basic_password) {
     const auto started = Clock::now();
     const auto expected = encode_responses_request(profile, request, encoded.stream);
     require(to_json(encoded) == to_json(expected), ErrorCode::Corrupt,
@@ -654,6 +865,25 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     const auto* key_log = std::getenv("SSLKEYLOGFILE");
     require(key_log == nullptr || *key_log == '\0', ErrorCode::Unsupported,
             "HTTPS transport refuses TLS key logging enabled by the environment");
+    validate_network_policy(options.network);
+    const auto printable_secret = [](std::string_view value, std::string_view::size_type maximum) {
+        return !value.empty() && value.size() <= maximum &&
+            value.find(':') == std::string_view::npos &&
+            std::all_of(value.begin(), value.end(), [](char character) {
+                const auto byte = static_cast<unsigned char>(character);
+                return byte >= 33U && byte <= 126U;
+            });
+    };
+    require(!options.network.proxy.enabled || !options.network.proxy.basic_auth ||
+            (printable_secret(proxy_basic_username, 1024) &&
+             !proxy_basic_password.empty() && proxy_basic_password.size() <= 8192 &&
+             std::all_of(proxy_basic_password.begin(), proxy_basic_password.end(),
+                 [](char character) {
+                     const auto byte = static_cast<unsigned char>(character);
+                     return byte >= 33U && byte <= 126U;
+                 })),
+            ErrorCode::InvalidInput,
+            "an authenticated proxy needs both bounded call-time secret values before DNS");
 
     HttpsTransportResult result;
     result.response = original_response(request);
@@ -662,24 +892,63 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     result.profile_sha256 = encoded.profile_sha256;
     result.logical_request_sha256 = encoded.logical_request_sha256;
     result.ca_bundle_sha256 = sha256_hex(options.ca_bundle_pem);
-    result.transport_options_sha256 = sha256_hex(canonical_json(Object{
-        {"format", "wls-https-transport-options-v1"}, {"ca_bundle_sha256", result.ca_bundle_sha256},
-        {"resolved_ipv4", options.resolved_ipv4}, {"max_header_bytes", options.max_header_bytes},
-        {"max_header_line_bytes", options.max_header_line_bytes},
-        {"max_total_response_bytes", options.max_total_response_bytes},
-        {"poll_interval_ms", options.poll_interval.count()},
-        {"socket_send_buffer_bytes", socket_send_buffer}, {"upload_buffer_bytes", 16U * 1024U},
-        {"dns_policy", "strict_ipv4_or_explicit_mapping_or_cares"}}));
+    result.transport_options_sha256 = https_transport_options_sha256(options);
     Transfer transfer{profile, encoded, options, result, stop, started, started + request.timeout,
-                      Abort::None, {}, {}, 0, 0};
+                      Abort::None, {}, false, 0, false, {}, 0, 0};
     if (transfer.interrupted()) {
         classify_abort(result, transfer.aborted, CURLE_ABORTED_BY_CALLBACK);
         finalize(result, transfer);
         return result;
     }
 
+    // Frozen resolver route: numeric endpoints and explicit mappings keep the
+    // no-resolver paths; everything else goes through the pinned helper under
+    // this call's single deadline, then pins libcurl to the selected address.
+    std::string target_address;
+    std::string proxy_address;
+    Object target_route;
+    Object proxy_route;
+    if (options.network.enabled) {
+        bool routed = true;
+        if (endpoint.numeric) {
+            target_address = endpoint.host;
+            target_route = Object{{"mode", "numeric_url"}, {"selected", target_address}};
+        } else if (!options.resolved_ipv4.empty()) {
+            target_address = options.resolved_ipv4;
+            target_route = Object{{"mode", "explicit_mapping"}, {"selected", target_address}};
+        } else {
+            routed = route_address(transfer, endpoint.host, endpoint.port, target_address,
+                                   target_route);
+        }
+        if (routed && options.network.proxy.enabled) {
+            const auto& proxy = options.network.proxy;
+            proxy_route = Object{{"scheme", proxy.tls ? "https" : "http"},
+                {"auth", proxy.basic_auth ? "basic" : "none"}};
+            if (strict_ipv4_spelling(proxy.host)) {
+                proxy_address = proxy.host;
+                proxy_route["mode"] = "numeric_url";
+                proxy_route["selected"] = proxy_address;
+            } else {
+                routed = route_address(transfer, proxy.host, std::to_string(proxy.port),
+                                       proxy_address, proxy_route);
+            }
+        }
+        Object route{{"policy_sha256", result.transport_options_sha256},
+            {"resolver", "host-ipv4-v1"},
+            {"address_scope", options.network.loopback_only ? "loopback-only"
+                                                            : "configured-endpoint"},
+            {"dns_started", result.dns_started}, {"target", target_route}};
+        if (options.network.proxy.enabled) route["proxy"] = proxy_route;
+        result.network_route = route;
+        result.network_route_sha256 = sha256_hex(canonical_json(route));
+        if (!routed) {
+            finalize(result, transfer);
+            return result;
+        }
+    }
+
     const auto* version = initialize_curl();
-    require(endpoint.numeric || !options.resolved_ipv4.empty() ||
+    require(endpoint.numeric || !options.resolved_ipv4.empty() || options.network.enabled ||
             (version->ares != nullptr && *version->ares != '\0'), ErrorCode::Unsupported,
             "HTTPS DNS names need an explicit address mapping or a c-ares resolver for bounded cleanup");
     Handles handles;
@@ -741,10 +1010,56 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     option(easy, CURLOPT_XFERINFODATA, &transfer);
     option(easy, CURLOPT_NOPROGRESS, 0L);
     if (!options.resolved_ipv4.empty() && !endpoint.numeric) {
-        const auto mapping = endpoint.host + ":" + endpoint.port + ":" + options.resolved_ipv4;
-        handles.resolution = curl_slist_append(nullptr, mapping.c_str());
-        require(handles.resolution != nullptr, ErrorCode::Storage, "HTTPS address mapping allocation failed");
+        handles.resolve(endpoint.host + ":" + endpoint.port + ":" + options.resolved_ipv4);
         option(easy, CURLOPT_RESOLVE, handles.resolution);
+    } else if (options.network.enabled && !endpoint.numeric && !target_address.empty()) {
+        // Exact host:port pin for the resolved address; no shared DNS cache
+        // survives this call and no alternate address is retried.
+        option(easy, CURLOPT_DNS_CACHE_TIMEOUT, 0L);
+        handles.resolve(endpoint.host + ":" + endpoint.port + ":" + target_address);
+        option(easy, CURLOPT_RESOLVE, handles.resolution);
+    }
+    if (options.network.proxy.enabled) {
+        const auto& proxy = options.network.proxy;
+        const auto authority = std::string(proxy.tls ? "https://" : "http://") + proxy.host +
+            ":" + std::to_string(proxy.port);
+        option(easy, CURLOPT_PROXY, authority.c_str()); // Original name keeps proxy SNI.
+        option(easy, CURLOPT_PROXYTYPE, static_cast<long>(CURLPROXY_HTTP));
+        option(easy, CURLOPT_HTTPPROXYTUNNEL, 1L);
+        option(easy, CURLOPT_NOPROXY, static_cast<const char*>(nullptr));
+        if (!strict_ipv4_spelling(proxy.host)) {
+            handles.resolve(proxy.host + ":" + std::to_string(proxy.port) + ":" + proxy_address);
+            option(easy, CURLOPT_RESOLVE, handles.resolution);
+        }
+        // CONNECT_TO pins the tunnel destination to the helper-selected
+        // numeric address while URL, Host, SNI and origin verification keep
+        // using the original frozen origin host:port.
+        const auto tunnel = "+" + endpoint.host + ":" + endpoint.port + ":" + target_address +
+            ":" + endpoint.port;
+        handles.connect_to = curl_slist_append(nullptr, tunnel.c_str());
+        require(handles.connect_to != nullptr, ErrorCode::Storage,
+                "HTTPS CONNECT destination allocation failed");
+        option(easy, CURLOPT_CONNECT_TO, handles.connect_to);
+        if (proxy.tls) {
+            option(easy, CURLOPT_PROXY_SSL_VERIFYPEER, 1L);
+            option(easy, CURLOPT_PROXY_SSL_VERIFYHOST, 2L);
+            option(easy, CURLOPT_PROXY_SSLVERSION, static_cast<long>(CURL_SSLVERSION_TLSv1_2));
+            option(easy, CURLOPT_PROXY_CAINFO, static_cast<const char*>(nullptr));
+            curl_blob proxy_trust{const_cast<char*>(proxy.ca_bundle_pem.data()),
+                proxy.ca_bundle_pem.size(), CURL_BLOB_COPY};
+            option(easy, CURLOPT_PROXY_CAINFO_BLOB, &proxy_trust);
+        }
+        if (proxy.basic_auth) {
+            // One explicit Basic pair; no negotiation and never a retry.
+            option(easy, CURLOPT_PROXYAUTH, static_cast<long>(CURLAUTH_BASIC));
+            const std::string username(proxy_basic_username);
+            const std::string password(proxy_basic_password);
+            option(easy, CURLOPT_PROXYUSERNAME, username.c_str());
+            option(easy, CURLOPT_PROXYPASSWORD, password.c_str());
+        } else {
+            option(easy, CURLOPT_PROXYAUTH, static_cast<long>(CURLAUTH_NONE));
+        }
+        transfer.proxy_tunnel = true;
     }
 
     if (transfer.interrupted()) {
@@ -801,12 +1116,16 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     // authorize a retry or turn absent response bytes into proof of no billing.
     handles.close();
     result.transfer_complete = done && outcome == CURLE_OK && transfer.aborted == Abort::None &&
-                               transfer.header.final && transfer.header.completed;
+                               transfer.header.final && transfer.header.completed &&
+                               (!transfer.proxy_tunnel || transfer.proxy_established);
     decode_retained(transfer, request);
     if (transfer.interrupted() || !done || outcome != CURLE_OK) {
         classify_abort(result, transfer.aborted, outcome);
     } else if (!result.transfer_complete) {
-        fail(result, HttpsTransportStatus::ProtocolError, "incomplete_http_framing");
+        if (transfer.proxy_tunnel && !transfer.proxy_established)
+            fail(result, HttpsTransportStatus::ConnectionError, "proxy_connect_refused");
+        else
+            fail(result, HttpsTransportStatus::ProtocolError, "incomplete_http_framing");
     } else if (result.http_status != 200) {
         fail(result, HttpsTransportStatus::HttpError, "http_error");
     } else if (result.response.status != ModelResultStatus::Completed) {

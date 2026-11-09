@@ -104,23 +104,38 @@ class LiveWorkflowCli(unittest.TestCase):
         self.assertEqual(result.stderr, '')
         return json.loads(result.stdout)
 
-    def admit(self, port, key='request-one'):
+    def admit(self, port, key='request-one', proxy_port=None, proxy_reference=True):
         system = copy.deepcopy(self.system)
         provider = json.loads((SOURCE / 'config/examples/providers/responses-offline.json').read_text())
         provider.update(base_url=f'https://localhost:{port}', api_key_env=REFERENCE,
                         model_ref='cli-loopback', profile_id='synthetic-cli-loopback')
         provider['capabilities']['reasoning_efforts'] = []
         provider['capabilities']['reasoning_modes'] = ['provider_default', 'off']
+        transport = {'ca_bundle_pem': (self.certificates / 'ca.pem').read_text(),
+                     'resolved_ipv4': '127.0.0.1',
+                     'max_header_bytes': 65536, 'max_header_line_bytes': 8192,
+                     'max_total_response_bytes': 3 * 1024 * 1024, 'poll_interval_ms': 25}
+        if proxy_port is not None:
+            # Frozen v1 resolver policy plus an HTTPS CONNECT proxy whose
+            # Basic values exist only as environment-name references.
+            transport['resolved_ipv4'] = ''
+            transport['network'] = {'version': 1, 'resolver': 'host-ipv4-v1',
+                'address_scope': 'loopback-only',
+                'proxy': {'url': f'https://localhost:{proxy_port}', 'auth': 'basic',
+                          'ca_pem': (self.certificates / 'ca.pem').read_text(),
+                          'username_env': 'WLS_PROXY_USER_REF',
+                          'password_env': 'WLS_PROXY_PASS_REF'}}
+            self.environment['WLS_PROXY_USER_REF'] = 'wls-cli-proxy-user'
+            self.environment['WLS_PROXY_PASS_REF'] = 'wls-cli-proxy-pass'
+            if not proxy_reference:
+                self.environment.pop('WLS_PROXY_USER_REF', None)
         system['models']['cli-loopback'] = {
             'adapter': 'openai-responses', 'adapter_version': '1', 'protocol': 'openai-responses-v1',
             'model': provider['model'], 'capabilities': {'streaming': 'supported',
                 'tool_calling': 'supported', 'parallel_tool_calls': 'supported',
                 'reasoning_modes': ['provider_default', 'off'], 'context_window': 100000,
                 'max_output_tokens': 4096, 'cache_mode': 'none'},
-            'responses': {'provider_profile': provider, 'transport': {
-                'ca_bundle_pem': (self.certificates / 'ca.pem').read_text(), 'resolved_ipv4': '127.0.0.1',
-                'max_header_bytes': 65536, 'max_header_line_bytes': 8192,
-                'max_total_response_bytes': 3 * 1024 * 1024, 'poll_interval_ms': 25},
+            'responses': {'provider_profile': provider, 'transport': transport,
                 'stream': False, 'execution_kind': 'local_tls',
                 'capability_evidence_source': 'synthetic-cli-loopback-v1',
                 'capability_evidence_sha256': hashlib.sha256(b'synthetic CLI capabilities only').hexdigest()}}
@@ -325,6 +340,31 @@ class LiveWorkflowCli(unittest.TestCase):
             self.pump(request)
             self.assertEqual([self.rows(query, (sibling,)) for query in queries], before)
             self.assertEqual(len(peer.requests), 1)
+
+    def test_proxy_references_resolve_after_checks_and_stay_scoped_to_proxy(self):
+        with tls.Peer(self.contexts['server'], tls.fixed_response(plan_response())) as origin:
+            with tls.ConnectProxy(relay_port=origin.port,
+                                  context=self.contexts['server']) as proxy:
+                request = self.admit(origin.port, proxy_port=proxy.port)
+                self.authorize(request)
+                report = self.pump(request)
+                self.assertEqual(report['network_started_calls'], 1, report)
+                self.assertEqual(origin.accepted, 1)
+                connect = proxy.connects[0]
+                self.assertTrue(connect['headers'].get('proxy-authorization', '').startswith('Basic '))
+                self.assertNotIn(b'proxy-authorization', origin.requests[0]['headers'])
+                # A frozen proxy reference missing from the environment stops
+                # the batch before reservation, DNS or any socket work.
+                blocked = self.admit(origin.port, key='proxy-ref-missing',
+                                     proxy_port=proxy.port, proxy_reference=False)
+                self.authorize(blocked)
+                report = self.pump(blocked)
+                self.assertEqual(report['stop_reason'], 'error', report)
+                self.assertEqual(report['network_started_calls'], 0)
+                self.assertEqual(self.rows('SELECT * FROM call_attempts WHERE request_id=?',
+                                           (blocked,)), [])
+                self.assertEqual(len(proxy.connects), 1)
+                self.assertEqual(origin.accepted, 1)
 
 
 if __name__ == '__main__':
