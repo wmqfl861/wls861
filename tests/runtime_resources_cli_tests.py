@@ -18,11 +18,13 @@ import tempfile
 import unittest
 
 
-if len(sys.argv) not in (3, 4):
-    raise SystemExit('usage: runtime_resources_cli_tests.py WLS_BINARY SOURCE_ROOT [CMAKE_BUILD]')
+if len(sys.argv) not in (3, 4, 5):
+    raise SystemExit('usage: runtime_resources_cli_tests.py WLS_BINARY SOURCE_ROOT [CMAKE_BUILD] '
+                     '[RESOLVER_TESTS_BINARY]')
 BINARY = Path(sys.argv[1]).resolve()
 SOURCE = Path(sys.argv[2]).resolve()
-CMAKE_BUILD = Path(sys.argv[3]).resolve() if len(sys.argv) == 4 else None
+CMAKE_BUILD = Path(sys.argv[3]).resolve() if len(sys.argv) >= 4 else None
+RESOLVER_DRIVER = Path(sys.argv[4]).resolve() if len(sys.argv) == 5 else None
 sys.argv = [sys.argv[0]]
 
 
@@ -36,6 +38,12 @@ class RuntimeResourceInstallation(unittest.TestCase):
         cls.shared = Path(cls.shared_temporary.name)
         cls.manifest = json.loads((SOURCE / 'resources/runtime-manifest.json').read_text())
         build = CMAKE_BUILD
+        # The pinned resolver helper is installed in both gates: the real
+        # CMake build installs it as a program target, and the plain-Make gate
+        # supplies it next to the built wls binary; no case is skipped.
+        helper = BINARY.parent / 'wls861-resolve-ipv4'
+        if CMAKE_BUILD is None and not helper.is_file():
+            raise AssertionError('the plain-Make gate must build wls861-resolve-ipv4 next to wls')
         if build is None:
             fixture = cls.shared / 'cmake-fixture'
             fixture.mkdir(mode=0o700)
@@ -44,7 +52,9 @@ class RuntimeResourceInstallation(unittest.TestCase):
                 'project(wls_resource_install_fixture NONE)\n'
                 f'set(Python3_EXECUTABLE [==[{sys.executable}]==])\n'
                 f'include([==[{SOURCE / "cmake/runtime_resources.cmake"}]==])\n'
-                f'install(PROGRAMS [==[{BINARY}]==] DESTINATION bin RENAME wls COMPONENT wls-runtime)\n'
+                'install(PROGRAMS [==[{BINARY}]==] DESTINATION bin RENAME wls COMPONENT wls-runtime)\n'
+                f'install(PROGRAMS [==[{helper}]==] DESTINATION bin RENAME wls861-resolve-ipv4 '
+                'COMPONENT wls-runtime)\n'
                 'wls_install_runtime_resources()\n')
             build = cls.shared / 'cmake-build'
             result = subprocess.run(['cmake', '-S', str(fixture), '-B', str(build)],
@@ -118,6 +128,60 @@ class RuntimeResourceInstallation(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(path.stat().st_mode) & 0o222, 0)
         database = self.directory / 'state.sqlite'
         self.assertEqual(self.invoke('init', '--db', database)['user_version'], 410)
+
+    def test_resolver_helper_installs_and_pins_next_to_the_program(self):
+        template_helper = self.template / 'bin/wls861-resolve-ipv4'
+        self.assertTrue(template_helper.is_file(), template_helper)
+        mode = stat.S_IMODE(template_helper.stat().st_mode)
+        self.assertEqual(mode & 0o111, 0o111)
+        self.assertEqual(mode & 0o022, 0)
+        with template_helper.open('rb') as stream:
+            self.assertEqual(stream.read(4), b'\x7fELF')
+        # The helper is a program asset, never a manifest resource: the
+        # resource bundle layout and asset count stay original.
+        for entry in self.manifest['assets']:
+            self.assertNotIn('wls861-resolve-ipv4', entry['path'])
+        self.assertEqual(self.invoke('resources')['resources']['asset_count'],
+                         len(self.manifest['assets']))
+        # Same bin directory as the installed wls: execute the helper there
+        # from an unrelated cwd with the real system resolver on loopback.
+        os.link(template_helper, self.prefix / 'bin/wls861-resolve-ipv4')
+        helper = self.prefix / 'bin/wls861-resolve-ipv4'
+        completed = subprocess.run([str(helper), 'localhost', '443'], cwd=self.cwd,
+                                   capture_output=True, text=True, timeout=10)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertTrue(completed.stdout.startswith('WLS-RESOLVE-1\nok\n'), completed.stdout)
+        self.assertIn('127.0.0.1', completed.stdout)
+        # The dedicated driver verifies executable-relative pin/resolve/reap
+        # against these installed helper bytes from an unrelated cwd after the
+        # installation prefix moved away; the staged tree keeps only its own
+        # two copies and no installation source.
+        if RESOLVER_DRIVER is None:
+            driver = BINARY.parent / 'https_resolver_tests'
+            self.assertTrue(driver.is_file(), 'the plain-Make gate must build https_resolver_tests')
+        else:
+            driver = RESOLVER_DRIVER
+        stage = self.directory / 'resolver-stage'
+        stage.mkdir(mode=0o700)
+        shutil.copyfile(driver, stage / 'driver')
+        os.chmod(stage / 'driver', 0o755)
+        shutil.copyfile(helper, stage / 'wls861-resolve-ipv4')
+        os.chmod(stage / 'wls861-resolve-ipv4', 0o755)
+        self.prefix.rename(self.directory / 'installed-moved-away')
+        relocated = self.directory / 'resolver-stage-moved'
+        stage.rename(relocated)
+        resolved = subprocess.run([str(relocated / 'driver'), '--resolve-once', 'localhost', '443'],
+                                  cwd=self.cwd, capture_output=True, text=True, timeout=10)
+        self.assertEqual(resolved.returncode, 0, resolved.stdout + resolved.stderr)
+        self.assertIn('ok=1', resolved.stdout)
+        self.assertIn('127.0.0.1', resolved.stdout)
+        # A tampered staged helper is still refused after relocation: the
+        # identity checks do not depend on the installation source.
+        os.chmod(relocated / 'wls861-resolve-ipv4', 0o664)
+        refused = subprocess.run([str(relocated / 'driver'), '--resolve-once', 'localhost', '443'],
+                                 cwd=self.cwd, capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(refused.returncode, 0, refused.stdout)
+        self.assertIn('threw=1', refused.stdout)
 
     def test_relocated_executable_ignores_cwd_and_environment_resource_poison(self):
         (self.cwd / 'resources').mkdir()
