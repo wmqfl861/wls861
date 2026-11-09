@@ -266,6 +266,106 @@ class LiveStore(unittest.TestCase):
             self.assertEqual(sorted(row[0] for row in connection.execute("SELECT attempt_id FROM model_tool_feedback")),
                              ["attempt-fixture", "attempt-fixture-2"])
 
+    def test_readback_opaque_continuation_over_tls_keeps_native_order(self):
+        # Frozen utf8-token-v1 readback + worker window + compatibility profile
+        # in one admission; the second request is produced by the production
+        # capture path, and the captured loopback body must equal the encode
+        # of that capture with the opaque original and IDs unchanged.
+        compat = self.compat_profile()
+        first_body = (SOURCE / 'tests/fixtures/responses/reasoning-tool-response.json').read_bytes()
+        second_body = (SOURCE / 'tests/fixtures/responses/reasoning-text-response.json').read_bytes()
+        remaining = iter((first_body, second_body))
+
+        def sequenced(peer, connection):
+            peer.request(connection)
+            body = next(remaining)
+            connection.sendall(tls.headers(len(body)) + body)
+
+        with self.peer(sequenced) as peer:
+            result, database = self.run_raw(peer, action='readback-opaque',
+                                            compat_profile=str(compat), readback=True)
+            self.assertEqual(len(peer.requests), 2)
+            captured = peer.requests[1]['body']
+        self.assertEqual(captured.decode(), result['second_request_body'])
+        original = json.loads(first_body)
+        reasoning = original['output'][0]
+        first = result['first_response']
+        body = json.loads(result['second_request_body'])
+        self.assertEqual(body['model'], 'o3')
+        self.assertEqual(body['include'], ['reasoning.encrypted_content'])
+        items = body['input']
+        self.assertEqual(len(items), 4)  # task contract, reasoning, call, result
+        self.assertEqual(items[1], first['responses_output']['output'][0])
+        self.assertEqual(items[1], reasoning)  # opaque original replayed unchanged
+        self.assertEqual(items[2]['type'], 'function_call')
+        self.assertEqual(items[2]['call_id'], 'call_compat_fixture')
+        self.assertEqual(items[3]['type'], 'function_call_output')
+        self.assertEqual(items[3]['call_id'], 'call_compat_fixture')
+        self.assertEqual(json.loads(items[3]['output']), {'ok': True, 'round': 1})
+        self.assertFalse(any(item.get('role') == 'assistant' for item in items))
+        # The production capture measured both logical envelopes; carrying the
+        # opaque continuation must cost bytes over the first envelope.
+        self.assertGreater(result['second_envelope_bytes'], result['first_envelope_bytes'])
+        self.assertEqual(result['first_settlement']['accepted'], 1)
+        self.assertEqual(result['second_settlement']['accepted'], 1)
+        self.assertEqual(result['budget']['attempts'], 2)
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(connection.execute('SELECT count(*) FROM live_send_claims').fetchone()[0], 2)
+            self.assertEqual(connection.execute('SELECT count(*) FROM model_tool_feedback').fetchone()[0], 1)
+
+    def test_readback_opaque_low_budget_quota_never_attempts_or_sends(self):
+        compat = self.compat_profile()
+        with self.peer(tls.fixed_response(tls.response_body())) as peer:
+            result, database = self.run_raw(peer, action='readback-opaque',
+                                            compat_profile=str(compat), readback=True,
+                                            quota=True, input_budget=1)
+            self.assertEqual(peer.accepted, 0)
+        self.assertTrue(result['quota'])
+        self.assertEqual(result['budget']['attempts'], 0)
+        self.assertEqual(result['send_claims'], '0')
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(connection.execute('SELECT count(*) FROM call_attempts').fetchone()[0], 0)
+            self.assertEqual(connection.execute('SELECT count(*) FROM live_send_claims').fetchone()[0], 0)
+
+    def test_readback_config_late_response_fences_preserve_original_identity(self):
+        # The live AMEND/cancel/policy/recover fences keep their exact original
+        # semantics under a frozen readback configuration as well.
+        for mutation in ('amend', 'cancel', 'policy', 'recover'):
+            with self.subTest(mutation=mutation):
+                received = self.directory / f'readback-received-{mutation}'
+                release = self.directory / f'readback-release-{mutation}'
+                def delayed(peer, connection, received=received, release=release):
+                    peer.request(connection)
+                    received.write_text('received')
+                    deadline = time.monotonic() + 8
+                    while not release.exists() and not peer.stop.is_set():
+                        if time.monotonic() >= deadline:
+                            raise AssertionError('mutation fixture did not release response')
+                        peer.stop.wait(.002)
+                    body = tls.response_body()
+                    connection.sendall(tls.headers(len(body)) + body)
+                with self.peer(delayed) as peer:
+                    result, _ = self.invoke(peer, action='late', mutation=mutation,
+                                            received_marker=str(received), release_marker=str(release),
+                                            readback=True, reconcile=True)
+                    self.assertEqual(len(peer.requests), 1)
+                self.assert_original(result)
+                self.assertEqual(result['attempt']['status'], 'STALE')
+                self.assertEqual(result['attempt']['accepted'], 0)
+                after = result['after_reconcile']
+                self.assertEqual(after['attempt'], result['attempt'])
+                self.assertEqual(after['budget']['spent_cost'], 17)
+                self.assertFalse(after['safe']['accounting']['business_authority_restored'])
+
+    def test_readback_config_exact_replay_never_resends(self):
+        with self.peer(tls.fixed_response(tls.response_body())) as peer:
+            result, _ = self.invoke(peer, readback=True, reconcile=True)
+            self.assertEqual(len(peer.requests), 1)
+        self.assertTrue(result['first_sent'])
+        self.assertFalse(result['replay_sent'])
+        self.assertFalse(result['replay_new_send_authority'])
+        self.assertEqual(result['budget']['attempts'], 1)
+
     def test_compat_refusal_classifies_transport_completed_without_dispatch(self):
         compat = self.compat_profile()
         body = (SOURCE / "tests/fixtures/responses/refusal-response.json").read_bytes()

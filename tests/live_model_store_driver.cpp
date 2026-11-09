@@ -1,6 +1,7 @@
 // Test-only original Store runner: fixed loopback destination, synthetic bearer,
 // disposable database and no business tool dispatch or credential environment.
 #include "live_test_support.hpp"
+#include "wls/offline_runtime.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -139,7 +140,16 @@ int main(int argc, char** argv) {
             live.provider = provider_profile_from_json(provider_document);
         }
         auto store = assets.open(database);
-        const auto request_id = text(store->admit(fixture::admission(assets, live, "tls-store", !flag(config, "disabled"))), "request_id");
+        // An optional frozen utf8-token-v1 readback selection rides the same
+        // public admission boundary; it changes no other live behavior here.
+        Json readback_selection = nullptr;
+        if (flag(config, "readback"))
+            readback_selection = Object{{"readback", Object{{"mode", "utf8-token-v1"},
+                {"token_estimator", "utf8-byte-v1"}, {"max_page_tokens", 24576}}},
+                {"worker_history", Object{{"mode", "window-v1"}, {"recent_attempts", 3},
+                    {"inline_bytes", 65536}}}};
+        const auto request_id = text(store->admit(fixture::admission(assets, live, "tls-store",
+            !flag(config, "disabled"), false, readback_selection)), "request_id");
         auto request = request_for(*store, request_id);
         if (const auto* timeout = config.as_object().if_contains("timeout_ms")) request.timeout = std::chrono::milliseconds(timeout->as_int64());
         const auto actor = store->host_actor(Role::Dispatcher, request_id);
@@ -263,6 +273,90 @@ int main(int argc, char** argv) {
                 {"third_response", store->attempt(third.attempt_id).at("response")},
                 {"third_request_body", third_encoded.body}};
             std::cout << canonical_json(result) << '\n'; return 0;
+        }
+        if (action == "readback-opaque") {
+            // Frozen utf8-token-v1 readback + worker window + responses
+            // compatibility in one admission. The opaque continuation request
+            // is produced through the production capture/reservation/feedback
+            // path over real loopback TLS; reservations are the measured
+            // capture values, never hand-built constants.
+            const Json selection = Object{{"readback", Object{{"mode", "utf8-token-v1"},
+                {"token_estimator", "utf8-byte-v1"}, {"max_page_tokens", 24576}}},
+                {"worker_history", Object{{"mode", "window-v1"}, {"recent_attempts", 3},
+                    {"inline_bytes", 65536}}}};
+            const auto input_budget = config.as_object().contains("input_budget")
+                ? number(config, "input_budget") : std::int64_t(-1);
+            const auto output_budget = config.as_object().contains("output_budget")
+                ? number(config, "output_budget") : std::int64_t(-1);
+            auto admitted = fixture::admission(assets, live, "readback-opaque",
+                !flag(config, "disabled"), false, selection, input_budget, output_budget);
+            admitted.original_text = "Readback opaque continuation fixture; preserve originals.";
+            admitted.constraint_catalog = fixture::Array{Object{{"constraint_id", "c1"},
+                {"text", admitted.original_text}, {"source_revision", 1}}};
+            const auto readback_request = text(store->admit(admitted), "request_id");
+            SchemaRegistry schemas(assets.source / "schemas");
+            // The worker window and its readback controls need a durable task.
+            const Json brief = Object{{"goal", admitted.original_text}, {"constraint_refs", fixture::Array{"c1"}},
+                {"constraints_verbatim", fixture::Array{admitted.original_text}}};
+            (void)store->apply_independent_plan(store->host_actor(Role::Dispatcher, readback_request),
+                number(store->request(readback_request), "state_version"), 1,
+                Object{{"nodes", fixture::Array{Object{{"node_id", "opaque-readback"}, {"kind", "team_task"},
+                    {"required", true}, {"depends_on", fixture::Array{}}, {"brief", brief}}}}},
+                Object{}, "readback-opaque-plan");
+            const auto task_id = text(store->tasks(readback_request).front(), "task_id");
+            const auto team = store->binding(task_id).team_id;
+            (void)store->issue_instruction(store->host_actor(Role::TeamLead, readback_request, team),
+                store->binding(task_id), number(store->task(task_id), "state_version"),
+                brief, "readback-opaque-order");
+            (void)store->acknowledge(store->host_actor(Role::Worker, readback_request, team),
+                store->binding(task_id), number(store->task(task_id), "state_version"), "readback-opaque-ack");
+            OfflineRuntime runtime(*store, schemas);
+            Object report{{"request_id", readback_request}};
+            if (flag(config, "quota")) {
+                // Deterministic no-progress Quota: the frozen input budget
+                // cannot carry even the first envelope, so nothing may be
+                // attempted, reserved, claimed or sent.
+                bool quota = false;
+                try {
+                    const auto call = runtime.capture_call(readback_request, Role::Worker, task_id, 1);
+                    const auto executed = execute_live_attempt(*store, call.actor, call.request, bearer, {true, false});
+                    CHECK(executed.sent);  // a send here contradicts the frozen budget
+                } catch (const Error& error) { quota = error.code() == ErrorCode::Quota; }
+                CHECK(quota);
+                report["quota"] = quota;
+                report["budget"] = store->budget(readback_request);
+                report["send_claims"] = fixture::sql_text(database, "SELECT count(*) FROM live_send_claims");
+                std::cout << canonical_json(report) << '\n';
+                return 0;
+            }
+            // Round 1: one native reasoning+tool round over loopback TLS,
+            // settled and fed back so it becomes a native window round.
+            const auto first = runtime.capture_call(readback_request, Role::Worker, task_id, 1);
+            report["first_envelope_bytes"] = static_cast<std::int64_t>(first.request.context.prompt().size());
+            const auto executed = execute_live_attempt(*store, first.actor, first.request, bearer, {true, false});
+            CHECK(executed.sent && executed.response_accepted);
+            auto first_record = store->attempt(first.request.attempt_id);
+            (void)store->record_tool_feedback(first.request.attempt_id, first.request.binding,
+                first_record.at("response"), Object{{"ok", true}, {"round", 1}});
+            (void)store->reconcile_usage(store->host_actor(Role::Root, readback_request),
+                fixture::evidence(executed.settlement, fixture::complete_usage(11, 7), "readback-opaque-1"),
+                {"readback-opaque-1", "readback-opaque-1", 1});
+            // Round 2 through the same production capture path: the window now
+            // carries the native round with its complete opaque original, and
+            // the full next request bytes are the encode of that capture.
+            const auto second = runtime.capture_call(readback_request, Role::Worker, task_id, 2);
+            report["second_envelope_bytes"] = static_cast<std::int64_t>(second.request.context.prompt().size());
+            report["second_logical_messages"] = second.request.context.logical_input.at("messages");
+            report["second_request_body"] = encode_responses_request(live.provider, second.request, false).body;
+            const auto closing = execute_live_attempt(*store, second.actor, second.request, bearer, {true, false});
+            CHECK(closing.sent && closing.response_accepted);
+            report["first_settlement"] = executed.settlement;
+            report["second_settlement"] = closing.settlement;
+            report["first_response"] = store->attempt(first.request.attempt_id).at("response");
+            report["second_response"] = store->attempt(second.request.attempt_id).at("response");
+            report["budget"] = store->budget(readback_request);
+            std::cout << canonical_json(report) << '\n';
+            return 0;
         }
         if (action == "run") {
             try {

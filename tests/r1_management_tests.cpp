@@ -81,6 +81,21 @@ FakeModelStep step(Role role, const std::string& tool, const Json& arguments, st
 Json contract(const CapturedModelCall& call) {
     return parse_json_strict(compiled_task_contract(call.request.context), 1024U * 1024U);
 }
+// The complete result of a management page must enter the immediately
+// following captured management input as that structured tool-result message.
+void require_captured_tool_result(const CompiledContext& context, const Json& result) {
+    CHECK(context.structured());
+    std::size_t matches = 0;
+    const Json* latest_tool = nullptr;
+    for (const auto& message : context.logical_input.at("messages").as_array()) {
+        if (message.at("role") != "tool") continue;
+        if (parse_json_strict(std::string(message.at("content").as_string())) == result) ++matches;
+        latest_tool = &message;
+    }
+    CHECK(matches == 1);
+    CHECK(latest_tool != nullptr);
+    CHECK(parse_json_strict(std::string(latest_tool->at("content").as_string())) == result);
+}
 
 struct Fixture {
     test::TempDir temporary;
@@ -258,22 +273,36 @@ void management_v2_reads_return_host_verified_utf8_originals() {
         {"offset", 0}, {"max_tokens", 4096}};
     const auto before = num(f.store->budget(f.request), "attempts");
     std::string original; std::int64_t offset = 0; std::int64_t calls = 0;
+    std::int64_t size_bytes = -1; Json previous_page;
     while (true) {
         arguments.as_object()["offset"] = offset;
-        const auto page = f.invoke(Role::TeamLead, "management_history_read", arguments);
+        auto model = fake(Role::TeamLead, "management_history_read", arguments);
+        const auto call = f.capture(Role::TeamLead, model);
+        // Every complete page result enters the immediately following captured
+        // management input as its structured tool-result message.
+        if (!previous_page.is_null())
+            require_captured_tool_result(call.request.context, previous_page);
+        const auto page = OfflineRuntime(*f.store, f.schemas).accept_response(call, model.complete(call.request));
         ++calls;
         CHECK(text(page, "format") == "wls-management-history-text-v1");
         CHECK(page.at("host_verified") == true);
         CHECK(text(page, "encoding") == "utf8-canonical-json");
         CHECK(text(page, "record_sha256") == text(entry, "record_sha256"));
+        CHECK(num(page, "offset") == offset);
+        if (size_bytes < 0) size_bytes = num(page, "size_bytes");
+        CHECK(num(page, "size_bytes") == size_bytes);
         const auto content = text(page, "content");
         CHECK(num(page, "bytes_returned") == static_cast<std::int64_t>(content.size()));
         original += content;
+        previous_page = page;
         if (page.at("eof").as_bool()) break;
         CHECK(page.at("next_offset").is_int64());
+        CHECK(offset + num(page, "bytes_returned") == num(page, "next_offset"));
+        CHECK(num(page, "next_offset") == static_cast<std::int64_t>(original.size()));
         offset = num(page, "next_offset");
     }
     CHECK(sha256_hex(original) == text(entry, "record_sha256"));
+    CHECK(static_cast<std::int64_t>(original.size()) == size_bytes);
     CHECK(num(f.store->budget(f.request), "attempts") == before + calls);
     CHECK(calls >= 2);
     // The persisted originals survive a close/reopen and keep paging exactly.
@@ -293,6 +322,68 @@ void management_v2_reads_return_host_verified_utf8_originals() {
     expect(ErrorCode::InvalidInput, [&] { f.invoke(Role::TeamLead, "management_history_read", boolean); });
     Json fractional = arguments; fractional.as_object()["max_tokens"] = 1.5;
     expect(ErrorCode::InvalidInput, [&] { f.invoke(Role::TeamLead, "management_history_read", fractional); });
+}
+
+void management_v2_scope_version_rate_and_revocation() {
+    Fixture f(true, 60, true);
+    const auto question = f.ask(6000);
+    const auto open = f.page().at("items").as_array().front();
+    f.host_answer(question);
+    const auto entry = f.page().at("items").as_array().front();
+    const Json arguments = Object{{"kind", text(entry, "kind")}, {"record_id", entry.at("record_id")},
+        {"record_sha256", entry.at("record_sha256")}, {"record_version", entry.at("record_version")},
+        {"offset", 0}, {"max_tokens", 4096}};
+    // Scope: management controls stay with the managers, not the Worker.
+    expect(ErrorCode::Unauthorized, [&] {
+        (void)execute_management_history_control(*f.store, f.actor(Role::Worker), f.binding(),
+            "management_history_read", arguments); });
+    // Version: the pre-answer capture is stale once the question is answered.
+    Json stale = arguments;
+    stale.as_object()["record_id"] = open.at("record_id");
+    stale.as_object()["record_sha256"] = open.at("record_sha256");
+    stale.as_object()["record_version"] = open.at("record_version");
+    expect(ErrorCode::Stale, [&] {
+        (void)execute_management_history_control(*f.store, f.actor(), f.binding(),
+            "management_history_read", stale); });
+    // Hash: a well-formed but mismatched record hash never releases bytes.
+    Json changed = arguments;
+    changed.as_object()["record_sha256"] = std::string(64, '0');
+    expect(ErrorCode::Conflict, [&] {
+        (void)execute_management_history_control(*f.store, f.actor(), f.binding(),
+            "management_history_read", changed); });
+    // Read-then-revoke: the captured v2 read is fenced at settlement.
+    auto model = fake(Role::TeamLead, "management_history_read", arguments);
+    const auto call = f.capture(Role::TeamLead, model);
+    sql(f.database, "UPDATE runtime_policy SET denied_tools='[\"management_history_read\"]',state_version=state_version+1");
+    expect(ErrorCode::Unauthorized, [&] {
+        OfflineRuntime(*f.store, f.schemas).accept_response(call, model.complete(call.request)); });
+    CHECK(f.store->tool_feedback(call.request.attempt_id).at("result").at("runtime_error") == true);
+    // An exact replay of a captured v2 read keeps the original feedback and
+    // charge under the new policy chain.
+    sql(f.database, "UPDATE runtime_policy SET denied_tools='[]',state_version=state_version+1");
+    auto replay_model = fake(Role::TeamLead, "management_history_read", arguments);
+    const auto replay_call = f.capture(Role::TeamLead, replay_model);
+    const auto replay_response = replay_model.complete(replay_call.request);
+    const auto replay_result = OfflineRuntime(*f.store, f.schemas).accept_response(replay_call, replay_response);
+    const auto replay_budget = f.store->budget(f.request);
+    const auto replay_receipt = f.store->tool_feedback(replay_call.request.attempt_id);
+    CHECK(OfflineRuntime(*f.store, f.schemas).accept_response(replay_call, replay_response) == replay_result);
+    CHECK(f.store->budget(f.request) == replay_budget);
+    CHECK(f.store->tool_feedback(replay_call.request.attempt_id) == replay_receipt);
+    // Failed v2 read queries consume the persistent allowance across restart.
+    Fixture g(true, 2, true);
+    g.host_answer(g.ask(6000));
+    const auto g_entry = g.page().at("items").as_array().front();
+    Json valid = Object{{"kind", text(g_entry, "kind")}, {"record_id", g_entry.at("record_id")},
+        {"record_sha256", g_entry.at("record_sha256")}, {"record_version", g_entry.at("record_version")},
+        {"offset", 0}, {"max_tokens", 4096}};
+    static_cast<void>(g.invoke(Role::TeamLead, "management_history_read", valid));
+    Json invalid = valid; invalid.as_object()["record_id"] = "absent-original";
+    expect(ErrorCode::Unauthorized, [&] { g.invoke(Role::TeamLead, "management_history_read", invalid); });
+    g.reopen();
+    const auto g_before = num(g.store->budget(g.request), "attempts");
+    expect(ErrorCode::Quota, [&] { g.invoke(Role::TeamLead, "management_history_read", valid); });
+    CHECK(num(g.store->budget(g.request), "attempts") == g_before + 1);
 }
 
 void exact_query_replay_preserves_the_original_feedback_and_charge() {
@@ -602,6 +693,7 @@ int main() { return test::run({
     {"management policy is explicit frozen and legacy-compatible", legacy_policy_is_unchanged_and_frozen_selection_is_explicit},
     {"130 management turns cross restart with exact original readback", long_management_workflows_cross_restart_and_keep_original_readback},
     {"management v2 reads return host-verified utf8 originals", management_v2_reads_return_host_verified_utf8_originals},
+    {"management v2 scope version hash revocation and rate fences", management_v2_scope_version_rate_and_revocation},
     {"legacy full management history still stops explicitly", old_complete_history_still_stops_without_a_frozen_window},
     {"exact management query replay keeps receipt and budget", exact_query_replay_preserves_the_original_feedback_and_charge},
     {"management reader scope hash version and epoch guards", scope_hash_original_version_and_current_epoch_are_checked},

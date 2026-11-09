@@ -6,6 +6,7 @@
 #include <fstream>
 #include <memory>
 #include <optional>
+#include <openssl/evp.h>
 #include <sqlite3.h>
 #include <string>
 
@@ -107,6 +108,44 @@ FakeModel worker_note(const std::string& message) {
     FakeModelStep step; step.role=Role::Worker; step.role_call_index=1;
     step.tool_calls={{"probe", "note", Object{{"text", message}}}}; step.usage={1,1,0,0,0};
     return FakeModel({step});
+}
+
+std::string base64_bytes(std::string_view bytes) {
+    std::string result((bytes.size() + 2) / 3 * 4, '\0');
+    const auto count = EVP_EncodeBlock(reinterpret_cast<unsigned char*>(result.data()),
+        reinterpret_cast<const unsigned char*>(bytes.data()), static_cast<int>(bytes.size()));
+    CHECK(count >= 0);
+    result.resize(static_cast<std::size_t>(count));
+    return result;
+}
+std::string base64_text(std::string_view value) {
+    CHECK(!value.empty() && value.size() % 4 == 0);
+    std::string bytes(value.size() / 4 * 3, '\0');
+    const auto count = EVP_DecodeBlock(reinterpret_cast<unsigned char*>(bytes.data()),
+        reinterpret_cast<const unsigned char*>(value.data()), static_cast<int>(value.size()));
+    CHECK(count >= 0);
+    auto size = static_cast<std::size_t>(count);
+    if (value.back() == '=') --size;
+    if (value[value.size() - 2] == '=') --size;
+    bytes.resize(size);
+    return bytes;
+}
+// The complete result of a page must enter the immediately following actually
+// captured model input as that structured tool-result message: compare the
+// parsed tool message of the captured structured context with the exact page,
+// never a prefix or a whole-prompt substring of possibly escaped bytes.
+void require_captured_tool_result(const CompiledContext& context, const Json& result) {
+    CHECK(context.structured());
+    std::size_t matches = 0;
+    const Json* latest_tool = nullptr;
+    for (const auto& message : context.logical_input.at("messages").as_array()) {
+        if (message.at("role") != "tool") continue;
+        if (parse_json_strict(std::string(message.at("content").as_string())) == result) ++matches;
+        latest_tool = &message;
+    }
+    CHECK(matches == 1);
+    CHECK(latest_tool != nullptr);
+    CHECK(parse_json_strict(std::string(latest_tool->at("content").as_string())) == result);
 }
 
 struct ReadbackFixture {
@@ -373,8 +412,15 @@ void readback_freezes_v2_control_declarations_and_continuation_prompt() {
 
 void v2_history_read_returns_host_verified_utf8_pages() {
     ReadbackFixture f;
-    const Json result = Object{{"text", "中文原文😀 \"quoted\" \\slash\nline"},
-        {"payload", "证据" + std::string(4000, 'a') + "😀"}};
+    // The section carries deterministic 2/3/4-byte codepoints, quotes,
+    // backslash, newline and an embedded NUL (canonical JSON escapes it as
+    // \u0000, so reassembly must restore the escape, not a raw zero byte).
+    std::string payload = "证据";
+    payload += std::string(4000, 'a');
+    payload += "😀";
+    payload.append("NUL\0end", 7);
+    const Json result = Object{{"text", "中é文原文😀 \"quoted\" \\slash\nline"},
+        {"payload", payload}};
     const auto id = f.add_result(result);
     const auto hash = text(f.store->tool_feedback(id), "record_sha256");
     const auto original = canonical_json(f.store->tool_feedback(id).at("result"));
@@ -399,6 +445,7 @@ void v2_history_read_returns_host_verified_utf8_pages() {
         CHECK(page.at("next_offset").is_int64());
         CHECK(offset + num(page, "bytes_returned") == num(page, "next_offset"));
         offset = num(page, "next_offset");
+        CHECK(offset == static_cast<std::int64_t>(reassembled.size()));
         CHECK(offset <= static_cast<std::int64_t>(original.size()));
     }
     CHECK(reassembled == original);
@@ -413,17 +460,38 @@ void v2_history_read_returns_host_verified_utf8_pages() {
     const auto attempts_before_replay = num(f.store->budget(f.request), "attempts");
     CHECK(f.runner->accept_response(end_call, end_response) == end);
     CHECK(num(f.store->budget(f.request), "attempts") == attempts_before_replay);
-    std::int64_t mid = -1;
-    for (std::size_t index = 1; index < original.size(); ++index)
-        if ((static_cast<unsigned char>(original[index]) & 0xC0) == 0x80) { mid = static_cast<std::int64_t>(index); break; }
-    CHECK(mid > 0);
-    for (const auto bad : {mid, static_cast<std::int64_t>(original.size()) + 1,
+    // Deterministic mid-codepoint offsets: one probe strictly inside each
+    // 2-, 3- and 4-byte sequence of the canonical original, plus past-end,
+    // negative and INT64_MAX overflow.
+    const auto two_byte = static_cast<std::int64_t>(original.find("é"));
+    const auto three_byte = static_cast<std::int64_t>(original.find("中"));
+    const auto four_byte = static_cast<std::int64_t>(original.find("😀"));
+    CHECK(two_byte > 0 && three_byte > 0 && four_byte > 0);
+    for (const auto bad : {two_byte + 1,
+                           three_byte + 1, three_byte + 2,
+                           four_byte + 1, four_byte + 2, four_byte + 3,
+                           static_cast<std::int64_t>(original.size()) + 1,
                            std::int64_t(-1), INT64_MAX}) {
         const auto model = v2_control("history_read", v2_read_arguments(id, hash, bad, 64));
         const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
         expect(ErrorCode::InvalidInput, [&] {
             (void)f.runner->accept_response(call, model.complete(call.request)); });
     }
+    // A well-formed but mismatched record hash, and another record's hash,
+    // are both rejected while the immutable original stays unchanged.
+    const auto other_id = f.add_result(Object{{"text", "second original"}});
+    const auto other_hash = text(f.store->tool_feedback(other_id), "record_sha256");
+    for (const auto& wrong : {std::string(64, '0'), other_hash}) {
+        const auto model = v2_control("history_read", v2_read_arguments(id, wrong, 0, 64));
+        const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+        bool rejected = false;
+        try { (void)f.runner->accept_response(call, model.complete(call.request)); }
+        catch (const Error& error) {
+            rejected = error.code() == ErrorCode::InvalidInput || error.code() == ErrorCode::Conflict;
+        }
+        CHECK(rejected);
+    }
+    CHECK(canonical_json(f.store->tool_feedback(id).at("result")) == original);
 }
 
 void sixty_kb_originals_close_within_three_v2_reads_across_reopen() {
@@ -432,68 +500,206 @@ void sixty_kb_originals_close_within_three_v2_reads_across_reopen() {
         std::string body;
         for (int index = 0; index < 5120; ++index) body += "历史证据";
         Json result;
-        if (variant == 0) result = Object{{"text", body + "结尾😀"}, {"kind", "canonical-utf8"}};
-        else result = Object{{"content", body.substr(0, 26040)},
-            {"content_base64", std::string(34720, 'g')}, {"kind", "legacy-double-field"}};
+        if (variant == 0) {
+            result = Object{{"text", body + "结尾😀"}, {"kind", "canonical-utf8"}};
+        } else {
+            // A genuine legacy double-field original: the base64 twin is the
+            // strict encoding of the very same content bytes, never filler.
+            std::string content = body.substr(0, 26568);
+            content += "证";
+            CHECK(content.size() == 26571);
+            result = Object{{"content", content},
+                {"content_base64", base64_bytes(content)}, {"kind", "legacy-double-field"}};
+        }
         const auto id = f.add_result(result);
         const auto hash = text(f.store->tool_feedback(id), "record_sha256");
         const auto original = canonical_json(f.store->tool_feedback(id).at("result"));
         CHECK(original.size() >= 60000 && original.size() <= 65536);
-        std::int64_t offset = 0; int reads = 0; std::string fragment;
+        if (variant == 1) {
+            const auto legacy = parse_json_strict(original);
+            CHECK(base64_text(text(legacy, "content_base64")) == text(legacy, "content"));
+        }
+        std::int64_t offset = 0; int reads = 0; bool reopened = false;
+        std::string reassembled; Json previous_page; std::string section_hash;
         while (true) {
             const auto model = v2_control("history_read", v2_read_arguments(id, hash, offset, 24576));
             const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
-            if (!fragment.empty())
-                CHECK(call.request.context.prompt().find(fragment) != std::string::npos);
+            // The complete previous page result enters this immediately
+            // following captured input as its structured tool-result message.
+            if (!previous_page.is_null())
+                require_captured_tool_result(call.request.context, previous_page);
             const auto page = f.runner->accept_response(call, model.complete(call.request));
             ++reads;
             CHECK(reads <= 3);
+            CHECK(num(page, "offset") == offset);
+            if (section_hash.empty()) section_hash = text(page, "section_sha256");
+            CHECK(text(page, "section_sha256") == section_hash);
             const auto content = text(page, "content");
-            fragment = content.substr(0, std::min<std::size_t>(36, content.size()));
-            if (page.at("eof").as_bool()) break;
+            CHECK(num(page, "bytes_returned") == static_cast<std::int64_t>(content.size()));
+            reassembled += content;
+            previous_page = page;
+            if (page.at("eof").as_bool()) {
+                CHECK(page.at("next_offset").is_null());
+                CHECK(static_cast<std::int64_t>(reassembled.size()) == num(page, "size_bytes"));
+                break;
+            }
+            CHECK(page.at("next_offset").is_int64());
+            CHECK(offset + num(page, "bytes_returned") == num(page, "next_offset"));
+            CHECK(num(page, "next_offset") == static_cast<std::int64_t>(reassembled.size()));
             offset = num(page, "next_offset");
-            if (reads == 2) f.reopen();
+            if (reads == 2) { f.reopen(); reopened = true; }
         }
-        CHECK(reads <= 3);
+        // The closure crossed a real close/reopen and kept reading afterwards.
+        CHECK(reopened);
+        CHECK(reassembled == original);
+        CHECK(sha256_hex(reassembled) == section_hash);
+        // After the final page the next captured call is a normal tool call,
+        // not a fourth history_read, and it carries the EOF page result whole.
+        const auto after = worker_note("normal call after the final page");
+        const auto note_call = f.runner->reserve_call(after, f.request, Role::Worker, f.task);
+        require_captured_tool_result(note_call.request.context, previous_page);
+        static_cast<void>(f.runner->accept_response(note_call, after.complete(note_call.request)));
     }
 }
 
-void readback_input_budget_shrinks_pages_before_reservation() {
+// 22000 x "证据" is a 132000-byte canonical section (each codepoint is three
+// UTF-8 bytes), so the window keeps it as a hash-pinned reference rather than
+// inline content and only a returned page adds request bytes.
+std::string budget_section() {
     std::string body;
     for (int index = 0; index < 22000; ++index) body += "证据";
-    const Json result = Object{{"text", body}};
+    return body;
+}
+
+// Every fixture below performs the identical call sequence (initial run,
+// result turn, settled probe turn) before its measured read, so the envelope
+// measured in one fixture is the envelope the budgeted fixture will issue.
+std::int64_t settled_probe_envelope(ReadbackFixture& f) {
+    const auto model = worker_note("measure read-time envelope");
+    const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+    const auto envelope = static_cast<std::int64_t>(call.request.context.prompt().size());
+    static_cast<void>(f.runner->accept_response(call, model.complete(call.request)));
+    return envelope;
+}
+
+void readback_budget_mandates_a_successful_smaller_page() {
+    const Json result = Object{{"text", budget_section()}};
     ReadbackFixture ample(4000000, 24576, 8192);
-    // Measure one plain worker envelope before any page feedback exists.
-    const auto plain = ample.runner->reserve_call(worker_note("measure plain envelope"),
-        ample.request, Role::Worker, ample.task);
-    const auto envelope = plain.request.context.prompt().size();
     const auto wide_id = ample.add_result(result);
     const auto wide_hash = text(ample.store->tool_feedback(wide_id), "record_sha256");
+    static_cast<void>(settled_probe_envelope(ample));
     const auto wide_model = v2_control("history_read", v2_read_arguments(wide_id, wide_hash, 0, 24576));
     const auto wide_call = ample.runner->reserve_call(wide_model, ample.request, Role::Worker, ample.task);
+    // The read-time envelope is measured from the actual captured structured
+    // context (compile_structured_context's canonical logical JSON), never a
+    // fabricated constant or a smaller stand-in input.
+    const auto envelope = static_cast<std::int64_t>(wide_call.request.context.prompt().size());
     const auto wide = ample.runner->accept_response(wide_call, wide_model.complete(wide_call.request));
     const auto wide_bytes = num(wide, "bytes_returned");
     CHECK(wide_bytes > 24000 && wide_bytes <= 24576);
-    // The 66000-byte section is referenced, not inline: only the returned page
-    // adds request bytes, so a budget of envelope + half a page must shrink it.
-    ReadbackFixture tight(static_cast<std::int64_t>(envelope) + wide_bytes / 2, 24576, 8192);
+    // Half a page of headroom must produce a strictly smaller real page; a
+    // shrink-or-Quota shortcut cannot satisfy this mandatory success row.
+    ReadbackFixture tight(envelope + wide_bytes / 2, 24576, 8192);
     const auto id = tight.add_result(result);
     const auto hash = text(tight.store->tool_feedback(id), "record_sha256");
+    static_cast<void>(settled_probe_envelope(tight));
     const auto model = v2_control("history_read", v2_read_arguments(id, hash, 0, 24576));
+    const auto call = tight.runner->reserve_call(model, tight.request, Role::Worker, tight.task);
+    const auto narrow = tight.runner->accept_response(call, model.complete(call.request));
+    CHECK(text(narrow, "format") == "wls-history-text-v1");
+    CHECK(num(narrow, "offset") == 0);
+    CHECK(num(narrow, "bytes_returned") > 0);
+    CHECK(num(narrow, "bytes_returned") < wide_bytes);
+    CHECK(!narrow.at("eof").as_bool());
+}
+
+void readback_no_progress_quota_adds_no_attempt_or_charge() {
+    const Json result = Object{{"text", budget_section()}};
+    ReadbackFixture ample(4000000, 24576, 8192);
+    const auto wide_id = ample.add_result(result);
+    const auto wide_hash = text(ample.store->tool_feedback(wide_id), "record_sha256");
+    static_cast<void>(settled_probe_envelope(ample));
+    const auto wide_model = v2_control("history_read", v2_read_arguments(wide_id, wide_hash, 0, 24576));
+    const auto wide_call = ample.runner->reserve_call(wide_model, ample.request, Role::Worker, ample.task);
+    const auto envelope = static_cast<std::int64_t>(wide_call.request.context.prompt().size());
+    static_cast<void>(ample.runner->accept_response(wide_call, wide_model.complete(wide_call.request)));
+    // Two bytes of headroom beyond the complete fixed envelope cannot carry
+    // the page framing plus even one three-byte codepoint, so this Quota is
+    // deterministic, and the failure must add nothing: no attempt, no charge,
+    // no page and no next_offset from the no-progress stop.
+    ReadbackFixture starved(envelope + 2, 24576, 8192);
+    const auto id = starved.add_result(result);
+    const auto hash = text(starved.store->tool_feedback(id), "record_sha256");
+    static_cast<void>(settled_probe_envelope(starved));
+    const auto model = v2_control("history_read", v2_read_arguments(id, hash, 0, 24576));
+    const auto before = starved.store->budget(starved.request);
+    bool quota_at_reservation = false;
     std::optional<CapturedModelCall> call;
     try {
-        call = tight.runner->reserve_call(model, tight.request, Role::Worker, tight.task);
+        call = starved.runner->reserve_call(model, starved.request, Role::Worker, starved.task);
     } catch (const Error& error) {
         CHECK(error.code() == ErrorCode::Quota);
+        quota_at_reservation = true;
     }
-    if (call) {
-        try {
-            const auto narrow = tight.runner->accept_response(*call, model.complete(call->request));
-            CHECK(num(narrow, "bytes_returned") < wide_bytes);
-        } catch (const Error& error) {
-            CHECK(error.code() == ErrorCode::Quota);
-        }
+    if (!quota_at_reservation)
+        expect(ErrorCode::Quota, [&] {
+            (void)starved.runner->accept_response(*call, model.complete(call->request)); });
+    CHECK(starved.store->budget(starved.request) == before);
+}
+
+void v2_read_guards_and_fences() {
+    ReadbackFixture f;
+    const Json result = Object{{"text", "guarded original"}};
+    const auto id = f.add_result(result);
+    const auto hash = text(f.store->tool_feedback(id), "record_sha256");
+    const auto arguments = v2_read_arguments(id, hash, 0, 64);
+    // A Worker wait is a dispatch gate: no new v2 read may be reserved while
+    // the worker is waiting, and the wait survives unchanged.
+    const auto wait = f.store->wait_worker(f.actor(), f.store->binding(f.task),
+        num(f.store->task(f.task), "state_version"), "explicit wait during readback", new_id("wait"));
+    bool wait_blocked = false;
+    try {
+        (void)f.runner->reserve_call(v2_control("history_read", arguments), f.request, Role::Worker, f.task);
+    } catch (const Error& error) {
+        wait_blocked = error.code() == ErrorCode::NotReady || error.code() == ErrorCode::UnknownOutcome;
     }
+    CHECK(wait_blocked);
+    CHECK(f.store->worker_wait(f.task) == wait);
+    // Denied by name before reservation: no attempt, no charge.
+    sql(f.db, "UPDATE runtime_policy SET denied_tools='[\"history_read\"]',state_version=state_version+1");
+    const auto before = f.store->budget(f.request);
+    expect(ErrorCode::Unauthorized, [&] {
+        (void)f.runner->reserve_call(v2_control("history_read", arguments), f.request, Role::Worker, f.task); });
+    CHECK(f.store->budget(f.request) == before);
+    // Read-then-revoke: a captured v2 read is fenced at settlement.
+    sql(f.db, "UPDATE runtime_policy SET denied_tools='[]',state_version=state_version+1");
+    auto model = v2_control("history_read", arguments);
+    const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+    sql(f.db, "UPDATE runtime_policy SET denied_tools='[\"history_read\"]',state_version=state_version+1");
+    expect(ErrorCode::Unauthorized, [&] {
+        (void)f.runner->accept_response(call, model.complete(call.request)); });
+    CHECK(f.store->tool_feedback(call.request.attempt_id).at("result").at("runtime_error") == true);
+    // AMEND after capture fences the read as stale original evidence.
+    sql(f.db, "UPDATE runtime_policy SET denied_tools='[]',state_version=state_version+1");
+    auto stale_model = v2_control("history_read", arguments);
+    const auto stale = f.runner->reserve_call(stale_model, f.request, Role::Worker, f.task);
+    f.store->amend(f.store->host_actor(Role::Root, f.request), num(f.store->request(f.request), "state_version"),
+        read_runtime_file(source / "tests/fixtures/s1_amendment.txt"),
+        parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_amended_constraints.json")), "amend-v2-read");
+    expect(ErrorCode::Stale, [&] {
+        (void)f.runner->accept_response(stale, stale_model.complete(stale.request)); });
+    CHECK(f.store->tool_feedback(stale.request.attempt_id).at("result").at("runtime_error") == true);
+    // Corrupted persisted feedback fails closed on the v2 read path too.
+    sqlite3* db{}; CHECK(sqlite3_open(f.db.c_str(), &db) == SQLITE_OK); sqlite3_stmt* stmt{};
+    CHECK(sqlite3_prepare_v2(db, "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND tbl_name='model_tool_feedback'", -1, &stmt, nullptr) == SQLITE_OK);
+    std::vector<std::pair<std::string, std::string>> triggers;
+    while (sqlite3_step(stmt) == SQLITE_ROW) triggers.emplace_back(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)), reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
+    sqlite3_finalize(stmt); sqlite3_close(db); CHECK(!triggers.empty());
+    for (const auto& [name, definition] : triggers) { (void)definition; sql(f.db, "DROP TRIGGER " + name); }
+    sql(f.db, "UPDATE model_tool_feedback SET result='{}' WHERE attempt_id='" + id + "'");
+    for (const auto& [name, definition] : triggers) { (void)name; sql(f.db, definition); }
+    expect(ErrorCode::Corrupt, [&] {
+        (void)execute_history_control(*f.store, f.actor(), f.store->binding(f.task), "history_read", arguments); });
 }
 } // namespace
 int main() {return test::run({
@@ -512,5 +718,7 @@ int main() {return test::run({
     {"readback freezes v2 control declarations and continuation prompt",readback_freezes_v2_control_declarations_and_continuation_prompt},
     {"v2 history_read returns host-verified utf8 pages",v2_history_read_returns_host_verified_utf8_pages},
     {"sixty KB originals close within three v2 reads across reopen",sixty_kb_originals_close_within_three_v2_reads_across_reopen},
-    {"readback input budget shrinks pages before reservation",readback_input_budget_shrinks_pages_before_reservation}
+    {"readback budget mandates a successful smaller page",readback_budget_mandates_a_successful_smaller_page},
+    {"readback no-progress Quota adds no attempt or charge",readback_no_progress_quota_adds_no_attempt_or_charge},
+    {"v2 read wait denial revocation AMEND and corruption fences",v2_read_guards_and_fences}
 });}

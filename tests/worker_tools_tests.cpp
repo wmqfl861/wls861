@@ -14,6 +14,7 @@
 #include <fstream>
 #include <functional>
 #include <memory>
+#include <openssl/evp.h>
 #include <optional>
 #include <set>
 #include <string>
@@ -233,6 +234,36 @@ std::set<std::string> declared(const std::vector<ContextTool>& tools) {
     std::set<std::string> names;
     for (const auto& tool : tools) names.insert(tool.name);
     return names;
+}
+
+std::string decoded(std::string_view value) {
+    CHECK(!value.empty() && value.size() % 4 == 0);
+    std::string bytes(value.size() / 4 * 3, '\0');
+    const auto count = EVP_DecodeBlock(reinterpret_cast<unsigned char*>(bytes.data()),
+        reinterpret_cast<const unsigned char*>(value.data()), static_cast<int>(value.size()));
+    CHECK(count >= 0);
+    auto size = static_cast<std::size_t>(count);
+    if (value.back() == '=') --size;
+    if (value[value.size() - 2] == '=') --size;
+    bytes.resize(size);
+    return bytes;
+}
+
+// The persisted projection must appear as the exact structured tool-result
+// message of the immediately following captured input; a whole-prompt
+// substring check of possibly JSON-escaped bytes is never sufficient alone.
+void require_captured_tool_result(const CompiledContext& context, const Json& result) {
+    CHECK(context.structured());
+    std::size_t matches = 0;
+    const Json* latest_tool = nullptr;
+    for (const auto& message : context.logical_input.at("messages").as_array()) {
+        if (message.at("role") != "tool") continue;
+        if (parse_json_strict(std::string(message.at("content").as_string())) == result) ++matches;
+        latest_tool = &message;
+    }
+    CHECK(matches == 1);
+    CHECK(latest_tool != nullptr);
+    CHECK(parse_json_strict(std::string(latest_tool->at("content").as_string())) == result);
 }
 
 std::vector<Json> feedback_frames(const CompiledContext& context) {
@@ -773,6 +804,13 @@ void fs_read_v2_text_projection_and_persisted_feedback() {
         [](const ContextTool& tool) { return tool.name == "fs_read"; });
     CHECK(entry != list.end() && entry->version == "wls-fs-read-v2");
     for (const auto& tool : list) CHECK(tool.name != "fs_read_v2");
+    // The trusted-host diagnostic (and the submission snapshot built on it)
+    // keeps its complete dual-field shape under the new policy as well.
+    const auto host_side = session.diagnostic("fs_read",
+        Object{{"path", "notes.txt"}, {"offset", 0}, {"max_bytes", 65536}});
+    CHECK(text(host_side.at("content")) == expected);
+    CHECK(host_side.as_object().contains("content_base64"));
+    CHECK(decoded(text(host_side.at("content_base64"))) == expected);
     // The legacy request keeps its dual-field diagnostic and its grants.
     Session legacy;
     host_write(legacy.work / "legacy.txt", "legacy bytes");
@@ -792,17 +830,30 @@ void fs_read_v2_text_projection_and_persisted_feedback() {
     CHECK(!result.as_object().contains("content_base64"));
     CHECK(text(result.at("sha256")) == sha256_hex(expected));
     CHECK(number(result.at("bytes_returned")) == static_cast<std::int64_t>(expected.size()));
-    // The persisted feedback keeps the projection and feeds the next request.
+    CHECK(result.at("eof") == true);
+    // The persisted feedback keeps the projection and feeds the next request
+    // as the exact structured tool-result message of the immediately
+    // following captured call.
     const auto receipt = session.store->tool_feedback(call.request.attempt_id);
     CHECK(receipt.at("result") == result);
     FakeModelStep follow; follow.role = Role::Worker; follow.role_call_index = 1;
     follow.tool_calls = {{"after-read", "note", Object{{"text", "continue after projected read"}}}};
     follow.usage = {1, 1, 0, 0, 0};
     const auto next = session.runtime->reserve_call(FakeModel({follow}), session.request_id, Role::Worker, session.task_id());
-    CHECK(next.request.context.prompt().find(expected) != std::string::npos);
+    require_captured_tool_result(next.request.context, result);
     CHECK(next.request.context.prompt().find("content_base64") == std::string::npos);
-    // A changed current file cannot alter the settled response.
+    // Empty text is still one empty content field with the text encoding.
+    host_write(session.work / "empty.txt", "");
+    const FakeModel empty_fake(steps({{"empty-read", "fs_read", Object{{"path", "empty.txt"}, {"offset", 0}, {"max_bytes", 65536}}}}));
+    const auto empty_call = session.runtime->reserve_call(empty_fake, session.request_id, Role::Worker, session.task_id());
+    const auto empty = session.runtime->accept_response(empty_call, empty_fake.complete(empty_call.request));
+    CHECK(text(empty.at("content")).empty() && empty.at("encoding") == "utf8");
+    CHECK(!empty.as_object().contains("content_base64"));
+    CHECK(empty.at("eof") == true && number(empty.at("bytes_returned")) == 0);
+    // A changed current file cannot alter the settled response: the exact
+    // captured response replays as the same durable receipt.
     host_write(session.work / "notes.txt", "rewritten after settlement");
+    CHECK(session.runtime->accept_response(call, fake.complete(call.request)) == result);
     CHECK(session.store->tool_feedback(call.request.attempt_id) == receipt);
 }
 
@@ -821,6 +872,17 @@ void fs_read_v2_binary_stays_strict_base64() {
     CHECK(text(result.at("sha256")) == sha256_hex(bytes));
     CHECK(number(result.at("bytes_returned")) == static_cast<std::int64_t>(bytes.size()));
     CHECK(result.at("eof") == true);
+    // Strict base64 decoding of the twin reconstructs the original bytes.
+    CHECK(text(result.at("content_base64")).size() % 4 == 0);
+    CHECK(decoded(text(result.at("content_base64"))) == bytes);
+    // The persisted binary feedback and the immediately following captured
+    // structured tool-result message carry the same base64 original.
+    CHECK(session.store->tool_feedback(call.request.attempt_id).at("result") == result);
+    FakeModelStep follow; follow.role = Role::Worker; follow.role_call_index = 1;
+    follow.tool_calls = {{"after-binary", "note", Object{{"text", "continue after binary read"}}}};
+    follow.usage = {1, 1, 0, 0, 0};
+    const auto next = session.runtime->reserve_call(FakeModel({follow}), session.request_id, Role::Worker, session.task_id());
+    require_captured_tool_result(next.request.context, result);
 }
 
 void fs_read_v2_denial_and_missing_grant_fence() {

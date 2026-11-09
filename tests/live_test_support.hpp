@@ -91,7 +91,9 @@ inline Json model_profile(const LiveModelSettings& live) {
         {"responses", live_model_settings_json(live)}};
 }
 inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& live,
-                                std::string key = "fixture", bool enabled = true, bool fake = false) {
+                                std::string key = "fixture", bool enabled = true, bool fake = false,
+                                const Json& context_extra = nullptr,
+                                std::int64_t input_budget = -1, std::int64_t output_budget = -1) {
     ::test::TempDir directory;
     std::filesystem::copy(assets.source / "config/examples", directory.path / "config", std::filesystem::copy_options::recursive);
     std::filesystem::copy(assets.source / "prompts", directory.path / "prompts", std::filesystem::copy_options::recursive);
@@ -103,6 +105,16 @@ inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& l
         system.at("defaults").at("model_ref") = live.provider.model_ref;
         system.at("model_calls").at("real_calls_enabled") = enabled;
         system.at("context").at("request_format") = "structured-v2";
+        // Explicit frozen context selections (for example a utf8-token-v1
+        // readback policy combined with an explicit worker window); this is
+        // the same public JSON boundary production configuration uses.
+        if (!context_extra.is_null())
+            for (const auto& field : context_extra.as_object())
+                system.at("context").as_object()[field.key()] = field.value;
+        if (input_budget >= 0)
+            system.at("budget_defaults").as_object()["max_input_tokens"] = input_budget;
+        if (output_budget >= 0)
+            system.at("budget_defaults").as_object()["max_output_tokens"] = output_budget;
         { std::ofstream output(system_path); output << canonical_json(system); }
         catalog = load_config_catalog(system_path, directory.path / "config/functions", directory.path / "prompts");
     }
