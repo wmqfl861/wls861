@@ -654,15 +654,18 @@ void dual_extensions_freeze_together_and_pricing_guards_keep_blocking() {
     CHECK(provider_profile_sha256(changed.provider) != dual_hash);
     CHECK(provider_profile_sha256(live_model_settings_from_json(
         frozen.model_profile(Role::Dispatcher), dual.provider.model_ref).provider) == dual_hash);
-    // The frozen cost minimum still guards the send claim: 100 < ceil(1900).
-    // This check owns its disposable fixture so its dangling reservation never
-    // feeds the budget assertions below.
+    // The frozen cost minimum rejects admission before reservation or send:
+    // 100 < ceil(1.5*1000 + 4*100)=1900, leaving budget and authority untouched.
+    // This independent fixture cannot affect the priced assertions below.
     {
         fixture::Fixture guard(*assets, dual);
         const auto under = guard.request("dual-under-reserved");
-        (void)guard.reserve(under);
-        error(ErrorCode::Quota, [&] { (void)guard.claim(under); });
-        CHECK(guard.store->live_attempt(under.attempt_id).at("send_claim").is_null());
+        const auto budget_before = guard.store->budget(guard.request_id);
+        error(ErrorCode::Quota, [&] { (void)guard.reserve(under); });
+        CHECK(guard.store->budget(guard.request_id) == budget_before);
+        CHECK(fixture::sql_text(guard.path, "SELECT count(*) FROM call_attempts") == "0");
+        CHECK(fixture::sql_text(guard.path, "SELECT count(*) FROM live_attempt_execution") == "0");
+        CHECK(fixture::sql_text(guard.path, "SELECT count(*) FROM live_send_claims") == "0");
     }
     // A sufficient reservation completes, books only the deterministic
     // estimate and keeps every original cost fact null.
