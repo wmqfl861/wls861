@@ -156,3 +156,44 @@
   用户 `CPPFLAGS=-DWLS_CI_USER_CPPFLAGS=1` 传入成功，两者按不同路径分别记账、不混同。
   该证据只覆盖旧 head 与旧测试源，**不验证本轮新测试源，也不关闭原 single-pump
   NOT_MET 或 G1 总门禁**；上文更早时点的 CI PENDING 记载为当时事实，保持原样。
+
+## 补充回归本机验证（2026-11-09，HEAD `47b7c75`）
+
+- 上一节 2026-11-08 的 NOT_RUN 是准备时点记录。2026-11-09 获独占验证槽后，
+  在精确 HEAD `47b7c75adbc9df5c9ca521fbf68d71efa24a2e7f`，以原产品 ELF 加当前
+  Python 测试源串行执行一次三个既有注册，无重编、无重试、无源码或报告修改。
+  测试源 SHA-256 `003fe6550c641ebca362a4c035bd72fd6eb448cffe92ccd5e96b9e4ee89d26dd`；
+  `wls` SHA-256 `df3dddf7995cb3a75576afdf4fd3bf7644ca182937dc191eba090ab0b4da93b2`，
+  两保护套件 ELF 及原 90/90/900 秒注册期限亦保持绑定。
+- 执行时间 **09:06:07.879Z—09:08:18.944Z**，进程计时 **131.059s**，exit **0**；
+  CTest 自报总测试时间 130.99s。`config_loader`（20 子例）、`event_runtime`
+  （14 子例）、`billing_baseline_e2e`（18 个 unittest 方法）全部通过，即 **3/3 注册**。
+  本轮没有执行完整 78 注册或本地 sanitizer 矩阵。
+- 实际 CTest 命令如下，cwd 为 Billing 源码根，子测试 cwd 为原 `build-g1-release`；
+  子进程 umask 为 `0022`，`PYTHONDONTWRITEBYTECODE=1`，实际 TMPDIR 为
+  `/mnt/d/codex-workspace/.wls861-local/g1-20261108-y1wf1f4k/bpt-49-01`（私有 0700）：
+
+```sh
+ctest --test-dir /mnt/d/codex-workspace/wls861-g1-20261108-y1wf1f4k/billing/build-g1-release \
+  -R '^(billing_baseline_e2e|config_loader|event_runtime)$' --output-on-failure -j1 -V \
+  --output-junit /mnt/d/codex-workspace/.wls861-local/g1-20261108-y1wf1f4k/billing-pump-regression-local-validation-01/billing-three.junit.xml
+```
+
+- 新 test_10 的两次显式调用均实际执行：首批 30 次、经理调用 12、1230µUSD、
+  gamma 经验作业保留且 `manager_limit`；显式第二次新增 1 次，累计 31 次/1271µUSD。
+  两轮请求仍 RUNNING、未交付。**续批由测试代码发起，原一次 pump 完成 31 次条款仍为
+  NOT_MET**；产品自动续批及全请求约束继续由 Controls/集成处理。
+- 本次完整控制台、stderr、LastTest、原生 JUnit 和命令/身份元数据均本地留存；
+  控制台 SHA-256 `a812020993d91826f9b1ac068311820aba17a83f8ee181f7f22494d5ed959273`，
+  LastTest SHA-256 `8cb770f2e82bd925b79ff5fe9803cc7e403bcf1504beb2b5e1df2010308f6add`，
+  JUnit SHA-256 `92dcf52ef73877294ec9bd485d8d33fdca199a8dc6c4ecff5c2a372e46de6afb`。
+  JUnit 两段 system-out 有原生 1024 字节截断，完整方法输出以控制台与 LastTest 为准；
+  临时业务 DB/wire 原件未留存，安全摘要不冒充这些原件。
+- 新独立硬审 PASS 覆盖两文件准备和本次三注册验证。证据处理仍有已披露偏差：
+  实际 TMP 路径与阶段指定值不同，预检/摘要/manifest 中间版本曾被覆盖，部分证据初始
+  或副本模式为 0644（父目录 0700），实施收据缺计划审核 session 字段由独立关联补足；
+  部分摘要计数、manifest 自引用及门禁执行措辞以原日志和后续作者裁定澄清。实际启动时
+  剩余 1184.486s，低于预设的 1200s 启动余量，虽实际完成未超过 1500s，不能据此宣称
+  调度门禁完全满足。原件不回写，本次测试结果和流程偏差分别保留。
+- 本项通过不授予完整 G1 或合并，不迁移远端 CI 原件身份；Windows 11 NOT_RUN、
+  私有证据托管 BLOCKED 及其他已披露缺件保持。产品累计 delta 610，硬上限 800 不变。
