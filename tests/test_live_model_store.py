@@ -327,6 +327,71 @@ class LiveStore(unittest.TestCase):
             self.assertEqual(connection.execute('SELECT count(*) FROM call_attempts').fetchone()[0], 0)
             self.assertEqual(connection.execute('SELECT count(*) FROM live_send_claims').fetchone()[0], 0)
 
+    def test_budget_opaque_two_pass_calibration_stops_second_round_before_progress(self):
+        # Reviewer R1 / fullv6 budget row: round 1 really succeeds with its
+        # reasoning opaque original accepted, settled and persisted; a frozen
+        # capacity calibrated from the actually emitted first/second complete
+        # envelopes fits that first request but cannot carry the complete
+        # latest native round in round 2, so the second capture/execution must
+        # Quota before any attempt, send, feedback, query or budget mutation.
+        compat = self.compat_profile()
+        first_body = (SOURCE / 'tests/fixtures/responses/reasoning-tool-response.json').read_bytes()
+        # The paired pass replays the same supported shape with distinct item/
+        # call IDs and its own opaque reasoning original, like the round-B
+        # fixture; still an official-schema-derived synthetic original.
+        paired_original = json.loads(first_body)
+        paired_original['id'] = 'resp_budget_fixture_paired'
+        paired_original['output'][0]['id'] = 'rs_budget_fixture_paired'
+        paired_original['output'][0]['summary'][0]['text'] = 'Paired round synthetic summary for the frozen budget fixture.'
+        paired_original['output'][0]['encrypted_content'] = (
+            'gAAAAABd2xzLXN5bnRoZXRpYy1vcGFxdWUtYnVkZ2V0LXBhaXJlZC1yb3VuZ')
+        paired_original['output'][1]['id'] = 'fc_budget_fixture_paired'
+        paired_original['output'][1]['call_id'] = 'call_budget_fixture_paired'
+        paired_original['output'][1]['arguments'] = '{"message":"budget fixture paired round"}'
+        paired_body = tls.encoded(paired_original)
+        remaining = iter((first_body, paired_body))
+
+        def sequenced(peer, connection):
+            peer.request(connection)
+            body = next(remaining)
+            connection.sendall(tls.headers(len(body)) + body)
+
+        with self.peer(sequenced) as peer:
+            result, database = self.run_raw(peer, action='budget-opaque',
+                                            compat_profile=str(compat), readback=True)
+            self.assertEqual(len(peer.requests), 2)  # only the two real round-1 sends
+        calibration = result['calibration']
+        # Carrying the complete latest native round costs real bytes in both
+        # the logical and the wire representation (measured, not constants).
+        self.assertGreater(calibration['second_envelope_units'], calibration['first_envelope_units'])
+        self.assertGreater(calibration['second_wire_bytes'], calibration['first_wire_bytes'])
+        frozen = result['frozen_budget']
+        # The frozen capacity is calibrated to the measured envelopes: it fits
+        # the first request and misses the second complete native round by
+        # exactly one host unit — not an input_budget=1 style shortcut.
+        self.assertEqual(frozen, calibration['second_envelope_units'] - 1)
+        self.assertGreaterEqual(frozen, calibration['first_envelope_units'])
+        paired = result['paired']
+        self.assertTrue(paired['round1_accepted'])
+        self.assertLessEqual(paired['first_envelope_units'], frozen)
+        # Identity drift between the two passes stays inside the opaque margin.
+        self.assertLess(frozen - paired['first_envelope_units'],
+                        calibration['second_envelope_units'] - calibration['first_envelope_units'])
+        # Exact remaining-capacity arithmetic after the settled first round.
+        self.assertEqual(paired['remaining_input_units'], frozen - paired['spent_input'])
+        # The second capture/execution made no progress at all.
+        self.assertTrue(paired['quota'])
+        self.assertEqual(paired['budget_before'], paired['budget_after'])
+        self.assertEqual(paired['attempts'], 1)
+        self.assertEqual(paired['send_claims'], '2')
+        self.assertEqual(paired['feedback_rows'], '2')
+        self.assertEqual(result['first_settlement']['accepted'], 1)
+        self.assertEqual(result['paired_settlement']['accepted'], 1)
+        with sqlite3.connect(database) as connection:
+            self.assertEqual(connection.execute('SELECT count(*) FROM live_send_claims').fetchone()[0], 2)
+            self.assertEqual(connection.execute('SELECT count(*) FROM call_attempts').fetchone()[0], 2)
+            self.assertEqual(connection.execute('SELECT count(*) FROM model_tool_feedback').fetchone()[0], 2)
+
     def test_readback_config_late_response_fences_preserve_original_identity(self):
         # The live AMEND/cancel/policy/recover fences keep their exact original
         # semantics under a frozen readback configuration as well.

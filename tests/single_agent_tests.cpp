@@ -226,6 +226,102 @@ void shared_native_history_crosses_roles_and_tasks() {
     for (const auto& item : history) CHECK(!item.as_object().contains("request_envelope"));
 }
 
+void representation_bytes_measure_the_actual_originals() {
+    // Reviewer R2 / fullv6 representation row: one logical Agent runs its real
+    // s13 chain, and the actual captured continuation request is measured
+    // across the logical, envelope and wire representations. Every measured
+    // byte comes from the persisted originals; nothing is a hand constant.
+    // The FakeModel pump freezes its own fake adapter/protocol, so the wire
+    // bytes of these same production transcript messages are measured through
+    // the established offline responses fixture boundary (protocol::request);
+    // the live-captured wire itself is measured in the live Store suite.
+    Fixture f; const auto report = f.run();
+    CHECK(report.at("mode") == "single_agent_fake" && report.at("logical_agent_count") == 1);
+    const auto history = f.history(); CHECK(history.size() == 7);
+    const auto captured = f.worker();
+    const auto config = restore_request_config(f.store->request(f.id));
+    // 1) single_agent_messages_json is the measured logical representation: it
+    //    equals the captured logical input (the same invariant the Store's
+    //    exact-replay guard checks) and every byte is derived from the
+    //    immutable persisted history records with their JSON escaping.
+    const auto transcript = single_agent_transcript(f.id, config, history);
+    const auto measured = single_agent_messages_json(transcript.messages);
+    CHECK(captured.request.context.logical_input.at("messages") == measured);
+    std::int64_t content_bytes = 0, escaped_bytes = 0;
+    for (const auto& message : measured.as_array()) {
+        content_bytes += static_cast<std::int64_t>(text(message, "content").size());
+        escaped_bytes += static_cast<std::int64_t>(canonical_json(message).size());
+    }
+    const auto messages_bytes = static_cast<std::int64_t>(canonical_json(measured).size());
+    CHECK(messages_bytes > content_bytes);  // the complete array framing is counted
+    CHECK(escaped_bytes > content_bytes);   // escaping the originals costs real bytes
+    // 2) The structured envelope is the captured prompt itself, and production
+    //    reserved exactly those measured bytes for this call.
+    const auto envelope_bytes = static_cast<std::int64_t>(captured.request.context.prompt().size());
+    CHECK(envelope_bytes > messages_bytes);
+    CHECK(captured.request.reserved_input_tokens == envelope_bytes);
+    // 3) Wire bytes: the same production transcript messages encoded through
+    //    the offline responses fixture. Parse the wire back and require the
+    //    complete input to be exactly the expected mapping of the measured
+    //    representation — contents, tool identities and arguments unchanged.
+    const auto wire_request = wls::test::protocol::request(transcript.messages);
+    const auto wire = encode_responses_request(wls::test::protocol::profile(), wire_request, false);
+    const auto wire_bytes = static_cast<std::int64_t>(wire.body.size());
+    CHECK(wire_bytes > messages_bytes);
+    const auto body = parse_json_strict(wire.body);
+    const auto& items = body.at("input").as_array();
+    const auto contract_item = parse_json_strict(text(items.at(0), "content"));
+    CHECK(text(contract_item, "format") == "wls-responses-task-v1");
+    // The encoder always emits the captured task contract as input[0]. Build
+    // the expected item independently from the public logical input the encode
+    // consumed — the format marker, the task contract and the message_sources
+    // derived from the same measured messages — never from items.at(0).
+    const auto& wire_logical = wire_request.context.logical_input;
+    CHECK(wire_logical.at("messages") == measured);
+    Array wire_sources;
+    std::size_t wire_index = 0;
+    for (const auto& message : wire_logical.at("messages").as_array()) {
+        if (!message.at("source").is_null())
+            wire_sources.push_back(Object{{"message_index", wire_index}, {"source", message.at("source")}});
+        ++wire_index;
+    }
+    CHECK(contract_item.at("task_contract") == wire_logical.at("task_contract"));
+    CHECK(contract_item.at("message_sources") == wire_sources);
+    Array expected_input{Object{{"role", "user"}, {"content", canonical_json(Object{
+        {"format", "wls-responses-task-v1"}, {"task_contract", wire_logical.at("task_contract")},
+        {"message_sources", wire_sources}})}}};
+    for (const auto& message : measured.as_array()) {
+        if (text(message, "role") == "tool") {
+            expected_input.push_back(Object{{"type", "function_call_output"},
+                {"call_id", message.at("tool_call_id")}, {"output", message.at("content")}});
+            continue;
+        }
+        if (!text(message, "content").empty() || message.at("tool_calls").as_array().empty())
+            expected_input.push_back(Object{{"role", message.at("role")}, {"content", message.at("content")}});
+        for (const auto& call : message.at("tool_calls").as_array())
+            expected_input.push_back(Object{{"type", "function_call"}, {"call_id", call.at("call_id")},
+                {"name", call.at("name")}, {"arguments", canonical_json(call.at("arguments"))}});
+    }
+    CHECK(items == expected_input);
+    // 4) The measured representation carries an opaque original in full, never
+    //    a summary: appending one native assistant round with its complete
+    //    responses_output grows the measured bytes by at least that payload.
+    const std::string opaque_original = "gAAAAABc2luZ2xlLWFnZW50LW9wYXF1ZS1vcmlnaW5hbC1wcm9i";
+    StructuredContextMessage opaque_round;
+    opaque_round.role = "assistant"; opaque_round.content = "opaque continuation summary";
+    opaque_round.tool_calls = {{"call-opaque-measure", "note", Object{{"message", "opaque measurement"}}}};
+    opaque_round.responses_output = Object{{"format", "wls-responses-output-v1"},
+        {"reference", "openai-responses-2026-11-08"}, {"model", "fixture-responses-model"},
+        {"output", Array{Object{{"type", "reasoning"}, {"id", "rs_opaque_measure"},
+            {"summary", Array{}}, {"encrypted_content", opaque_original}}}}};
+    auto with_opaque = transcript.messages;
+    with_opaque.push_back(std::move(opaque_round));
+    const auto extended = canonical_json(single_agent_messages_json(with_opaque));
+    CHECK(extended.find(opaque_original) != std::string::npos);
+    CHECK(static_cast<std::int64_t>(extended.size()) >=
+          messages_bytes + static_cast<std::int64_t>(opaque_original.size()));
+}
+
 void omitted_original_pair_is_refused_before_reservation() {
     Fixture f; (void)f.run(); auto captured = f.worker();
     const auto before = f.store->budget(f.id);
@@ -390,6 +486,7 @@ int main(int argc, char** argv) {
         {"history", {"transcript keeps aggregate depth and JSON guards", transcript_keeps_aggregate_depth_and_json_guards}},
         {"history", {"transcript byte limit includes the complete array", transcript_byte_limit_counts_the_complete_array}},
         {"history", {"shared native history crosses roles and tasks", shared_native_history_crosses_roles_and_tasks}},
+        {"history", {"representation bytes measure the actual originals", representation_bytes_measure_the_actual_originals}},
         {"history", {"omitted original pair refuses reservation", omitted_original_pair_is_refused_before_reservation}},
         {"history", {"reordered original pairs refuse reservation", reordered_original_pairs_are_refused}},
         {"history", {"changed or missing logical identity refuses reservation", changed_or_missing_logical_identity_is_refused}},

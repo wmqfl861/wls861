@@ -358,6 +358,131 @@ int main(int argc, char** argv) {
             std::cout << canonical_json(report) << '\n';
             return 0;
         }
+        if (action == "budget-opaque") {
+            // Deterministic two-pass budget row for the same frozen readback +
+            // worker window selection. Pass 1 calibrates from the actually
+            // emitted first and second complete envelopes: round 1 really
+            // succeeds over loopback TLS with its reasoning opaque original
+            // accepted, settled and persisted, and the round-2 request is only
+            // captured through the production path, never sent. Pass 2 admits
+            // a new paired request with exactly that calibrated capacity
+            // frozen before any send: its round 1 replays the identical
+            // fixture bytes and native IDs, and its second capture/execution
+            // must refuse with Quota before any extra attempt, send, feedback
+            // row, query, budget mutation or network. Reservations stay the
+            // values the production capture measured; nothing is hand-built.
+            const Json selection = Object{{"readback", Object{{"mode", "utf8-token-v1"},
+                {"token_estimator", "utf8-byte-v1"}, {"max_page_tokens", 24576}}},
+                {"worker_history", Object{{"mode", "window-v1"}, {"recent_attempts", 3},
+                    {"inline_bytes", 65536}}}};
+            const auto admit_frozen = [&](const std::string& key, std::int64_t input_budget) {
+                auto admitted = fixture::admission(assets, live, key,
+                    !flag(config, "disabled"), false, selection, input_budget);
+                admitted.original_text = "Budget opaque continuation fixture; preserve originals.";
+                admitted.constraint_catalog = fixture::Array{Object{{"constraint_id", "c1"},
+                    {"text", admitted.original_text}, {"source_revision", 1}}};
+                // The paired request declares exactly its frozen calibrated
+                // capacity, so admission and every later reservation share
+                // this one bound.
+                if (input_budget >= 0) admitted.budget.input_tokens = input_budget;
+                return text(store->admit(admitted), "request_id");
+            };
+            const auto bind_task = [&](const std::string& opaque_request) {
+                const Json brief = Object{{"goal", "Budget opaque continuation fixture; preserve originals."},
+                    {"constraint_refs", fixture::Array{"c1"}},
+                    {"constraints_verbatim", fixture::Array{"Budget opaque continuation fixture; preserve originals."}}};
+                (void)store->apply_independent_plan(store->host_actor(Role::Dispatcher, opaque_request),
+                    number(store->request(opaque_request), "state_version"), 1,
+                    Object{{"nodes", fixture::Array{Object{{"node_id", "opaque-budget"}, {"kind", "team_task"},
+                        {"required", true}, {"depends_on", fixture::Array{}}, {"brief", brief}}}}},
+                    Object{}, "budget-opaque-plan");
+                const auto budget_task = text(store->tasks(opaque_request).front(), "task_id");
+                const auto team = store->binding(budget_task).team_id;
+                (void)store->issue_instruction(store->host_actor(Role::TeamLead, opaque_request, team),
+                    store->binding(budget_task), number(store->task(budget_task), "state_version"),
+                    brief, "budget-opaque-order");
+                (void)store->acknowledge(store->host_actor(Role::Worker, opaque_request, team),
+                    store->binding(budget_task), number(store->task(budget_task), "state_version"),
+                    "budget-opaque-ack");
+                return budget_task;
+            };
+            SchemaRegistry schemas(assets.source / "schemas");
+            OfflineRuntime runtime(*store, schemas);
+            // Pass 1 (calibration): one real native reasoning+tool round, then
+            // a production capture of the complete opaque continuation request.
+            const auto calibration_id = admit_frozen("budget-opaque-pass1", -1);
+            const auto calibration_task = bind_task(calibration_id);
+            const auto first = runtime.capture_call(calibration_id, Role::Worker, calibration_task, 1);
+            const auto first_units = static_cast<std::int64_t>(first.request.context.prompt().size());
+            const auto first_wire = static_cast<std::int64_t>(
+                encode_responses_request(live.provider, first.request, false).body.size());
+            const auto executed = execute_live_attempt(*store, first.actor, first.request, bearer, {true, false});
+            CHECK(executed.sent && executed.response_accepted);
+            auto first_record = store->attempt(first.request.attempt_id);
+            (void)store->record_tool_feedback(first.request.attempt_id, first.request.binding,
+                first_record.at("response"), Object{{"ok", true}, {"round", 1}});
+            (void)store->reconcile_usage(store->host_actor(Role::Root, calibration_id),
+                fixture::evidence(executed.settlement, fixture::complete_usage(11, 7), "budget-opaque-1"),
+                {"budget-opaque-1", "budget-opaque-1", 1});
+            const auto second = runtime.capture_call(calibration_id, Role::Worker, calibration_task, 2);
+            const auto second_units = static_cast<std::int64_t>(second.request.context.prompt().size());
+            const auto second_wire = static_cast<std::int64_t>(
+                encode_responses_request(live.provider, second.request, false).body.size());
+            // Carrying the complete latest native round must cost bytes in
+            // both the logical and the wire representation.
+            CHECK(second_units > first_units);
+            // Calibrate once from the measured envelopes: the frozen capacity
+            // fits the first request but misses the second complete native
+            // round by exactly one host unit.
+            const auto frozen_budget = second_units - 1;
+            CHECK(frozen_budget >= first_units);
+            // Pass 2 (paired request): frozen with the calibrated capacity
+            // before any send on it; identical fixture bytes, native IDs and
+            // first feedback as pass 1.
+            const auto paired_id = admit_frozen("budget-opaque-pass2", frozen_budget);
+            const auto paired_task = bind_task(paired_id);
+            const auto paired_first = runtime.capture_call(paired_id, Role::Worker, paired_task, 1);
+            const auto paired_units = static_cast<std::int64_t>(paired_first.request.context.prompt().size());
+            CHECK(paired_units <= frozen_budget);  // calibration margin covers identity drift
+            const auto paired_executed = execute_live_attempt(*store, paired_first.actor,
+                                                              paired_first.request, bearer, {true, false});
+            CHECK(paired_executed.sent && paired_executed.response_accepted);
+            auto paired_record = store->attempt(paired_first.request.attempt_id);
+            (void)store->record_tool_feedback(paired_first.request.attempt_id, paired_first.request.binding,
+                paired_record.at("response"), Object{{"ok", true}, {"round", 1}});
+            (void)store->reconcile_usage(store->host_actor(Role::Root, paired_id),
+                fixture::evidence(paired_executed.settlement, fixture::complete_usage(11, 7), "budget-opaque-2"),
+                {"budget-opaque-2", "budget-opaque-2", 1});
+            const auto settled_budget = store->budget(paired_id);
+            // The second capture/execution must Quota before an extra attempt,
+            // send, feedback row, query or budget mutation, and before any
+            // network; a send here contradicts the frozen capacity.
+            bool quota = false;
+            try {
+                const auto blocked = runtime.capture_call(paired_id, Role::Worker, paired_task, 2);
+                const auto refused = execute_live_attempt(*store, blocked.actor, blocked.request, bearer, {true, false});
+                CHECK(refused.sent);
+            } catch (const Error& error) { quota = error.code() == ErrorCode::Quota; }
+            CHECK(quota);
+            CHECK(store->budget(paired_id) == settled_budget);  // no-progress invariant
+            Object report{{"calibration_request_id", calibration_id}, {"paired_request_id", paired_id},
+                {"calibration", Object{{"first_envelope_units", first_units}, {"first_wire_bytes", first_wire},
+                    {"second_envelope_units", second_units}, {"second_wire_bytes", second_wire}}},
+                {"frozen_budget", frozen_budget},
+                {"paired", Object{{"first_envelope_units", paired_units},
+                    {"round1_accepted", paired_executed.response_accepted},
+                    {"attempts", number(settled_budget, "attempts")},
+                    {"spent_input", number(settled_budget, "spent_input")},
+                    {"remaining_input_units", frozen_budget - number(settled_budget, "spent_input")},
+                    {"budget_before", settled_budget}, {"budget_after", store->budget(paired_id)},
+                    {"quota", quota},
+                    {"send_claims", fixture::sql_text(database, "SELECT count(*) FROM live_send_claims")},
+                    {"feedback_rows", fixture::sql_text(database, "SELECT count(*) FROM model_tool_feedback")}}}};
+            report["first_settlement"] = executed.settlement;
+            report["paired_settlement"] = paired_executed.settlement;
+            std::cout << canonical_json(report) << '\n';
+            return 0;
+        }
         if (action == "run") {
             try {
                 const auto executed = execute_live_attempt(*store, actor, request, bearer, {true, false});
