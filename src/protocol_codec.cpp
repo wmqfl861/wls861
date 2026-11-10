@@ -1,5 +1,7 @@
 #include "wls/protocol_codec.hpp"
 
+#include "responses_compat.hpp"
+
 #include <algorithm>
 #include <limits>
 #include <optional>
@@ -55,6 +57,36 @@ void append_bounded(std::string& target, const std::string& bytes, std::size_t m
     require(bytes.size() <= maximum && target.size() <= maximum - bytes.size(),
             ErrorCode::Quota, "protocol output exceeds its declared byte limit");
     target += bytes;
+}
+
+bool model_accepted(const ProviderProfile& profile, std::string_view model) {
+    if (!profile.responses_compatibility) return model == profile.model;
+    if (model == profile.model) return true;
+    return std::any_of(profile.responses_compatibility->model_aliases.begin(),
+                       profile.responses_compatibility->model_aliases.end(),
+                       [&](const std::string& alias) { return model == alias; });
+}
+
+// Six titled plain-text sections; the title, order and separators are the
+// frozen local compatibility contract. Section bytes are never rewritten.
+std::string compose_instructions(const Json& system) {
+    static constexpr std::string_view sections[]{"system_prompt", "role_prompt", "function_prompt",
+        "environment_card", "approved_rules", "project_snapshot"};
+    std::string result;
+    for (const auto section : sections) {
+        if (!result.empty()) result += "\n\n";
+        result += "# ";
+        result += section;
+        result += "\n";
+        const auto* value = system.as_object().if_contains(section);
+        if (value && value->is_string()) result += std::string(value->as_string());
+    }
+    return result;
+}
+
+Json payload_for(const std::string& model, const Json& output) {
+    return Json(Object{{"format", responses_compat::output_format},
+        {"reference", responses_compat::reference}, {"model", model}, {"output", output}});
 }
 
 Json validate_request(const ProviderProfile& profile, const ModelRequest& request, bool stream) {
@@ -128,6 +160,7 @@ void failure(ModelResponse& response, ModelResultStatus status, const std::strin
              const std::string& message) {
     response.status = status; response.error_code = code; response.error_message = message;
     response.text.clear(); response.tool_calls.clear();
+    response.responses_output = nullptr;  // never keep a replayable original on failure
 }
 std::optional<std::int64_t> amount(const Json& value, std::string_view key) {
     const auto* item = object(value).if_contains(key);
@@ -187,6 +220,34 @@ void parse_completed_output(const ProviderProfile& profile, const ModelRequest& 
     const auto& items = array(value);
     require(items.size() <= profile.limits.max_output_items, ErrorCode::Quota,
             "response output item count exceeds declared bound");
+    if (profile.responses_compatibility) {
+        // One shared strict validator produces the public projection and the
+        // refusal / replay classification in a single pass over the original.
+        responses_compat::ValidationBounds codec_bounds{profile.limits.max_output_items,
+            profile.limits.max_tool_calls, profile.limits.max_text_bytes, profile.limits.max_tool_argument_bytes};
+        auto projection = responses_compat::validate_output(value, codec_bounds,
+                                                            &request.context.tool_names, profile.parallel_tool_calls);
+        response.text = std::move(projection.text);
+        response.tool_calls = std::move(projection.tool_calls);
+        if (projection.refusal) {
+            response.status = ModelResultStatus::Error;
+            response.error_code = "model_refusal";
+            response.error_message = "provider refused this request; original payload retained without executable output";
+            response.text.clear(); response.tool_calls.clear();
+            return;
+        }
+        if (!projection.reasoning_replay_ready) {
+            response.status = ModelResultStatus::Error;
+            response.error_code = "reasoning_replay_unavailable";
+            response.error_message = "completed reasoning lacks replayable encrypted content; the round cannot continue";
+            response.text.clear(); response.tool_calls.clear();
+            return;
+        }
+        require(!response.text.empty() || !response.tool_calls.empty(), ErrorCode::InvalidInput,
+                "completed response has no supported text or function call");
+        response.status = ModelResultStatus::Completed;
+        return;
+    }
     std::set<std::string> item_ids, call_ids;
     std::size_t argument_bytes = 0;
     for (const auto& item : items) {
@@ -238,6 +299,7 @@ void parse_completed_output(const ProviderProfile& profile, const ModelRequest& 
     }
     require(!response.text.empty() || !response.tool_calls.empty(), ErrorCode::InvalidInput,
             "completed response has no supported text or function call");
+    response.status = ModelResultStatus::Completed;
 }
 
 std::string hexadecimal(std::string_view bytes) {
@@ -292,10 +354,62 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     Array input{Object{{"role", "user"}, {"content", canonical_json(Object{
         {"format", "wls-responses-task-v1"}, {"task_contract", logical.at("task_contract")},
         {"message_sources", sources}})}}};
+    const bool compat = profile.responses_compatibility.has_value();
+    std::set<std::string> provider_item_ids, provider_call_ids;
+    const Array* native_calls = nullptr;    // logical tool_calls of the native round
+    std::vector<std::string> native_provider_call_ids;
+    std::size_t native_consumed = 0;
     for (const auto& message : array(logical.at("messages"))) {
         const auto role = text(message, "role");
         const auto content = text(message, "content");
+        const Json* payload = compat ? message.as_object().if_contains("responses_output") : nullptr;
+        if (payload && !payload->is_null()) {
+            require(role == "assistant", ErrorCode::InvalidInput,
+                    "only an assistant message may carry opaque responses output");
+            const auto& calls = array(message.at("tool_calls"));
+            require(!calls.empty(), ErrorCode::InvalidInput,
+                    "an opaque native round must retain its tool projection");
+            native_provider_call_ids.clear();  // each native round pairs only its own provider IDs
+            const auto projection = responses_compat::validate_payload(*payload);
+            std::vector<ContextToolInvocation> logical_calls;
+            for (const auto& call : calls)
+                logical_calls.push_back({std::string(call.at("call_id").as_string()),
+                    std::string(call.at("name").as_string()), call.at("arguments")});
+            responses_compat::require_projection_match(projection, content, logical_calls);
+            for (const auto& item : payload->at("output").as_array()) {
+                const auto id = std::string(item.at("id").as_string());
+                require(provider_item_ids.insert(id).second, ErrorCode::Conflict,
+                        "provider output item ID repeats across the transcript");
+                if (std::string(item.at("type").as_string()) == "function_call") {
+                    const auto call_id = std::string(item.at("call_id").as_string());
+                    require(provider_call_ids.insert(call_id).second, ErrorCode::Conflict,
+                            "provider call ID repeats across the transcript");
+                    require(std::find(request.context.tool_names.begin(), request.context.tool_names.end(),
+                            std::string(item.at("name").as_string())) != request.context.tool_names.end(),
+                            ErrorCode::Unauthorized, "native round replay names an unavailable tool");
+                    native_provider_call_ids.push_back(call_id);
+                }
+                input.push_back(item);  // Original JSON value, unchanged order.
+            }
+            native_calls = &calls;
+            native_consumed = 0;
+            continue;
+        }
+        if (compat && role == "assistant" && !array(message.at("tool_calls")).empty())
+            throw Error(ErrorCode::Unsupported,
+                        "native reasoning continuation requires the original responses output");
         if (role == "tool") {
+            if (native_calls) {
+                // Tool results follow their native round in order; each one
+                // pairs positionally with its original provider call ID.
+                require(native_consumed < native_calls->size() &&
+                        message.at("tool_call_id") == native_calls->at(native_consumed).at("call_id"),
+                        ErrorCode::InvalidInput, "native tool result does not pair with its original round");
+                input.push_back(Object{{"type", "function_call_output"},
+                    {"call_id", native_provider_call_ids.at(native_consumed)}, {"output", content}});
+                ++native_consumed;
+                continue;
+            }
             input.push_back(Object{{"type", "function_call_output"},
                 {"call_id", message.at("tool_call_id")}, {"output", content}});
         } else {
@@ -304,14 +418,22 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
             for (const auto& call : array(message.at("tool_calls")))
                 input.push_back(Object{{"type", "function_call"}, {"call_id", call.at("call_id")},
                     {"name", call.at("name")}, {"arguments", canonical_json(call.at("arguments"))}});
+            native_calls = nullptr;
         }
     }
-    Object body{{"model", profile.model}, {"instructions", canonical_json(Object{
-        {"format", "wls-responses-system-v1"}, {"system", prefix.at("system")},
-        {"dependencies", prefix.at("dependencies")}, {"tool_versions", tool_versions}})},
+    std::string instructions = canonical_json(Object{{"format", "wls-responses-system-v1"},
+        {"system", prefix.at("system")},
+        {"dependencies", prefix.at("dependencies")}, {"tool_versions", tool_versions}});
+    if (compat) instructions = compose_instructions(prefix.at("system"));
+    Object body{{"model", profile.model}, {"instructions", instructions},
         {"input", input}, {"tools", tools}, {"max_output_tokens", request.max_output_tokens},
         {"parallel_tool_calls", profile.parallel_tool_calls}, {"stream", stream},
         {"store", false}, {"background", false}, {"truncation", "disabled"}};
+    // A frozen tool-calling profile with parallel calls disabled pins each
+    // response to one tool call; logical identity stays independent of the wire.
+    if (profile.tool_calling && !profile.parallel_tool_calls)
+        body["tool_choice"] = "required";
+    if (compat) body["include"] = Array{"reasoning.encrypted_content"};
     if (request.model.reasoning.mode == ReasoningMode::Disabled)
         body["reasoning"] = Object{{"effort", "none"}};
     else if (request.model.reasoning.mode == ReasoningMode::Explicit)
@@ -333,6 +455,15 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     evidence["encoded_body_bytes"] = encoded.body.size();
     evidence["evidence_kind"] = "locally_encoded_request";
     evidence["cache_hit_claimed"] = false;
+    if (compat) {
+        evidence["instructions"] = Object{{"format", "wls-responses-instructions-v1"},
+            {"sections", Array{"system_prompt", "role_prompt", "function_prompt", "environment_card",
+                "approved_rules", "project_snapshot"}},
+            {"instructions_sha256", sha256_hex(instructions)}, {"instructions_bytes", instructions.size()},
+            {"prefix_sha256", sha256_hex(canonical_json(prefix))},
+            {"dependencies_sha256", sha256_hex(canonical_json(prefix.at("dependencies")))},
+            {"tool_versions_sha256", sha256_hex(canonical_json(Object{{"tool_versions", tool_versions}}))}};
+    }
     encoded.evidence = std::move(evidence);
     encoded.record_sha256 = sha256_hex(canonical_json(encoded_record(encoded)));
     return encoded;
@@ -374,7 +505,7 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
             const auto provider_id = text(source, "id");
             require(token(provider_id), ErrorCode::InvalidInput, "invalid provider response ID");
             decoded.provider_response_id = provider_id;
-            require(text(source, "model") == profile.model, ErrorCode::Stale,
+            require(model_accepted(profile, text(source, "model")), ErrorCode::Stale,
                     "provider response model differs from the explicit profile alias");
             if (const auto* reported = object(source).if_contains("usage")) decoded.response.usage = usage(*reported);
             // The documented response envelope includes these empty/null
@@ -405,8 +536,18 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
                 require(evidence.at("provider_error").is_null() && evidence.at("incomplete_details").is_null(),
                         ErrorCode::InvalidInput, "completed response carries an error or incomplete details");
                 parse_completed_output(profile, request, field(source, "output"), decoded.response);
-                decoded.response.status = ModelResultStatus::Completed;
-                decoded.response.error_code.clear(); decoded.response.error_message.clear();
+                if (decoded.response.status == ModelResultStatus::Completed) {
+                    decoded.response.error_code.clear(); decoded.response.error_message.clear();
+                }
+                if (profile.responses_compatibility && (decoded.response.status == ModelResultStatus::Completed ||
+                        decoded.response.error_code == "model_refusal")) {
+                    decoded.response.responses_output = payload_for(text(source, "model"), field(source, "output"));
+                    // Reject before interpretation: a payload this large could
+                    // never persist, so it must not become a sendable original.
+                    require(canonical_json(decoded.response.responses_output).size() <=
+                            profile.limits.max_response_bytes, ErrorCode::Quota,
+                            "responses output copy exceeds the declared response bound");
+                }
                 validate_response(request, decoded.response);
             }
         }

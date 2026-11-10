@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <fcntl.h>
 
 namespace wls::test::live {
 using namespace s1;
@@ -51,6 +52,50 @@ inline std::string sql_text(const std::filesystem::path& path, const std::string
     const auto* bytes = reinterpret_cast<const char*>(sqlite3_column_text(query, 0));
     const std::string result = bytes ? std::string(bytes, static_cast<std::size_t>(sqlite3_column_bytes(query, 0))) : "";
     sqlite3_finalize(query); sqlite3_close(database); return result;
+}
+
+// Only the three explicit Controls regression selectors retain private
+// fixtures. Ordinary test invocations keep their existing teardown behavior.
+inline std::filesystem::path controls_evidence_directory;
+inline std::string controls_regression_options(int argc, char** argv, int first) {
+    if (argc == first) return {};
+    if (argc != first + 4 || std::string_view(argv[first]) != "--controls-regression" ||
+            std::string_view(argv[first + 2]) != "--evidence-dir" || !*argv[first + 1] || !*argv[first + 3])
+        throw std::runtime_error("expected --controls-regression CASE --evidence-dir NEW_PRIVATE_DIRECTORY");
+    controls_evidence_directory = argv[first + 3];
+    if (std::filesystem::exists(std::filesystem::symlink_status(controls_evidence_directory)) ||
+            !std::filesystem::create_directories(controls_evidence_directory))
+        throw std::runtime_error("Controls evidence directory must be absent");
+    return argv[first + 1];
+}
+inline void controls_regression_evidence(const std::string& name, const Json& facts,
+                                        const std::filesystem::path& database = {}) {
+    if (controls_evidence_directory.empty()) return;
+    const auto bytes = canonical_json(facts) + "\n";
+    const auto file = controls_evidence_directory / (name + ".json");
+    const int descriptor = ::open(file.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (descriptor < 0) throw std::runtime_error("cannot exclusively create Controls evidence");
+    std::size_t written = 0;
+    while (written < bytes.size()) {
+        const auto count = ::write(descriptor, bytes.data() + written, bytes.size() - written);
+        if (count <= 0) { ::close(descriptor); throw std::runtime_error("cannot write Controls evidence"); }
+        written += static_cast<std::size_t>(count);
+    }
+    CHECK(::close(descriptor) == 0);
+    if (database.empty()) return;
+    const auto retained = controls_evidence_directory / (name + ".sqlite");
+    const int destination = ::open(retained.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    CHECK(destination >= 0); CHECK(::close(destination) == 0);
+    sqlite3 *source = nullptr, *target = nullptr;
+    CHECK(sqlite3_open_v2(database.c_str(), &source, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_open_v2(retained.c_str(), &target, SQLITE_OPEN_READWRITE, nullptr) == SQLITE_OK);
+    auto* backup = sqlite3_backup_init(target, "main", source, "main");
+    CHECK(backup != nullptr);
+    const int copied = sqlite3_backup_step(backup, -1);
+    const int finished = sqlite3_backup_finish(backup);
+    const int target_closed = sqlite3_close(target), source_closed = sqlite3_close(source);
+    CHECK(copied == SQLITE_DONE && finished == SQLITE_OK);
+    CHECK(target_closed == SQLITE_OK && source_closed == SQLITE_OK);
 }
 
 struct Assets {
@@ -124,10 +169,11 @@ struct Fixture {
     std::unique_ptr<Store> store;
     LiveModelSettings live;
     std::string request_id;
+    bool fake_adapter = false;
     Fixture(const Assets& input_assets, LiveModelSettings selected = settings(), bool enabled = true, int version = 410, bool fake = false,
             std::filesystem::path persistent_path = {})
         : assets(input_assets), path(persistent_path.empty() ? directory.path / "fixture.sqlite" : std::move(persistent_path)),
-          store(assets.open(path, {}, version)), live(std::move(selected)) {
+          store(assets.open(path, {}, version)), live(std::move(selected)), fake_adapter(fake) {
         request_id = text(store->admit(admission(assets, live, "first", enabled, fake)), "request_id");
     }
     StoreActor actor(Role role = Role::Dispatcher) const { return store->host_actor(role, request_id); }
@@ -158,7 +204,7 @@ struct Fixture {
         result.reserved_cost_micro_usd = request.reserved_cost_micro_usd; result.max_output_tokens = request.max_output_tokens;
         result.request_envelope = to_json(request); return result;
     }
-    Json reserve(const ModelRequest& request) { return store->reserve_attempt(actor(), request.binding, reservation(request)); }
+    Json reserve(const ModelRequest& request) { return store->reserve_attempt(actor(), request.binding, reservation(request, fake_adapter)); }
     Json claim(const ModelRequest& request) {
         return store->claim_live_send(actor(), request.attempt_id, number(store->attempt(request.attempt_id), "state_version"),
             encode_responses_request(live.provider, request, live.stream), live.transport, "claim-" + request.attempt_id);

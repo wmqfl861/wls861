@@ -209,7 +209,8 @@ LiveModelSettings live_model_settings_from_json(const Json& profile, std::string
 ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
         const ModelRequest& request, std::string_view bearer_token,
         const LiveExecutionAuthorization& authorization,
-        const LiveExperienceBinding& experience, std::stop_token stop) {
+        const LiveExperienceBinding& experience, std::stop_token stop,
+        const std::optional<ControlsBootDeadline>& controls_deadline) {
     require(authorization.network_enabled, ErrorCode::Unauthorized, "live network execution has no host authorization");
     require(!bearer_token.empty() && bearer_token.size() <= 8192 &&
             std::all_of(bearer_token.begin(), bearer_token.end(), [](char c) {
@@ -240,8 +241,11 @@ ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
         result.reservation.at("state_version").as_int64(), encoded, settings.transport,
         "send:" + request.attempt_id);
     if (!result.send_claim.at("new_send_authority").as_bool()) return result;
+    // Controls v1 (D): the trusted absolute request bound rides alongside the
+    // unchanged transport options; it never enters any hashed wire identity.
     const auto transport = perform_responses_https(settings.provider, request, encoded,
-                                                   settings.transport, bearer_token, stop);
+                                                   settings.transport, bearer_token, stop,
+                                                   controls_deadline);
     result.sent = transport.network_started;
     result.transport_summary = https_transport_summary(transport);
     (void)store.record_live_transport(request.attempt_id,
@@ -252,8 +256,10 @@ ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
 
 LiveAttemptResult execute_live_attempt(Store& store, const StoreActor& actor,
         const ModelRequest& request, std::string_view bearer_token,
-        const LiveExecutionAuthorization& authorization, std::stop_token stop) {
-    auto observed = observe_live_attempt(store, actor, request, bearer_token, authorization, {}, stop);
+        const LiveExecutionAuthorization& authorization, std::stop_token stop,
+        const std::optional<ControlsBootDeadline>& controls_deadline) {
+    auto observed = observe_live_attempt(store, actor, request, bearer_token, authorization, {}, stop,
+                                         controls_deadline);
     LiveAttemptResult result;
     result.reservation = std::move(observed.reservation);
     result.send_claim = std::move(observed.send_claim);

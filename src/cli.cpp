@@ -10,18 +10,23 @@
 #include "wls/billing.hpp"
 #include "wls/single_agent.hpp"
 #include "amendment_disposition.hpp"
+#include "controls_detail.hpp"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <map>
 #include <memory>
 #include <set>
+
+#include <openssl/evp.h>
 
 namespace {
 using namespace wls;
@@ -83,7 +88,11 @@ std::string text(const Json& value) {
     return std::string(value.as_string());
 }
 
-void output(const Json& value) { std::cout << canonical_json(value) << '\n'; }
+void output(const Json& value) {
+    std::cout << canonical_json(value) << '\n';
+    std::cout.flush();
+    if (!std::cout) throw Error(ErrorCode::Storage, "delivery_of_report_failed: stdout write or flush failed");
+}
 
 void output_error(std::string_view code, std::string_view message) noexcept {
     // Error text can come from POSIX byte paths or third-party exceptions.
@@ -342,6 +351,11 @@ init is explicit all-request recovery and migration maintenance.
   wls config-snapshot --db FILE --request ID [--role worker]
   wls run-fake --db FILE --request ID --script FILE [--disposition update|keep|cancel]
                [--workspace DIRECTORY] [--worker-calls 1..16] [--sandbox-manifest FILE]
+  wls run-live --db FILE --request ID --authorization-file FILE [--workspaces-file FILE]
+               [--sandbox-manifest FILE] [--billing-policy-file FILE]
+  wls run-fake --db FILE --request ID (--script FILE | --scripts-file FILE)
+               [--max-calls 1..64] [--worker-calls 1..16]
+               [--workspaces-file FILE] [--sandbox-manifest FILE]
   wls pump-fake --db FILE --request ID --script FILE [--workspaces-file FILE]
                 [--dispositions-file FILE] [--max-calls 1..64] [--worker-calls 1..16]
                 [--sandbox-manifest FILE]
@@ -449,6 +463,745 @@ and continue one request-wide model history through the original role permission
 pump-live never automatically retries a paid attempt or publishes delivery.
 No command starts a daemon.
 )";
+}
+
+// G1-6 Controls v1 (FINAL v24 R): the bounded multi-batch run driver shared by
+// run-live and run-fake --scripts-file. Strong STOP first, then complete
+// business delivery or the model milestone, then ordinary caps together with
+// real progress and an accurate runnable target; every decision consumes the
+// complete latest durable state reread in the quiet window after any local
+// write (including the warning observer). Reports stay bounded by construction.
+Json controls_run_driver(Store& store, const std::string& request, std::int64_t batch_limit,
+                         bool fake_execution, const Json& identity_fields,
+                         const std::function<Json(std::int64_t)>& run_batch,
+                         const std::function<Json(const Json&, std::int64_t)>& next_target = {}) {
+    if (batch_limit < 1 || batch_limit > 64)
+        throw Error(ErrorCode::Quota, "run-* requires at least one remaining original attempt");
+    const auto jstr = [](const Json& value, const char* key) -> std::string {
+        if (!value.is_object()) return {};
+        const auto* found = value.as_object().if_contains(key);
+        return found && found->is_string() ? std::string(found->as_string()) : std::string();
+    };
+    const auto jget = [](const Json& value, const char* key) -> Json {
+        if (!value.is_object()) return nullptr;
+        const auto* found = value.as_object().if_contains(key);
+        return found ? *found : Json(nullptr);
+    };
+    const auto marker = store.controls_admission(request);
+    // F2 repair: a present-but-unreadable marker row (including stored JSON
+    // null) is NOT legacy. True absence is exactly the gate's "legacy" status;
+    // anything else present is validated by the gate, which reports a corrupt
+    // present marker as the typed stop below instead of degrading it.
+    if (jstr(store.controls_business_gate(request), "status") == "legacy")
+        throw Error(ErrorCode::InvalidInput,
+                    "controls_legacy_unavailable: this request was admitted before Controls v1; "
+                    "the original explicit pump commands keep their legacy semantics");
+    Array summaries, stop_classes, raw_stop_codes;
+    summaries.reserve(64);
+    Json primary_stop = nullptr;
+    bool report_complete = true, model_milestone = false, business_delivered = false;
+    bool history_complete = false, delivery_receipt_verified = false;
+    std::int64_t started = 0, completed = 0, network_started_calls = 0;
+    // LIVE completeness (FINAL v24 repair02): the network/provider totals are
+    // the conjunction of verified coverage over the actually observed batches.
+    // A missing, partial or throwing batch makes the affected totals unknown
+    // and they stay unknown; a later complete batch never hides that missing
+    // prefix. Known Fake zero needs the Fake execution type with every started
+    // Fake batch actually returned.
+    // R03_REPORT/F4_COUNTS: one production checked-totals accumulator drives
+    // every report total; overflow or a malformed observation makes the
+    // affected totals unknown without corrupting the known prefix.
+    controls::detail::run_totals totals;
+    std::int64_t event_cursor = 0;
+    std::string warning_status = "not_observed";
+    const auto add_class = [&](const std::string& code) {
+        if (code.empty()) return;
+        for (const auto& existing : stop_classes)
+            if (existing == Json(code)) return;
+        stop_classes.push_back(code);
+    };
+    const auto add_raw = [&](const std::string& code) {
+        if (code.empty()) return;
+        for (const auto& existing : raw_stop_codes)
+            if (existing == Json(code)) return;
+        raw_stop_codes.push_back(code);
+    };
+    // F4 repair (FINAL v24 repair record): stop_classes uses exactly the fixed
+    // wls-controls-run-v1 vocabulary; raw cap/stop codes stay in bounded
+    // separate detail (blocked_codes, batch_stop_reason, raw_stop_codes). An
+    // unmapped raw code is handled as a conservative typed STOP, never silent
+    // continuation.
+    const auto fixed_stop_class = [](const std::string& raw) -> std::string {
+        if (raw == "cancelled" || raw == "deadline" || raw == "needs_accounting" ||
+            raw == "correction_limit" || raw == "stagnation" || raw == "budget" ||
+            raw == "context" || raw == "capacity" || raw == "storage" ||
+            raw == "permission" || raw == "protocol" || raw == "transport" ||
+            raw == "failure_tail" || raw == "input" || raw == "host_limit" ||
+            raw == "unclassified")
+            return raw;
+        if (raw == "controls_clock_unavailable" || raw == "manager_limit" ||
+            raw == "worker_limit" || raw == "call_limit" || raw == "run_batch_limit" ||
+            raw == "workspace_missing")
+            return "host_limit";
+        if (raw == "no_new_progress") return "stagnation";
+        if (raw == "prior_failure_tail" || raw == "operation_incomplete") return "failure_tail";
+        if (raw == "incomplete_tail") return "needs_accounting";
+        if (raw == "controls_marker_corrupt" || raw == "amendment_pending" ||
+            raw == "waiting" || raw == "rework_blocked" || raw == "submission_pending" ||
+            raw == "acceptance_pending" || raw == "script_exhausted")
+            return "input";
+        if (raw == "capacity_waiting_input" || raw == "report_capacity" || raw == "report_incomplete")
+            return "capacity";
+        if (raw == "error") return "unclassified";
+        return {};
+    };
+    // R03_REPORT: all checked report-total arithmetic now goes through the
+    // shared production run_totals helper (controls_detail.hpp), which never
+    // mutates a published known-prefix accumulator on overflow.
+    // B2 repair (FINAL v24 repair02) superseded by the shared production
+    // streaming helper in controls_detail.hpp (R03_REPORT): the digest and the
+    // byte count now come from one bounded traversal of the raw pump JSON.
+    // First terminal scope wins primary reporting; the fixed class and the raw
+    // code are both retained even when another reason already won primary.
+    const auto stop_run = [&](const std::string& raw) {
+        if (primary_stop.is_null()) {
+            const auto fixed = fixed_stop_class(raw);
+            primary_stop = Json(fixed.empty() ? std::string("unclassified") : fixed);
+        }
+        add_raw(raw);
+        const auto fixed = fixed_stop_class(raw);
+        add_class(fixed.empty() ? std::string("unclassified") : fixed);
+    };
+    // run-* observes the budget once before the first batch; the observer may
+    // itself write, which is exactly why every later decision rereads fully.
+    warning_status = jstr(store.controls_observe_budget(request), "warning_status");
+    const auto& stagnation_entry = [&]() -> Json {
+        // R03_DECISION: a stopped gate (deadline/corrupt) carries no stagnation
+        // member; reading it must yield that gate's own typed stop, never an
+        // unhandled at() exception.
+        const auto gate = store.controls_business_gate(request);
+        if (const auto* found = gate.is_object() ? gate.as_object().if_contains("stagnation") : nullptr;
+                found && found->is_object())
+            return *found;
+        return nullptr;
+    }();
+    if (jget(stagnation_entry, "prior_failure_tail") == true) {
+        stop_run("prior_failure_tail");
+    } else if (jget(stagnation_entry, "incomplete_tail") == true || jget(stagnation_entry, "active_tail") == true) {
+        stop_run("incomplete_tail");
+    } else {
+        const auto gate = store.controls_business_gate(request);
+        if (jstr(gate, "status") == "stop") stop_run(jstr(gate, "stop_class"));
+    }
+    const auto attempts_used = [&](const Json& budget) {
+        const auto value = jget(budget, "attempts");
+        try { const auto used = integer(value); return used >= 0 ? used : -1; }
+        catch (...) { return std::int64_t{-1}; }
+    };
+    for (std::int64_t index = 1; primary_stop.is_null() && index <= batch_limit; ++index) {
+        const auto gate = store.controls_business_gate(request);
+        if (jstr(gate, "status") == "stop") {
+            stop_run(jstr(gate, "stop_class"));
+            break;
+        }
+        // F3 repair (v12 §2/§5): the safe-tail gate is re-checked before EVERY
+        // batch on the stable post-write snapshot, not only at driver entry. A
+        // prior eligible failure tail or an incomplete/unsettled/missing-
+        // feedback tail forbids ordinary-cap continuation and preserves its
+        // actual reason; no fresh quota is minted for any role.
+        if (const auto* stagnation = gate.is_object() ? gate.as_object().if_contains("stagnation") : nullptr;
+                stagnation && stagnation->is_object()) {
+            if (jget(*stagnation, "prior_failure_tail") == true) { stop_run("prior_failure_tail"); break; }
+            if (jget(*stagnation, "incomplete_tail") == true) { stop_run("incomplete_tail"); break; }
+            if (jget(*stagnation, "active_tail") == true) { stop_run("incomplete_tail"); break; }
+        }
+        const Json budget_before = store.budget(request);
+        if (attempts_used(budget_before) < 0) { report_complete = false; stop_run("report_incomplete"); break; }
+        // B2 repair: capture the durable event high-water immediately before
+        // the real invocation; the first batch's interval starts here and
+        // never swallows pre-run history.
+        std::int64_t events_highwater = event_cursor;
+        bool highwater_complete = true;
+        {
+            std::int64_t scan = event_cursor;
+            for (int pages = 0; pages < 128; ++pages) {
+                const auto page = store.events(request, scan, 1000);
+                if (page.empty()) break;
+                for (const auto& event : page) {
+                    const auto seq = jget(event, "seq");
+                    if (seq.is_int64()) events_highwater = seq.as_int64();
+                    else highwater_complete = false;
+                }
+                scan = events_highwater;
+                if (static_cast<std::int64_t>(page.size()) < 1000) break;
+                if (pages == 127) highwater_complete = false;
+            }
+            event_cursor = events_highwater;
+        }
+        // R03_DECISION: incomplete event high-water evidence stops before the
+        // first/next invocation; the boundary is never guessed.
+        if (!highwater_complete) {
+            report_complete = false;
+            stop_run("report_incomplete");
+            break;
+        }
+        Json pump_report;
+        // Allocate the bounded emergency shape before invoking a batch.
+        Object emergency{{"index", index}, {"completed", false}, {"report_sha256", nullptr},
+            {"report_bytes", nullptr}, {"new_attempts", nullptr}, {"budget_before", budget_before},
+            {"budget_after", nullptr}, {"event_seq_first", nullptr}, {"event_seq_last", nullptr},
+            {"attempt_set_sha256", nullptr}, {"network_started_calls", nullptr},
+            {"network_count_complete", false}, {"continued", false}};
+        const auto summary_count_before = summaries.size();
+        bool returned = false;
+        // R03_REPORT: batches_started is incremented immediately BEFORE the
+        // actual invocation; completed only when it returns.
+        ++started;
+        try {
+            pump_report = run_batch(index);
+            returned = true;
+            ++completed;
+        } catch (const std::exception& error) {
+            // F4 repair: a throwing batch was started but never completed; its
+            // durable partial effects stay visible through the Store evidence.
+            // LIVE completeness: a throwing batch leaves its observation
+            // coverage incomplete; the affected totals stay unknown. An
+            // unknown report length/hash is null, never zero.
+            report_complete = false;
+            const auto message = std::string(error.what());
+            stop_run(message.rfind("script_exhausted", 0) == 0 ? std::string("script_exhausted")
+                                                               : std::string("error"));
+        } catch (...) {
+            report_complete = false;
+            stop_run("error");
+        }
+        // Success, throw and invalid/oversized reports all observe the SAME
+        // durable originals before any exit; raw report availability is not
+        // a precondition for observing reservations, events or network facts.
+        try {
+        const Json budget_after = store.budget(request);
+        emergency["completed"] = returned;
+        emergency["budget_after"] = budget_after;
+        bool observed_counts = true, observed_network = true;
+        const auto observed_delta = controls::detail::run_totals::checked_delta(
+            attempts_used(budget_after), attempts_used(budget_before), observed_counts);
+        std::set<std::string> observed_ids;
+        std::int64_t observed_first = 0, observed_last = events_highwater, observed_sent = 0, observed_reservations = 0;
+        for (int pages = 0; pages < 128; ++pages) {
+            const auto page = store.events(request, observed_last, 1000);
+            for (const auto& event : page) {
+                const auto seq = jget(event, "seq");
+                if (!seq.is_int64() || seq.as_int64() <= observed_last) { observed_counts = observed_network = false; continue; }
+                if (!observed_first) observed_first = seq.as_int64();
+                observed_last = seq.as_int64();
+                const auto type = jstr(event, "type");
+                if (type == "reserve_attempt") ++observed_reservations;
+                if (type == "reserve_attempt" || type == "claim_live_send")
+                    observed_ids.insert(jstr(jget(event, "payload"), "attempt_id"));
+            }
+            if (page.size() < 1000) break;
+            if (pages == 127) observed_counts = observed_network = false;
+        }
+        Array originals;
+        if (observed_reservations != observed_delta) observed_counts = observed_network = false;
+        for (const auto& id : observed_ids) {
+            if (id.empty()) { observed_counts = observed_network = false; continue; }
+            originals.push_back(id);
+            (void)store.attempt(id);
+            if (!fake_execution) {
+                const auto original = store.live_attempt(id);
+                const auto sent = jget(jget(original, "transport"), "network_started");
+                if (sent.is_bool()) { if (sent.as_bool()) ++observed_sent; }
+                else if (!jget(original, "send_claim").is_null()) observed_network = false;
+            }
+        }
+        emergency["event_seq_first"] = observed_first;
+        emergency["event_seq_last"] = observed_last;
+        emergency["attempt_set_sha256"] = sha256_hex(canonical_json(originals));
+        emergency["new_attempts"] = observed_counts ? Json(observed_delta) : Json(nullptr);
+        emergency["network_started_calls"] = observed_network ? Json(observed_sent) : Json(nullptr);
+        emergency["network_count_complete"] = observed_network;
+        totals.add_attempts(observed_delta);
+        totals.add_reservation(observed_delta);
+        if (!observed_counts) totals.counts_complete = false;
+        totals.observe_network(observed_sent, observed_network, !fake_execution);
+        // R03_REPORT: the canonical raw-report digest and byte count come from
+        // ONE bounded streaming traversal of the actual pump JSON — the same
+        // canonical semantics as the protected reference (sorted keys, array
+        // order, escaping, finite numbers, depth limit) — without ever
+        // materializing a second full canonical string.
+        const auto canonical_digest = returned ? controls::detail::canonical_sha256_stream(
+            pump_report, controls::detail::canonical_stream_chunk_default, 4U * 1024U * 1024U)
+            : controls::detail::canonical_digest_result{};
+        if (!canonical_digest.ok) {
+            // An unformable or oversized report stops the run before another
+            // batch is admitted; the finished batch still contributes its
+            // available actual counts, and the exact unknown length/hash is
+            // reported as null, never zero.
+            report_complete = false;
+            stop_run("report_capacity");
+            emergency["raw_batch_report_oversize"] = canonical_digest.oversize;
+            summaries.push_back(emergency);
+            break;
+        }
+        const auto canonical_sha = canonical_digest.sha256_hex_value;
+        const auto canonical_bytes = canonical_digest.bytes;
+        Array attempt_ids, blocked_codes;
+        Json first_terminal_scope = nullptr;
+        if (jget(pump_report, "calls").is_array())
+            for (const auto& call : pump_report.at("calls").as_array()) {
+                const auto attempt = jget(call, "attempt_id");
+                if (!attempt.is_null()) attempt_ids.push_back(attempt);
+            }
+        if (jget(pump_report, "blocked").is_array())
+            for (const auto& entry : pump_report.at("blocked").as_array()) {
+                const auto code = jstr(entry, "code");
+                if (!code.empty()) {
+                    blocked_codes.push_back(code);
+                    if (first_terminal_scope.is_null())
+                        first_terminal_scope = Object{{"role", jget(entry, "role")},
+                                                      {"node_id", jget(entry, "node_id")},
+                                                      {"code", code}};
+                }
+            }
+        const auto batch_stop = [&] {
+            const auto value = jget(pump_report, "stop_reason");
+            return value.is_string() ? std::string(value.as_string()) : std::string("quiescent");
+        }();
+        // F1/F4 repair: raw codes are always retained as bounded detail and
+        // mapped onto the fixed vocabulary, even when the run continues.
+        add_raw(batch_stop);
+        if (const auto fixed = fixed_stop_class(batch_stop); !fixed.empty()) add_class(fixed);
+        else if (batch_stop != "quiescent") add_class("unclassified");
+        for (const auto& code : blocked_codes) {
+            const auto raw = std::string(code.as_string());
+            add_raw(raw);
+            const auto fixed = fixed_stop_class(raw);
+            add_class(fixed.empty() ? std::string("unclassified") : fixed);
+        }
+        // Event-sequence interval of THIS batch only: from the pre-invocation
+        // high-water captured above; a bounded scan keeps the summary inside
+        // its bound and pre-run history never leaks into the first interval.
+        std::int64_t event_first = 0, event_last = events_highwater;
+        bool event_interval_complete = highwater_complete;
+        {
+            std::int64_t scan = events_highwater;
+            for (int pages = 0; pages < 128; ++pages) {
+                const auto page = store.events(request, scan, 1000);
+                if (page.empty()) break;
+                for (const auto& event : page) {
+                    const auto seq = jget(event, "seq");
+                    if (!seq.is_int64()) continue;
+                    if (event_first == 0) event_first = seq.as_int64();
+                    event_last = seq.as_int64();
+                }
+                scan = event_last;
+                if (static_cast<std::int64_t>(page.size()) < 1000) break;
+                if (pages == 127) event_interval_complete = false;
+            }
+            if (!event_interval_complete) report_complete = false;
+            event_cursor = event_last;
+        }
+        Object batch_class_counts;
+        const auto count_class = [&](const std::string& raw) {
+            const auto fixed = fixed_stop_class(raw);
+            if (fixed.empty()) return;
+            if (const auto* found = batch_class_counts.if_contains(fixed))
+                batch_class_counts[fixed] = found->as_int64() + 1;
+            else
+                batch_class_counts[fixed] = 1;
+        };
+        count_class(batch_stop);
+        for (const auto& code : blocked_codes) count_class(std::string(code.as_string()));
+        const auto budget_view = [&](const Json& budget) {
+            const auto spent = jget(budget, "spent_cost"), reserved = jget(budget, "reserved_cost");
+            std::int64_t estimated = 0;
+            const bool e_ok = spent.is_int64() && reserved.is_int64() && spent.as_int64() >= 0 && reserved.as_int64() >= 0 &&
+                !__builtin_add_overflow(spent.as_int64(), reserved.as_int64(), &estimated);
+            if (!e_ok || attempts_used(budget) < 0 || !jget(budget, "state_version").is_int64() ||
+                    integer(jget(budget, "state_version")) < 1 || !jget(budget, "max_attempts").is_int64() ||
+                    integer(jget(budget, "max_attempts")) < 0) report_complete = false;
+            return Object{{"attempts", jget(budget, "attempts")},
+                          {"max_attempts", jget(budget, "max_attempts")},
+                          {"spent_cost", spent},
+                          {"reserved_cost", reserved},
+                          {"e_spent_plus_reserved", e_ok ? Json(estimated) : Json(nullptr)},
+                          {"state_version", jget(budget, "state_version")}};
+        };
+        // Any local write (including this observation) invalidates earlier
+        // reads; the complete reread below happens after it in the quiet window
+        // between pumps, with no callback or concurrent writer active, and the
+        // continuation decision consumes only this latest stable snapshot.
+        warning_status = jstr(store.controls_observe_budget(request), "warning_status");
+        (void)store.tasks(request);
+        (void)store.experience_jobs(request);
+        (void)store.request_inbox(request);
+        const auto current_request = store.request(request);
+        const auto budget_after_reread = store.budget(request);
+        const auto gate_after = store.controls_business_gate(request);
+        // B1 repair: ONE shared factual predicate drives both the summary
+        // semantic_progress and the outer continuation — at least one NEW
+        // original attempt AND at least one NEW successfully committed
+        // semantic transition (a settled completed accepted attempt or a
+        // passed candidate acceptance) proved by original attempt/feedback/
+        // event/binding facts committed inside this batch. A budget delta,
+        // counters, epochs, state versions, notifications, hash growth,
+        // replay or a successful sibling with an unsafe tail is never
+        // semantic progress.
+        bool attempts_delta_ok = true;
+        const auto batch_new_attempts = controls::detail::run_totals::checked_delta(
+            attempts_used(budget_after_reread), attempts_used(budget_before), attempts_delta_ok);
+        if (!attempts_delta_ok) totals.counts_complete = false;
+        const bool new_attempt = attempts_delta_ok && batch_new_attempts > 0;
+        std::int64_t transition_max_seq = 0;
+        std::string transition_witness_identity;
+        bool transition_witness_valid = true;
+        {
+            const auto witness = jget(jget(gate_after, "stagnation"), "success_witness");
+            const auto max_seq = jget(witness, "max_event_seq");
+            const auto witness_complete = jget(witness, "witness_complete");
+            if (max_seq.is_int64()) transition_max_seq = max_seq.as_int64();
+            else transition_witness_valid = false;
+            if (!(witness_complete.is_bool() && witness_complete.as_bool()))
+                transition_witness_valid = false;
+            // R03_DECISION: the bounded witness identity hash resolves back to
+            // the exact original attempts/events; a bare seq number is not a
+            // substitute for the original identity.
+            transition_witness_identity = jstr(witness, "identity_sha256");
+            if (transition_witness_identity.empty()) transition_witness_valid = false;
+        }
+        const bool new_semantic_transition =
+            transition_witness_valid && transition_max_seq > events_highwater;
+        const bool progressed = new_attempt && new_semantic_transition;
+        const auto calls = jget(pump_report, "calls");
+        std::set<std::string> reported_ids;
+        std::int64_t worker_calls = 0;
+        bool calls_complete = calls.is_array() && calls.as_array().size() <= static_cast<std::size_t>(INT64_MAX);
+        if (calls_complete) for (const auto& call : calls.as_array()) {
+            const auto role = jstr(call, "role");
+            const auto id = jstr(call, "attempt_id");
+            if (id.empty() || !observed_ids.contains(id) || !reported_ids.insert(id).second)
+                calls_complete = false;
+            else if (jstr(store.attempt(id), "role") != role) calls_complete = false;
+            if (role == "worker") ++worker_calls;
+            else if (role != "dispatcher" && role != "team_lead") calls_complete = false;
+        }
+        if (reported_ids != observed_ids) calls_complete = false;
+        const auto managers = jget(pump_report, "manager_calls");
+        if (!calls_complete || !managers.is_int64() || managers.as_int64() < 0 ||
+                managers.as_int64() != static_cast<std::int64_t>(calls.as_array().size()) - worker_calls)
+            report_complete = false;
+        Object summary{{"index", index},
+            {"report_sha256", canonical_sha},
+            {"report_bytes", canonical_bytes},
+            {"calls", calls_complete ? Json(static_cast<std::int64_t>(calls.as_array().size())) : Json(nullptr)},
+            {"worker_calls", calls_complete ? Json(worker_calls) : Json(nullptr)},
+            {"manager_calls", jget(pump_report, "manager_calls")},
+            {"network_started_calls", jget(pump_report, "network_started_calls")},
+            {"budget_before", budget_view(budget_before)},
+            {"budget_after", budget_view(budget_after)},
+            {"attempt_set_sha256", sha256_hex(canonical_json(attempt_ids))},
+            {"blocked_codes", blocked_codes},
+            {"batch_stop_reason", batch_stop},
+            {"stop_class_counts", std::move(batch_class_counts)},
+            {"event_seq_first", event_first},
+            {"event_seq_last", event_last},
+            {"event_interval_complete", event_interval_complete},
+            {"first_terminal_scope", first_terminal_scope},
+            {"new_attempts", attempts_delta_ok ? Json(batch_new_attempts) : Json(nullptr)},
+            {"semantic_progress", progressed},
+            {"progress_witness", Object{{"new_attempt", new_attempt},
+                                        {"transition_max_event_seq", transition_max_seq},
+                                        {"batch_highwater_before", events_highwater},
+                                        {"witness_identity_sha256", transition_witness_identity},
+                                        {"witness_complete", transition_witness_valid}}},
+            {"completed", true}};
+        // R03_FACTS: model milestone and delivery/receipt facts derive from the
+        // Store's re-verified durable originals on this stable post-write
+        // snapshot — current acceptance plus the exact original-source
+        // experience job for milestone, and complete current original receipt
+        // verification (including the durable command fingerprint and retained
+        // publication) for delivery. Status strings alone prove neither.
+        const auto milestone_facts = store.controls_model_milestone(request);
+        model_milestone = jget(milestone_facts, "milestone") == true;
+        const auto receipt_facts = store.controls_delivery_receipt_facts(request);
+        delivery_receipt_verified = jget(receipt_facts, "verified") == true;
+        business_delivered = jstr(current_request, "status") == "DELIVERED" &&
+            jstr(current_request, "delivery_status") == "CONFIRMED" && delivery_receipt_verified;
+        // F1 repair (v12 §2): any blocked correction_limit stops the whole
+        // outer run immediately — even with sibling success, a Fake-quiescent
+        // main stop or a stronger selected primary reason — and never mints a
+        // fresh correction quota for another pump.
+        const bool correction_limit_hit = batch_stop == "correction_limit" ||
+            std::any_of(blocked_codes.begin(), blocked_codes.end(),
+                        [](const Json& code) { return code.as_string() == "correction_limit"; });
+        Json continuation_target = nullptr;
+        // R03_DECISION: every raw blocked code is inspected on this stable
+        // post-write snapshot BEFORE delivery/milestone selection. Any code
+        // that is neither an ordinary cap nor a pending code — including
+        // unmapped/unclassified raw codes and stale/waiting/nonrunnable
+        // states — conservatively stops even when a success status or an
+        // ordinary cap coexists.
+        const auto ordinary_cap = [](const std::string& code) {
+            return code == "manager_limit" || code == "worker_limit" || code == "call_limit";
+        };
+        const auto pending_code = [](const std::string& code) {
+            return code == "submission_pending" || code == "acceptance_pending";
+        };
+        bool unclassified_code = false;
+        std::string unclassified_raw;
+        std::set<std::string> pending_codes;
+        bool ordinary_capped = batch_stop == "call_limit";
+        {
+            // The raw cap/failure reason and the blocked entry that carried it
+            // (role/node) are retained as bounded detail.
+            Json cap_entry;
+            for (const auto& entry : jget(pump_report, "blocked").is_array()
+                     ? pump_report.at("blocked").as_array() : Array{}) {
+                const auto raw = jstr(entry, "code");
+                if (raw.empty()) continue;
+                if (ordinary_cap(raw)) {
+                    ordinary_capped = true;
+                    cap_entry = entry;
+                } else if (pending_code(raw)) pending_codes.insert(raw);
+                else if (!unclassified_code) {
+                    unclassified_code = true;
+                    unclassified_raw = raw;
+                }
+            }
+        }
+        if (batch_stop != "quiescent" && !ordinary_cap(batch_stop) && !pending_code(batch_stop)) {
+            stop_run(batch_stop);
+        } else if (batch_stop == "cancelled" || batch_stop == "deadline" ||
+            batch_stop == "needs_accounting" || batch_stop == "error" ||
+            batch_stop == "correction_limit") {
+            stop_run(batch_stop);
+        } else if (correction_limit_hit) {
+            stop_run("correction_limit");
+        } else if (unclassified_code) {
+            // Unknown/unclassified raw codes conservatively stop; the raw code
+            // and its fixed class are both retained even under a stronger
+            // primary or an ordinary cap.
+            stop_run(unclassified_raw);
+        } else if (jstr(gate_after, "status") == "stop") {
+            // B1 repair: every strong stop and every unsafe tail on this
+            // stable post-write snapshot outranks milestone/continuation; a
+            // success, delivery status or milestone never masks a tail.
+            stop_run(jstr(gate_after, "stop_class"));
+        } else if (const auto* stagnation_after = gate_after.is_object()
+                ? gate_after.as_object().if_contains("stagnation") : nullptr;
+                   stagnation_after && stagnation_after->is_object() &&
+                   (jget(*stagnation_after, "prior_failure_tail") == true ||
+                    jget(*stagnation_after, "active_tail") == true ||
+                    jget(*stagnation_after, "incomplete_tail") == true)) {
+            stop_run(jget(*stagnation_after, "prior_failure_tail") == true
+                         ? std::string("prior_failure_tail") : std::string("incomplete_tail"));
+        } else if (business_delivered) {
+            primary_stop = Json(std::string("business_delivered"));
+        } else if (model_milestone) {
+            primary_stop = Json(std::string("model_milestone"));
+        } else {
+            // F3/B1 repair: only ACTUAL ordinary call/worker/manager caps may
+            // chain another batch, and only together with the shared progress
+            // predicate and an exact runnable captured target resolved from
+            // Store facts on this stable snapshot. submission_pending and
+            // acceptance_pending are not caps; EVERY observed pending code
+            // must additionally prove its exact captured next-role target,
+            // not only the first. An empty actor_task_id, an unrelated ready
+            // task, waiting/stale/missing-script/workspace or unclassified
+            // states never prove a target and are never probed with another
+            // batch; a legitimately runnable RUNNING Worker of the capped
+            // role's own captured task is not rejected merely for RUNNING.
+            ordinary_capped = false;
+            bool pending_targets_valid = true;
+            Array exact_pending_targets;
+            for (const auto& entry : jget(pump_report, "blocked").is_array()
+                     ? pump_report.at("blocked").as_array() : Array{}) {
+                const auto code = jstr(entry, "code");
+                if (!ordinary_cap(code) && !pending_code(code)) continue;
+                const auto target = next_target ? next_target(entry, index + 1) : Json(nullptr);
+                const bool exact = !target.is_null() && target == jget(entry, "controls_target");
+                if (ordinary_cap(code) && exact) {
+                    ordinary_capped = true;
+                    if (continuation_target.is_null()) continuation_target = target;
+                } else if (pending_code(code)) {
+                    pending_targets_valid = pending_targets_valid && exact;
+                    if (exact) exact_pending_targets.push_back(target);
+                }
+            }
+            ordinary_capped = ordinary_capped && pending_targets_valid;
+            summary["pending_targets"] = std::move(exact_pending_targets);
+            if (!ordinary_capped) {
+                stop_run(pending_codes.empty() ? batch_stop : *pending_codes.begin());
+            } else if (!progressed) {
+                stop_run("no_new_progress");
+            } else if (continuation_target.is_null()) {
+                stop_run(batch_stop);  // no exact target: never probe
+            } else if (index == batch_limit) {
+                stop_run("run_batch_limit");
+            }
+        }
+        summary["continued"] = primary_stop.is_null();
+        if (primary_stop.is_null()) {
+            summary["continuation_target"] = continuation_target;
+        }
+        if (!controls::detail::canonical_sha256_stream(summary,
+                controls::detail::canonical_stream_chunk_default, 8191).ok) {
+            summary = emergency;
+            summary["report_sha256"] = canonical_sha;
+            summary["report_bytes"] = canonical_bytes;
+            summary["summary_truncated"] = true;
+            report_complete = false;
+            // B2 repair: an unformable bounded summary stops the run before
+            // another batch; it is never replaced by a misleading success stub.
+            stop_run("report_capacity");
+        }
+        summaries.push_back(std::move(summary));
+        // R03_REPORT/F4_COUNTS: checked totals accumulation — every new
+        // attempt holds exactly one new reservation in this Store, so the two
+        // checked columns share the same per-batch delta; an unknown delta
+        // observation makes the totals unknown without corrupting the prefix.
+        if (!attempts_delta_ok) totals.counts_complete = false;
+        {
+            const auto reported_network = jget(pump_report, "network_started_calls");
+            const auto reported_net_complete = jget(pump_report, "network_count_complete");
+            if (!fake_execution && (!reported_network.is_int64() || reported_network.as_int64() < 0 ||
+                    reported_network.as_int64() != observed_sent || reported_net_complete != true))
+                totals.network_count_complete = false;
+        }
+        // R03_REPORT: any relevant total/count/completeness failure prevents
+        // continued=true and another batch; the already-recorded summary is
+        // corrected rather than letting a decided continuation survive.
+        if (!totals.counts_complete || !totals.network_count_complete ||
+                                       !report_complete) {
+            if (primary_stop == "model_milestone" || primary_stop == "business_delivered") primary_stop = nullptr;
+            stop_run("report_incomplete");
+            if (!summaries.empty() && summaries.back().is_object() &&
+                    summaries.back().as_object().if_contains("continued") != nullptr)
+                summaries.back().as_object()["continued"] = false;
+            summaries.back().as_object()["stopped_after_incomplete_totals"] = true;
+        }
+        // Fake network zero is proven by the Fake execution type alone; a
+        // partial live observation leaves the total null with the known prefix
+        // only as an explicitly labelled lower bound in the final report.
+        } catch (...) {
+            report_complete = false;
+            totals.counts_complete = false;
+            if (!fake_execution) totals.network_count_complete = false;
+            stop_run("report_incomplete");
+            if (summaries.size() == summary_count_before) summaries.push_back(emergency);
+            else summaries.back() = emergency;
+            break;
+        }
+    }
+    if (primary_stop.is_null()) primary_stop = Json(std::string("run_batch_limit"));
+    // F4 repair: history and receipt facts are derived from complete original
+    // evidence, never hardcoded. history_complete follows the complete original
+    // attempt/feedback coverage on the final gate snapshot; the receipt is
+    // read and verified against the retained delivery identity before
+    // receipt_verified can become true. Status strings alone prove neither.
+    try {
+        const auto final_gate = store.controls_business_gate(request);
+        const auto* stagnation = final_gate.is_object()
+            ? final_gate.as_object().if_contains("stagnation") : nullptr;
+        history_complete = jstr(final_gate, "status") != "legacy" &&
+            stagnation && stagnation->is_object() && jget(*stagnation, "incomplete_tail") != true &&
+            jget(*stagnation, "active_tail") != true;
+    } catch (...) {
+        report_complete = false;
+        primary_stop = nullptr;
+        stop_run("report_incomplete");
+    }
+    // R03_FACTS: the delivery/receipt facts were derived per batch from the
+    // Store's complete original receipt verification (including the durable
+    // command fingerprint, retained publication and acceptance coverage);
+    // business_delivered already requires that verification, and the weaker
+    // status-only scan is intentionally NOT repeated here.
+    Object controls_profile{{"format", jget(marker, "format")},
+        {"config_sha256", jget(marker, "config_sha256")},
+        {"max_wall_minutes", jget(marker, "max_wall_minutes")},
+        {"warn_fraction", jget(marker, "warn_fraction")},
+        {"stall_same_error_repeats", jget(marker, "stall_same_error_repeats")}};
+    Object report{{"format", "wls-controls-run-v1"}, {"request_id", request}};
+    for (const auto& field : identity_fields.as_object()) report[field.key()] = field.value();
+    report["controls_profile"] = std::move(controls_profile);
+    report["batch_limit"] = batch_limit;
+    report["batches_started"] = started;
+    report["batches_completed"] = completed;
+    // B2 repair: checked actual aggregate totals. Unknown, missing or
+    // overflowed totals are null with counts_complete false; every new
+    // attempt holds exactly one new reservation in this Store, so the two
+    // checked columns share the same per-batch delta. The retained safe
+    // prefix is emitted only as an explicitly labelled lower bound.
+    report["attempts_total"] = totals.counts_complete ? Json(totals.attempts) : Json(nullptr);
+    if (!totals.counts_complete) report["attempts_total_lower_bound"] = totals.attempts;
+    report["new_reservations_total"] = totals.counts_complete ? Json(totals.new_reservations) : Json(nullptr);
+    if (!totals.counts_complete)
+        report["new_reservations_total_lower_bound"] = totals.new_reservations;
+    report["counts_complete"] = totals.counts_complete;
+    // LIVE completeness: the totals carry a value only for the verified
+    // conjunction of coverage over the actually observed batches; a partial
+    // observation keeps the exact total null and the known prefix only as an
+    // explicitly labelled lower bound, never as the total. Fake network zero
+    // is proven by the Fake execution type; a live provider call is exactly a
+    // started network model call under complete observation.
+    report["network_started_calls"] = totals.network_count_complete
+        ? Json(totals.network_started_calls) : Json(nullptr);
+    if (!totals.network_count_complete)
+        report["network_started_calls_lower_bound"] = totals.network_started_calls;
+    report["network_count_complete"] = totals.network_count_complete;
+    report["provider_calls"] = fake_execution ? Json(std::int64_t{0})
+        : (totals.network_count_complete ? Json(totals.network_started_calls) : Json(nullptr));
+    report["primary_stop"] = primary_stop;
+    report["stop_classes"] = std::move(stop_classes);
+    report["raw_stop_codes"] = std::move(raw_stop_codes);
+    report["model_milestone"] = model_milestone;
+    report["business_delivered"] = business_delivered;
+    report["delivery_receipt_verified"] = delivery_receipt_verified;
+    report["warning_status"] = warning_status;
+    report["history_complete"] = history_complete;
+    report["report_complete"] = report_complete;
+    // B2 repair: the terminal part (everything except the batch summaries)
+    // carries its own 65536-byte bound, checked before the summaries are
+    // attached; exceeding it marks the report incomplete instead of silently
+    // truncating facts.
+    const auto terminal_digest = controls::detail::canonical_sha256_stream(report,
+        controls::detail::canonical_stream_chunk_default, 65535);
+    if (!terminal_digest.ok) {
+        const auto identity_digest = controls::detail::canonical_sha256_stream(identity_fields);
+        for (const auto& field : identity_fields.as_object()) report.erase(field.key());
+        report["identity_fields_sha256"] = identity_digest.ok ? Json(identity_digest.sha256_hex_value) : Json(nullptr);
+        const auto raw_identity = controls::detail::canonical_sha256_stream(Array{report.at("stop_classes"), report.at("raw_stop_codes")});
+        report["stop_identity_sha256"] = raw_identity.ok ? Json(raw_identity.sha256_hex_value) : Json(nullptr);
+        report["stop_classes"] = Array{"capacity"};
+        report["raw_stop_codes"] = Array{"report_capacity"};
+        report["report_complete"] = false;
+        report["primary_stop"] = "capacity";
+    }
+    if (!controls::detail::canonical_sha256_stream(report,
+            controls::detail::canonical_stream_chunk_default, 65535).ok)
+        throw Error(ErrorCode::Storage, "delivery_of_report_failed: bounded terminal report unavailable");
+    report["batch_summaries"] = std::move(summaries);
+    if (!terminal_digest.ok || canonical_json(report).size() + 1 > 589824) {
+        // Replace raw detail with bounded identities; every batch remains
+        // represented and the aggregate digest includes every original entry.
+        const auto digest = controls::detail::canonical_sha256_stream(report.at("batch_summaries"));
+        Array identities;
+        for (const auto& summary : report.at("batch_summaries").as_array())
+            identities.push_back(Object{{"index", jget(summary, "index")},
+                {"report_sha256", jget(summary, "report_sha256")},
+                {"report_bytes", jget(summary, "report_bytes")},
+                {"attempt_set_sha256", jget(summary, "attempt_set_sha256")},
+                {"new_attempts", jget(summary, "new_attempts")}, {"completed", jget(summary, "completed")}});
+        report["batch_summaries"] = std::move(identities);
+        report["batch_identity_sha256"] = digest.ok ? Json(digest.sha256_hex_value) : Json(nullptr);
+        report["report_complete"] = false;
+        report["report_truncated"] = true;
+        report["primary_stop"] = "capacity";
+    }
+    if (canonical_json(report).size() + 1 > 589824)
+        throw Error(ErrorCode::Storage, "delivery_of_report_failed: bounded emergency report unavailable");
+    return report;
 }
 
 int run_cli(int argc, char** argv) {
@@ -563,7 +1316,7 @@ int run_cli(int argc, char** argv) {
         bound_sandbox_doctor_report(result);
         output(result); return 0;
     }
-    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "pump-live", "pump-single-fake", "pump-single-live", "live-status", "reconcile-billing", "inbox", "history", "history-page", "history-read", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "abandon-workspace", "owned-workspaces", "cleanup-workspaces", "reconcile-op", "capacity", "capacity-checkpoint"};
+    const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "pump-live", "pump-single-fake", "pump-single-live", "run-live", "live-status", "reconcile-billing", "inbox", "history", "history-page", "history-read", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "abandon-workspace", "owned-workspaces", "cleanup-workspaces", "reconcile-op", "capacity", "capacity-checkpoint"};
     if (!commands.contains(command)) throw Error(ErrorCode::InvalidInput, "unknown command: " + command);
     const auto database = options.required("--db");
     const MigrationRegistry migrations(resources);
@@ -1100,6 +1853,153 @@ int run_cli(int argc, char** argv) {
         output(single_agent
             ? SingleAgentRuntime(store, schemas, std::move(tools_by_node)).pump(request, script, pump_options)
             : EventRuntime(store, schemas, std::move(tools_by_node)).pump(request, script, pump_options));
+        return 0;
+    }
+    if (command == "run-live") {
+        const std::filesystem::path authorization_path = options.required("--authorization-file");
+        const auto billing_policy_path = options.take("--billing-policy-file");
+        const auto workspaces_file = options.take("--workspaces-file");
+        const auto paths = workspace_map(workspaces_file.empty() ? Json(Object{}) :
+            parse_json_strict(read_runtime_file(workspaces_file, 262144)), database);
+        const auto manifest_path = options.take("--sandbox-manifest");
+        if (!manifest_path.empty() && paths.empty())
+            throw Error(ErrorCode::InvalidInput, "sandbox manifest requires explicit task workspaces");
+        const auto manifest = manifest_path.empty() ? Json(Object{}) :
+            parse_json_strict(read_runtime_file(manifest_path, 262144));
+        options.finish();
+        const auto authorization_absolute = std::filesystem::absolute(authorization_path).lexically_normal();
+        const auto billing_absolute = billing_policy_path.empty() ? std::filesystem::path{} :
+            std::filesystem::absolute(billing_policy_path).lexically_normal();
+        for (const auto& [node, path] : paths) {
+            (void)node;
+            if (path_contains(path, authorization_absolute))
+                throw Error(ErrorCode::Unauthorized, "host authorization must be outside business workspaces");
+            if (!billing_absolute.empty() && path_contains(path, billing_absolute))
+                throw Error(ErrorCode::Unauthorized, "billing trust policy must be outside business workspaces");
+        }
+        const SchemaRegistry schemas(resources.schema_documents());
+        std::optional<BillingCliPolicy> billing_policy;
+        LiveCliAuthorization authorization;
+        std::string authorization_bytes;
+        {
+            Store inspect(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
+            inspect.validate_control_file_path(authorization_absolute);
+            if (!billing_absolute.empty()) inspect.validate_control_file_path(billing_absolute);
+            authorization_bytes = billing_cli_control_bytes(inspect, authorization_path);
+            authorization = live_cli_authorization(parse_json_strict(authorization_bytes, 65536));
+            billing_policy = billing_cli_policy(inspect, billing_policy_path);
+            validate_cli_model_topology(inspect, request, false);
+            validate_live_cli_authorization(inspect, request, authorization);
+            validate_billing_cli_authorization(inspect, request, authorization, billing_policy);
+            const auto frozen = restore_request_config(inspect.request(request));
+            for (const auto& entry : frozen.json().at("function").at("team_templates").as_object())
+                (void)worker_sandbox_policy(frozen, std::string(entry.key()), manifest);
+        }
+        // One request-scoped Takeover Store and one WorkerTools set serve the
+        // whole command; the authorization bytes are hashed once and never
+        // reread to obtain new quota.
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
+        store.validate_control_file_path(authorization_absolute);
+        validate_cli_model_topology(store, request, false);
+        validate_live_cli_authorization(store, request, authorization);
+        validate_billing_cli_authorization(store, request, authorization, billing_policy);
+        if (billing_policy) {
+            authorization.workflow.usage_evidence = [&store, policy = billing_policy->policy](
+                    const ModelRequest& call, const ModelResponse& response, const Json& settlement) {
+                return verify_observed_billing_receipt(store, policy, call, response, settlement);
+            };
+        }
+        std::vector<std::unique_ptr<WorkerTools>> owners;
+        std::map<std::string, WorkerTools*> tools_by_node;
+        for (const auto& [node, path] : paths) {
+            owners.push_back(std::make_unique<WorkerTools>(store, path, manifest));
+            tools_by_node.emplace(node, owners.back().get());
+        }
+        EventRuntime runtime(store, schemas, std::move(tools_by_node));
+        const auto budget = store.budget(request);
+        const auto batch_limit = std::min<std::int64_t>(
+            integer(budget.at("max_attempts")) - integer(budget.at("attempts")), 64);
+        Object identity{{"host_authorization_sha256", sha256_hex(authorization_bytes)},
+            {"script_source_sha256", nullptr}};
+        if (billing_policy) {
+            identity["billing_policy_sha256"] = billing_policy->bytes_sha256;
+            identity["billing_policy_canonical_sha256"] = billing_policy->policy.sha256();
+        }
+        output(controls_run_driver(store, request, batch_limit, false, identity,
+            [&](std::int64_t) { return runtime.pump_live(request, authorization.workflow); },
+            [&](const Json& entry, std::int64_t) { return runtime.controls_next_target(request, entry); }));
+        return 0;
+    }
+    if (command == "run-fake" && options.has("--scripts-file")) {
+        if (options.has("--script"))
+            throw Error(ErrorCode::InvalidInput, "--script and --scripts-file are mutually exclusive");
+        // Whole-file pre-parse before any Takeover or business effect; the
+        // original bytes are hash-frozen and never reread during execution.
+        const auto scripts = controls_scripts_document_from_bytes(
+            read_runtime_file(options.required("--scripts-file"), 1048576));
+        const auto workspaces_file = options.take("--workspaces-file");
+        const auto paths = workspace_map(workspaces_file.empty() ? Json(Object{}) :
+            parse_json_strict(read_runtime_file(workspaces_file, 262144)), database);
+        EventPumpOptions pump_options;
+        const auto dispositions_file = options.take("--dispositions-file");
+        if (!dispositions_file.empty())
+            pump_options.amendment_dispositions = parse_json_strict(read_runtime_file(dispositions_file, 262144));
+        validate_dispositions(pump_options.amendment_dispositions);
+        pump_options.max_calls = options.number("--max-calls", 12, 1);
+        pump_options.max_worker_calls_per_task = options.number("--worker-calls", 1, 1);
+        if (pump_options.max_calls > 64 || pump_options.max_worker_calls_per_task > 16)
+            throw Error(ErrorCode::InvalidInput, "run limit is 1..64 calls and 1..16 Worker calls per task");
+        const auto manifest_path = options.take("--sandbox-manifest");
+        if (!manifest_path.empty() && paths.empty())
+            throw Error(ErrorCode::InvalidInput, "sandbox manifest requires explicit task workspaces");
+        const auto manifest = manifest_path.empty() ? Json(Object{}) :
+            parse_json_strict(read_runtime_file(manifest_path, 262144));
+        options.finish();
+        const SchemaRegistry schemas(resources.schema_documents());
+        {
+            // Input qualification (batch budget vs the original remaining
+            // attempts) completes read-only, before any Takeover effect.
+            Store inspect(database, migrations, StoreOpenMode::ReadOnly, StoreRecoveryScope{});
+            validate_cli_model_topology(inspect, request, false);
+            const auto budget = inspect.budget(request);
+            const auto batch_limit = std::min<std::int64_t>(
+                integer(budget.at("max_attempts")) - integer(budget.at("attempts")), 64);
+            if (batch_limit < 1)
+                throw Error(ErrorCode::Quota, "run-fake requires at least one remaining original attempt");
+            if (static_cast<std::int64_t>(scripts.batches.size()) > batch_limit)
+                throw Error(ErrorCode::InvalidInput,
+                            "run-fake scripts exceed the bounded batch budget; input qualification failed");
+        }
+        Store store(database, migrations, StoreOpenMode::Takeover, StoreRecoveryScope::request(request));
+        validate_cli_model_topology(store, request, false);
+        std::vector<std::unique_ptr<WorkerTools>> owners;
+        std::map<std::string, WorkerTools*> tools_by_node;
+        for (const auto& [node, path] : paths) {
+            owners.push_back(std::make_unique<WorkerTools>(store, path, manifest));
+            tools_by_node.emplace(node, owners.back().get());
+        }
+        EventRuntime runtime(store, schemas, std::move(tools_by_node));
+        const auto budget = store.budget(request);
+        const auto batch_limit = std::min<std::int64_t>(
+            integer(budget.at("max_attempts")) - integer(budget.at("attempts")), 64);
+        if (batch_limit < 1)
+            throw Error(ErrorCode::Quota, "run-fake requires at least one remaining original attempt");
+        const auto batch_count = scripts.batches.size();
+        Object identity{{"host_authorization_sha256", nullptr},
+            {"script_source_sha256", scripts.source_sha256},
+            {"script_batches", static_cast<std::int64_t>(batch_count)},
+            {"script_total_steps", scripts.total_steps}};
+        output(controls_run_driver(store, request, batch_limit, true, identity, [&](std::int64_t index) {
+            // SCRIPT[i-1] is consumed only when batch i actually runs; a
+            // missing next script with remaining work reports script_exhausted,
+            // and an unused tail is counted, never run to clear notifications.
+            if (static_cast<std::size_t>(index - 1) >= scripts.batches.size())
+                throw Error(ErrorCode::InvalidInput, "script_exhausted: no script remains for this batch");
+            return runtime.pump(request, scripts.batches[static_cast<std::size_t>(index - 1)], pump_options);
+        }, [&](const Json& entry, std::int64_t next) -> Json {
+            if (next < 1 || static_cast<std::size_t>(next) > scripts.batches.size()) return nullptr;
+            return runtime.controls_next_target(request, entry, &scripts.batches[static_cast<std::size_t>(next - 1)]);
+        }));
         return 0;
     }
     if (command == "tool-query") {

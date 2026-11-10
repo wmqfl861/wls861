@@ -14,10 +14,12 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 
 
 if len(sys.argv) != 3:
@@ -79,6 +81,79 @@ class WorkerCliSmoke(unittest.TestCase):
         return self.invoke("tool-query", "--db", self.database, "--request", request_id,
                            "--task", task_id, "--workspace", workspace or self.workspace,
                            "--tool", tool, "--input", source, error=error)
+
+    # G1-3 FINAL v14 3 (D2) local original capture (s12 overwrite contract).
+    # The enable state is frozen by the execution environment's
+    # WLS_G1_EVIDENCE_ROOT key and is constant for one test process: a
+    # completely absent key disables only this optional capture I/O while
+    # every business action, assertion and fixture cleanup still runs (such a
+    # run never counts as retained evidence); a present value must name this
+    # run's bound owner-only directory -- absolute, a real directory rather
+    # than a symlink, owned by the current user, mode 0o700 -- and any other
+    # present value is an explicit evidence failure, never a silent fallback
+    # to a default location.
+    def evidence_root(self):
+        if "WLS_G1_EVIDENCE_ROOT" not in os.environ:
+            return None
+        root = os.environ["WLS_G1_EVIDENCE_ROOT"]
+        if not root.startswith("/"):
+            raise AssertionError(f"G1 evidence root must be absolute: {root!r}")
+        try:
+            info = os.lstat(root)
+        except OSError as error:
+            raise AssertionError(f"G1 evidence root not usable: {root!r}: {error}") from error
+        if (os.path.islink(root) or not stat.S_ISDIR(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o700):
+            raise AssertionError("G1 evidence root is not a bound absolute "
+                                 f"owner-only 0700 directory: {root!r}")
+        return Path(root)
+
+    def capture_evidence(self, name, payload):
+        root = self.evidence_root()
+        if root is None:
+            return None
+        target = root / f"s12_cli_smoke-{self._testMethodName}-{uuid.uuid4().hex}-{name}"
+        try:
+            descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                                 | os.O_NOFOLLOW, 0o600)
+        except OSError as error:
+            raise AssertionError("G1 evidence target cannot be created "
+                                 f"exclusively: {target}: {error}") from error
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            os.fchmod(stream.fileno(), 0o600)
+        return target
+
+    def capture_database(self, tag):
+        # Called only after the CLI subprocesses exited and this suite's
+        # read-only connections closed; copies the physical database plus any
+        # WAL/SHM sidecars that still exist at this capture point. The
+        # absent-key branch returns before any of these capture-only reads.
+        if self.evidence_root() is None:
+            return
+        for suffix, label in (("", "-database"), ("-wal", "-wal"), ("-shm", "-shm")):
+            source = Path(str(self.database) + suffix)
+            if source.exists():
+                self.capture_evidence(f"{tag}{label}", source.read_bytes())
+
+    def capture_workspace_effects(self, tag):
+        if self.evidence_root() is None:
+            return
+        effects = []
+        for path in sorted(self.workspace.rglob("*")):
+            relative = str(path.relative_to(self.workspace))
+            if path.is_file():
+                data = path.read_bytes()
+                effects.append({"path": relative, "type": "file", "bytes": len(data),
+                                "mode": oct(path.stat().st_mode & 0o777),
+                                "sha256": hashlib.sha256(data).hexdigest()})
+                self.capture_evidence(f"{tag}-file-" + relative.replace("/", "_"), data)
+            else:
+                effects.append({"path": relative, "type": "dir",
+                                "mode": oct(path.stat().st_mode & 0o777)})
+        self.capture_evidence(f"{tag}-effects.json",
+                              json.dumps(effects, ensure_ascii=False, indent=1).encode())
 
     def test_doctor_is_read_only_and_new_database_uses_current_schema(self):
         before = set(self.directory.iterdir())
@@ -196,11 +271,63 @@ class WorkerCliSmoke(unittest.TestCase):
         request_id = self.submit()
         (self.workspace / "result.txt").write_text("host supplied", encoding="utf-8")
         run = self.run_files(request_id)
-        self.assertEqual(len(run["calls"]), 3)
-        self.assertEqual(run["calls"][-1]["result"]["operation"]["status"], "FAILED")
-        self.assertEqual((self.workspace / "result.txt").read_text(), "host supplied")
-        self.assertEqual(len(self.rows("SELECT * FROM ops")), 1)
-        self.assertFalse(run["business_delivered"])
+        try:
+            # The original contract of this scenario is 3 calls: Dispatcher,
+            # TeamLead and the first Worker. The request-frozen same-call
+            # schema retry cap admits exactly `schema_retry_max` additional
+            # bounded correction rounds, so the legal upper bound is
+            # 3 + frozen cap, derived here from this request's own frozen
+            # configuration snapshot instead of a bare magic number.
+            snapshot = json.loads(self.rows("SELECT config_snapshot FROM requests WHERE request_id=?",
+                                            (request_id,))[0]["config_snapshot"])
+            frozen_cap = snapshot["system"]["context"]["schema_retry_max"]
+            self.assertEqual(frozen_cap, 2)
+            upper_bound = 3 + frozen_cap
+            self.assertEqual(len(run["calls"]), upper_bound)
+            self.assertEqual([call["role"] for call in run["calls"]],
+                             ["dispatcher", "team_lead", "worker", "worker", "worker"])
+            # The chain stopped exactly at the derived bound: no sixth
+            # attempt, send or business operation ever existed.
+            self.assertEqual(
+                self.rows("SELECT count(*) AS n FROM call_attempts WHERE request_id=?",
+                          (request_id,))[0]["n"], upper_bound)
+            self.assertEqual(run["budget"]["attempts"], upper_bound)
+            self.assertEqual(run["budget"]["spent_input"], 100 * upper_bound)
+            self.assertEqual(run["budget"]["spent_output"], 20 * upper_bound)
+            # The corrected rounds are exactly the scripted next steps: the
+            # diagnostic read observes the untouched host bytes and creates
+            # no operation; the write and the hash-mismatched patch each keep
+            # one immutable FAILED operation row.
+            self.assertEqual(run["calls"][3]["result"]["content"], "host supplied")
+            first_failure = run["calls"][2]["result"]
+            last_failure = run["calls"][-1]["result"]
+            for failure in (first_failure, last_failure):
+                self.assertEqual(failure["operation"]["status"], "FAILED")
+                self.assertEqual(failure["execution_result"]["observed_outcome"], "FAILED")
+                self.assertEqual(failure["execution_result"]["evidence"]["failure_kind"],
+                                 "content_precondition")
+                self.assertEqual(failure["correction_feedback"]["format"],
+                                 "wls-correction-feedback-v1")
+                self.assertEqual(failure["correction_feedback"]["reason"], "content_precondition")
+                self.assertTrue(failure["correction_feedback"]["correction_eligible"])
+            self.assertEqual([{"tool_id": row["tool_id"], "status": row["status"]}
+                              for row in self.rows("SELECT tool_id,status FROM ops ORDER BY rowid")],
+                             [{"tool_id": "fs_write", "status": "FAILED"},
+                              {"tool_id": "fs_patch", "status": "FAILED"}])
+            # The host-supplied original bytes survive verbatim; the failed
+            # chain never overwrote them nor created any new effect.
+            self.assertEqual((self.workspace / "result.txt").read_text(), "host supplied")
+            self.assertEqual([path.name for path in sorted(self.workspace.iterdir())],
+                             ["result.txt"])
+            self.assertFalse(run["business_delivered"])
+        finally:
+            # G1-3 FINAL v12 6.4: preserve the original command output,
+            # physical database and workspace effect inventory even on the
+            # RED/failure path, before TemporaryDirectory cleanup runs.
+            self.capture_evidence("overwrite-run-result.json",
+                                  json.dumps(run, ensure_ascii=False, indent=1).encode())
+            self.capture_database("overwrite")
+            self.capture_workspace_effects("overwrite")
 
     def test_invalid_new_options_do_not_open_a_writer(self):
         script = FIXTURES / "s12_fake_workspace.json"

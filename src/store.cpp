@@ -6,7 +6,10 @@
 #include "wls/model.hpp"
 #include "wls/live_model.hpp"
 #include "wls/owned_capacity.hpp"
+#include "wls/worker_tools.hpp"
 #include "amendment_disposition.hpp"
+#include "controls_detail.hpp"
+#include "correction_detail.hpp"
 
 #include <sqlite3.h>
 
@@ -32,6 +35,7 @@
 namespace wls::s1 {
 namespace {
 using Row = boost::json::object;
+using Object = boost::json::object;
 using Array = boost::json::array;
 
 [[noreturn]] void fail(ErrorCode code, const std::string& message) {
@@ -951,7 +955,195 @@ public:
             require(publication.as_object().contains(key) && publication.at(key) == plan.at(key), ErrorCode::Conflict, "publication changed frozen package identity");
         require(workflow_text(publication, "path", 4096) == str(plan.at("root_identity").as_object(), "path") + "/" + str(record, "delivery_id") &&
             workflow_text(publication, "files_sha256", 64) == sha256_hex(canonical_json(plan.at("manifest").at("files"))),
-            ErrorCode::Conflict, "publication changed frozen path or file inventory");
+                ErrorCode::Conflict, "publication changed frozen path or file inventory");
+    }
+    // R03_FACTS: current model-milestone facts. Every required task must hold a
+    // CURRENT acceptance (record hash, semantic binding and request revisions
+    // re-verified by current_acceptance) plus its exact original-source
+    // experience job DONE at the acceptance's own frozen revisions; the job is
+    // re-verified through experience_info. Status strings alone prove nothing.
+    Json controls_milestone_facts(const std::string& request_id) const {
+        if (!acceptance_schema)
+            return Json(Object{{"milestone", false}, {"complete", false},
+                               {"reason", "acceptance schema unavailable"}});
+        (void)request_row(request_id);
+        Array facts;
+        bool complete = true;
+        for (const auto& required : all(
+                "SELECT task_id FROM tasks WHERE request_id=? AND required=1", {request_id})) {
+            const auto task_id = str(required, "task_id");
+            const auto acceptance = current_acceptance(task_id);
+            if (!acceptance) { complete = false; continue; }
+            const auto source = execution_binding_from_json(
+                parse_json_strict(str(*acceptance, "producer_binding")));
+            const auto candidates = all(
+                "SELECT experience_id FROM experience_jobs WHERE request_id=? AND task_id=? "
+                "AND based_on_requirements_revision=? AND plan_revision=? AND task_revision=? "
+                "AND instruction_revision=? AND status='DONE'",
+                {request_id, task_id, source.requirements_revision, source.plan_revision,
+                 source.task_revision, source.instruction_revision});
+            Json info = nullptr;
+            for (const auto& job : candidates) {
+                const auto candidate = experience_info(str(job, "experience_id"));
+                const auto& snapshot = candidate.at("source_snapshot");
+                const auto& submission = snapshot.at("submission");
+                if (snapshot.at("acceptance") != acceptance_info(*acceptance) ||
+                        candidate.at("team_id") != Json(source.team_id) ||
+                        submission.at("submission_id") != acceptance->at("submission_id")) continue;
+                const auto current_submission = submission_info(str(*acceptance, "submission_id"));
+                bool exact = submission.at("acceptance") == snapshot.at("acceptance");
+                for (const auto* field : {"request_id", "task_id", "team_id", "body", "record_sha256", "original_binding", "artifact_snapshot"})
+                    exact = exact && submission.at(field) == current_submission.at(field);
+                const auto& report = candidate.at("report");
+                exact = exact && report.is_object() && candidate.at("report_ref") == report.at("report_id") &&
+                    report.at("experience_id") == candidate.at("experience_id") &&
+                    report.at("body").at("report_id") == candidate.at("report_ref") &&
+                    report.at("body").at("request_id") == Json(request_id) && report.at("body").at("task_id") == Json(task_id) &&
+                    report.at("body").at("team_id") == Json(source.team_id) &&
+                    semantic_binding_equal(execution_binding_from_json(report.at("captured_binding")), source, true);
+                if (!exact || !info.is_null()) { complete = false; continue; }
+                info = candidate;
+            }
+            if (info.is_null()) { complete = false; continue; }
+            facts.push_back(Object{{"task_id", task_id},
+                {"acceptance_id", str(*acceptance, "acceptance_id")},
+                {"experience_id", info.at("experience_id")},
+                {"source_sha256", str(info.as_object(), "source_sha256")}});
+        }
+        return Json(Object{{"milestone", complete && !facts.empty()},
+                           {"complete", complete}, {"tasks", std::move(facts)}});
+    }
+    // R03_FACTS: complete current original receipt verification for one
+    // request's retained confirmed package. The durable delivery_receipts
+    // command_sha256 is verified against the recomputed exact nine-field
+    // original intent (never waived because delivery_info omits the column),
+    // together with request/root/package/manifest identity, current captured
+    // revisions, recipient/method/key, the retained publication (reusing the
+    // read-only verify_publication semantics without any mutation) and the
+    // current acceptance/source coverage. A mutually matching stale pair or
+    // nonempty fields alone never verifies.
+    Json controls_receipt_facts(const std::string& request_id) const {
+        const auto text_of = [](const Json& value, const char* key) {
+            if (!value.is_object()) return std::string{};
+            const auto* found = value.as_object().if_contains(key);
+            return found && found->is_string() ? std::string(found->as_string()) : std::string{};
+        };
+        const auto int_of = [](const Json& value, const char* key, std::int64_t fallback) {
+            if (!value.is_object()) return fallback;
+            const auto* found = value.as_object().if_contains(key);
+            return found && found->is_int64() ? found->as_int64() : fallback;
+        };
+        if (!acceptance_schema)
+            return Json(Object{{"verified", false}, {"reason", "acceptance schema unavailable"}});
+        const auto request = request_row(request_id);
+        Object checks{{"request_delivered", str(request, "status") == "DELIVERED" &&
+                          str(request, "delivery_status") == "CONFIRMED"}};
+        const auto delivery = optional(
+            "SELECT * FROM delivery_runtime WHERE request_id=? AND status='CONFIRMED'", {request_id});
+        checks["confirmed_delivery"] = delivery.has_value();
+        if (!delivery)
+            return Json(Object{{"verified", false}, {"checks", std::move(checks)},
+                               {"reason", "no retained confirmed delivery"}});
+        const auto delivery_id = str(*delivery, "delivery_id");
+        // Frozen package identity: delivery_info re-verifies the plan and
+        // manifest fingerprint of this exact delivery.
+        const auto package = delivery_info(delivery_id);
+        const auto& frozen_plan = package.at("frozen_plan");
+        const auto& manifest = frozen_plan.at("manifest");
+        const auto receipt = optional("SELECT * FROM delivery_receipts WHERE delivery_id=?", {delivery_id});
+        checks["receipt_present"] = receipt.has_value();
+        if (!receipt)
+            return Json(Object{{"verified", false}, {"delivery_id", delivery_id},
+                               {"checks", std::move(checks)}, {"reason", "no durable receipt"}});
+        const auto body = parse_json_strict(str(*receipt, "body"), 16 * 1024 * 1024);
+        const Row intent{{"request_id", str(*receipt, "request_id")}, {"root_id", str(*receipt, "root_id")},
+            {"delivery_id", str(*receipt, "delivery_id")}, {"manifest_sha256", text_of(body, "manifest_sha256")},
+            {"requirements_revision", Json(int_of(body, "requirements_revision", -1))},
+            {"plan_revision", Json(int_of(body, "plan_revision", -1))},
+            {"recipient", text_of(body, "recipient")}, {"method", text_of(body, "method")},
+            {"idempotency_key", text_of(body, "idempotency_key")}};
+        checks["command_fingerprint"] =
+            sha256_hex(canonical_json(intent)) == str(*receipt, "command_sha256");
+        checks["receipt_request"] = str(*receipt, "request_id") == request_id &&
+            text_of(body, "request_id") == request_id && text_of(body, "receipt_id") == str(*receipt, "receipt_id");
+        checks["root_id"] = !str(*receipt, "root_id").empty() &&
+            str(*receipt, "root_id") == text_of(body, "root_id") && str(*receipt, "root_id") == str(request, "root_id");
+        checks["package_identity"] = text_of(body, "delivery_id") == delivery_id &&
+            text_of(body, "manifest_sha256") == str(*delivery, "manifest_sha256");
+        checks["revisions_current"] =
+            number(request, "requirements_revision") == number(*delivery, "requirements_revision") &&
+            number(request, "plan_revision") == number(*delivery, "plan_revision") &&
+            int_of(body, "requirements_revision", -1) == number(*delivery, "requirements_revision") &&
+            int_of(body, "plan_revision", -1) == number(*delivery, "plan_revision");
+        const auto method = text_of(body, "method");
+        checks["recipient_method_key"] = !text_of(body, "recipient").empty() &&
+            (method == "durable_local" || method == "explicit_ack") &&
+            !text_of(body, "idempotency_key").empty() &&
+            text_of(body, "idempotency_key") == str(*receipt, "idempotency_key");
+        checks["captured_bindings"] = semantic_binding_equal(execution_binding_from_json(body.at("captured_binding")),
+            request_binding(request_id), true) && semantic_binding_equal(execution_binding_from_json(package.at("captured_binding")),
+            request_binding(request_id), true);
+        checks["manifest_current"] = manifest.at("request_id") == Json(request_id) && manifest.at("delivery_id") == Json(delivery_id) &&
+            manifest.at("requirements_revision") == request.at("requirements_revision") &&
+            manifest.at("plan_revision") == request.at("plan_revision");
+        const auto ack = optional("SELECT payload,result,command_sha256 FROM events WHERE request_id=? AND command_id=? AND type='acknowledge_delivery'",
+            {request_id, "receipt:" + str(*receipt, "receipt_id")});
+        checks["original_ack"] = ack && parse_json_strict(str(*ack, "payload")).at("captured_binding") == body.at("captured_binding") &&
+            parse_json_strict(str(*ack, "result"), 16U * 1024U * 1024U).at("receipt") == body &&
+            sha256_hex(canonical_json(parse_json_strict(str(*ack, "payload")))) == str(*ack, "command_sha256");
+        if (ack)
+            for (const auto& field : body.as_object())
+                checks["original_ack"] = checks.at("original_ack") == true &&
+                    parse_json_strict(str(*ack, "payload")).at(field.key()) == field.value();
+        bool publication_ok = false;
+        try {
+            verify_publication(*delivery, parse_json_strict(str(*delivery, "publication")));
+            verify_publication(*delivery, body.at("publication"));
+            const auto prepared = optional("SELECT payload FROM events WHERE request_id=? AND type='prepare_delivery' AND json_extract(result,'$.delivery_id')=?",
+                {request_id, delivery_id});
+            require(prepared && parse_json_strict(str(*prepared, "payload")).at("binding") == package.at("captured_binding"),
+                ErrorCode::Corrupt, "delivery captured binding differs from original preparation");
+            publication_ok = true;
+        } catch (const Error&) {
+            publication_ok = false;
+        }
+        checks["publication_verified"] = publication_ok;
+        bool coverage_ok = true;
+        std::set<std::string> covered;
+        const auto acceptance_snapshot = parse_json_strict(str(*delivery, "acceptance_snapshot"));
+        for (const auto& evidence : acceptance_snapshot.as_array()) {
+            const auto saved_id = text_of(evidence, "acceptance_id");
+            const auto current = current_acceptance(text_of(evidence, "task_id"));
+            if (!covered.insert(text_of(evidence, "task_id")).second) coverage_ok = false;
+            if (!current || str(*current, "acceptance_id") != saved_id ||
+                    str(*current, "record_sha256") != text_of(evidence, "record_sha256")) {
+                coverage_ok = false;
+                break;
+            }
+        }
+        for (const auto& required : all(
+                "SELECT task_id FROM tasks WHERE request_id=? AND required=1", {request_id}))
+            if (!covered.contains(str(required, "task_id"))) { coverage_ok = false; break; }
+        std::set<std::string> expected_artifacts, actual_artifacts;
+        for (const auto& task_id : covered) {
+            const auto current = current_acceptance(task_id);
+            if (!current) { coverage_ok = false; continue; }
+            const auto submission = submission_info(str(*current, "submission_id"));
+            for (const auto& original : submission.at("artifact_snapshot").as_array())
+                expected_artifacts.insert(canonical_json(Array{task_id, current->at("acceptance_id"), current->at("submission_id"),
+                    original.at("path"), original.at("sha256"), original.at("size_bytes")}));
+        }
+        for (const auto& artifact : manifest.at("artifacts").as_array()) {
+            if (!actual_artifacts.insert(canonical_json(Array{artifact.at("task_id"), artifact.at("acceptance_id"),
+                    artifact.at("submission_id"), artifact.at("source_path"), artifact.at("sha256"), artifact.at("size_bytes")})).second)
+                coverage_ok = false;
+        }
+        checks["acceptance_coverage"] = coverage_ok && expected_artifacts == actual_artifacts;
+        bool verified = true;
+        for (const auto& [key, value] : checks)
+            if (!(value.is_bool() && value.as_bool())) { verified = false; break; }
+        return Json(Object{{"verified", verified}, {"delivery_id", delivery_id},
+                           {"receipt_id", str(*receipt, "receipt_id")}, {"checks", std::move(checks)}});
     }
     void retain_closeout(const Row& request, const std::string& delivery_path = {}, const std::string& manifest_hash = {}) {
         if (!acceptance_schema || optional("SELECT request_id FROM receipts WHERE request_id=?", {str(request, "request_id")})) return;
@@ -1266,6 +1458,613 @@ public:
         return parse_json_strict(str(*row, "result"), 16 * 1024 * 1024);
     }
 #include "store_capacity.inc"
+
+    // --- G1-6 Controls v1 (FINAL v24): admission marker, deadline/stagnation
+    // business gates and the post-commit budget-warning observer. All state is
+    // folded from the existing immutable event/attempt/feedback rows; no SQL or
+    // migration changes. Requests admitted before Controls have no marker and
+    // keep their frozen legacy semantics for every original path.
+
+    static Json controls_time_json(wls::controls::detail::clock_time value) {
+        return Object{{"seconds", value.seconds}, {"nanoseconds", value.nanoseconds}};
+    }
+    static wls::controls::detail::clock_time controls_time_from_json(const Json& value) {
+        wls::controls::detail::clock_time result;
+        if (value.is_object()) {
+            result.seconds = number(value.as_object(), "seconds");
+            result.nanoseconds = static_cast<std::int32_t>(number(value.as_object(), "nanoseconds"));
+        }
+        return result;
+    }
+    static std::string controls_text(const Json& value, std::string_view key) {
+        if (!value.is_object()) return {};
+        const auto* found = value.as_object().if_contains(key);
+        return found && found->is_string() ? std::string(found->as_string()) : std::string();
+    }
+    Json controls_marker(const std::string& request_id) const {
+        if (!events_schema) return nullptr;
+        const auto row = optional("SELECT result FROM events WHERE request_id=? AND type='controls_admission' ORDER BY seq LIMIT 1", {request_id});
+        if (!row) return nullptr;
+        return parse_json_strict(str(*row, "result"), 65536);
+    }
+    // F2 repair (FINAL v24 repair record): a PRESENT marker that is not the
+    // exact identity-bound wls-request-controls-v1 document is corrupt and a
+    // typed closed stop at every new-business consumer; only a truly absent
+    // marker row keeps the frozen legacy semantics. Validation covers the
+    // exact format string, the frozen request/config identity, the complete
+    // JSON type/range shape of both UTC anchors, both boot samples and the
+    // absolute boot limit, the wallclock duration, the warning rational and
+    // the persisted stall threshold; duplicate marker rows are rejected
+    // instead of silently choosing one.
+    static bool controls_marker_time(const Json& marker, const char* key,
+                                     std::int64_t& seconds, std::int64_t& nanoseconds) {
+        if (!marker.is_object()) return false;
+        const auto* value = marker.as_object().if_contains(key);
+        if (!value || !value->is_object()) return false;
+        const auto& object = value->as_object();
+        const auto* stored_seconds = object.if_contains("seconds");
+        const auto* stored_nanoseconds = object.if_contains("nanoseconds");
+        if (!stored_seconds || !stored_seconds->is_int64() ||
+                !stored_nanoseconds || !stored_nanoseconds->is_int64())
+            return false;
+        seconds = stored_seconds->as_int64();
+        nanoseconds = stored_nanoseconds->as_int64();
+        return seconds >= 0 && seconds <= 9'223'372'036'854 && nanoseconds >= 0 &&
+            nanoseconds <= 999'999'999;
+    }
+    std::string controls_marker_corruption(const Json& marker, const std::string& request_id) const {
+        if (marker.is_null() || !marker.is_object())
+            return "stored controls_admission marker is JSON null or not an object";
+        const auto& object = marker.as_object();
+        const auto* format = object.if_contains("format");
+        if (!format || !format->is_string() ||
+                std::string_view(format->as_string()) != "wls-request-controls-v1")
+            return "marker format is not exactly wls-request-controls-v1";
+        const auto current = optional("SELECT config_snapshot_sha256 FROM requests WHERE request_id=?", {request_id});
+        const auto* config = object.if_contains("config_sha256");
+        if (!current || !config || !config->is_string() ||
+                std::string_view(config->as_string()) != str(*current, "config_snapshot_sha256"))
+            return "marker config identity does not match the frozen request configuration";
+        const auto* boot_id = object.if_contains("boot_id");
+        if (!boot_id || !boot_id->is_string() || std::string_view(boot_id->as_string()).empty())
+            return "marker boot identity is missing";
+        const auto bounded_integer = [&](const char* key) -> bool {
+            const auto* found = object.if_contains(key);
+            return found && found->is_int64() && found->as_int64() >= 1 &&
+                found->as_int64() <= 1'000'000'000'000;
+        };
+        if (!bounded_integer("max_wall_minutes"))
+            return "marker max_wall_minutes is outside its validated bound";
+        if (!bounded_integer("stall_same_error_repeats"))
+            return "marker stall_same_error_repeats is outside its validated bound";
+        const auto* fraction = object.if_contains("warn_fraction");
+        if (!fraction || !fraction->is_object()) return "marker warn_fraction is not an object";
+        const auto* numerator = fraction->as_object().if_contains("numerator");
+        const auto* denominator = fraction->as_object().if_contains("denominator");
+        if (!numerator || !numerator->is_int64() || !denominator || !denominator->is_int64() ||
+                numerator->as_int64() < 1 || denominator->as_int64() < 1 ||
+                numerator->as_int64() >= denominator->as_int64())
+            return "marker warn_fraction is not a bounded rational below one";
+        std::int64_t created_seconds = 0, created_nanoseconds = 0, deadline_seconds = 0, deadline_nanoseconds = 0;
+        std::int64_t before_seconds = 0, before_nanoseconds = 0, after_seconds = 0, after_nanoseconds = 0;
+        std::int64_t limit_seconds = 0, limit_nanoseconds = 0;
+        if (!controls_marker_time(marker, "created_at_utc", created_seconds, created_nanoseconds) ||
+                !controls_marker_time(marker, "deadline_utc", deadline_seconds, deadline_nanoseconds) ||
+                !controls_marker_time(marker, "boot_before", before_seconds, before_nanoseconds) ||
+                !controls_marker_time(marker, "boot_after", after_seconds, after_nanoseconds) ||
+                !controls_marker_time(marker, "boot_limit", limit_seconds, limit_nanoseconds))
+            return "marker time anchors are malformed or out of range";
+        if (before_seconds > after_seconds ||
+                (before_seconds == after_seconds && before_nanoseconds > after_nanoseconds))
+            return "marker boot samples are not ordered";
+        const auto minutes = object.at("max_wall_minutes").as_int64() * 60;
+        if ((deadline_seconds - created_seconds) != minutes || deadline_nanoseconds != created_nanoseconds)
+            return "marker deadline does not match the frozen wallclock minutes";
+        if ((limit_seconds - before_seconds) != minutes || limit_nanoseconds != before_nanoseconds)
+            return "marker boot limit is not the original admission anchor limit";
+        return {};
+    }
+    Json controls_gate_state(const std::string& request_id) const {
+        if (!events_schema) return Json(Object{{"status", "legacy"}});
+        const auto row = optional("SELECT result FROM events WHERE request_id=? AND type='controls_admission' ORDER BY seq LIMIT 1", {request_id});
+        if (!row) return Json(Object{{"status", "legacy"}});
+        const auto marker_stop = [&](const std::string& reason) {
+            return Json(Object{{"status", "stop"}, {"stop_class", "controls_marker_corrupt"},
+                               {"reason", reason}});
+        };
+        if (number(one("SELECT COUNT(*) AS n FROM events WHERE request_id=? AND type='controls_admission'", {request_id}), "n") != 1)
+            return marker_stop("more than one controls_admission marker row exists for this request");
+        Json marker;
+        try {
+            marker = parse_json_strict(str(*row, "result"), 65536);
+        } catch (const std::exception&) {
+            return marker_stop("stored controls_admission bytes are not strict bounded JSON");
+        }
+        if (const auto corruption = controls_marker_corruption(marker, request_id); !corruption.empty())
+            return marker_stop(corruption);
+        const auto sampled = wls::controls::detail::sample_host_clock();
+        if (sampled.status != wls::controls::detail::host_sample_status::ok)
+            return Json(Object{{"status", "stop"}, {"stop_class", "controls_clock_unavailable"},
+                               {"reason", "host clock sampling failed"}});
+        const auto limit = controls_time_from_json(marker.at("boot_limit"));
+        const auto gate = wls::controls::detail::evaluate_deadline(
+            controls_text(marker, "boot_id"), limit, sampled.sample.boot_id_after, sampled.sample.boot_after);
+        if (gate == wls::controls::detail::deadline_gate::within_limit)
+            return Json(Object{{"status", "open"}, {"boot_id", controls_text(marker, "boot_id")},
+                               {"boot_limit", marker.at("boot_limit")},
+                               {"deadline_utc", marker.at("deadline_utc")}});
+        if (gate == wls::controls::detail::deadline_gate::expired)
+            return Json(Object{{"status", "stop"}, {"stop_class", "deadline"},
+                               {"reason", "request boot deadline reached before new business"},
+                               {"deadline_utc", marker.at("deadline_utc")}});
+        return Json(Object{{"status", "stop"}, {"stop_class", "controls_clock_unavailable"},
+                           {"reason", gate == wls::controls::detail::deadline_gate::boot_changed
+                                          ? "admission boot identity no longer matches this host"
+                                          : "stored admission anchor is malformed"}});
+    }
+    // Persistent consecutive-eligible-failure streak folded from the immutable
+    // attempt/feedback history. F3 persistent fold (FINAL v24 repair02): the
+    // fold consumes the immutable committed feedback EVENT sequence, never the
+    // reservation rowid; cross-request event seq holes are legal and never
+    // fabricate missing history. The frozen semantic actor scope keeps the
+    // request/config identity, Worker principal/task/node and the semantic
+    // requirement/plan/task/instruction revisions from each attempt's own
+    // immutable original binding; the host failure layer/reason and declared
+    // tool class form the failure key INSIDE that scope, so message, call IDs,
+    // epochs, state versions and claims stay excluded. Only a real same-scope
+    // accepted+settled COMPLETED success resets the whole scope, including
+    // every older failure-key streak in it; replayed observations and sibling
+    // successes never do.
+    Json controls_stagnation_state(const std::string& request_id, const std::string& completing = {}) const {
+        const auto marker = controls_marker(request_id);
+        if (marker.is_null()) return Json(Object{{"status", "legacy"}});
+        if (const auto corruption = controls_marker_corruption(marker, request_id); !corruption.empty())
+            return Json(Object{{"status", "stop"}, {"stop_class", "controls_marker_corrupt"},
+                               {"reason", corruption}});
+        const auto repeats = number(marker.as_object(), "stall_same_error_repeats");
+        struct Scope {
+            std::int64_t streak = 0;      // consecutive run of the current failure key
+            std::string current_key;      // host failure layer/reason/tool class
+            int trailing = 0;             // 1 eligible failure, 2 success, 0 skipped/incomplete
+        };
+        std::map<std::string, Scope> scopes;
+        bool incomplete_tail = false;
+        bool active_tail = false;
+        std::int64_t success_count = 0, success_max_event_seq = 0;
+        std::string success_witness;
+        bool witness_complete = true;
+        const auto rows = all(
+            "SELECT c.attempt_id,c.role,c.principal_id,COALESCE(c.task_id,'') AS task_id,"
+            "COALESCE(c.team_id,'') AS team_id,c.status,c.accepted,"
+            "c.config_snapshot_sha256,f.result AS feedback,f.response AS feedback_response,"
+            "f.record_sha256 AS record_sha256,f.original_binding AS original_binding,"
+            "c.frozen_binding,c.request_envelope,c.response,c.call_id,c.settlement_sha256,"
+            "fe.seq AS feedback_seq,se.seq AS settle_seq,fe.payload AS feedback_payload,"
+            "fe.result AS feedback_event_result,fe.command_id AS feedback_command_id,"
+            "fe.command_sha256 AS feedback_command_sha256,se.payload AS settlement_payload,"
+            "se.result AS settlement_result,se.command_id AS settlement_command_id,se.command_sha256 AS settlement_command_sha256 "
+            "FROM call_attempts c "
+            "LEFT JOIN model_tool_feedback f ON f.attempt_id=c.attempt_id "
+            "LEFT JOIN events fe ON fe.request_id=c.request_id AND fe.type='tool_feedback' "
+            " AND json_extract(fe.payload,'$.attempt_id')=c.attempt_id "
+            "LEFT JOIN events se ON se.request_id=c.request_id AND se.type='settle_attempt' "
+            " AND json_extract(se.payload,'$.attempt_id')=c.attempt_id "
+            "WHERE c.request_id=? ORDER BY COALESCE(fe.seq,se.seq,c.rowid)", {request_id});
+        std::set<std::string> folded_attempts;
+        for (const auto& row : rows) {
+            const auto settled = str(row, "status") != "PENDING" && str(row, "status") != "UNKNOWN";
+            const auto& feedback = row.at("feedback");
+            if (feedback.is_null()) {
+                if (str(row, "status") == "PENDING") active_tail = true;
+                // F3 repair (v12 §2): a settled attempt with missing original
+                // feedback is itself an incomplete tail, never silently skipped.
+                if (str(row, "status") != "PENDING" && str(row, "attempt_id") != completing) incomplete_tail = true;
+                continue;
+            }
+            if (!folded_attempts.insert(str(row, "attempt_id")).second) {
+                // Exact attempt/feedback dedup: a duplicate join row never folds
+                // twice and stays visible as an incomplete tail.
+                incomplete_tail = true;
+                continue;
+            }
+            // R03_FOLD: before any row can fold as trusted evidence it must
+            // prove its immutable feedback record hash and its committed
+            // feedback-event association. A settle-only or rowid fallback
+            // order never validates a missing feedback event; the affected
+            // evidence is incomplete and closes new business instead.
+            if (!row.at("feedback_seq").is_int64()) {
+                incomplete_tail = true;
+                continue;
+            }
+            bool record_hash_ok = false;
+            std::string original_node, declared_tool = "<missing-tool-call>";
+            ModelResponse original_response;
+            try {
+                const Row feedback_fact{{"attempt_id", str(row, "attempt_id")},
+                    {"original_binding", parse_json_strict(str(row, "original_binding"), 65536)},
+                    {"response", parse_json_strict(str(row, "feedback_response"), 4U * 1024U * 1024U)},
+                    {"result", parse_json_strict(str(row, "feedback"), 4U * 1024U * 1024U)}};
+                record_hash_ok =
+                    sha256_hex(canonical_json(feedback_fact)) == str(row, "record_sha256");
+                const auto binding_fact = feedback_fact.at("original_binding");
+                const auto original_request = model_request_from_json(parse_json_strict(str(row, "request_envelope"), 4U * 1024U * 1024U));
+                original_response = model_response_from_json(feedback_fact.at("response"));
+                validate_response(original_request, original_response);
+                const auto fp = parse_json_strict(str(row, "feedback_payload"), 65536);
+                const auto fr = parse_json_strict(str(row, "feedback_event_result"), 65536);
+                const auto sp = parse_json_strict(str(row, "settlement_payload"), 4U * 1024U * 1024U);
+                const auto sr = parse_json_strict(str(row, "settlement_result"), 4U * 1024U * 1024U);
+                record_hash_ok = record_hash_ok && row.at("settle_seq").is_int64() &&
+                    row.at("settle_seq").as_int64() < row.at("feedback_seq").as_int64() &&
+                    binding_fact == parse_json_strict(str(row, "frozen_binding")) &&
+                    binding_fact == to_json(original_request.binding) &&
+                    feedback_fact.at("response") == parse_json_strict(str(row, "response"), 4U * 1024U * 1024U) &&
+                    original_request.attempt_id == str(row, "attempt_id") && original_request.call_id == str(row, "call_id") &&
+                    original_request.config_snapshot_id == str(row, "config_snapshot_sha256") &&
+                    role_name(original_request.role) == str(row, "role") &&
+                    original_request.binding.request_id == request_id &&
+                    original_request.binding.task_id == str(row, "task_id") && original_request.binding.team_id == str(row, "team_id") &&
+                    fp.at("binding") == binding_fact && fp.at("attempt_id") == feedback_fact.at("attempt_id") &&
+                    fp.at("record_sha256") == row.at("record_sha256") && fp.at("type") == "tool_feedback" &&
+                    fr.at("attempt_id") == fp.at("attempt_id") && fr.at("record_sha256") == fp.at("record_sha256") &&
+                    str(row, "feedback_command_id") == "feedback:" + original_request.attempt_id &&
+                    sha256_hex(canonical_json(fp)) == str(row, "feedback_command_sha256") &&
+                    str(row, "settlement_command_id") == "settle:" + original_request.attempt_id &&
+                    sp.at("binding") == binding_fact && sp.at("response") == feedback_fact.at("response") &&
+                    sp.at("attempt_id") == fp.at("attempt_id") && sp.at("type") == "settle_attempt" &&
+                    sha256_hex(canonical_json(sp)) == str(row, "settlement_sha256") &&
+                    str(row, "settlement_command_sha256") == str(row, "settlement_sha256") &&
+                    sr.at("attempt_id") == fp.at("attempt_id") && sr.at("settlement_sha256") == row.at("settlement_sha256") &&
+                    sr.at("frozen_binding") == binding_fact && sr.at("response") == feedback_fact.at("response");
+                for (const auto* field : {"call_id", "principal_id", "role", "config_snapshot_sha256", "status", "accepted"})
+                    record_hash_ok = record_hash_ok && sr.at(field) == row.at(field);
+                if (!original_request.binding.task_id.empty()) {
+                    const auto contract = model_contract(original_request);
+                    original_node = str(contract.at("task").as_object(), "node_id");
+                    record_hash_ok = record_hash_ok && !original_node.empty() &&
+                        contract.at("task").at("task_id") == Json(original_request.binding.task_id) &&
+                        contract.at("binding") == binding_fact;
+                }
+                if (original_response.tool_calls.size() == 1) {
+                    declared_tool = original_response.tool_calls.front().name;
+                    record_hash_ok = record_hash_ok && std::find(original_request.context.tool_names.begin(),
+                        original_request.context.tool_names.end(), declared_tool) != original_request.context.tool_names.end();
+                }
+            } catch (const std::exception&) {
+                record_hash_ok = false;
+            }
+            if (!record_hash_ok) {
+                incomplete_tail = true;
+                continue;
+            }
+            const auto feedback_object = parse_json_strict(str(row, "feedback"), 4U * 1024U * 1024U);
+            std::string layer = "none", reason = "none", tool_class = declared_tool;
+            const Json* correction = &feedback_object;
+            if (feedback_object.is_object() && feedback_object.as_object().contains("correction_feedback"))
+                correction = &feedback_object.at("correction_feedback");
+            if (correction->is_object()) {
+                if (const auto* found = correction->as_object().if_contains("failure_layer"); found && found->is_string())
+                    layer = std::string(found->as_string());
+                if (const auto* found = correction->as_object().if_contains("reason"); found && found->is_string())
+                    reason = std::string(found->as_string());
+            }
+            // R03_FOLD: recognize the ACTUAL top-level replayed/executed_now
+            // flags the executor emits, in addition to the original operation
+            // replay fact. A replay is neither a fresh eligible failure nor a
+            // fresh success for this fold.
+            const bool top_level_replay = feedback_object.is_object() &&
+                feedback_object.as_object().contains("replayed") &&
+                feedback_object.at("replayed") == true;
+            if (top_level_replay || (feedback_object.is_object() &&
+                    feedback_object.as_object().contains("executed_now") && feedback_object.at("executed_now") == false)) continue;
+            if (feedback_object.is_object() && feedback_object.as_object().contains("operation")) {
+                const auto& operation = feedback_object.at("operation");
+                if (operation.is_object() && operation.as_object().contains("replayed") &&
+                        operation.at("replayed") == true)
+                    continue;
+            }
+            // F3 repair: the semantic revisions come from the attempt's own
+            // immutable original feedback binding, never the mutable current
+            // task row and never a rowid substitute for original provenance.
+            // The frozen requirements revision belongs to the semantic scope
+            // exactly like the plan/task/instruction revisions.
+            std::int64_t requirements_revision = 1, task_revision = 0, plan_revision = 0,
+                instruction_revision = 0;
+            try {
+                const auto original = execution_binding_from_json(
+                    parse_json_strict(str(row, "original_binding"), 65536));
+                requirements_revision = original.requirements_revision;
+                task_revision = original.task_revision;
+                plan_revision = original.plan_revision;
+                instruction_revision = original.instruction_revision;
+            } catch (const std::exception&) {
+                incomplete_tail = true;
+                continue;
+            }
+            const auto scope_key = canonical_json(Array{request_id, str(row, "config_snapshot_sha256"), str(row, "role"),
+                str(row, "principal_id"), original_node, str(row, "task_id"), requirements_revision,
+                task_revision, plan_revision, instruction_revision});
+            auto& scope = scopes[scope_key];
+            const auto settle_seq = [&] {
+                const auto& value = row.at("settle_seq");
+                return value.is_int64() ? value.as_int64() : 0;
+            }();
+            // R03_FOLD: accepted is the response/current-binding settlement
+            // fact, never trusted host-tool success. A fresh original trusted
+            // eligible failure keeps its Correction host classification even
+            // when accepted == 1; only a settled COMPLETED attempt that is NOT
+            // an eligible failure and NOT an error/non-effect observation may
+            // reset its scope. Text-only missing_tool_call, invalid_arguments,
+            // not_found, content_precondition, replay and unknown results
+            // therefore never become success.
+            const bool eligible_failure = settled &&
+                correction_detail::correction_eligible_result(feedback_object);
+            bool trusted_success = false;
+            try {
+                const auto& operation = feedback_object.is_object() && feedback_object.as_object().contains("operation")
+                    ? feedback_object.at("operation") : feedback_object;
+                if (str(row, "role") == "worker" && original_response.tool_calls.size() == 1 &&
+                        operation.is_object() && operation.as_object().contains("op_id") &&
+                        worker_tool_definition(declared_tool).category == ToolClass::Business) {
+                    const auto op = op_row(str(operation.as_object(), "op_id"));
+                    const auto& call = original_response.tool_calls.front();
+                    const auto prepared = optional("SELECT seq,payload,result,command_sha256 FROM events WHERE request_id=? AND command_id=? AND type='prepare_op'",
+                        {request_id, str(row, "attempt_id") + ":" + call.call_id + ":prepare"});
+                    // Both WorkerTools and the original note path use a durable
+                    // prepare command owned by THIS original call, never op_status.
+                    trusted_success = prepared && number(*prepared, "seq") < number(row, "feedback_seq") &&
+                        str(op, "request_id") == request_id && str(op, "task_id") == str(row, "task_id") &&
+                        str(op, "team_id") == str(row, "team_id") && str(op, "tool_id") == declared_tool &&
+                        str(op, "status") == "SUCCEEDED" && str(operation.as_object(), "status") == "SUCCEEDED" &&
+                        parse_json_strict(str(*prepared, "result")).at("op_id") == op.at("op_id") &&
+                        str(op, "business_idempotency_key") == str(row, "attempt_id") &&
+                        str(op, "args_sha256") == sha256_hex(canonical_json(call.arguments)) &&
+                        sha256_hex(canonical_json(parse_json_strict(str(*prepared, "payload")))) == str(*prepared, "command_sha256");
+                    const auto result = result_info(str(op, "op_id"));
+                    if (feedback_object.as_object().contains("execution_result")) {
+                        trusted_success = trusted_success && feedback_object.at("executed_now") == true &&
+                            feedback_object.at("execution_result") == result && !result.is_null() &&
+                            result.at("accepted") == 1 && result.at("observed_outcome") == "SUCCEEDED" &&
+                            result.at("original_binding") == parse_json_strict(str(row, "original_binding"));
+                        const Row fact{{"op_id", op.at("op_id")}, {"original_binding", result.at("original_binding")},
+                            {"outcome", result.at("observed_outcome")}, {"result", result.at("result")}, {"evidence", result.at("evidence")},
+                            {"stdout_bytes", result.at("stdout_bytes")}, {"stderr_bytes", result.at("stderr_bytes")},
+                            {"stdout_sha256", result.at("stdout_sha256")}, {"stderr_sha256", result.at("stderr_sha256")},
+                            {"stdout_truncated", result.at("stdout_truncated") == 1}, {"stderr_truncated", result.at("stderr_truncated") == 1}};
+                        const auto recorded = optional("SELECT seq,payload,result,command_sha256 FROM events WHERE request_id=? AND command_id=? AND type='record_op_result'",
+                            {request_id, "result:" + str(op, "op_id")});
+                        trusted_success = trusted_success && Json(sha256_hex(canonical_json(fact))) == result.at("record_sha256") &&
+                            recorded && number(*recorded, "seq") < number(row, "feedback_seq") &&
+                            parse_json_strict(str(*recorded, "result")) == result &&
+                            parse_json_strict(str(*recorded, "payload")).at("record_sha256") == result.at("record_sha256") &&
+                            sha256_hex(canonical_json(parse_json_strict(str(*recorded, "payload")))) == str(*recorded, "command_sha256");
+                    }
+                    else {
+                        const auto finished = optional("SELECT seq,payload,result,command_sha256 FROM events WHERE request_id=? AND command_id=? AND type='finish_op'",
+                            {request_id, str(row, "attempt_id") + ":" + call.call_id + ":finish"});
+                        trusted_success = trusted_success && finished && number(*finished, "seq") < number(row, "feedback_seq") &&
+                            parse_json_strict(str(*finished, "result")) == feedback_object && declared_tool == "note" &&
+                            parse_json_strict(str(*finished, "payload")).at("binding") == parse_json_strict(str(row, "original_binding")) &&
+                            parse_json_strict(str(*finished, "payload")).at("op_id") == op.at("op_id") &&
+                            sha256_hex(canonical_json(parse_json_strict(str(*finished, "payload")))) == str(*finished, "command_sha256");
+                    }
+                    if (prepared) trusted_success = trusted_success &&
+                        parse_json_strict(str(*prepared, "payload")).at("binding") == parse_json_strict(str(row, "original_binding"));
+                }
+            } catch (const std::exception&) { trusted_success = false; }
+            const bool error_observation = [&] {
+                if (!feedback_object.is_object()) return false;
+                const auto& object = feedback_object.as_object();
+                if (const auto* found = object.if_contains("status");
+                        found && *found == Json("ERROR")) return true;
+                if (const auto* found = object.if_contains("runtime_error");
+                        found && *found == Json(true)) return true;
+                if (const auto* found = object.if_contains("observation_complete");
+                        found && *found == Json(false)) return true;
+                return false;
+            }();
+            if (eligible_failure) {
+                const auto failure_key = layer + ":" + reason + ":" + tool_class;
+                // Same consecutive key increments; a different key begins at
+                // one; a later same-key recurrence after another key never
+                // resumes an older counter.
+                if (scope.current_key == failure_key) {
+                    std::int64_t next_streak = 0;
+                    if (!wls::controls::detail::add_i64_checked(scope.streak, 1, next_streak)) { incomplete_tail = true; continue; }
+                    scope.streak = next_streak;
+                }
+                else {
+                    scope.current_key = failure_key;
+                    scope.streak = 1;
+                }
+                scope.trailing = 1;
+            } else if (settled && str(row, "status") == "COMPLETED" && number(row, "accepted") == 1 &&
+                    trusted_success && !eligible_failure && !error_observation) {
+                // A real same-scope accepted+settled COMPLETED success resets
+                // the whole semantic scope, including every older failure-key
+                // streak in it; the bounded witness resolves back to the exact
+                // original scope, attempt and committed event sequence.
+                scope.streak = 0;
+                scope.current_key.clear();
+                scope.trailing = 2;
+                std::int64_t next_count = 0;
+                if (!wls::controls::detail::add_i64_checked(success_count, 1, next_count)) { incomplete_tail = true; continue; }
+                success_count = next_count;
+                if (settle_seq > success_max_event_seq) success_max_event_seq = settle_seq;
+                const auto witness = sha256_hex(scope_key) + ":" + str(row, "attempt_id") + ":" + std::to_string(settle_seq) + ";";
+                if (witness.size() <= 262144 - success_witness.size())
+                    success_witness += witness;
+                else
+                    witness_complete = false;
+            } else {
+                if (!settled) incomplete_tail = true;
+            }
+        }
+        // B1 repair (FINAL v24 repair02): a Dispatcher candidate acceptance
+        // that actually passed is its own committed semantic transition over
+        // the original event facts; fold it into the same bounded witness so
+        // a batch that accepted real work still proves semantic progress.
+        for (const auto& row : all(
+                "SELECT seq,payload,result,command_sha256 FROM events WHERE request_id=? AND type='accept_candidate' "
+                "AND json_extract(payload,'$.decision.passed')=1 ORDER BY seq", {request_id})) {
+            const auto& value = row.at("seq");
+            const auto seq = value.is_int64() ? value.as_int64() : 0;
+            try {
+                const auto command = parse_json_strict(str(row, "payload"));
+                const auto result = parse_json_strict(str(row, "result"), 4U * 1024U * 1024U);
+                const auto saved = one("SELECT * FROM candidate_acceptances WHERE acceptance_id=? AND request_id=?",
+                    {result.at("acceptance").at("acceptance_id"), request_id});
+                if (sha256_hex(canonical_json(command)) != str(row, "command_sha256") ||
+                        result.at("acceptance") != acceptance_info(saved) || command.at("decision").at("passed") != true) {
+                    incomplete_tail = true; continue;
+                }
+            } catch (...) { incomplete_tail = true; continue; }
+            std::int64_t next_count = 0;
+            if (!wls::controls::detail::add_i64_checked(success_count, 1, next_count)) { incomplete_tail = true; continue; }
+            success_count = next_count;
+            if (seq > success_max_event_seq) success_max_event_seq = seq;
+            const auto witness = "accept_candidate:" + std::to_string(seq) + ";";
+            if (witness.size() <= 262144 - success_witness.size())
+                success_witness += witness;
+            else
+                witness_complete = false;
+        }
+        bool prior_failure_tail = false;
+        for (const auto& [key, scope] : scopes)
+            if (scope.trailing == 1) prior_failure_tail = true;
+        Object witness{{"count", success_count}, {"max_event_seq", success_max_event_seq},
+                       {"identity_sha256", sha256_hex(success_witness)},
+                       {"witness_complete", witness_complete}};
+        for (const auto& [key, scope] : scopes)
+            if (scope.streak >= repeats)
+                return Json(Object{{"status", "stop"}, {"stop_class", "stagnation"},
+                                   {"stall_same_error_repeats", repeats},
+                                   {"scope_key_sha256", sha256_hex(key)},
+                                   {"consecutive_eligible_failures", scope.streak},
+                                   {"prior_failure_tail", prior_failure_tail},
+                                   {"active_tail", active_tail},
+                                   {"incomplete_tail", incomplete_tail},
+                                   {"success_witness", witness}});
+        std::int64_t consecutive = 0;
+        for (const auto& [key, scope] : scopes) consecutive = std::max(consecutive, scope.streak);
+        return Json(Object{{"status", "open"}, {"stall_same_error_repeats", repeats},
+                           {"consecutive_eligible_failures", consecutive},
+                           {"prior_failure_tail", prior_failure_tail},
+                           {"active_tail", active_tail},
+                           {"incomplete_tail", incomplete_tail},
+                           {"success_witness", std::move(witness)}});
+    }
+    Json controls_gate_snapshot(const std::string& request_id, const std::string& completing = {}) const {
+        auto result = controls_gate_state(request_id);
+        if (!result.is_object())
+            result = Json(Object{{"status", "stop"}, {"stop_class", "controls_marker_corrupt"},
+                                {"reason", "gate state was not a bounded object"}});
+        if (controls_text(result, "status") != "stop") {
+            const auto stagnation = controls_stagnation_state(request_id, completing);
+            result.as_object()["stagnation"] = stagnation;
+            if (stagnation.is_object() && controls_text(stagnation, "status") == "stop") {
+                result.as_object()["status"] = "stop";
+                result.as_object()["stop_class"] = "stagnation";
+                result.as_object()["reason"] = "persistent same-scope eligible failure streak reached the frozen bound";
+            } else if (stagnation.is_object() && stagnation.at("incomplete_tail") == true) {
+                result.as_object()["status"] = "stop";
+                result.as_object()["stop_class"] = "incomplete_tail";
+                result.as_object()["reason"] = "settled original feedback history is incomplete or conflicting";
+            }
+        }
+        return result;
+    }
+    void controls_gate_business(const std::string& request_id, const Row* active_op = nullptr) const {
+        std::string completing;
+        if (active_op) try {
+            const auto attempt = optional("SELECT * FROM call_attempts WHERE attempt_id=? AND request_id=?",
+                {str(*active_op, "business_idempotency_key"), request_id});
+            if (attempt && str(*attempt, "status") == "COMPLETED" && number(*attempt, "accepted") == 1) {
+                const auto response = model_response_from_json(parse_json_strict(str(*attempt, "response"), 4U * 1024U * 1024U));
+                const auto original = parse_json_strict(str(*attempt, "frozen_binding"));
+                bool same = response.tool_calls.size() == 1 && str(*attempt, "role") == "worker";
+                for (const auto& field : original.as_object()) same = same && active_op->at(field.key()) == field.value();
+                if (same) {
+                    const auto& call = response.tool_calls.front();
+                    const auto prepared = optional("SELECT result FROM events WHERE request_id=? AND command_id=? AND type='prepare_op'",
+                        {request_id, str(*attempt, "attempt_id") + ":" + call.call_id + ":prepare"});
+                    if (prepared && parse_json_strict(str(*prepared, "result")).at("op_id") == active_op->at("op_id") &&
+                            str(*active_op, "tool_id") == call.name && str(*active_op, "args_sha256") == sha256_hex(canonical_json(call.arguments)))
+                        completing = str(*attempt, "attempt_id");
+                }
+            }
+        } catch (const std::exception&) { completing.clear(); }
+        const auto state = controls_gate_snapshot(request_id, completing);
+        if (controls_text(state, "status") != "stop") return;
+        // F2 repair: marker corruption carries its own existing typed code;
+        // every non-open v1 condition closes new business through this gate.
+        require(false,
+                controls_text(state, "stop_class") == "controls_marker_corrupt"
+                    ? ErrorCode::Corrupt : ErrorCode::NotReady,
+                "controls business gate: " + std::string(controls_text(state, "stop_class")) +
+                    ": " + std::string(controls_text(state, "reason")));
+    }
+    // Post-commit budget-warning observer (W). Fixed create-if-absent identity,
+    // ordinary business event pool, bounded command/result bytes, and every
+    // failure mode is reported through warning_status instead of throwing.
+    Json controls_warn_observe(const std::string& request_id) {
+        try {
+            const auto marker = controls_marker(request_id);
+            if (marker.is_null()) return Json(Object{{"warning_status", "not_applicable_legacy"}});
+            const auto budget_row = one("SELECT * FROM request_budgets WHERE request_id=?", {request_id});
+            const auto total = number(budget_row, "cost_limit");
+            std::int64_t estimated = 0;
+            if (!wls::controls::detail::add_i64_checked(number(budget_row, "spent_cost"),
+                                                        number(budget_row, "reserved_cost"), estimated))
+                return Json(Object{{"warning_status", "not_persisted_ledger_overflow"}});
+            const wls::controls::detail::positive_fraction fraction{
+                number(marker.at("warn_fraction").as_object(), "numerator"),
+                number(marker.at("warn_fraction").as_object(), "denominator")};
+            const auto evaluated = wls::controls::detail::evaluate_budget_threshold(estimated, total, fraction);
+            if (evaluated.status == wls::controls::detail::budget_threshold_status::zero_budget_no_threshold)
+                return Json(Object{{"warning_status", "zero_budget_no_threshold"}});
+            if (evaluated.status == wls::controls::detail::budget_threshold_status::accounting_invariant)
+                return Json(Object{{"warning_status", "accounting_invariant_conflict"},
+                                   {"estimated_total_micro_usd", estimated}, {"budget_total_micro_usd", total}});
+            if (evaluated.status == wls::controls::detail::budget_threshold_status::invalid_input)
+                return Json(Object{{"warning_status", "invalid_ledger_inputs"}});
+            if (evaluated.status == wls::controls::detail::budget_threshold_status::invariant_failure)
+                return Json(Object{{"warning_status", "threshold_invariant_failure"}});
+            if (!evaluated.crossed)
+                return Json(Object{{"warning_status", "below_threshold"},
+                                   {"estimated_total_micro_usd", estimated}, {"budget_total_micro_usd", total}});
+            Row command{{"type", "budget_warning"}, {"request_id", request_id},
+                {"config_snapshot_sha256", marker.at("config_sha256")}, {"budget_micro_usd", total},
+                {"unit", "micro_usd"}, {"warn_numerator", fraction.numerator}, {"warn_denominator", fraction.denominator}};
+            const auto command_id = "controls_budget_warning:" + sha256_hex(canonical_json(command));
+            Row result{{"format", "wls-budget-warning-v1"}, {"request_id", request_id},
+                {"config_snapshot_sha256", marker.at("config_sha256")}, {"budget_micro_usd", total},
+                {"unit", "micro_usd"}, {"warn_numerator", fraction.numerator}, {"warn_denominator", fraction.denominator},
+                {"estimated_total_micro_usd", estimated}, {"basis", "estimated_spent_plus_reserved"},
+                {"ledger_state_version", number(budget_row, "state_version")}};
+            if (json_text(command, 4096).size() > 4096 || json_text(result, 4096).size() > 4096)
+                return Json(Object{{"warning_status", "not_persisted_oversize"}});
+            // Ordinary business event pool only, and never an event that would
+            // itself introduce a new capacity hold.
+            const auto capacity = capacity_state(request_id);
+            if (controls_text(capacity, "status") == "WAITING_INPUT" || !capacity.at("exhausted").as_array().empty())
+                return Json(Object{{"warning_status", "not_persisted_capacity"}});
+            Transaction tx(*this);
+            if (optional("SELECT seq FROM events WHERE request_id=? AND command_id=?", {request_id, command_id})) {
+                tx.commit();
+                return Json(Object{{"warning_status", "already_persisted"},
+                                   {"estimated_total_micro_usd", estimated}, {"budget_total_micro_usd", total}});
+            }
+            event(request_id, command_id, command, result, "root");
+            tx.commit();
+            return Json(Object{{"warning_status", "persisted"},
+                               {"estimated_total_micro_usd", estimated}, {"budget_total_micro_usd", total}});
+        } catch (const Error&) {
+            return Json(Object{{"warning_status", "not_persisted_guard"}});
+        } catch (...) {
+            return Json(Object{{"warning_status", "not_persisted_error"}});
+        }
+    }
 
     void event(const std::string& request_id, const std::string& command_id,
                const Row& command, const Json& result, std::string_view actor = "runtime",
@@ -1708,6 +2507,13 @@ public:
     bool has_unsettled_model(const std::string& id, const std::string& team_id = {}) const;
     void live_accounting_ready(const std::string& request_id, const std::string& excluding = {}) const;
     void initialize_usage_projection(const Row& original);
+    std::optional<TokenPricing> attempt_pricing(const Row& original) const;
+    std::optional<std::int64_t> attempt_settlement_estimate(const Row& original,
+        const ModelUsage& usage, bool completed) const;
+    Json pricing_accounting_scan(const std::string& id, const std::string& excluding = {},
+        const std::string& team_id = {}) const;
+    Json attempt_budget_view(const Row& original) const;
+    Json pricing_budget_summary(const std::string& id) const;
     Json settle_model_attempt(const std::string& attempt_id, const ExecutionBinding& frozen,
         const std::string& config_hash, const std::string& outcome, const Json& usage, const Json& response,
         bool existing_transaction = false);
@@ -1777,7 +2583,15 @@ Json Store::operation(const std::string& id) const {
     const std::lock_guard lock(impl_->mutex); return exposed(impl_->op_row(id));
 }
 Json Store::budget(const std::string& id) const {
-    const std::lock_guard lock(impl_->mutex); return impl_->one("SELECT * FROM request_budgets WHERE request_id=?", {id});
+    const std::lock_guard lock(impl_->mutex);
+    auto row = impl_->one("SELECT * FROM request_budgets WHERE request_id=?", {id});
+    // Priced requests label their effective cost basis so the raw spent_cost
+    // balance is never mistaken for provider-confirmed actual usage.
+    if (const auto summary = impl_->pricing_budget_summary(id); !summary.is_null()) {
+        row["accounting_format"] = "wls-estimated-budget-v1";
+        row["cost_breakdown"] = summary;
+    }
+    return row;
 }
 Json Store::attempt(const std::string& id) const {
     const std::lock_guard lock(impl_->mutex); return exposed(impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {id}));
@@ -2851,6 +3665,41 @@ Json Store::admit(const AdmissionInput& input) {
     impl_->execute("INSERT INTO request_texts VALUES (?,1,'ORIGINAL',?,?)", {id, input.original_text, created});
     impl_->catalog(id, 1, input.constraint_catalog);
     impl_->event(id, "admit", Row{{"type", "admit"}, {"immutable", immutable}}, Row{{"request_id", id}}, "root");
+    // G1-6 Controls v1: anchor this admission inside the same transaction. A
+    // sampling, parsing or persistence failure rolls the whole admission back;
+    // no partially anchored v1 request can run. Legacy requests admitted by an
+    // earlier build simply have no marker and keep their frozen semantics.
+    {
+        const auto& frozen_system = frozen_config.json().at("system");
+        const auto max_wall = number(frozen_system.at("budget_defaults").as_object(), "max_wall_minutes");
+        const auto warn_spelling = json_text(frozen_system.at("budget_defaults").as_object().at("warn_at_fraction"), 64);
+        const auto repeats = number(frozen_system.at("limits").as_object(), "stall_same_error_repeats");
+        const auto sampled = wls::controls::detail::sample_host_clock();
+        require(sampled.status == wls::controls::detail::host_sample_status::ok, ErrorCode::Unsupported,
+                "controls admission requires the trusted host boot clock");
+        const auto anchored = wls::controls::detail::compute_admission_deadline(sampled.sample, max_wall);
+        require(anchored.status == wls::controls::detail::deadline_status::ok, ErrorCode::Corrupt,
+                "controls admission could not derive a bounded request deadline");
+        const auto fraction = wls::controls::detail::parse_threshold_fraction(warn_spelling);
+        require(fraction.status == wls::controls::detail::threshold_status::ok, ErrorCode::Corrupt,
+                "system.budget_defaults.warn_at_fraction spelling is not an exact bounded fraction");
+        require(repeats >= 1 && repeats <= 1'000'000'000'000, ErrorCode::Corrupt,
+                "system.limits.stall_same_error_repeats is outside its validated bound");
+        impl_->event(id, "controls_admission", Row{{"type", "controls_admission"},
+                {"config_sha256", sha256_hex(config)}, {"max_wall_minutes", max_wall},
+                {"warn_at_fraction", warn_spelling}, {"stall_same_error_repeats", repeats}},
+            Row{{"format", "wls-request-controls-v1"}, {"config_sha256", sha256_hex(config)},
+                {"max_wall_minutes", max_wall},
+                {"created_at_utc", Impl::controls_time_json(anchored.value.utc_created_at)},
+                {"deadline_utc", Impl::controls_time_json(anchored.value.utc_limit)},
+                {"boot_id", std::string(sampled.sample.boot_id_before)},
+                {"boot_before", Impl::controls_time_json(sampled.sample.boot_before)},
+                {"boot_after", Impl::controls_time_json(sampled.sample.boot_after)},
+                {"boot_limit", Impl::controls_time_json(anchored.value.boot_limit)},
+                {"warn_fraction", Row{{"numerator", fraction.value.numerator},
+                                      {"denominator", fraction.value.denominator}}},
+                {"stall_same_error_repeats", repeats}}, "root");
+    }
     const auto result = exposed(impl_->request_row(id));
     tx.commit(); return result;
 }
@@ -3224,6 +4073,9 @@ Json Store::start_operation(const StoreActor& actor, const std::string& id,
     const auto current_document = to_json(impl_->binding(actor.task_id));
     for (const auto& field : current_document.as_object()) binding_fields[field.key()] = op.at(field.key());
     impl_->ready(actor, execution_binding_from_json(binding_fields), str(op, "tool_id"));
+    // Controls v1 first-dispatch business gate (D): after the permission and
+    // binding checks, before the PREPARED->RUNNING dispatch CAS.
+    impl_->controls_gate_business(actor.request_id, &op);
     require(str(op, "status") == "PREPARED", ErrorCode::NotReady, "only a PREPARED operation may dispatch");
     impl_->cas("UPDATE ops SET status='RUNNING',state_version=state_version+1,started_at=? WHERE op_id=? AND state_version=?", {stamp(), id, expected});
     const auto result = exposed(impl_->op_row(id));
@@ -3256,6 +4108,8 @@ Json Store::start_tool_operation(const StoreActor& actor, const std::string& id,
     const auto current_document = to_json(impl_->binding(actor.task_id));
     for (const auto& field : current_document.as_object()) binding_fields[field.key()] = op.at(field.key());
     impl_->ready(actor, execution_binding_from_json(binding_fields), str(op, "tool_id"));
+    // Controls v1 first-dispatch business gate (D), same position contract.
+    impl_->controls_gate_business(actor.request_id, &op);
     if (str(op, "side_effect") == "workspace")
         require(!impl_->workspace_info(actor.team_id).is_null(), ErrorCode::NotReady, "team workspace has not been bound");
     impl_->cas("UPDATE ops SET status='RUNNING',state_version=state_version+1,started_at=? WHERE op_id=? AND state_version=?",
@@ -3633,9 +4487,50 @@ Json Store::cancel_request(const StoreActor& root, std::int64_t expected, const 
     tx.commit(); return result;
 }
 
+Json Store::controls_admission(const std::string& request_id) const {
+    return impl_->controls_marker(request_id);
+}
+
+Json Store::controls_business_gate(const std::string& request_id) const {
+    return impl_->controls_gate_snapshot(request_id);
+}
+Json Store::controls_settlement_gate(const StoreActor& actor, const Json& captured_request, const Json& settlement) const {
+    const std::lock_guard lock(impl_->mutex);
+    const auto request = model_request_from_json(captured_request);
+    (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
+    impl_->actor_binding(actor, request.binding); impl_->matches(request.binding);
+    const auto row = impl_->one("SELECT * FROM call_attempts WHERE attempt_id=? AND request_id=?", {request.attempt_id, actor.request_id});
+    require(!row.at("settlement_sha256").is_null() && exposed(row) == settlement &&
+        parse_json_strict(str(row, "request_envelope"), 4U * 1024U * 1024U) == captured_request,
+        ErrorCode::Conflict, "completion observation differs from the original captured settlement");
+    return impl_->controls_gate_snapshot(actor.request_id, request.attempt_id);
+}
+void Store::controls_validate_worker_ready(const StoreActor& actor, const ExecutionBinding& binding) const {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->ready(actor, binding);
+}
+
+Json Store::controls_observe_budget(const std::string& request_id) {
+    const std::lock_guard lock(impl_->mutex);
+    return impl_->controls_warn_observe(request_id);
+}
+
+Json Store::controls_model_milestone(const std::string& request_id) const {
+    const std::lock_guard lock(impl_->mutex);
+    return impl_->controls_milestone_facts(request_id);
+}
+
+Json Store::controls_delivery_receipt_facts(const std::string& request_id) const {
+    const std::lock_guard lock(impl_->mutex);
+    return impl_->controls_receipt_facts(request_id);
+}
+
 Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& frozen,
                             const AttemptReservation& reservation) {
     const std::lock_guard lock(impl_->mutex);
+    // Controls v1 (W): observe the pre-change ledger balance first; the observer
+    // itself never throws and never changes this reservation's accounting.
+    static_cast<void>(impl_->controls_warn_observe(actor.request_id));
     text_field(reservation.call_id, "call_id"); text_field(reservation.attempt_id, "attempt_id");
     text_field(reservation.model_ref, "model_ref");
     require(reservation.adapter_kind == "fake" || reservation.adapter_kind == "openai-responses",
@@ -3683,6 +4578,11 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
             str(*existing, "reservation_sha256") == fingerprint, ErrorCode::Conflict, "call/attempt ID reused or unpaid retry is not authorized");
         const auto result = exposed(*existing); tx.commit(); return result;
     }
+    // Controls v1 (D/S): the exact replay above stays ungated; every new
+    // reservation passes the deadline and stagnation business gates before the
+    // budget CAS below. Settlement, reconciliation, cancellation and recovery
+    // paths intentionally never call this gate.
+    impl_->controls_gate_business(actor.request_id);
     const auto r = impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
     require(experience || !terminal_request(str(r, "status")), ErrorCode::NotReady, "business model attempt after request termination");
     impl_->matches(frozen);
@@ -3722,6 +4622,14 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
                 reservation.reserved_cost_micro_usd > 0, ErrorCode::InvalidInput,
                 "live admission requires explicit positive token and cost reservations");
         live_settings = live_model_settings_from_json(profile, reservation.model_ref);
+        // A frozen price table defines the minimum effective reservation; the
+        // host's explicit positive reservation must cover it before INSERT.
+        if (live_settings->provider.pricing) {
+            const auto minimum = minimum_cost_reservation(*live_settings->provider.pricing,
+                reservation.reserved_input_tokens, reservation.reserved_output_tokens);
+            require(minimum.available && reservation.reserved_cost_micro_usd >= minimum.cost_micro_usd,
+                    ErrorCode::Quota, "live cost reservation is below the frozen pricing minimum");
+        }
         live_encoded = encode_responses_request(live_settings->provider, original_model_request, live_settings->stream);
         impl_->live_accounting_ready(actor.request_id);
     }
@@ -3809,14 +4717,27 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         {reservation.attempt_id, reservation.experience_job_id, reservation.experience_job_version, reservation.experience_source_sha256});
     const auto result = exposed(impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {reservation.attempt_id}));
     impl_->event(actor.request_id, "reserve:" + reservation.attempt_id, command, result, role_name(actor.role));
-    tx.commit(); return result;
+    tx.commit();
+    // Controls v1 (W): post-commit observation in its own small transaction.
+    static_cast<void>(impl_->controls_warn_observe(actor.request_id));
+    return result;
 }
 
 Json Store::settle_attempt(const std::string& attempt_id, const ExecutionBinding& frozen,
         const std::string& config_hash, const std::string& outcome, const Json& usage,
         const Json& response) {
     const std::lock_guard lock(impl_->mutex);
-    return impl_->settle_model_attempt(attempt_id, frozen, config_hash, outcome, usage, response);
+    // Controls v1 (W): pre/post-commit warning observations never alter the
+    // original settlement rows, usage or replay identity. An unknown attempt
+    // keeps its original error path untouched.
+    const auto settled_row = impl_->optional("SELECT request_id FROM call_attempts WHERE attempt_id=?", {attempt_id});
+    if (!settled_row)
+        return impl_->settle_model_attempt(attempt_id, frozen, config_hash, outcome, usage, response);
+    const auto settled_request = str(*settled_row, "request_id");
+    static_cast<void>(impl_->controls_warn_observe(settled_request));
+    auto settled = impl_->settle_model_attempt(attempt_id, frozen, config_hash, outcome, usage, response);
+    static_cast<void>(impl_->controls_warn_observe(settled_request));
+    return settled;
 }
 
 Json Store::Impl::settle_model_attempt(const std::string& attempt_id, const ExecutionBinding& frozen,
@@ -3884,9 +4805,22 @@ Json Store::Impl::settle_model_attempt(const std::string& attempt_id, const Exec
         current = false;
     }
     const bool accepted = current && outcome == "COMPLETED";
+    // A completed priced response books its deterministic estimate as the
+    // effective budget cost while every original row keeps its nullable usage.
+    std::optional<std::int64_t> effective_estimate;
+    if (live && outcome == "COMPLETED") {
+        ModelUsage settled_usage;
+        for (const auto& [value, name] : {std::pair<std::optional<std::int64_t>*, const char*>{&settled_usage.input_tokens, "input_tokens"},
+                {&settled_usage.output_tokens, "output_tokens"}, {&settled_usage.cache_read_tokens, "cache_read_tokens"},
+                {&settled_usage.cache_write_tokens, "cache_write_tokens"}})
+            if (!usage_value(name).is_null()) *value = usage_value(name).as_int64();
+        effective_estimate = attempt_settlement_estimate(record, settled_usage, true);
+    }
     auto budget_row = one("SELECT * FROM request_budgets WHERE request_id=?", {request_id});
     for (const auto& dimension : {std::pair<std::string, std::string>{"input", "input_tokens"}, {"output", "output_tokens"}, {"cost", "cost_micro_usd"}}) {
-        const auto value = usage_value(dimension.second);
+        auto value = usage_value(dimension.second);
+        if (dimension.first == "cost" && value.is_null() && effective_estimate)
+            value = Json(*effective_estimate);
         const auto reserved = number(record, "reserved_" + dimension.first);
         const auto was_unknown = number(record, "unknown_" + dimension.first) == 1;
         if (!value.is_null()) {

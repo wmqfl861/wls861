@@ -36,8 +36,11 @@ std::size_t message_bytes(const std::vector<StructuredContextMessage>& messages)
         Array calls;
         for (const auto& call : message.tool_calls)
             calls.push_back(Object{{"call_id", call.call_id}, {"name", call.name}, {"arguments", call.arguments}});
-        encoded.push_back(Object{{"role", message.role}, {"content", message.content},
-            {"tool_calls", calls}, {"tool_call_id", message.tool_call_id}, {"source", message.source}});
+        auto item = Object{{"role", message.role}, {"content", message.content},
+            {"tool_calls", calls}, {"tool_call_id", message.tool_call_id}, {"source", message.source}};
+        // Opaque originals participate in the same measurement as their message.
+        if (!message.responses_output.is_null()) item["responses_output"] = message.responses_output;
+        encoded.push_back(std::move(item));
     }
     return canonical_json(encoded).size();
 }
@@ -151,6 +154,12 @@ std::vector<StructuredContextMessage> management_history_messages(const Json& vi
             result.insert(result.end(), messages.begin(), messages.end());
             continue;
         }
+        // The most recent reasoning-bearing management round is quota-fenced
+        // like the worker window; older rounds keep their pinned references.
+        if (&attempt == &view.at("recent_attempts").as_array().back() &&
+            std::any_of(messages.begin(), messages.end(), [](const StructuredContextMessage& message) {
+                return !message.responses_output.is_null(); }))
+            throw Error(ErrorCode::Quota, "recent reasoning round exceeds the frozen management window");
         // Unsettled or missing-feedback originals are pinned, in full, in the
         // current contract even if their duplicate recent turn is referenced.
         Object reference{{"kind", "management_history_reference"}, {"record_kind", "attempt"},

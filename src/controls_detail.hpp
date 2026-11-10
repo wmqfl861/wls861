@@ -15,6 +15,22 @@
 #include <limits>
 #include <string_view>
 
+// The bounded streaming canonical digest below reuses the project JSON value
+// and the process OpenSSL dependency; it stays pure with respect to business
+// state (no ledger, reservation or authorization surface is touched).
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <memory>
+#include <string>
+#include <stdexcept>
+#include <vector>
+
+#include <openssl/evp.h>
+
+#include "wls/runtime_types.hpp"
+
 namespace wls::controls::detail {
 
 inline constexpr std::size_t max_threshold_spelling_bytes = 64;
@@ -696,14 +712,272 @@ inline milliseconds_result remaining_milliseconds_floor(clock_time now,
         }
     }
     std::int64_t milliseconds = 0;
-    if (!mul_i64_checked(seconds, 1000, milliseconds)) {
+    if (!mul_i64_checked(seconds, 1000, milliseconds) ||
+        !add_i64_checked(milliseconds, nanoseconds / 1'000'000, milliseconds)) {
         result.status = time_status::overflow;
         return result;
     }
-    milliseconds += nanoseconds / 1'000'000;
     result.status = time_status::ok;
     result.milliseconds = milliseconds;
     return result;
 }
+
+// --- bounded streaming canonical digest (R03_REPORT) ---
+//
+// Digests the canonical serialization of a JSON value incrementally through a
+// bounded chunk buffer without ever materializing the whole canonical string.
+// The emitted byte stream matches the protected wls::s1 canonical reference
+// exactly: object keys sorted, array order preserved, boost serializer
+// key/scalar escaping, independently validated UTF-8, non-finite doubles
+// rejected, and the same depth-128 typed limit. Sorting scratch is bounded by
+// the strict-parser object-member cap and traversal recursion by the depth
+// limit. All simultaneously retained key vectors share one scratch budget.
+
+inline constexpr std::size_t canonical_stream_chunk_default = 64U * 1024U;
+inline constexpr std::size_t canonical_stream_object_member_bound = 1048576U;
+inline constexpr std::int64_t canonical_stream_unbounded = -1;
+
+struct canonical_digest_result {
+    bool ok = false;               // complete traversal with a verified digest
+    bool oversize = false;         // stopped at max_bytes; exact total unknown
+    bool overflow = false;         // the checked byte count itself overflowed
+    std::int64_t bytes = 0;        // canonical bytes emitted (prefix when !ok)
+    std::string sha256_hex_value;  // valid only when ok
+};
+
+namespace canonical_stream_internal {
+
+struct sink {
+    EVP_MD_CTX* context = nullptr;
+    std::string buffer;
+    std::size_t chunk_capacity = 0;
+    std::int64_t emitted = 0;
+    std::int64_t max_bytes = canonical_stream_unbounded;
+    bool ok = true;
+    bool oversize = false;
+    bool overflow = false;
+    std::size_t sorting_members = 0;
+
+    void flush() {
+        if (!ok || buffer.empty()) return;
+        const auto chunk = static_cast<std::int64_t>(buffer.size());
+        if (max_bytes >= 0 && emitted > max_bytes - chunk) {
+            ok = false;
+            oversize = true;
+            buffer.clear();
+            return;
+        }
+        if (EVP_DigestUpdate(context, buffer.data(), buffer.size()) != 1) {
+            ok = false;
+            buffer.clear();
+            return;
+        }
+        std::int64_t next = 0;
+        if (!add_i64_checked(emitted, chunk, next)) {
+            ok = false;
+            overflow = true;
+            buffer.clear();
+            return;
+        }
+        emitted = next;
+        buffer.clear();
+    }
+
+    void emit(std::string_view bytes) {
+        if (!ok) return;
+        std::size_t offset = 0;
+        while (offset < bytes.size()) {
+            const auto room = chunk_capacity - buffer.size();
+            const auto take = std::min(room, bytes.size() - offset);
+            buffer.append(bytes.substr(offset, take));
+            offset += take;
+            if (buffer.size() == chunk_capacity) flush();
+            if (!ok) return;
+        }
+    }
+};
+
+inline void validate_utf8(boost::json::string_view text) {
+    std::uint32_t code = 0, minimum = 0;
+    unsigned remaining = 0;
+    for (const unsigned char byte : text) {
+        if (remaining) {
+            if ((byte & 0xc0) != 0x80) throw std::invalid_argument("invalid UTF-8 continuation");
+            code = (code << 6) | (byte & 0x3f);
+            if (--remaining == 0 && (code < minimum || code > 0x10ffff ||
+                                      (code >= 0xd800 && code <= 0xdfff)))
+                throw std::invalid_argument("invalid UTF-8 scalar");
+        } else if (byte >= 0x80) {
+            if (byte >= 0xc2 && byte <= 0xdf) { remaining = 1; minimum = 0x80; code = byte & 0x1f; }
+            else if (byte <= 0xef && byte >= 0xe0) { remaining = 2; minimum = 0x800; code = byte & 0x0f; }
+            else if (byte <= 0xf4 && byte >= 0xf0) { remaining = 3; minimum = 0x10000; code = byte & 7; }
+            else throw std::invalid_argument("invalid UTF-8 leading byte");
+        }
+    }
+    if (remaining) throw std::invalid_argument("incomplete UTF-8 scalar");
+}
+
+// Resetting a serializer on one scalar/string retains no document-sized
+// output. Partial string escaping uses only the fixed serializer/chunk state.
+inline void scalar(const wls::s1::Json* value, boost::json::string_view key, sink& out) {
+    if (!value || value->is_string()) validate_utf8(value ? boost::json::string_view(value->as_string()) : key);
+    unsigned char scratch[512];
+    boost::json::serializer serializer(boost::json::get_null_resource(), scratch, sizeof scratch);
+    if (value) serializer.reset(value);
+    else serializer.reset(key);
+    char bytes[1024];
+    while (out.ok && !serializer.done()) {
+        const auto chunk = serializer.read(bytes);
+        out.emit(std::string_view(chunk.data(), chunk.size()));
+    }
+}
+
+inline void walk(const wls::s1::Json& value, sink& out, std::size_t depth) {
+    if (!out.ok) return;
+    if (depth > 128 || (depth == 128 && (value.is_array() || value.is_object())))
+        throw wls::s1::Error(wls::s1::ErrorCode::InvalidInput,
+                                          "JSON exceeds canonical depth limit");
+    if (value.is_object()) {
+        const auto count = value.as_object().size();
+        if (count > canonical_stream_object_member_bound - out.sorting_members)
+            throw wls::s1::Error(wls::s1::ErrorCode::InvalidInput,
+                                 "streaming canonical object exceeds sorting bound");
+        out.sorting_members += count;
+        struct release { sink& out; std::size_t count; ~release() { out.sorting_members -= count; } } retained{out, count};
+        std::vector<const boost::json::key_value_pair*> entries;
+        entries.reserve(count);  // aggregate budget checked BEFORE allocation
+        for (const auto& member : value.as_object()) entries.push_back(&member);
+        std::sort(entries.begin(), entries.end(),
+                  [](const auto* left, const auto* right) { return left->key() < right->key(); });
+        out.emit("{");
+        bool first = true;
+        for (const auto* member : entries) {
+            if (!first) out.emit(",");
+            first = false;
+            scalar(nullptr, member->key(), out);
+            out.emit(":");
+            walk(member->value(), out, depth + 1);
+            if (!out.ok) return;
+        }
+        out.emit("}");
+    } else if (value.is_array()) {
+        out.emit("[");
+        bool first = true;
+        for (const auto& element : value.as_array()) {
+            if (!first) out.emit(",");
+            first = false;
+            walk(element, out, depth + 1);
+            if (!out.ok) return;
+        }
+        out.emit("]");
+    } else {
+        if (value.is_double() && !std::isfinite(value.as_double()))
+            throw wls::s1::Error(wls::s1::ErrorCode::InvalidInput, "non-finite JSON number");
+        scalar(&value, {}, out);
+    }
+}
+
+}  // namespace canonical_stream_internal
+
+// Stream the canonical serialization of `value` into SHA-256 through bounded
+// chunks. With max_bytes >= 0 the traversal stops as soon as the canonical
+// byte count would exceed it (oversize=true, exact total unknown); the caller
+// reports the affected length/hash as null, never zero.
+inline canonical_digest_result canonical_sha256_stream(const wls::s1::Json& value,
+        std::size_t chunk_bytes = canonical_stream_chunk_default,
+        std::int64_t max_bytes = canonical_stream_unbounded) {
+    canonical_digest_result result;
+    if (chunk_bytes == 0) chunk_bytes = canonical_stream_chunk_default;
+    if (chunk_bytes > canonical_stream_chunk_default) return result;
+    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context(EVP_MD_CTX_new(), EVP_MD_CTX_free);
+    if (!context || EVP_DigestInit_ex(context.get(), EVP_sha256(), nullptr) != 1) return result;
+    canonical_stream_internal::sink state{context.get(), std::string{}, chunk_bytes, 0, max_bytes,
+                                          true, false, false};
+    state.buffer.reserve(chunk_bytes);
+    try {
+        canonical_stream_internal::walk(value, state, 0);
+    } catch (const std::exception&) {
+        state.ok = false;
+    }
+    if (state.ok) state.flush();
+    else state.buffer.clear();
+    result.bytes = state.emitted;
+    if (!state.ok) {
+        result.oversize = state.oversize;
+        result.overflow = state.overflow;
+        return result;
+    }
+    std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+    unsigned int size = 0;
+    if (EVP_DigestFinal_ex(context.get(), digest.data(), &size) != 1 || size != 32) return result;
+    constexpr char hex[] = "0123456789abcdef";
+    result.sha256_hex_value.reserve(64);
+    for (unsigned int i = 0; i < size; ++i) {
+        result.sha256_hex_value.push_back(hex[digest[i] >> 4]);
+        result.sha256_hex_value.push_back(hex[digest[i] & 15]);
+    }
+    result.ok = true;
+    return result;
+}
+
+// --- checked run totals accumulator (R03_REPORT / F4_COUNTS) ---
+//
+// Validated nonnegative integer accumulation for the bounded report totals.
+// An overflow, a negative/malformed observation or a missing completeness
+// fact never mutates the published known prefix: the affected totals become
+// unknown with completeness false, and the retained safe prefix stays
+// available only as an explicitly labelled lower bound.
+
+struct run_totals {
+    std::int64_t attempts = 0;
+    std::int64_t new_reservations = 0;
+    std::int64_t network_started_calls = 0;
+    bool counts_complete = true;
+    bool network_count_complete = true;
+
+    // Checked nonnegative delta of two durable observations. A negative or
+    // overflowing difference marks the observation unknown instead of
+    // producing a fabricated value.
+    static std::int64_t checked_delta(std::int64_t after, std::int64_t before, bool& ok) {
+        std::int64_t delta = 0;
+        if (!ok || after < before || before < 0 || !sub_i64_checked(after, before, delta)) {
+            ok = false;
+            return 0;
+        }
+        return delta;
+    }
+
+    void add_attempts(std::int64_t delta) {
+        std::int64_t next = 0;
+        if (delta < 0 || !counts_complete || !add_i64_checked(attempts, delta, next)) {
+            counts_complete = false;
+            return;
+        }
+        attempts = next;
+    }
+
+    void add_reservation(std::int64_t delta) {
+        std::int64_t next = 0;
+        if (delta < 0 || !counts_complete || !add_i64_checked(new_reservations, delta, next)) {
+            counts_complete = false;
+            return;
+        }
+        new_reservations = next;
+    }
+
+    void observe_network(std::int64_t delta, bool observed_complete, bool live) {
+        if (!live) return;  // Fake network zero is proven by the execution type
+        if (delta < 0 || !observed_complete) {
+            network_count_complete = false;
+            return;
+        }
+        std::int64_t next = 0;
+        if (!network_count_complete || !add_i64_checked(network_started_calls, delta, next)) {
+            network_count_complete = false;
+            return;
+        }
+        network_started_calls = next;
+    }
+};
 
 }  // namespace wls::controls::detail

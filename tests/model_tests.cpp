@@ -347,6 +347,51 @@ void independent_attempt_identity_and_frozen_round_trip() {
     // adapter never starts one implicitly or replaces a previous attempt ID.
 }
 
+// ---- G1-2 opaque responses output serialization ---------------------------
+
+void responses_output_roundtrip_and_consistency() {
+    const FakeModel fake({text_step()});
+    const auto response = fake.complete(request_fixture());
+    auto document = to_json(response);
+    CHECK(!document.as_object().contains("responses_output"));
+    const Json payload = boost::json::object{
+        {"format", "wls-responses-output-v1"}, {"reference", "openai-responses-2026-11-08"},
+        {"model", "o3-2025-04-16"},
+        {"output", boost::json::array{boost::json::object{
+            {"id", "msg_compat_fixture"}, {"type", "message"}, {"role", "assistant"},
+            {"status", "completed"},
+            {"content", boost::json::array{boost::json::object{
+                {"type", "output_text"}, {"text", response.text}, {"annotations", boost::json::array{}}}}}}}}};
+    document.as_object()["responses_output"] = payload;
+    const auto restored = model_response_from_json(document);
+    CHECK(to_json(restored) == document);
+    CHECK(!to_json(response).as_object().contains("responses_output"));
+    auto mismatch = document; mismatch.as_object()["text"] = "changed projection";
+    expect_error(ErrorCode::InvalidInput, [&] { (void)model_response_from_json(mismatch); });
+    auto unknown = document;
+    unknown.at("responses_output").as_object()["extra"] = 1;
+    expect_error(ErrorCode::InvalidInput, [&] { (void)model_response_from_json(unknown); });
+    auto interrupted = document;
+    interrupted.as_object()["status"] = "interrupted";
+    interrupted.as_object()["error_code"] = "cancelled";
+    interrupted.as_object()["error_message"] = "stopped";
+    expect_error(ErrorCode::InvalidInput, [&] { (void)model_response_from_json(interrupted); });
+    auto refusal = document;
+    refusal.as_object()["status"] = "error";
+    refusal.as_object()["error_code"] = "model_refusal";
+    refusal.as_object()["error_message"] = "provider refused; original payload retained";
+    refusal.as_object()["text"] = "";
+    refusal.as_object()["tool_calls"] = boost::json::array{};
+    refusal.at("responses_output").at("output").as_array()[0].at("content").as_array()[0] =
+        boost::json::object{{"type", "refusal"}, {"refusal", "cannot comply"}};
+    CHECK(to_json(model_response_from_json(refusal)) == refusal);
+    // A refusal code without a refusal part in the payload is inconsistent.
+    auto forged = refusal;
+    forged.at("responses_output").at("output").as_array()[0].at("content").as_array()[0] =
+        boost::json::object{{"type", "output_text"}, {"text", ""}, {"annotations", boost::json::array{}}};
+    expect_error(ErrorCode::InvalidInput, [&] { (void)model_response_from_json(forged); });
+}
+
 void reservations_and_context_mismatches_reject_before_call() {
     const FakeModel fake({text_step()});
     auto request = request_fixture();
@@ -385,6 +430,39 @@ void script_shape_and_bounds() {
     });
 }
 
+// G1-3 correction boundaries: the adapter layer keeps accepting a non-empty
+// text-only Completed response and multi-call shapes; whether exactly one tool
+// call is required stays a host decision, never a FakeModel invention.
+void text_only_and_multi_call_completed_shapes_pass_model_validation() {
+    const auto request = request_fixture();
+    const auto response = FakeModel({text_step(Role::Worker, 1, "narrative only")}).complete(request);
+    validate_response(request, response);
+    require_complete_response(request, response);
+    CHECK(response.tool_calls.empty() && response.text == "narrative only");
+
+    auto multi = text_step(Role::Worker, 1, "plan narrative");
+    multi.tool_calls = {{"call-a", "submit", boost::json::object{{"text", "a"}}},
+                        {"call-b", "submit", boost::json::object{{"text", "b"}}}};
+    const auto multi_response = FakeModel({multi}).complete(request);
+    CHECK(multi_response.tool_calls.size() == 2);
+    validate_response(request, multi_response);
+    // A subset dispatch or a silent single-call reduction is never chosen here.
+    CHECK(multi_response.tool_calls[0].call_id == "call-a" && multi_response.tool_calls[1].call_id == "call-b");
+}
+
+void fake_construction_rejects_empty_duplicate_and_nonobject_calls() {
+    auto empty = text_step();
+    empty.text.clear();
+    expect_error(ErrorCode::InvalidInput, [&] { (void)FakeModel({empty}).complete(request_fixture()); });
+    auto duplicate = text_step();
+    duplicate.tool_calls = {{"same-id", "submit", boost::json::object{{"text", "a"}}},
+                            {"same-id", "submit", boost::json::object{{"text", "b"}}}};
+    expect_error(ErrorCode::InvalidInput, [&] { (void)FakeModel({duplicate}).complete(request_fixture()); });
+    auto nonobject = text_step();
+    nonobject.tool_calls = {{"call-x", "submit", boost::json::array{"not", "an", "object"}}};
+    expect_error(ErrorCode::InvalidInput, [&] { (void)FakeModel({nonobject}).complete(request_fixture()); });
+}
+
 } // namespace
 
 int main() {
@@ -402,7 +480,10 @@ int main() {
         {"cancel and timeout preserve unknown usage; late transport stays fenced", cancellation_timeout_and_late_transport},
         {"missing usage remains null rather than zero", nullable_usage_does_not_invent_zero},
         {"request and response round trips preserve separate attempt identity", independent_attempt_identity_and_frozen_round_trip},
+        {"responses output roundtrips and projection consistency", responses_output_roundtrip_and_consistency},
         {"invalid reservations and frozen-context mismatches reject", reservations_and_context_mismatches_reject_before_call},
-        {"fake script shape, sequences and delay limits are bounded", script_shape_and_bounds}
+        {"fake script shape, sequences and delay limits are bounded", script_shape_and_bounds},
+        {"text-only and multi-call completed shapes pass model validation", text_only_and_multi_call_completed_shapes_pass_model_validation},
+        {"fake construction rejects empty, duplicate and non-object calls", fake_construction_rejects_empty_duplicate_and_nonobject_calls}
     });
 }

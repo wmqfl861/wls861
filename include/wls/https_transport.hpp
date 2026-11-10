@@ -37,6 +37,16 @@ struct HttpsTransportOptions {
     std::chrono::milliseconds poll_interval{25};
 };
 
+// Trusted-host absolute request bound (G1-6 Controls v1). It lives outside
+// HttpsTransportOptions on purpose: it never enters the encoded request bytes,
+// the options hash, or any persisted wire identity, and the original entry
+// points keep their exact signatures and unchanged behavior.
+struct ControlsBootDeadline {
+    std::string boot_id;
+    std::int64_t limit_seconds{};
+    std::int32_t limit_nanoseconds{};
+};
+
 // Pure preflight shared by configuration admission and the transport. Rejects
 // ambiguous numeric hosts, malformed IPv4 mappings and conflicting numeric
 // destinations without initializing libcurl, resolving DNS or opening sockets.
@@ -96,7 +106,8 @@ struct HttpsTransportResult {
 HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
         const ModelRequest& request, const EncodedResponsesRequest& encoded,
         const HttpsTransportOptions& options, std::string_view bearer_token,
-        std::stop_token stop = {});
+        std::stop_token stop = {},
+        const std::optional<ControlsBootDeadline>& controls_deadline = {});
 
 // Safe by construction: identities, bounded host codes, counts/times/hashes;
 // excludes credentials, raw bytes, decoded text/tools and provider diagnostics.

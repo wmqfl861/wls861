@@ -329,6 +329,31 @@ def logical_agent_marker(logical_id, prefix, chain):
             'history_sha256': original_digest(prefix), 'previous_chain_sha256': chain}
 
 
+def validate_responses_output(payload):
+    """Independent replay gate for opaque wls-responses-output-v1 originals.
+
+    Mirrors the C++ shared validator's shape rules from Store facts alone;
+    it never reads an actual model context or trusts the transcript copy.
+    """
+    require(isinstance(payload, dict) and set(payload) == {'format', 'reference', 'model', 'output'},
+            'responses output payload envelope differs from the compatibility contract')
+    require(payload['format'] == 'wls-responses-output-v1' and
+            payload['reference'] == 'openai-responses-2026-11-08', 'unknown responses output contract')
+    require(isinstance(payload['model'], str) and payload['model'], 'responses output model is missing')
+    require(isinstance(payload['output'], list), 'responses output must be an ordered array')
+    fields = {'reasoning': {'id', 'type', 'summary', 'encrypted_content', 'status', 'content'},
+              'message': {'id', 'type', 'role', 'status', 'content'},
+              'function_call': {'id', 'type', 'call_id', 'name', 'arguments', 'status'}}
+    for item in payload['output']:
+        require(isinstance(item, dict), 'responses output item must be an object')
+        require(item.get('type') in fields, 'responses output type is outside the compatibility subset')
+        require(set(item) <= fields[item['type']], 'unknown responses output field')
+        if item['type'] == 'reasoning':
+            require(isinstance(item.get('summary'), list), 'reasoning item requires its summary array')
+            require(isinstance(item.get('encrypted_content'), str) and item['encrypted_content'],
+                    'replayed reasoning requires non-empty encrypted content')
+
+
 def logical_agent_messages(history):
     """Independent reconstruction of the native messages actually sent onward."""
     messages = []
@@ -347,9 +372,14 @@ def logical_agent_messages(history):
         source = {key: value for key, value in record.items() if key not in ('request_envelope', 'response', 'feedback')}
         source.update(record_sha256=feedback['record_sha256'], original_tool_call_id=tool['call_id'],
                       kind='recorded_tool_turn', not_execution_authority=True)
-        messages.append({'role': 'assistant', 'content': response['text'],
-                         'tool_calls': [{'call_id': call_id, 'name': tool['name'], 'arguments': tool['arguments']}],
-                         'tool_call_id': '', 'source': source})
+        assistant = {'role': 'assistant', 'content': response['text'],
+                     'tool_calls': [{'call_id': call_id, 'name': tool['name'], 'arguments': tool['arguments']}],
+                     'tool_call_id': '', 'source': source}
+        payload = response.get('responses_output')
+        if payload is not None:
+            validate_responses_output(payload)
+            assistant['responses_output'] = payload
+        messages.append(assistant)
         messages.append({'role': 'tool', 'content': original_canonical(feedback['result']).decode(),
                          'tool_calls': [], 'tool_call_id': call_id, 'source': source})
     return messages

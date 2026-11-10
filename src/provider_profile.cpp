@@ -153,7 +153,142 @@ ProtocolLimits parse_limits(const Json& value) {
     x.max_timeout_ms = integer(value, "max_timeout_ms");
     return x;
 }
+
+// Checked nonnegative int64 arithmetic: no extended integers, no UB, no float.
+constexpr std::int64_t pricing_rate_bound = 1000000000000LL;
+bool pricing_add(std::int64_t a, std::int64_t b, std::int64_t* out) {
+    if (a < 0 || b < 0 || a > INT64_MAX - b) return false;
+    *out = a + b;
+    return true;
+}
+bool pricing_mul(std::int64_t a, std::int64_t b, std::int64_t* out) {
+    if (a < 0 || b < 0 || (a != 0 && b > INT64_MAX / a)) return false;
+    *out = a * b;
+    return true;
+}
+// Splits tokens*rate into whole micro USD plus a sub-million remainder part.
+bool pricing_term(std::int64_t tokens, std::int64_t rate, std::int64_t* whole, std::int64_t* remainder) {
+    std::int64_t head = 0, tail = 0, high = 0;
+    if (!pricing_mul(tokens / 1000000, rate, &head) || !pricing_mul(tokens % 1000000, rate, &tail) ||
+        !pricing_add(head, tail / 1000000, &high) || !pricing_add(*whole, high, whole) ||
+        !pricing_add(*remainder, tail % 1000000, remainder)) return false;
+    return true;
+}
+bool pricing_total(std::int64_t whole, std::int64_t remainder, std::int64_t* out) {
+    return pricing_add(whole, (remainder + 999999) / 1000000, out);  // single final ceil
+}
+std::int64_t pricing_rate(const Json& value, std::string_view key) {
+    const auto rate = integer(value, key);
+    require(rate >= 0 && rate <= pricing_rate_bound, "token pricing rate outside hard bounds");
+    return rate;
+}
+bool pricing_cache(const Json& value, std::string_view key, std::int64_t* rate) {
+    const auto& item = field(value, key);
+    require(item.is_object() && !item.as_object().empty(), "token pricing cache dimension must be an object");
+    const auto applicability = text(item, "applicability");
+    if (applicability == "not_applicable") {
+        require(item.as_object().size() == 1, "not-applicable token pricing must omit its rate");
+        return false;
+    }
+    require(applicability == "reported" && item.as_object().size() == 2,
+            "token pricing applicability must be reported with its exact rate");
+    *rate = pricing_rate(item, "micro_usd_per_million_tokens");
+    return true;
+}
 } // namespace
+
+TokenPricing token_pricing_from_json(const Json& value) {
+    exact(value, {"format", "currency", "unit", "input_micro_usd_per_million_tokens",
+        "output_micro_usd_per_million_tokens", "cache_read", "cache_write"});
+    if (text(value, "format") != "wls-token-pricing-v1" || text(value, "currency") != "USD" ||
+        text(value, "unit") != "micro_usd_per_million_tokens")
+        throw Error(ErrorCode::Unsupported, "unsupported token pricing format, currency or unit");
+    TokenPricing pricing;
+    pricing.input_micro_usd_per_million_tokens = pricing_rate(value, "input_micro_usd_per_million_tokens");
+    pricing.output_micro_usd_per_million_tokens = pricing_rate(value, "output_micro_usd_per_million_tokens");
+    pricing.cache_read_applicable = pricing_cache(value, "cache_read", &pricing.cache_read_micro_usd_per_million_tokens);
+    pricing.cache_write_applicable = pricing_cache(value, "cache_write", &pricing.cache_write_micro_usd_per_million_tokens);
+    return pricing;
+}
+
+Json to_json(const TokenPricing& pricing) {
+    const auto cache = [](bool applicable, std::int64_t rate) {
+        return applicable ? Json(Object{{"applicability", "reported"},
+            {"micro_usd_per_million_tokens", rate}}) : Json(Object{{"applicability", "not_applicable"}});
+    };
+    return Object{{"format", pricing.format}, {"currency", pricing.currency}, {"unit", pricing.unit},
+        {"input_micro_usd_per_million_tokens", pricing.input_micro_usd_per_million_tokens},
+        {"output_micro_usd_per_million_tokens", pricing.output_micro_usd_per_million_tokens},
+        {"cache_read", cache(pricing.cache_read_applicable, pricing.cache_read_micro_usd_per_million_tokens)},
+        {"cache_write", cache(pricing.cache_write_applicable, pricing.cache_write_micro_usd_per_million_tokens)}};
+}
+
+std::string token_pricing_sha256(const TokenPricing& pricing) {
+    return sha256_hex(canonical_json(to_json(pricing)));
+}
+
+PricingEstimate estimate_token_cost(const TokenPricing& pricing, const ModelUsage& usage) {
+    PricingEstimate result;
+    const auto unavailable = [&result](std::string_view reason) {
+        result.reason = std::string(reason);
+        return result;
+    };
+    if ((!pricing.cache_read_applicable && usage.cache_read_tokens.has_value()) ||
+        (!pricing.cache_write_applicable && usage.cache_write_tokens.has_value())) {
+        result.policy_mismatch = true;
+        return unavailable("policy_mismatch_not_applicable_cache_reported");
+    }
+    if (!usage.input_tokens.has_value() || !usage.output_tokens.has_value())
+        return unavailable("unknown_input_or_output_tokens");
+    const auto valid = [](const std::optional<std::int64_t>& value) {
+        return value.has_value() && *value >= 0;
+    };
+    std::int64_t cache_read = 0, cache_write = 0;
+    if (pricing.cache_read_applicable) {
+        if (!valid(usage.cache_read_tokens)) return unavailable("unknown_cache_read_tokens");
+        cache_read = *usage.cache_read_tokens;
+    }
+    if (pricing.cache_write_applicable) {
+        if (!valid(usage.cache_write_tokens)) return unavailable("unknown_cache_write_tokens");
+        cache_write = *usage.cache_write_tokens;
+    }
+    if (!valid(usage.input_tokens) || !valid(usage.output_tokens) ||
+        cache_read > *usage.input_tokens || cache_write > *usage.input_tokens - cache_read)
+        return unavailable("invalid_original_usage");
+    std::int64_t whole = 0, remainder = 0;
+    if (!pricing_term(*usage.input_tokens - cache_read - cache_write, pricing.input_micro_usd_per_million_tokens,
+                &whole, &remainder) ||
+        !pricing_term(cache_read, pricing.cache_read_micro_usd_per_million_tokens, &whole, &remainder) ||
+        !pricing_term(cache_write, pricing.cache_write_micro_usd_per_million_tokens, &whole, &remainder) ||
+        !pricing_term(*usage.output_tokens, pricing.output_micro_usd_per_million_tokens, &whole, &remainder) ||
+        !pricing_total(whole, remainder, &result.cost_micro_usd))
+        return unavailable("estimate_unavailable_overflow");
+    result.available = true;
+    return result;
+}
+
+PricingEstimate minimum_cost_reservation(const TokenPricing& pricing, std::int64_t reserved_input,
+                                         std::int64_t reserved_output) {
+    PricingEstimate result;
+    if (reserved_input < 0 || reserved_output < 0) {
+        result.reason = "invalid_reservation";
+        return result;
+    }
+    auto input_rate = pricing.input_micro_usd_per_million_tokens;
+    if (pricing.cache_read_applicable)
+        input_rate = std::max(input_rate, pricing.cache_read_micro_usd_per_million_tokens);
+    if (pricing.cache_write_applicable)
+        input_rate = std::max(input_rate, pricing.cache_write_micro_usd_per_million_tokens);
+    std::int64_t whole = 0, remainder = 0;
+    if (!pricing_term(reserved_input, input_rate, &whole, &remainder) ||
+        !pricing_term(reserved_output, pricing.output_micro_usd_per_million_tokens, &whole, &remainder) ||
+        !pricing_total(whole, remainder, &result.cost_micro_usd)) {
+        result.reason = "estimate_unavailable_overflow";
+        return result;
+    }
+    result.available = true;
+    return result;
+}
 
 void validate_provider_profile(const ProviderProfile& p) {
     require(identifier(p.profile_id) && identifier(p.model_ref), "invalid provider profile or model reference");
@@ -165,6 +300,30 @@ void validate_provider_profile(const ProviderProfile& p) {
     require(environment_name(p.api_key_env), "authentication must be a valid environment reference name");
     require(p.billing_challenge.empty() || p.billing_challenge == "wls-billing-challenge-v1",
             "unsupported frozen billing challenge extension");
+    if (p.pricing) {
+        require(p.pricing->format == "wls-token-pricing-v1" && p.pricing->currency == "USD" &&
+                p.pricing->unit == "micro_usd_per_million_tokens",
+                "unsupported token pricing contract");
+        for (const auto rate : {p.pricing->input_micro_usd_per_million_tokens,
+                p.pricing->output_micro_usd_per_million_tokens,
+                p.pricing->cache_read_applicable ? p.pricing->cache_read_micro_usd_per_million_tokens : 0,
+                p.pricing->cache_write_applicable ? p.pricing->cache_write_micro_usd_per_million_tokens : 0})
+            require(rate >= 0 && rate <= pricing_rate_bound, "token pricing rate outside hard bounds");
+    }
+        if (p.responses_compatibility) {
+        const auto& compat = *p.responses_compatibility;
+        require(compat.format == "wls-responses-compat-v1" && compat.reference == "openai-responses-2026-11-08",
+                "unsupported Responses compatibility format or reference");
+        require(compat.model_aliases.size() >= 1 && compat.model_aliases.size() <= 8,
+                "Responses compatibility needs 1..8 explicit model snapshots");
+        std::set<std::string> seen;
+        for (const auto& alias : compat.model_aliases) {
+            require(ascii_token(alias, 128) && seen.insert(alias).second,
+                    "Responses compatibility model snapshots must be unique bounded ASCII tokens");
+        }
+        require(std::is_sorted(compat.model_aliases.begin(), compat.model_aliases.end()),
+                "Responses compatibility model snapshots must be stored normalized");
+    }
     require(!p.parallel_tool_calls || p.tool_calling, "parallel tool calls require tool calling capability");
     require(p.reasoning_provider_default || p.reasoning_off || !p.reasoning_efforts.empty(),
             "provider must explicitly declare a reasoning mode");
@@ -194,6 +353,8 @@ ProviderProfile provider_profile_from_json(const Json& value) {
         "responses_path", "model_ref", "model", "api_key_env", "real_calls_enabled", "max_paid_retries",
         "capabilities", "limits"};
     if (object(value).contains("billing_challenge")) keys.insert("billing_challenge");
+    if (object(value).contains("pricing")) keys.insert("pricing");
+    if (object(value).contains("responses_compatibility")) keys.insert("responses_compatibility");
     exact(value, keys);
     if (text(value, "format") != "wls-provider-profile-v1" || text(value, "adapter") != "openai-responses")
         throw Error(ErrorCode::Unsupported, "unsupported offline provider profile format or adapter");
@@ -207,6 +368,33 @@ ProviderProfile provider_profile_from_json(const Json& value) {
     if (object(value).contains("billing_challenge")) {
         p.billing_challenge = text(value, "billing_challenge");
         require(p.billing_challenge == "wls-billing-challenge-v1", "unsupported frozen billing challenge extension");
+    }
+    if (object(value).contains("pricing")) p.pricing = token_pricing_from_json(field(value, "pricing"));
+    if (const auto* compat = object(value).if_contains("responses_compatibility")) {
+        if (!compat->is_object())
+            throw Error(ErrorCode::Unsupported, "Responses compatibility extension must be an object");
+        const auto& source = compat->as_object();
+        for (const auto& entry : source)
+            if (entry.key() != "format" && entry.key() != "reference" && entry.key() != "model_aliases")
+                throw Error(ErrorCode::Unsupported, "unknown Responses compatibility field");
+        if (source.size() != 3)
+            throw Error(ErrorCode::Unsupported, "Responses compatibility needs its exact three fields");
+        if (text(*compat, "format") != "wls-responses-compat-v1" ||
+            text(*compat, "reference") != "openai-responses-2026-11-08")
+            throw Error(ErrorCode::Unsupported, "unsupported Responses compatibility format or reference");
+        const auto& aliases = field(*compat, "model_aliases");
+        require(aliases.is_object() && aliases.as_object().size() == 1 &&
+                aliases.as_object().begin()->value().is_array(),
+                "Responses compatibility declares exactly one model alias array");
+        const auto& mapping = *aliases.as_object().begin();
+        require(std::string(mapping.key()) == p.model,
+                "Responses compatibility alias key must be the exact profile model");
+        p.responses_compatibility.emplace();
+        for (const auto& alias : mapping.value().as_array()) {
+            require(alias.is_string(), "Responses compatibility model snapshot must be text");
+            p.responses_compatibility->model_aliases.emplace_back(alias.as_string());
+        }
+        std::sort(p.responses_compatibility->model_aliases.begin(), p.responses_compatibility->model_aliases.end());
     }
     const auto& caps = field(value, "capabilities");
     exact(caps, {"streaming", "tool_calling", "parallel_tool_calls", "reasoning_modes", "reasoning_efforts",
@@ -254,6 +442,14 @@ Json to_json(const ProviderProfile& p) {
             {"context_window", p.context_window}, {"max_output_tokens", p.max_output_tokens}}},
         {"limits", limits_json(p.limits)}};
     if (!p.billing_challenge.empty()) result["billing_challenge"] = p.billing_challenge;
+    if (p.pricing) result["pricing"] = to_json(*p.pricing);
+    if (p.responses_compatibility) {
+        Array snapshots;
+        for (const auto& alias : p.responses_compatibility->model_aliases) snapshots.emplace_back(alias);
+        result["responses_compatibility"] = Object{{"format", p.responses_compatibility->format},
+            {"reference", p.responses_compatibility->reference},
+            {"model_aliases", Object{{p.model, std::move(snapshots)}}}};
+    }
     return result;
 }
 

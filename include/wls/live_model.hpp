@@ -67,14 +67,16 @@ struct ObservedLiveAttempt {
 ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
         const ModelRequest& request, std::string_view bearer_token,
         const LiveExecutionAuthorization& authorization = {},
-        const LiveExperienceBinding& experience = {}, std::stop_token stop = {});
+        const LiveExperienceBinding& experience = {}, std::stop_token stop = {},
+        const std::optional<ControlsBootDeadline>& controls_deadline = {});
 
 // The complete original Store path: reserve -> unique send claim -> HTTPS
 // outside any transaction -> private transport record -> original settlement.
 // An exception after the claim retains unresolved accounting and never retries.
 LiveAttemptResult execute_live_attempt(Store& store, const StoreActor& actor,
         const ModelRequest& request, std::string_view bearer_token,
-        const LiveExecutionAuthorization& authorization = {}, std::stop_token stop = {});
+        const LiveExecutionAuthorization& authorization = {}, std::stop_token stop = {},
+        const std::optional<ControlsBootDeadline>& controls_deadline = {});
 
 struct UsageEvidenceStatement {
     std::string attempt_id;

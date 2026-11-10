@@ -4,8 +4,10 @@
 #include "wls/structured_context.hpp"
 #include "wls/worker_history.hpp"
 #include "wls/management_context.hpp"
+#include "wls/live_model.hpp"
 #include "runtime_config_internal.hpp"
 #include "amendment_disposition.hpp"
+#include "correction_detail.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -761,12 +763,45 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         }
         return result;
     }
+    // Marks that the failure below came from the model-response gate itself,
+    // so a host hook error can never be relabelled as a model-layer refusal.
+    bool refusal_gate = false;
     const auto apply = [&]() -> Json {
     if (after_settlement) after_settlement(settlement);
-    require_complete_response(captured, response);
+    try {
+        require_complete_response(captured, response);
+    } catch (const Error& error) {
+        if (error.code() == ErrorCode::NotReady) refusal_gate = true;
+        throw;
+    }
     const auto& accepted = settlement.at("accepted");
     require((accepted.is_bool() && accepted.as_bool()) || (accepted.is_int64() && accepted.as_int64() == 1),
             ErrorCode::Stale, "response was recorded but cannot change current business state");
+    // G1-3 trusted eligibility wrapper: a durable-feedback Store, the Worker
+    // role, no shared single-agent transcript, and either an original live
+    // attempt with the frozen local_tls execution kind or a Fake reservation.
+    // Model arguments, file contents or returned JSON never decide this.
+    bool correction_supported = false;
+    if (durable_feedback && captured.role == Role::Worker &&
+            !captured_contract(captured).as_object().contains("logical_agent_execution")) {
+        bool original_live_attempt = false;
+        if (store_.live_model_enabled()) {
+            try { static_cast<void>(store_.live_attempt(captured.attempt_id)); original_live_attempt = true; }
+            catch (const Error&) {}
+        }
+        if (original_live_attempt) {
+            const auto live_config = restore_request_config(store_.request(captured.binding.request_id));
+            correction_supported = live_model_settings_from_json(live_config.model_profile(Role::Worker),
+                live_config.resolve(Role::Worker).model).execution_kind == "local_tls";
+        } else correction_supported = true; // reserve_call already refused real adapters
+    }
+    // A Completed response with non-empty text and no call is an ordinary
+    // bounded model-schema failure: it persists as feedback; the host loop
+    // decides the one admitted corrective round. Every other zero/multi-call
+    // shape keeps the original exactly-one gate.
+    if (correction_supported && response.tool_calls.empty() && !response.text.empty())
+        return correction_detail::ordinary_failure_feedback("missing_tool_call", "model_schema",
+            "worker response completed with text only and no declared tool call");
     require(response.tool_calls.size() == 1, ErrorCode::InvalidInput, "offline wake requires exactly one declared tool call");
     const auto& tool = response.tool_calls.front();
     const auto command = captured.attempt_id + ":" + tool.call_id;
@@ -960,9 +995,40 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     }
     if (captured.role == Role::Worker && is_history_control(tool.name))
         return execute_history_control(store_, call.actor, captured.binding, tool.name, tool.arguments);
-    if (captured.role == Role::Worker && worker_tools_)
-        return worker_tools_->execute(call.actor, captured.binding, call.expected_state_version,
-            captured.attempt_id, tool.name, tool.arguments, command);
+    if (captured.role == Role::Worker && worker_tools_) {
+        // Independent pure parameter-schema zone: only a strict failure of the
+        // one declared registered Worker tool converts to ordinary feedback,
+        // before any dispatch, authorization or operation row exists.
+        if (correction_supported && tool.arguments.is_object() &&
+                std::find(captured.context.tool_names.begin(), captured.context.tool_names.end(), tool.name) !=
+                    captured.context.tool_names.end() &&
+                std::any_of(worker_tool_registry().begin(), worker_tool_registry().end(),
+                    [&](const auto& entry) { return entry.name == tool.name; })) {
+            try { validate_worker_tool_arguments(tool.name, tool.arguments); }
+            catch (const Error& error) {
+                if (error.code() == ErrorCode::InvalidInput)
+                    return correction_detail::ordinary_failure_feedback("invalid_arguments", "model_schema",
+                        "worker tool arguments failed the declared parameter schema");
+                throw;
+            }
+        }
+        try {
+            auto tool_result = worker_tools_->execute(call.actor, captured.binding, call.expected_state_version,
+                captured.attempt_id, tool.name, tool.arguments, command);
+            if (correction_supported && correction_detail::definite_precondition_failure(tool_result))
+                tool_result.as_object()["correction_feedback"] = correction_detail::ordinary_failure_feedback(
+                    "content_precondition", "tool_result",
+                    "worker write refused by the deterministic creation/CAS/patch content precondition");
+            return tool_result;
+        } catch (const correction_detail::MissingWorkspaceLeaf&) {
+            // A deterministic missing final leaf after every authority check is
+            // an ordinary read observation, never a fabricated file content.
+            if (correction_supported)
+                return correction_detail::ordinary_failure_feedback("not_found", "tool_result",
+                    "worker read observed a missing final workspace leaf");
+            throw;
+        }
+    }
     require(captured.role == Role::Worker && tool.name == "note", ErrorCode::Unauthorized, "unsupported Worker tool");
     require(tool.arguments.is_object() && tool.arguments.as_object().size() == 1, ErrorCode::InvalidInput, "note accepts only text");
     const auto text = string_at(tool.arguments, "text");
@@ -978,10 +1044,19 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     try {
         result = apply();
     } catch (const Error& error) {
-        if (store_.event_runtime_enabled())
+        if (store_.event_runtime_enabled()) {
+            Object feedback{{"status", "ERROR"}, {"runtime_error", true},
+                {"error_code", error_name(error.code())}, {"message", error.what()}, {"observation_complete", false}};
+            // Identifiable model-layer refusal classification; the original
+            // settlement/response/binding stay intact and replay returns it.
+            if (refusal_gate && error.code() == ErrorCode::NotReady && response.status == ModelResultStatus::Error &&
+                response.error_code == "model_refusal") {
+                feedback["failure_layer"] = "model";
+                feedback["model_error_code"] = "model_refusal";
+            }
             static_cast<void>(store_.record_tool_feedback(captured.attempt_id, captured.binding, to_json(response),
-                Object{{"status", "ERROR"}, {"runtime_error", true}, {"error_code", error_name(error.code())}, {"message", error.what()},
-                    {"observation_complete", false}}));
+                feedback));
+        }
         throw;
     } catch (const std::exception& error) {
         if (store_.event_runtime_enabled())
@@ -1049,6 +1124,8 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
         tasks = store_.tasks(id);
     }
     std::vector<Json> feedback;
+    std::int64_t correction_admissions = 0;
+    bool correction_exhausted = false;
     const auto invoke = [&](Role role, const std::string& task_id, std::int64_t index = 1) {
         const FakeModel fake(steps, config.resolve(role).model);
         const auto call = reserve_call(fake, id, role, task_id, index, role == Role::Worker ? feedback : std::vector<Json>{});
@@ -1100,16 +1177,38 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
                     {"response", call.at("response")}, {"result", result}});
             }
             calls.push_back(std::move(call));
+            // Ordinary bounded failure: durable feedback already exists; admit
+            // at most schema_retry_max corrective rounds under the same caps.
+            if (correction_detail::correction_eligible_result(result)) {
+                if (correction_admissions >= config.schema_retry_max()) {
+                    // G1-3 FINAL v12 §3 C2: only real eligible exhaustion adds
+                    // the bounded blocked entry and the dedicated stop reason
+                    // below; a host call bound that ends the chain first never
+                    // reports schema exhaustion.
+                    correction_exhausted = true;
+                    break;
+                }
+                ++correction_admissions;
+                continue;
+            }
             // A failed/unknown operation or a new durable workflow handoff ends
             // this compatibility batch. The event pump handles its next role.
             if (stop_batch) break;
         }
     }
-    return Object{{"mode", "offline_fake"}, {"request_id", id}, {"task_id", task_id},
+    Object report{{"mode", "offline_fake"}, {"request_id", id}, {"task_id", task_id},
         {"config_snapshot_sha256", config.sha256()}, {"calls", calls}, {"budget", store_.budget(id)},
         {"request_status", store_.request(id).at("status")}, {"task_status", store_.task(task_id).at("status")},
         {"worker_tools_enabled", worker_tools_ != nullptr}, {"max_worker_calls", max_worker_calls},
         {"business_delivered", false}, {"environment_checks_executed", false}, {"real_model_calls", 0}};
+    if (correction_exhausted) {
+        report["blocked"] = Array{Object{{"role", role_name(Role::Worker)},
+            {"node_id", string_at(tasks.front(), "node_id")}, {"task_id", task_id},
+            {"code", correction_detail::correction_limit_code},
+            {"reason", correction_detail::correction_limit_reason}}};
+        report["stop_reason"] = "correction_limit";
+    }
+    return report;
 }
 
 } // namespace wls::s1

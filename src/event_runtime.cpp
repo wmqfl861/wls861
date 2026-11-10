@@ -2,6 +2,8 @@
 #include "wls/worker_tools.hpp"
 #include "wls/management_context.hpp"
 #include "runtime_config_internal.hpp"
+#include "correction_detail.hpp"
+#include "controls_detail.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -154,6 +156,54 @@ EventFakeScript event_fake_script_from_json(const Json& value) {
                     ErrorCode::InvalidInput, "duplicate event script node");
         }
     }
+    return result;
+}
+
+namespace {
+bool controls_json_depth_bounded(const Json& value, std::int64_t depth) {
+    if (depth > 64) return false;
+    if (value.is_array()) {
+        for (const auto& item : value.as_array())
+            if (!controls_json_depth_bounded(item, depth + 1)) return false;
+        return true;
+    }
+    if (value.is_object()) {
+        for (const auto& item : value.as_object())
+            if (!controls_json_depth_bounded(item.value(), depth + 1)) return false;
+        return true;
+    }
+    return true;
+}
+}  // namespace
+
+ControlsRunScripts controls_scripts_document_from_bytes(std::string_view bytes) {
+    require(bytes.size() >= 1 && bytes.size() <= 1048576, ErrorCode::InvalidInput,
+            "run-fake scripts file must stay within 1..1048576 bytes");
+    const auto document = parse_json_strict(std::string(bytes), 1048576);
+    require(controls_json_depth_bounded(document, 1), ErrorCode::InvalidInput,
+            "run-fake scripts file exceeds the standard JSON nesting bound");
+    require(document.is_object(), ErrorCode::InvalidInput, "run-fake scripts file must be an object");
+    const auto& object = document.as_object();
+    require(object.size() == 2 && object.contains("format") && object.contains("batches"),
+            ErrorCode::InvalidInput, "run-fake scripts file allows exactly format and batches");
+    require(document.at("format").is_string() && text(document, "format") == "wls-run-fake-v1",
+            ErrorCode::InvalidInput, "run-fake scripts file requires format wls-run-fake-v1");
+    const auto& batches = document.at("batches");
+    require(batches.is_array() && !batches.as_array().empty() && batches.as_array().size() <= 64,
+            ErrorCode::InvalidInput, "run-fake scripts file requires 1..64 batches");
+    ControlsRunScripts result;
+    result.source_sha256 = sha256_hex(std::string(bytes));
+    for (const auto& batch : batches.as_array()) {
+        // Every batch is an original explicit script; no implicit fallback and
+        // no silent truncation are ever applied.
+        result.batches.push_back(event_fake_script_from_json(batch));
+        const auto& script = result.batches.back();
+        result.total_steps += static_cast<std::int64_t>(script.default_steps.size());
+        for (const auto& entry : script.by_node)
+            result.total_steps += static_cast<std::int64_t>(entry.second.size());
+    }
+    require(result.total_steps >= 1 && result.total_steps <= 4096, ErrorCode::InvalidInput,
+            "run-fake scripts file must keep total steps within 1..4096");
     return result;
 }
 
@@ -360,14 +410,31 @@ Json EventRuntime::pump(const std::string& id, const EventFakeScript& script,
             auto current_task = store_.task(task_id);
             active_actor = store_.host_actor(Role::Worker, id, binding.team_id);
             if (number(current_task, "applied_task_revision") != binding.task_revision ||
-                    number(current_task, "applied_plan_revision") != binding.plan_revision ||
-                    number(current_task, "applied_instruction_revision") != binding.instruction_revision)
+                number(current_task, "applied_plan_revision") != binding.plan_revision ||
+                number(current_task, "applied_instruction_revision") != binding.instruction_revision)
                 static_cast<void>(store_.acknowledge(active_actor, binding, number(current_task, "state_version"), new_id("ack")));
+            std::int64_t correction_admissions = 0;
             for (std::int64_t turn = 0; turn < options.max_worker_calls_per_task; ++turn) {
                 active_claim = store_.claim_events(active_actor);
                 if (active_claim.at("items").as_array().empty()) { active_claim = nullptr; break; }
                 const auto result = invoke(Role::Worker, node, task_id, tools);
                 if (!result) { finish(active_actor, active_claim, {}); active_claim = nullptr; break; }
+                // Ordinary bounded failure with durable feedback: release the
+                // claim uncompleted and spend one admitted corrective round
+                // under the same per-task, call and budget caps.
+                if (correction_detail::correction_eligible_result(*result)) {
+                    finish(active_actor, active_claim, {}); active_claim = nullptr;
+                    if (correction_admissions >= config.schema_retry_max()) {
+                        // G1-3 FINAL v12 §3 C2: real eligible exhaustion emits the
+                        // bounded dedicated report carrying the real role, node
+                        // and task of this Worker; no other signature moves.
+                        block(Role::Worker, node, task_id, correction_detail::correction_limit_code,
+                              std::string(correction_detail::correction_limit_reason));
+                        break;
+                    }
+                    ++correction_admissions;
+                    continue;
+                }
                 const auto* operation = result->is_object() ? result->as_object().if_contains("operation") : nullptr;
                 const bool failed_operation = operation && text(*operation, "status") != "SUCCEEDED";
                 if (failed_operation) {
@@ -447,6 +514,14 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     using ActorKey = std::pair<Role, std::string>;
     std::map<ActorKey, std::int64_t> indices;
     std::set<ActorKey> stopped;
+    // G1-3 FINAL v12 §3 C1: this pump's Worker correction admissions live for
+    // the whole invocation, keyed only by the trusted Worker node plus the
+    // frozen ExecutionBinding and config identity. A completed claim, an
+    // ordinary success, or any state_version/claim/attempt/call-index change
+    // never resets a chain; only a new semantic binding or a new explicit
+    // pump invocation starts a fresh chain. No Store state or SQL is involved.
+    std::map<std::string, std::int64_t> worker_correction_admissions;
+    std::string refused_guard;
     std::set<std::string> block_keys;
     Array calls, blocked;
     std::int64_t manager_calls = 0;
@@ -462,9 +537,50 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     const auto block = [&](Role role, const std::string& node, const std::string& task,
                            std::string_view code, const std::string& reason) {
         const auto key = std::string(role_name(role)) + ":" + node + ":" + std::string(code);
-        if (block_keys.insert(key).second)
-            blocked.push_back(Object{{"role", role_name(role)}, {"node_id", node}, {"task_id", task},
-                {"code", code}, {"reason", live ? "Live workflow stopped at an original runtime guard; inspect private Store evidence." : reason}});
+        if (block_keys.insert(key).second) {
+            Object entry{{"role", role_name(role)}, {"node_id", node}, {"task_id", task},
+                {"code", code}, {"reason", live ? "Live workflow stopped at an original runtime guard; inspect private Store evidence." : reason}};
+            entry["controls_target"] = controls_next_target(id, entry);
+            blocked.push_back(std::move(entry));
+        }
+    };
+    // G1-6 Controls v1 (FINAL v24 D/S): the batch-level view of this request's
+    // business gates. Legacy requests (no admission marker) stay open and keep
+    // their frozen semantics on every original path. The stored gates remain
+    // authoritative; this view only reports their precise stop class.
+    std::optional<ControlsBootDeadline> controls_bound;
+    {
+        const auto gate = store_.controls_business_gate(id);
+        if (text(gate, "status") == "open") {
+            const auto& limit = gate.at("boot_limit").as_object();
+            ControlsBootDeadline bound;
+            bound.boot_id = text(gate, "boot_id");
+            bound.limit_seconds = number(limit, "seconds");
+            bound.limit_nanoseconds = static_cast<std::int32_t>(number(limit, "nanoseconds"));
+            controls_bound = std::move(bound);
+        }
+    }
+    const auto controls_stop_class = [&] {
+        const auto gate = store_.controls_business_gate(id);
+        if (gate.is_object() && text(gate, "status") == "stop")
+            return std::string(text(gate, "stop_class"));
+        return std::string{};
+    };
+    const auto apply_controls_stop = [&](Role role, const std::string& node, const std::string& task) {
+        const auto stop_class = controls_stop_class();
+        if (stop_class.empty()) return false;
+        // F2 repair (FINAL v24 repair record): a present-but-corrupt marker
+        // closes new business with the same typed stop as deadline/clock loss;
+        // its precise raw class stays visible in stop_reason and the blocked
+        // entry instead of collapsing into a generic error.
+        if (stop_class == "deadline") stop_reason = "deadline";
+        else if (stop_class == "controls_clock_unavailable" || stop_class == "controls_marker_corrupt" ||
+                 stop_class == "stagnation") {
+            if (stop_reason == "quiescent") stop_reason = stop_class;
+        } else if (stop_reason == "quiescent") stop_reason = "error";
+        block(role, node, task, stop_class, "controls business gate stopped this batch before new business");
+        if (live) live_halted = true;
+        return true;
     };
     const auto live_continue = [&] {
         if (!live) return true;
@@ -567,7 +683,9 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     };
     const auto invoke = [&](Role role, const std::string& node, const std::string& task,
                             WorkerTools* tools, const Json& claim) -> std::optional<Json> {
+        refused_guard.clear();
         if (!live_continue() || !accounting_ready()) return std::nullopt;
+        if (apply_controls_stop(role, node, task)) { stopped.insert(ActorKey{role, node}); return std::nullopt; }
         const ActorKey key{role, node};
         if (stopped.contains(key)) return std::nullopt;
         if (store_.capacity_status(id).at("status") == "WAITING_INPUT") {
@@ -587,6 +705,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             stopped.insert(key); return std::nullopt;
         }
         if (role == Role::Worker && indices[key] >= options.max_worker_calls_per_task) {
+            refused_guard = "worker_limit";
             block(role, node, task, "worker_limit", "this task reached the explicit per-pump Worker call limit");
             stopped.insert(key); return std::nullopt;
         }
@@ -613,6 +732,14 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             // lookup. A live preflight cannot reuse the Fake zero-usage abort.
             require(captured.workflow_action.is_null() || action_in_claim(captured.workflow_action, claim),
                     ErrorCode::Stale, "live workflow target is outside its original captured event claim");
+            // A frozen price table sets the minimum effective cost reservation;
+            // check it before encoding or resolving any credential.
+            if (settings->provider.pricing) {
+                const auto minimum = minimum_cost_reservation(*settings->provider.pricing,
+                    captured.request.reserved_input_tokens, captured.request.reserved_output_tokens);
+                require(minimum.available && captured.request.reserved_cost_micro_usd >= minimum.cost_micro_usd,
+                        ErrorCode::Quota, "live cost reservation is below the frozen pricing minimum before credential lookup");
+            }
             static_cast<void>(encode_responses_request(settings->provider, captured.request, settings->stream));
             const auto budget = store_.budget(id);
             require(number(budget, "attempts") < number(budget, "max_attempts"), ErrorCode::Quota,
@@ -698,6 +825,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             ModelResponse response;
             if (live) {
                 if (!live_continue()) return std::nullopt;
+                if (apply_controls_stop(role, node, task)) { stopped.insert(ActorKey{role, node}); return std::nullopt; }
                 EphemeralCredential credential;
                 try { credential.bytes = live->credentials(settings->provider.api_key_env); }
                 catch (...) { throw Error(ErrorCode::InvalidInput, "trusted credential resolver failed"); }
@@ -716,7 +844,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 }
                 live_execution_started = true;
                 auto observed = observe_live_attempt(store_, captured.actor, captured.request, credential.bytes,
-                    live->authorization, experience, stop);
+                    live->authorization, experience, stop, controls_bound);
                 invocation["send_claim"] = live_record_summary(observed.send_claim);
                 invocation["transport"] = observed.transport_summary;
                 invocation["network_started"] = observed.sent;
@@ -759,13 +887,21 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                     }
                     // A batch stop is never permission for a late business
                     // effect. Original settlement/evidence remain durable.
+                    const auto completion_gate = store_.controls_settlement_gate(captured.actor, to_json(captured.request), settlement);
+                    if (text(completion_gate, "status") == "stop")
+                        throw Error(ErrorCode::NotReady, "controls business gate stopped before response application");
                     require(live_continue(), ErrorCode::NotReady, "live batch stopped before response application");
                 };
                 result = runtime.accept_live_response(captured, response, after_settlement, role == Role::Dispatcher);
                 invocation["result"] = live_record_summary(result);
                 static_cast<void>(accounting_ready());
                 const auto* operation = result.is_object() ? result.as_object().if_contains("operation") : nullptr;
-                if (operation && text(*operation, "status") != "SUCCEEDED") {
+                // Only the recognized ordinary bounded failure bypasses the
+                // blanket failed-operation halt; its continuation is decided
+                // by the bounded same-claim Worker loop, still gated on live
+                // continuation and accounting readiness above.
+                if (operation && text(*operation, "status") != "SUCCEEDED" &&
+                        !correction_detail::correction_eligible_result(result)) {
                     live_halted = true; stop_reason = "error";
                     block(role, node, task, "operation_incomplete", "failed or unknown operation stops the live batch");
                 }
@@ -996,16 +1132,62 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 if (stopped.contains({Role::Worker, node})) continue;
                 active_claim = store_.claim_events(active_actor);
                 if (active_claim.at("items").as_array().empty()) { active_claim = nullptr; continue; }
-                const auto result = invoke(Role::Worker, node, task_id, tools, active_claim);
-                if (!result) { finish(active_actor, active_claim, {}); active_claim = nullptr; continue; }
-                const auto* operation = result->is_object() ? result->as_object().if_contains("operation") : nullptr;
-                if (operation && text(*operation, "status") != "SUCCEEDED") {
-                    block(Role::Worker, node, task_id, "operation_incomplete", "a failed or unknown operation stops this task's batch");
-                    stopped.insert({Role::Worker, node});
-                    finish(active_actor, active_claim, {}); active_claim = nullptr; continue;
+                // Bounded same-claim corrective continuation: an admitted
+                // ordinary failure keeps this original Worker claim open (no
+                // re-claim, no early completion) until the actor succeeds,
+                // stops or exhausts the frozen schema-retry bound. The
+                // admission counter is the whole-invocation C1 chain above, so
+                // a success or completed claim never refreshes its quota.
+                const auto chain_key = node + ":" + config.sha256() + ":" +
+                    canonical_json(to_json(binding));
+                auto& correction_admissions = worker_correction_admissions[chain_key];
+                bool correction_pending = false;
+                while (true) {
+                    const auto result = invoke(Role::Worker, node, task_id, tools, active_claim);
+                    if (!result) {
+                        // An admitted corrective continuation refused by the
+                        // original per-task Worker cap ends the whole live batch
+                        // under that real guard reason; the Fake entry keeps its
+                        // actor-local stop and sibling isolation.
+                        if (correction_pending && live && refused_guard == "worker_limit") {
+                            live_halted = true;
+                            if (stop_reason == "quiescent") stop_reason = "worker_limit";
+                        }
+                        finish(active_actor, active_claim, {}); active_claim = nullptr; break;
+                    }
+                    if (correction_detail::correction_eligible_result(*result)) {
+                        if (correction_admissions >= config.schema_retry_max()) {
+                            // G1-3 FINAL v12 §3 C2: real eligible exhaustion emits
+                            // the bounded dedicated report and halts every live
+                            // role; the claim is released empty and its events
+                            // stay pending. A stronger existing stop reason is
+                            // never overwritten.
+                            block(Role::Worker, node, task_id, correction_detail::correction_limit_code,
+                                  std::string(correction_detail::correction_limit_reason));
+                            stopped.insert({Role::Worker, node});
+                            finish(active_actor, active_claim, {}); active_claim = nullptr;
+                            if (live) {
+                                live_halted = true;
+                                if (stop_reason == "quiescent") stop_reason = "correction_limit";
+                            }
+                            break;
+                        }
+                        ++correction_admissions;
+                        correction_pending = true;
+                        continue;
+                    }
+                    const auto* operation = result->is_object() ? result->as_object().if_contains("operation") : nullptr;
+                    if (operation && text(*operation, "status") != "SUCCEEDED") {
+                        block(Role::Worker, node, task_id, "operation_incomplete", "a failed or unknown operation stops this task's batch");
+                        stopped.insert({Role::Worker, node});
+                        finish(active_actor, active_claim, {}); active_claim = nullptr;
+                        break;
+                    }
+                    finish(active_actor, active_claim, ids(active_claim)); active_claim = nullptr;
+                    progress = true;
+                    break;
                 }
-                finish(active_actor, active_claim, ids(active_claim)); active_claim = nullptr;
-                progress = true;
+                continue;
             } catch (const Error& error) {
                 const auto role = active_actor.role == Role::Root ? Role::Worker : active_actor.role;
                 if (live) { live_halted = true; if (stop_reason == "quiescent") stop_reason = "error"; }
@@ -1098,6 +1280,71 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         }
     }
     return result;
+}
+
+Json EventRuntime::controls_next_target(const std::string& id, const Json& entry,
+                                       const EventFakeScript* script) const {
+    try {
+        const auto code = text(entry, "code");
+        if (code != "worker_limit" && code != "manager_limit" && code != "call_limit" &&
+                code != "submission_pending" && code != "acceptance_pending") return nullptr;
+        const auto role = code == "submission_pending" ? Role::TeamLead : role_from_string(text(entry, "role"));
+        auto task_id = text(entry, "task_id"), node = text(entry, "node_id");
+        const auto config = restore_request_config(store_.request(id));
+        Json action = nullptr;
+        if (code == "acceptance_pending") {
+            const auto submission = store_.current_submission(task_id);
+            if (submission.is_null() || text(submission, "status") != "CANDIDATE_READY") return nullptr;
+            action = Object{{"kind", "acceptance"}, {"target", submission},
+                {"expected_task_version", store_.task(task_id).at("state_version")}};
+        } else if (role != Role::Worker)
+            action = runtime_detail::next_workflow_action(store_, role, id, role == Role::Dispatcher ? "" : task_id, &config);
+        if (role == Role::Dispatcher && !action.is_null()) task_id = text(action.at("target"), "task_id");
+        if (task_id.empty()) return nullptr;
+        const auto task = store_.task(task_id), waiting = store_.worker_wait(task_id);
+        if (text(task, "request_id") != id || (!node.empty() && text(task, "node_id") != node) ||
+                (!waiting.is_null() && text(waiting, "status") == "WAITING")) return nullptr;
+        node = text(task, "node_id");
+        const auto binding = store_.binding(task_id);
+        const auto actor = store_.host_actor(role, id, role == Role::Dispatcher ? "" : binding.team_id);
+        if (role == Role::Worker) {
+            store_.controls_validate_worker_ready(actor, binding);
+            const auto tools = tools_by_node_.find(node);
+            if ((!tools_by_node_.empty() && tools == tools_by_node_.end()) ||
+                    (tools != tools_by_node_.end() && tools->second->declarations(actor).empty())) return nullptr;
+        } else if (action.is_null() && (role != Role::TeamLead || terminal(task) ||
+                    !store_.current_submission(task_id).is_null() || instruction_current(store_.instruction(task_id), binding)))
+            return nullptr;
+        if (code == "submission_pending" && (action.is_null() || text(action, "kind") != "submission" ||
+                text(action.at("target"), "task_id") != task_id)) return nullptr;
+        if (!action.is_null() && text(action, "kind") == "experience") {
+            const auto current = store_.current_submission(task_id);
+            if (current.is_null() || current.at("acceptance") != action.at("target").at("source_snapshot").at("acceptance"))
+                return nullptr;
+        }
+        Array sources;
+        const auto inbox = store_.inbox(actor);
+        if (inbox.size() == 256) return nullptr;
+        for (const auto& item : inbox) {
+            if (text(item, "subject_task_id") != task_id) continue;
+            sources.push_back(Object{{"event_id", item.at("event_id")}, {"inbox_id", item.at("inbox_id")},
+                {"source_sha256", controls::detail::canonical_sha256_stream(
+                    Array{item.at("payload"), item.at("result")}).sha256_hex_value}});
+        }
+        if (sources.empty()) return nullptr;
+        if (script) {
+            const auto selected = script->by_node.find(node);
+            const auto& steps = role == Role::Dispatcher || selected == script->by_node.end() ? script->default_steps : selected->second;
+            if (std::none_of(steps.begin(), steps.end(), [&](const auto& step) {
+                return step.role == role && step.role_call_index == 1;
+            })) return nullptr;
+        }
+        return Object{{"request_id", id}, {"role", role_name(role)}, {"task_id", task_id}, {"node_id", node},
+            {"binding", to_json(binding)}, {"request_binding", to_json(store_.request_binding(id))},
+            {"task_state_version", task.at("state_version")}, {"config_sha256", config.sha256()},
+            {"source_sha256", sha256_hex(canonical_json(sources))},
+            {"target_sha256", controls::detail::canonical_sha256_stream(action).sha256_hex_value}};
+    } catch (...) { return nullptr; }
 }
 
 } // namespace wls::s1

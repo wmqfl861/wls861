@@ -148,6 +148,9 @@ public:
     Json instruction(const std::string& task_id) const;
     void validate_brief(const std::string& request_id, const Json& brief) const;
     Json operation(const std::string& op_id) const;
+    // Raw nullable budget balances. For requests frozen with a token price
+    // table, spent_cost is the effective booked amount (deterministic estimate
+    // or a later confirmed actual), labeled by the appended cost_breakdown.
     Json budget(const std::string& request_id) const;
     Json attempt(const std::string& attempt_id) const;
     std::vector<Json> events(const std::string& request_id,
@@ -562,6 +565,27 @@ public:
                           const std::string& op_id, const std::string& stream,
                           std::int64_t offset = 0,
                           std::int64_t limit = 65536) const;
+
+    // G1-6 Controls v1 (FINAL v24 W/D/S). Read-only observations of the
+    // host-generated admission marker; a null result means the request was
+    // frozen before Controls and keeps its original legacy semantics.
+    Json controls_admission(const std::string& request_id) const;
+    // Deadline/stagnation business gate state. "open"/"legacy" never grant
+    // business authority; "stop" carries the precise bounded stop class.
+    Json controls_business_gate(const std::string& request_id) const;
+    Json controls_settlement_gate(const StoreActor& actor, const Json& captured_request, const Json& settlement) const;
+    void controls_validate_worker_ready(const StoreActor& actor, const ExecutionBinding& binding) const;
+    // Post-commit budget-warning observer. It never changes reservation,
+    // settlement, reconciliation, or send authority, and never throws; the
+    // returned warning_status is the durable truth about this observation.
+    Json controls_observe_budget(const std::string& request_id);
+    // R03_FACTS read-only current model-milestone facts: every required task
+    // must hold a re-verified current acceptance plus its exact original-
+    // source experience job DONE. Status strings alone never prove milestone.
+    Json controls_model_milestone(const std::string& request_id) const;
+    // R03_FACTS read-only complete receipt verification for the retained
+    // confirmed package, including the durable receipt command fingerprint.
+    Json controls_delivery_receipt_facts(const std::string& request_id) const;
 
     Json reserve_attempt(const StoreActor& actor,
                          const ExecutionBinding& frozen_binding,

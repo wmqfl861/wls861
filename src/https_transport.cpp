@@ -11,6 +11,7 @@
 #include <charconv>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <limits>
 #include <string_view>
 #include <utility>
@@ -112,6 +113,8 @@ void fail(HttpsTransportResult& result, HttpsTransportStatus status,
     result.response.error_message = "HTTPS result is not usable; no automatic retry or tool dispatch";
     result.response.text.clear();
     result.response.tool_calls.clear();
+    // An unusable transport outcome never keeps a replayable opaque original.
+    result.response.responses_output = nullptr;
 }
 
 Json time_json(const std::optional<Microseconds>& time) {
@@ -185,6 +188,9 @@ struct Transfer {
     std::stop_token stop;
     Clock::time_point started;
     Clock::time_point deadline;
+    // Trusted-host absolute request bound (Controls v1); null keeps the
+    // original provider/batch steady-deadline behavior exactly.
+    const ControlsBootDeadline* controls{};
     Abort aborted{Abort::None};
     HeaderBlock header;
     std::vector<SseReplayChunk> chunks;
@@ -203,12 +209,38 @@ struct Transfer {
             aborted = Abort::Deadline;
             return true;
         }
+        if (controls) {
+            struct timespec boot_now {};
+            if (::clock_gettime(CLOCK_BOOTTIME, &boot_now) != 0 ||
+                    boot_now.tv_sec > controls->limit_seconds ||
+                    (boot_now.tv_sec == controls->limit_seconds &&
+                     boot_now.tv_nsec >= controls->limit_nanoseconds)) {
+                aborted = Abort::Deadline;
+                return true;
+            }
+        }
         return aborted != Abort::None;
     }
     void advance(HttpsTransportPhase phase) noexcept {
         if (static_cast<int>(result.phase) < static_cast<int>(phase)) result.phase = phase;
     }
 };
+
+// Whole-millisecond floor of the remaining Controls request bound. A missing
+// clock or an exhausted bound yields zero so the caller stops; the value is
+// never rounded up and never padded.
+std::int64_t controls_remaining_floor_ms(const ControlsBootDeadline& bound) noexcept {
+    struct timespec now {};
+    if (::clock_gettime(CLOCK_BOOTTIME, &now) != 0) return 0;
+    std::int64_t seconds = bound.limit_seconds - now.tv_sec;
+    std::int64_t nanoseconds = bound.limit_nanoseconds - now.tv_nsec;
+    if (nanoseconds < 0) {
+        seconds -= 1;
+        nanoseconds += 1'000'000'000;
+    }
+    if (seconds < 0) return 0;
+    return seconds * 1000 + nanoseconds / 1'000'000;
+}
 
 bool multiply_size(std::size_t size, std::size_t count, std::size_t& answer) noexcept {
     if (size != 0 && count > std::numeric_limits<std::size_t>::max() / size) return false;
@@ -633,7 +665,7 @@ std::string to_string(HttpsTransportPhase phase) {
 HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
         const ModelRequest& request, const EncodedResponsesRequest& encoded,
         const HttpsTransportOptions& options, std::string_view bearer_token,
-        std::stop_token stop) {
+        std::stop_token stop, const std::optional<ControlsBootDeadline>& controls_deadline) {
     const auto started = Clock::now();
     const auto expected = encode_responses_request(profile, request, encoded.stream);
     require(to_json(encoded) == to_json(expected), ErrorCode::Corrupt,
@@ -671,6 +703,7 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
         {"socket_send_buffer_bytes", socket_send_buffer}, {"upload_buffer_bytes", 16U * 1024U},
         {"dns_policy", "strict_ipv4_or_explicit_mapping_or_cares"}}));
     Transfer transfer{profile, encoded, options, result, stop, started, started + request.timeout,
+                      controls_deadline ? &*controls_deadline : nullptr,
                       Abort::None, {}, {}, 0, 0};
     if (transfer.interrupted()) {
         classify_abort(result, transfer.aborted, CURLE_ABORTED_BY_CALLBACK);
@@ -752,7 +785,11 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
         finalize(result, transfer);
         return result;
     }
-    const auto remaining = std::chrono::ceil<Milliseconds>(transfer.deadline - Clock::now());
+    auto remaining = std::chrono::ceil<Milliseconds>(transfer.deadline - Clock::now());
+    if (transfer.controls) {
+        const auto bounded = controls_remaining_floor_ms(*transfer.controls);
+        remaining = std::min(remaining, Milliseconds(bounded));
+    }
     const auto timeout_ms = static_cast<long>(std::max<std::int64_t>(1, remaining.count()));
     option(easy, CURLOPT_TIMEOUT_MS, timeout_ms);
     option(easy, CURLOPT_CONNECTTIMEOUT_MS, timeout_ms);
@@ -787,7 +824,9 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
             transfer.aborted = Abort::CallbackFailure;
             break;
         }
-        const auto wait_left = std::chrono::ceil<Milliseconds>(transfer.deadline - Clock::now());
+        auto wait_left = std::chrono::ceil<Milliseconds>(transfer.deadline - Clock::now());
+        if (transfer.controls)
+            wait_left = std::min(wait_left, Milliseconds(controls_remaining_floor_ms(*transfer.controls)));
         const auto wait_ms = static_cast<int>(std::max<std::int64_t>(0,
                 std::min(transfer.options.poll_interval.count(), wait_left.count())));
         int descriptors = 0;
@@ -810,7 +849,18 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     } else if (result.http_status != 200) {
         fail(result, HttpsTransportStatus::HttpError, "http_error");
     } else if (result.response.status != ModelResultStatus::Completed) {
-        fail(result, HttpsTransportStatus::ProtocolError, "protocol_error");
+        // Narrow classification only: a fully framed HTTP 200 refusal validated
+        // by the shared decoder under the compatibility profile. The response
+        // stays Error; no downstream may treat it as usable or dispatchable.
+        if (result.response.error_code == "model_refusal" &&
+            transfer.profile.responses_compatibility.has_value() &&
+            result.protocol_evidence.is_object() &&
+            result.protocol_evidence.as_object().contains("decoder")) {
+            result.status = HttpsTransportStatus::Completed;
+            result.reason = "model_refusal";
+        } else {
+            fail(result, HttpsTransportStatus::ProtocolError, "protocol_error");
+        }
     } else {
         result.status = HttpsTransportStatus::Completed;
         result.reason = "completed";

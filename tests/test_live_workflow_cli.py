@@ -30,6 +30,33 @@ sys.argv = [sys.argv[0]]
 REFERENCE = 'WLS_SYNTHETIC_CLI_AUTH_5B37'
 BEARER = 'WLS_SYNTHETIC_CLI_BEARER_5B37'
 PRIVATE = 'PRIVATE_CLI_PROVIDER_ERROR_5B37'
+# Frozen synthetic price table: reported input/output/cache-read, cache-write
+# declared not applicable. Not a provider quote or signed billing evidence.
+PRICING = {'format': 'wls-token-pricing-v1', 'currency': 'USD',
+           'unit': 'micro_usd_per_million_tokens',
+           'input_micro_usd_per_million_tokens': 1500000,
+           'output_micro_usd_per_million_tokens': 4000000,
+           'cache_read': {'applicability': 'reported', 'micro_usd_per_million_tokens': 250000},
+           'cache_write': {'applicability': 'not_applicable'}}
+# Independent expected estimate for 11/7/3 reported tokens with no cache write:
+# ceil((8*1.5 + 3*0.25 + 7*4) micro USD) with Python integers only.
+PRICED_UNIT_MICRO_USD = (8 * 1500000 + 3 * 250000 + 7 * 4000000 + 999999) // 1000000
+# Fixed wls-controls-run-v1 stop-class vocabulary (FINAL v24 repair F4): raw
+# cap/stop codes like manager_limit/worker_limit/call_limit live only in the
+# bounded raw detail, never in stop_classes.
+FIXED_STOP_CLASSES = ('cancelled', 'deadline', 'needs_accounting', 'correction_limit',
+                      'stagnation', 'budget', 'context', 'capacity', 'storage',
+                      'permission', 'protocol', 'transport', 'failure_tail', 'input',
+                      'host_limit', 'unclassified')
+
+
+def priced(body):
+    """Replace the fixture usage with the frozen priced shape (no cache write)."""
+    value = json.loads(body)
+    value['usage'] = {'input_tokens': 11, 'input_tokens_details': {'cached_tokens': 3},
+                      'output_tokens': 7, 'output_tokens_details': {'reasoning_tokens': 0},
+                      'total_tokens': 18}
+    return tls.encoded(value)
 
 
 def without_constraints(value):
@@ -47,6 +74,34 @@ def plan_response():
     response = json.loads(tls.response_body(tool=True))
     response['output'][0].update(name=call['name'], arguments=json.dumps(call['arguments']))
     return tls.encoded(response)
+
+
+class ScriptedPeer:
+    """Unsigned priced peer: serves fixed tool answers, then HTTP 429."""
+
+    def __init__(self):
+        fixture = without_constraints(json.loads((SOURCE / 'tests/fixtures/s15_fake_complete.json').read_text()))
+        self.calls = [fixture['default'][0]['tool_calls'][0]]
+        self.actions = []
+
+    def __call__(self, peer, connection):
+        observed = peer.request(connection)
+        body = json.loads(observed['body'])
+        if not self.calls:
+            failure = json.dumps({'error': {'code': 'synthetic_priced_exhausted',
+                                            'message': 'fixture script exhausted'}}).encode()
+            connection.sendall(tls.headers(len(failure), status=429) + failure)
+            return
+        call = self.calls.pop(0)
+        if call['name'] not in {tool['name'] for tool in body['tools']}:
+            raise AssertionError(f"{call['name']} was not declared")
+        self.actions.append(call['name'])
+        value = json.loads(priced(tls.response_body(tool=True)))
+        value['id'] = f'resp_priced_{len(self.actions)}'
+        value['output'][0].update(call_id=f'pricing-call-{len(self.actions)}', name=call['name'],
+                                  arguments=json.dumps(call['arguments']))
+        encoded = tls.encoded(value)
+        connection.sendall(tls.headers(len(encoded)) + encoded)
 
 
 class LiveWorkflowCli(unittest.TestCase):
@@ -104,13 +159,15 @@ class LiveWorkflowCli(unittest.TestCase):
         self.assertEqual(result.stderr, '')
         return json.loads(result.stdout)
 
-    def admit(self, port, key='request-one'):
+    def admit(self, port, key='request-one', pricing=None, cost_budget=10000):
         system = copy.deepcopy(self.system)
         provider = json.loads((SOURCE / 'config/examples/providers/responses-offline.json').read_text())
         provider.update(base_url=f'https://localhost:{port}', api_key_env=REFERENCE,
                         model_ref='cli-loopback', profile_id='synthetic-cli-loopback')
         provider['capabilities']['reasoning_efforts'] = []
         provider['capabilities']['reasoning_modes'] = ['provider_default', 'off']
+        if pricing is not None:
+            provider['pricing'] = copy.deepcopy(pricing)
         system['models']['cli-loopback'] = {
             'adapter': 'openai-responses', 'adapter_version': '1', 'protocol': 'openai-responses-v1',
             'model': provider['model'], 'capabilities': {'streaming': 'supported',
@@ -130,13 +187,13 @@ class LiveWorkflowCli(unittest.TestCase):
         self.configuration.write_text(json.dumps(system))
         result = self.invoke('submit', '--db', self.database, '--key', key,
             '--text-file', SOURCE / 'tests/fixtures/s1_request.txt', '--config', self.configuration,
-            '--functions-dir', self.functions, '--cost-budget-micro-usd', 10000)
+            '--functions-dir', self.functions, '--cost-budget-micro-usd', cost_budget)
         return result['request']['request_id']
 
-    def authorize(self, request):
+    def authorize(self, request, reserved=100):
         status = self.invoke('live-status', '--db', self.database, '--request', request)
         value = status['authorization_template']
-        value.update(network_enabled=True, reserved_cost_micro_usd=100,
+        value.update(network_enabled=True, reserved_cost_micro_usd=reserved,
                      max_calls=8, max_worker_calls_per_task=4, max_batch_duration_ms=10000)
         self.authorization_file.write_text(json.dumps(value))
         return value
@@ -347,12 +404,15 @@ class LiveWorkflowCli(unittest.TestCase):
         self.assertEqual((workspace / 'result.txt').read_bytes(), b'verified from S1.2\n')
 
     def test_r_scripts_file_and_script_conflict_is_rejected_before_takeover(self):
-        # R new-entry contract input: --scripts-file together with --script
-        # must be rejected before any Store effect (Takeover), and --scripts-
-        # file alone must not silently fall back to the single-script path.
-        # On the old source --scripts-file is an unknown argument, so the
-        # same pre-Takeover rejection holds; the missing entry itself is an
-        # API gap and is never counted as a business RED.
+        # R new-entry contract input, aligned to the FINAL v24 implementation:
+        # --scripts-file together with --script is still rejected before any
+        # Store effect (Takeover), and a --scripts-file document that violates
+        # the bounded wls-run-fake-v1 envelope is rejected by the whole-file
+        # pre-parse before Takeover. The v16 revision asserted the missing
+        # entry itself as an API gap; the v24 source stage implements the
+        # entry, so the protective expectation moves from "unknown argument"
+        # to "malformed envelope never reaches Store". No silent fallback to
+        # the single-script path exists in either revision.
         with tls.Peer(self.contexts['server'], tls.fixed_response(plan_response())) as peer:
             request = self.admit(peer.port)
             self.authorize(request)
@@ -365,8 +425,10 @@ class LiveWorkflowCli(unittest.TestCase):
             self.invoke('run-fake', '--db', self.database, '--request', request,
                         '--script', script, '--scripts-file', batches, error=True)
             self.assertEqual(self.snapshot(), before)
+            empty = self.directory / 'batches-empty.json'
+            empty.write_text(json.dumps({'format': 'wls-run-fake-v1', 'batches': []}))
             self.invoke('run-fake', '--db', self.database, '--request', request,
-                        '--scripts-file', batches, error=True)
+                        '--scripts-file', empty, error=True)
             self.assertEqual(self.snapshot(), before)
             self.assertEqual(peer.accepted, 0)
 
@@ -403,6 +465,252 @@ class LiveWorkflowCli(unittest.TestCase):
             self.assertNotEqual(completed.returncode, 0, completed.stdout)
             self.assertEqual(self.snapshot(), before)
             self.assertEqual(peer.accepted, 0)
+
+
+    def two_node_correction_script(self, failing_worker_steps):
+        """Two-team Fake script: node alpha fails eligible file reads, node beta
+        completes the full plan -> work order -> file write -> submit -> check flow
+        while the dispatcher plans both tasks and accepts beta's candidate."""
+        fixture = json.loads((SOURCE / 'tests/fixtures/s15_fake_complete.json').read_text())
+        order = copy.deepcopy(fixture['nodes']['alpha'][0]['tool_calls'][0])
+        write = copy.deepcopy(fixture['nodes']['alpha'][1]['tool_calls'][0])
+        submit = copy.deepcopy(fixture['nodes']['alpha'][2]['tool_calls'][0])
+        check = copy.deepcopy(fixture['nodes']['alpha'][3]['tool_calls'][0])
+        plan_call = copy.deepcopy(fixture['default'][0]['tool_calls'][0])
+        accept = copy.deepcopy(fixture['default'][1]['tool_calls'][0])
+        plan_call['arguments']['nodes'].append({
+            'node_id': 'beta', 'kind': 'team_task', 'title': '独立任务 beta', 'depends_on': [],
+            'required': True,
+            'brief': {'title': '任务 beta', 'goal': '记录文本并提交团队检查。',
+                      'acceptance_criteria': [{'id': 'ac1', 'text': '文件写入并提交完整快照。'}],
+                      'constraints_verbatim': ['只读写明确指定的工作目录', '不要调用外部服务'],
+                      'constraint_refs': ['c1', 'c2']}})
+
+        def step(role, index, calls):
+            return {'role': role, 'role_call_index': index, 'status': 'completed',
+                    'tool_calls': calls,
+                    'usage': {'input_tokens': 100, 'output_tokens': 20, 'cache_read': 0,
+                              'cache_write': 0, 'cost_micro_usd': 0}}
+
+        def eligible_failure(index):
+            return step('worker', index, [{'call_id': f'read-missing-{index}', 'name': 'fs_read',
+                'arguments': {'path': 'missing.txt', 'offset': 0, 'max_bytes': 65536}}])
+
+        beta_order = copy.deepcopy(order)
+        beta_order['call_id'] = 'order-beta'
+        alpha = [step('team_lead', 1, [copy.deepcopy(order)])]
+        alpha += [eligible_failure(index) for index in range(1, failing_worker_steps + 1)]
+        beta = [step('team_lead', 1, [beta_order]), step('worker', 1, [copy.deepcopy(write)]),
+                step('worker', 2, [copy.deepcopy(submit)]), step('team_lead', 2, [copy.deepcopy(check)])]
+        return {'default': [step('dispatcher', 1, [plan_call]), step('dispatcher', 2, [accept])],
+                'nodes': {'alpha': alpha, 'beta': beta}}
+
+    def run_fake_batches(self, key, script, worker_calls):
+        result = self.invoke('submit', '--db', self.database, '--key', key,
+                             '--text-file', SOURCE / 'tests/fixtures/s1_request.txt')
+        request = result['request']['request_id']
+        mapping = {}
+        for node in ('alpha', 'beta'):
+            workspace = self.directory / f'ws-{node}'
+            workspace.mkdir(mode=0o700)
+            mapping[node] = str(workspace)
+        workspaces = self.directory / 'workspaces.json'
+        workspaces.write_text(json.dumps(mapping))
+        batches = self.directory / 'batches.json'
+        batches.write_text(json.dumps({'format': 'wls-run-fake-v1', 'batches': [script, script]}))
+        return self.invoke('run-fake', '--db', self.database, '--request', request,
+                           '--scripts-file', batches, '--workspaces-file', workspaces,
+                           '--worker-calls', worker_calls)
+
+    def test_r_f1_correction_limit_stops_the_whole_run_despite_sibling_success(self):
+        # F1 regression input (FINAL v24 repair record; prepared here, executed
+        # only in a later authorized runtime phase): a blocked correction_limit
+        # stops the whole outer run immediately even though the sibling task
+        # really progressed, the inbox stays nonempty and the Fake main stop
+        # stays quiescent. Exactly one batch starts; the still-available second
+        # script never runs, so no fresh correction quota is minted.
+        report = self.run_fake_batches('r-f1-correction-limit',
+                                       self.two_node_correction_script(3), 4)
+        self.assertEqual(report['batches_started'], 1)
+        self.assertEqual(report['batches_completed'], 1)
+        self.assertEqual(len(report['batch_summaries']), 1)
+        summary = report['batch_summaries'][0]
+        self.assertEqual(summary['batch_stop_reason'], 'quiescent')  # the F1 trap
+        self.assertIn('correction_limit', summary['blocked_codes'])
+        self.assertTrue(summary['completed'])
+        self.assertEqual(report['primary_stop'], 'correction_limit')
+        self.assertIn('correction_limit', report['stop_classes'])
+        self.assertIn('correction_limit', report['raw_stop_codes'])
+        for stop_class in report['stop_classes']:
+            self.assertIn(stop_class, FIXED_STOP_CLASSES)
+        self.assertEqual(report['provider_calls'], 0)  # Fake zero by execution type
+
+    def test_r_f3_failure_tail_cut_by_worker_limit_stops_the_next_batch(self):
+        # F3 regression input (FINAL v24 repair record; NOT_RUN here): a worker
+        # correction tail cut by the ordinary per-task worker cap leaves an
+        # eligible-failure tail. Even with sibling progress, an ordinary cap and
+        # a nonempty inbox, the driver must refuse the second batch and keep the
+        # actual stopping reason instead of continuing on the cap alone.
+        report = self.run_fake_batches('r-f3-failure-tail',
+                                       self.two_node_correction_script(2), 2)
+        self.assertEqual(report['batches_started'], 1)
+        self.assertEqual(report['batches_completed'], 1)
+        self.assertEqual(len(report['batch_summaries']), 1)
+        self.assertEqual(report['primary_stop'], 'failure_tail')
+        self.assertIn('failure_tail', report['stop_classes'])
+        self.assertIn('worker_limit', report['raw_stop_codes'])
+        for stop_class in report['stop_classes']:
+            self.assertIn(stop_class, FIXED_STOP_CLASSES)
+
+    def test_r_f1_sibling_cap_retains_correction_limit_evidence_single_batch(self):
+        # F1 regression input row 3 (FINAL v24 repair02 permanent matrix;
+        # NOT_RUN in this source-only stage): when the worker cap also fires
+        # in the same batch as a blocked correction_limit, the stronger F1
+        # rule still selects correction_limit for primary reporting while the
+        # sibling worker_limit raw code and its fixed host_limit class stay
+        # fully evidenced in the bounded detail; exactly one actual batch
+        # starts and the still-available second script never runs. The inner
+        # Fake sibling policy itself is unchanged.
+        report = self.run_fake_batches('r-f1-sibling-cap',
+                                       self.two_node_correction_script(5), 4)
+        self.assertEqual(report['batches_started'], 1)
+        self.assertEqual(report['batches_completed'], 1)
+        self.assertEqual(len(report['batch_summaries']), 1)
+        summary = report['batch_summaries'][0]
+        self.assertEqual(summary['batch_stop_reason'], 'quiescent')
+        self.assertIn('correction_limit', summary['blocked_codes'])
+        self.assertIn('worker_limit', summary['blocked_codes'])
+        self.assertEqual(report['primary_stop'], 'correction_limit')
+        self.assertIn('correction_limit', report['stop_classes'])
+        self.assertIn('host_limit', report['stop_classes'])
+        self.assertIn('correction_limit', report['raw_stop_codes'])
+        self.assertIn('worker_limit', report['raw_stop_codes'])
+        for stop_class in report['stop_classes']:
+            self.assertIn(stop_class, FIXED_STOP_CLASSES)
+
+    def test_r_f3_ordinary_cap_with_semantic_progress_continues_second_batch(self):
+        # F3_A regression input row 2 (FINAL v24 repair02 permanent matrix;
+        # NOT_RUN here): a positive ordinary worker cap together with a NEW
+        # successful semantic transition (actual Worker file effects commit
+        # during batch 1) and an exact current captured target
+        # continues into the second batch. The first summary carries the
+        # shared B1 progress witness: a new original attempt AND a committed
+        # semantic transition whose event sequence exceeds the pre-invocation
+        # high-water — a budget delta alone would leave it false and stop.
+        script = self.two_node_correction_script(0)
+        alpha_write = copy.deepcopy(script['nodes']['beta'][1])
+        alpha_write['tool_calls'][0]['call_id'] = 'alpha-original-effect'
+        alpha_write['tool_calls'][0]['arguments']['path'] = 'alpha-progress.txt'
+        alpha_next = copy.deepcopy(alpha_write)
+        alpha_next['role_call_index'] = 2
+        alpha_next['tool_calls'][0]['call_id'] = 'alpha-next-effect'
+        alpha_next['tool_calls'][0]['arguments']['path'] = 'alpha-next.txt'
+        script['nodes']['alpha'].extend([alpha_write, alpha_next])
+        report = self.run_fake_batches('r-f3-positive-continuation', script, 1)
+        self.assertEqual(report['batches_started'], 2)
+        self.assertEqual(report['batches_completed'], 2)
+        self.assertEqual(len(report['batch_summaries']), 2)
+        first = report['batch_summaries'][0]
+        self.assertTrue(first['completed'])
+        self.assertTrue(first['semantic_progress'])
+        self.assertTrue(first['progress_witness']['new_attempt'])
+        self.assertTrue(first['progress_witness']['witness_complete'])
+        self.assertGreater(first['progress_witness']['transition_max_event_seq'],
+                           first['progress_witness']['batch_highwater_before'])
+        self.assertTrue(first['continued'])
+        self.assertIn('worker_limit', first['blocked_codes'])
+        self.assertIn('worker_limit', report['raw_stop_codes'])
+        self.assertIn('host_limit', report['stop_classes'])
+        self.assertIsNotNone(first.get('continuation_target'))
+        for stop_class in report['stop_classes']:
+            self.assertIn(stop_class, FIXED_STOP_CLASSES)
+
+    def test_baseline_unknown_cost_records_cumulative_and_incremental_sends(self):
+        # The old no-pricing profile keeps its original business gate: one real
+        # send, then zero new sends for the same request while cost stays unknown.
+        with tls.Peer(self.contexts['server'], tls.fixed_response(plan_response())) as peer:
+            request = self.admit(peer.port)
+            self.authorize(request)
+            report = self.pump(request)
+            self.assertEqual(report['stop_reason'], 'needs_accounting', report)
+            self.assertEqual(len(peer.requests), 1)  # incremental send for this pump
+            self.assertEqual(self.rows('SELECT count(*) AS n FROM live_send_claims')[0]['n'], 1)
+            self.assertFalse(report['accounting']['ready'])
+            repeat = self.pump(request, credential=None)
+            self.assertEqual(repeat['stop_reason'], 'needs_accounting')
+            self.assertEqual(repeat['calls'], [])
+            self.assertEqual(len(peer.requests), 1)  # incremental send 0, cumulative stays 1
+            self.assertEqual(self.rows('SELECT count(*) AS n FROM live_send_claims')[0]['n'], 1)
+            self.assertIsNone(self.rows('SELECT cost_micro_usd FROM call_attempts')[0]['cost_micro_usd'])
+
+    def test_pricing_admission_reserves_the_frozen_minimum_before_send(self):
+        with tls.Peer(self.contexts['server'], tls.fixed_response(priced(plan_response()))) as peer:
+            request = self.admit(peer.port, key='pricing-minimum', pricing=PRICING)
+            self.authorize(request, reserved=1)  # below ceil(1.5*input + 4*output reservations)
+            report = self.pump(request)
+            self.assertEqual(report['stop_reason'], 'error', report)
+            self.assertTrue(any(item['code'] == 'quota' for item in report['blocked']), report)
+            self.assertEqual(report['network_started_calls'], 0)
+            self.assertEqual(self.rows('SELECT * FROM call_attempts'), [])
+            self.assertEqual(self.rows('SELECT * FROM live_send_claims'), [])
+            self.assertEqual(peer.accepted, 0)
+
+    def test_pricing_estimate_completes_budget_without_relabeling_actual(self):
+        peer_model = ScriptedPeer()
+        with tls.Peer(self.contexts['server'], peer_model) as peer:
+            request = self.admit(peer.port, key='pricing-estimate', pricing=PRICING,
+                                 cost_budget=100000)
+            self.authorize(request, reserved=50000)
+            report = self.pump(request)
+            self.assertEqual(report['stop_reason'], 'needs_accounting', report)
+            self.assertEqual(report['network_started_calls'], 2)
+            self.assertEqual(peer_model.actions, ['submit_plan'])
+            attempts = self.rows('SELECT status,input_tokens,output_tokens,cache_read_tokens,'
+                                 'cache_write_tokens,cost_micro_usd FROM call_attempts ORDER BY rowid')
+            self.assertEqual([row['status'] for row in attempts], ['COMPLETED', 'ERROR'])
+            self.assertEqual((attempts[0]['input_tokens'], attempts[0]['output_tokens'],
+                              attempts[0]['cache_read_tokens']), (11, 7, 3))
+            self.assertTrue(all(row['cache_write_tokens'] is None and row['cost_micro_usd'] is None
+                                for row in attempts))
+            self.assertTrue(all(attempts[1][field] is None for field in
+                                ('input_tokens', 'output_tokens', 'cache_read_tokens')))
+            projections = self.rows('SELECT cost_micro_usd,cache_write_tokens,disputed,over_reserved '
+                                    'FROM live_usage_projection ORDER BY rowid')
+            self.assertTrue(all(row['cost_micro_usd'] is None and row['cache_write_tokens'] is None and
+                                not row['disputed'] and not row['over_reserved'] for row in projections))
+            budget = self.invoke('budget', '--db', self.database, '--request', request)
+            self.assertEqual(budget['spent_cost'], PRICED_UNIT_MICRO_USD)
+            self.assertEqual(budget['reserved_cost'], 50000)
+            self.assertEqual(budget['unknown_cost'], 50000)
+            self.assertEqual(budget['accounting_format'], 'wls-estimated-budget-v1')
+            self.assertEqual(budget['cost_breakdown']['estimated_micro_usd'], PRICED_UNIT_MICRO_USD)
+            self.assertEqual(budget['cost_breakdown']['reported_micro_usd'], 0)
+            self.assertEqual(budget['cost_breakdown']['unknown_reserved_micro_usd'], 50000)
+            self.assertEqual(len(budget['cost_breakdown']['pricing_sha256']), 1)
+            status = self.invoke('live-status', '--db', self.database, '--request', request)
+            self.assertFalse(status['accounting']['ready'])
+            self.assertEqual(status['accounting']['blocked_attempts'][0]['unknown_cost'], 1)
+            self.assertEqual(status['accounting']['estimated_cost_micro_usd'], PRICED_UNIT_MICRO_USD)
+            self.assertEqual(status['accounting']['reported_cost_micro_usd'], 0)
+            self.assertNotIn('actual', json.dumps(budget['cost_breakdown']))
+
+    def test_pricing_budget_exhaustion_blocks_second_reservation_before_send(self):
+        with tls.Peer(self.contexts['server'], tls.fixed_response(priced(plan_response()))) as peer:
+            request = self.admit(peer.port, key='pricing-budget', pricing=PRICING,
+                                 cost_budget=50010)
+            self.authorize(request, reserved=50000)
+            report = self.pump(request)  # 41 spent after the first estimate; 50000 no longer fits
+            self.assertEqual(report['stop_reason'], 'error', report)
+            self.assertTrue(any(item['code'] == 'quota' for item in report['blocked']), report)
+            self.assertEqual(len(peer.requests), 1)
+            self.assertEqual(len(self.rows('SELECT * FROM call_attempts')), 1)
+            self.assertEqual(len(self.rows('SELECT * FROM live_send_claims')), 1)
+            budget = self.invoke('budget', '--db', self.database, '--request', request)
+            self.assertEqual(budget['spent_cost'], PRICED_UNIT_MICRO_USD)
+            self.assertEqual(budget['reserved_cost'], 0)
+            self.assertEqual(budget['unknown_cost'], 0)
+            self.assertTrue(self.invoke('live-status', '--db', self.database,
+                                        '--request', request)['accounting']['ready'])
 
 
 if __name__ == '__main__':

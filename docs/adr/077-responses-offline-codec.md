@@ -58,3 +58,33 @@ system 段、工具 Schema、当前任务与顺序消息分开映射；工具调
 测试至少覆盖规范字节、原 tuple、原生工具往返、profile/模型/协议错配、未知字段/重复键、
 旧格式拒绝、边界、错误 HTTP、nullable usage、无效参数、未知工具和零网络/零重试。
 测试使用明确合成的请求与响应，不将通过结果记为真实供应商或产品质量验收。
+
+## G1-2 追加：wls-responses-compat-v1 兼容子集（2026-11-08）
+
+在冻结 profile 末尾追加可缺省 `responses_compatibility` 扩展后，同一 codec 额外接受一个
+显式 opt-in 子集；无扩展的 profile 序列化、哈希与既有严格行为逐字节不变。扩展对象只允许
+`{"format":"wls-responses-compat-v1","reference":"openai-responses-2026-11-08",
+"model_aliases":{"<profile.model>":["<snapshot>",...]}}`：唯一 key 必须精确等于当前
+profile.model，值为 1..8 个唯一、非空、≤128B 的 ASCII token，列表排序规范化后随完整
+配置进入 profile 哈希。无 wildcard、前缀或日期推断；响应 model 可等于 alias 本身或属于
+该显式列表，SSE created→terminal 仍须同模型。请求侧 `store:false` 时显式发送
+`include:["reasoning.encrypted_content"]`；instructions 改为六段（system_prompt、
+role_prompt、function_prompt、environment_card、approved_rules、project_snapshot）
+按固定顺序 `# <段名>\n<原文>` 以空行分隔组成的 UTF-8 纯文本，`instructions_sha256`
+等进入编码 evidence，不把哈希包装进 instructions。
+
+输出侧新增 reasoning 项目与 refusal 内容：reasoning 需 id/type/summary（有界
+summary_text 列表），encrypted_content 为不透明字符串或 null；终端项目必须 completed，
+content 只允许缺省或空数组，reasoning_text 等未知字段拒绝。缺密文的完整解析产生
+`reasoning_replay_unavailable` 模型错误而非可继续完成；reasoning-only 不构成业务完成。
+refusal 内容令整响应为模型层失败 `model_refusal`：公开 text/tool_calls 清空，经验证的
+usage 与完整合法 `responses_output` 原件（`{format:"wls-responses-output-v1",
+reference,model:<实际>,output:<完整有序原数组>}`）保留；协议级未知字段/结构错误优先于
+refusal 分类。`ModelResponse.responses_output` 缺省 null，旧序列化不写该字段；共享
+`src/responses_compat.hpp` 纯校验器同时服务 HTTP/SSE 终端解码、restore、历史原生轮
+回放投影一致性检查。下一轮编码按原 output 顺序原样回放 reasoning（JSON 值、字段与
+encrypted_content 字节不变），function_call_output 使用原 provider call_id；跨轮重复
+provider item/call ID 在编码前明确拒绝，兼容 profile 下无原件的原生轮不得静默丢
+reasoning 后继续。旧 profile/无扩展历史保持 history_... 逻辑 ID 路径不变。
+本地兼容契约与文档子集标识固定为上述字符串；fixture 模型 `o3`/`o3-2025-04-16` 仅用于
+离线回放，该官方页已标 Deprecated，不构成生产模型选择或可调用性声明。

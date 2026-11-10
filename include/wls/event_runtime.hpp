@@ -23,6 +23,16 @@ struct EventFakeScript {
 // Unknown fields and invalid/duplicate group data are rejected.
 EventFakeScript event_fake_script_from_json(const Json& value);
 
+// G1-6 Controls v1 (FINAL v24 R): bounded whole-file pre-parse of a run-fake
+// scripts document. The complete file is parsed, validated and hash-frozen
+// before any Takeover or business effect; execution never rereads it.
+struct ControlsRunScripts {
+    std::vector<EventFakeScript> batches;
+    std::string source_sha256;
+    std::int64_t total_steps{};
+};
+ControlsRunScripts controls_scripts_document_from_bytes(std::string_view bytes);
+
 struct EventPumpOptions {
     std::int64_t max_calls{12};
     std::int64_t max_worker_calls_per_task{1};
@@ -61,6 +71,8 @@ public:
     Json pump_live(const std::string& request_id,
                    const LiveWorkflowOptions& options,
                    std::stop_token stop = {});
+    Json controls_next_target(const std::string& request_id, const Json& blocked,
+                              const EventFakeScript* next_script = nullptr) const;
 
 private:
     Json pump_workflow(const std::string& request_id,

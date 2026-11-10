@@ -487,6 +487,380 @@ void empty_completed_and_contradictory_terminal_states_refuse() {
     value = fixture::text_response(); value.as_object()["status"] = "failed"; refused(value);
     value = fixture::text_response(); value.at("output").as_array()[0].as_object()["role"] = "user"; refused(value);
 }
+
+// G1-3 wire policy: only a frozen tool_calling profile with explicit
+// parallel_tool_calls=false adds tool_choice=required; the parallel default
+// keeps its original body untouched and logical identity stays wire-independent.
+void false_parallel_profile_requires_tool_choice_and_keeps_true_profile_wire() {
+    auto strict = fixture::profile();
+    strict.parallel_tool_calls = false;
+    const auto r = fixture::request();
+    const auto original = to_json(r);
+    const auto encoded = encode_responses_request(strict, r);
+    CHECK(to_json(r) == original);
+    const auto body = parse_json_strict(encoded.body);
+    CHECK(body.at("tool_choice").as_string() == "required");
+    CHECK(body.at("parallel_tool_calls") == false);
+    CHECK(encoded.profile_sha256 == provider_profile_sha256(strict));
+    CHECK(encoded.body_sha256 == sha256_hex(encoded.body));
+    auto record = to_json(encoded);
+    record.as_object().erase("record_sha256");
+    CHECK(sha256_hex(canonical_json(record)) == encoded.record_sha256);
+    CHECK(encoded.evidence.at("encoded_body_sha256") == Json(encoded.body_sha256));
+    CHECK(encoded.evidence.at("encoded_body_bytes") == Json(encoded.body.size()));
+    CHECK(encoded.evidence.at("network_dispatched") == false);
+    CHECK(encoded.evidence.at("credentials_resolved") == false);
+    const auto parallel = fixture::profile();
+    const auto parallel_encoded = encode_responses_request(parallel, r);
+    const auto parallel_body = parse_json_strict(parallel_encoded.body);
+    CHECK(!parallel_body.as_object().contains("tool_choice"));
+    CHECK(parallel_body.at("parallel_tool_calls") == true);
+    CHECK(parallel_encoded.logical_request_sha256 == encoded.logical_request_sha256);
+    CHECK(parallel_encoded.profile_sha256 != encoded.profile_sha256);
+}
+
+// G1-3 history projection on the wire: a text-only failure stays an explicit
+// user observation and a settled single-tool failure keeps its native pairing;
+// neither shape ever emits an orphan function_call_output.
+void correction_history_observations_encode_without_orphan_outputs() {
+    auto strict = fixture::profile();
+    strict.parallel_tool_calls = false;
+    const Json observation_source = Object{{"kind", "unapplied_or_missing_observation"},
+        {"not_execution_authority", true}};
+    const Json turn_source = Object{{"kind", "recorded_tool_turn"}, {"not_execution_authority", true},
+        {"original_tool_call_id", "bad-write"}};
+    const Json failure_result = Object{{"format", "wls-correction-feedback-v1"}, {"status", "FAILED"},
+        {"correction_eligible", true}, {"failure_layer", "model_schema"}, {"reason", "invalid_arguments"},
+        {"observation_complete", true}, {"effect_status", "NONE"}, {"effect_count", 0}};
+    const Json bad_arguments = Object{{"path", "args.txt"}};
+    const std::vector<StructuredContextMessage> messages{
+        {"user", R"({"response":{"text":"only text"}})", {}, {}, observation_source},
+        {"assistant", "", {{"bad-write", "fs_write", bad_arguments}}, {}, turn_source},
+        {"tool", canonical_json(failure_result), {}, "bad-write", turn_source}};
+    const auto r = fixture::request(messages);
+    const auto body = parse_json_strict(encode_responses_request(strict, r).body);
+    std::vector<std::string> call_ids;
+    std::size_t user_observations = 0, outputs = 0;
+    bool saw_bad_arguments = false, saw_failure_result = false;
+    for (const auto& item : body.at("input").as_array()) {
+        if (item.as_object().contains("type") && item.at("type") == "function_call") {
+            call_ids.push_back(std::string(item.at("call_id").as_string()));
+            if (item.at("name").as_string() == "fs_write" &&
+                parse_json_strict(std::string(item.at("arguments").as_string())) == bad_arguments)
+                saw_bad_arguments = true;
+        } else if (item.as_object().contains("type") && item.at("type") == "function_call_output") {
+            ++outputs;
+            const auto id = std::string(item.at("call_id").as_string());
+            CHECK(std::find(call_ids.begin(), call_ids.end(), id) != call_ids.end());
+            if (parse_json_strict(std::string(item.at("output").as_string())) == failure_result)
+                saw_failure_result = true;
+        } else if (item.as_object().contains("role") && item.at("role") == "user") ++user_observations;
+    }
+    CHECK(user_observations == 2);
+    CHECK(call_ids.size() == 1 && outputs == 1);
+    CHECK(saw_bad_arguments && saw_failure_result);
+}
+
+// ---- G1-2 wls-responses-compat-v1 subset ---------------------------------
+
+DecodedResponsesResponse compat_decode(const Json& value) {
+    return decode_responses_response(fixture::compat_profile(), fixture::request(), 200,
+                                      canonical_json(value));
+}
+Json compat_history_record(const Json& response) {
+    const auto binding = to_json(fixture::request().binding);
+    return Object{{"attempt_id", response.at("attempt_id")}, {"call_id", response.at("call_id")},
+        {"frozen_binding", binding}, {"accepted", 1}, {"response", response},
+        {"feedback", Object{{"original_binding", binding}, {"response", response},
+            {"result", Object{{"ok", true}}}, {"record_sha256", sha256_hex("compat-fixture-feedback")}}}};
+}
+void compat_profile_admission_and_alias_mapping() {
+    CHECK(!to_json(fixture::profile()).as_object().contains("responses_compatibility"));
+    const auto j = fixture::compat_profile_json();
+    const auto p = provider_profile_from_json(j);
+    CHECK(to_json(p) == j);
+    CHECK(provider_profile_sha256(p) == sha256_hex(canonical_json(j)));
+    auto two = j;
+    two.at("responses_compatibility").at("model_aliases").as_object()["o3"] = Array{"o3-2025-04-16", "o3-alt-snapshot"};
+    auto flipped = two;
+    flipped.at("responses_compatibility").at("model_aliases").as_object()["o3"] = Array{"o3-alt-snapshot", "o3-2025-04-16"};
+    CHECK(provider_profile_sha256(provider_profile_from_json(two)) ==
+          provider_profile_sha256(provider_profile_from_json(flipped)));
+    CHECK(provider_profile_sha256(provider_profile_from_json(two)) != provider_profile_sha256(p));
+    const std::vector<Json> values{
+        Object{{"format", "wls-responses-compat-v2"}, {"reference", "openai-responses-2026-11-08"},
+               {"model_aliases", Object{{"o3", Array{"o3-2025-04-16"}}}}},
+        Object{{"format", "wls-responses-compat-v1"}, {"reference", "openai-responses-2027-01-01"},
+               {"model_aliases", Object{{"o3", Array{"o3-2025-04-16"}}}}},
+        Object{{"format", "wls-responses-compat-v1"}, {"reference", "openai-responses-2026-11-08"},
+               {"model_aliases", Object{{"o3", Array{"o3-2025-04-16"}}}}, {"extra", 1}},
+        Object{{"format", "wls-responses-compat-v1"}, {"reference", "openai-responses-2026-11-08"},
+               {"model_aliases", Object{}}},
+        Object{{"format", "wls-responses-compat-v1"}, {"reference", "openai-responses-2026-11-08"},
+               {"model_aliases", Object{{"other-model", Array{"o3-2025-04-16"}}}}},
+        Object{{"format", "wls-responses-compat-v1"}, {"reference", "openai-responses-2026-11-08"},
+               {"model_aliases", Object{{"o3", Array{}}}}},
+        Object{{"format", "wls-responses-compat-v1"}, {"reference", "openai-responses-2026-11-08"},
+               {"model_aliases", Object{{"o3", Array{"o3-2025-04-16", "o3-2025-04-16"}}}}},
+        Object{{"format", "wls-responses-compat-v1"}, {"reference", "openai-responses-2026-11-08"},
+               {"model_aliases", Object{{"o3", Array{""}}}}},
+        Object{{"format", "wls-responses-compat-v1"}, {"reference", "openai-responses-2026-11-08"},
+               {"model_aliases", Object{{"o3", Array{std::string(129, 'a')}}}}},
+        Object{{"format", "wls-responses-compat-v1"}, {"reference", "openai-responses-2026-11-08"},
+               {"model_aliases", Object{{"o3", Array{"bad token"}}}}},
+        Object{{"format", "wls-responses-compat-v1"}, {"reference", "openai-responses-2026-11-08"},
+               {"model_aliases", Object{{"o3", Array{"o3-2025-04-16", "o3-alt-snapshot", "o3-a3", "o3-a4",
+                   "o3-a5", "o3-a6", "o3-a7", "o3-a8", "o3-a9"}}}}},
+        Object{{"format", "wls-responses-compat-v1"}, {"reference", "openai-responses-2026-11-08"},
+               {"model_aliases", Object{{"o3", "o3-2025-04-16"}}}},
+        Json("wls-responses-compat-v1")};
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        auto broken = j;
+        broken.as_object()["responses_compatibility"] = values[index];
+        // Wrong format/reference, unknown fields and non-object values are
+        // Unsupported subset boundaries; alias list shape problems are
+        // InvalidInput. Index 11 (string alias list) is InvalidInput too.
+        const bool unsupported = index < 3 || index == 12;
+        fails(unsupported ? ErrorCode::Unsupported : ErrorCode::InvalidInput,
+              [&] { (void)provider_profile_from_json(broken); });
+    }
+}
+void compat_instructions_are_plain_text_with_explicit_include() {
+    const auto encoded = encode_responses_request(fixture::compat_profile(), fixture::request());
+    const auto body = parse_json_strict(encoded.body);
+    CHECK(body.at("instructions").is_string());
+    fails(ErrorCode::InvalidInput, [&] { (void)parse_json_strict(std::string(body.at("instructions").as_string())); });
+    CHECK(body.at("include") == Json(Array{"reasoning.encrypted_content"}));
+    CHECK(body.at("store") == false);
+    const auto c = fixture::context();
+    std::string expected;
+    for (const auto* section : {"system_prompt", "role_prompt", "function_prompt",
+                                "environment_card", "approved_rules", "project_snapshot"}) {
+        if (!expected.empty()) expected += "\n\n";
+        expected += std::string("# ") + section + "\n";
+        if (std::string(section) == "system_prompt") expected += c.system_prompt;
+        else if (std::string(section) == "role_prompt") expected += c.role_prompt;
+        else if (std::string(section) == "function_prompt") expected += c.function_prompt;
+        else if (std::string(section) == "environment_card") expected += c.environment_card;
+        else if (std::string(section) == "approved_rules") expected += c.approved_rules;
+        else expected += c.project_snapshot;
+    }
+    CHECK(body.at("instructions") == Json(expected));
+    CHECK(encoded.evidence.at("instructions").at("instructions_sha256") == Json(sha256_hex(expected)));
+    CHECK(encoded.evidence.at("instructions").at("instructions_bytes") == expected.size());
+    CHECK(encoded.evidence.at("instructions").at("sections").as_array().size() == 6);
+    auto narrow = fixture::compat_profile(); narrow.limits.max_request_bytes = 640;
+    fails(ErrorCode::Quota, [&] { (void)encode_responses_request(narrow, fixture::request()); });
+}
+void compat_reasoning_tool_and_text_roundtrip_preserve_original() {
+    const auto r = fixture::request();
+    const auto tool = compat_decode(fixture::compat_json("reasoning-tool-response.json"));
+    CHECK(tool.response.status == ModelResultStatus::Completed);
+    CHECK(tool.response.tool_calls.size() == 1);
+    CHECK(tool.response.tool_calls[0].call_id == "call_compat_fixture");
+    CHECK(tool.response.tool_calls[0].arguments.at("message") == "compat fixture");
+    CHECK(tool.response.usage.input_tokens == 11 && tool.response.usage.output_tokens == 7);
+    CHECK(tool.response.usage.cache_read_tokens == 2 && tool.response.usage.cache_write_tokens == 1);
+    const auto tool_payload = to_json(tool.response).at("responses_output");
+    CHECK(tool_payload == fixture::compat_output_payload("o3-2025-04-16",
+        fixture::compat_json("reasoning-tool-response.json").at("output").as_array()));
+    validate_response(r, tool.response);
+    const auto text = compat_decode(fixture::compat_json("reasoning-text-response.json"));
+    CHECK(text.response.status == ModelResultStatus::Completed);
+    CHECK(text.response.text == "compat fixture text 原文😀");
+    CHECK(text.response.tool_calls.empty());
+    const auto text_payload = to_json(text.response).at("responses_output");
+    CHECK(text_payload.at("model") == Json("o3"));
+    CHECK(text_payload.at("output").as_array().size() == 2);
+    CHECK(text_payload.at("output").as_array()[0].at("summary").as_array().empty());
+    CHECK(text_payload.at("output").as_array()[1].at("content").as_array()[0].at("text") ==
+          Json("compat fixture text 原文😀"));
+    validate_response(r, text.response);
+}
+void compat_missing_ciphertext_is_explicit_non_replayable_error() {
+    for (int kind = 0; kind != 3; ++kind) {
+        auto value = fixture::compat_json("reasoning-text-response.json");
+        auto& reasoning = value.at("output").as_array()[0].as_object();
+        if (kind == 0) reasoning.erase("encrypted_content");
+        else if (kind == 1) reasoning["encrypted_content"] = nullptr;
+        else reasoning["encrypted_content"] = "";
+        const auto result = compat_decode(value);
+        CHECK(result.response.status == ModelResultStatus::Error);
+        CHECK(result.response.error_code == "reasoning_replay_unavailable");
+        CHECK(result.response.text.empty() && result.response.tool_calls.empty());
+        CHECK(!to_json(result.response).as_object().contains("responses_output"));
+        CHECK(result.response.usage.input_tokens == 11);
+        CHECK(result.raw_body == canonical_json(value));
+        CHECK(result.evidence.at("protocol_complete") == false);
+    }
+    auto reasoning_only = fixture::compat_json("reasoning-tool-response.json");
+    reasoning_only.at("output").as_array().pop_back();
+    CHECK(compat_decode(reasoning_only).response.error_code == "invalid_response");
+}
+void compat_refusal_is_model_layer_error_with_kept_payload_and_usage() {
+    const auto r = fixture::request();
+    const auto result = compat_decode(fixture::compat_json("refusal-response.json"));
+    CHECK(result.response.status == ModelResultStatus::Error);
+    CHECK(result.response.error_code == "model_refusal");
+    CHECK(result.response.text.empty() && result.response.tool_calls.empty());
+    CHECK(result.response.usage.input_tokens == 11 && result.response.usage.output_tokens == 4);
+    const auto payload = to_json(result.response).at("responses_output");
+    CHECK(payload == fixture::compat_output_payload("o3-2025-04-16",
+        fixture::compat_json("refusal-response.json").at("output").as_array()));
+    CHECK(payload.at("output").as_array()[1].at("content").as_array()[0].at("type") == Json("refusal"));
+    validate_response(r, result.response);
+    CHECK(result.evidence.at("tool_dispatch_performed") == false);
+    auto mixed = fixture::compat_json("reasoning-tool-response.json");
+    mixed.at("output").as_array().push_back(Object{{"id", "msg_compat_mixed"}, {"type", "message"},
+        {"role", "assistant"}, {"status", "completed"},
+        {"content", Array{Object{{"type", "refusal"}, {"refusal", "cannot comply"}}}}});
+    const auto mixed_result = compat_decode(mixed);
+    CHECK(mixed_result.response.status == ModelResultStatus::Error);
+    CHECK(mixed_result.response.error_code == "model_refusal");
+    CHECK(mixed_result.response.tool_calls.empty() && mixed_result.response.text.empty());
+    CHECK(to_json(mixed_result.response).as_object().contains("responses_output"));
+    auto malformed = mixed;
+    malformed.at("output").as_array()[0].as_object()["unknown_field"] = 1;
+    const auto rejected = compat_decode(malformed);
+    CHECK(rejected.response.error_code == "unsupported_response");
+    CHECK(!to_json(rejected.response).as_object().contains("responses_output"));
+    // The legacy profile keeps its original behavior: refusal parts refuse.
+    auto legacy = fixture::text_response();
+    legacy.at("output").as_array()[0].at("content").as_array()[0] =
+        Object{{"type", "refusal"}, {"refusal", "cannot comply"}};
+    refused(legacy, "unsupported_response");
+}
+void compat_alias_model_acceptance() {
+    auto value = fixture::compat_json("reasoning-text-response.json");
+    CHECK(compat_decode(value).response.status == ModelResultStatus::Completed);
+    auto alias = value; alias.as_object()["model"] = "o3-2025-04-16";
+    const auto decoded = compat_decode(alias);
+    CHECK(decoded.response.status == ModelResultStatus::Completed);
+    CHECK(to_json(decoded.response).at("responses_output").at("model") == Json("o3-2025-04-16"));
+    auto wrong = value; wrong.as_object()["model"] = "o4";
+    CHECK(compat_decode(wrong).response.error_code == "provider_model_mismatch");
+}
+void compat_reasoning_item_subset_boundaries() {
+    auto base = fixture::compat_json("reasoning-tool-response.json");
+    const std::vector<std::pair<std::function<void(Json&)>, std::string>> mutations{
+        {[](Json& v) { v.at("output").as_array()[0].as_object()["unknown_field"] = 1; }, "unsupported_response"},
+        {[](Json& v) { v.at("output").as_array()[0].as_object()["content"] = Array{Object{{"type", "reasoning_text"}, {"text", "x"}}}; }, "unsupported_response"},
+        {[](Json& v) { v.at("output").as_array()[0].as_object()["summary"].as_array()[0].as_object()["type"] = "other"; }, "unsupported_response"},
+        {[](Json& v) { v.at("output").as_array()[0].as_object().erase("summary"); }, "invalid_response"},
+        {[](Json& v) { v.at("output").as_array()[0].as_object()["summary"].as_array()[0].as_object().erase("text"); }, "invalid_response"},
+        {[](Json& v) { v.at("output").as_array()[0].as_object()["status"] = "in_progress"; }, "invalid_response"},
+        {[](Json& v) { v.at("output").as_array()[0].as_object()["encrypted_content"] = 5; }, "invalid_response"},
+        {[](Json& v) { v.at("output").as_array()[0].as_object()["id"] = "fc_compat_fixture"; }, "invalid_response"}};
+    for (const auto& [mutate, code] : mutations) {
+        auto value = base; mutate(value);
+        const auto result = compat_decode(value);
+        CHECK(result.response.status == ModelResultStatus::Error);
+        CHECK(result.response.error_code == code);
+        CHECK(!to_json(result.response).as_object().contains("responses_output"));
+        CHECK(result.raw_body == canonical_json(value));
+    }
+    auto narrow = fixture::compat_profile(); narrow.limits.max_text_bytes = 16;
+    const auto limited = decode_responses_response(narrow, fixture::request(), 200,
+        fixture::compat_bytes("reasoning-text-response.json"));
+    CHECK(limited.response.error_code == "response_limit");
+    narrow = fixture::compat_profile(); narrow.limits.max_response_bytes = 512;
+    fails(ErrorCode::Quota, [&] {
+        (void)decode_responses_response(narrow, fixture::request(), 200,
+            fixture::compat_bytes("reasoning-tool-response.json")); });
+}
+void compat_next_round_wire_replays_original_items_verbatim() {
+    const auto p = fixture::compat_profile();
+    const auto first = decode_responses_response(p, fixture::request(), 200,
+        fixture::compat_bytes("reasoning-tool-response.json"));
+    CHECK(first.response.status == ModelResultStatus::Completed);
+    const Json response = to_json(first.response);
+    const auto payload = response.at("responses_output");
+    const auto record = compat_history_record(response);
+    auto messages = structured_attempt_history({record});
+    CHECK(messages.size() == 2);
+    messages.push_back({"user", "next question", {}, {}, nullptr});
+    const auto body = parse_json_strict(encode_responses_request(p, fixture::request(messages)).body);
+    const auto& input = body.at("input").as_array();
+    CHECK(input.size() == 5);
+    CHECK(input[1] == payload.at("output").as_array()[0]);
+    CHECK(input[2].at("type") == "function_call" && input[2].at("call_id") == "call_compat_fixture");
+    CHECK(input[3].at("type") == "function_call_output" && input[3].at("call_id") == "call_compat_fixture");
+    CHECK(input[3].at("output") == Json(canonical_json(Object{{"ok", true}})));
+    CHECK(input[4].at("role") == "user" && input[4].at("content") == "next question");
+    for (const auto& item : input)
+        CHECK(!item.as_object().contains("role") || item.at("role") != "assistant");
+    // Cross-round duplicate provider item or call IDs reject before encoding.
+    auto second = compat_history_record(response);
+    second.at("response").as_object()["attempt_id"] = "attempt_compat_second";
+    second.at("response").as_object()["call_id"] = "call_compat_second";
+    second.at("attempt_id") = "attempt_compat_second";
+    second.at("call_id") = "call_compat_second";
+    second.at("feedback").as_object()["response"] = second.at("response");
+    auto two = structured_attempt_history({record, second});
+    two.push_back({"user", "next question", {}, {}, nullptr});
+    fails(ErrorCode::Conflict, [&] { (void)encode_responses_request(p, fixture::request(two)); });
+    // A compat native round cannot silently drop its original reasoning.
+    auto stripped = compat_history_record(response);
+    stripped.at("response").as_object().erase("responses_output");
+    stripped.at("feedback").as_object()["response"] = stripped.at("response");
+    auto without = structured_attempt_history({stripped});
+    without.push_back({"user", "next question", {}, {}, nullptr});
+    fails(ErrorCode::Unsupported, [&] { (void)encode_responses_request(p, fixture::request(without)); });
+    // Store-side tampering that removes replay ciphertext refuses loudly.
+    auto broken = compat_history_record(response);
+    broken.at("response").at("responses_output").at("output").as_array()[0].as_object().erase("encrypted_content");
+    broken.at("feedback").as_object()["response"] = broken.at("response");
+    fails(ErrorCode::Corrupt, [&] { (void)structured_attempt_history({broken}); });
+    // The legacy profile keeps replaying history_ logical tool IDs verbatim;
+    // its empty assistant text collapses to the function item only.
+    auto legacy_body = parse_json_strict(encode_responses_request(fixture::profile(), fixture::request(messages)).body);
+    const auto& legacy_input = legacy_body.at("input").as_array();
+    CHECK(legacy_input.size() == 4);
+    CHECK(legacy_input[1].at("type") == "function_call");
+    CHECK(legacy_input[1].at("call_id").as_string().starts_with("history_"));
+    CHECK(legacy_input[2].at("type") == "function_call_output");
+    CHECK(legacy_input[2].at("call_id") == legacy_input[1].at("call_id"));
+    CHECK(!legacy_input[1].as_object().contains("encrypted_content"));
+    CHECK(!legacy_body.as_object().contains("include"));
+}
+void compat_two_native_rounds_pair_results_with_their_own_provider_calls() {
+    const auto p = fixture::compat_profile();
+    const auto first = decode_responses_response(p, fixture::request(), 200,
+        fixture::compat_bytes("reasoning-tool-response.json"));
+    CHECK(first.response.status == ModelResultStatus::Completed);
+    auto second_value = fixture::compat_json("reasoning-tool-response.json");
+    auto& second_output = second_value.at("output").as_array();
+    second_output[0].as_object()["id"] = "rs_compat_round_b";
+    second_output[1].as_object()["id"] = "fc_compat_round_b";
+    second_output[1].as_object()["call_id"] = "call_compat_round_b";
+    const auto second = decode_responses_response(p, fixture::request(), 200,
+        canonical_json(second_value));
+    CHECK(second.response.status == ModelResultStatus::Completed);
+    CHECK(second.response.tool_calls[0].call_id == "call_compat_round_b");
+    auto second_response = to_json(second.response);
+    second_response.as_object()["attempt_id"] = "attempt_compat_round_b";
+    second_response.as_object()["call_id"] = "call_compat_round_b";
+    auto messages = structured_attempt_history(
+        {compat_history_record(to_json(first.response)), compat_history_record(second_response)});
+    CHECK(messages.size() == 4);
+    messages.push_back({"user", "next question", {}, {}, nullptr});
+    const auto body = parse_json_strict(encode_responses_request(p, fixture::request(messages)).body);
+    const auto& input = body.at("input").as_array();
+    CHECK(input.size() == 8);
+    const Array round_a = to_json(first.response).at("responses_output").at("output").as_array();
+    const Array round_b = second_response.at("responses_output").at("output").as_array();
+    // Each native round owns its provider identities: its reasoning original
+    // precedes its own call, and each result carries its own round's call ID.
+    CHECK(input[1] == round_a[0]);
+    CHECK(input[2].at("type") == "function_call" && input[2].at("call_id") == "call_compat_fixture");
+    CHECK(input[3].at("type") == "function_call_output" && input[3].at("call_id") == "call_compat_fixture");
+    CHECK(input[3].at("output") == Json(canonical_json(Object{{"ok", true}})));
+    CHECK(input[4] == round_b[0]);
+    CHECK(input[5].at("type") == "function_call" && input[5].at("call_id") == "call_compat_round_b");
+    CHECK(input[6].at("type") == "function_call_output" && input[6].at("call_id") == "call_compat_round_b");
+    CHECK(input[6].at("output") == Json(canonical_json(Object{{"ok", true}})));
+    CHECK(input[7].at("role") == "user" && input[7].at("content") == "next question");
+}
 } // namespace
 
 int main() {
@@ -520,6 +894,17 @@ int main() {
         {"raw fingerprints preserve exact bytes and detect later mutation", raw_fingerprint_preserves_whitespace_and_result_hashes_detect_tampering},
         {"encoding record binds URL stream identity and evidence", encoded_record_binds_transport_description_identity_and_evidence},
         {"decoding record binds tuple result usage and raw evidence", decoded_record_binds_original_tuple_result_usage_and_raw_evidence},
-        {"empty completed and contradictory terminal results reject", empty_completed_and_contradictory_terminal_states_refuse}
+        {"empty completed and contradictory terminal results reject", empty_completed_and_contradictory_terminal_states_refuse},
+        {"false parallel profile requires tool choice and keeps true-profile wire", false_parallel_profile_requires_tool_choice_and_keeps_true_profile_wire},
+        {"correction history observations encode without orphan outputs", correction_history_observations_encode_without_orphan_outputs},
+        {"compat profile admission normalizes aliases and rejects unknown shapes", compat_profile_admission_and_alias_mapping},
+        {"compat instructions are plain text sections with explicit include", compat_instructions_are_plain_text_with_explicit_include},
+        {"compat reasoning tool and text roundtrips preserve the original output", compat_reasoning_tool_and_text_roundtrip_preserve_original},
+        {"compat reasoning without replay ciphertext is an explicit non-replayable error", compat_missing_ciphertext_is_explicit_non_replayable_error},
+        {"compat refusal is a model-layer error with kept payload and usage", compat_refusal_is_model_layer_error_with_kept_payload_and_usage},
+        {"compat alias model acceptance covers the explicit snapshot list", compat_alias_model_acceptance},
+        {"compat reasoning item subset boundaries reject unknown shapes", compat_reasoning_item_subset_boundaries},
+        {"compat next-round wire replays original items with provider IDs", compat_next_round_wire_replays_original_items_verbatim},
+        {"compat two native rounds pair results with their own provider calls", compat_two_native_rounds_pair_results_with_their_own_provider_calls}
     });
 }
