@@ -696,11 +696,11 @@ inline milliseconds_result remaining_milliseconds_floor(clock_time now,
         }
     }
     std::int64_t milliseconds = 0;
-    if (!mul_i64_checked(seconds, 1000, milliseconds)) {
+    if (!mul_i64_checked(seconds, 1000, milliseconds) ||
+        !add_i64_checked(milliseconds, nanoseconds / 1'000'000, milliseconds)) {
         result.status = time_status::overflow;
         return result;
     }
-    milliseconds += nanoseconds / 1'000'000;
     result.status = time_status::ok;
     result.milliseconds = milliseconds;
     return result;
