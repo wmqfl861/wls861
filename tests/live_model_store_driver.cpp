@@ -279,8 +279,10 @@ int main(int argc, char** argv) {
             // Frozen utf8-token-v1 readback + worker window + responses
             // compatibility in one admission. The opaque continuation request
             // is produced through the production capture/reservation/feedback
-            // path over real loopback TLS; reservations are the measured
-            // capture values, never hand-built constants.
+            // path over real loopback TLS; token reservations are measured by
+            // capture. Cost uses the existing request_for/Fixture::request
+            // synthetic host reservation, retaining the default 30s deadline.
+            const CapturedCallLimits call_limits{.reserved_cost_micro_usd = 100};
             const Json selection = Object{{"readback", Object{{"mode", "utf8-token-v1"},
                 {"token_estimator", "utf8-byte-v1"}, {"max_page_tokens", 24576}}},
                 {"worker_history", Object{{"mode", "window-v1"}, {"recent_attempts", 3},
@@ -319,7 +321,8 @@ int main(int argc, char** argv) {
                 // attempted, reserved, claimed or sent.
                 bool quota = false;
                 try {
-                    const auto call = runtime.capture_call(readback_request, Role::Worker, task_id, 1);
+                    const auto call = runtime.capture_call(readback_request, Role::Worker, task_id, 1,
+                                                           {}, false, call_limits);
                     const auto executed = execute_live_attempt(*store, call.actor, call.request, bearer, {true, false});
                     CHECK(executed.sent);  // a send here contradicts the frozen budget
                 } catch (const Error& error) { quota = error.code() == ErrorCode::Quota; }
@@ -332,7 +335,8 @@ int main(int argc, char** argv) {
             }
             // Round 1: one native reasoning+tool round over loopback TLS,
             // settled and fed back so it becomes a native window round.
-            const auto first = runtime.capture_call(readback_request, Role::Worker, task_id, 1);
+            const auto first = runtime.capture_call(readback_request, Role::Worker, task_id, 1,
+                                                    {}, false, call_limits);
             report["first_envelope_bytes"] = static_cast<std::int64_t>(first.request.context.prompt().size());
             const auto executed = execute_live_attempt(*store, first.actor, first.request, bearer, {true, false});
             CHECK(executed.sent && executed.response_accepted);
@@ -345,7 +349,8 @@ int main(int argc, char** argv) {
             // Round 2 through the same production capture path: the window now
             // carries the native round with its complete opaque original, and
             // the full next request bytes are the encode of that capture.
-            const auto second = runtime.capture_call(readback_request, Role::Worker, task_id, 2);
+            const auto second = runtime.capture_call(readback_request, Role::Worker, task_id, 2,
+                                                     {}, false, call_limits);
             report["second_envelope_bytes"] = static_cast<std::int64_t>(second.request.context.prompt().size());
             report["second_logical_messages"] = second.request.context.logical_input.at("messages");
             report["second_request_body"] = encode_responses_request(live.provider, second.request, false).body;
@@ -370,8 +375,10 @@ int main(int argc, char** argv) {
             // frozen before any send: its round 1 replays the identical
             // fixture bytes and native IDs, and its second capture/execution
             // must refuse with Quota before any extra attempt, send, feedback
-            // row, query, budget mutation or network. Reservations stay the
-            // values the production capture measured; nothing is hand-built.
+            // row, query, budget mutation or network. Token reservations stay
+            // the values production capture measured; cost is the existing
+            // synthetic host reservation with the default 30s deadline.
+            const CapturedCallLimits call_limits{.reserved_cost_micro_usd = 100};
             const Json selection = Object{{"readback", Object{{"mode", "utf8-token-v1"},
                 {"token_estimator", "utf8-byte-v1"}, {"max_page_tokens", 24576}}},
                 {"worker_history", Object{{"mode", "window-v1"}, {"recent_attempts", 3},
@@ -413,7 +420,8 @@ int main(int argc, char** argv) {
             // a production capture of the complete opaque continuation request.
             const auto calibration_id = admit_frozen("budget-opaque-pass1", -1);
             const auto calibration_task = bind_task(calibration_id);
-            const auto first = runtime.capture_call(calibration_id, Role::Worker, calibration_task, 1);
+            const auto first = runtime.capture_call(calibration_id, Role::Worker, calibration_task, 1,
+                                                    {}, false, call_limits);
             const auto first_units = static_cast<std::int64_t>(first.request.context.prompt().size());
             const auto first_wire = static_cast<std::int64_t>(
                 encode_responses_request(live.provider, first.request, false).body.size());
@@ -425,7 +433,8 @@ int main(int argc, char** argv) {
             (void)store->reconcile_usage(store->host_actor(Role::Root, calibration_id),
                 fixture::evidence(executed.settlement, fixture::complete_usage(11, 7), "budget-opaque-1"),
                 {"budget-opaque-1", "budget-opaque-1", 1});
-            const auto second = runtime.capture_call(calibration_id, Role::Worker, calibration_task, 2);
+            const auto second = runtime.capture_call(calibration_id, Role::Worker, calibration_task, 2,
+                                                     {}, false, call_limits);
             const auto second_units = static_cast<std::int64_t>(second.request.context.prompt().size());
             const auto second_wire = static_cast<std::int64_t>(
                 encode_responses_request(live.provider, second.request, false).body.size());
@@ -442,7 +451,8 @@ int main(int argc, char** argv) {
             // first feedback as pass 1.
             const auto paired_id = admit_frozen("budget-opaque-pass2", frozen_budget);
             const auto paired_task = bind_task(paired_id);
-            const auto paired_first = runtime.capture_call(paired_id, Role::Worker, paired_task, 1);
+            const auto paired_first = runtime.capture_call(paired_id, Role::Worker, paired_task, 1,
+                                                           {}, false, call_limits);
             const auto paired_units = static_cast<std::int64_t>(paired_first.request.context.prompt().size());
             CHECK(paired_units <= frozen_budget);  // calibration margin covers identity drift
             const auto paired_executed = execute_live_attempt(*store, paired_first.actor,
@@ -460,7 +470,8 @@ int main(int argc, char** argv) {
             // network; a send here contradicts the frozen capacity.
             bool quota = false;
             try {
-                const auto blocked = runtime.capture_call(paired_id, Role::Worker, paired_task, 2);
+                const auto blocked = runtime.capture_call(paired_id, Role::Worker, paired_task, 2,
+                                                          {}, false, call_limits);
                 const auto refused = execute_live_attempt(*store, blocked.actor, blocked.request, bearer, {true, false});
                 CHECK(refused.sent);
             } catch (const Error& error) { quota = error.code() == ErrorCode::Quota; }
@@ -496,6 +507,7 @@ int main(int argc, char** argv) {
             // Store's own history and frozen configuration, and the reported
             // wire body is the encode of that same unmodified captured request
             // with its frozen live provider.
+            const CapturedCallLimits call_limits{.reserved_cost_micro_usd = 100};
             const Json selection = Object{{"readback", Object{{"mode", "utf8-token-v1"},
                 {"token_estimator", "utf8-byte-v1"}, {"max_page_tokens", 24576}}},
                 {"worker_history", Object{{"mode", "window-v1"}, {"recent_attempts", 3},
@@ -534,7 +546,8 @@ int main(int argc, char** argv) {
             // opaque originals, each reconciled through the independent
             // loopback usage verifier.
             const auto native_round = [&](std::int64_t index, const char* result_text) {
-                const auto call = runtime.capture_call(logical_request, Role::Worker, task_id, index);
+                const auto call = runtime.capture_call(logical_request, Role::Worker, task_id, index,
+                                                       {}, false, call_limits);
                 const auto executed = execute_live_attempt(*store, call.actor, call.request, bearer, {true, false});
                 CHECK(executed.sent && executed.response_accepted);
                 auto record = store->attempt(call.request.attempt_id);
@@ -574,7 +587,8 @@ int main(int argc, char** argv) {
             // The third continuation is the production capture over the
             // reopened Store, never a hand-built request_for/protocol request.
             OfflineRuntime reopened_runtime(*store, schemas);
-            const auto third = reopened_runtime.capture_call(logical_request, Role::Worker, task_id, 3);
+            const auto third = reopened_runtime.capture_call(logical_request, Role::Worker, task_id, 3,
+                                                             {}, false, call_limits);
             CHECK(single_agent_messages_json(transcript.messages) ==
                   third.request.context.logical_input.at("messages"));
             // The frozen live provider of this exact request is the only

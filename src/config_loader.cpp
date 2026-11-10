@@ -594,8 +594,9 @@ CapabilityRegistry validate_system(const Json& system) {
     const auto& context = required(system, "context", "system");
     fields(context, "system.context", {{"compaction_at_fraction", 'n'}, {"snapshot_decision_log_entries", 'i'},
         {"schema_retry_max", 'z'}, {"cache_dependencies", 'a'}, {"policy_updates_use_runtime_gate", 'b'},
-        {"request_format", 's'}, {"worker_history", '-'}, {"management_history", '-'}, {"logical_agent", '-'}},
-        {"request_format", "worker_history", "management_history", "logical_agent"});
+        {"request_format", 's'}, {"worker_history", '-'}, {"management_history", '-'}, {"logical_agent", '-'},
+        {"readback", '-'}},
+        {"request_format", "worker_history", "management_history", "logical_agent", "readback"});
     if (const auto* format = optional(context, "request_format")) {
         const auto name = string_value(*format, "system.context.request_format");
         if (name != "framed-v1" && name != "structured-v2")
@@ -635,6 +636,18 @@ CapabilityRegistry validate_system(const Json& system) {
         (void)integer_value(required(*logical, "max_attempts", "logical_agent"), "logical_agent.max_attempts", 1, 128);
         (void)integer_value(required(*logical, "max_history_bytes", "logical_agent"),
             "logical_agent.max_history_bytes", 4096, 524288);
+    }
+    if (const auto* readback = optional(context, "readback")) {
+        const auto* format = optional(context, "request_format");
+        if (!format || string_value(*format, "system.context.request_format") != "structured-v2")
+            invalid("system.context.readback", "readback requires explicit structured-v2");
+        if (!optional(context, "worker_history") && !optional(context, "management_history"))
+            invalid("system.context.readback", "readback requires an explicit worker or management window");
+        fields(*readback, "system.context.readback", {{"mode", 's'}, {"token_estimator", 's'}, {"max_page_tokens", 'i'}});
+        literal(*readback, "mode", "utf8-token-v1", "system.context.readback");
+        literal(*readback, "token_estimator", "utf8-byte-v1", "system.context.readback");
+        (void)integer_value(required(*readback, "max_page_tokens", "readback"),
+            "readback.max_page_tokens", 1024, 65536);
     }
     (void)number_value(required(context, "compaction_at_fraction", "system.context"), "system.context.compaction_at_fraction", 0.1, 0.95);
     flag(context, "policy_updates_use_runtime_gate", true, "system.context");
@@ -991,6 +1004,11 @@ Json FrozenRequestConfig::runtime_support() const {
     for (const auto key : {"stall_minutes", "stall_same_error_repeats"})
         add("limits", key, "requires persistent stall detection and escalation");
     add("cleanup", "vacuum_weekly", "no periodic private-data purge or maintenance scheduler");
+    const auto readback_policy = [&] {
+        const auto& frozen_context = required(required(document_, "system", "snapshot"), "context", "system");
+        const auto* policy = optional(frozen_context, "readback");
+        return policy ? *policy : Json(nullptr);
+    }();
     return Object{{"validation_scope", "configuration_shape_references_and_policies"},
         {"execution_mode", "explicit_host_selected"},
         {"available_execution_modes", Array{"offline_fake", "controlled_live"}},
@@ -1000,7 +1018,9 @@ Json FrozenRequestConfig::runtime_support() const {
         {"logical_agent_policy", logical_agent_policy()},
         {"single_agent_shared_history", !logical_agent_policy().is_null()},
         {"management_history_policy", management_history_policy()}, {"real_calls_ready", false},
-        {"all_configured_controls_enforced", false}, {"unenforced_settings", deferred}};
+        {"all_configured_controls_enforced", false},
+        {"readback_policy", readback_policy}, {"readback_integrated", false},
+        {"unenforced_settings", deferred}};
 }
 
 Json FrozenRequestConfig::model_profile(Role role) const {

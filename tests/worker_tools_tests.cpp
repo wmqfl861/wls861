@@ -165,9 +165,8 @@ struct Session {
 };
 
 // ---- G1-4 preparation: fs_read projection under frozen utf8-token-v1 readback
-// These cases fail today at readback_config's frozen configuration load
-// (`readback` is an unknown system.context key); that rejection is the
-// recorded RED for this suite.
+// Configuration and budget-consistent admission prepare these cases; the
+// runtime assertions need a separately authorized execution stage.
 
 FrozenRequestConfig readback_config(const std::filesystem::path& directory) {
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
@@ -210,6 +209,7 @@ struct ReadbackSession {
             admitted.config_snapshot = config.json(); admitted.constraint_catalog = constraints;
             const auto grants = config.worker_tools();
             admitted.tool_allowlist.assign(grants.begin(), grants.end());
+            admitted.budget.output_tokens = 8192;
         }
         request_id = text(store->admit(admitted).at("request_id"));
         tools = std::make_unique<WorkerTools>(*store, work);
@@ -903,6 +903,7 @@ void fs_read_v2_denial_and_missing_grant_fence() {
     denied.root_id = "test-root"; denied.function_id = session.config.function_id();
     denied.idempotency_key = new_id("key"); denied.original_text = original_text;
     denied.config_snapshot = session.config.json(); denied.constraint_catalog = constraints;
+    denied.budget.output_tokens = 8192;
     const auto grants = session.config.worker_tools();
     denied.tool_allowlist.assign(grants.begin(), grants.end());
     std::erase(denied.tool_allowlist, "fs_read");

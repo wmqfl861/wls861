@@ -126,6 +126,8 @@ inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& l
     input.constraint_catalog = Array{Object{{"constraint_id", "c1"}, {"text", input.original_text}, {"source_revision", 1}}};
     input.tool_allowlist = {"note", "fs_read", "fs_write"};
     input.budget = BudgetLimits{64, 1000000, 100000, 10000};
+    if (input_budget >= 0) input.budget.input_tokens = input_budget;
+    if (output_budget >= 0) input.budget.output_tokens = output_budget;
     return input;
 }
 

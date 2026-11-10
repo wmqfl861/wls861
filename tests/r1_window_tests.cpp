@@ -79,9 +79,8 @@ struct Fixture {
 
 // ---- G1-4 preparation: frozen utf8-token-v1 readback (Worker side) --------
 // These cases drive the new contract only through existing public boundaries
-// (frozen configuration, FakeModel control calls, Store receipts). They fail
-// today at the frozen configuration load because `readback` is still an
-// unknown context key; that rejection is the recorded RED for this suite.
+// (frozen configuration, FakeModel control calls, Store receipts). Configuration
+// and budget-consistent admission prepare the separately executed runtime checks.
 
 std::filesystem::path write_readback_system_yaml(const std::filesystem::path& directory,
         std::int64_t input_budget, std::int64_t page_tokens, std::int64_t output_budget) {
@@ -177,7 +176,7 @@ struct ReadbackFixture {
         a.idempotency_key="test"; a.original_text=read_runtime_file(source/"tests/fixtures/s1_request.txt");
         a.constraint_catalog=parse_json_strict(read_runtime_file(source/"tests/fixtures/s1_constraints.json"));
         a.config_snapshot=config.json(); const auto tools=config.worker_tools(); a.tool_allowlist.assign(tools.begin(),tools.end());
-        a.budget={500, 8000000, 800000, 0}; request=text(store->admit(a),"request_id");
+        a.budget={500, input_budget, output_budget, 0}; request=text(store->admit(a),"request_id");
         runner=std::make_unique<OfflineRuntime>(*store,schemas);
         const auto steps=fake_model_steps_from_json(parse_json_strict(read_runtime_file(source/"tests/fixtures/s1_fake_initial.json")));
         runner->run(request,steps); task=text(store->tasks(request).front(),"task_id");

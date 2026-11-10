@@ -142,7 +142,11 @@ struct Fixture {
         input.constraint_catalog = fixture("s1_constraints.json"); input.config_snapshot = frozen;
         const auto config = FrozenRequestConfig::restore(canonical_json(frozen), sha256_hex(canonical_json(frozen)));
         const auto tools = config.worker_tools(); input.tool_allowlist.assign(tools.begin(), tools.end());
-        input.budget = {1000, 40000000, 1000000, 0}; return text(store->admit(input), "request_id");
+        input.budget = {1000, 40000000, 1000000, 0};
+        const auto& budgets = config.json().at("system").at("budget_defaults");
+        if (!budgets.at("max_input_tokens").is_null()) input.budget.input_tokens = num(budgets, "max_input_tokens");
+        if (!budgets.at("max_output_tokens").is_null()) input.budget.output_tokens = num(budgets, "max_output_tokens");
+        return text(store->admit(input), "request_id");
     }
     ExecutionBinding binding(Role role = Role::TeamLead) const {
         return role == Role::Dispatcher ? store->request_binding(request) : store->binding(task);
