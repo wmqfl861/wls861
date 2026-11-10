@@ -337,6 +337,31 @@ Json management_original(Implementation& impl, const StoreActor& actor,
     return record;
 }
 
+struct ManagementOriginal {
+    Row row;
+    std::string bytes;
+};
+
+template <typename Implementation>
+ManagementOriginal management_read_original(Implementation& impl, const StoreActor& actor,
+        const std::string& kind, const std::string& id, const std::string& hash, std::int64_t version) {
+    const auto source = management_source(actor, kind, impl.reconciliation_schema);
+    auto parameters = source.parameters;
+    parameters.emplace_back(id);
+    const auto row = impl.optional("SELECT " + source.columns + " FROM " + source.table + " WHERE " +
+        source.filter + " AND q." + source.id + "=?", parameters);
+    require(row.has_value(), ErrorCode::Unauthorized,
+        "management original is outside the current role/request/target scope");
+    require(number(*row, "record_version") == version, ErrorCode::Stale,
+        "management original version changed; an old reference cannot be refreshed silently");
+    const auto original = management_original(impl, actor, source, *row);
+    require(!original.is_null(), ErrorCode::NotReady, "original management feedback is missing; no history can be invented");
+    auto bytes = canonical_json(original);
+    require(sha256_hex(bytes) == hash, ErrorCode::Conflict,
+        "management original hash or reader scope differs from its captured reference");
+    return {*row, std::move(bytes)};
+}
+
 template <typename Implementation>
 Json management_catalog(Implementation& impl, const StoreActor& actor, const ManagementSource& source,
         std::int64_t through = 0) {
@@ -529,26 +554,15 @@ Json Store::read_management_history(const StoreActor& actor, const ExecutionBind
         "management history requires a positive original version and max_bytes 1..4096");
     ManagementReadSnapshot snapshot(impl_->db);
     (void)management_authorize(*impl_, actor, current, "management_history_read");
-    const auto source = management_source(actor, kind, impl_->reconciliation_schema);
-    auto parameters = source.parameters; parameters.emplace_back(id);
-    const auto row = impl_->optional("SELECT " + source.columns + " FROM " + source.table + " WHERE " +
-        source.filter + " AND q." + source.id + "=?", parameters);
-    require(row.has_value(), ErrorCode::Unauthorized,
-        "management original is outside the current role/request/target scope");
-    require(number(*row, "record_version") == expected_version, ErrorCode::Stale,
-        "management original version changed; an old reference cannot be refreshed silently");
-    const auto original = management_original(*impl_, actor, source, *row);
-    require(!original.is_null(), ErrorCode::NotReady, "original management feedback is missing; no history can be invented");
-    const auto bytes = canonical_json(original);
-    require(sha256_hex(bytes) == expected_hash, ErrorCode::Conflict,
-        "management original hash or reader scope differs from its captured reference");
+    const auto verified = management_read_original(*impl_, actor, kind, id, expected_hash, expected_version);
+    const auto& bytes = verified.bytes;
     require(static_cast<std::uint64_t>(offset) <= bytes.size(), ErrorCode::InvalidInput,
         "management history offset exceeds the original record");
     const auto start = static_cast<std::size_t>(offset);
     const auto count = std::min(static_cast<std::size_t>(max_bytes), bytes.size() - start);
     const Json result = Row{{"format", "wls-management-history-bytes-v1"}, {"scope", management_scope(actor)},
         {"kind", kind}, {"record_id", id}, {"record_version", expected_version}, {"record_sha256", expected_hash},
-        {"section_sha256", expected_hash}, {"original_binding", parse_json_strict(str(*row, "original_binding"))},
+        {"section_sha256", expected_hash}, {"original_binding", parse_json_strict(str(verified.row, "original_binding"))},
         {"encoding", "base64-canonical-json-utf8"}, {"size_bytes", bytes.size()}, {"offset", offset},
         {"bytes_returned", count}, {"content_base64", base64_bytes(std::string_view(bytes).substr(start, count))},
         {"eof", start + count == bytes.size()},
@@ -557,4 +571,126 @@ Json Store::read_management_history(const StoreActor& actor, const ExecutionBind
     snapshot.finish();
     (void)management_authorize(*impl_, actor, current, "management_history_read");
     return result;
+}
+
+Json Store::read_management_history_text(const StoreActor& actor, const ExecutionBinding& current,
+        const std::string& kind, const std::string& id, const std::string& expected_hash,
+        std::int64_t expected_version, std::int64_t offset, std::int64_t max_tokens,
+        const std::function<bool(const Json&)>& fits) const {
+    ManagementOriginal verified;
+    {
+        const std::lock_guard lock(impl_->mutex);
+        const auto config = management_authorize(*impl_, actor, current, "management_history_read");
+        const auto maximum = readback_detail::page_limit(readback_detail::policy(config));
+        text_field(id, "management history record id");
+        require(expected_hash.size() == 64 && std::all_of(expected_hash.begin(), expected_hash.end(),
+            [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }), ErrorCode::InvalidInput,
+            "management history requires a lowercase original SHA-256");
+        require(expected_version > 0 && offset >= 0 && max_tokens >= 1 && max_tokens <= maximum && fits,
+            ErrorCode::InvalidInput, "management text read requires bounded version, offset and frozen max_tokens");
+        ManagementReadSnapshot snapshot(impl_->db);
+        verified = management_read_original(*impl_, actor, kind, id, expected_hash, expected_version);
+        snapshot.finish();
+        (void)management_authorize(*impl_, actor, current, "management_history_read");
+    }
+    const auto& bytes = verified.bytes;
+    const auto ends = readback_detail::utf8_endpoints(bytes);
+    require(static_cast<std::uint64_t>(offset) <= bytes.size(), ErrorCode::InvalidInput,
+        "management history offset exceeds the original record");
+    const auto start = static_cast<std::size_t>(offset);
+    const auto first = std::lower_bound(ends.begin(), ends.end(), start);
+    require(first != ends.end() && *first == start, ErrorCode::InvalidInput,
+        "management text offset splits a UTF-8 codepoint");
+    const auto make_page = [&](std::size_t end) {
+        return readback_detail::measured_page(Row{{"format", "wls-management-history-text-v1"},
+            {"scope", management_scope(actor)}, {"kind", kind}, {"record_id", id},
+            {"record_version", expected_version}, {"record_sha256", expected_hash}, {"section_sha256", expected_hash},
+            {"original_binding", parse_json_strict(str(verified.row, "original_binding"))},
+            {"encoding", "utf8-canonical-json"}, {"host_verified", true}, {"size_bytes", bytes.size()},
+            {"offset", offset}, {"bytes_returned", end - start}, {"actual_utf8_bytes", end - start},
+            {"content", bytes.substr(start, end - start)}, {"eof", end == bytes.size()},
+            {"next_offset", end == bytes.size() ? Json(nullptr) : Json(end)},
+            {"readback_mode", "utf8-token-v1"}, {"token_estimator", "utf8-byte-v1"},
+            {"not_execution_authority", true}});
+    };
+    const auto accepts = [&](const Json& page) {
+        return canonical_json(page).size() <= static_cast<std::uint64_t>(max_tokens) && fits(page);
+    };
+    auto upper = std::upper_bound(first, ends.end(), start +
+        std::min(static_cast<std::size_t>(max_tokens), bytes.size() - start));
+    auto low = first == ends.end() - 1 ? first : first + 1;
+    auto high = upper - 1;
+    Json result = nullptr;
+    // Test the largest endpoint first: EOF has different cursor metadata.
+    if (low <= high) {
+        auto largest = make_page(*high);
+        if (accepts(largest)) result = std::move(largest);
+    }
+    if (result.is_null()) {
+        while (low <= high) {
+            const auto middle = low + (high - low) / 2;
+            auto page = make_page(*middle);
+            if (accepts(page)) {
+                result = std::move(page);
+                low = middle + 1;
+            } else {
+                if (middle == first) break;
+                high = middle - 1;
+            }
+        }
+    }
+    require(!result.is_null(), ErrorCode::Quota, "management text metadata and one codepoint cannot fit; no page progress");
+    {
+        const std::lock_guard lock(impl_->mutex);
+        ManagementReadSnapshot snapshot(impl_->db);
+        (void)management_authorize(*impl_, actor, current, "management_history_read");
+        (void)management_read_original(*impl_, actor, kind, id, expected_hash, expected_version);
+        snapshot.finish();
+        (void)management_authorize(*impl_, actor, current, "management_history_read");
+    }
+    authorize_management_control(actor, current, "management_history_read");
+    return result;
+}
+
+namespace {
+template<class Implementation>
+std::vector<Json> single_agent_original_history(Implementation& impl, const std::string& request_id,
+    const FrozenRequestConfig& config);
+} // namespace
+
+Json Store::management_readback_preview(const StoreActor& actor, const ExecutionBinding& current,
+        const std::string& id, const Json& result) const {
+    const std::lock_guard lock(impl_->mutex);
+    const auto config = management_authorize(*impl_, actor, current, "management_history_read");
+    (void)readback_detail::page_limit(readback_detail::policy(config));
+    const auto original = exposed(impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {id}));
+    require(original.at("request_id") == Json(actor.request_id) && original.at("role") == Json(std::string(role_name(actor.role))) &&
+        original.at("principal_id") == Json(actor.principal_id) && original.at("frozen_binding") == to_json(current) &&
+        original.at("config_snapshot_sha256") == Json(config.sha256()) && original.at("accepted") == 1 &&
+        !original.at("settlement_sha256").is_null(), ErrorCode::Unauthorized,
+        "readback preview requires the current original accepted management attempt");
+    const auto response = model_response_from_json(original.at("response"));
+    require(response.status == ModelResultStatus::Completed && response.tool_calls.size() == 1 &&
+        response.tool_calls.front().name == "management_history_read", ErrorCode::Unauthorized,
+        "readback preview requires an original completed management read");
+    require(impl_->feedback_info(id).is_null(), ErrorCode::Conflict, "readback feedback is already immutable");
+    Json feedback = Row{{"attempt_id", id}, {"original_binding", original.at("frozen_binding")},
+        {"response", original.at("response")}, {"result", result}};
+    const auto hash = sha256_hex(canonical_json(feedback));
+    feedback.as_object()["record_sha256"] = hash;
+    // stamp() has the same fixed UTC representation as actual persistence;
+    // preview hashes are local measurements, never persisted originals.
+    feedback.as_object()["recorded_at"] = stamp();
+    Array logical;
+    if (!config.logical_agent_policy().is_null()) {
+        auto history = single_agent_original_history(*impl_, actor.request_id, config);
+        for (auto& entry : history) {
+            if (entry.at("attempt_id") != Json(id)) continue;
+            entry.as_object()["feedback"] = feedback;
+            entry.as_object()["feedback_missing"] = false;
+        }
+        (void)single_agent_transcript(actor.request_id, config, history);
+        for (auto& entry : history) logical.push_back(std::move(entry));
+    }
+    return Row{{"feedback", feedback}, {"logical_history", logical}};
 }

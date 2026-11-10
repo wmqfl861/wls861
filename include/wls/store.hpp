@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -280,6 +281,15 @@ public:
         const std::string& kind, const std::string& record_id,
         const std::string& expected_record_sha256, std::int64_t expected_record_version,
         std::int64_t offset = 0, std::int64_t max_bytes = 4096) const;
+    Json read_management_history_text(const StoreActor& actor, const ExecutionBinding& current,
+        const std::string& kind, const std::string& record_id,
+        const std::string& expected_record_sha256, std::int64_t expected_record_version,
+        std::int64_t offset, std::int64_t max_tokens,
+        const std::function<bool(const Json&)>& page_fits) const;
+    // Read-only candidate feedback for measuring the next input. It cannot
+    // close a Store attempt or replace its eventual immutable receipt.
+    Json management_readback_preview(const StoreActor& actor, const ExecutionBinding& current,
+        const std::string& settled_attempt_id, const Json& result) const;
 
     // S1.4 question/answer and local submission checking require the known 007
     // asset. These bounded records retain their original semantic bindings;

@@ -62,6 +62,8 @@ public:
                                   std::int64_t role_call_index = 1,
                                   const std::vector<Json>& tool_feedback = {},
                                   bool model_amendment = false);
+    bool management_page_fits(const StoreActor& actor, const ExecutionBinding& current,
+                              const Json& page, const std::string& settled_attempt_id = {});
     // Record usage and the raw response first. Invalid/stale responses never
     // authorize a tool; their consumed or unknown budget is still retained.
     Json accept_response(const CapturedModelCall& call,
@@ -90,6 +92,10 @@ public:
              const std::string& amendment_disposition = {},
              std::int64_t max_worker_calls = 1);
 private:
+    CapturedModelCall capture_call_impl(const std::string& request_id, Role role,
+        const std::string& task_id, std::int64_t role_call_index,
+        const std::vector<Json>& tool_feedback, bool model_amendment,
+        const CapturedCallLimits& limits, const Json* readback_preview);
     Json accept_captured_response(const CapturedModelCall& call,
                                   const ModelResponse& response,
                                   const std::string& amendment_disposition,

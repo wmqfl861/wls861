@@ -47,6 +47,24 @@ class LiveStore(unittest.TestCase):
         self.directory = Path(temporary.name)
         self.directory.chmod(0o700)
         self.counter = 0
+        self.diagnostic_directory = os.environ.get("WLS_CONTEXT_TEST_DIAGNOSTICS")
+
+    def retain(self, label, original):
+        if self.diagnostic_directory is None:
+            return
+        descriptor, _ = tempfile.mkstemp(prefix=f"{self._testMethodName}-{label}-",
+                                         dir=self.diagnostic_directory)
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(original)
+
+    def retain_database(self, database):
+        if self.diagnostic_directory is None or not database.exists():
+            return
+        descriptor, name = tempfile.mkstemp(prefix=f"{self._testMethodName}-actual.sqlite-",
+                                           dir=self.diagnostic_directory)
+        os.close(descriptor)
+        with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as original, sqlite3.connect(name) as copy:
+            original.backup(copy)
 
     def peer(self, handler=None):
         return tls.Peer(self.contexts["server"], handler or tls.fixed_response(tls.response_body()))
@@ -60,6 +78,7 @@ class LiveStore(unittest.TestCase):
         path = self.directory / f"configuration-{self.counter}.json"
         path.write_text(json.dumps(config), encoding="utf-8")
         path.chmod(0o600)
+        self.retain("driver-config.json", path.read_bytes())
         return path, Path(database)
 
     def invoke(self, peer=None, **options):
@@ -88,10 +107,25 @@ class LiveStore(unittest.TestCase):
     def run_raw(self, peer=None, **options):
         # Driver actions with their own result document (no ledger key).
         path, database = self.configuration(peer, **options)
-        result = subprocess.run([str(DRIVER), str(path), str(SOURCE)], cwd=self.directory,
-                                capture_output=True, text=True, encoding="utf-8", timeout=18, check=False)
+        try:
+            result = subprocess.run([str(DRIVER), str(path), str(SOURCE)], cwd=self.directory,
+                                    capture_output=True, timeout=18, check=False)
+            self.retain("driver.stdout", result.stdout)
+            self.retain("driver.stderr", result.stderr)
+            self.retain("driver-terminal.json", json.dumps({"returncode": result.returncode}).encode())
+        except subprocess.TimeoutExpired as error:
+            self.retain("driver-timeout.stdout", error.stdout or b"")
+            self.retain("driver-timeout.stderr", error.stderr or b"")
+            self.retain("driver-terminal.json", json.dumps({"terminal": "timeout", "returncode": "unknown",
+                                                            "timeout_seconds": error.timeout}).encode())
+            raise
+        finally:
+            if peer:
+                for request in peer.requests:
+                    self.retain("tls-request-body.original", request['body'])
+            self.retain_database(database)
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
-        self.assertEqual(result.stderr, "")
+        self.assertEqual(result.stderr, b"")
         return json.loads(result.stdout), database
 
     def assert_original(self, result):
@@ -278,7 +312,9 @@ class LiveStore(unittest.TestCase):
 
         def sequenced(peer, connection):
             peer.request(connection)
+            self.retain('tls-request-body.original', peer.requests[-1]['body'])
             body = next(remaining)
+            self.retain('tls-response-body.original', body)
             connection.sendall(tls.headers(len(body)) + body)
 
         with self.peer(sequenced) as peer:
@@ -294,14 +330,63 @@ class LiveStore(unittest.TestCase):
         self.assertEqual(body['model'], 'o3')
         self.assertEqual(body['include'], ['reasoning.encrypted_content'])
         items = body['input']
-        self.assertEqual(len(items), 4)  # task contract, reasoning, call, result
-        self.assertEqual(items[1], first['responses_output']['output'][0])
-        self.assertEqual(items[1], reasoning)  # opaque original replayed unchanged
-        self.assertEqual(items[2]['type'], 'function_call')
-        self.assertEqual(items[2]['call_id'], 'call_compat_fixture')
-        self.assertEqual(items[3]['type'], 'function_call_output')
+        measured = result['second_logical_messages']
+        self.assertEqual([message['role'] for message in measured], ['user', 'assistant', 'tool'])
+        sources = [{'message_index': index, 'source': message['source']}
+                   for index, message in enumerate(measured) if message.get('source') is not None]
+        expected_contract = {'role': 'user', 'content': items[0]['content']}
+        self.assertEqual(json.loads(items[0]['content']),
+                         {'format': 'wls-responses-task-v1',
+                          'task_contract': result['second_task_contract'], 'message_sources': sources})
+        contract = json.loads(result['second_task_contract'])
+        self.assertEqual(contract['request'], result['request_snapshot'])
+        self.assertEqual(contract['binding']['request_id'], result['request_id'])
+        frozen_policy = {'mode': 'window-v1', 'recent_attempts': 3, 'inline_bytes': 65536}
+        self.assertEqual(result['worker_history_policy'], frozen_policy)
+        tail = result['second_history_tail']
+        self.assertEqual(tail['format'], 'wls-history-tail-v1')
+        self.assertEqual(tail['total_count'], 1)
+        self.assertEqual(tail['omitted_count'], 0)
+        self.assertEqual(len(tail['items']), tail['total_count'] - tail['omitted_count'])
+        self.assertEqual(tail['items'][0]['attempt_id'], first['attempt_id'])
+        self.assertEqual(tail['through_sequence'], tail['items'][0]['sequence'])
+        expected_window = {key: value for key, value in tail.items() if key != 'items'}
+        expected_window.update(kind='history_window', policy=frozen_policy, not_execution_authority=True,
+                               retrieval={'tool': 'history_page', 'arguments':
+                                          {'after_sequence': 0, 'through_sequence': tail['through_sequence'], 'limit': 4}},
+                               notice='Older attempts are omitted from this view, not deleted or summarized. '
+                                      'Large turns have hash-pinned references. Use history_page/history_read for original evidence. '
+                                      'Missing feedback is unknown, never tool success. Current requirements and unresolved state remain in task_contract.')
+        self.assertEqual(measured[0]['source'], {'kind': 'history_window', 'not_execution_authority': True})
+        self.assertEqual(json.loads(measured[0]['content']), expected_window)
+        expected_window_item = {'role': 'user', 'content': measured[0]['content']}
+        self.assertEqual(measured[1]['responses_output'], first['responses_output'])
+        self.assertEqual(first['responses_output']['output'], original['output'])
+        tail_item = tail['items'][0]
+        self.assertEqual(tail_item['response'], first)
+        self.assertEqual(tail_item['feedback'], result['first_feedback'])
+        self.assertEqual(tail_item['call_id'], first['call_id'])
+        self.assertEqual(tail_item['frozen_binding'], first['binding'])
+        expected_source = {key: value for key, value in tail_item.items()
+                           if key not in ('request_envelope', 'response', 'feedback')}
+        expected_source.update(record_sha256=result['first_feedback']['record_sha256'],
+                               original_tool_call_id=first['tool_calls'][0]['call_id'],
+                               kind='recorded_tool_turn', not_execution_authority=True)
+        self.assertEqual(measured[1]['source'], expected_source)
+        self.assertEqual(measured[2]['source'], expected_source)
+        self.assertEqual(json.loads(measured[2]['content']), {'ok': True, 'round': 1})
+        expected_result = {'type': 'function_call_output', 'call_id': original['output'][1]['call_id'],
+                           'output': measured[2]['content']}
+        expected = [expected_contract, expected_window_item, *original['output'], expected_result]
+        self.assertEqual(len(items), len(expected))
+        self.assertEqual(items, expected)  # entire original sequence, with no duplicate, drop or extra item
+        self.assertEqual(items[2], reasoning)
+        self.assertEqual(items[3]['type'], 'function_call')
         self.assertEqual(items[3]['call_id'], 'call_compat_fixture')
-        self.assertEqual(json.loads(items[3]['output']), {'ok': True, 'round': 1})
+        self.assertEqual(items[3], first['responses_output']['output'][1])
+        self.assertEqual(items[4]['type'], 'function_call_output')
+        self.assertEqual(items[4]['call_id'], 'call_compat_fixture')
+        self.assertEqual(json.loads(items[4]['output']), {'ok': True, 'round': 1})
         self.assertFalse(any(item.get('role') == 'assistant' for item in items))
         # The production capture measured both logical envelopes; carrying the
         # opaque continuation must cost bytes over the first envelope.
@@ -336,24 +421,15 @@ class LiveStore(unittest.TestCase):
         # Quota before any attempt, send, feedback, query or budget mutation.
         compat = self.compat_profile()
         first_body = (SOURCE / 'tests/fixtures/responses/reasoning-tool-response.json').read_bytes()
-        # The paired pass replays the same supported shape with distinct item/
-        # call IDs and its own opaque reasoning original, like the round-B
-        # fixture; still an official-schema-derived synthetic original.
-        paired_original = json.loads(first_body)
-        paired_original['id'] = 'resp_budget_fixture_paired'
-        paired_original['output'][0]['id'] = 'rs_budget_fixture_paired'
-        paired_original['output'][0]['summary'][0]['text'] = 'Paired round synthetic summary for the frozen budget fixture.'
-        paired_original['output'][0]['encrypted_content'] = (
-            'gAAAAABd2xzLXN5bnRoZXRpYy1vcGFxdWUtYnVkZ2V0LXBhaXJlZC1yb3VuZ')
-        paired_original['output'][1]['id'] = 'fc_budget_fixture_paired'
-        paired_original['output'][1]['call_id'] = 'call_budget_fixture_paired'
-        paired_original['output'][1]['arguments'] = '{"message":"budget fixture paired round"}'
-        paired_body = tls.encoded(paired_original)
-        remaining = iter((first_body, paired_body))
+        # Both separate first-round requests receive the exact same supported
+        # native response bytes, including IDs, summary, opaque data and arguments.
+        remaining = iter((first_body, first_body))
 
         def sequenced(peer, connection):
             peer.request(connection)
+            self.retain('tls-request-body.original', peer.requests[-1]['body'])
             body = next(remaining)
+            self.retain('tls-response-body.original', body)
             connection.sendall(tls.headers(len(body)) + body)
 
         with self.peer(sequenced) as peer:
@@ -374,14 +450,22 @@ class LiveStore(unittest.TestCase):
         paired = result['paired']
         self.assertTrue(paired['round1_accepted'])
         self.assertLessEqual(paired['first_envelope_units'], frozen)
-        # Identity drift between the two passes stays inside the opaque margin.
-        self.assertLess(frozen - paired['first_envelope_units'],
-                        calibration['second_envelope_units'] - calibration['first_envelope_units'])
-        # Exact remaining-capacity arithmetic after the settled first round.
-        self.assertEqual(paired['remaining_input_units'], frozen - paired['spent_input'])
+        self.assertEqual(result['calibration_native'], result['paired_native'])
+        self.assertEqual(result['paired_native']['output'], json.loads(first_body)['output'])
+        # This actual paired request proves its own premise before its second
+        # execution. Capture refusal/unmeasurable envelope remains explicit.
+        self.assertEqual(paired['fixture_precondition'], 'PROVED', paired)
+        self.assertTrue(paired['second_envelope_available'])
+        before = paired['budget_before']
+        self.assertEqual(paired['remaining_input_units'], frozen - before['spent_input'] -
+                         before['reserved_input'] - before['unknown_input'])
+        self.assertGreater(paired['second_envelope_units'], paired['remaining_input_units'])
+        self.assertGreater(paired['second_wire_bytes'], 0)
+        self.assertEqual(paired['second_request']['reserved_input_tokens'], paired['second_envelope_units'])
         # The second capture/execution made no progress at all.
         self.assertTrue(paired['quota'])
         self.assertEqual(paired['budget_before'], paired['budget_after'])
+        self.assertEqual(paired['counters_before'], paired['counters_after'])
         self.assertEqual(paired['attempts'], 1)
         self.assertEqual(paired['send_claims'], '2')
         self.assertEqual(paired['feedback_rows'], '2')
@@ -422,7 +506,9 @@ class LiveStore(unittest.TestCase):
 
         def sequenced(peer, connection):
             peer.request(connection)
+            self.retain('tls-request-body.original', peer.requests[-1]['body'])
             body = next(remaining)
+            self.retain('tls-response-body.original', body)
             connection.sendall(tls.headers(len(body)) + body)
 
         with self.peer(sequenced) as peer:

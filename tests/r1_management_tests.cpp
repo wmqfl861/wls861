@@ -9,6 +9,8 @@
 
 #include <algorithm>
 #include <exception>
+#include <cstdlib>
+#include <fcntl.h>
 #include <fstream>
 #include <memory>
 
@@ -97,6 +99,56 @@ void require_captured_tool_result(const CompiledContext& context, const Json& re
     CHECK(parse_json_strict(std::string(latest_tool->at("content").as_string())) == result);
 }
 
+// Private originals for these opt-in fixtures only, before TempDir removes
+// their database. SQLite backup preserves a consistent actual database.
+void retain_readback_fixture(const char* suite, const std::filesystem::path& database,
+        Store* store, const std::string& request, const char* checkpoint,
+        const Json& captured = nullptr, const Json& error = nullptr) noexcept {
+    const auto* destination = std::getenv("WLS_CONTEXT_TEST_DIAGNOSTICS");
+    if (!destination) return;
+    try {
+        auto pattern = (std::filesystem::path(destination) / (std::string(suite) + "-XXXXXX")).string();
+        std::vector<char> name(pattern.begin(), pattern.end()); name.push_back('\0');
+        const auto* created = ::mkdtemp(name.data());
+        if (!created) throw std::runtime_error("readback diagnostic directory unavailable");
+        const std::filesystem::path directory(created);
+        Object record{{"checkpoint", checkpoint}, {"error", error}, {"capture", captured},
+            {"unreturned_capture_envelope", "unavailable"}, {"request_id", request},
+            {"unwinding", std::uncaught_exceptions() > 0}};
+        if (store && !request.empty()) {
+            record["request"] = store->request(request); record["budget"] = store->budget(request);
+        }
+        sqlite3* original{}; sqlite3* copy{};
+        const auto copy_path = directory / "actual.sqlite";
+        const int file = ::open(copy_path.c_str(), O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0600);
+        if (file < 0) throw std::runtime_error("exclusive readback database copy failed");
+        ::close(file);
+        const int opened = sqlite3_open_v2(database.c_str(), &original, SQLITE_OPEN_READONLY, nullptr);
+        const int copied = sqlite3_open_v2(copy_path.c_str(), &copy, SQLITE_OPEN_READWRITE, nullptr);
+        auto* backup = opened == SQLITE_OK && copied == SQLITE_OK
+            ? sqlite3_backup_init(copy, "main", original, "main") : nullptr;
+        const int status = backup ? sqlite3_backup_step(backup, -1) : SQLITE_ERROR;
+        const int finished = backup ? sqlite3_backup_finish(backup) : SQLITE_ERROR;
+        if (original) sqlite3_close(original);
+        if (copy) sqlite3_close(copy);
+        record["database_backup_status"] = status;
+        record["database_backup_finish_status"] = finished;
+        record["database_backup_complete"] = status == SQLITE_DONE && finished == SQLITE_OK;
+        const auto bytes = canonical_json(record);
+        const int output = ::open((directory / "checkpoint.json").c_str(), O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0600);
+        if (output < 0) throw std::runtime_error("exclusive readback checkpoint failed");
+        std::size_t offset = 0;
+        while (offset < bytes.size()) {
+            const auto count = ::write(output, bytes.data() + offset, bytes.size() - offset);
+            if (count <= 0) { ::close(output); throw std::runtime_error("readback checkpoint write failed"); }
+            offset += static_cast<std::size_t>(count);
+        }
+        ::close(output);
+    } catch (const std::exception& failure) {
+        std::cerr << "readback diagnostic unavailable: " << failure.what() << '\n';
+    }
+}
+
 struct Fixture {
     test::TempDir temporary;
     SchemaRegistry schemas{source / "schemas"};
@@ -104,8 +156,13 @@ struct Fixture {
     std::unique_ptr<Store> store;
     Json frozen;
     std::string request, task;
+    bool readback_enabled = false;
+    Json last_capture = nullptr, failure = nullptr;
+    const char* checkpoint = "setup";
     explicit Fixture(bool window = true, std::int64_t query_limit = 60,
                      bool readback = false, std::int64_t page_tokens = 24576) {
+        readback_enabled = readback;
+        try {
         auto yaml = read_runtime_file(source / "config/examples/system.yaml");
         if (window) replace(yaml, "  request_format: framed-v1\n", "  request_format: structured-v2\n"
             "  management_history: {mode: window-v1, recent_attempts: 2, inline_bytes: 32768, max_context_bytes: 131072}\n");
@@ -122,8 +179,52 @@ struct Fixture {
         { std::ofstream file(temporary.path / "system.yaml"); file << yaml; CHECK(file.good()); }
         frozen = load_config_catalog(temporary.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general").json();
         reopen(); request = admit();
-        OfflineRuntime(*store, schemas).run(request, fake_model_steps_from_json(fixture("s1_fake_initial.json")));
+        if (readback) {
+            const auto setup = fake_model_steps_from_json(fixture("s1_fake_initial.json"));
+            const auto initial = store->request_binding(request);
+            auto plan = setup[0].tool_calls.front().arguments;
+            plan.as_object()["plan_revision"] = initial.plan_revision + 1;
+            plan.as_object()["based_on_requirements_revision"] = initial.requirements_revision;
+            checkpoint = "setup-plan";
+            (void)store->apply_independent_plan(store->host_actor(Role::Dispatcher, request),
+                num(store->request(request), "state_version"), initial.requirements_revision,
+                plan, Object{}, new_id("readbackplan"));
+            task = text(store->tasks(request).front(), "task_id");
+            auto next = binding(); ++next.instruction_revision;
+            auto order = setup[1].tool_calls.front().arguments;
+            const auto document = to_json(next);
+            for (const auto& field : document.as_object()) order.as_object()[field.key()] = field.value();
+            checkpoint = "setup-order";
+            (void)store->issue_instruction(actor(), binding(), num(store->task(task), "state_version"),
+                order, new_id("readbackorder"));
+            checkpoint = "setup-ack";
+            (void)store->acknowledge(actor(Role::Worker), binding(), num(store->task(task), "state_version"),
+                new_id("readbackack"));
+            const auto args = setup[2].tool_calls.front().arguments;
+            const auto key = new_id("readbacknote");
+            checkpoint = "setup-note";
+            const auto prepared = store->prepare_operation(actor(Role::Worker), binding(),
+                num(store->task(task), "state_version"), key, "note", args, "none", key + ":prepare");
+            const auto id = text(prepared, "op_id");
+            const auto started = store->start_operation(actor(Role::Worker), id, num(prepared, "state_version"), key + ":start");
+            (void)store->finish_operation(actor(Role::Worker), id, binding(), num(started, "state_version"),
+                "SUCCEEDED", "sqlite:operation_intents/" + id + "#sha256=" + sha256_hex(canonical_json(args)), key + ":finish");
+        } else OfflineRuntime(*store, schemas).run(request, fake_model_steps_from_json(fixture("s1_fake_initial.json")));
         task = text(store->tasks(request).front(), "task_id"); drain();
+        checkpoint = "prerequisites-ready";
+        if (readback_enabled) retain_readback_fixture("management-window", database, store.get(), request, checkpoint);
+        } catch (const Error& error) {
+            failure = Object{{"ErrorCode", std::string(error_name(error.code()))}, {"message", error.what()}};
+            if (readback_enabled) retain_readback_fixture("management-window", database, store.get(), request, checkpoint, last_capture, failure);
+            throw;
+        } catch (const std::exception& error) {
+            failure = Object{{"ErrorCode", nullptr}, {"message", error.what()}};
+            if (readback_enabled) retain_readback_fixture("management-window", database, store.get(), request, checkpoint, last_capture, failure);
+            throw;
+        }
+    }
+    ~Fixture() {
+        if (readback_enabled) retain_readback_fixture("management-window", database, store.get(), request, checkpoint, last_capture, failure);
     }
     void reopen() {
         store.reset();
@@ -175,8 +276,18 @@ struct Fixture {
             Object{{"text", "Keep the original requirement."}}, new_id("answer"));
     }
     CapturedModelCall capture(Role role, const FakeModel& model, bool amendment = false) {
-        return OfflineRuntime(*store, schemas).reserve_call(model, request, role,
+        if (!readback_enabled) return OfflineRuntime(*store, schemas).reserve_call(model, request, role,
             role == Role::Dispatcher ? std::string{} : task, 1, {}, amendment);
+        checkpoint = "target-reserve";
+        if (readback_enabled) retain_readback_fixture("management-window", database, store.get(), request, checkpoint, last_capture);
+        try {
+            auto call = OfflineRuntime(*store, schemas).reserve_call(model, request, role,
+                role == Role::Dispatcher ? std::string{} : task, 1, {}, amendment);
+            last_capture = to_json(call.request); checkpoint = "target-reserved"; return call;
+        } catch (const Error& error) {
+            failure = Object{{"ErrorCode", std::string(error_name(error.code()))}, {"message", error.what()}};
+            throw;
+        }
     }
     Json invoke(Role role, const std::string& tool, const Json& arguments) {
         auto model = fake(role, tool, arguments); const auto call = capture(role, model);

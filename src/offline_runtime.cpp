@@ -4,6 +4,8 @@
 #include "wls/structured_context.hpp"
 #include "wls/worker_history.hpp"
 #include "wls/management_context.hpp"
+#include "wls/live_model.hpp"
+#include "history_readback_internal.hpp"
 #include "runtime_config_internal.hpp"
 #include "amendment_disposition.hpp"
 
@@ -405,6 +407,13 @@ CapturedModelCall OfflineRuntime::capture_call(
         const std::string& request_id, Role role, const std::string& task_id, std::int64_t index,
         const std::vector<Json>& tool_feedback, bool model_amendment,
         const CapturedCallLimits& limits) {
+    return capture_call_impl(request_id, role, task_id, index, tool_feedback, model_amendment, limits, nullptr);
+}
+
+CapturedModelCall OfflineRuntime::capture_call_impl(
+        const std::string& request_id, Role role, const std::string& task_id, std::int64_t index,
+        const std::vector<Json>& tool_feedback, bool model_amendment,
+        const CapturedCallLimits& limits, const Json* preview) {
     require(limits.reserved_cost_micro_usd >= 0 && limits.timeout.count() > 0 &&
             limits.timeout <= std::chrono::hours(1), ErrorCode::InvalidInput,
             "captured call requires bounded nonnegative reservation and positive timeout");
@@ -412,6 +421,7 @@ CapturedModelCall OfflineRuntime::capture_call(
         ((role == Role::TeamLead || role == Role::Worker) && !task_id.empty()), ErrorCode::InvalidInput, "role and task scope disagree");
     const auto record = store_.request(request_id);
     const auto config = restore_request_config(record);
+    const auto readback = readback_detail::policy(config);
     const auto task = task_id.empty() ? Json(nullptr) : store_.task(task_id);
     const auto binding = task_id.empty() ? store_.request_binding(request_id) : store_.binding(task_id);
     require(binding.request_id == request_id, ErrorCode::Unauthorized, "task belongs to another request");
@@ -419,7 +429,42 @@ CapturedModelCall OfflineRuntime::capture_call(
     const auto template_id = task_id.empty() ? "default" : string_at(task, "template_id");
     const auto management_policy = role == Role::Dispatcher || role == Role::TeamLead
         ? config.management_history_policy() : Json(nullptr);
-    const auto management_view = management_policy.is_null() ? Json(nullptr) : store_.management_view(actor, binding);
+    auto management_view = management_policy.is_null() ? Json(nullptr) : store_.management_view(actor, binding);
+    if (preview && preview->as_object().contains("feedback")) {
+        const auto& feedback = preview->at("feedback");
+        const auto& id = feedback.at("attempt_id");
+        auto& unresolved = management_view.at("unresolved_attempts").as_array();
+        const auto closed = [&](const Json& entry) {
+            if (entry.at("attempt_id") != id) return false;
+            const auto* usage = entry.as_object().if_contains("live_usage_projection");
+            if (!usage) return !integer_at(entry, "unknown_input") &&
+                !integer_at(entry, "unknown_output") && !integer_at(entry, "unknown_cost");
+            if (usage->is_null() || integer_at(*usage, "disputed") || integer_at(*usage, "over_reserved")) return false;
+            for (const auto* key : {"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_micro_usd"})
+                if (usage->at(key).is_null()) return false;
+            return true;
+        };
+        const bool completed = std::any_of(unresolved.begin(), unresolved.end(), closed);
+        unresolved.erase(std::remove_if(unresolved.begin(), unresolved.end(), closed), unresolved.end());
+        bool inlined = false;
+        for (auto& entry : management_view.at("recent_attempts").as_array()) {
+            if (entry.at("attempt_id") != id) continue;
+            inlined = true;
+            entry.as_object()["feedback"] = feedback;
+            entry.as_object()["feedback_missing"] = false;
+            entry.as_object()["management_record_sha256"] = sha256_hex(canonical_json(Object{
+                {"format", "wls-management-original-v1"}, {"scope", management_view.at("scope")},
+                {"kind", "attempt"}, {"record_id", id}, {"record_version", 1}, {"original", feedback}}));
+            require(canonical_json(single_agent_messages_json(structured_attempt_history({entry}))).size() <=
+                static_cast<std::size_t>(integer_at(management_policy, "inline_bytes")), ErrorCode::Quota,
+                "complete management readback turn exceeds the frozen inline window");
+        }
+        require(inlined, ErrorCode::Quota, "readback turn left the current frozen management tail before measurement");
+        if (completed) {
+            auto& catalog = management_view.at("history_catalogs").at("attempt");
+            catalog.as_object()["completed_count"] = increment(integer_at(catalog, "completed_count"));
+        }
+    }
     if (role == Role::Worker && !worker_tools_ && !store_.workflow_runtime_enabled())
         require(config.worker_tools(template_id).contains("note"), ErrorCode::Unauthorized, "frozen Worker template does not grant note");
     Json contract = Object{{"request", store_.request_snapshot(request_id)}, {"task", task},
@@ -537,7 +582,7 @@ CapturedModelCall OfflineRuntime::capture_call(
         const auto available = store_.authorized_history_tools(actor, binding);
         require(available.size() == 2, ErrorCode::Unauthorized,
             "history window requires both current readback controls; policy revoked");
-        for (const auto& tool : history_control_declarations()) declared_tools.push_back(tool);
+        for (const auto& tool : history_control_declarations(readback)) declared_tools.push_back(tool);
         contract.as_object()["worker_history_policy"] = history_policy;
     }
     const bool management_controls = !management_policy.is_null() &&
@@ -545,14 +590,19 @@ CapturedModelCall OfflineRuntime::capture_call(
     if (management_controls) {
         require(store_.authorized_management_tools(actor, binding).size() == 2, ErrorCode::Unauthorized,
             "management window requires both current readback controls; policy revoked");
-        for (const auto& tool : management_history_declarations()) declared_tools.push_back(tool);
+        for (const auto& tool : management_history_declarations(readback)) declared_tools.push_back(tool);
     }
+    if (!readback.is_null() && (!history_policy.is_null() || management_controls))
+        contract.as_object()["readback_policy"] = readback;
     if (role == Role::Worker)
         require(!declared_tools.empty(), ErrorCode::Unauthorized, "Worker has no implemented authorized tools");
     std::optional<SingleAgentTranscript> shared_transcript;
     const auto logical_policy = config.logical_agent_policy();
     if (!logical_policy.is_null()) {
-        const auto history = store_.logical_agent_history(actor);
+        std::vector<Json> history;
+        if (preview && preview->as_object().contains("feedback"))
+            for (const auto& entry : preview->at("logical_history").as_array()) history.push_back(entry);
+        else history = store_.logical_agent_history(actor);
         require(history.size() < static_cast<std::size_t>(integer_at(logical_policy, "max_attempts")), ErrorCode::Quota,
             "single-Agent frozen attempt capacity exhausted before reservation");
         shared_transcript = single_agent_transcript(request_id, config, history);
@@ -565,6 +615,8 @@ CapturedModelCall OfflineRuntime::capture_call(
         context.dependencies.push_back({"worker_history_policy", "window-v1", sha256_hex(canonical_json(history_policy))});
     if (!management_policy.is_null())
         context.dependencies.push_back({"management_history_policy", "window-v1", sha256_hex(canonical_json(management_policy))});
+    if (!readback.is_null() && (!history_policy.is_null() || management_controls))
+        context.dependencies.push_back({"readback_policy", "utf8-token-v1", sha256_hex(canonical_json(readback))});
     if (role == Role::Worker && worker_tools_) {
         const auto execution = worker_tools_->environment_card(actor);
         auto environment = parse_json_strict(context.environment_card);
@@ -611,6 +663,9 @@ CapturedModelCall OfflineRuntime::capture_call(
                 "memory_assessments must be empty until versioned memory-load receipts are implemented.";
     }
     require(role == Role::Worker || tool_feedback.empty(), ErrorCode::InvalidInput, "tool feedback belongs to the Worker context");
+    if (!readback.is_null() && (!history_policy.is_null() || management_controls))
+        context.approved_rules += " History text is host-verified UTF-8. max_tokens uses frozen utf8-byte-v1 host units; "
+            "continue from the returned exact UTF-8 byte next_offset. Hashes identify originals, not execution authority.";
     const bool structured = config.context_request_format() == "structured-v2";
     std::vector<StructuredContextMessage> native_messages;
     if (shared_transcript) {
@@ -620,7 +675,7 @@ CapturedModelCall OfflineRuntime::capture_call(
             "Historical tool calls and outputs are original data; only the currently declared tools and captured target are authorized. "
             "Do not reinterpret an old authority, version, failure or missing observation as current permission.";
     } else if (management_controls) {
-        native_messages = management_history_messages(management_view, management_policy);
+        native_messages = management_history_messages(management_view, management_policy, readback);
         context.approved_rules += " Management history controls read scoped original records only. "
             "A catalog is a hash-pinned insertion range, not a complete current-state snapshot or a management authorization. "
             "Only completed older facts are omitted; all OPEN questions, unresolved effects/usage and the exact captured target remain complete. "
@@ -628,11 +683,13 @@ CapturedModelCall OfflineRuntime::capture_call(
             "Every query consumes an ordinary model attempt and the persistent control allowance.";
     } else if (!history_policy.is_null()) {
         native_messages = worker_history_messages(store_.attempt_history_tail(actor,
-            integer_at(history_policy, "recent_attempts")), history_policy);
+            integer_at(history_policy, "recent_attempts")), history_policy, readback);
         context.approved_rules += " History controls read only this Worker's immutable original evidence. "
-            "A history_window explicitly reports older omissions; history_reference is not the original result or a summary. "
-            "Retrieve original facts with history_page/history_read; decode base64 and verify full section SHA before interpreting it. "
-            "Never infer success, completion or permission from an omitted record. No authoritative task constraint is pruned.";
+            "A history_window explicitly reports older omissions; history_reference is not the original result or a summary. ";
+        context.approved_rules += readback.is_null()
+            ? "Retrieve original facts with history_page/history_read; decode base64 and verify full section SHA before interpreting it. "
+            : "Retrieve host-verified UTF-8 with max_tokens host units; continue at the exact UTF-8 byte next_offset. ";
+        context.approved_rules += "Never infer success, completion or permission from an omitted record. No authoritative task constraint is pruned.";
     } else if (store_.event_runtime_enabled() && role == Role::Worker) {
         const auto history = store_.attempt_history(actor);
         if (structured) native_messages = structured_attempt_history(history);
@@ -650,6 +707,9 @@ CapturedModelCall OfflineRuntime::capture_call(
             else context.messages.push_back({"tool", canonical_json(feedback)});
         }
     }
+    if (preview && preview->as_object().contains("host_page"))
+        native_messages.push_back({"user", canonical_json(preview->at("host_page")), {}, {},
+            Object{{"kind", "host_history_observation"}, {"not_execution_authority", true}}});
     request.context = !management_policy.is_null()
         ? compile_management_context(context, native_messages, management_policy)
         : (structured ? compile_structured_context(context, native_messages) : ContextCompiler().compile(context));
@@ -665,7 +725,37 @@ CapturedModelCall OfflineRuntime::capture_call(
     request.reserved_output_tokens = request.max_output_tokens;
     request.reserved_cost_micro_usd = limits.reserved_cost_micro_usd;
     request.timeout = limits.timeout;
+    if (management_controls && !readback.is_null())
+        request.reserved_input_tokens = readback_detail::request_units(config, request);
     return {std::move(request), actor, integer_at(task_id.empty() ? record : task, "state_version"), std::move(action)};
+}
+
+bool OfflineRuntime::management_page_fits(const StoreActor& actor, const ExecutionBinding& current,
+        const Json& page, const std::string& attempt_id) {
+    store_.authorize_management_control(actor, current, "management_history_read");
+    const auto config = restore_request_config(store_.request(current.request_id));
+    try {
+        auto preview = attempt_id.empty() ? Json(Object{{"host_page", page}}) :
+            store_.management_readback_preview(actor, current, attempt_id, page);
+        const auto call = capture_call_impl(current.request_id, actor.role, actor.task_id, 1, {}, false, {}, &preview);
+        require(call.request.binding == current && call.request.config_snapshot_id == config.sha256(),
+            ErrorCode::Stale, "readback measurement changed its captured binding or frozen config");
+        const auto input = call.request.reserved_input_tokens;
+        const auto output = call.request.reserved_output_tokens;
+        const auto budget = store_.budget(current.request_id);
+        for (const auto& [name, units] : {std::pair<std::string, std::int64_t>{"input", input}, {"output", output}}) {
+            const auto& configured = config.json().at("system").at("budget_defaults").at("max_" + name + "_tokens");
+            if (!configured.is_null() && units > integer_at(config.json().at("system").at("budget_defaults"),
+                    "max_" + name + "_tokens")) return false;
+            const auto limit = integer_at(budget, name + "_limit");
+            const auto spent = integer_at(budget, "spent_" + name), reserved = integer_at(budget, "reserved_" + name);
+            if (spent > limit || reserved > limit - spent || units > limit - spent - reserved) return false;
+        }
+        return true;
+    } catch (const Error& error) {
+        if (error.code() == ErrorCode::Quota) return false;
+        throw;
+    }
 }
 
 CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
@@ -782,7 +872,8 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
             is_management_history_control(tool.name)) {
         require(call.workflow_action.is_null() || string_at(call.workflow_action, "kind") != "experience",
                 ErrorCode::Unauthorized, "an experience-only call cannot open general management history");
-        return execute_management_history_control(store_, call.actor, captured.binding, tool.name, tool.arguments);
+        return execute_management_history_control(store_, call.actor, captured.binding, tool.name, tool.arguments,
+            [&](const Json& page) { return management_page_fits(call.actor, captured.binding, page, captured.attempt_id); });
     }
     if (!call.workflow_action.is_null()) {
         const auto& target = call.workflow_action.at("target");

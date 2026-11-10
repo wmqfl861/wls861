@@ -10,6 +10,8 @@
 #include <charconv>
 #include <condition_variable>
 #include <exception>
+#include <cstdlib>
+#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -186,6 +188,56 @@ FrozenRequestConfig readback_config(const std::filesystem::path& directory) {
         source / "prompts").freeze("general");
 }
 
+// Private originals for these opt-in fixtures only, before TempDir removes
+// their database. SQLite backup preserves a consistent actual database.
+void retain_readback_fixture(const char* suite, const std::filesystem::path& database,
+        Store* store, const std::string& request, const char* checkpoint,
+        const Json& captured = nullptr, const Json& error = nullptr) noexcept {
+    const auto* destination = std::getenv("WLS_CONTEXT_TEST_DIAGNOSTICS");
+    if (!destination) return;
+    try {
+        auto pattern = (std::filesystem::path(destination) / (std::string(suite) + "-XXXXXX")).string();
+        std::vector<char> name(pattern.begin(), pattern.end()); name.push_back('\0');
+        const auto* created = ::mkdtemp(name.data());
+        if (!created) throw std::runtime_error("readback diagnostic directory unavailable");
+        const std::filesystem::path directory(created);
+        Object record{{"checkpoint", checkpoint}, {"error", error}, {"capture", captured},
+            {"unreturned_capture_envelope", "unavailable"}, {"request_id", request},
+            {"unwinding", std::uncaught_exceptions() > 0}};
+        if (store && !request.empty()) {
+            record["request"] = store->request(request); record["budget"] = store->budget(request);
+        }
+        sqlite3* original{}; sqlite3* copy{};
+        const auto copy_path = directory / "actual.sqlite";
+        const int file = ::open(copy_path.c_str(), O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0600);
+        if (file < 0) throw std::runtime_error("exclusive readback database copy failed");
+        ::close(file);
+        const int opened = sqlite3_open_v2(database.c_str(), &original, SQLITE_OPEN_READONLY, nullptr);
+        const int copied = sqlite3_open_v2(copy_path.c_str(), &copy, SQLITE_OPEN_READWRITE, nullptr);
+        auto* backup = opened == SQLITE_OK && copied == SQLITE_OK
+            ? sqlite3_backup_init(copy, "main", original, "main") : nullptr;
+        const int status = backup ? sqlite3_backup_step(backup, -1) : SQLITE_ERROR;
+        const int finished = backup ? sqlite3_backup_finish(backup) : SQLITE_ERROR;
+        if (original) sqlite3_close(original);
+        if (copy) sqlite3_close(copy);
+        record["database_backup_status"] = status;
+        record["database_backup_finish_status"] = finished;
+        record["database_backup_complete"] = status == SQLITE_DONE && finished == SQLITE_OK;
+        const auto bytes = canonical_json(record);
+        const int output = ::open((directory / "checkpoint.json").c_str(), O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0600);
+        if (output < 0) throw std::runtime_error("exclusive readback checkpoint failed");
+        std::size_t offset = 0;
+        while (offset < bytes.size()) {
+            const auto count = ::write(output, bytes.data() + offset, bytes.size() - offset);
+            if (count <= 0) { ::close(output); throw std::runtime_error("readback checkpoint write failed"); }
+            offset += static_cast<std::size_t>(count);
+        }
+        ::close(output);
+    } catch (const std::exception& failure) {
+        std::cerr << "readback diagnostic unavailable: " << failure.what() << '\n';
+    }
+}
+
 struct ReadbackSession {
     test::TempDir directory;
     std::filesystem::path database = directory.path / "runtime.db";
@@ -194,9 +246,12 @@ struct ReadbackSession {
     std::unique_ptr<WorkerTools> tools;
     std::unique_ptr<OfflineRuntime> runtime;
     std::string request_id;
+    Json last_capture = nullptr, failure = nullptr;
+    const char* checkpoint = "setup";
     FrozenRequestConfig config{readback_config(directory.path)};
 
     explicit ReadbackSession(std::optional<AdmissionInput> input = std::nullopt) {
+        try {
         std::filesystem::create_directory(work);
         store = std::make_unique<Store>(database, base_sql, migration_sql, StoreOpenMode::Takeover,
             tools_sql, events_sql, workflow_sql);
@@ -214,7 +269,55 @@ struct ReadbackSession {
         request_id = text(store->admit(admitted).at("request_id"));
         tools = std::make_unique<WorkerTools>(*store, work);
         runtime = std::make_unique<OfflineRuntime>(*store, *schemas, tools.get());
-        static_cast<void>(runtime->run(request_id, steps()));
+        // Prerequisites use the original script bodies without spending the
+        // target's frozen model allowance on unrelated setup model calls.
+        const auto setup = steps();
+        const auto initial = store->request_binding(request_id);
+        auto plan = setup[0].tool_calls.front().arguments;
+        plan.as_object()["plan_revision"] = initial.plan_revision + 1;
+        plan.as_object()["based_on_requirements_revision"] = initial.requirements_revision;
+        checkpoint = "setup-plan";
+        (void)store->apply_independent_plan(store->host_actor(Role::Dispatcher, request_id),
+            number(store->request(request_id).at("state_version")), initial.requirements_revision,
+            plan, Object{}, new_id("readbackplan"));
+        auto next = binding(); ++next.instruction_revision;
+        auto order = setup[1].tool_calls.front().arguments;
+        const auto document = to_json(next);
+        for (const auto& field : document.as_object()) order.as_object()[field.key()] = field.value();
+        checkpoint = "setup-order";
+        (void)store->issue_instruction(store->host_actor(Role::TeamLead, request_id, binding().team_id),
+            binding(), version(), order, new_id("readbackorder"));
+        checkpoint = "setup-ack";
+        (void)store->acknowledge(actor(), binding(), version(), new_id("readbackack"));
+        tools->bind(actor());
+        checkpoint = "setup-note";
+        (void)tools->execute(actor(), binding(), version(), new_id("readbacknote"),
+            "note", setup[2].tool_calls.front().arguments, new_id("readbacknotecommand"));
+        checkpoint = "prerequisites-ready";
+        retain_readback_fixture("worker-tools", database, store.get(), request_id, checkpoint);
+        } catch (const Error& error) {
+            failure = Object{{"ErrorCode", std::string(error_name(error.code()))}, {"message", error.what()}};
+            retain_readback_fixture("worker-tools", database, store.get(), request_id, checkpoint, last_capture, failure);
+            throw;
+        } catch (const std::exception& error) {
+            failure = Object{{"ErrorCode", nullptr}, {"message", error.what()}};
+            retain_readback_fixture("worker-tools", database, store.get(), request_id, checkpoint, last_capture, failure);
+            throw;
+        }
+    }
+    ~ReadbackSession() {
+        retain_readback_fixture("worker-tools", database, store.get(), request_id, checkpoint, last_capture, failure);
+    }
+    CapturedModelCall reserve_target(const ModelAdapter& model) {
+        checkpoint = "target-reserve";
+        retain_readback_fixture("worker-tools", database, store.get(), request_id, checkpoint, last_capture);
+        try {
+            auto call = runtime->reserve_call(model, request_id, Role::Worker, task_id());
+            last_capture = to_json(call.request); checkpoint = "target-reserved"; return call;
+        } catch (const Error& error) {
+            failure = Object{{"ErrorCode", std::string(error_name(error.code()))}, {"message", error.what()}};
+            throw;
+        }
     }
     std::string task_id() const { return text(store->tasks(request_id).front().at("task_id")); }
     ExecutionBinding binding() const { return store->binding(task_id()); }
@@ -826,7 +929,7 @@ void fs_read_v2_text_projection_and_persisted_feedback() {
     CHECK(legacy_read.at("content") == "legacy bytes");
     // Model-facing projection: exactly one text content field, no base64 twin.
     const FakeModel fake(steps({{"text-read", "fs_read", Object{{"path", "notes.txt"}, {"offset", 0}, {"max_bytes", 65536}}}}));
-    const auto call = session.runtime->reserve_call(fake, session.request_id, Role::Worker, session.task_id());
+    const auto call = session.reserve_target(fake);
     const auto result = session.runtime->accept_response(call, fake.complete(call.request));
     CHECK(text(result.at("content")) == expected);
     CHECK(result.at("encoding") == "utf8");
@@ -842,13 +945,13 @@ void fs_read_v2_text_projection_and_persisted_feedback() {
     FakeModelStep follow; follow.role = Role::Worker; follow.role_call_index = 1;
     follow.tool_calls = {{"after-read", "note", Object{{"text", "continue after projected read"}}}};
     follow.usage = {1, 1, 0, 0, 0};
-    const auto next = session.runtime->reserve_call(FakeModel({follow}), session.request_id, Role::Worker, session.task_id());
+    const auto next = session.reserve_target(FakeModel({follow}));
     require_captured_tool_result(next.request.context, result);
     CHECK(next.request.context.prompt().find("content_base64") == std::string::npos);
     // Empty text is still one empty content field with the text encoding.
     host_write(session.work / "empty.txt", "");
     const FakeModel empty_fake(steps({{"empty-read", "fs_read", Object{{"path", "empty.txt"}, {"offset", 0}, {"max_bytes", 65536}}}}));
-    const auto empty_call = session.runtime->reserve_call(empty_fake, session.request_id, Role::Worker, session.task_id());
+    const auto empty_call = session.reserve_target(empty_fake);
     const auto empty = session.runtime->accept_response(empty_call, empty_fake.complete(empty_call.request));
     CHECK(text(empty.at("content")).empty() && empty.at("encoding") == "utf8");
     CHECK(!empty.as_object().contains("content_base64"));
@@ -866,7 +969,7 @@ void fs_read_v2_binary_stays_strict_base64() {
     bytes.push_back('\xFF'); bytes.push_back('\x00'); bytes.push_back('\x80'); bytes.push_back('!');
     host_write(session.work / "blob.bin", bytes);
     const FakeModel fake(steps({{"bin-read", "fs_read", Object{{"path", "blob.bin"}, {"offset", 0}, {"max_bytes", 65536}}}}));
-    const auto call = session.runtime->reserve_call(fake, session.request_id, Role::Worker, session.task_id());
+    const auto call = session.reserve_target(fake);
     const auto result = session.runtime->accept_response(call, fake.complete(call.request));
     CHECK(result.as_object().contains("content_base64"));
     CHECK(text(result.at("encoding")) == "base64");
@@ -884,7 +987,7 @@ void fs_read_v2_binary_stays_strict_base64() {
     FakeModelStep follow; follow.role = Role::Worker; follow.role_call_index = 1;
     follow.tool_calls = {{"after-binary", "note", Object{{"text", "continue after binary read"}}}};
     follow.usage = {1, 1, 0, 0, 0};
-    const auto next = session.runtime->reserve_call(FakeModel({follow}), session.request_id, Role::Worker, session.task_id());
+    const auto next = session.reserve_target(FakeModel({follow}));
     require_captured_tool_result(next.request.context, result);
 }
 
@@ -895,7 +998,7 @@ void fs_read_v2_denial_and_missing_grant_fence() {
     CHECK(!names.contains("fs_read"));
     host_write(session.work / "kept.txt", "still here");
     const FakeModel fake(steps({{"denied-read", "fs_read", Object{{"path", "kept.txt"}}}}));
-    const auto call = session.runtime->reserve_call(fake, session.request_id, Role::Worker, session.task_id());
+    const auto call = session.reserve_target(fake);
     expect(ErrorCode::Unauthorized, [&] { (void)session.runtime->accept_response(call, fake.complete(call.request)); });
     // A frozen request without an fs_read grant never declares it.
     AdmissionInput denied;
@@ -912,7 +1015,7 @@ void fs_read_v2_denial_and_missing_grant_fence() {
     CHECK(!missing_names.contains("fs_read"));
     host_write(missing.work / "absent.txt", "never readable");
     const FakeModel blocked(steps({{"blocked-read", "fs_read", Object{{"path", "absent.txt"}}}}));
-    const auto blocked_call = missing.runtime->reserve_call(blocked, missing.request_id, Role::Worker, missing.task_id());
+    const auto blocked_call = missing.reserve_target(blocked);
     expect(ErrorCode::Unauthorized, [&] { (void)missing.runtime->accept_response(blocked_call, blocked.complete(blocked_call.request)); });
 }
 } // namespace

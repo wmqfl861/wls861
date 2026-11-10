@@ -3,6 +3,8 @@
 #include "test_support.hpp"
 #include <cstdint>
 #include <exception>
+#include <cstdlib>
+#include <fcntl.h>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -157,6 +159,56 @@ void require_captured_tool_result(const CompiledContext& context, const Json& re
     CHECK(parse_json_strict(std::string(latest_tool->at("content").as_string())) == result);
 }
 
+// Private originals for these opt-in fixtures only, before TempDir removes
+// their database. SQLite backup preserves a consistent actual database.
+void retain_readback_fixture(const char* suite, const std::filesystem::path& database,
+        Store* store, const std::string& request, const char* checkpoint,
+        const Json& captured = nullptr, const Json& error = nullptr) noexcept {
+    const auto* destination = std::getenv("WLS_CONTEXT_TEST_DIAGNOSTICS");
+    if (!destination) return;
+    try {
+        auto pattern = (std::filesystem::path(destination) / (std::string(suite) + "-XXXXXX")).string();
+        std::vector<char> name(pattern.begin(), pattern.end()); name.push_back('\0');
+        const auto* created = ::mkdtemp(name.data());
+        if (!created) throw std::runtime_error("readback diagnostic directory unavailable");
+        const std::filesystem::path directory(created);
+        Object record{{"checkpoint", checkpoint}, {"error", error}, {"capture", captured},
+            {"unreturned_capture_envelope", "unavailable"}, {"request_id", request},
+            {"unwinding", std::uncaught_exceptions() > 0}};
+        if (store && !request.empty()) {
+            record["request"] = store->request(request); record["budget"] = store->budget(request);
+        }
+        sqlite3* original{}; sqlite3* copy{};
+        const auto copy_path = directory / "actual.sqlite";
+        const int file = ::open(copy_path.c_str(), O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0600);
+        if (file < 0) throw std::runtime_error("exclusive readback database copy failed");
+        ::close(file);
+        const int opened = sqlite3_open_v2(database.c_str(), &original, SQLITE_OPEN_READONLY, nullptr);
+        const int copied = sqlite3_open_v2(copy_path.c_str(), &copy, SQLITE_OPEN_READWRITE, nullptr);
+        auto* backup = opened == SQLITE_OK && copied == SQLITE_OK
+            ? sqlite3_backup_init(copy, "main", original, "main") : nullptr;
+        const int status = backup ? sqlite3_backup_step(backup, -1) : SQLITE_ERROR;
+        const int finished = backup ? sqlite3_backup_finish(backup) : SQLITE_ERROR;
+        if (original) sqlite3_close(original);
+        if (copy) sqlite3_close(copy);
+        record["database_backup_status"] = status;
+        record["database_backup_finish_status"] = finished;
+        record["database_backup_complete"] = status == SQLITE_DONE && finished == SQLITE_OK;
+        const auto bytes = canonical_json(record);
+        const int output = ::open((directory / "checkpoint.json").c_str(), O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0600);
+        if (output < 0) throw std::runtime_error("exclusive readback checkpoint failed");
+        std::size_t offset = 0;
+        while (offset < bytes.size()) {
+            const auto count = ::write(output, bytes.data() + offset, bytes.size() - offset);
+            if (count <= 0) { ::close(output); throw std::runtime_error("readback checkpoint write failed"); }
+            offset += static_cast<std::size_t>(count);
+        }
+        ::close(output);
+    } catch (const std::exception& failure) {
+        std::cerr << "readback diagnostic unavailable: " << failure.what() << '\n';
+    }
+}
+
 struct ReadbackFixture {
     test::TempDir temp;
     SchemaRegistry schemas{source / "schemas"};
@@ -167,10 +219,13 @@ struct ReadbackFixture {
     std::unique_ptr<Store> store;
     std::unique_ptr<OfflineRuntime> runner;
     std::string request, task;
+    Json last_capture = nullptr, failure = nullptr;
+    const char* checkpoint = "setup";
     std::filesystem::path db{temp.path / "state.db"};
     explicit ReadbackFixture(std::int64_t input = 120000, std::int64_t page = 24576,
                              std::int64_t output = 8192)
         : input_budget(input), page_tokens(page), output_budget(output) {
+        try {
         reopen();
         AdmissionInput a; a.tenant_id="test"; a.project_id="test"; a.root_id="root"; a.function_id="general";
         a.idempotency_key="test"; a.original_text=read_runtime_file(source/"tests/fixtures/s1_request.txt");
@@ -179,7 +234,59 @@ struct ReadbackFixture {
         a.budget={500, input_budget, output_budget, 0}; request=text(store->admit(a),"request_id");
         runner=std::make_unique<OfflineRuntime>(*store,schemas);
         const auto steps=fake_model_steps_from_json(parse_json_strict(read_runtime_file(source/"tests/fixtures/s1_fake_initial.json")));
-        runner->run(request,steps); task=text(store->tasks(request).front(),"task_id");
+        const auto initial = store->request_binding(request);
+        auto plan = steps[0].tool_calls.front().arguments;
+        plan.as_object()["plan_revision"] = initial.plan_revision + 1;
+        plan.as_object()["based_on_requirements_revision"] = initial.requirements_revision;
+        checkpoint = "setup-plan";
+        (void)store->apply_independent_plan(store->host_actor(Role::Dispatcher, request),
+            num(store->request(request), "state_version"), initial.requirements_revision,
+            plan, Object{}, new_id("readbackplan"));
+        task=text(store->tasks(request).front(),"task_id");
+        auto next = store->binding(task); ++next.instruction_revision;
+        auto order = steps[1].tool_calls.front().arguments;
+        const auto document = to_json(next);
+        for (const auto& field : document.as_object()) order.as_object()[field.key()] = field.value();
+        checkpoint = "setup-order";
+        (void)store->issue_instruction(store->host_actor(Role::TeamLead, request, store->binding(task).team_id),
+            store->binding(task), num(store->task(task), "state_version"), order, new_id("readbackorder"));
+        checkpoint = "setup-ack";
+        (void)store->acknowledge(actor(), store->binding(task), num(store->task(task), "state_version"),
+            new_id("readbackack"));
+        const auto args = steps[2].tool_calls.front().arguments;
+        const auto key = new_id("readbacknote");
+        checkpoint = "setup-note";
+        const auto prepared = store->prepare_operation(actor(), store->binding(task),
+            num(store->task(task), "state_version"), key, "note", args, "none", key + ":prepare");
+        const auto id = text(prepared, "op_id");
+        const auto started = store->start_operation(actor(), id, num(prepared, "state_version"), key + ":start");
+        (void)store->finish_operation(actor(), id, store->binding(task), num(started, "state_version"),
+            "SUCCEEDED", "sqlite:operation_intents/" + id + "#sha256=" + sha256_hex(canonical_json(args)), key + ":finish");
+        checkpoint = "prerequisites-ready";
+        retain_readback_fixture("worker-window", db, store.get(), request, checkpoint);
+        } catch (const Error& error) {
+            failure = Object{{"ErrorCode", std::string(error_name(error.code()))}, {"message", error.what()}};
+            retain_readback_fixture("worker-window", db, store.get(), request, checkpoint, last_capture, failure);
+            throw;
+        } catch (const std::exception& error) {
+            failure = Object{{"ErrorCode", nullptr}, {"message", error.what()}};
+            retain_readback_fixture("worker-window", db, store.get(), request, checkpoint, last_capture, failure);
+            throw;
+        }
+    }
+    ~ReadbackFixture() {
+        retain_readback_fixture("worker-window", db, store.get(), request, checkpoint, last_capture, failure);
+    }
+    CapturedModelCall reserve_target(const ModelAdapter& model) {
+        checkpoint = "target-reserve";
+        retain_readback_fixture("worker-window", db, store.get(), request, checkpoint, last_capture);
+        try {
+            auto call = runner->reserve_call(model, request, Role::Worker, task);
+            last_capture = to_json(call.request); checkpoint = "target-reserved"; return call;
+        } catch (const Error& error) {
+            failure = Object{{"ErrorCode", std::string(error_name(error.code()))}, {"message", error.what()}};
+            throw;
+        }
     }
     void reopen() {
         store.reset();
@@ -190,6 +297,11 @@ struct ReadbackFixture {
             read_runtime_file(source / "db/migrations/007_workflow_runtime.sql"),
             read_runtime_file(source / "db/migrations/008_acceptance_runtime.sql"),
             read_runtime_file(source / "db/migrations/009_owned_cleanup.sql"));
+        if (!request.empty() && !task.empty()) {
+            const auto current = store->binding(task);
+            (void)store->acknowledge(store->host_actor(Role::Worker, request, current.team_id),
+                current, num(store->task(task), "state_version"), new_id("readbackreopenack"));
+        }
         if (!request.empty()) runner=std::make_unique<OfflineRuntime>(*store,schemas);
     }
     StoreActor actor() { return store->host_actor(Role::Worker,request,store->binding(task).team_id); }
@@ -202,7 +314,9 @@ struct ReadbackFixture {
         context.adapter_version = text(profile, "adapter_version");
         context.protocol_version = text(profile, "protocol");
         context.system_prompt = "readback fixture"; context.role_prompt = "Worker";
-        context.function_prompt = "preserve originals"; context.task_contract = "complete original test contract";
+        context.function_prompt = "preserve originals";
+        context.task_contract = compiled_task_contract(
+            runner->capture_call(request, Role::Worker, task).request.context);
         ModelRequest call; call.call_id = new_id("call"); call.attempt_id = new_id("attempt");
         call.role = Role::Worker; call.binding = b; call.config_snapshot_id = config.sha256();
         call.model = context.model; call.context = compile_structured_context(context, {});
@@ -402,8 +516,7 @@ void original_corruption_is_not_hidden_by_windowing() {
 
 void readback_freezes_v2_control_declarations_and_continuation_prompt() {
     ReadbackFixture f;
-    const auto call = f.runner->reserve_call(worker_note("probe v2 declarations"),
-        f.request, Role::Worker, f.task);
+    const auto call = f.reserve_target(worker_note("probe v2 declarations"));
     const auto& prompt = call.request.context.prompt();
     CHECK(prompt.find("wls-history-control-v2") != std::string::npos);
     CHECK(prompt.find("max_tokens") != std::string::npos);
@@ -436,7 +549,7 @@ void v2_history_read_returns_host_verified_utf8_pages() {
     std::string reassembled; std::int64_t offset = 0;
     while (true) {
         const auto model = v2_control("history_read", v2_read_arguments(id, hash, offset, 512));
-        const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+        const auto call = f.reserve_target(model);
         const auto page = f.runner->accept_response(call, model.complete(call.request));
         CHECK(text(page, "format") == "wls-history-text-v1");
         CHECK(page.at("host_verified") == true);
@@ -460,7 +573,7 @@ void v2_history_read_returns_host_verified_utf8_pages() {
     CHECK(reassembled == original);
     const auto end_model = v2_control("history_read", v2_read_arguments(id, hash,
         static_cast<std::int64_t>(original.size()), 64));
-    const auto end_call = f.runner->reserve_call(end_model, f.request, Role::Worker, f.task);
+    const auto end_call = f.reserve_target(end_model);
     const auto end_response = end_model.complete(end_call.request);
     const auto end = f.runner->accept_response(end_call, end_response);
     CHECK(end.at("eof").as_bool() && text(end, "content").empty());
@@ -482,7 +595,7 @@ void v2_history_read_returns_host_verified_utf8_pages() {
                            static_cast<std::int64_t>(original.size()) + 1,
                            std::int64_t(-1), INT64_MAX}) {
         const auto model = v2_control("history_read", v2_read_arguments(id, hash, bad, 64));
-        const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+        const auto call = f.reserve_target(model);
         expect(ErrorCode::InvalidInput, [&] {
             (void)f.runner->accept_response(call, model.complete(call.request)); });
     }
@@ -498,7 +611,7 @@ void v2_history_read_returns_host_verified_utf8_pages() {
     for (const auto& wrong : {std::string(64, '0'), other_hash}) {
         CHECK(wrong != hash);
         const auto model = v2_control("history_read", v2_read_arguments(id, wrong, 0, 64));
-        const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+        const auto call = f.reserve_target(model);
         expect(ErrorCode::Conflict, [&] {
             (void)f.runner->accept_response(call, model.complete(call.request)); });
     }
@@ -518,7 +631,7 @@ void v2_read_malformed_fingerprints_are_invalid_input() {
     for (const auto& bad : malformed) {
         CHECK(bad != hash);
         const auto model = v2_control("history_read", v2_read_arguments(id, bad, 0, 64));
-        const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+        const auto call = f.reserve_target(model);
         expect(ErrorCode::InvalidInput, [&] {
             (void)f.runner->accept_response(call, model.complete(call.request)); });
     }
@@ -554,7 +667,7 @@ void sixty_kb_originals_close_within_three_v2_reads_across_reopen() {
         std::string reassembled; Json previous_page; std::string section_hash;
         while (true) {
             const auto model = v2_control("history_read", v2_read_arguments(id, hash, offset, 24576));
-            const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+            const auto call = f.reserve_target(model);
             // The complete previous page result enters this immediately
             // following captured input as its structured tool-result message.
             if (!previous_page.is_null())
@@ -587,7 +700,7 @@ void sixty_kb_originals_close_within_three_v2_reads_across_reopen() {
         // After the final page the next captured call is a normal tool call,
         // not a fourth history_read, and it carries the EOF page result whole.
         const auto after = worker_note("normal call after the final page");
-        const auto note_call = f.runner->reserve_call(after, f.request, Role::Worker, f.task);
+        const auto note_call = f.reserve_target(after);
         require_captured_tool_result(note_call.request.context, previous_page);
         static_cast<void>(f.runner->accept_response(note_call, after.complete(note_call.request)));
     }
@@ -607,7 +720,7 @@ std::string budget_section() {
 // measured in one fixture is the envelope the budgeted fixture will issue.
 std::int64_t settled_probe_envelope(ReadbackFixture& f) {
     const auto model = worker_note("measure read-time envelope");
-    const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+    const auto call = f.reserve_target(model);
     const auto envelope = static_cast<std::int64_t>(call.request.context.prompt().size());
     static_cast<void>(f.runner->accept_response(call, model.complete(call.request)));
     return envelope;
@@ -620,7 +733,7 @@ void readback_budget_mandates_a_successful_smaller_page() {
     const auto wide_hash = text(ample.store->tool_feedback(wide_id), "record_sha256");
     static_cast<void>(settled_probe_envelope(ample));
     const auto wide_model = v2_control("history_read", v2_read_arguments(wide_id, wide_hash, 0, 24576));
-    const auto wide_call = ample.runner->reserve_call(wide_model, ample.request, Role::Worker, ample.task);
+    const auto wide_call = ample.reserve_target(wide_model);
     // The read-time envelope is measured from the actual captured structured
     // context (compile_structured_context's canonical logical JSON), never a
     // fabricated constant or a smaller stand-in input.
@@ -635,7 +748,7 @@ void readback_budget_mandates_a_successful_smaller_page() {
     const auto hash = text(tight.store->tool_feedback(id), "record_sha256");
     static_cast<void>(settled_probe_envelope(tight));
     const auto model = v2_control("history_read", v2_read_arguments(id, hash, 0, 24576));
-    const auto call = tight.runner->reserve_call(model, tight.request, Role::Worker, tight.task);
+    const auto call = tight.reserve_target(model);
     const auto narrow = tight.runner->accept_response(call, model.complete(call.request));
     CHECK(text(narrow, "format") == "wls-history-text-v1");
     CHECK(num(narrow, "offset") == 0);
@@ -651,7 +764,7 @@ void readback_no_progress_quota_adds_no_attempt_or_charge() {
     const auto wide_hash = text(ample.store->tool_feedback(wide_id), "record_sha256");
     static_cast<void>(settled_probe_envelope(ample));
     const auto wide_model = v2_control("history_read", v2_read_arguments(wide_id, wide_hash, 0, 24576));
-    const auto wide_call = ample.runner->reserve_call(wide_model, ample.request, Role::Worker, ample.task);
+    const auto wide_call = ample.reserve_target(wide_model);
     const auto envelope = static_cast<std::int64_t>(wide_call.request.context.prompt().size());
     static_cast<void>(ample.runner->accept_response(wide_call, wide_model.complete(wide_call.request)));
     // Two bytes of headroom beyond the complete fixed envelope cannot carry
@@ -667,7 +780,7 @@ void readback_no_progress_quota_adds_no_attempt_or_charge() {
     bool quota_at_reservation = false;
     std::optional<CapturedModelCall> call;
     try {
-        call = starved.runner->reserve_call(model, starved.request, Role::Worker, starved.task);
+        call = starved.reserve_target(model);
     } catch (const Error& error) {
         CHECK(error.code() == ErrorCode::Quota);
         quota_at_reservation = true;
@@ -700,8 +813,7 @@ void v2_read_wait_gate_refuses_with_exactly_not_ready() {
     // One ordinary durable WAITING row is exactly NotReady — never the broad
     // NotReady||UnknownOutcome disjunction; the real UNKNOWN case is separate.
     expect(ErrorCode::NotReady, [&] {
-        (void)f.runner->reserve_call(v2_control("history_read", v2_read_arguments(id, hash, 0, 64)),
-            f.request, Role::Worker, f.task); });
+        (void)f.reserve_target(v2_control("history_read", v2_read_arguments(id, hash, 0, 64))); });
     // The refusal adds nothing: the wait row, attempts, budget and control
     // query accounting all stay exactly as captured before the call.
     CHECK(f.store->worker_wait(f.task) == wait);
@@ -719,8 +831,7 @@ void v2_read_denied_before_reservation_adds_no_attempt() {
     sql(f.db, "UPDATE runtime_policy SET denied_tools='[\"history_read\"]',state_version=state_version+1");
     const auto before = f.store->budget(f.request);
     expect(ErrorCode::Unauthorized, [&] {
-        (void)f.runner->reserve_call(v2_control("history_read", v2_read_arguments(id, hash, 0, 64)),
-            f.request, Role::Worker, f.task); });
+        (void)f.reserve_target(v2_control("history_read", v2_read_arguments(id, hash, 0, 64))); });
     CHECK(f.store->budget(f.request) == before);
 }
 
@@ -729,7 +840,7 @@ void v2_read_revoked_after_capture_fences_settlement() {
     const auto id = f.add_result(Object{{"text", "revoked original"}});
     const auto hash = text(f.store->tool_feedback(id), "record_sha256");
     auto model = v2_control("history_read", v2_read_arguments(id, hash, 0, 64));
-    const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+    const auto call = f.reserve_target(model);
     sql(f.db, "UPDATE runtime_policy SET denied_tools='[\"history_read\"]',state_version=state_version+1");
     expect(ErrorCode::Unauthorized, [&] {
         (void)f.runner->accept_response(call, model.complete(call.request)); });
@@ -741,7 +852,7 @@ void v2_read_amend_after_capture_fences_settlement() {
     const auto id = f.add_result(Object{{"text", "amend fenced original"}});
     const auto hash = text(f.store->tool_feedback(id), "record_sha256");
     auto model = v2_control("history_read", v2_read_arguments(id, hash, 0, 64));
-    const auto call = f.runner->reserve_call(model, f.request, Role::Worker, f.task);
+    const auto call = f.reserve_target(model);
     f.store->amend(f.store->host_actor(Role::Root, f.request), num(f.store->request(f.request), "state_version"),
         read_runtime_file(source / "tests/fixtures/s1_amendment.txt"),
         parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_amended_constraints.json")), "amend-v2-read");

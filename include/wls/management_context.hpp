@@ -9,8 +9,12 @@ namespace wls::s1 {
 // reserves, settles and records feedback through the ordinary runner.
 bool is_management_history_control(std::string_view name) noexcept;
 std::vector<ContextTool> management_history_declarations();
+std::vector<ContextTool> management_history_declarations(const Json& frozen_readback);
 Json execute_management_history_control(Store& store, const StoreActor& actor,
     const ExecutionBinding& current, std::string_view name, const Json& arguments);
+Json execute_management_history_control(Store& store, const StoreActor& actor,
+    const ExecutionBinding& current, std::string_view name, const Json& arguments,
+    const std::function<bool(const Json&)>& page_fits);
 
 // Window requests expose every OPEN question. Legacy requests retain the
 // original complete-history API and its original capacity behavior.
@@ -22,6 +26,8 @@ std::vector<Json> visible_management_questions(Store& store, Role role,
 // the caller's authoritative contract are outside this projection.
 std::vector<StructuredContextMessage> management_history_messages(
     const Json& view, const Json& frozen_policy);
+std::vector<StructuredContextMessage> management_history_messages(
+    const Json& view, const Json& frozen_policy, const Json& frozen_readback);
 
 // Measures the complete logical input before any reservation. Capacity errors
 // contain section sizes and an actionable explanation, never clipped content.

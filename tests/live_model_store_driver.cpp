@@ -5,9 +5,12 @@
 #include "wls/single_agent.hpp"
 
 #include <chrono>
+#include <cstdlib>
+#include <fcntl.h>
 #include <filesystem>
 #include <future>
 #include <iostream>
+#include <optional>
 #include <thread>
 
 using namespace wls::s1;
@@ -20,6 +23,43 @@ using namespace std::chrono_literals;
 
 namespace {
 constexpr std::string_view bearer = "WLS_SYNTHETIC_STORE_BEARER_8E42";
+// Only the current Context fixtures write these private actual originals.
+void retain_context_original(const char* label, std::string_view bytes) noexcept {
+    const auto* directory = std::getenv("WLS_CONTEXT_TEST_DIAGNOSTICS");
+    if (!directory) return;
+    auto pattern = (std::filesystem::path(directory) / (std::string(label) + "-XXXXXX")).string();
+    std::vector<char> name(pattern.begin(), pattern.end()); name.push_back('\0');
+    const int output = ::mkstemp(name.data());
+    if (output < 0) { std::cerr << "Context original unavailable: " << label << '\n'; return; }
+    std::size_t offset = 0;
+    while (offset < bytes.size()) {
+        const auto count = ::write(output, bytes.data() + offset, bytes.size() - offset);
+        if (count <= 0) { std::cerr << "Context original incomplete: " << label << '\n'; break; }
+        offset += static_cast<std::size_t>(count);
+    }
+    ::close(output);
+}
+void retain_context_capture(const char* label, const CapturedModelCall& call, const LiveModelSettings& live) {
+    retain_context_original((std::string(label) + "-request.json").c_str(), canonical_json(to_json(call.request)));
+    retain_context_original((std::string(label) + "-logical.original").c_str(), call.request.context.prompt());
+    retain_context_original((std::string(label) + "-wire.original").c_str(),
+        encode_responses_request(live.provider, call.request, live.stream).body);
+}
+Object context_counters(const std::filesystem::path& database) {
+    return Object{{"attempts", fixture::sql_text(database, "SELECT count(*) FROM call_attempts")},
+        {"send_claims", fixture::sql_text(database, "SELECT count(*) FROM live_send_claims")},
+        {"feedback_rows", fixture::sql_text(database, "SELECT count(*) FROM model_tool_feedback")},
+        {"history_queries", fixture::sql_text(database, "SELECT count(*) FROM call_attempts WHERE "
+            "json_extract(response,'$.tool_calls[0].name') IN "
+            "('history_page','history_read','management_history_page','management_history_read')")}};
+}
+void retain_context_checkpoint(Json& current, Store& store, const std::filesystem::path& database,
+        const std::string& request, const char* checkpoint, const Json& original = nullptr) {
+    current = Object{{"checkpoint", checkpoint}, {"request_id", request},
+        {"request", store.request(request)}, {"budget", store.budget(request)},
+        {"counters", context_counters(database)}, {"original", original}};
+    retain_context_original("checkpoint.json", canonical_json(current));
+}
 std::string optional_text(const Json& value, std::string_view key, const std::string& fallback = {}) {
     const auto* item = value.as_object().if_contains(key);
     return item ? std::string(item->as_string()) : fallback;
@@ -87,6 +127,7 @@ Object summary(Store& store, const std::string& request_id) {
 
 int main(int argc, char** argv) {
     if (argc != 3) return 2;
+    Json context_checkpoint = nullptr;
     try {
         const auto config = parse_json_strict(fixture::read(argv[1]), 16384);
         const fixture::Assets assets(argv[2]);
@@ -335,10 +376,14 @@ int main(int argc, char** argv) {
             }
             // Round 1: one native reasoning+tool round over loopback TLS,
             // settled and fed back so it becomes a native window round.
+            retain_context_checkpoint(context_checkpoint, *store, database, readback_request, "readback-first-capture");
             const auto first = runtime.capture_call(readback_request, Role::Worker, task_id, 1,
                                                     {}, false, call_limits);
+            retain_context_capture("readback-first", first, live);
             report["first_envelope_bytes"] = static_cast<std::int64_t>(first.request.context.prompt().size());
             const auto executed = execute_live_attempt(*store, first.actor, first.request, bearer, {true, false});
+            retain_context_checkpoint(context_checkpoint, *store, database, readback_request, "readback-first-executed",
+                store->live_attempt(first.request.attempt_id, true));
             CHECK(executed.sent && executed.response_accepted);
             auto first_record = store->attempt(first.request.attempt_id);
             (void)store->record_tool_feedback(first.request.attempt_id, first.request.binding,
@@ -349,16 +394,26 @@ int main(int argc, char** argv) {
             // Round 2 through the same production capture path: the window now
             // carries the native round with its complete opaque original, and
             // the full next request bytes are the encode of that capture.
+            retain_context_checkpoint(context_checkpoint, *store, database, readback_request, "readback-second-capture");
             const auto second = runtime.capture_call(readback_request, Role::Worker, task_id, 2,
                                                      {}, false, call_limits);
+            retain_context_capture("readback-second", second, live);
+            retain_context_checkpoint(context_checkpoint, *store, database, readback_request, "readback-second-captured", to_json(second.request));
             report["second_envelope_bytes"] = static_cast<std::int64_t>(second.request.context.prompt().size());
             report["second_logical_messages"] = second.request.context.logical_input.at("messages");
+            report["second_task_contract"] = second.request.context.logical_input.at("task_contract");
+            report["request_snapshot"] = store->request_snapshot(readback_request);
+            report["worker_history_policy"] = selection.at("worker_history");
+            report["second_history_tail"] = store->attempt_history_tail(second.actor, 3);
             report["second_request_body"] = encode_responses_request(live.provider, second.request, false).body;
             const auto closing = execute_live_attempt(*store, second.actor, second.request, bearer, {true, false});
+            retain_context_checkpoint(context_checkpoint, *store, database, readback_request, "readback-second-executed",
+                store->live_attempt(second.request.attempt_id, true));
             CHECK(closing.sent && closing.response_accepted);
             report["first_settlement"] = executed.settlement;
             report["second_settlement"] = closing.settlement;
             report["first_response"] = store->attempt(first.request.attempt_id).at("response");
+            report["first_feedback"] = store->tool_feedback(first.request.attempt_id);
             report["second_response"] = store->attempt(second.request.attempt_id).at("response");
             report["budget"] = store->budget(readback_request);
             std::cout << canonical_json(report) << '\n';
@@ -420,12 +475,16 @@ int main(int argc, char** argv) {
             // a production capture of the complete opaque continuation request.
             const auto calibration_id = admit_frozen("budget-opaque-pass1", -1);
             const auto calibration_task = bind_task(calibration_id);
+            retain_context_checkpoint(context_checkpoint, *store, database, calibration_id, "calibration-first-capture");
             const auto first = runtime.capture_call(calibration_id, Role::Worker, calibration_task, 1,
                                                     {}, false, call_limits);
+            retain_context_capture("calibration-first", first, live);
             const auto first_units = static_cast<std::int64_t>(first.request.context.prompt().size());
             const auto first_wire = static_cast<std::int64_t>(
                 encode_responses_request(live.provider, first.request, false).body.size());
             const auto executed = execute_live_attempt(*store, first.actor, first.request, bearer, {true, false});
+            retain_context_checkpoint(context_checkpoint, *store, database, calibration_id, "calibration-first-executed",
+                store->live_attempt(first.request.attempt_id, true));
             CHECK(executed.sent && executed.response_accepted);
             auto first_record = store->attempt(first.request.attempt_id);
             (void)store->record_tool_feedback(first.request.attempt_id, first.request.binding,
@@ -433,8 +492,11 @@ int main(int argc, char** argv) {
             (void)store->reconcile_usage(store->host_actor(Role::Root, calibration_id),
                 fixture::evidence(executed.settlement, fixture::complete_usage(11, 7), "budget-opaque-1"),
                 {"budget-opaque-1", "budget-opaque-1", 1});
+            retain_context_checkpoint(context_checkpoint, *store, database, calibration_id, "calibration-second-capture");
             const auto second = runtime.capture_call(calibration_id, Role::Worker, calibration_task, 2,
                                                      {}, false, call_limits);
+            retain_context_capture("calibration-second", second, live);
+            retain_context_checkpoint(context_checkpoint, *store, database, calibration_id, "calibration-second-captured", to_json(second.request));
             const auto second_units = static_cast<std::int64_t>(second.request.context.prompt().size());
             const auto second_wire = static_cast<std::int64_t>(
                 encode_responses_request(live.provider, second.request, false).body.size());
@@ -451,12 +513,20 @@ int main(int argc, char** argv) {
             // first feedback as pass 1.
             const auto paired_id = admit_frozen("budget-opaque-pass2", frozen_budget);
             const auto paired_task = bind_task(paired_id);
+            retain_context_checkpoint(context_checkpoint, *store, database, paired_id, "paired-first-capture");
             const auto paired_first = runtime.capture_call(paired_id, Role::Worker, paired_task, 1,
                                                            {}, false, call_limits);
             const auto paired_units = static_cast<std::int64_t>(paired_first.request.context.prompt().size());
-            CHECK(paired_units <= frozen_budget);  // calibration margin covers identity drift
+            retain_context_checkpoint(context_checkpoint, *store, database, paired_id, "paired-first-captured",
+                Object{{"request", to_json(paired_first.request)}, {"first_envelope_units", paired_units},
+                    {"frozen_budget", frozen_budget}, {"first_fits", paired_units <= frozen_budget},
+                    {"fixture_precondition", paired_units <= frozen_budget ? "FIRST_FITS" : "FIXTURE_PRECONDITION_FAIL"}});
+            retain_context_capture("paired-first", paired_first, live);
+            CHECK(paired_units <= frozen_budget);  // independently measured paired first envelope
             const auto paired_executed = execute_live_attempt(*store, paired_first.actor,
                                                               paired_first.request, bearer, {true, false});
+            retain_context_checkpoint(context_checkpoint, *store, database, paired_id, "paired-first-executed",
+                store->live_attempt(paired_first.request.attempt_id, true));
             CHECK(paired_executed.sent && paired_executed.response_accepted);
             auto paired_record = store->attempt(paired_first.request.attempt_id);
             (void)store->record_tool_feedback(paired_first.request.attempt_id, paired_first.request.binding,
@@ -465,33 +535,76 @@ int main(int argc, char** argv) {
                 fixture::evidence(paired_executed.settlement, fixture::complete_usage(11, 7), "budget-opaque-2"),
                 {"budget-opaque-2", "budget-opaque-2", 1});
             const auto settled_budget = store->budget(paired_id);
-            // The second capture/execution must Quota before an extra attempt,
-            // send, feedback row, query or budget mutation, and before any
-            // network; a send here contradicts the frozen capacity.
-            bool quota = false;
-            try {
-                const auto blocked = runtime.capture_call(paired_id, Role::Worker, paired_task, 2,
-                                                          {}, false, call_limits);
-                const auto refused = execute_live_attempt(*store, blocked.actor, blocked.request, bearer, {true, false});
-                CHECK(refused.sent);
-            } catch (const Error& error) { quota = error.code() == ErrorCode::Quota; }
-            CHECK(quota);
-            CHECK(store->budget(paired_id) == settled_budget);  // no-progress invariant
+            const auto before_counters = context_counters(database);
+            const auto remaining_input = frozen_budget - number(settled_budget, "spent_input") -
+                number(settled_budget, "reserved_input") - number(settled_budget, "unknown_input");
             Object report{{"calibration_request_id", calibration_id}, {"paired_request_id", paired_id},
                 {"calibration", Object{{"first_envelope_units", first_units}, {"first_wire_bytes", first_wire},
                     {"second_envelope_units", second_units}, {"second_wire_bytes", second_wire}}},
                 {"frozen_budget", frozen_budget},
+                {"first_settlement", executed.settlement}, {"paired_settlement", paired_executed.settlement},
+                {"calibration_native", first_record.at("response").at("responses_output")},
+                {"paired_native", paired_record.at("response").at("responses_output")},
                 {"paired", Object{{"first_envelope_units", paired_units},
                     {"round1_accepted", paired_executed.response_accepted},
                     {"attempts", number(settled_budget, "attempts")},
                     {"spent_input", number(settled_budget, "spent_input")},
-                    {"remaining_input_units", frozen_budget - number(settled_budget, "spent_input")},
-                    {"budget_before", settled_budget}, {"budget_after", store->budget(paired_id)},
-                    {"quota", quota},
-                    {"send_claims", fixture::sql_text(database, "SELECT count(*) FROM live_send_claims")},
-                    {"feedback_rows", fixture::sql_text(database, "SELECT count(*) FROM model_tool_feedback")}}}};
-            report["first_settlement"] = executed.settlement;
-            report["paired_settlement"] = paired_executed.settlement;
+                    {"remaining_input_units", remaining_input},
+                    {"budget_before", settled_budget}, {"counters_before", before_counters}, {"quota", false},
+                    {"checkpoint", "paired-second-capture"}, {"second_envelope_available", false},
+                    {"second_envelope_status", "unavailable"}, {"fixture_precondition", "UNPROVED"}}}};
+            const auto finish_report = [&] {
+                auto& paired = report.at("paired").as_object();
+                paired["budget_after"] = store->budget(paired_id);
+                paired["counters_after"] = context_counters(database);
+                paired["send_claims"] = fixture::sql_text(database, "SELECT count(*) FROM live_send_claims");
+                paired["feedback_rows"] = fixture::sql_text(database, "SELECT count(*) FROM model_tool_feedback");
+                retain_context_original("paired-premise-and-effects.json", canonical_json(report));
+            };
+            // Capture and measure THIS paired continuation before any second
+            // reservation/send. Unequal request metadata cannot borrow a margin
+            // from calibration, even with identical native response bytes.
+            retain_context_checkpoint(context_checkpoint, *store, database, paired_id, "paired-second-capture");
+            std::optional<CapturedModelCall> blocked;
+            try {
+                blocked = runtime.capture_call(paired_id, Role::Worker, paired_task, 2, {}, false, call_limits);
+            } catch (const Error& error) {
+                report.at("paired").as_object()["capture_error"] = Object{
+                    {"ErrorCode", std::string(error_name(error.code()))}, {"message", error.what()}};
+                report.at("paired").as_object()["fixture_precondition"] = "FIXTURE_PRECONDITION_FAIL_CAPTURE_UNAVAILABLE";
+                finish_report(); std::cout << canonical_json(report) << '\n'; return 0;
+            }
+            retain_context_checkpoint(context_checkpoint, *store, database, paired_id, "paired-second-captured", to_json(blocked->request));
+            retain_context_capture("paired-second", *blocked, live);
+            const auto paired_second_units = static_cast<std::int64_t>(blocked->request.context.prompt().size());
+            auto& paired = report.at("paired").as_object();
+            paired["second_envelope_available"] = true;
+            paired["second_envelope_status"] = "captured";
+            paired["second_envelope_units"] = paired_second_units;
+            paired["second_wire_bytes"] = static_cast<std::int64_t>(
+                encode_responses_request(live.provider, blocked->request, false).body.size());
+            paired["second_request"] = to_json(blocked->request);
+            const bool premise = paired_units <= frozen_budget && paired_second_units > remaining_input;
+            paired["fixture_precondition"] = premise ? "PROVED" : "FIXTURE_PRECONDITION_FAIL";
+            paired["checkpoint"] = "paired-second-premise";
+            finish_report();
+            if (!premise) { std::cout << canonical_json(report) << '\n'; return 0; }
+            // A proved oversized complete continuation must Quota before any
+            // attempt, send, feedback, persistent query or budget mutation.
+            bool quota = false;
+            paired["checkpoint"] = "paired-second-execution";
+            try {
+                const auto refused = execute_live_attempt(*store, blocked->actor, blocked->request, bearer, {true, false});
+                retain_context_checkpoint(context_checkpoint, *store, database, paired_id, "paired-second-executed", refused.settlement);
+                CHECK(refused.sent);
+            } catch (const Error& error) {
+                quota = error.code() == ErrorCode::Quota;
+                paired["execution_error"] = Object{{"ErrorCode", std::string(error_name(error.code()))}, {"message", error.what()}};
+            }
+            paired["quota"] = quota; finish_report();
+            CHECK(quota);
+            CHECK(store->budget(paired_id) == settled_budget);
+            CHECK(context_counters(database) == before_counters);
             std::cout << canonical_json(report) << '\n';
             return 0;
         }
@@ -546,17 +659,28 @@ int main(int argc, char** argv) {
             // opaque originals, each reconciled through the independent
             // loopback usage verifier.
             const auto native_round = [&](std::int64_t index, const char* result_text) {
+                retain_context_checkpoint(context_checkpoint, *store, database, logical_request, "logical-native-capture");
                 const auto call = runtime.capture_call(logical_request, Role::Worker, task_id, index,
                                                        {}, false, call_limits);
+                retain_context_capture("logical-native", call, live);
                 const auto executed = execute_live_attempt(*store, call.actor, call.request, bearer, {true, false});
+                retain_context_checkpoint(context_checkpoint, *store, database, logical_request, "logical-native-executed",
+                    store->live_attempt(call.request.attempt_id, true));
                 CHECK(executed.sent && executed.response_accepted);
                 auto record = store->attempt(call.request.attempt_id);
                 (void)store->record_tool_feedback(call.request.attempt_id, call.request.binding,
                     record.at("response"), Object{{"ok", true}, {"round", index}, {"result", result_text}});
-                (void)store->reconcile_usage(store->host_actor(Role::Root, logical_request),
-                    fixture::evidence(executed.settlement, fixture::complete_usage(11, 7),
-                        std::string("logical-readback-") + result_text),
-                    {"logical-readback", "logical-readback", 1});
+                const auto evidence = fixture::evidence(executed.settlement, fixture::complete_usage(11, 7),
+                    std::string("logical-readback-") + result_text);
+                const auto key = "logical-readback:" + call.request.attempt_id;
+                const UsageReconciliation reconciliation{key, key, 1};
+                const auto root = store->host_actor(Role::Root, logical_request);
+                const auto reconciled = store->reconcile_usage(root, evidence, reconciliation);
+                const auto reconciled_budget = store->budget(logical_request);
+                CHECK(store->reconcile_usage(root, evidence, reconciliation) == reconciled);
+                CHECK(store->budget(logical_request) == reconciled_budget);
+                retain_context_checkpoint(context_checkpoint, *store, database, logical_request, "logical-native-reconciled",
+                    Object{{"attempt_id", call.request.attempt_id}, {"reconciliation_id", key}, {"idempotency_key", key}});
                 return Object{{"attempt_id", call.request.attempt_id}, {"call_id", call.request.call_id},
                     {"settlement", executed.settlement},
                     {"response", store->attempt(call.request.attempt_id).at("response")},
@@ -575,7 +699,12 @@ int main(int argc, char** argv) {
             store = assets.open(database);
             const Object after_reopen{{"first", snapshot(text(first, "attempt_id"))},
                 {"second", snapshot(text(second, "attempt_id"))}};
+            retain_context_checkpoint(context_checkpoint, *store, database, logical_request, "logical-reopened",
+                Object{{"before", before_reopen}, {"after", after_reopen}});
             CHECK(after_reopen == before_reopen);
+            const auto recovered_binding = store->binding(task_id);
+            (void)store->acknowledge(store->host_actor(Role::Worker, logical_request, recovered_binding.team_id),
+                recovered_binding, number(store->task(task_id), "state_version"), new_id("logicalreadbackreopenack"));
             // Reconstruct the actual logical-Agent history from the reopened
             // Store's own actor/binding and frozen configuration snapshot.
             const auto persisted = store->request(logical_request);
@@ -587,8 +716,11 @@ int main(int argc, char** argv) {
             // The third continuation is the production capture over the
             // reopened Store, never a hand-built request_for/protocol request.
             OfflineRuntime reopened_runtime(*store, schemas);
+            retain_context_checkpoint(context_checkpoint, *store, database, logical_request, "logical-third-capture");
             const auto third = reopened_runtime.capture_call(logical_request, Role::Worker, task_id, 3,
                                                              {}, false, call_limits);
+            retain_context_capture("logical-third", third, live);
+            retain_context_checkpoint(context_checkpoint, *store, database, logical_request, "logical-third-captured", to_json(third.request));
             CHECK(single_agent_messages_json(transcript.messages) ==
                   third.request.context.logical_input.at("messages"));
             // The frozen live provider of this exact request is the only
@@ -597,6 +729,8 @@ int main(int argc, char** argv) {
                                                                 third.request.model.model);
             const auto third_encoded = encode_responses_request(settings.provider, third.request, settings.stream);
             const auto closing = execute_live_attempt(*store, third.actor, third.request, bearer, {true, false});
+            retain_context_checkpoint(context_checkpoint, *store, database, logical_request, "logical-third-executed",
+                store->live_attempt(third.request.attempt_id, true));
             CHECK(closing.sent && closing.response_accepted);
             Object report{{"request_id", logical_request},
                 {"config_snapshot_sha256", text(persisted, "config_snapshot_sha256")},
@@ -679,5 +813,14 @@ int main(int argc, char** argv) {
             result["after_reconcile"] = summary(*store, request_id);
         }
         std::cout << canonical_json(result) << '\n'; return 0;
-    } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
+    } catch (const Error& error) {
+        retain_context_original("failure.json", canonical_json(Object{{"last_checkpoint", context_checkpoint},
+            {"ErrorCode", std::string(error_name(error.code()))}, {"message", error.what()},
+            {"unreturned_capture_envelope", "unavailable"}}));
+        std::cerr << error.what() << '\n'; return 1;
+    } catch (const std::exception& error) {
+        retain_context_original("failure.json", canonical_json(Object{{"last_checkpoint", context_checkpoint},
+            {"ErrorCode", nullptr}, {"message", error.what()}}));
+        std::cerr << error.what() << '\n'; return 1;
+    }
 }

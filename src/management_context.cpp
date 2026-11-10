@@ -1,6 +1,9 @@
 #include "wls/management_context.hpp"
 
 #include "wls/config_loader.hpp"
+#include "wls/offline_runtime.hpp"
+#include "wls/runtime_resources.hpp"
+#include "history_readback_internal.hpp"
 #include "runtime_config_internal.hpp"
 
 #include <algorithm>
@@ -53,10 +56,11 @@ void validate_policy(const Json& policy) {
         recent * inline_bytes <= 131072 && total >= 131072 && total <= 1048576,
         "invalid frozen management window bounds");
 }
-Json read_arguments(std::string_view kind, const Json& item) {
+Json read_arguments(std::string_view kind, const Json& item, const Json& readback) {
     return Object{{"kind", kind}, {"record_id", item.at("record_id")},
         {"record_sha256", item.at("record_sha256")}, {"record_version", item.at("record_version")},
-        {"offset", 0}, {"max_bytes", 4096}};
+        {"offset", 0}, {readback.is_null() ? "max_bytes" : "max_tokens",
+            readback.is_null() ? 4096 : readback_detail::page_limit(readback)}};
 }
 } // namespace
 
@@ -65,32 +69,47 @@ bool is_management_history_control(std::string_view name) noexcept {
 }
 
 std::vector<ContextTool> management_history_declarations() {
+    return management_history_declarations(nullptr);
+}
+
+std::vector<ContextTool> management_history_declarations(const Json& readback) {
+    const auto maximum = readback.is_null() ? 4096 : readback_detail::page_limit(readback);
+    const auto size_field = readback.is_null() ? "max_bytes" : "max_tokens";
+    const auto version = readback.is_null() ? "wls-management-history-v1" : "wls-management-history-v2";
     const Json kind = Object{{"type", "string"}, {"enum", Array{"question", "submission", "attempt"}}};
     const Json page = Object{{"type", "object"}, {"additionalProperties", false},
         {"required", Array{"kind", "after_sequence", "through_sequence", "limit"}},
         {"properties", Object{{"kind", kind}, {"after_sequence", integer_schema(0, INT64_MAX)},
             {"through_sequence", integer_schema(0, INT64_MAX)}, {"limit", integer_schema(1, 4)}}}};
     const Json read = Object{{"type", "object"}, {"additionalProperties", false},
-        {"required", Array{"kind", "record_id", "record_sha256", "record_version", "offset", "max_bytes"}},
+        {"required", Array{"kind", "record_id", "record_sha256", "record_version", "offset", size_field}},
         {"properties", Object{{"kind", kind},
             {"record_id", Object{{"type", "string"}, {"minLength", 1}, {"maxLength", 256}}},
             {"record_sha256", Object{{"type", "string"}, {"pattern", "^[0-9a-f]{64}$"}}},
             {"record_version", integer_schema(1, INT64_MAX)}, {"offset", integer_schema(0, INT64_MAX)},
-            {"max_bytes", integer_schema(1, 4096)}}}};
-    return {{"management_history_page", "wls-management-history-v1", page},
-            {"management_history_read", "wls-management-history-v1", read}};
+            {size_field, integer_schema(1, maximum)}}}};
+    return {{"management_history_page", version, page}, {"management_history_read", version, read}};
 }
 
 Json execute_management_history_control(Store& store, const StoreActor& actor,
         const ExecutionBinding& current, std::string_view name, const Json& arguments) {
+    return execute_management_history_control(store, actor, current, name, arguments, {});
+}
+
+Json execute_management_history_control(Store& store, const StoreActor& actor,
+        const ExecutionBinding& current, std::string_view name, const Json& arguments,
+        const std::function<bool(const Json&)>& page_fits) {
     require(is_management_history_control(name) && arguments.is_object(), "invalid management history control");
     // Authorization precedes parameter inspection; rejected settled attempts
     // still consume the persistent query allowance.
     store.authorize_management_control(actor, current, std::string(name));
+    const auto config = restore_request_config(store.request(current.request_id));
+    const auto readback = readback_detail::policy(config);
+    const auto size_field = readback.is_null() ? "max_bytes" : "max_tokens";
     const auto& args = arguments.as_object();
     const std::set<std::string> expected = name == "management_history_page"
         ? std::set<std::string>{"kind", "after_sequence", "through_sequence", "limit"}
-        : std::set<std::string>{"kind", "record_id", "record_sha256", "record_version", "offset", "max_bytes"};
+        : std::set<std::string>{"kind", "record_id", "record_sha256", "record_version", "offset", size_field};
     require(args.size() == expected.size(), "management history has missing or extra fields");
     for (const auto& field : args)
         require(expected.contains(std::string(field.key())), "unknown management history field");
@@ -98,10 +117,25 @@ Json execute_management_history_control(Store& store, const StoreActor& actor,
     if (name == "management_history_page") {
         result = store.management_history_page(actor, current, text(args.at("kind")),
             integer(args.at("after_sequence")), integer(args.at("through_sequence")), integer(args.at("limit")));
-    } else {
+    } else if (readback.is_null()) {
         result = store.read_management_history(actor, current, text(args.at("kind")), text(args.at("record_id")),
             text(args.at("record_sha256")), integer(args.at("record_version")),
             integer(args.at("offset")), integer(args.at("max_bytes")));
+    } else {
+        const auto maximum = integer(args.at("max_tokens"));
+        require(maximum >= 1 && maximum <= readback_detail::page_limit(readback),
+            "management history max_tokens exceeds frozen host-unit bounds");
+        std::unique_ptr<SchemaRegistry> schemas;
+        const auto fits = [&](const Json& page) {
+            if (page_fits) return page_fits(page);
+            // Direct host dispatch uses the same production capture/compiler;
+            // program schemas come only from compiled-verified resources.
+            if (!schemas) schemas = std::make_unique<SchemaRegistry>(RuntimeResources::discover().schema_documents());
+            return OfflineRuntime(store, *schemas).management_page_fits(actor, current, page);
+        };
+        result = store.read_management_history_text(actor, current, text(args.at("kind")), text(args.at("record_id")),
+            text(args.at("record_sha256")), integer(args.at("record_version")),
+            integer(args.at("offset")), maximum, fits);
     }
     store.authorize_management_control(actor, current, std::string(name));
     return result;
@@ -136,6 +170,11 @@ std::vector<Json> runtime_detail::visible_management_questions(Store& store, Rol
 }
 
 std::vector<StructuredContextMessage> management_history_messages(const Json& view, const Json& policy) {
+    return management_history_messages(view, policy, nullptr);
+}
+
+std::vector<StructuredContextMessage> management_history_messages(const Json& view, const Json& policy,
+        const Json& readback) {
     validate_policy(policy);
     require(view.is_object() && view.at("format") == "wls-management-view-v1" &&
         view.at("recent_attempts").is_array() && view.at("recent_attempts").as_array().size() <=
@@ -143,9 +182,13 @@ std::vector<StructuredContextMessage> management_history_messages(const Json& vi
     const Json index = Object{{"kind", "management_history_window"}, {"scope", view.at("scope")},
         {"policy", policy}, {"history_catalogs", view.at("history_catalogs")},
         {"not_execution_authority", true},
-        {"notice", "Completed originals outside this view remain in Store. Catalogs pin insertion membership, not later state. "
-                   "Page then read hash/version-pinned records; join base64 bytes and verify the complete section SHA. "
-                   "Current requirements, captured targets, OPEN questions and unresolved facts remain complete in task_contract."}};
+        {"notice", readback.is_null()
+            ? "Completed originals outside this view remain in Store. Catalogs pin insertion membership, not later state. "
+              "Page then read hash/version-pinned records; join base64 bytes and verify the complete section SHA. "
+              "Current requirements, captured targets, OPEN questions and unresolved facts remain complete in task_contract."
+            : "Completed originals outside this view remain in Store. Catalogs pin insertion membership, not later state. "
+              "Read host-verified UTF-8 using max_tokens host units; continue at the exact UTF-8 byte next_offset. "
+              "Current requirements, captured targets, OPEN questions and unresolved facts remain complete in task_contract."}};
     std::vector<StructuredContextMessage> result{{"user", canonical_json(index), {}, {},
         Object{{"kind", "management_history_window"}, {"not_execution_authority", true}}}};
     for (const auto& attempt : view.at("recent_attempts").as_array()) {
@@ -169,7 +212,7 @@ std::vector<StructuredContextMessage> management_history_messages(const Json& vi
             {"feedback_missing", attempt.at("feedback_missing")}, {"not_execution_authority", true}};
         if (!reference.at("record_sha256").is_null())
             reference["retrieval"] = Object{{"tool", "management_history_read"},
-                {"arguments", read_arguments("attempt", reference)}};
+                {"arguments", read_arguments("attempt", reference, readback)}};
         result.push_back({"user", canonical_json(reference), {}, {},
             Object{{"kind", "management_history_reference"}, {"not_execution_authority", true}}});
     }

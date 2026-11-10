@@ -1,4 +1,5 @@
 #include "wls/worker_history.hpp"
+#include "history_readback_internal.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -46,17 +47,25 @@ bool is_history_control(std::string_view name) noexcept {
 }
 
 std::vector<ContextTool> history_control_declarations() {
+    return history_control_declarations(nullptr);
+}
+
+std::vector<ContextTool> history_control_declarations(const Json& readback) {
+    const bool text_pages = !readback.is_null();
+    const auto maximum = text_pages ? readback_detail::page_limit(readback) : 4096;
+    const auto size_field = text_pages ? "max_tokens" : "max_bytes";
+    const auto version = text_pages ? "wls-history-control-v2" : "wls-history-control-v1";
     const Json page = Object{{"type", "object"}, {"additionalProperties", false},
         {"required", Array{"after_sequence", "through_sequence", "limit"}},
         {"properties", Object{{"after_sequence", integer_schema(0, INT64_MAX)},
             {"through_sequence", integer_schema(0, INT64_MAX)}, {"limit", integer_schema(1, 4)}}}};
     const Json read = Object{{"type", "object"}, {"additionalProperties", false},
-        {"required", Array{"attempt_id", "record_sha256", "section", "offset", "max_bytes"}},
+        {"required", Array{"attempt_id", "record_sha256", "section", "offset", size_field}},
         {"properties", Object{{"attempt_id", Object{{"type", "string"}, {"minLength", 1}, {"maxLength", 256}}},
             {"record_sha256", Object{{"type", "string"}, {"pattern", "^[0-9a-f]{64}$"}}},
             {"section", Object{{"type", "string"}, {"enum", Array{"response", "result"}}}},
-            {"offset", integer_schema(0, INT64_MAX)}, {"max_bytes", integer_schema(1, 4096)}}}};
-    return {{"history_page", "wls-history-control-v1", page}, {"history_read", "wls-history-control-v1", read}};
+            {"offset", integer_schema(0, INT64_MAX)}, {size_field, integer_schema(1, maximum)}}}};
+    return {{"history_page", version, page}, {"history_read", version, read}};
 }
 
 Json execute_history_control(Store& store, const StoreActor& actor,
@@ -88,6 +97,12 @@ Json execute_history_control(Store& store, const StoreActor& actor,
 }
 
 std::vector<StructuredContextMessage> worker_history_messages(const Json& tail, const Json& policy) {
+    return worker_history_messages(tail, policy, nullptr);
+}
+
+std::vector<StructuredContextMessage> worker_history_messages(const Json& tail, const Json& policy,
+        const Json& readback) {
+    const auto maximum = readback.is_null() ? 4096 : readback_detail::page_limit(readback);
     require(policy.is_object() && policy.at("mode") == "window-v1", "missing frozen history window policy");
     const auto recent = integer(policy.at("recent_attempts"));
     const auto inline_bytes = integer(policy.at("inline_bytes"));
@@ -139,7 +154,8 @@ std::vector<StructuredContextMessage> worker_history_messages(const Json& tail, 
             }
             ref["retrieval"] = Object{{"tool", "history_read"}, {"arguments", Object{
                 {"attempt_id", attempt.at("attempt_id")}, {"record_sha256", feedback.at("record_sha256")},
-                {"section", "result"}, {"offset", 0}, {"max_bytes", 4096}}}};
+                {"section", "result"}, {"offset", 0},
+                {readback.is_null() ? "max_bytes" : "max_tokens", maximum}}}};
         }
         result.push_back({"user", canonical_json(ref), {}, {},
             Object{{"kind", "history_reference"}, {"not_execution_authority", true}}});

@@ -9,6 +9,7 @@ namespace wls::s1 {
 // tool grant. These reads never execute historical tools or clear readiness.
 bool is_history_control(std::string_view name) noexcept;
 std::vector<ContextTool> history_control_declarations();
+std::vector<ContextTool> history_control_declarations(const Json& frozen_readback);
 Json execute_history_control(Store& store, const StoreActor& actor,
     const ExecutionBinding& binding, std::string_view name, const Json& arguments);
 
@@ -17,5 +18,7 @@ Json execute_history_control(Store& store, const StoreActor& actor,
 // contract is never an input to this projection and therefore cannot be pruned.
 std::vector<StructuredContextMessage> worker_history_messages(const Json& tail,
     const Json& frozen_policy);
+std::vector<StructuredContextMessage> worker_history_messages(const Json& tail,
+    const Json& frozen_policy, const Json& frozen_readback);
 
 } // namespace wls::s1

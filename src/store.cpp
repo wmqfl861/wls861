@@ -6,7 +6,10 @@
 #include "wls/model.hpp"
 #include "wls/live_model.hpp"
 #include "wls/owned_capacity.hpp"
+#include "wls/worker_history.hpp"
+#include "wls/management_context.hpp"
 #include "amendment_disposition.hpp"
+#include "history_readback_internal.hpp"
 
 #include <sqlite3.h>
 
@@ -3693,6 +3696,36 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
             "model context format differs from frozen request policy");
     const auto selected_model = frozen_config.resolve(actor.role);
     const auto profile = frozen_config.model_profile(actor.role);
+    const auto readback = readback_detail::policy(frozen_config);
+    const bool worker_window = actor.role == Role::Worker && !frozen_config.worker_history_policy().is_null();
+    const bool management_window = (actor.role == Role::Dispatcher || actor.role == Role::TeamLead) &&
+        !frozen_config.management_history_policy().is_null() && !experience;
+    if (!readback.is_null() && (worker_window || management_window)) {
+        const auto contract = model_contract(original_model_request);
+        const auto* policy = contract.as_object().if_contains("readback_policy");
+        require(policy && *policy == readback, ErrorCode::Unauthorized,
+            "context readback differs from frozen request policy");
+        const auto definitions = worker_window ? history_control_declarations(readback) : management_history_declarations(readback);
+        bool controls = false;
+        for (const auto& tool : original_model_request.context.logical_input.at("prefix").at("tools").as_array()) {
+            for (const auto& expected : definitions) {
+                if (tool.at("name") != Json(expected.name)) continue;
+                controls = true;
+                require(tool.at("version") == Json(expected.version) && tool.at("parameters") == expected.definition,
+                    ErrorCode::Unauthorized, "history control declaration differs from frozen readback policy");
+            }
+        }
+        if (controls) {
+            const auto& dependencies = original_model_request.context.logical_input.at("prefix").at("dependencies").as_array();
+            require(std::any_of(dependencies.begin(), dependencies.end(), [&](const Json& item) {
+                return item.at("name") == "readback_policy" && item.at("version") == "utf8-token-v1" &&
+                    item.at("content_sha256") == Json(sha256_hex(canonical_json(readback)));
+            }), ErrorCode::Unauthorized, "context dependency differs from frozen readback policy");
+        }
+        if (management_window)
+            require(reservation.reserved_input_tokens >= readback_detail::request_units(frozen_config, original_model_request),
+                ErrorCode::Quota, "management reservation does not cover complete logical/wire input");
+    }
     require(selected_model.model == reservation.model_ref, ErrorCode::Unauthorized, "model reference differs from frozen role selection");
     require(original_model_request.model == selected_model && original_model_request.context.role == actor.role &&
         original_model_request.context.adapter_version == std::string(profile.at("adapter_version").as_string()) &&
