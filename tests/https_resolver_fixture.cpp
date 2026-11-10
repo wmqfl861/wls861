@@ -2,13 +2,17 @@
 // hostname/service argv of the real wls861-resolve-ipv4 helper and speaks the
 // same fixed WLS-RESOLVE-1 protocol, but selects its behaviour from the
 // hostname: plain "localhost" answers, a "wls-count-N" hostname answers with
-// exactly N distinct addresses, a "wls-fault-*" hostname plays one explicitly
-// labelled protocol/lifecycle fault, and a "wls-probe-*" hostname reports one
+// exactly N distinct addresses, a "wls-gated-ok" hostname waits behind an
+// explicit completion gate in its own staged directory before answering the
+// fixed normal frame, a "wls-fault-*" hostname plays one explicitly labelled
+// protocol/lifecycle fault, and a "wls-probe-*" hostname reports one
 // inherited-child hygiene fact through the same protocol. It performs no real
 // name resolution, is staged into private 0700 fixture directories under the
 // pinned helper name next to a staged copy of the test driver, and is never
 // installed or a production path.
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include <fcntl.h>
 #include <signal.h>
@@ -18,12 +22,15 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <array>
 #include <string>
 
 namespace {
 
 void emit(const std::string& text) {
-    (void)::write(STDOUT_FILENO, text.data(), text.size());
+    // Fortified builds mark write() warn_unused_result; consume the fact.
+    const auto written = ::write(STDOUT_FILENO, text.data(), text.size());
+    (void)written;
 }
 
 void sleep_ms(int milliseconds) {
@@ -66,6 +73,37 @@ int main(int argc, char** argv) {
     if (argc != 3) return 1;
     const std::string hostname = argv[1];
     if (hostname == "localhost") {
+        emit("WLS-RESOLVE-1\nok\n1\n127.0.0.1\n");
+        return 0;
+    }
+    if (hostname == "wls-gated-ok") {
+        // Controlled completion gate for the legal-successor scenario: the
+        // helper publishes its readiness (its own real pid) from its staged
+        // directory, then waits for the explicit go marker — never a signal,
+        // cancel or timeout unlock — and finally writes the fixed normal
+        // frame, closes stdout and exits 0 like a clean resolve. A gate that
+        // never opens is an honest failure, never a faked success frame.
+        std::array<char, 4096> self{};
+        const auto size = ::readlink("/proc/self/exe", self.data(), self.size() - 1);
+        if (size <= 0) return 1;
+        const std::string directory(self.data(), static_cast<std::size_t>(size));
+        const auto slash = directory.find_last_of('/');
+        if (slash == std::string::npos) return 1;
+        const std::string root = directory.substr(0, slash);
+        const std::string ready = root + "/wls-gate.ready";
+        const int fd = ::open(ready.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+        if (fd < 0) return 1;
+        const std::string pid_text = std::to_string(::getpid());
+        const auto ready_written = ::write(fd, pid_text.data(), pid_text.size());
+        (void)ready_written; // build-only: consume like emit(), same ignore semantics
+        (void)::close(fd);
+        const std::string go = root + "/wls-gate.go";
+        for (int spin = 0; spin < 4000; ++spin) {
+            if (::access(go.c_str(), F_OK) == 0) break;
+            timespec gap{0, 5000000}; // 5ms poll; the outer bound stays test-side.
+            ::nanosleep(&gap, nullptr);
+        }
+        if (::access(go.c_str(), F_OK) != 0) return 1; // gate never opened
         emit("WLS-RESOLVE-1\nok\n1\n127.0.0.1\n");
         return 0;
     }
@@ -214,8 +252,9 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (hostname == "wls-probe-nnp") {
-        int active = 0;
-        probe(::prctl(PR_GET_NO_NEW_PRIVS, &active, 0, 0, 0) == 0 && active == 1, "nnp");
+        // PR_GET_NO_NEW_PRIVS returns the status itself; it does not write a
+        // pointer. The child must genuinely arrive with no_new_privs=1.
+        probe(::prctl(PR_GET_NO_NEW_PRIVS, 0L, 0L, 0L, 0L) == 1, "nnp");
         return 0;
     }
     if (hostname == "wls-probe-core") {

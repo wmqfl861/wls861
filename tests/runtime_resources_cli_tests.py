@@ -4,7 +4,12 @@
 With a third argument this installs the current project's real CMake build.
 The Make gate supplies two arguments and configures an installation-only CMake
 fixture around the same built executable and original installation module.
-All prefixes, copies, faults, configurations and databases are disposable.
+The fourth argument is the no-seam production resolver probe; staged copies of
+that probe run next to the helper bytes under test — under a staging root
+anchored in the verified source tree, never below a permissive-umask build
+directory — so install and relocation assertions exercise the shipped
+parent-side lifecycle. All prefixes, copies, faults, configurations and
+databases are disposable.
 """
 import hashlib
 import json
@@ -20,12 +25,39 @@ import unittest
 
 if len(sys.argv) not in (3, 4, 5):
     raise SystemExit('usage: runtime_resources_cli_tests.py WLS_BINARY SOURCE_ROOT [CMAKE_BUILD] '
-                     '[RESOLVER_TESTS_BINARY]')
+                     '[RESOLVER_PROBE_BINARY]')
 BINARY = Path(sys.argv[1]).resolve()
 SOURCE = Path(sys.argv[2]).resolve()
 CMAKE_BUILD = Path(sys.argv[3]).resolve() if len(sys.argv) >= 4 else None
-RESOLVER_DRIVER = Path(sys.argv[4]).resolve() if len(sys.argv) == 5 else None
+RESOLVER_PROBE = Path(sys.argv[4]).resolve() if len(sys.argv) == 5 else None
 sys.argv = [sys.argv[0]]
+
+
+def verified_source_root(source: Path) -> Path:
+    """Full-ancestor preflight for the resolver staging anchor.
+
+    Every component of the source root must be a real owner-pinned directory
+    (root or the effective user) without symlink components or group/world
+    writes; a permissive-umask build tree is exactly the shared-write ancestry
+    the production pin refuses, so positive cases never stage under it. An
+    unsafe root is an honest fixture preflight failure — never a chmod, skip
+    or relaxed production guard.
+    """
+    root = source.resolve()
+    current = Path(root.anchor)
+    for part in root.parts[1:]:
+        current = current / part
+        info = current.lstat()
+        if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+            raise AssertionError(f'unsafe staging ancestor (not a pinned directory): {current}')
+        if info.st_uid not in (0, os.geteuid()):
+            raise AssertionError(f'staging ancestor not owner-pinned: {current}')
+        if info.st_mode & 0o022:
+            raise AssertionError(f'staging ancestor is shared-write: {current}')
+    return root
+
+
+SOURCE_STAGING_ROOT = verified_source_root(SOURCE)
 
 
 class RuntimeResourceInstallation(unittest.TestCase):
@@ -52,7 +84,7 @@ class RuntimeResourceInstallation(unittest.TestCase):
                 'project(wls_resource_install_fixture NONE)\n'
                 f'set(Python3_EXECUTABLE [==[{sys.executable}]==])\n'
                 f'include([==[{SOURCE / "cmake/runtime_resources.cmake"}]==])\n'
-                'install(PROGRAMS [==[{BINARY}]==] DESTINATION bin RENAME wls COMPONENT wls-runtime)\n'
+                f'install(PROGRAMS [==[{BINARY}]==] DESTINATION bin RENAME wls COMPONENT wls-runtime)\n'
                 f'install(PROGRAMS [==[{helper}]==] DESTINATION bin RENAME wls861-resolve-ipv4 '
                 'COMPONENT wls-runtime)\n'
                 'wls_install_runtime_resources()\n')
@@ -90,6 +122,25 @@ class RuntimeResourceInstallation(unittest.TestCase):
         self.cwd.mkdir(mode=0o700)
         self.config = self.directory / 'external-config'
         shutil.copytree(SOURCE / 'config/examples', self.config)
+
+    def resolver_probe(self):
+        # The relocation driver is the no-seam production probe. Its staged
+        # copy runs next to the helper bytes it pins, under the verified
+        # source-anchored staging root — never below a permissive-umask build
+        # tree or a shared other-writable temporary directory.
+        probe = RESOLVER_PROBE if RESOLVER_PROBE is not None else \
+            BINARY.parent / 'https_resolver_probe'
+        self.assertTrue(probe.is_file(), probe)
+        return probe
+
+    def resolver_stage(self, name):
+        # Exclusively created (mkdtemp, 0700) directory below the verified
+        # source-anchored root; never below the build tree, and no existing
+        # path is ever reused, appended to or re-permissioned.
+        root = Path(tempfile.mkdtemp(prefix=f'resolver-stage-{name}-',
+                                     dir=str(SOURCE_STAGING_ROOT)))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        return root
 
     def invoke(self, *arguments, error=None, timeout=20, environment=None):
         completed = subprocess.run([str(self.binary), *(str(value) for value in arguments)],
@@ -152,24 +203,24 @@ class RuntimeResourceInstallation(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertTrue(completed.stdout.startswith('WLS-RESOLVE-1\nok\n'), completed.stdout)
         self.assertIn('127.0.0.1', completed.stdout)
-        # The dedicated driver verifies executable-relative pin/resolve/reap
-        # against these installed helper bytes from an unrelated cwd after the
-        # installation prefix moved away; the staged tree keeps only its own
-        # two copies and no installation source.
-        if RESOLVER_DRIVER is None:
-            driver = BINARY.parent / 'https_resolver_tests'
-            self.assertTrue(driver.is_file(), 'the plain-Make gate must build https_resolver_tests')
-        else:
-            driver = RESOLVER_DRIVER
-        stage = self.directory / 'resolver-stage'
-        stage.mkdir(mode=0o700)
-        shutil.copyfile(driver, stage / 'driver')
+        # The no-seam production probe verifies executable-relative
+        # pin/resolve/reap against these installed helper bytes from an
+        # unrelated cwd after the installation prefix moved away; the staged
+        # tree keeps only its own two copies and no installation source.
+        probe = self.resolver_probe()
+        stage = self.resolver_stage('cmake')
+        shutil.copyfile(probe, stage / 'driver')
         os.chmod(stage / 'driver', 0o755)
         shutil.copyfile(helper, stage / 'wls861-resolve-ipv4')
         os.chmod(stage / 'wls861-resolve-ipv4', 0o755)
+        # Staged bytes are the real bytes: pin/resolve/reap exercise the
+        # actual installed helper and probe, not a substituted copy.
+        self.assertEqual((stage / 'driver').read_bytes(), probe.read_bytes())
+        self.assertEqual((stage / 'wls861-resolve-ipv4').read_bytes(), helper.read_bytes())
         self.prefix.rename(self.directory / 'installed-moved-away')
-        relocated = self.directory / 'resolver-stage-moved'
+        relocated = stage.with_name(stage.name + '-moved')
         stage.rename(relocated)
+        self.addCleanup(shutil.rmtree, relocated, ignore_errors=True)
         resolved = subprocess.run([str(relocated / 'driver'), '--resolve-once', 'localhost', '443'],
                                   cwd=self.cwd, capture_output=True, text=True, timeout=10)
         self.assertEqual(resolved.returncode, 0, resolved.stdout + resolved.stderr)
@@ -182,6 +233,72 @@ class RuntimeResourceInstallation(unittest.TestCase):
                                  cwd=self.cwd, capture_output=True, text=True, timeout=10)
         self.assertNotEqual(refused.returncode, 0, refused.stdout)
         self.assertIn('threw=1', refused.stdout)
+
+    def test_make_gate_runs_real_make_install_and_relocated_production_helper(self):
+        # O1: the plain-Make gate executes the real `make install` entry — the
+        # installation-only CMake fixture above does not count for this — and
+        # then exercises the installed production helper bytes after the whole
+        # installation tree and the source tree are moved away.
+        if CMAKE_BUILD is not None:
+            raise unittest.SkipTest(
+                'the real make install entry is executed by the plain-Make gate')
+        destdir = self.directory / 'make-install-root'
+        prefix = '/opt/wls-make-install'
+        result = subprocess.run(['make', '-C', str(SOURCE), 'install',
+                                 f'BUILD_DIR={BINARY.parent}', f'DESTDIR={destdir}',
+                                 f'PREFIX={prefix}'],
+                                capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        installed = destdir / prefix.lstrip('/')
+        bin_dir = installed / 'bin'
+        for name in ('wls', 'wls861', 'wls861-resolve-ipv4'):
+            program = bin_dir / name
+            self.assertTrue(program.is_file(), program)
+            mode = stat.S_IMODE(program.stat().st_mode)
+            self.assertEqual(mode & 0o111, 0o111)
+            self.assertEqual(mode & 0o022, 0)
+        self.assertTrue((installed / 'share/wls861/runtime-manifest.json').is_file())
+        # Same bin directory as the installed tools: execute the helper there
+        # from an unrelated cwd with the real system resolver on loopback.
+        helper = bin_dir / 'wls861-resolve-ipv4'
+        completed = subprocess.run([str(helper), 'localhost', '443'], cwd=self.cwd,
+                                   capture_output=True, text=True, timeout=10)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertTrue(completed.stdout.startswith('WLS-RESOLVE-1\nok\n'), completed.stdout)
+        self.assertIn('127.0.0.1', completed.stdout)
+        # Relocate away from the installation source, then pin/resolve/reap
+        # through the no-seam production probe from an external cwd.
+        probe = self.resolver_probe()
+        stage = self.resolver_stage('make')
+        shutil.copyfile(probe, stage / 'driver')
+        os.chmod(stage / 'driver', 0o755)
+        shutil.copyfile(helper, stage / 'wls861-resolve-ipv4')
+        os.chmod(stage / 'wls861-resolve-ipv4', 0o755)
+        # Staged bytes are the real bytes: pin/resolve/reap exercise the
+        # actual installed helper and probe, not a substituted copy.
+        self.assertEqual((stage / 'driver').read_bytes(), probe.read_bytes())
+        self.assertEqual((stage / 'wls861-resolve-ipv4').read_bytes(), helper.read_bytes())
+        destdir.rename(self.directory / 'make-install-root-moved-away')
+        relocated = stage.with_name(stage.name + '-moved')
+        stage.rename(relocated)
+        self.addCleanup(shutil.rmtree, relocated, ignore_errors=True)
+        resolved = subprocess.run([str(relocated / 'driver'), '--resolve-once', 'localhost', '443'],
+                                  cwd=self.cwd, capture_output=True, text=True, timeout=10)
+        self.assertEqual(resolved.returncode, 0, resolved.stdout + resolved.stderr)
+        self.assertIn('ok=1', resolved.stdout)
+        self.assertIn('127.0.0.1', resolved.stdout)
+        # A tampered staged helper is refused after relocation.
+        os.chmod(relocated / 'wls861-resolve-ipv4', 0o664)
+        refused = subprocess.run([str(relocated / 'driver'), '--resolve-once', 'localhost', '443'],
+                                 cwd=self.cwd, capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(refused.returncode, 0, refused.stdout)
+        self.assertIn('threw=1', refused.stdout)
+        # A missing staged helper is refused the same way.
+        os.remove(relocated / 'wls861-resolve-ipv4')
+        missing = subprocess.run([str(relocated / 'driver'), '--resolve-once', 'localhost', '443'],
+                                 cwd=self.cwd, capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(missing.returncode, 0, missing.stdout)
+        self.assertIn('threw=1', missing.stdout)
 
     def test_relocated_executable_ignores_cwd_and_environment_resource_poison(self):
         (self.cwd / 'resources').mkdir()

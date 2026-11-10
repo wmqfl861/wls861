@@ -155,15 +155,20 @@ if(BUILD_TESTING)
     # helper under test because production discovery is executable-relative.
     add_executable(https_resolver_fixture tests/https_resolver_fixture.cpp)
     target_link_libraries(https_resolver_fixture PRIVATE wls_build_options)
-    add_executable(https_resolver_tests tests/https_resolver_tests.cpp)
+    add_executable(https_resolver_tests tests/https_resolver_tests.cpp
+        tests/https_resolver_posix_seam.cpp)
     target_link_libraries(https_resolver_tests PRIVATE wls_s1)
     target_include_directories(https_resolver_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests"
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_compile_definitions(https_resolver_tests PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_dependencies(https_resolver_tests wls861-resolve-ipv4 https_resolver_fixture)
     add_test(NAME https_resolver
         COMMAND https_resolver_tests
                 "$<TARGET_FILE:https_resolver_fixture>" "$<TARGET_FILE:wls861-resolve-ipv4>")
     set_tests_properties(https_resolver PROPERTIES TIMEOUT 90)
+    # No-seam production probe: links only the production resolver object.
+    add_executable(https_resolver_probe tests/https_resolver_probe.cpp)
+    target_link_libraries(https_resolver_probe PRIVATE wls_s1)
     add_executable(live_model_store_driver tests/live_model_store_driver.cpp)
     target_link_libraries(live_model_store_driver PRIVATE wls_s1)
     target_include_directories(live_model_store_driver PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
@@ -189,7 +194,7 @@ if(BUILD_TESTING)
     add_test(NAME runtime_resources_cli
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime_resources_cli_tests.py"
                 "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}"
-                "$<TARGET_FILE:https_resolver_tests>")
+                "$<TARGET_FILE:https_resolver_probe>")
     set_tests_properties(runtime_resources_cli PROPERTIES TIMEOUT 120)
     add_test(NAME r3_evaluation
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/r3_evaluation_tests.py"
