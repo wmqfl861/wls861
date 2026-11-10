@@ -220,6 +220,9 @@ struct ReadbackSession {
     ExecutionBinding binding() const { return store->binding(task_id()); }
     StoreActor actor() const { return store->host_actor(Role::Worker, request_id, binding().team_id); }
     std::int64_t version() const { return number(store->task(task_id()).at("state_version")); }
+    Json diagnostic(const std::string& name, const Json& args) {
+        return tools->diagnostic(actor(), binding(), name, args);
+    }
 };
 
 const Json& operation(const Json& result) { return result.at("operation"); }

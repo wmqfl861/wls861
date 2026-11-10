@@ -110,7 +110,7 @@ inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& l
         // the same public JSON boundary production configuration uses.
         if (!context_extra.is_null())
             for (const auto& field : context_extra.as_object())
-                system.at("context").as_object()[field.key()] = field.value;
+                system.at("context").as_object()[field.key()] = field.value();
         if (input_budget >= 0)
             system.at("budget_defaults").as_object()["max_input_tokens"] = input_budget;
         if (output_budget >= 0)
