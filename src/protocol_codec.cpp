@@ -106,7 +106,9 @@ Json validate_request(const ProviderProfile& profile, const ModelRequest& reques
         require(function_name(name), ErrorCode::Unsupported, "tool name is outside the Responses function subset");
     for (const auto& message : request.context.logical_input.at("messages").as_array())
         for (const auto& call : message.at("tool_calls").as_array())
-            require(function_name(text(call, "name")), ErrorCode::Unsupported,
+            require(function_name(text(call, "name")) || (message.at("source").is_object() &&
+                message.at("source").as_object().contains("rejected_tool_selection") &&
+                message.at("source").at("rejected_tool_selection") == true && token(text(call, "name"), 64)), ErrorCode::Unsupported,
                     "historical tool name is outside the Responses function subset");
     require(request.max_output_tokens <= profile.max_output_tokens &&
             request.reserved_input_tokens <= profile.context_window &&
@@ -217,6 +219,7 @@ void empty_optional_array(const Json& value, std::string_view key) {
 
 void parse_completed_output(const ProviderProfile& profile, const ModelRequest& request,
                             const Json& value, ModelResponse& response) {
+    (void)request; // Decode complete structure first; the host classifies tool selection after settlement.
     const auto& items = array(value);
     require(items.size() <= profile.limits.max_output_items, ErrorCode::Quota,
             "response output item count exceeds declared bound");
@@ -226,7 +229,7 @@ void parse_completed_output(const ProviderProfile& profile, const ModelRequest& 
         responses_compat::ValidationBounds codec_bounds{profile.limits.max_output_items,
             profile.limits.max_tool_calls, profile.limits.max_text_bytes, profile.limits.max_tool_argument_bytes};
         auto projection = responses_compat::validate_output(value, codec_bounds,
-                                                            &request.context.tool_names, profile.parallel_tool_calls);
+                                                            nullptr, profile.parallel_tool_calls);
         response.text = std::move(projection.text);
         response.tool_calls = std::move(projection.tool_calls);
         if (projection.refusal) {
@@ -279,9 +282,6 @@ void parse_completed_output(const ProviderProfile& profile, const ModelRequest& 
             const auto call_id = text(item, "call_id"), name = text(item, "name");
             require(token(call_id) && token(name) && call_ids.insert(call_id).second,
                     ErrorCode::InvalidInput, "response tool IDs must be unique bounded tokens");
-            require(std::find(request.context.tool_names.begin(), request.context.tool_names.end(), name) !=
-                    request.context.tool_names.end(), ErrorCode::Unauthorized,
-                    "response requested a tool absent from the captured request");
             require(response.tool_calls.size() < profile.limits.max_tool_calls &&
                     (profile.parallel_tool_calls || response.tool_calls.empty()), ErrorCode::Quota,
                     "response tool call count exceeds the declared capability or limit");
@@ -367,8 +367,6 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
             require(role == "assistant", ErrorCode::InvalidInput,
                     "only an assistant message may carry opaque responses output");
             const auto& calls = array(message.at("tool_calls"));
-            require(!calls.empty(), ErrorCode::InvalidInput,
-                    "an opaque native round must retain its tool projection");
             native_provider_call_ids.clear();  // each native round pairs only its own provider IDs
             const auto projection = responses_compat::validate_payload(*payload);
             std::vector<ContextToolInvocation> logical_calls;
@@ -384,7 +382,10 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
                     const auto call_id = std::string(item.at("call_id").as_string());
                     require(provider_call_ids.insert(call_id).second, ErrorCode::Conflict,
                             "provider call ID repeats across the transcript");
-                    require(std::find(request.context.tool_names.begin(), request.context.tool_names.end(),
+                    const auto& source = message.at("source");
+                    const bool rejected = source.is_object() && source.as_object().contains("rejected_tool_selection") &&
+                        source.at("rejected_tool_selection") == true;
+                    require(rejected || std::find(request.context.tool_names.begin(), request.context.tool_names.end(),
                             std::string(item.at("name").as_string())) != request.context.tool_names.end(),
                             ErrorCode::Unauthorized, "native round replay names an unavailable tool");
                     native_provider_call_ids.push_back(call_id);
@@ -544,7 +545,7 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
                             profile.limits.max_response_bytes, ErrorCode::Quota,
                             "responses output copy exceeds the declared response bound");
                 }
-                validate_response(request, decoded.response);
+                validate_response_envelope(request, decoded.response);
             }
         }
     } catch (const Error& error) {

@@ -110,6 +110,13 @@ int main(int argc, char** argv) {
                 parse_json_strict(fixture::read(std::string(compat->as_string())));
             live.provider = provider_profile_from_json(provider_document);
         }
+        if (flag(config, "synthetic_provider")) {
+            live.execution_kind = "provider"; // Same disposable loopback peer; no provider receipt claim.
+            TokenPricing pricing; pricing.input_micro_usd_per_million_tokens = 1;
+            pricing.output_micro_usd_per_million_tokens = 1;
+            pricing.cache_read_applicable = true; pricing.cache_write_applicable = true;
+            live.provider.pricing = pricing;
+        }
         auto store = assets.open(text(config, "database"));
         auto input = fixture::admission(assets, live, "workflow", !flag(config, "disabled"));
         input.original_text = string_option(config, "material", "Complete a synthetic loopback workflow.");
@@ -130,7 +137,7 @@ int main(int argc, char** argv) {
         EventRuntime runtime(*store, schemas, mapping);
         std::int64_t credentials = 0, evidence_calls = 0;
         LiveWorkflowOptions options;
-        options.authorization = {!flag(config, "unauthorized"), false};
+        options.authorization = {!flag(config, "unauthorized"), flag(config, "synthetic_provider")};
         options.reserved_cost_micro_usd = number_option(config, "reserved_cost", 100);
         // This is the synthetic host's explicit batch budget, not a production
         // default. Sanitizers need time for the same original capture/ledger

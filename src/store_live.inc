@@ -563,7 +563,7 @@ Json Store::record_live_transport(const std::string& attempt_id, const std::stri
             result.transport_options_sha256 == str(live, "transport_options_sha256"), ErrorCode::Conflict,
             "transport observation differs from original admitted bytes, profile or options");
     const auto request = model_request_from_json(parse_json_strict(str(original, "request_envelope"), 4U * 1024U * 1024U));
-    validate_response(request, result.response);
+    validate_response_envelope(request, result.response);
     const auto settings = parse_json_strict(str(live, "settings"), 2U * 1024U * 1024U);
     require(result.ca_bundle_sha256 == sha256_hex(std::string(settings.at("transport").at("ca_bundle_pem").as_string())),
             ErrorCode::Conflict, "transport observation changed the explicit trust material");

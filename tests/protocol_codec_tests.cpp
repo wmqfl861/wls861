@@ -348,7 +348,13 @@ void wrong_response_model_and_host_identity_fields_refuse() {
 }
 void unknown_tool_and_duplicate_provider_identifiers_refuse() {
     auto value = fixture::tool_response(); value.at("output").as_array()[0].as_object()["name"] = "run";
-    refused(value, "unavailable_tool");
+    const auto selection = decode(value);
+    CHECK(selection.response.status == ModelResultStatus::Completed);
+    CHECK(selection.response.tool_calls.front().name == "run");
+    validate_response_envelope(fixture::request(), selection.response);
+    fails(ErrorCode::InvalidInput, [&] { validate_response(fixture::request(), selection.response); });
+    auto corrupt = value; corrupt.at("output").as_array().push_back(Object{{"id", "bad"}, {"type", "future_item"}});
+    refused(corrupt, "unsupported_response");
     value = fixture::tool_response(); value.at("output").as_array().push_back(value.at("output").as_array()[0]);
     refused(value);
     value.at("output").as_array()[1].as_object()["id"] = "different_item";
@@ -501,6 +507,29 @@ Json compat_history_record(const Json& response) {
         {"feedback", Object{{"original_binding", binding}, {"response", response},
             {"result", Object{{"ok", true}}}, {"record_sha256", sha256_hex("compat-fixture-feedback")}}}};
 }
+void compat_rejected_selection_and_text_only_preserve_native_rounds() {
+    for (const bool text_only : {false, true}) {
+        auto wire = fixture::compat_json(text_only ? "reasoning-text-response.json" : "reasoning-tool-response.json");
+        if (!text_only) wire.at("output").as_array().back().as_object()["name"] = "undeclared_tool";
+        const auto decoded = compat_decode(wire); CHECK(decoded.response.status == ModelResultStatus::Completed);
+        auto record = compat_history_record(to_json(decoded.response));
+        record.at("feedback").as_object()["result"] = Object{{"status", "FAILED"}, {"correction_feedback", Object{
+            {"format", "wls-correction-feedback-v1"}, {"reason", "tool_selection"},
+            {"target_sha256", sha256_hex("target")}, {"consecutive_failures", 1}}}};
+        auto messages = structured_attempt_history({record}); CHECK(messages.size() == 2);
+        const auto body = parse_json_strict(encode_responses_request(fixture::compat_profile(), fixture::request(messages)).body);
+        const auto& input = body.at("input").as_array();
+        CHECK(input[1] == wire.at("output").as_array()[0]);
+        CHECK(input[2] == wire.at("output").as_array()[1]);
+        CHECK(input[3].at(text_only ? "role" : "type") == (text_only ? "user" : "function_call_output"));
+        if (!text_only) {
+            CHECK(input[3].at("call_id") == wire.at("output").as_array().back().at("call_id"));
+            messages.front().source.as_object().erase("rejected_tool_selection");
+            fails(ErrorCode::Unauthorized, [&] { (void)encode_responses_request(fixture::compat_profile(), fixture::request(messages)); });
+        }
+    }
+}
+
 void compat_profile_admission_and_alias_mapping() {
     CHECK(!to_json(fixture::profile()).as_object().contains("responses_compatibility"));
     const auto j = fixture::compat_profile_json();
@@ -792,6 +821,7 @@ void compat_two_native_rounds_pair_results_with_their_own_provider_calls() {
 
 int main() {
     return ::test::run({
+        {"rejected selection and text-only feedback replay original native reasoning and call IDs", compat_rejected_selection_and_text_only_preserve_native_rounds},
         {"profile round trip binds effective capabilities and limits", profile_round_trip_and_effective_hash},
         {"profile rejects unknown fields versions credentials and paid execution", profile_fields_versions_and_paid_refusals},
         {"endpoint and authentication references are explicit and bounded", endpoint_and_credential_references_are_explicit},

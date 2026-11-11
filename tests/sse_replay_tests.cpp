@@ -98,6 +98,18 @@ ResponsesSseReplay replay(const EventList& events, SseReplayLimits limits = {}) 
     return replay_responses_sse(fixture::profile(), fixture::request(), {{stream(events), 0ms}}, limits);
 }
 
+void completed_unknown_name_is_observation_but_corrupt_stream_stays_stopped() {
+    auto events = tool_events();
+    events[1].at("item").as_object()["name"] = "undeclared_tool";
+    events[5].at("item").as_object()["name"] = "undeclared_tool";
+    events[6].at("response").at("output").as_array()[0].as_object()["name"] = "undeclared_tool";
+    const auto result = replay(events); CHECK(result.response.status == ModelResultStatus::Completed);
+    CHECK(result.response.tool_calls.front().name == "undeclared_tool");
+    events[6].at("response").at("output").as_array()[0].as_object()["arguments"] = "{";
+    CHECK(replay(events).response.status == ModelResultStatus::Error);
+    CHECK(replay(events).response.tool_calls.empty());
+}
+
 void expect_rejected(const EventList& events, std::string_view code = {}) {
     const auto result = replay(events);
     CHECK(result.response.status != ModelResultStatus::Completed);
@@ -831,6 +843,7 @@ void compat_summary_and_refusal_event_fields_and_budgets() {
 
 int main() {
     return ::test::run({
+        {"SSE preserves a complete unknown tool name without releasing corrupt output", completed_unknown_name_is_observation_but_corrupt_stream_stays_stopped},
         {"SSE every two-chunk split preserves exact UTF-8 text, usage and identity", text_completion_is_independent_of_every_two_chunk_split},
         {"SSE bytewise reads preserve split BOM, Unicode and CRLF", one_byte_reads_keep_bom_utf8_and_crlf_intact},
         {"SSE CR, LF, CRLF, multiline data, comments and metadata are bounded framing", all_line_endings_and_multiline_data_are_supported},

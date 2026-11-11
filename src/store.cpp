@@ -3885,7 +3885,7 @@ Json Store::Impl::settle_model_attempt(const std::string& attempt_id, const Exec
         const auto saved_response = observed ? parse_json_strict(str(*observed, "response"), 4U * 1024U * 1024U) :
             to_json(unobserved_live_response(original_request, str(*host_unobserved, "reason")));
         const auto decoded = model_response_from_json(saved_response);
-        validate_response(original_request, decoded);
+        validate_response_envelope(original_request, decoded);
         const auto saved_outcome = decoded.status == ModelResultStatus::Completed ? "COMPLETED" :
             decoded.status == ModelResultStatus::Interrupted ? "INTERRUPTED" : "ERROR";
         require(response == saved_response && usage == to_json(decoded.usage) && outcome == saved_outcome,

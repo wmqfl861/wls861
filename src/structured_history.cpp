@@ -2,6 +2,7 @@
 #include "wls/model.hpp"
 
 #include "responses_compat.hpp"
+#include "correction_detail.hpp"
 
 #include <algorithm>
 
@@ -45,7 +46,8 @@ std::vector<StructuredContextMessage> structured_attempt_history(const std::vect
             response = model_response_from_json(attempt.at("response"));
             const auto& accepted = attempt.at("accepted");
             paired = !feedback.is_null() && (accepted == 1 || accepted == true) &&
-                     response.status == ModelResultStatus::Completed && response.tool_calls.size() == 1 &&
+                     response.status == ModelResultStatus::Completed &&
+                     (response.tool_calls.size() == 1 || correction_detail::correction(feedback.at("result"))) &&
                      response.attempt_id == std::string(attempt.at("attempt_id").as_string()) &&
                      response.call_id == std::string(attempt.at("call_id").as_string()) &&
                      to_json(response.binding) == attempt.at("frozen_binding");
@@ -65,13 +67,18 @@ std::vector<StructuredContextMessage> structured_attempt_history(const std::vect
                 Object{{"kind", "unapplied_or_missing_observation"}, {"not_execution_authority", true}}});
             continue;
         }
-        const auto& call = response.tool_calls.front();
-        const auto id = "history_" + sha256_hex(canonical_json(Object{
-            {"format", "wls-history-tool-id-v1"}, {"attempt_id", response.attempt_id}, {"call_id", call.call_id}}));
+        std::vector<ContextToolInvocation> calls;
+        for (const auto& call : response.tool_calls) {
+            const auto id = "history_" + sha256_hex(canonical_json(Object{
+                {"format", "wls-history-tool-id-v1"}, {"attempt_id", response.attempt_id}, {"call_id", call.call_id}}));
+            calls.push_back({id, call.name, call.arguments});
+        }
         Object source = attempt.as_object();
         source.erase("request_envelope"); source.erase("response"); source.erase("feedback");
         source["record_sha256"] = feedback.at("record_sha256");
-        source["original_tool_call_id"] = call.call_id;
+        if (response.tool_calls.size() == 1) source["original_tool_call_id"] = response.tool_calls.front().call_id;
+        if (const auto* rejected = correction_detail::correction(feedback.at("result"));
+            rejected && rejected->at("reason") == "tool_selection") source["rejected_tool_selection"] = true;
         source["kind"] = "recorded_tool_turn"; source["not_execution_authority"] = true;
         // Replay requires a replay-ready payload; anything else refuses loudly
         // rather than degrading into a reasoning-less continuation.
@@ -83,8 +90,10 @@ std::vector<StructuredContextMessage> structured_attempt_history(const std::vect
             responses_compat::require_projection_match(projection, response.text, response.tool_calls);
             payload = response.responses_output;
         }
-        messages.push_back({"assistant", response.text, {{id, call.name, call.arguments}}, {}, source, payload});
-        messages.push_back({"tool", canonical_json(feedback.at("result")), {}, id, source});
+        messages.push_back({"assistant", response.text, calls, {}, source, payload});
+        if (calls.empty()) messages.push_back({"user", canonical_json(feedback.at("result")), {}, {}, source});
+        else for (const auto& call : calls)
+            messages.push_back({"tool", canonical_json(feedback.at("result")), {}, call.call_id, source});
     }
     return messages;
 }
