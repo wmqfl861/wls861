@@ -6,6 +6,7 @@
 #include "wls/management_context.hpp"
 #include "runtime_config_internal.hpp"
 #include "amendment_disposition.hpp"
+#include "correction_detail.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -531,6 +532,13 @@ CapturedModelCall OfflineRuntime::capture_call(
                 std::find(grants.begin(), grants.end(), "fs_read") != grants.end())
             declared_tools.push_back({"submit", "wls-work-submit-v1", schemas_.project_model_input("submission")});
     }
+    Json correction_tail = nullptr;
+    if (store_.event_runtime_enabled()) {
+        correction_tail = store_.attempt_history_tail(actor, 1);
+        const auto count = correction_detail::failures(correction_tail, correction_detail::target_key(request, action));
+        require(config.schema_retry_max() == 0 || count < config.schema_retry_max(),
+            ErrorCode::NotReady, correction_detail::limit_reason);
+    }
     const auto history_policy = role == Role::Worker ? config.worker_history_policy() : Json(nullptr);
     if (!history_policy.is_null()) {
         require(store_.event_runtime_enabled(), ErrorCode::Unsupported, "history window needs durable feedback storage");
@@ -651,6 +659,13 @@ CapturedModelCall OfflineRuntime::capture_call(
             else context.messages.push_back({"tool", canonical_json(feedback)});
         }
     }
+    if (!shared_transcript && role != Role::Worker && !management_controls &&
+        !correction_tail.is_null() && correction_detail::failures(correction_tail,
+            correction_detail::target_key(request, action)) > 0) {
+        const auto& items = correction_tail.at("items").as_array();
+        if (structured) native_messages = structured_attempt_history({items.back()});
+        else context.messages.push_back({"tool", canonical_json(items.back())});
+    }
     request.context = !management_policy.is_null()
         ? compile_management_context(context, native_messages, management_policy)
         : (structured ? compile_structured_context(context, native_messages) : ContextCompiler().compile(context));
@@ -762,13 +777,33 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         }
         return result;
     }
+    const auto target_key = correction_detail::target_key(captured, call.workflow_action);
+    const auto ordinary = [&](const char* reason, const std::string& observation = {}) {
+        auto result = correction_detail::failure(reason, target_key, 1 + correction_detail::failures(
+            store_.attempt_history_tail(call.actor, 2), target_key, captured.attempt_id));
+        if (!observation.empty()) {
+            auto& feedback = result.at("correction_feedback").as_object();
+            feedback["observation"] = observation.size() <= 1024 ? Json(observation) : Json(nullptr);
+            feedback["observation_sha256"] = sha256_hex(observation);
+        }
+        return result;
+    };
+    const auto validate_arguments = [&](const std::string& name, const Json& arguments) {
+        try { schemas_.validate(name, arguments, true); }
+        catch (const Error& error) {
+            if (!durable_feedback || error.code() != ErrorCode::InvalidInput) throw;
+            throw correction_detail::RejectedArguments(error.what());
+        }
+    };
     // Marks that the failure below came from the model-response gate itself,
     // so a host hook error can never be relabelled as a model-layer refusal.
     bool refusal_gate = false;
     const auto apply = [&]() -> Json {
     if (after_settlement) after_settlement(settlement);
     try {
-        require_complete_response(captured, response);
+        validate_response_envelope(captured, response);
+        require(response.status == ModelResultStatus::Completed, ErrorCode::NotReady,
+            "incomplete model responses cannot dispatch tools or commit decisions");
     } catch (const Error& error) {
         if (error.code() == ErrorCode::NotReady) refusal_gate = true;
         throw;
@@ -776,9 +811,36 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     const auto& accepted = settlement.at("accepted");
     require((accepted.is_bool() && accepted.as_bool()) || (accepted.is_int64() && accepted.as_int64() == 1),
             ErrorCode::Stale, "response was recorded but cannot change current business state");
+    const bool declared = response.tool_calls.size() == 1 && std::find(captured.context.tool_names.begin(),
+        captured.context.tool_names.end(), response.tool_calls.front().name) != captured.context.tool_names.end();
+    if (durable_feedback && !declared) return ordinary("tool_selection", "offline wake requires exactly one declared tool call");
+    require_complete_response(captured, response);
     require(response.tool_calls.size() == 1, ErrorCode::InvalidInput, "offline wake requires exactly one declared tool call");
     const auto& tool = response.tool_calls.front();
     const auto command = captured.attempt_id + ":" + tool.call_id;
+    if (durable_feedback && captured.role == Role::Worker &&
+        std::any_of(worker_tool_registry().begin(), worker_tool_registry().end(),
+            [&](const auto& definition) { return definition.name == tool.name; })) {
+        try { validate_worker_tool_arguments(tool.name, tool.arguments); }
+        catch (const Error& error) {
+            if (error.code() != ErrorCode::InvalidInput) throw;
+            throw correction_detail::RejectedArguments(error.what());
+        }
+    }
+    if (durable_feedback && (is_history_control(tool.name) || is_management_history_control(tool.name))) {
+        auto declarations = is_history_control(tool.name) ? history_control_declarations() : management_history_declarations();
+        for (const auto& definition : declarations) if (definition.name == tool.name) {
+            auto schema = definition.definition;
+            schema.as_object()["$schema"] = "http://json-schema.org/draft-07/schema#";
+            schema.as_object()["$id"] = "https://wls861.local/correction.schema.json";
+            const SchemaRegistry validator(std::map<std::string, std::string>{{"correction.schema.json", canonical_json(schema)}});
+            try { validator.validate("correction", tool.arguments); }
+            catch (const Error& error) {
+                if (error.code() != ErrorCode::InvalidInput) throw;
+                throw correction_detail::RejectedArguments(error.what());
+            }
+        }
+    }
     if ((captured.role == Role::Dispatcher || captured.role == Role::TeamLead) &&
             is_management_history_control(tool.name)) {
         require(call.workflow_action.is_null() || string_at(call.workflow_action, "kind") != "experience",
@@ -794,7 +856,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
             const bool publish = target.at("plan_required").as_bool();
             require(tool.name == (publish ? "submit_amendment_plan" : "resolve_amendment"),
                     ErrorCode::Unauthorized, "captured AMEND only permits its declared phase");
-            schemas_.validate(tool.name, tool.arguments, true);
+            validate_arguments(tool.name, tool.arguments);
             const auto& decisions = tool.arguments.at("dispositions");
             const auto& pending = target.at("pending_node_ids").as_array();
             for (const auto& decision : decisions.as_object())
@@ -813,7 +875,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
                     captured.binding.requirements_revision, captured.binding.plan_revision,
                     decisions, command + ":amendment", guards);
             Json plan = tool.arguments.at("plan");
-            schemas_.validate("plan", plan, true);
+            validate_arguments("plan", plan);
             const auto config = restore_request_config(store_.request(captured.binding.request_id));
             check_independent_plan_supported(plan, config, worker_tools_ != nullptr, true);
             plan.as_object()["plan_revision"] = increment(captured.binding.plan_revision);
@@ -829,7 +891,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         if (string_at(call.workflow_action, "kind") == "question") {
             require(tool.name == "answer_question" || tool.name == "forward_question", ErrorCode::Unauthorized,
                     "captured question only permits its answer or forward action");
-            schemas_.validate(tool.name, tool.arguments, true);
+            validate_arguments(tool.name, tool.arguments);
             if (tool.name == "answer_question")
                 return store_.answer_question(call.actor, captured.binding, string_at(target, "question_id"),
                     integer_at(target, "state_version"), tool.arguments, command);
@@ -840,7 +902,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
             require(store_.acceptance_runtime_enabled() && captured.role == Role::Dispatcher &&
                     tool.name == "accept_candidate", ErrorCode::Unauthorized,
                     "captured candidate only permits its Dispatcher acceptance decision");
-            schemas_.validate("accept_candidate", tool.arguments, true);
+            validate_arguments("accept_candidate", tool.arguments);
             return store_.accept_candidate(call.actor, captured.binding,
                 integer_at(call.workflow_action, "expected_task_version"), string_at(target, "submission_id"),
                 integer_at(target, "state_version"), tool.arguments, command);
@@ -848,7 +910,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         if (string_at(call.workflow_action, "kind") == "rejection") {
             require(captured.role == Role::Dispatcher && (tool.name == "change_task" || tool.name == "escalate_task"),
                     ErrorCode::Unauthorized, "captured rejection only permits its bounded correction or user escalation");
-            schemas_.validate(tool.name, tool.arguments, true);
+            validate_arguments(tool.name, tool.arguments);
             if (tool.name == "change_task")
                 return store_.change_task(call.actor, captured.binding,
                     integer_at(call.workflow_action, "expected_task_version"), string_at(target, "submission_id"),
@@ -861,7 +923,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
             require(store_.acceptance_runtime_enabled() && captured.role == Role::TeamLead &&
                     tool.name == "report_experience", ErrorCode::Unauthorized,
                     "captured experience job only permits its TeamLead report");
-            schemas_.validate("experience_report", tool.arguments, true);
+            validate_arguments("experience_report", tool.arguments);
             require(tool.arguments.at("memory_assessments").as_array().empty(), ErrorCode::Unsupported,
                     "experience memory assessment requires versioned memory-load receipts");
             Json report = tool.arguments;
@@ -876,12 +938,12 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
                 "captured workflow action has an unsupported kind");
         require(captured.role == Role::TeamLead && tool.name == "check_submission", ErrorCode::Unauthorized,
                 "captured submission only permits its TeamLead check");
-        schemas_.validate("check_submission", tool.arguments, true);
+        validate_arguments("check_submission", tool.arguments);
         Json check = tool.arguments;
         Json order = nullptr;
         if (const auto* next_order = check.as_object().if_contains("work_order")) {
             order = *next_order;
-            schemas_.validate("work_order", order, true);
+            validate_arguments("work_order", order);
             auto next = captured.binding;
             next.task_revision = increment(next.task_revision);
             next.instruction_revision = increment(next.instruction_revision);
@@ -895,11 +957,11 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
             string_at(target, "submission_id"), integer_at(target, "state_version"), check, order, command);
     }
     if (captured.role == Role::Worker && store_.workflow_runtime_enabled() && tool.name == "ask") {
-        schemas_.validate("question", tool.arguments, true);
+        validate_arguments("question", tool.arguments);
         return store_.ask_question(call.actor, captured.binding, call.expected_state_version, tool.arguments, command);
     }
     if (captured.role == Role::Worker && store_.workflow_runtime_enabled() && tool.name == "submit") {
-        schemas_.validate("submission", tool.arguments, true);
+        validate_arguments("submission", tool.arguments);
         require(worker_tools_ != nullptr, ErrorCode::NotReady, "submission requires an explicitly bound Worker workspace");
         if (const auto* memories = tool.arguments.as_object().if_contains("used_memories"))
             require(memories->as_array().empty(), ErrorCode::Unsupported,
@@ -909,7 +971,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     }
     if (captured.role == Role::Dispatcher) {
         require(tool.name == "submit_plan", ErrorCode::Unauthorized, "Dispatcher needs its declared planning action");
-        schemas_.validate("plan", tool.arguments, true);
+        validate_arguments("plan", tool.arguments);
         const auto config = restore_request_config(store_.request(captured.binding.request_id));
         if (independent_plan) {
             check_independent_plan_supported(tool.arguments, config, worker_tools_ != nullptr, store_.workflow_runtime_enabled());
@@ -958,7 +1020,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     }
     if (captured.role == Role::TeamLead) {
         require(tool.name == "issue_work_order", ErrorCode::Unauthorized, "TeamLead needs its declared work-order action");
-        schemas_.validate("work_order", tool.arguments, true);
+        validate_arguments("work_order", tool.arguments);
         auto next = captured.binding;
         next.instruction_revision = increment(next.instruction_revision);
         Json order = tool.arguments;
@@ -986,6 +1048,18 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     Json result;
     try {
         result = apply();
+        if (durable_feedback && correction_detail::definite_failure(result)) {
+            const auto& operation = result.at("operation");
+            const auto id = string_at(operation, "op_id");
+            require(store_.operation(id) == operation && store_.operation_result(id) == result.at("execution_result"),
+                ErrorCode::Corrupt, "ordinary failure differs from its original persisted operation/result");
+            result.as_object()["correction_feedback"] = ordinary("tool_result").at("correction_feedback");
+        }
+    } catch (const correction_detail::RejectedArguments& error) {
+        result = ordinary("model_arguments", error.what());
+    } catch (const correction_detail::MissingWorkspaceLeaf& error) {
+        if (!durable_feedback) throw;
+        result = ordinary("missing_leaf", error.what());
     } catch (const Error& error) {
         if (store_.event_runtime_enabled()) {
             Object feedback{{"status", "ERROR"}, {"runtime_error", true},
@@ -1067,7 +1141,13 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
         tasks = store_.tasks(id);
     }
     std::vector<Json> feedback;
+    Array calls;
+    std::int64_t worker_sequence = 0;
     const auto invoke = [&](Role role, const std::string& task_id, std::int64_t index = 1) {
+        while (true) {
+        if (role == Role::Worker) index = ++worker_sequence;
+        require(index <= (role == Role::Worker ? max_worker_calls : integer_at(config.json().at("system").at("limits"),
+            "manager_max_tool_calls_per_wake")), ErrorCode::Quota, "explicit offline call limit reached");
         const FakeModel fake(steps, config.resolve(role).model);
         const auto call = reserve_call(fake, id, role, task_id, index, role == Role::Worker ? feedback : std::vector<Json>{});
         const auto response = fake.complete(call.request);
@@ -1076,9 +1156,15 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
             {"config_snapshot_sha256", call.request.config_snapshot_id},
             {"prefix_sha256", call.request.context.prefix_sha256}, {"result", result}};
         if (role == Role::Worker && worker_tools_) invocation["response"] = to_json(response);
+        if (const auto* correction = correction_detail::correction(result)) {
+            calls.push_back(invocation);
+            require(config.schema_retry_max() > 0 && integer_at(*correction, "consecutive_failures") < config.schema_retry_max(),
+                ErrorCode::NotReady, correction_detail::limit_reason);
+            ++index; continue;
+        }
         return Json(std::move(invocation));
+        }
     };
-    Array calls;
     if (tasks.empty() || integer_at(tasks.front(), "based_on_requirements_revision") != integer_at(record, "requirements_revision")) {
         if (!tasks.empty()) require(is_amendment_disposition(disposition),
             ErrorCode::InvalidInput, "AMEND requires --disposition update, keep, or cancel before another model call");
@@ -1103,8 +1189,8 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
             integer_at(task, "applied_plan_revision") != binding.plan_revision ||
             integer_at(task, "applied_instruction_revision") != binding.instruction_revision)
             static_cast<void>(store_.acknowledge(worker, binding, integer_at(task, "state_version"), new_id("ack")));
-        for (std::int64_t index = 1; index <= max_worker_calls; ++index) {
-            auto call = invoke(Role::Worker, task_id, index);
+        while (worker_sequence < max_worker_calls) {
+            auto call = invoke(Role::Worker, task_id);
             const auto& result = call.at("result");
             const bool stop_batch = result.is_object() &&
                 ((result.as_object().contains("operation") && string_at(result.at("operation"), "status") != "SUCCEEDED") ||
@@ -1114,7 +1200,7 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
                 // Diagnostic results need not echo every input argument. Keep
                 // the original call and full result together so the next
                 // Worker can identify exactly what produced an observation.
-                feedback.push_back(Object{{"role_call_index", index}, {"attempt_id", call.at("attempt_id")},
+                feedback.push_back(Object{{"role_call_index", worker_sequence}, {"attempt_id", call.at("attempt_id")},
                     {"response", call.at("response")}, {"result", result}});
             }
             calls.push_back(std::move(call));

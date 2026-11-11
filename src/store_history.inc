@@ -128,7 +128,7 @@ Json Store::attempt_history_tail(const StoreActor& actor, std::int64_t limit) co
     const std::lock_guard lock(impl_->mutex);
     impl_->require_events_schema();
     require(limit >= 1 && limit <= 8, ErrorCode::InvalidInput, "history tail limit must be 1..8");
-    (void)impl_->authorize(actor, {Role::Worker});
+    (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
     const Array scope{actor.request_id, role_name(actor.role), actor.principal_id, actor.task_id, actor.team_id};
     const std::string filter = "request_id=? AND role=? AND principal_id=? AND COALESCE(task_id,'')=? AND COALESCE(team_id,'')=?";
     const auto counts = impl_->one("SELECT COUNT(*) AS n,COALESCE(MAX(rowid),0) AS high FROM call_attempts WHERE " + filter, scope);

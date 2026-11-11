@@ -82,10 +82,17 @@ class WorkflowCliSmoke(unittest.TestCase):
     def fixture(self, name):
         return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
-    def admit(self, key="workflow-request"):
-        return self.invoke("submit", "--db", self.database, "--key", key,
-                           "--text-file", FIXTURES / "s14_request.txt",
-                           "--constraints-file", FIXTURES / "s14_constraints.json")["request"]["request_id"]
+    def admit(self, key="workflow-request", schema_retry_max=None):
+        args = ["submit", "--db", self.database, "--key", key,
+                "--text-file", FIXTURES / "s14_request.txt",
+                "--constraints-file", FIXTURES / "s14_constraints.json"]
+        if schema_retry_max is not None:
+            # Single-response safety fixtures disable continuation before freezing.
+            config = self.directory / f"{key}-system.yaml"
+            config.write_text((SOURCE / "config/examples/system.yaml").read_text().replace(
+                "schema_retry_max: 2", f"schema_retry_max: {schema_retry_max}"))
+            args += ["--config", config, "--functions-dir", SOURCE / "config/examples/functions"]
+        return self.invoke(*args)["request"]["request_id"]
 
     def tasks(self, request):
         view = self.invoke("show", "--db", self.database, "--request", request)
@@ -534,7 +541,7 @@ class WorkflowCliSmoke(unittest.TestCase):
         self.assertFalse(any(item["status"] == "CANDIDATE_READY" for item in self.submissions(request, beta)))
 
     def test_invalid_model_fields_and_missing_scripts_preserve_specific_pending_objects(self):
-        request = self.admit()
+        request = self.admit(schema_retry_max=0)
         self.pump(request)
         alpha = self.tasks(request)["alpha"]["task_id"]
         question = self.question(request, alpha)
@@ -545,7 +552,9 @@ class WorkflowCliSmoke(unittest.TestCase):
                 "text": "不得自行填入对象或 CAS。", "question_id": question["question_id"]})]}})
         run = self.pump(request, forged)
         self.assertEqual(len(run["calls"]), 1)
-        self.assertEqual(run["calls"][0]["error"]["code"], "invalid_input")
+        self.assertEqual(run["calls"][0]["result"]["status"], "FAILED")
+        self.assertEqual(run["calls"][0]["result"]["correction_feedback"]["reason"], "model_arguments")
+        self.assertTrue(any(item["code"] == "correction_limit" for item in run["blocked"]))
         self.assertEqual(len(self.attempts()), before + 1,
                          "a consumed invalid Fake response must still be accounted for")
         self.assertEqual(self.question(request, alpha), question)
@@ -617,7 +626,7 @@ class WorkflowCliSmoke(unittest.TestCase):
                 self.mapping = self.json_file(f"workspaces-{index}.json", {
                     node: str(directory) for node, directory in self.workspaces.items()})
                 (self.workspaces["alpha"] / "escape.txt").symlink_to(outside)
-                request = self.admit(f"bad-artifact-{index}")
+                request = self.admit(f"bad-artifact-{index}", schema_retry_max=0)
                 script = copy.deepcopy(source)
                 submission_step = script["nodes"]["alpha"][2]
                 submission_step["role_call_index"] = 1
@@ -625,7 +634,13 @@ class WorkflowCliSmoke(unittest.TestCase):
                 script["nodes"]["alpha"] = [script["nodes"]["alpha"][0], submission_step]
                 run = self.pump(request, self.json_file(f"bad-artifact-{index}.json", script))
                 alpha = self.tasks(request)["alpha"]["task_id"]
-                self.assertTrue(any("error" in call for call in run["calls"]), run)
+                if path == "/work/missing.txt":
+                    self.assertEqual(run["calls"][-1]["result"]["status"], "FAILED")
+                    self.assertEqual(run["calls"][-1]["result"]["correction_feedback"]["reason"], "missing_leaf")
+                    self.assertTrue(any(item["code"] == "correction_limit" for item in run["blocked"]))
+                else:
+                    self.assertTrue(any(call.get("error", {}).get("code") == "unauthorized"
+                                        for call in run["calls"]), run)
                 self.assertEqual(self.submissions(request, alpha), [])
                 self.assertNotEqual(self.tasks(request)["alpha"]["status"], "SUBMITTED")
                 self.assertEqual(self.rows("SELECT * FROM ops WHERE task_id=?", (alpha,)), [])

@@ -193,9 +193,8 @@ void raw_submission_cannot_skip_team_lead_check() {
     const auto call = f.capture(Role::Dispatcher, fake);
     CHECK(call.workflow_action.is_null());
     CHECK(call.request.context.tool_names == std::vector<std::string>{"submit_plan"});
-    expect(ErrorCode::InvalidInput, [&] {
-        (void)OfflineRuntime(*f.store, *schemas, f.alpha.get()).accept_response(call, fake.complete(call.request));
-    });
+    const auto rejected = OfflineRuntime(*f.store, *schemas, f.alpha.get()).accept_response(call, fake.complete(call.request));
+    CHECK(rejected.at("status") == "FAILED" && rejected.at("correction_feedback").at("reason") == "tool_selection");
     CHECK(f.task().at("status") == "SUBMITTED" && f.store->experience_jobs(f.id).empty());
     CHECK(f.store->current_submission(f.binding().task_id).at("status") == "SUBMITTED");
 }
@@ -221,12 +220,12 @@ void model_acceptance_cannot_supply_identity_or_waiver() {
     for (const auto* forbidden : {"submission_id", "expected_task_version", "accepted_with_issues", "sha256"}) {
         Fixture f; (void)f.candidate();
         auto body = positive_acceptance(); body.as_object()[forbidden] = "forged";
-        expect(ErrorCode::InvalidInput, [&] { (void)f.invoke(Role::Dispatcher, "accept_candidate", body); });
+        CHECK(f.invoke(Role::Dispatcher, "accept_candidate", body).at("status") == "FAILED");
         CHECK(f.task().at("status") == "SUBMITTED" && f.store->experience_jobs(f.id).empty());
     }
     Fixture f; (void)f.candidate();
     auto body = positive_acceptance(); body.at("criteria_results").as_array().front().as_object().erase("evidence");
-    expect(ErrorCode::InvalidInput, [&] { (void)f.invoke(Role::Dispatcher, "accept_candidate", body); });
+    CHECK(f.invoke(Role::Dispatcher, "accept_candidate", body).at("status") == "FAILED");
     CHECK(f.task().at("status") == "SUBMITTED");
 }
 
@@ -306,7 +305,7 @@ void reports_cannot_forge_identity_or_invent_memory_use() {
     for (const auto* forbidden : {"report_id", "request_id", "task_id", "team_id", "trace_digest_ref"}) {
         Fixture f; const auto job = f.accepted();
         auto body = no_experience(); body.as_object()[forbidden] = new_id("rep");
-        expect(ErrorCode::InvalidInput, [&] { (void)f.invoke(Role::TeamLead, "report_experience", body); });
+        CHECK(f.invoke(Role::TeamLead, "report_experience", body).at("status") == "FAILED");
         CHECK(f.store->experience_job(text(job.at("experience_id"))).at("status") != "DONE");
     }
     Fixture f; const auto job = f.accepted();
@@ -343,7 +342,7 @@ void experience_capture_cannot_change_source_or_become_business_order() {
     auto response = fake.complete(call.request);
     response.tool_calls.front().name = "issue_work_order";
     response.tool_calls.front().arguments = full_script().by_node.at("alpha").front().tool_calls.front().arguments;
-    expect(ErrorCode::InvalidInput, [&] { (void)runtime.accept_response(call, response); });
+    CHECK(runtime.accept_response(call, response).at("status") == "FAILED");
     CHECK(f.task().at("instruction_revision") == 1 && f.task().at("status") == "ACCEPTED");
     CHECK(f.store->experience_job(text(job.at("experience_id"))).at("status") != "DONE");
 }

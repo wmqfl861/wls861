@@ -31,14 +31,19 @@ class ModelAmendCli(unittest.TestCase):
     amend = h.EventCliSmoke.amend
     pending = h.EventCliSmoke.pending
 
-    def admit(self, key='model-amend', structured=False):
+    def admit(self, key='model-amend', structured=False, schema_retry_max=None):
         args = ['submit', '--db', self.database, '--key', key,
                 '--text-file', h.FIXTURES / 's13_request.txt',
                 '--constraints-file', h.FIXTURES / 's13_constraints.json']
-        if structured:
+        if structured or schema_retry_max is not None:
             config = self.directory / (key + '-system.yaml')
-            config.write_text((h.SOURCE / 'config/examples/system.yaml').read_text().replace(
-                'request_format: framed-v1', 'request_format: structured-v2'))
+            source = (h.SOURCE / 'config/examples/system.yaml').read_text()
+            if structured:
+                source = source.replace('request_format: framed-v1', 'request_format: structured-v2')
+            if schema_retry_max is not None:
+                # Freeze the single-response negative fixture before admission.
+                source = source.replace('schema_retry_max: 2', f'schema_retry_max: {schema_retry_max}')
+            config.write_text(source)
             args += ['--config', config, '--functions-dir', h.SOURCE / 'config/examples/functions']
         return self.invoke(*args)['request']['request_id']
 
@@ -159,13 +164,15 @@ class ModelAmendCli(unittest.TestCase):
         self.assertEqual(len(result['calls']), 3, result)
 
     def test_empty_model_decisions_publish_nothing_and_stop_after_one_attempt(self):
-        request = self.admit(); self.initial(request); self.amend(request)
+        request = self.admit(schema_retry_max=0); self.initial(request); self.amend(request)
         before = self.semantic_tasks(request)
         count = len(self.rows('SELECT * FROM call_attempts'))
         result = self.pump(request, workers=1, max_calls=64,
             script=self.json_file('model-empty.json', self.model_plan({})))
         self.assertEqual(len(result['calls']), 1, result)
-        self.assertTrue(any(item['code'] == 'invalid_input' for item in result['blocked']), result)
+        self.assertTrue(any(item['code'] == 'correction_limit' for item in result['blocked']), result)
+        self.assertEqual(result['calls'][0]['result']['status'], 'FAILED')
+        self.assertEqual(result['calls'][0]['result']['correction_feedback']['reason'], 'model_arguments')
         self.assertEqual(self.semantic_tasks(request), before)
         self.assertEqual(self.show(request)['request']['plan_revision'], 1)
         self.assertEqual(len(self.rows('SELECT * FROM call_attempts')), count + 1)
@@ -188,13 +195,15 @@ class ModelAmendCli(unittest.TestCase):
         self.assertEqual(self.tasks(request)['beta']['based_on_requirements_revision'], 2)
 
     def test_forged_runtime_revision_is_accounted_and_preserves_all_task_semantics(self):
-        request = self.admit(); self.initial(request); self.amend(request)
+        request = self.admit(schema_retry_max=0); self.initial(request); self.amend(request)
         before = self.semantic_tasks(request)
         script = self.model_plan({'alpha': self.decision('update')})
         script['default'][0]['tool_calls'][0]['arguments']['plan']['plan_revision'] = 999
         result = self.pump(request, script=self.json_file('forged.json', script), workers=1)
         self.assertEqual(len(result['calls']), 1, result)
-        self.assertTrue(any(row['code'] == 'invalid_input' for row in result['blocked']), result)
+        self.assertTrue(any(row['code'] == 'correction_limit' for row in result['blocked']), result)
+        self.assertEqual(result['calls'][0]['result']['status'], 'FAILED')
+        self.assertEqual(result['calls'][0]['result']['correction_feedback']['reason'], 'model_arguments')
         self.assertEqual(self.semantic_tasks(request), before)
         attempt = result['calls'][0]['attempt_id']
         receipt = self.rows('SELECT * FROM model_tool_feedback WHERE attempt_id=?', (attempt,))
