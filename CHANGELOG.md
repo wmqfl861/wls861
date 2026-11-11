@@ -87,6 +87,18 @@
   frozen-commit provenance. The published F-26 head `8c7b705` passed
   its PR three-core run 43006279800 and source run 43006279560; those
   results cover that head and do not replace checks for a later head.
+  Later head `613ad3c` had two failed attempts of PR run 43045698130:
+  all three matrix jobs stopped in apt dependency installation with
+  `Temporary failure resolving 'azure.archive.ubuntu.com'` (exit 100),
+  before any build or product test (zero product tests per attempt).
+  Preserve both failures. PR #52 then added only five CI lines selecting
+  the kernel.org Ubuntu mirror while retaining Ubuntu signature/package
+  verification and the original suites; exact head `b99a6a6` passed all
+  five checks in core run 43060702533 and source run 43060702172, and was
+  normally merged at `fcc5cfa` on 2026-11-11 at 16:51:00 UTC. This docs
+  branch normally merges that main repair; its new head must pass its own
+  three-core/source checks. Product/SQL bytes are unchanged by #52, so
+  the existing `ef71c09` six-configuration evidence retains its scope.
   The latest head, CI and actual merge state remain visible on #51;
   this entry does not predeclare its merge.
 - Store stays 410; real provider calls remain zero/NOT_RUN, Windows 11
