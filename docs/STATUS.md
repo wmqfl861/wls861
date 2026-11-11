@@ -18,6 +18,7 @@ main 产品组合基线 [`ef71c09`](https://github.com/wmqfl861/wls861/commit/ef
 - F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 已合并，对齐 STATUS/CHANGELOG/ROADMAP/需求追踪；7 份审核/计划文件自冻结提交 `7d1dadb` 入库存档（六文件原字节不变，05 更新 §2 状态列与追加执行附录），维护唯一[阶段 0 里程碑](reports/stage0-convergence.md)。合并 main `ff2c899` 的六配置 run [43064884085](https://github.com/wmqfl861/wls861/actions/runs/43064884085) 全部 SUCCESS。
 - G1-A [#53](https://github.com/wmqfl861/wls861/pull/53) 于 17:37:54 UTC 普通合并为 `ce6fe0d`；PR run [43066941090](https://github.com/wmqfl861/wls861/actions/runs/43066941090) 三核心配置各 78/78、source run [43066941031](https://github.com/wmqfl861/wls861/actions/runs/43066941031) SUCCESS。当前 main 的后续检查独立核对，不以该 PR 结果替代。
 - G1-I [#54](https://github.com/wmqfl861/wls861/pull/54) 于 18:14:44 UTC 普通合并为 `231291e`，加入冻结的新 DNS/代理策略；旧配置和路由解释保持。C [#56](https://github.com/wmqfl861/wls861/pull/56) 于 18:52:43 UTC 合为 `c783d9e`；B [#55](https://github.com/wmqfl861/wls861/pull/55) 于 19:05:52 UTC 合为 `951c95d`，各自 PR 三核心配置 78/78 与 source 检查成功。D/J 在制；内部 v3 持久化仍等待 E。
+- A/B/C/I 组合 main `951c95d` 的六配置 run [43083978529](https://github.com/wmqfl861/wls861/actions/runs/43083978529) 全部 SUCCESS：五组 CTest 各 78/78，Make-ASan 独立成功；旧本地 sanitizer 失败仍为 OPEN，Windows 11 保持 NOT_RUN，私有证据托管保持 BLOCKED。
 
 ## 能力矩阵
 

@@ -612,6 +612,9 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
         ::test::TempDir directory; auto store = assets.open(directory.path / "guided.sqlite");
         auto admission = wls::test::live::admission(assets, wls::test::live::settings(), "guided", true, fake);
         admission.config_snapshot.at("system").at("context").as_object()["request_format"] = "structured-v2";
+        if (!fake)
+            for (auto& role : admission.config_snapshot.at("function").at("roles").as_object())
+                role.value().as_object().erase("prompt_append");
         const auto snapshot = canonical_json(admission.config_snapshot);
         const auto frozen = FrozenRequestConfig::restore(snapshot, sha256_hex(snapshot));
         CHECK(frozen.context_prompt_policy() == "guided-v1");

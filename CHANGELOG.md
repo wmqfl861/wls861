@@ -5,7 +5,10 @@
 - Merge G1-C tool descriptions (#56, `c783d9e`, 18:52:43 UTC) and G1-B
   durable model-output correction (#55, `951c95d`, 19:05:52 UTC) on
   2026-11-11. Each PR passed three core configurations (78/78 each) and
-  source checks. D/J are in progress; E waits for D. Internal v3 remains
+  source checks. Combined main `951c95d` passed all six configurations in
+  run [43083978529](https://github.com/wmqfl861/wls861/actions/runs/43083978529):
+  five CTest configurations (78/78 each) and Make-ASan.
+  D/J are in progress; E waits for D. Internal v3 remains
   unavailable for persisted requests until E completes its final layout.
 
 - Merge the owner-approved G0 engineering PRs into main in order with normal
