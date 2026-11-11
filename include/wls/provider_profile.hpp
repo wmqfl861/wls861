@@ -7,6 +7,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace wls::s1 {
 
@@ -59,6 +60,15 @@ struct PricingEstimate {
     std::string reason;
 };
 
+// Opt-in Responses compatibility subset: model_aliases carries exactly one
+// key (the profile model alias) to its explicit snapshot list; the normalized
+// sorted list joins the frozen profile hash. No wildcard/prefix/date inference.
+struct ResponsesCompatibility {
+    std::string format{"wls-responses-compat-v1"};
+    std::string reference{"openai-responses-2026-11-08"};
+    std::vector<std::string> model_aliases;
+};
+
 struct ProviderProfile {
     std::string profile_id;
     std::string adapter_version{"1"};
@@ -85,6 +95,8 @@ struct ProviderProfile {
     // Optional frozen price table. When absent every original byte, hash and
     // UNKNOWN cost decision keeps its exact legacy meaning.
     std::optional<TokenPricing> pricing{};
+    // Appended optional extension; absent keeps the legacy strict subset.
+    std::optional<ResponsesCompatibility> responses_compatibility{};
 };
 
 // Strict parse/serialize; rates are integers in 0..10^12 micro USD.

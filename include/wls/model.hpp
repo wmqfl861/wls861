@@ -60,6 +60,9 @@ struct ModelResponse {
     ModelUsage usage;
     std::string error_code;
     std::string error_message;
+    // Opaque wls-responses-output-v1 original; null keeps legacy v1 bytes.
+    // The public text/tool_calls stay the validated projection of it.
+    Json responses_output = nullptr;
 };
 
 struct AdapterCapabilities {

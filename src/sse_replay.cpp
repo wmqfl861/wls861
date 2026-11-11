@@ -89,9 +89,14 @@ void empty_optional_array(const Object& value, std::string_view key) {
 
 Json normalize_part(const Json& value) {
     const auto& part = object(value);
+    const auto type = text(part, "type");
+    if (type == "refusal") {
+        allowed(part, {"type", "refusal"});
+        return Object{{"type", "refusal"}, {"refusal", text(part, "refusal")}};
+    }
     allowed(part, {"type", "text", "annotations", "logprobs"});
-    if (text(part, "type") != "output_text")
-        throw ReplayFailure("unsupported_output", "only output_text content is implemented by SSE replay");
+    if (type != "output_text")
+        throw ReplayFailure("unsupported_output", "only output_text and refusal content are implemented by SSE replay");
     empty_optional_array(part, "annotations");
     empty_optional_array(part, "logprobs");
     return Object{{"type", "output_text"}, {"text", text(part, "text")}};
@@ -101,6 +106,36 @@ Json normalize_item(const Json& value, bool completed) {
     const auto& item = object(value);
     const auto type = text(item, "type");
     const auto id = identifier(item, "id");
+    if (type == "reasoning") {
+        allowed(item, {"id", "type", "summary", "encrypted_content", "status", "content"});
+        const auto status = item.if_contains("status");
+        if (status) {
+            require(status->is_string(), "SSE reasoning status must be a string");
+            const auto observed = std::string(status->as_string());
+            require(completed ? observed == "completed" :
+                    (observed == "in_progress" || observed == "incomplete" || observed == "completed"),
+                    "SSE reasoning status does not match its lifecycle");
+        }
+        if (const auto* content = item.if_contains("content")) {
+            require(content->is_array(), "SSE reasoning content must be an array");
+            require(content->as_array().empty(), "SSE reasoning text content is outside the implemented subset");
+        }
+        const auto& summary = array(item, "summary");
+        for (const auto& entry : summary) {
+            const auto& part = object(entry);
+            allowed(part, {"type", "text"});
+            require(text(part, "type") == "summary_text" && part.contains("text") &&
+                    part.at("text").is_string(), "SSE reasoning summary parts must be summary_text");
+        }
+        Json encrypted = nullptr;
+        if (const auto* found = item.if_contains("encrypted_content")) {
+            require(found->is_null() || found->is_string(), "SSE encrypted reasoning content must be a string or null");
+            if (found->is_string()) encrypted = *found;
+        }
+        Object result{{"id", id}, {"type", type}, {"summary", summary}, {"encrypted_content", encrypted}};
+        if (status) result["status"] = std::string(status->as_string());
+        return result;
+    }
     if (type == "message") {
         allowed(item, {"id", "type", "role", "status", "content"});
         require(text(item, "role") == "assistant", "SSE output message role must be assistant");
@@ -258,6 +293,7 @@ private:
 };
 
 struct PartState {
+    std::string kind{"output_text"};  // output_text | refusal | summary_text
     std::string text;
     bool text_done{false};
     bool part_done{false};
@@ -270,6 +306,7 @@ struct ItemState {
     std::string name;
     std::string arguments;
     std::vector<PartState> parts;
+    std::vector<PartState> summary;
     bool arguments_done{false};
     bool done{false};
     Json done_item = nullptr;
@@ -277,8 +314,8 @@ struct ItemState {
 
 class Events {
 public:
-    explicit Events(const SseReplayLimits& limits, std::size_t max_depth)
-        : limits_(limits), max_depth_(max_depth) {}
+    explicit Events(const SseReplayLimits& limits, std::size_t max_depth, bool compat)
+        : limits_(limits), max_depth_(max_depth), compat_(compat) {}
 
     void accept(std::string_view event_name, std::string_view data);
     Json observations() const;
@@ -294,10 +331,17 @@ public:
 private:
     ItemState& item(const Object& event);
     PartState& part(const Object& event);
+    PartState& summary(const Object& event);
+    void accumulate(PartState& state, const Object& event, bool done,
+                    std::string_view done_field, const char* what);
     void response_start(const Object& event, bool first);
     void output_added(const Object& event);
     void content_added(const Object& event);
     void text_delta(const Object& event, bool done);
+    void refusal_delta(const Object& event, bool done);
+    void summary_part_added(const Object& event);
+    void summary_text(const Object& event, bool done);
+    void summary_part_done(const Object& event);
     void content_done(const Object& event);
     void arguments(const Object& event, bool done);
     void output_done(const Object& event);
@@ -306,6 +350,7 @@ private:
 
     const SseReplayLimits& limits_;
     std::size_t max_depth_;
+    bool compat_;
     bool created_{false};
     bool in_progress_{false};
     std::string model_;
@@ -331,6 +376,10 @@ void Events::accept(std::string_view event_name, std::string_view data) {
                  sequence == *last_sequence + 1, "SSE sequence is repeated, reordered or missing an event");
     last_sequence = sequence;
     observed_types.insert(type);
+    // Summary/refusal events exist only inside the opt-in compatibility
+    // subset; legacy profiles keep their original refusal behavior.
+    if (!compat_ && (type.starts_with("response.reasoning_summary") || type.starts_with("response.refusal.")))
+        throw ReplayFailure("unsupported_event", "SSE event type is outside the implemented Responses subset");
     std::set<std::string> fields{"type", "sequence_number"};
     if (type == "response.created" || type == "response.in_progress" ||
         type == "response.completed" || type == "response.failed" || type == "response.incomplete")
@@ -343,6 +392,14 @@ void Events::accept(std::string_view event_name, std::string_view data) {
         fields.insert({"output_index", "item_id", "content_index", "logprobs"});
         fields.insert(type == "response.output_text.delta" ? "delta" : "text");
         if (type == "response.output_text.delta") fields.insert("obfuscation");
+    } else if (type == "response.reasoning_summary_part.added" || type == "response.reasoning_summary_part.done") {
+        fields.insert({"output_index", "item_id", "summary_index", "part"});
+    } else if (type == "response.reasoning_summary_text.delta" || type == "response.reasoning_summary_text.done") {
+        fields.insert({"output_index", "item_id", "summary_index"});
+        fields.insert(type.ends_with("delta") ? "delta" : "text");
+    } else if (type == "response.refusal.delta" || type == "response.refusal.done") {
+        fields.insert({"output_index", "item_id", "content_index"});
+        fields.insert(type.ends_with("delta") ? "delta" : "refusal");
     } else if (type == "response.function_call_arguments.delta" || type == "response.function_call_arguments.done") {
         fields.insert({"output_index", "item_id", "response_id"});
         fields.insert(type == "response.function_call_arguments.delta" ? "delta" : "arguments");
@@ -377,6 +434,12 @@ void Events::accept(std::string_view event_name, std::string_view data) {
     else if (type == "response.content_part.added") content_added(event);
     else if (type == "response.output_text.delta") text_delta(event, false);
     else if (type == "response.output_text.done") text_delta(event, true);
+    else if (type == "response.refusal.delta") refusal_delta(event, false);
+    else if (type == "response.refusal.done") refusal_delta(event, true);
+    else if (type == "response.reasoning_summary_part.added") summary_part_added(event);
+    else if (type == "response.reasoning_summary_text.delta") summary_text(event, false);
+    else if (type == "response.reasoning_summary_text.done") summary_text(event, true);
+    else if (type == "response.reasoning_summary_part.done") summary_part_done(event);
     else if (type == "response.content_part.done") content_done(event);
     else if (type == "response.function_call_arguments.delta") arguments(event, false);
     else if (type == "response.function_call_arguments.done") arguments(event, true);
@@ -423,6 +486,15 @@ PartState& Events::part(const Object& event) {
     return state.parts[static_cast<std::size_t>(index)];
 }
 
+PartState& Events::summary(const Object& event) {
+    auto& state = item(event);
+    require(identifier(event, "item_id") == state.id, "SSE summary item ID disagrees with its output index");
+    require(state.type == "reasoning", "SSE summary event targets a non-reasoning output");
+    const auto index = integer(event, "summary_index");
+    require(index < state.summary.size(), "SSE summary index has not been added");
+    return state.summary[static_cast<std::size_t>(index)];
+}
+
 void Events::output_added(const Object& event) {
     const auto index = integer(event, "output_index");
     require(index == items_.size(), "SSE output indices must be introduced in order without gaps");
@@ -433,12 +505,18 @@ void Events::output_added(const Object& event) {
     ItemState state;
     state.id = identifier(source, "id");
     state.type = text(source, "type");
+    if (state.type == "reasoning" && !compat_)
+        throw ReplayFailure("unsupported_output", "reasoning needs the compatibility profile");
     require(item_ids_.insert(state.id).second, "SSE output item ID is reused");
     const auto& original_object = object(original);
     if (const auto* status = original_object.if_contains("status"))
         require(status->is_string() && status->as_string() == "in_progress",
                 "SSE newly added item must be in progress");
     if (state.type == "message") require(array(source, "content").empty(), "new SSE message content must be empty");
+    else if (state.type == "reasoning") {
+        // Added ciphertext may be partial; only the done item is the original.
+        require(array(source, "summary").empty(), "new SSE reasoning summary must be empty");
+    }
     else {
         within(call_ids_.size() < limits_.max_tool_calls, "SSE tool call count exceeds its bound");
         state.call_id = identifier(source, "call_id");
@@ -457,12 +535,34 @@ void Events::content_added(const Object& event) {
     require(index == state.parts.size(), "SSE content indices must be introduced in order without gaps");
     within(state.parts.size() < limits_.max_content_parts, "SSE content part count exceeds its bound");
     const auto normalized = normalize_part(field(event, "part"));
-    require(text(normalized.as_object(), "text").empty(), "new SSE output_text part must be empty");
+    const auto kind = std::string(text(normalized.as_object(), "type"));
+    if (kind == "refusal" && !compat_)
+        throw ReplayFailure("unsupported_output", "SSE refusal content requires the compatibility profile");
+    const auto initial = kind == "refusal" ? text(normalized.as_object(), "refusal") :
+                                              text(normalized.as_object(), "text");
+    require(initial.empty(), "new SSE content part must be empty");
     state.parts.emplace_back();
+    state.parts.back().kind = kind;
+}
+
+// Done must equal accumulated bytes; deltas charge the shared text bound.
+void Events::accumulate(PartState& state, const Object& event, bool done,
+                        std::string_view done_field, const char* what) {
+    require(!state.text_done && !state.part_done, std::string(what) + " is already final");
+    const auto value = text(event, done ? done_field : "delta");
+    if (done) {
+        require(value == state.text, std::string(what) + " done disagrees with the accumulated deltas");
+        state.text_done = true;
+    } else {
+        within(value.size() <= limits_.max_text_bytes - text_bytes_, std::string(what) + " exceeds its bound");
+        state.text.append(value);
+        text_bytes_ += value.size();
+    }
 }
 
 void Events::text_delta(const Object& event, bool done) {
     auto& state = part(event);
+    require(state.kind == "output_text", "SSE output text event targets a non-text part");
     require(!state.text_done && !state.part_done, "SSE text is already final");
     empty_optional_array(event, "logprobs");
     const auto value = text(event, done ? "text" : "delta");
@@ -476,12 +576,51 @@ void Events::text_delta(const Object& event, bool done) {
     }
 }
 
+void Events::refusal_delta(const Object& event, bool done) {
+    auto& state = part(event);
+    require(state.kind == "refusal", "SSE refusal event targets a non-refusal part");
+    accumulate(state, event, done, "refusal", "SSE refusal");
+}
+
+void Events::summary_part_added(const Object& event) {
+    auto& state = item(event);
+    require(identifier(event, "item_id") == state.id, "SSE summary item ID disagrees with its output index");
+    require(state.type == "reasoning", "SSE summary part targets a non-reasoning output");
+    const auto index = integer(event, "summary_index");
+    require(index == state.summary.size(), "SSE summary indices must be introduced in order without gaps");
+    within(state.summary.size() < limits_.max_content_parts, "SSE summary part count exceeds its bound");
+    const auto& part = object(field(event, "part"));
+    allowed(part, {"type", "text"});
+    require(text(part, "type") == "summary_text" && text(part, "text").empty(),
+            "new SSE summary part must be empty summary_text");
+    PartState added;
+    added.kind = "summary_text";
+    state.summary.push_back(std::move(added));
+}
+
+void Events::summary_text(const Object& event, bool done) {
+    accumulate(summary(event), event, done, "text", "SSE summary");
+}
+
+void Events::summary_part_done(const Object& event) {
+    auto& state = summary(event);
+    require(state.text_done && !state.part_done, "SSE summary part.done requires one prior text.done");
+    const auto& part = object(field(event, "part"));
+    allowed(part, {"type", "text"});
+    require(text(part, "type") == "summary_text" && text(part, "text") == state.text,
+            "SSE summary part.done disagrees with the accumulated text");
+    state.part_done = true;
+}
+
 void Events::content_done(const Object& event) {
     auto& state = part(event);
     require(state.text_done && !state.part_done, "SSE content.done requires one prior text.done");
     const auto normalized = normalize_part(field(event, "part"));
-    require(text(normalized.as_object(), "text") == state.text,
-            "SSE content.done disagrees with the accumulated text");
+    const auto kind = std::string(text(normalized.as_object(), "type"));
+    require(kind == state.kind, "SSE content.done changed its part type");
+    const auto observed = kind == "refusal" ? text(normalized.as_object(), "refusal") :
+                                             text(normalized.as_object(), "text");
+    require(observed == state.text, "SSE content.done disagrees with the accumulated text");
     state.part_done = true;
 }
 
@@ -518,8 +657,23 @@ void Events::matches(const ItemState& state, const Json& value, bool completed) 
             const auto& expected = state.parts[index];
             if (completed) require(expected.text_done && expected.part_done,
                                    "SSE completed message contains unfinished content");
-            require(text(object(content[index]), "text") == expected.text,
+            const auto part = normalize_part(content[index]);
+            const auto kind = std::string(text(part.as_object(), "type"));
+            require(kind == expected.kind, "SSE output snapshot changed a content part type");
+            const auto observed = kind == "refusal" ? text(part.as_object(), "refusal") :
+                                                     text(part.as_object(), "text");
+            require(observed == expected.text,
                     "SSE output snapshot disagrees with accumulated text");
+        }
+    } else if (state.type == "reasoning") {
+        const auto& summary = array(candidate, "summary");
+        require(summary.size() == state.summary.size(), "SSE output snapshot has unobserved or missing summary parts");
+        for (std::size_t index = 0; index < summary.size(); ++index) {
+            const auto& expected = state.summary[index];
+            if (completed) require(expected.text_done && expected.part_done,
+                                   "SSE completed reasoning contains unfinished summary");
+            require(text(object(summary[index]), "text") == expected.text,
+                    "SSE output snapshot disagrees with the accumulated summary");
         }
     } else {
         require(identifier(candidate, "call_id") == state.call_id && identifier(candidate, "name") == state.name,
@@ -637,6 +791,8 @@ void fail(ModelResponse& response, std::string code, std::string message) {
     response.text.clear();
     response.tool_calls.clear();
     response.usage = {};
+    // A failed or interrupted stream never keeps a replayable opaque original.
+    response.responses_output = nullptr;
 }
 
 std::string base64(std::string_view input) {
@@ -686,7 +842,7 @@ ResponsesSseReplay replay_responses_sse(const ProviderProfile& profile,
     }
     ResponsesSseReplay result;
     result.response = original_response(request);
-    Events events(limits, profile.limits.max_json_depth);
+    Events events(limits, profile.limits.max_json_depth, profile.responses_compatibility.has_value());
     std::optional<ModelResponse> terminal_decoded;
     std::optional<ModelUsage> terminal_usage;
     Json terminal_codec_evidence = nullptr;
@@ -705,7 +861,9 @@ ResponsesSseReplay replay_responses_sse(const ProviderProfile& profile,
         // verified usage for this recovery path.
         if (decoded.response.status == ModelResultStatus::Completed ||
             (events.terminal_type == "response.failed" && decoded.response.error_code == "provider_failed") ||
-            (events.terminal_type == "response.incomplete" && decoded.response.error_code == "response_incomplete"))
+            (events.terminal_type == "response.incomplete" && decoded.response.error_code == "response_incomplete") ||
+            decoded.response.error_code == "model_refusal" ||
+            decoded.response.error_code == "reasoning_replay_unavailable")
             terminal_usage = decoded.response.usage;
     });
     std::size_t consumed_chunks = 0;

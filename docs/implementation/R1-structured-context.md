@@ -60,3 +60,16 @@ JSON、错误/失败状态与原文件字节，不把失败结算等同业务成
 
 没有新增真实模型调用、网络适配器、付费重试、弱沙箱、SQL迁移、模型新权限或自动压缩。
 实际测试与发布状态见[报告](../reports/r1-structured-context-validation.md)。
+
+## G1-2 opaque 原件补充（2026-11-08）
+
+`StructuredContextMessage` 末尾追加缺省 null 的 `responses_output` 载体：仅经
+structured_attempt_history 核验的原生 assistant 轮可携带，tool/user 消息拒绝；encode、
+restore、logical hash 与完整 request hash 均覆盖该字段，超限在预约前以 Quota 拒绝。
+worker/management 窗口与 single-agent 消息计量同时计入该字段；最近需接续的
+reasoning-bearing 轮超出冻结 inline_bytes 时以 Quota 退出，不静默降级为丢 reasoning 的
+history_reference，更早的完成轮保持原引用策略。兼容 profile 的原生轮回放使用原
+provider item/call ID（跨轮重复在编码前拒绝），旧 profile 保持 history_... 逻辑 ID 不变；
+`scripts/evaluate_r3.py` 的独立 logical-agent projection 同步携带并校验该原件，缺失/篡改
+encrypted_content 为 invalid evidence。边界详见
+[ADR-077 G1-2 节](../adr/077-responses-offline-codec.md)。

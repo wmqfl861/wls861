@@ -103,6 +103,13 @@ int main(int argc, char** argv) {
         }
         const auto port = number(config, "port"); CHECK(port > 0 && port <= 65535);
         auto live = fixture::settings(fixture::read(text(config, "ca_path")), static_cast<int>(port));
+        if (const auto* compat = config.as_object().if_contains("compat_profile")) {
+            auto provider_document = to_json(live.provider);
+            provider_document.as_object()["model"] = "o3";
+            provider_document.as_object()["responses_compatibility"] =
+                parse_json_strict(fixture::read(std::string(compat->as_string())));
+            live.provider = provider_profile_from_json(provider_document);
+        }
         auto store = assets.open(text(config, "database"));
         auto input = fixture::admission(assets, live, "workflow", !flag(config, "disabled"));
         input.original_text = string_option(config, "material", "Complete a synthetic loopback workflow.");
@@ -141,6 +148,28 @@ int main(int argc, char** argv) {
         };
         if (flag(config, "host_dispositions")) options.limits.amendment_dispositions = Object{{"alpha", Object{{"disposition", "keep"}, {"rationale", "fixture refusal"}}}};
         Object result{{"request_id", id}, {"initial_accounting", store->live_accounting_status(id)}};
+        if (string_option(config, "action") == "refusal") {
+            // Model-layer refusal e2e: transport may classify Completed while
+            // the response stays Error; no dispatch, retry or business effect.
+            OfflineRuntime original(*store, schemas);
+            const auto call = original.capture_call(id, Role::Dispatcher, {}, 1, {}, false, {100, 3s});
+            const auto observed = observe_live_attempt(*store, call.actor, call.request, bearer, {true, false});
+            CHECK(observed.response.has_value());
+            CHECK(observed.response->status == ModelResultStatus::Error);
+            CHECK(observed.response->error_code == "model_refusal");
+            CHECK(observed.transport_summary.at("status") == "completed");
+            CHECK(observed.transport_summary.at("reason") == "model_refusal");
+            CHECK(observed.transport_summary.at("response_usable") == false);
+            bool refused = false;
+            try { (void)original.accept_live_response(call, *observed.response, {}); }
+            catch (const Error& error) { refused = error.code() == ErrorCode::NotReady; }
+            CHECK(refused);
+            result["refusal_feedback"] = store->tool_feedback(call.request.attempt_id);
+            result["refusal_attempt"] = store->attempt(call.request.attempt_id);
+            result["ops"] = fixture::sql_text(text(config, "database"), "SELECT count(*) FROM ops");
+            result["transport_summary"] = observed.transport_summary;
+            std::cout << canonical_json(result) << '\n'; return 0;
+        }
         try {
             const auto action = string_option(config, "action", "pump");
             if (action == "replay" || action == "settled_without_feedback") {

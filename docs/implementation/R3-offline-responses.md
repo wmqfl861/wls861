@@ -596,3 +596,21 @@ replay JSON。网络与计费事实仍明确标记为未经离线回放验证。
 delta 中显式识别该字符串。该字段兼容依据不等于供应商现场能力或所有事件类型已验收。
 SSE 行封装参考 [WHATWG Server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html#parsing-an-event-stream)；
 本实现对无效 UTF-8 明确拒绝，且不实现浏览器的重连行为。
+
+## G1-2 兼容子集补充（2026-11-08）
+
+profile 可选 `responses_compatibility` 扩展（wls-responses-compat-v1 /
+openai-responses-2026-11-08）额外启用：alias→snapshot 显式模型映射、reasoning 原件
+持久化与下一轮原样回传、refusal 模型层失败、六段纯文本 instructions 与显式
+`include:["reasoning.encrypted_content"]`。完整边界、错误码
+（`model_refusal`/`reasoning_replay_unavailable`）与共享校验器见
+[ADR-077 G1-2 节](../adr/077-responses-offline-codec.md)；SSE 生命周期见
+[ADR-078 G1-2 节](../adr/078-responses-sse-replay.md)。无扩展 profile 的编码、哈希与
+拒绝行为保持逐字节不变；新增 `ModelResponse.responses_output` 缺省 null，不进入旧序列化。
+传输侧窄分支：完整 200 且共享解码器判定 `model_refusal` 时，HTTPS transport 观察可为
+Completed(reason=model_refusal)，但响应仍为 Error、`response_usable=false`，任何下游
+（live workflow、offline runtime、history builder、计量）不得据此恢复业务、派发工具或
+重试；未结 usage 仍阻断下一付费轮。OfflineRuntime 对该拒绝记录可辨识反馈字段
+`failure_layer:"model", model_error_code:"model_refusal"`（保留 runtime_error 与原
+response/binding，重复回放同一错误），本阶段不做纠错重调。验证记录见
+[报告](../reports/g1-2-responses-compat-validation.md)。

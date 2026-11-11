@@ -1,5 +1,9 @@
 #include "wls/structured_context.hpp"
 #include "wls/offline_runtime.hpp"
+#include "wls/worker_history.hpp"
+#include "wls/management_context.hpp"
+#include "wls/single_agent.hpp"
+#include "protocol_test_support.hpp"
 #include "test_support.hpp"
 
 #include <algorithm>
@@ -10,6 +14,7 @@
 namespace {
 using namespace wls;
 using namespace wls::s1;
+namespace fixture = wls::test::protocol;
 using Object = boost::json::object;
 using Array = boost::json::array;
 const std::filesystem::path root(WLS_SOURCE_DIR);
@@ -214,6 +219,97 @@ void same_provider_ids_have_distinct_logical_ids() {
     CHECK(parse_json_strict(m[1].content) == a.at("feedback").at("result"));
     CHECK(compile_structured_context(base(), m).structured());
 }
+
+// ---- G1-2 opaque responses output in context/history/measurement ---------
+
+Json compat_record(const std::string& ciphertext = {}) {
+    const auto first = decode_responses_response(fixture::compat_profile(), fixture::request(), 200,
+        fixture::compat_bytes("reasoning-tool-response.json"));
+    CHECK(first.response.status == ModelResultStatus::Completed);
+    Json response = to_json(first.response);
+    if (!ciphertext.empty())
+        response.at("responses_output").at("output").as_array()[0].as_object()["encrypted_content"] = ciphertext;
+    const auto binding = to_json(fixture::request().binding);
+    return Object{{"attempt_id", response.at("attempt_id")}, {"call_id", response.at("call_id")},
+        {"frozen_binding", binding}, {"accepted", 1}, {"response", response},
+        {"feedback", Object{{"original_binding", binding}, {"response", response},
+            {"result", Object{{"ok", true}}}, {"record_sha256", sha256_hex("compat r1 receipt")}}}};
+}
+void responses_output_roundtrip_restore_and_hash() {
+    const auto record = compat_record();
+    const auto payload = record.at("response").at("responses_output");
+    const auto messages = structured_attempt_history({record});
+    CHECK(messages.size() == 2);
+    const auto context = compile_structured_context(fixture::context(), messages);
+    const auto& stored = context.logical_input.at("messages").as_array();
+    CHECK(stored[0].at("role") == "assistant" && stored[0].at("responses_output") == payload);
+    CHECK(!stored[1].as_object().contains("responses_output"));
+    CHECK(context.logical_input_sha256 == sha256_hex(context.prompt()));
+    const auto document = structured_context_to_json(context);
+    CHECK(structured_context_to_json(structured_context_from_json(document)) == document);
+    auto broken = document;
+    broken.at("input").at("messages").as_array()[0].at("responses_output").at("output").as_array()[0].as_object().erase("encrypted_content");
+    fails(ErrorCode::InvalidInput, [&] { (void)structured_context_from_json(broken); });
+    auto forged = document;
+    forged.at("input").at("messages").as_array()[1].as_object()["responses_output"] = payload;
+    fails(ErrorCode::InvalidInput, [&] { (void)structured_context_from_json(forged); });
+    auto unknown = document;
+    unknown.at("input").at("messages").as_array()[0].at("responses_output").as_object()["extra"] = 1;
+    fails(ErrorCode::InvalidInput, [&] { (void)structured_context_from_json(unknown); });
+    auto mismatch = document;
+    mismatch.at("input").at("messages").as_array()[0].at("content") = "changed projection";
+    fails(ErrorCode::InvalidInput, [&] { (void)structured_context_from_json(mismatch); });
+    auto huge = compat_record(std::string(1400 * 1024, 'x'));
+    fails(ErrorCode::Quota, [&] { (void)compile_structured_context(fixture::context(), structured_attempt_history({huge})); });
+}
+Json compat_window_items(std::size_t count, const std::string& first_ciphertext) {
+    Array items;
+    for (std::size_t index = 0; index < count; ++index) {
+        auto record = compat_record(index == 0 ? first_ciphertext : std::string{"gAAAAABsmall"});
+        record.as_object()["sequence"] = static_cast<std::int64_t>(index + 1);
+        record.as_object()["status"] = "COMPLETED";
+        record.as_object()["feedback_missing"] = false;
+        record.as_object()["management_record_sha256"] = sha256_hex("compat record " + std::to_string(index));
+        items.push_back(record);
+    }
+    return items;
+}
+void window_measurement_counts_payload_and_quota_guards_recent_reasoning() {
+    const Json policy = Object{{"mode", "window-v1"}, {"recent_attempts", 2}, {"inline_bytes", 32768}};
+    auto inline_messages = worker_history_messages(Object{{"format", "wls-history-tail-v1"},
+        {"items", compat_window_items(1, "gAAAAABsmall")}, {"total_count", 1}, {"omitted_count", 0},
+        {"through_sequence", 1}}, policy);
+    const auto compiled = compile_structured_context(fixture::context(), inline_messages);
+    CHECK(compiled.logical_input.at("messages").as_array()[1].as_object().contains("responses_output"));
+    fails(ErrorCode::Quota, [&] {
+        (void)worker_history_messages(Object{{"format", "wls-history-tail-v1"},
+            {"items", compat_window_items(1, std::string(64 * 1024, 'x'))}, {"total_count", 1},
+            {"omitted_count", 0}, {"through_sequence", 1}}, policy); });
+    // An older oversized completed round keeps the original reference policy;
+    // only the most recent reasoning-bearing round is quota-fenced.
+    auto kept = worker_history_messages(Object{{"format", "wls-history-tail-v1"},
+        {"items", compat_window_items(2, std::string(64 * 1024, 'x'))}, {"total_count", 2},
+        {"omitted_count", 0}, {"through_sequence", 2}}, policy);
+    const auto older = compile_structured_context(fixture::context(), kept);
+    const auto& older_messages = older.logical_input.at("messages").as_array();
+    CHECK(older_messages[1].at("role") == "user" &&
+          older_messages[1].at("source").at("kind") == Json("history_reference"));
+    CHECK(canonical_json(older_messages[1]).find("gAAAAABsmall") == std::string::npos);
+    CHECK(older_messages[2].at("role") == "assistant" &&
+          older_messages[2].as_object().contains("responses_output"));
+    const Json management = Object{{"mode", "window-v1"}, {"recent_attempts", 2},
+        {"inline_bytes", 32768}, {"max_context_bytes", 1048576}};
+    auto view = Object{{"format", "wls-management-view-v1"}, {"scope", Object{{"request_id", "req"}}},
+        {"history_catalogs", Array{}}, {"recent_attempts", compat_window_items(1, "gAAAAABsmall")}};
+    auto management_messages = management_history_messages(view, management);
+    CHECK(canonical_json(single_agent_messages_json(management_messages)).find("gAAAAABsmall") != std::string::npos);
+    view.at("recent_attempts") = compat_window_items(1, std::string(64 * 1024, 'x'));
+    fails(ErrorCode::Quota, [&] { (void)management_history_messages(view, management); });
+    // Single-Agent message measurement and integrity include the new field.
+    const auto encoded = single_agent_messages_json(structured_attempt_history({compat_record()}));
+    CHECK(encoded.as_array()[0].as_object().contains("responses_output"));
+    CHECK(canonical_json(encoded).find("gAAAAAB3bHlzLXN5bnRoZXRpYy1lbmNyeXB0ZWQtcmVhc29uaW5nLW8zLTAwMDE=") != std::string::npos);
+}
 void missing_late_and_invalid_are_observations() {
     for (int kind = 0; kind != 4; ++kind) {
         auto value = attempt();
@@ -238,7 +334,7 @@ void corrupted_source_binding_refuses() {
     fails(ErrorCode::Corrupt, [&] { (void)structured_attempt_history({value}); });
 }
 struct ConfigFixture {
-    test::TempDir tmp;
+    ::test::TempDir tmp;
     FrozenRequestConfig load(const std::string& format) {
         auto yaml = read_runtime_file(root / "config/examples/system.yaml");
         const std::string marker = "  request_format: framed-v1\n";
@@ -282,7 +378,7 @@ void store_rejects_format_policy_mismatch() {
 } // namespace
 
 int main() {
-    return test::run({
+    return ::test::run({
         {"separate structure and exact restoration", separate_fields_and_round_trip},
         {"canonical tools and dependencies", canonical_tools_and_dependencies},
         {"logical request and prefix cache fingerprints", cache_and_full_request_are_distinct},
@@ -299,6 +395,8 @@ int main() {
         {"missing and unapplied attempts remain observations", missing_late_and_invalid_are_observations},
         {"source corruption refuses", corrupted_source_binding_refuses},
         {"frozen format and legacy defaults", frozen_choice_and_legacy_default},
-        {"Store refuses frozen format mismatch before reservation", store_rejects_format_policy_mismatch}
+        {"Store refuses frozen format mismatch before reservation", store_rejects_format_policy_mismatch},
+        {"responses output roundtrips restore and hash coverage", responses_output_roundtrip_restore_and_hash},
+        {"window measurement counts payload and quota-fences recent reasoning", window_measurement_counts_payload_and_quota_guards_recent_reasoning}
     });
 }

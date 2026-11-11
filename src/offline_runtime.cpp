@@ -761,9 +761,17 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         }
         return result;
     }
+    // Marks that the failure below came from the model-response gate itself,
+    // so a host hook error can never be relabelled as a model-layer refusal.
+    bool refusal_gate = false;
     const auto apply = [&]() -> Json {
     if (after_settlement) after_settlement(settlement);
-    require_complete_response(captured, response);
+    try {
+        require_complete_response(captured, response);
+    } catch (const Error& error) {
+        if (error.code() == ErrorCode::NotReady) refusal_gate = true;
+        throw;
+    }
     const auto& accepted = settlement.at("accepted");
     require((accepted.is_bool() && accepted.as_bool()) || (accepted.is_int64() && accepted.as_int64() == 1),
             ErrorCode::Stale, "response was recorded but cannot change current business state");
@@ -978,10 +986,19 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     try {
         result = apply();
     } catch (const Error& error) {
-        if (store_.event_runtime_enabled())
+        if (store_.event_runtime_enabled()) {
+            Object feedback{{"status", "ERROR"}, {"runtime_error", true},
+                {"error_code", error_name(error.code())}, {"message", error.what()}, {"observation_complete", false}};
+            // Identifiable model-layer refusal classification; the original
+            // settlement/response/binding stay intact and replay returns it.
+            if (refusal_gate && error.code() == ErrorCode::NotReady && response.status == ModelResultStatus::Error &&
+                response.error_code == "model_refusal") {
+                feedback["failure_layer"] = "model";
+                feedback["model_error_code"] = "model_refusal";
+            }
             static_cast<void>(store_.record_tool_feedback(captured.attempt_id, captured.binding, to_json(response),
-                Object{{"status", "ERROR"}, {"runtime_error", true}, {"error_code", error_name(error.code())}, {"message", error.what()},
-                    {"observation_complete", false}}));
+                feedback));
+        }
         throw;
     } catch (const std::exception& error) {
         if (store_.event_runtime_enabled())
