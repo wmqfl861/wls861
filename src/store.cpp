@@ -1110,6 +1110,7 @@ public:
         checks["publication_verified"] = publication_ok;
         bool coverage_ok = true;
         std::set<std::string> covered;
+        std::set<std::string> expected_artifacts, actual_artifacts;
         const auto acceptance_snapshot = parse_json_strict(str(*delivery, "acceptance_snapshot"));
         for (const auto& evidence : acceptance_snapshot.as_array()) {
             const auto saved_id = text_of(evidence, "acceptance_id");
@@ -1120,19 +1121,14 @@ public:
                 coverage_ok = false;
                 break;
             }
+            const auto submission = submission_info(str(*current, "submission_id"));
+            for (const auto& original : submission.at("artifact_snapshot").as_array())
+                expected_artifacts.insert(canonical_json(Array{text_of(evidence, "task_id"), current->at("acceptance_id"), current->at("submission_id"),
+                    original.at("path"), original.at("sha256"), original.at("size_bytes")}));
         }
         for (const auto& required : all(
                 "SELECT task_id FROM tasks WHERE request_id=? AND required=1", {request_id}))
             if (!covered.contains(str(required, "task_id"))) { coverage_ok = false; break; }
-        std::set<std::string> expected_artifacts, actual_artifacts;
-        for (const auto& task_id : covered) {
-            const auto current = current_acceptance(task_id);
-            if (!current) { coverage_ok = false; continue; }
-            const auto submission = submission_info(str(*current, "submission_id"));
-            for (const auto& original : submission.at("artifact_snapshot").as_array())
-                expected_artifacts.insert(canonical_json(Array{task_id, current->at("acceptance_id"), current->at("submission_id"),
-                    original.at("path"), original.at("sha256"), original.at("size_bytes")}));
-        }
         for (const auto& artifact : manifest.at("artifacts").as_array()) {
             if (!actual_artifacts.insert(canonical_json(Array{artifact.at("task_id"), artifact.at("acceptance_id"),
                     artifact.at("submission_id"), artifact.at("source_path"), artifact.at("sha256"), artifact.at("size_bytes")})).second)
@@ -1509,8 +1505,8 @@ public:
             return false;
         seconds = stored_seconds->as_int64();
         nanoseconds = stored_nanoseconds->as_int64();
-        return seconds >= 0 && seconds <= 9'223'372'036'854 && nanoseconds >= 0 &&
-            nanoseconds <= 999'999'999;
+        return seconds >= 0 && nanoseconds >= 0 &&
+            nanoseconds < wls::controls::detail::nanoseconds_per_second;
     }
     std::string controls_marker_corruption(const Json& marker, const std::string& request_id) const {
         if (marker.is_null() || !marker.is_object())
@@ -1520,7 +1516,7 @@ public:
         if (!format || !format->is_string() ||
                 std::string_view(format->as_string()) != "wls-request-controls-v1")
             return "marker format is not exactly wls-request-controls-v1";
-        const auto current = optional("SELECT config_snapshot_sha256 FROM requests WHERE request_id=?", {request_id});
+        const auto current = optional("SELECT config_snapshot_sha256 FROM request_runtime WHERE request_id=?", {request_id});
         const auto* config = object.if_contains("config_sha256");
         if (!current || !config || !config->is_string() ||
                 std::string_view(config->as_string()) != str(*current, "config_snapshot_sha256"))
@@ -1959,7 +1955,7 @@ public:
         if (!result.is_object())
             result = Json(Object{{"status", "stop"}, {"stop_class", "controls_marker_corrupt"},
                                 {"reason", "gate state was not a bounded object"}});
-        if (controls_text(result, "status") != "stop") {
+        if (controls_text(result, "status") == "open") {
             const auto stagnation = controls_stagnation_state(request_id, completing);
             result.as_object()["stagnation"] = stagnation;
             if (stagnation.is_object() && controls_text(stagnation, "status") == "stop") {
@@ -4500,7 +4496,8 @@ Json Store::controls_settlement_gate(const StoreActor& actor, const Json& captur
     (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
     impl_->actor_binding(actor, request.binding); impl_->matches(request.binding);
     const auto row = impl_->one("SELECT * FROM call_attempts WHERE attempt_id=? AND request_id=?", {request.attempt_id, actor.request_id});
-    require(!row.at("settlement_sha256").is_null() && exposed(row) == settlement &&
+    require(str(row, "role") == role_name(actor.role) && str(row, "principal_id") == actor.principal_id &&
+        !row.at("settlement_sha256").is_null() && exposed(row) == settlement &&
         parse_json_strict(str(row, "request_envelope"), 4U * 1024U * 1024U) == captured_request,
         ErrorCode::Conflict, "completion observation differs from the original captured settlement");
     return impl_->controls_gate_snapshot(actor.request_id, request.attempt_id);

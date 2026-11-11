@@ -732,7 +732,7 @@ void driver_throw_interval_excludes_prerun_and_foreign_events() {
     CHECK(!d.f.store->events(sibling, prior_highwater, 1000).empty());
     const auto& summary = report.at("batch_summaries").as_array().front();
     CHECK(summary.at("event_seq_first") == first && summary.at("event_seq_last") == last);
-    CHECK(summary.at("attempt_set_sha256") == sha256_hex(canonical_json(Array{"interval-current-original"})));
+    CHECK(summary.at("attempt_set_sha256") == Json(sha256_hex(canonical_json(Array{"interval-current-original"}))));
     CHECK(summary.at("new_attempts") == 1 && report.at("attempts_total") == 1);
     CHECK(summary.at("report_sha256").is_null() && summary.at("report_bytes").is_null());
 }
@@ -951,16 +951,16 @@ void driver_final_summary_bound_after_incomplete_totals() {
             {"budget_after", d.f.store->budget(d.f.request_id)},
             {"predicted_unmarked_summary_bytes", 8191 + extra}});
         CHECK(invocations == 1);
-        CHECK(report.at("request_id") == d.f.request_id);
+        CHECK(report.at("request_id") == Json(d.f.request_id));
         CHECK(report.at("batches_started") == 1 && report.at("batches_completed") == 1);
         CHECK(report.at("report_complete") == false && report.at("attempts_total") == 0);
         CHECK(report.at("batch_summaries").as_array().size() == 1);
         CHECK(summary.at("index") == 1 && summary.at("completed") == true);
         CHECK(summary.at("continued") == false);
-        CHECK(summary.at("report_sha256") == sha256_hex(raw_bytes));
+        CHECK(summary.at("report_sha256") == Json(sha256_hex(raw_bytes)));
         CHECK(summary.at("report_bytes") == raw_bytes.size());
         CHECK(summary.at("new_attempts") == 0);
-        CHECK(summary.at("attempt_set_sha256") == sha256_hex(canonical_json(Array{})));
+        CHECK(summary.at("attempt_set_sha256") == Json(sha256_hex(canonical_json(Array{}))));
         CHECK(summary.at("event_seq_first").is_int64() && summary.at("event_seq_last").is_int64());
         CHECK(driver_contains(report.at("raw_stop_codes"), std::string(exact_text_bytes + extra, 'u').c_str()));
         CHECK(d.f.store->budget(d.f.request_id) == before);
@@ -1151,7 +1151,7 @@ void driver_real_worker_cap_and_running_target_continue() {
     const auto& first = report.at("batch_summaries").as_array().front();
     CHECK(first.at("semantic_progress") == true && first.at("continued") == true);
     CHECK(first.at("worker_calls") == 1 && first.at("manager_calls") == 0);
-    CHECK(first.at("continuation_target").at("task_id") == d.task_id);
+    CHECK(first.at("continuation_target").at("task_id") == Json(d.task_id));
     CHECK(first.at("continuation_target").at("role") == "worker");
     CHECK(d.d.f.store->task(d.task_id).at("status") == "RUNNING");
     CHECK(live_fixture::read(d.workspace.path / "driver-effect-1.txt") == "retained actual batch effect 1");
@@ -1252,7 +1252,7 @@ void actual_pending_targets_require_current_original_source() {
             else next.by_node["alpha"] = {step};
             const auto target = d.runtime->controls_next_target(d.d.f.request_id, entry, &next);
             CHECK(target.is_object() && target == entry.at("controls_target"));
-            CHECK(target.at("task_id") == d.task_id);
+            CHECK(target.at("task_id") == Json(d.task_id));
             CHECK(target.at("role") == (acceptance ? "dispatcher" : "team_lead"));
             auto foreign = entry;
             foreign.at("task_id") = "task-not-original";

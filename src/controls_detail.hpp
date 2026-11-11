@@ -967,12 +967,9 @@ struct run_totals {
 
     void observe_network(std::int64_t delta, bool observed_complete, bool live) {
         if (!live) return;  // Fake network zero is proven by the execution type
-        if (delta < 0 || !observed_complete) {
-            network_count_complete = false;
-            return;
-        }
+        if (!observed_complete) network_count_complete = false;
         std::int64_t next = 0;
-        if (!network_count_complete || !add_i64_checked(network_started_calls, delta, next)) {
+        if (delta < 0 || !add_i64_checked(network_started_calls, delta, next)) {
             network_count_complete = false;
             return;
         }

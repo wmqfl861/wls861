@@ -619,6 +619,47 @@ void d_red_expired_wall_deadline_still_reserves() {
     CHECK(store->verify_usage_ledger(d_id).at("consistent").as_bool());
 }
 
+void f2_legal_maximum_wall_admission_keeps_the_persisted_gate_open() {
+    ::test::TempDir directory;
+    std::filesystem::copy(assets->source / "config/examples", directory.path / "config",
+                          std::filesystem::copy_options::recursive);
+    std::filesystem::copy(assets->source / "prompts", directory.path / "prompts",
+                          std::filesystem::copy_options::recursive);
+    const auto system_path = directory.path / "config/system.yaml";
+    auto system = fixture::read(system_path);
+    const std::string existing = "max_wall_minutes: 120";
+    const auto position = system.find(existing);
+    CHECK(position != std::string::npos);
+    system.replace(position, existing.size(), "max_wall_minutes: 1000000000000");
+    { std::ofstream output(system_path); output << system; }
+    auto input = fixture::admission(*assets, fixture::settings(), "f2-max-wall", false, true);
+    input.config_snapshot = load_config_catalog(system_path, directory.path / "config/functions",
+        directory.path / "prompts").freeze("general").json();
+    auto store = assets->open(directory.path / "max-wall.sqlite");
+    const auto request_id = text(store->admit(input), "request_id");
+    const auto marker = store->controls_admission(request_id);
+    CHECK(number(marker, "max_wall_minutes") == 1'000'000'000'000);
+    CHECK(text(marker, "config_sha256") == text(store->request(request_id), "config_snapshot_sha256"));
+    CHECK(number(marker.at("deadline_utc"), "seconds") - number(marker.at("created_at_utc"), "seconds") ==
+          60'000'000'000'000);
+    CHECK(number(marker.at("boot_limit"), "seconds") - number(marker.at("boot_before"), "seconds") ==
+          60'000'000'000'000);
+    CHECK(marker.at("deadline_utc").at("nanoseconds") == marker.at("created_at_utc").at("nanoseconds"));
+    CHECK(marker.at("boot_limit").at("nanoseconds") == marker.at("boot_before").at("nanoseconds"));
+    fixture::controls_regression_evidence("max-wall-before-gate", Object{{"marker", marker},
+        {"request", store->request(request_id)}, {"budget", store->budget(request_id)},
+        {"derived_wall_seconds", 60'000'000'000'000LL}}, directory.path / "max-wall.sqlite");
+    CHECK(text(store->controls_business_gate(request_id), "status") == "open");
+    CHECK(text(store->admit(input), "request_id") == request_id);
+    CHECK(store->controls_admission(request_id) == marker);
+    const auto request = admitted_request(*store, request_id, "f2-max-wall-reservation");
+    const auto actor = store->host_actor(Role::Dispatcher, request_id);
+    (void)store->reserve_attempt(actor, request.binding, fake_reservation(request, 100));
+    CHECK(number(store->budget(request_id), "attempts") == 1);
+    CHECK(store->controls_admission(request_id) == marker);
+    CHECK(store->verify_usage_ledger(request_id).at("consistent").as_bool());
+}
+
 void f2_present_marker_corruption_is_a_typed_closed_stop() {
     // F2 regression input (FINAL v24 repair record): a PRESENT controls_
     // admission marker that is unparseable, JSON null, a non-object, wrong
@@ -644,6 +685,15 @@ void f2_present_marker_corruption_is_a_typed_closed_stop() {
             marker.as_object().erase("boot_id"); }},
         {"nanoseconds out of range", nullptr, [](Json& marker) {
             marker.at("boot_limit").as_object()["nanoseconds"] = 1'000'000'000; }},
+        {"negative seconds", nullptr, [](Json& marker) {
+            marker.at("created_at_utc").as_object()["seconds"] = -1; }},
+        {"seconds outside signed split time", nullptr, [](Json& marker) {
+            marker.at("deadline_utc").as_object()["seconds"] = std::numeric_limits<std::uint64_t>::max(); }},
+        {"negative nanoseconds", nullptr, [](Json& marker) {
+            marker.at("boot_limit").as_object()["nanoseconds"] = -1; }},
+        {"boot samples reversed", nullptr, [](Json& marker) {
+            marker.at("boot_before").as_object()["seconds"] =
+                marker.at("boot_after").at("seconds").as_int64() + 1; }},
         {"boot limit moved off the anchor", nullptr, [](Json& marker) {
             marker.at("boot_limit").as_object()["seconds"] =
                 marker.at("boot_limit").at("seconds").as_int64() + 1; }},
@@ -1196,7 +1246,7 @@ void f3_settlement_query_requires_exact_original_worker_actor() {
     });
     const auto before = worker.f.store->budget(worker.f.request_id);
     const auto sends = fixture::sql_text(worker.f.path, "SELECT count(*) FROM live_send_claims");
-    const auto effects = fixture::sql_text(worker.f.path, "SELECT count(*) FROM operations");
+    const auto effects = fixture::sql_text(worker.f.path, "SELECT count(*) FROM ops");
     fixture::controls_regression_evidence("actor-before", Object{{"captured_request", to_json(call.request)},
         {"original_settlement", settled}, {"worker_principal", call.actor.principal_id},
         {"authorized_same_team_lead_principal", lead.principal_id}, {"budget", before},
@@ -1208,7 +1258,7 @@ void f3_settlement_query_requires_exact_original_worker_actor() {
     CHECK(worker.f.store->attempt(call.request.attempt_id) == original);
     CHECK(worker.f.store->budget(worker.f.request_id) == before);
     CHECK(fixture::sql_text(worker.f.path, "SELECT count(*) FROM live_send_claims") == sends);
-    CHECK(fixture::sql_text(worker.f.path, "SELECT count(*) FROM operations") == effects);
+    CHECK(fixture::sql_text(worker.f.path, "SELECT count(*) FROM ops") == effects);
     fixture::controls_regression_evidence("actor-after", Object{{"refused_exact_actor_mismatch", refused},
         {"wrong_actor_snapshot", wrong_actor_snapshot}, {"budget", before}, {"send_claims", sends},
         {"operations", effects}, {"original_settlement", worker.f.store->attempt(call.request.attempt_id)}}, worker.f.path);
@@ -1494,15 +1544,15 @@ int main(int argc, char** argv) {
         const bool source = argc > 1 && std::string_view(argv[1]).substr(0, 2) != "--";
         regression = fixture::controls_regression_options(argc, argv, source ? 2 : 1);
         assets = std::make_unique<fixture::Assets>(source ? argv[1] : WLS_SOURCE_DIR);
-        if (!regression.empty() && regression != "legacy_absence" && regression != "settlement_actor")
+        if (!regression.empty() && regression != "legacy_absence" && regression != "settlement_actor" && regression != "legal_max_wall")
             throw std::runtime_error("unknown Controls regression selector");
     }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     if (regression == "legacy_absence") return test::run({{"legacy_absence", f2_legacy_absence_keeps_store_and_explicit_pump}});
-    if (regression == "settlement_actor") return test::run({{"settlement_actor", [] {
-        f3_settlement_observer_exempts_only_exact_current_original();
-        f3_settlement_query_requires_exact_original_worker_actor();
-    }}});
+    if (regression == "settlement_actor") return test::run({
+        {"settlement_observer_original_bindings", f3_settlement_observer_exempts_only_exact_current_original},
+        {"settlement_actor_exact_original", f3_settlement_query_requires_exact_original_worker_actor}});
+    if (regression == "legal_max_wall") return test::run({{"legal_max_wall", f2_legal_maximum_wall_admission_keeps_the_persisted_gate_open}});
     return test::run({
         {"read-only ledger reconstruction uses one snapshot across a separate writer commit", readonly_ledger_observes_one_snapshot},
         {"priced accounting status observes one budget snapshot across a late receipt", priced_status_observes_one_budget_snapshot_across_late_receipt},
@@ -1525,6 +1575,7 @@ int main(int argc, char** argv) {
         {"policy and cross-request identity are rechecked before first send", policy_and_identity_fences_before_claim},
         {"W-RED input: exact 4/5 crossing of B=125 leaves no durable budget warning", w_red_budget_warning_missing_after_exact_crossing},
         {"D-RED input: expired one-minute wall deadline typed-stops the first reservation", d_red_expired_wall_deadline_still_reserves},
+        {"F2: legal maximum wall admission preserves the actual marker and open Store gate", f2_legal_maximum_wall_admission_keeps_the_persisted_gate_open},
         {"F2 input: present corrupt admission marker is a typed closed stop before reservation", f2_present_marker_corruption_is_a_typed_closed_stop},
         {"F2 input: duplicate admission marker rows are a typed closed stop", f2_duplicate_marker_rows_are_a_typed_closed_stop},
         {"F3_B input: consecutive same-key failures reach the frozen bound while A,B,A restarts the current key", f3_b_consecutive_key_semantics_and_frozen_bound},

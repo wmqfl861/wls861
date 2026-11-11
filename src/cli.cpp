@@ -501,7 +501,7 @@ Json controls_run_driver(Store& store, const std::string& request, std::int64_t 
     Json primary_stop = nullptr;
     bool report_complete = true, model_milestone = false, business_delivered = false;
     bool history_complete = false, delivery_receipt_verified = false;
-    std::int64_t started = 0, completed = 0, network_started_calls = 0;
+    std::int64_t started = 0, completed = 0;
     // LIVE completeness (FINAL v24 repair02): the network/provider totals are
     // the conjunction of verified coverage over the actually observed batches.
     // A missing, partial or throwing batch makes the affected totals unknown
@@ -518,13 +518,13 @@ Json controls_run_driver(Store& store, const std::string& request, std::int64_t 
         if (code.empty()) return;
         for (const auto& existing : stop_classes)
             if (existing == Json(code)) return;
-        stop_classes.push_back(code);
+        stop_classes.push_back(Json(code));
     };
     const auto add_raw = [&](const std::string& code) {
         if (code.empty()) return;
         for (const auto& existing : raw_stop_codes)
             if (existing == Json(code)) return;
-        raw_stop_codes.push_back(code);
+        raw_stop_codes.push_back(Json(code));
     };
     // F4 repair (FINAL v24 repair record): stop_classes uses exactly the fixed
     // wls-controls-run-v1 vocabulary; raw cap/stop codes stay in bounded
@@ -598,6 +598,18 @@ Json controls_run_driver(Store& store, const std::string& request, std::int64_t 
         try { const auto used = integer(value); return used >= 0 ? used : -1; }
         catch (...) { return std::int64_t{-1}; }
     };
+    // Prepare the typed failure before a batch can produce durable effects.
+    const Error report_delivery_failed(ErrorCode::Storage,
+        "delivery_of_report_failed: bounded batch summary unavailable");
+    const auto summary_fits = [](const Json& summary) {
+        return controls::detail::canonical_sha256_stream(summary,
+            controls::detail::canonical_stream_chunk_default, 8191).ok;
+    };
+    const auto stop_incomplete_report = [&] {
+        if (primary_stop == "model_milestone" || primary_stop == "business_delivered")
+            primary_stop = nullptr;
+        stop_run("report_incomplete");
+    };
     for (std::int64_t index = 1; primary_stop.is_null() && index <= batch_limit; ++index) {
         const auto gate = store.controls_business_gate(request);
         if (jstr(gate, "status") == "stop") {
@@ -645,15 +657,27 @@ Json controls_run_driver(Store& store, const std::string& request, std::int64_t 
             stop_run("report_incomplete");
             break;
         }
-        Json pump_report;
+        Json pump_report, first_terminal_scope;
+        controls::detail::canonical_digest_result canonical_digest;
         // Allocate the bounded emergency shape before invoking a batch.
-        Object emergency{{"index", index}, {"completed", false}, {"report_sha256", nullptr},
-            {"report_bytes", nullptr}, {"new_attempts", nullptr}, {"budget_before", budget_before},
-            {"budget_after", nullptr}, {"event_seq_first", nullptr}, {"event_seq_last", nullptr},
-            {"attempt_set_sha256", nullptr}, {"network_started_calls", nullptr},
-            {"network_count_complete", false}, {"continued", false}};
-        const auto summary_count_before = summaries.size();
-        bool returned = false;
+        Object emergency;
+        try {
+            emergency = Object{{"index", index}, {"completed", false}, {"report_sha256", nullptr},
+                {"report_bytes", nullptr}, {"new_attempts", nullptr}, {"budget_before", budget_before},
+                {"budget_after", nullptr}, {"event_seq_first", nullptr}, {"event_seq_last", nullptr},
+                {"attempt_set_sha256", nullptr}, {"network_started_calls", nullptr},
+                {"network_count_complete", false}, {"continued", false}};
+        } catch (...) {
+            throw report_delivery_failed;
+        }
+        bool emergency_has_raw_identity = false;
+        const auto retain_raw_identity = [&] {
+            emergency["report_sha256"] = canonical_digest.sha256_hex_value;
+            emergency["report_bytes"] = canonical_digest.bytes;
+            emergency_has_raw_identity = true;
+        };
+        bool returned = false, summary_truncated = false;
+        const auto run_and_summarize = [&] {
         // R03_REPORT: batches_started is incremented immediately BEFORE the
         // actual invocation; completed only when it returns.
         ++started;
@@ -678,7 +702,6 @@ Json controls_run_driver(Store& store, const std::string& request, std::int64_t 
         // Success, throw and invalid/oversized reports all observe the SAME
         // durable originals before any exit; raw report availability is not
         // a precondition for observing reservations, events or network facts.
-        try {
         const Json budget_after = store.budget(request);
         emergency["completed"] = returned;
         emergency["budget_after"] = budget_after;
@@ -706,7 +729,7 @@ Json controls_run_driver(Store& store, const std::string& request, std::int64_t 
         if (observed_reservations != observed_delta) observed_counts = observed_network = false;
         for (const auto& id : observed_ids) {
             if (id.empty()) { observed_counts = observed_network = false; continue; }
-            originals.push_back(id);
+            originals.push_back(Json(id));
             (void)store.attempt(id);
             if (!fake_execution) {
                 const auto original = store.live_attempt(id);
@@ -730,24 +753,16 @@ Json controls_run_driver(Store& store, const std::string& request, std::int64_t 
         // canonical semantics as the protected reference (sorted keys, array
         // order, escaping, finite numbers, depth limit) — without ever
         // materializing a second full canonical string.
-        const auto canonical_digest = returned ? controls::detail::canonical_sha256_stream(
-            pump_report, controls::detail::canonical_stream_chunk_default, 4U * 1024U * 1024U)
-            : controls::detail::canonical_digest_result{};
-        if (!canonical_digest.ok) {
-            // An unformable or oversized report stops the run before another
-            // batch is admitted; the finished batch still contributes its
-            // available actual counts, and the exact unknown length/hash is
-            // reported as null, never zero.
-            report_complete = false;
-            stop_run("report_capacity");
-            emergency["raw_batch_report_oversize"] = canonical_digest.oversize;
-            summaries.push_back(emergency);
-            break;
-        }
-        const auto canonical_sha = canonical_digest.sha256_hex_value;
+        if (returned)
+            canonical_digest = controls::detail::canonical_sha256_stream(
+                pump_report, controls::detail::canonical_stream_chunk_default, 4U * 1024U * 1024U);
+        // A missing/invalid raw report still keeps the durable observations
+        // above, with a null hash/length and no permission for a next batch.
+        if (!canonical_digest.ok) return false;
+        retain_raw_identity();
+        const auto& canonical_sha = canonical_digest.sha256_hex_value;
         const auto canonical_bytes = canonical_digest.bytes;
         Array attempt_ids, blocked_codes;
-        Json first_terminal_scope = nullptr;
         if (jget(pump_report, "calls").is_array())
             for (const auto& call : pump_report.at("calls").as_array()) {
                 const auto attempt = jget(call, "attempt_id");
@@ -757,7 +772,7 @@ Json controls_run_driver(Store& store, const std::string& request, std::int64_t 
             for (const auto& entry : pump_report.at("blocked").as_array()) {
                 const auto code = jstr(entry, "code");
                 if (!code.empty()) {
-                    blocked_codes.push_back(code);
+                    blocked_codes.push_back(Json(code));
                     if (first_terminal_scope.is_null())
                         first_terminal_scope = Object{{"role", jget(entry, "role")},
                                                       {"node_id", jget(entry, "node_id")},
@@ -1045,18 +1060,6 @@ Json controls_run_driver(Store& store, const std::string& request, std::int64_t 
         if (primary_stop.is_null()) {
             summary["continuation_target"] = continuation_target;
         }
-        if (!controls::detail::canonical_sha256_stream(summary,
-                controls::detail::canonical_stream_chunk_default, 8191).ok) {
-            summary = emergency;
-            summary["report_sha256"] = canonical_sha;
-            summary["report_bytes"] = canonical_bytes;
-            summary["summary_truncated"] = true;
-            report_complete = false;
-            // B2 repair: an unformable bounded summary stops the run before
-            // another batch; it is never replaced by a misleading success stub.
-            stop_run("report_capacity");
-        }
-        summaries.push_back(std::move(summary));
         // R03_REPORT/F4_COUNTS: checked totals accumulation — every new
         // attempt holds exactly one new reservation in this Store, so the two
         // checked columns share the same per-batch delta; an unknown delta
@@ -1070,29 +1073,60 @@ Json controls_run_driver(Store& store, const std::string& request, std::int64_t 
                 totals.network_count_complete = false;
         }
         // R03_REPORT: any relevant total/count/completeness failure prevents
-        // continued=true and another batch; the already-recorded summary is
-        // corrected rather than letting a decided continuation survive.
-        if (!totals.counts_complete || !totals.network_count_complete ||
-                                       !report_complete) {
-            if (primary_stop == "model_milestone" || primary_stop == "business_delivered") primary_stop = nullptr;
-            stop_run("report_incomplete");
-            if (!summaries.empty() && summaries.back().is_object() &&
-                    summaries.back().as_object().if_contains("continued") != nullptr)
-                summaries.back().as_object()["continued"] = false;
-            summaries.back().as_object()["stopped_after_incomplete_totals"] = true;
+        // continued=true and another batch; finish the summary before its
+        // capacity check so every final flag is included in the bound.
+        const bool incomplete = !totals.counts_complete || !totals.network_count_complete || !report_complete;
+        if (incomplete) {
+            summary["continued"] = false;
+            summary["stopped_after_incomplete_totals"] = true;
         }
-        // Fake network zero is proven by the Fake execution type alone; a
-        // partial live observation leaves the total null with the known prefix
-        // only as an explicitly labelled lower bound in the final report.
+        Json finalized(std::move(summary));
+        if (!summary_fits(finalized)) {
+            summary_truncated = true;
+            return false;
+        }
+        if (incomplete) stop_incomplete_report();
+        summaries.push_back(std::move(finalized));
+        return true;
+        };
+
+        bool recovering_from_exception = false;
+        try {
+            if (run_and_summarize()) continue;
         } catch (...) {
-            report_complete = false;
-            totals.counts_complete = false;
-            if (!fake_execution) totals.network_count_complete = false;
-            stop_run("report_incomplete");
-            if (summaries.size() == summary_count_before) summaries.push_back(emergency);
-            else summaries.back() = emergency;
-            break;
+            recovering_from_exception = true;
         }
+        const auto append_emergency = [&] {
+            report_complete = false;
+            if (recovering_from_exception) {
+                totals.counts_complete = false;
+                // Fake network zero is proven by the execution type.
+                if (!fake_execution) totals.network_count_complete = false;
+            } else {
+                if (summary_truncated) emergency["summary_truncated"] = true;
+                else emergency["raw_batch_report_oversize"] = canonical_digest.oversize;
+                stop_run("report_capacity");
+            }
+            if (canonical_digest.ok && !emergency_has_raw_identity) retain_raw_identity();
+            if (!first_terminal_scope.is_null()) {
+                const auto scope = controls::detail::canonical_sha256_stream(first_terminal_scope);
+                if (!scope.ok) return false;
+                emergency["first_terminal_scope_sha256"] = scope.sha256_hex_value;
+            }
+            emergency["completed"] = returned;
+            emergency["stopped_after_incomplete_totals"] = true;
+            stop_incomplete_report();
+            Json fallback(std::move(emergency));
+            if (!summary_fits(fallback)) return false;
+            summaries.push_back(std::move(fallback));
+            return true;
+        };
+        try {
+            if (append_emergency()) break;
+        } catch (...) {
+            // Any failure to finish the emergency report is terminal.
+        }
+        throw report_delivery_failed;
     }
     if (primary_stop.is_null()) primary_stop = Json(std::string("run_batch_limit"));
     // F4 repair: history and receipt facts are derived from complete original
