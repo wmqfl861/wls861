@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — G0 closeout (2026-11-07, in progress; no version cut)
+## Unreleased — G0 closeout and G1 start (2026-11-07 through 2026-11-11, in progress; no version cut)
 
 - Merge the owner-approved G0 engineering PRs into main in order with normal
   merge commits: #43 restore the S1 disposition/retained-path guards on
@@ -12,7 +12,10 @@
   42382161297/42382173458) and one fresh combination hard review passed;
   the final main gates are green (Linux run 42385790587: six product
   configurations, five CTest configurations × 78 registered tests, zero
-  failures; source run 42385790585 archive verified byte-exact).
+  failures; source run 42385790585 archive verified byte-exact). The
+  intermediate post-#44 main Linux run 42385652115 was cancelled by the
+  next main push and never counted as passing (its source run 42385652162
+  succeeded).
 - Close the historical 43-item PR queue as recorded in
   `docs/reviews/claude-2026-11-06-disposition.md` and
   `docs/reviews/claude-2026-11-06-pr-convergence.md`: #1–#42 closed with
@@ -21,14 +24,41 @@
 - Preserve the complete development contract verbatim in the new
   `docs/implementation/development-contract.md` and reduce the root
   `AGENTS.md` to a short entry point; restructure `docs/STATUS.md` to
-  current capabilities/gaps and link batch history here (PR #47, draft,
-  not merged).
+  current capabilities/gaps and link batch history here (PR #47, merged
+  into main in `f7760e5` on 2026-11-08).
 - Share the update/keep/cancel disposition word list and bounded integer
   field access across the CLI, offline runtime and Store, with explicit
-  InvalidInput error semantics and regression coverage (PR #46, draft,
-  not merged; remote PR core CI 42388192709 and source 42388192705 green,
-  local registered CTest 4/4, independent hard review PASS; merge awaits
-  separate owner confirmation).
+  InvalidInput error semantics and regression coverage (PR #46, merged
+  into main in `4987f2c` on 2026-11-08; remote PR core CI 42388192709 and
+  source 42388192705 green, local registered CTest 4/4, independent hard
+  review PASS).
+- Merge G1-2 Responses protocol compatibility (PR #48, merged into main in
+  `f29d5bd` on 2026-11-11): the opt-in profile extension retains encrypted
+  reasoning items, classifies refusals without tool dispatch, permits
+  explicit alias mappings and emits plain-text instructions; native
+  history pairs tool results within their original round, and two native
+  rounds persist across a Store reopen. Legacy profiles and Store 410
+  stay compatible. For the exact head `01c330d`: PR core run 42488178636,
+  the explicit full six-configuration run 42488303902 (78/78 per CTest
+  configuration, including the original Make-ASan path) and source run
+  42488306828 all passed, with a fresh independent hard review PASS; see
+  `docs/reports/g1-2-responses-compat-validation.md`. On the post-merge
+  main push the source run 42996980508 passed while the full
+  six-configuration run 42996980600 was still in progress when this entry
+  was written — not counted as green. PR #49 (G1-1 frozen estimated
+  billing) remains open and unmerged; PR #50 was closed with its branch
+  preserved (superseded by the minimal networking slice of the adopted
+  route in `docs/ROADMAP.md`).
+- Publish the stage-0 documentation convergence (F-26, docs-only draft PR
+  `docs/f26-handoff-20261111-h6ose7wz`): archive the seven 2026-11-11
+  audit/plan files from frozen commit `7d1dadb` byte-identical under
+  `docs/reviews/claude-2026-11-11/` (05 additionally carries an appended
+  owner-decision/execution addendum; 03 stays an archived proposal, not
+  migrated into the v0.4.1 blueprint), add the one-page stage-0 milestone
+  `docs/reports/stage0-convergence.md` (stage 0 in progress, exit not
+  reached; #49 open pending integration), and point ROADMAP and the v0.4.1
+  requirements tracing at the in-repo copies while keeping the
+  frozen-commit provenance.
 - Store stays 410; real provider calls remain zero/NOT_RUN, Windows 11
   NOT_RUN; private CI evidence hosting remains BLOCKED, with raw originals
   retained locally. No new observability tool chains.
