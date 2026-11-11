@@ -12,21 +12,140 @@
 // orchestrator's assertions — no throwing allocation inside a noexcept hook.
 // Wait facts are validated at record time against the frozen original
 // deadline and the phase-aware single-deadline contract (read facts carry the
-// original exactly, reap facts may be stricter, legacy records without real
-// now identity are rejected); violations latch stickily, so a bounded ring
-// overwrite can never hide an early violation.
+// original exactly, reap facts may be stricter, legacy records without a
+// production-captured now identity are rejected); violations latch stickily,
+// so a bounded ring overwrite can never hide an early violation.
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <limits>
 #include <new>
+#include <type_traits>
 
 namespace wls::s1::resolver::seams {
+
+// Only the subms staged scenario arms this POD on its calling thread. The
+// executable's strong clock_gettime symbol is visible to loaded libraries as
+// well: TLS/PID constrain returned controlled values, not symbol visibility.
+// Every call first executes the real syscall, preserving libc failure/errno
+// behavior; unarmed, other-thread, fork-child and non-MONOTONIC calls keep it.
+struct ControlledClock {
+    pid_t owner_pid;
+    bool armed;
+    bool monotonic;
+    bool first_fact_valid;
+    int phase; // 0 preparation, 1 consumed read EINTR, 2 recorded first read wait
+    int hits;
+    int read_eintr;
+    int read_facts;
+    long long base_ns;
+    long long deadline_ns;
+    long long now_ns;
+};
+static_assert(std::is_trivial_v<ControlledClock>);
+inline thread_local ControlledClock controlled_clock{};
+
+inline bool ns_to_timespec(long long ns, timespec& value) noexcept {
+    if (ns < 0 || static_cast<unsigned long long>(ns / 1'000'000'000LL) >
+        static_cast<unsigned long long>(std::numeric_limits<time_t>::max()))
+        return false;
+    value.tv_sec = static_cast<time_t>(ns / 1'000'000'000LL);
+    value.tv_nsec = static_cast<long>(ns % 1'000'000'000LL);
+    return true;
+}
+
+inline bool timespec_to_ns(const timespec& value, long long& ns) noexcept {
+    if (value.tv_sec < 0 || value.tv_nsec < 0 || value.tv_nsec >= 1'000'000'000L ||
+        static_cast<unsigned long long>(value.tv_sec) >
+        static_cast<unsigned long long>((std::numeric_limits<long long>::max() -
+            value.tv_nsec) / 1'000'000'000LL))
+        return false;
+    ns = static_cast<long long>(value.tv_sec) * 1'000'000'000LL + value.tv_nsec;
+    return true;
+}
+
+inline bool real_clock_ns(clockid_t clock, long long& ns) noexcept {
+    timespec value{};
+    return ::syscall(SYS_clock_gettime, clock, &value) == 0 && timespec_to_ns(value, ns);
+}
+
+inline bool controlled_clock_active() noexcept {
+    return controlled_clock.armed && controlled_clock.owner_pid == ::getpid();
+}
+
+inline int clock_gettime_observed(clockid_t clock, timespec* value) noexcept {
+    const int result = static_cast<int>(::syscall(SYS_clock_gettime, clock, value));
+    if (result != 0 || clock != CLOCK_MONOTONIC || !controlled_clock_active())
+        return result;
+    timespec controlled{};
+    if (!ns_to_timespec(controlled_clock.now_ns, controlled)) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    *value = controlled;
+    ++controlled_clock.hits;
+    return 0;
+}
+
+class ScopedSubmsClock {
+    bool engaged_ = false;
+public:
+    ScopedSubmsClock(long long base_ns, long long deadline_ns) noexcept {
+        timespec checked{};
+        if (controlled_clock.armed || base_ns <= 0 ||
+            base_ns > std::numeric_limits<long long>::max() - 700'000 ||
+            deadline_ns != base_ns + 700'000 || !ns_to_timespec(deadline_ns, checked))
+            return;
+        controlled_clock = {::getpid(), true, true, false, 0, 0, 0, 0,
+                            base_ns, deadline_ns, base_ns};
+        engaged_ = true;
+    }
+    ~ScopedSubmsClock() { if (engaged_) controlled_clock.armed = false; }
+    bool engaged() const noexcept { return engaged_; }
+    ScopedSubmsClock(const ScopedSubmsClock&) = delete;
+    ScopedSubmsClock& operator=(const ScopedSubmsClock&) = delete;
+};
+
+inline void clock_after_read_eintr() noexcept {
+    if (!controlled_clock_active()) return;
+    auto& clock = controlled_clock;
+    ++clock.read_eintr;
+    if (clock.phase != 0 || clock.now_ns != clock.base_ns) {
+        clock.monotonic = false;
+        clock.armed = false;
+        return;
+    }
+    clock.now_ns = clock.base_ns + 100'000;
+    clock.phase = 1;
+}
+
+// Called only AFTER the passive recorder validates and stores the actual
+// production arguments. A bad fact remains sticky; it disarms the clock so
+// even a sensitivity mutation cannot freeze a failing resolver indefinitely.
+inline void clock_after_read_fact(long long cutoff_ns, long long now_ns,
+                                 long long requested_ns, int phase,
+                                 bool violation) noexcept {
+    if (!controlled_clock_active() || phase != 1) return;
+    auto& clock = controlled_clock;
+    ++clock.read_facts;
+    clock.first_fact_valid = !violation && clock.phase == 1 &&
+        clock.now_ns == clock.base_ns + 100'000 && now_ns == clock.now_ns &&
+        cutoff_ns == clock.deadline_ns && requested_ns == 600'000;
+    if (!clock.first_fact_valid) {
+        clock.monotonic = false;
+        clock.armed = false;
+        return;
+    }
+    clock.now_ns = clock.deadline_ns;
+    clock.phase = 2;
+}
 
 struct State {
     // Deterministic pending: while armed, nonblocking reap observation of the
@@ -49,13 +168,16 @@ struct State {
     std::atomic_int inject_fork_failure{0};
     std::atomic_int inject_pipe_failure{0};
     std::atomic_int inject_read_eintr{0};
+    std::atomic_int read_eintr_consumed{0};
     std::atomic_bool inject_pidfd_refusal{false};
     std::atomic_int inject_alloc_failure{0};
     // Ownership observations: real forks of this process, reap attempts and
     // confirmations, admission confirmations (never allowed to poll), the
-    // bounded-wait facts of every wait (the one original deadline, the real
-    // now and the requested timeout of the last fact_capacity waits), and the
-    // legacy millisecond projections the C1 derived-RED build still asserts.
+    // bounded-wait facts of every wait (the original deadline, production's
+    // captured now and requested timeout of the last fact_capacity waits),
+    // and the legacy millisecond projections the C1 derived-RED build still asserts.
+    // The subms scenario labels its controlled_test now/cutoff explicitly;
+    // those facts prove production calculations, not real 700us performance.
     std::atomic_int fork_count{0};
     std::atomic_int waitpid_calls{0};
     std::atomic_int waitpid_confirmed{0};
@@ -142,6 +264,8 @@ inline int pipe2_observed(int descriptors[2], int flags) noexcept {
 
 inline ssize_t read_observed(int fd, void* buffer, std::size_t size) noexcept {
     if (consume(state.inject_read_eintr)) {
+        state.read_eintr_consumed.fetch_add(1, std::memory_order_relaxed);
+        clock_after_read_eintr();
         errno = EINTR; // One injected interruption: the retry path must hold.
         return -1;
     }
@@ -242,6 +366,7 @@ inline void record_wait_detail(long long cutoff_ns, long long now_ns,
     fact.deadline_ns.store(cutoff_ns, std::memory_order_relaxed);
     fact.requested_ns.store(requested_ns, std::memory_order_relaxed);
     fact.phase.store(phase, std::memory_order_relaxed);
+    clock_after_read_fact(cutoff_ns, now_ns, requested_ns, phase, violation);
 }
 
 // Production entry: cutoff, now and phase are the production-captured values
@@ -252,7 +377,7 @@ inline void record_wait(long long cutoff_ns, long long now_ns, long long request
 }
 
 // Legacy two-argument entry kept for the frozen C1 derived-RED input, whose
-// production predates the passive wiring: such records carry no real now
+// production predates the passive wiring: such records carry no captured now
 // identity, so the strict oracle latches the gap instead of vacuously
 // accepting the record.
 inline void record_wait(long long deadline_ns, long long requested_ns) noexcept {
@@ -322,6 +447,7 @@ inline void reset() {
     state.inject_fork_failure.store(0);
     state.inject_pipe_failure.store(0);
     state.inject_read_eintr.store(0);
+    state.read_eintr_consumed.store(0);
     state.inject_pidfd_refusal.store(false);
     state.inject_alloc_failure.store(0);
     state.fork_count.store(0);

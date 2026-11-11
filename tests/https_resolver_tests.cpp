@@ -31,11 +31,13 @@
 #include <array>
 #include <atomic>
 #include <cerrno>
+#include <charconv>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <initializer_list>
 #include <map>
 #include <new>
 #include <sstream>
@@ -193,6 +195,283 @@ void report(const std::string& extra, bool threw, const Observation& observation
         observation.cleanup_pending ? 1 : 0, observation.addresses.size(), first.c_str(),
         observation.helper_identity.empty() ? 0 : 1, loopback ? 1 : 0,
         static_cast<long long>(observation.elapsed.count()));
+}
+
+long long real_now_ns() {
+    long long now = 0;
+    CHECK(seams::real_clock_ns(CLOCK_MONOTONIC, now));
+    return now;
+}
+
+long long steady_now_ns() noexcept {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        Clock::now().time_since_epoch()).count();
+}
+
+bool steady_clock_is_real() noexcept {
+    long long before = 0, after = 0;
+    if (!seams::real_clock_ns(CLOCK_MONOTONIC, before)) return false;
+    const long long observed = steady_now_ns();
+    return seams::real_clock_ns(CLOCK_MONOTONIC, after) &&
+        before <= observed && observed <= after;
+}
+
+bool realtime_clock_is_real() noexcept {
+    long long before = 0, observed = 0, after = 0;
+    timespec value{};
+    return seams::real_clock_ns(CLOCK_REALTIME, before) &&
+        ::clock_gettime(CLOCK_REALTIME, &value) == 0 &&
+        seams::timespec_to_ns(value, observed) &&
+        seams::real_clock_ns(CLOCK_REALTIME, after) &&
+        before <= observed && observed <= after;
+}
+
+bool clock_failure_semantics() noexcept {
+    const int saved_errno = errno;
+    timespec direct{}, observed{};
+    errno = 0;
+    const int direct_result = static_cast<int>(::syscall(
+        SYS_clock_gettime, static_cast<clockid_t>(-1), &direct));
+    const int direct_errno = errno;
+    errno = 0;
+    const int result = ::clock_gettime(static_cast<clockid_t>(-1), &observed);
+    const bool invalid_clock = direct_result == -1 && result == direct_result &&
+        direct_errno == EINVAL && errno == direct_errno;
+    errno = EBUSY;
+    const bool success_errno = ::clock_gettime(CLOCK_MONOTONIC, &observed) == 0 && errno == EBUSY;
+    errno = saved_errno;
+    return invalid_clock && success_errno;
+}
+
+bool fork_clock_is_real(int& probe_forks) {
+    const pid_t parent = ::getpid();
+    const pid_t pid = ::fork(); // Isolation probe, separate from resolver fork_count.
+    if (pid < 0) return false;
+    if (pid == 0) {
+        const bool isolated = seams::controlled_clock.armed &&
+            seams::controlled_clock.owner_pid == parent && ::getpid() != parent &&
+            !seams::controlled_clock_active() && steady_clock_is_real();
+        ::_exit(isolated ? 0 : 1);
+    }
+    ++probe_forks;
+    const long long until = real_now_ns() + 250'000'000;
+    int status = 0;
+    for (;;) {
+        const pid_t observed = ::waitpid(pid, &status, WNOHANG);
+        if (observed == pid) return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        if (observed < 0 && errno != EINTR) return false;
+        if (real_now_ns() >= until) break;
+        const timespec pause{0, 1'000'000};
+        (void)::ppoll(nullptr, 0, &pause, nullptr);
+    }
+    (void)::kill(pid, SIGKILL); // Only this probe's still-owned, unreaped child.
+    const long long cleanup_until = real_now_ns() + 250'000'000;
+    while (real_now_ns() < cleanup_until) {
+        const pid_t observed = ::waitpid(pid, &status, WNOHANG);
+        if (observed == pid || (observed < 0 && errno == ECHILD)) break;
+        const timespec pause{0, 1'000'000};
+        (void)::ppoll(nullptr, 0, &pause, nullptr);
+    }
+    return false;
+}
+
+struct SubmsClockChecks {
+    bool unarmed = false;
+    bool hook = false;
+    bool other_thread = false;
+    bool non_monotonic = false;
+    bool fork_pid = false;
+    bool failures = false;
+    bool normal_restore = false;
+    bool exception_restore = false;
+    int probe_forks = 0;
+};
+
+SubmsClockChecks check_subms_clock() {
+    SubmsClockChecks checks;
+    checks.unarmed = steady_clock_is_real() && clock_failure_semantics();
+    const long long base = real_now_ns();
+    {
+        seams::ScopedSubmsClock scope(base, base + 700'000);
+        checks.hook = scope.engaged() && steady_now_ns() == base &&
+            seams::controlled_clock.hits > 0;
+        checks.non_monotonic = realtime_clock_is_real();
+        checks.failures = clock_failure_semantics();
+        std::atomic_bool other_real{false};
+        {
+            JoinThread other{std::thread([&other_real] {
+                other_real.store(steady_clock_is_real(), std::memory_order_relaxed);
+            })};
+        }
+        checks.other_thread = other_real.load(std::memory_order_relaxed);
+        checks.fork_pid = fork_clock_is_real(checks.probe_forks);
+    }
+    checks.normal_restore = steady_clock_is_real();
+    struct ProbeException {};
+    bool exception_hit = false;
+    try {
+        const long long exception_base = real_now_ns();
+        seams::ScopedSubmsClock scope(exception_base, exception_base + 700'000);
+        exception_hit = scope.engaged() && steady_now_ns() == exception_base &&
+            seams::controlled_clock.hits > 0;
+        throw ProbeException{}; // Test-only unwinding, never a production exception.
+    } catch (const ProbeException&) {}
+    checks.exception_restore = exception_hit && steady_clock_is_real();
+    return checks;
+}
+
+std::string exception_hex(const char* message) {
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string encoded;
+    for (const char* cursor = message; *cursor; ++cursor) {
+        const auto byte = static_cast<unsigned char>(*cursor);
+        encoded.push_back(digits[byte >> 4]);
+        encoded.push_back(digits[byte & 15]);
+    }
+    return encoded.empty() ? "-" : encoded;
+}
+
+// Both inputs live inside the original named mother case, in separate fresh
+// staged processes. The controlled input proves production's exact arithmetic
+// and real syscalls; only outer_us and the expired input use real elapsed time.
+int run_subms_deadline(bool expired) {
+    Observation observation;
+    SubmsClockChecks checks;
+    seams::ControlledClock target_clock{};
+    bool threw = false, attempted = false, returned = false, target_armed = false;
+    bool crossed = false, restored = false;
+    int error_code = 0, before_resolve_hits = 0;
+    std::string error_kind = "none", error_text = "-";
+    long long base_ns = 0, deadline_ns = 0, outer_end_ns = 0, before_resolve_ns = 0;
+    try {
+        if (!expired) {
+            checks = check_subms_clock();
+            CHECK(checks.unarmed && checks.hook && checks.other_thread &&
+                  checks.non_monotonic && checks.fork_pid && checks.failures &&
+                  checks.normal_restore && checks.exception_restore);
+        } else {
+            checks.unarmed = steady_clock_is_real();
+            CHECK(checks.unarmed);
+        }
+        seams::reset();
+        base_ns = real_now_ns(); // Real outer start includes all resolver preparation.
+        CHECK(base_ns <= std::numeric_limits<long long>::max() - 700'000);
+        deadline_ns = base_ns + 700'000; // Frozen exactly once; never enlarged.
+        const auto duration = std::chrono::duration_cast<Clock::duration>(
+            std::chrono::nanoseconds(deadline_ns));
+        CHECK(std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count() == deadline_ns);
+        const Clock::time_point deadline(duration);
+        seams::freeze_original_deadline(deadline_ns);
+        if (expired) {
+            // Real bounded ppoll until direct real MONOTONIC proves the
+            // original 700us deadline has passed. This adds no business budget.
+            long long now = real_now_ns();
+            while (now <= deadline_ns) {
+                timespec pause{};
+                CHECK(seams::ns_to_timespec(deadline_ns - now + 1, pause));
+                CHECK(::ppoll(nullptr, 0, &pause, nullptr) >= 0 || errno == EINTR);
+                now = real_now_ns();
+            }
+            crossed = now > deadline_ns;
+            before_resolve_ns = now;
+            attempted = true;
+            observation = resolve_ipv4("localhost", "443", deadline, {});
+            returned = true;
+        } else {
+            seams::state.inject_read_eintr.store(1);
+            seams::ScopedSubmsClock scope(base_ns, deadline_ns);
+            CHECK(scope.engaged());
+            target_armed = true;
+            CHECK(steady_now_ns() == base_ns);
+            before_resolve_hits = seams::controlled_clock.hits;
+            before_resolve_ns = real_now_ns();
+            attempted = true;
+            observation = resolve_ipv4("localhost", "443", deadline, {});
+            returned = true;
+        }
+        outer_end_ns = real_now_ns(); // Direct syscall, after scope disarms.
+    } catch (const wls::s1::Error& error) {
+        outer_end_ns = real_now_ns();
+        threw = true;
+        error_kind = "wls";
+        error_code = static_cast<int>(error.code());
+        error_text = exception_hex(error.what());
+    } catch (const std::exception& error) {
+        outer_end_ns = real_now_ns();
+        threw = true;
+        error_kind = "std";
+        error_text = exception_hex(error.what());
+    } catch (...) {
+        outer_end_ns = real_now_ns();
+        threw = true;
+        error_kind = "unknown";
+    }
+    if (target_armed) target_clock = seams::controlled_clock;
+    restored = steady_clock_is_real(); // Real before/after brackets, not armed=false alone.
+    const auto flag = [](bool value) { return value ? "1" : "0"; };
+    std::string extra = std::string("input=") +
+        (expired ? "subms_real_expired_700us_v1" : "subms_controlled_700us_v1") +
+        " clock_source=" + (expired ? "real" : "controlled_test") +
+        " outer_clock_source=SYS_clock_gettime_MONOTONIC" +
+        " outer_us=" + std::to_string(base_ns > 0 ? (outer_end_ns - base_ns) / 1000 : 0) +
+        " base_ns=" + std::to_string(base_ns) +
+        " deadline_ns=" + std::to_string(deadline_ns) +
+        " frozen_ns=" + std::to_string(seams::state.frozen_original_deadline_ns.load()) +
+        " before_resolve_ns=" + std::to_string(before_resolve_ns) +
+        " facts=" + std::to_string(seams::state.wait_fact_count.load()) +
+        " read_facts=" + std::to_string(seams::state.read_wait_facts.load()) +
+        " exact=" + flag(seams::read_facts_carry_original_exactly(deadline_ns)) +
+        " latched=" + flag(seams::state.wait_fact_violation_latched.load()) +
+        " violations=" + std::to_string(seams::state.wait_fact_violations.load()) +
+        " overflow=" + flag(seams::state.wait_fact_overflow.load()) +
+        " pmax_ns=" + std::to_string(seams::state.poll_max_requested_ns.load()) +
+        " pzero=" + std::to_string(seams::state.poll_nonpositive_deadline.load()) +
+        " forks=" + std::to_string(seams::state.fork_count.load()) +
+        " read_eintr=" + std::to_string(seams::state.read_eintr_consumed.load()) +
+        " read_eintr_left=" + std::to_string(seams::state.inject_read_eintr.load()) +
+        " clock_hits=" + std::to_string(target_clock.hits) +
+        " production_clock_hits=" + std::to_string(target_armed ? target_clock.hits - before_resolve_hits : 0) +
+        " clock_phase=" + std::to_string(target_clock.phase) +
+        " clock_now_ns=" + std::to_string(target_clock.now_ns) +
+        " clock_eintr=" + std::to_string(target_clock.read_eintr) +
+        " clock_read_facts=" + std::to_string(target_clock.read_facts) +
+        " clock_monotonic=" + flag(target_clock.monotonic) +
+        " clock_fact_valid=" + flag(target_clock.first_fact_valid) +
+        " clock_armed=" + flag(seams::controlled_clock.armed) +
+        " scope_restored=" + flag(restored) +
+        " unarmed_real=" + flag(checks.unarmed) +
+        " other_thread_real=" + flag(checks.other_thread) +
+        " non_monotonic_real=" + flag(checks.non_monotonic) +
+        " fork_pid_real=" + flag(checks.fork_pid) +
+        " failure_semantics=" + flag(checks.failures) +
+        " normal_restore=" + flag(checks.normal_restore) +
+        " exception_restore=" + flag(checks.exception_restore) +
+        " probe_forks=" + std::to_string(checks.probe_forks) +
+        " crossed=" + flag(crossed) + " resolve_attempted=" + flag(attempted) +
+        " observation_returned=" + flag(returned) +
+        " error_kind=" + error_kind + " error_code=" + std::to_string(error_code) +
+        " error_hex=" + error_text +
+        " exception_phase=" + (threw ? (attempted ? "resolve" : "fixture") : "none") + " ";
+    report(extra, threw, observation);
+    std::fflush(stdout); // Preserve the original pending observation BEFORE real cleanup.
+
+    // One real nonblocking cleanup observation per iteration, with a separate
+    // test-owned real clock bound. Never resend a kill at a potentially reused
+    // PID and never rewrite the already-flushed resolve observation.
+    const long long cleanup_until = real_now_ns() + 250'000'000;
+    bool settled = !cleanup_pending();
+    while (!settled && real_now_ns() < cleanup_until) {
+        const timespec pause{0, 1'000'000};
+        (void)::ppoll(nullptr, 0, &pause, nullptr);
+        settled = !cleanup_pending();
+    }
+    const int first_pid = seams::state.first_forked_pid.load();
+    const int confirmed_pid = seams::state.last_confirmed_pid.load();
+    const bool bound = first_pid < 0 || (first_pid > 0 && confirmed_pid == first_pid);
+    std::printf("SUBMS_CLEANUP settled=%d bound=%d restored=%d\n",
+                settled ? 1 : 0, bound ? 1 : 0, steady_clock_is_real() ? 1 : 0);
+    std::fflush(stdout);
+    return !threw && settled && bound && restored ? 0 : 1;
 }
 
 // Disposable regression machinery: all descriptors, paths and threads belong
@@ -534,6 +813,8 @@ int run_reopen_race(const std::string& scenario) {
 int run_staged(const std::string& scenario) {
     if (scenario.rfind("reopen-", 0) == 0) return run_reopen_race(scenario);
     if (scenario.rfind("stdio-", 0) == 0) return run_stdio_layout(scenario);
+    if (scenario == "subms-deadline" || scenario == "subms-expired-real")
+        return run_subms_deadline(scenario == "subms-expired-real");
     const auto budget = Clock::now() + std::chrono::seconds(5);
     bool threw = false;
     Observation observation;
@@ -795,23 +1076,6 @@ int run_staged(const std::string& scenario) {
                 " still=" + (still ? "1" : "0") +
                 " recovered=" + (recovered ? "1" : "0") +
                 " pidbind=" + (seams::pid_bind_proven() ? "1" : "0") + " ";
-        } else if (scenario == "subms-deadline") {
-            seams::reset();
-            const auto outer_start = Clock::now();
-            const auto deadline = outer_start + std::chrono::microseconds(700);
-            seams::freeze_original_deadline(deadline.time_since_epoch().count());
-            // One injected read interruption forces a real sub-millisecond
-            // wait decision, so the exactness assertion observes the actual
-            // requested budget instead of a wait-free fast path.
-            seams::state.inject_read_eintr.store(1);
-            observation = resolve_ipv4("localhost", "443", deadline, {});
-            const auto outer_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                Clock::now() - outer_start).count();
-            extra = "outer_us=" + std::to_string(outer_us) +
-                " facts=" + std::to_string(seams::state.wait_fact_count.load()) +
-                " latched=" + (seams::state.wait_fact_violation_latched.load() ? "1" : "0") +
-                " pmax_ns=" + std::to_string(seams::state.poll_max_requested_ns.load()) +
-                " pzero=" + std::to_string(seams::state.poll_nonpositive_deadline.load()) + " ";
         } else if (scenario == "cancel-block") {
             std::stop_source source;
             JoinThread stopper{std::thread([&source] {
@@ -1559,6 +1823,98 @@ struct Fields {
     }
 };
 
+// Only the two subms inputs use this strict schema. Every required field is
+// present once, every integer is a complete nonnegative decimal, and cleanup
+// has its own record so it cannot replace an original pending observation.
+Fields capture_subms_fields(const Capture& capture) {
+    Fields fields;
+    fields.exited_zero = capture.exited_zero;
+    int results = 0, cleanups = 0;
+    std::map<std::string, std::string> cleanup;
+    const auto parse = [](const std::string& payload,
+                          std::map<std::string, std::string>& values) {
+        std::istringstream tokens(payload);
+        std::string token;
+        while (tokens >> token) {
+            const auto equals = token.find('=');
+            CHECK(equals != std::string::npos && equals > 0 && equals + 1 < token.size());
+            CHECK(token.find('=', equals + 1) == std::string::npos);
+            CHECK(values.emplace(token.substr(0, equals), token.substr(equals + 1)).second);
+        }
+    };
+    std::istringstream stream(capture.output);
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (line.rfind("RESULT ", 0) == 0) {
+            ++results;
+            parse(line.substr(7), fields.values);
+        } else if (line.rfind("SUBMS_CLEANUP ", 0) == 0) {
+            ++cleanups;
+            CHECK(results == 1); // Original RESULT must precede ownership cleanup.
+            parse(line.substr(14), cleanup);
+        } else {
+            CHECK(false); // Unexpected output is evidence, never an ignored field source.
+        }
+    }
+    CHECK(results == 1 && cleanups == 1);
+    const std::initializer_list<const char*> numeric = {
+        "outer_us", "base_ns", "deadline_ns", "frozen_ns", "before_resolve_ns",
+        "facts", "read_facts", "exact", "latched", "violations", "overflow",
+        "pmax_ns", "pzero", "forks", "read_eintr", "read_eintr_left", "clock_hits",
+        "production_clock_hits", "clock_phase", "clock_now_ns", "clock_eintr",
+        "clock_read_facts", "clock_monotonic", "clock_fact_valid", "clock_armed",
+        "scope_restored", "unarmed_real", "other_thread_real", "non_monotonic_real",
+        "fork_pid_real", "failure_semantics", "normal_restore", "exception_restore",
+        "probe_forks", "crossed", "resolve_attempted", "observation_returned", "error_code", "threw",
+        "started", "ok", "pending", "addr", "identity", "loopback", "elapsed_us"
+    };
+    const auto nonnegative = [](const std::string& value) {
+        CHECK(!value.empty() && value.find_first_not_of("0123456789") == std::string::npos);
+        long long parsed = 0;
+        const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+        CHECK(result.ec == std::errc{} && result.ptr == value.data() + value.size() && parsed >= 0);
+    };
+    for (const char* key : numeric) {
+        CHECK(fields.values.count(key) == 1);
+        nonnegative(fields.values.at(key));
+    }
+    const std::initializer_list<const char*> textual = {
+        "input", "clock_source", "outer_clock_source", "error_kind", "error_hex",
+        "exception_phase", "first"
+    };
+    for (const char* key : textual)
+        CHECK(fields.values.count(key) == 1 && !fields.values.at(key).empty());
+    CHECK(fields.values.size() == numeric.size() + textual.size());
+    CHECK(cleanup.size() == 3);
+    for (const char* key : {"settled", "bound", "restored"}) {
+        CHECK(cleanup.count(key) == 1);
+        nonnegative(cleanup.at(key));
+        CHECK(cleanup.at(key) == "1");
+    }
+    for (const char* key : {
+             "exact", "latched", "overflow", "clock_monotonic", "clock_fact_valid",
+             "clock_armed", "scope_restored", "unarmed_real", "other_thread_real",
+             "non_monotonic_real", "fork_pid_real", "failure_semantics", "normal_restore",
+             "exception_restore", "crossed", "resolve_attempted", "observation_returned", "threw", "started",
+             "ok", "pending", "identity", "loopback"})
+        CHECK(fields.large(key) <= 1);
+    CHECK(fields.text("outer_clock_source") == "SYS_clock_gettime_MONOTONIC");
+    CHECK(fields.text("error_kind") == "none" || fields.text("error_kind") == "wls" ||
+          fields.text("error_kind") == "std" || fields.text("error_kind") == "unknown");
+    const std::string error = fields.text("error_hex");
+    CHECK(error == "-" || (error.size() % 2 == 0 &&
+          error.find_first_not_of("0123456789abcdef") == std::string::npos));
+    if (fields.number("threw") == 0) {
+        CHECK(fields.text("error_kind") == "none" && fields.number("error_code") == 0 &&
+              error == "-" && fields.text("exception_phase") == "none");
+    } else {
+        CHECK(fields.text("error_kind") != "none");
+        CHECK(fields.text("exception_phase") == "fixture" ||
+              fields.text("exception_phase") == "resolve");
+    }
+    return fields;
+}
+
 Fields capture_fields(const Capture& capture) {
     Fields fields;
     fields.exited_zero = capture.exited_zero;
@@ -1596,10 +1952,13 @@ Fields staged_case(const fs::path& root, const fs::path& helper_source,
     }
     if (mutate) mutate(directory);
     const Capture captured = run_process(staged_driver, {"--stage", scenario});
-    if (scenario.rfind("reopen-", 0) == 0 || scenario.rfind("stdio-", 0) == 0) {
-        std::printf("SCENARIO %s\n%s", scenario.c_str(), captured.output.c_str());
+    const bool subms = scenario == "subms-deadline" || scenario == "subms-expired-real";
+    if (scenario.rfind("reopen-", 0) == 0 || scenario.rfind("stdio-", 0) == 0 || subms) {
+        std::printf("SCENARIO %s\n", scenario.c_str());
+        (void)std::fwrite(captured.output.data(), 1, captured.output.size(), stdout);
         std::fflush(stdout);
     }
+    if (subms) return capture_subms_fields(captured); // Raw output already flushed before CHECKs.
     return capture_fields(captured);
 }
 
@@ -1992,10 +2351,62 @@ int main(int argc, char** argv) {
         const Fields result = run(fixture, "subms-deadline");
         CHECK(result.exited_zero);
         CHECK(result.large("outer_us") < 30000);
-        CHECK(result.number("facts") >= 1);         // A real sub-ms wait decision happened.
+        CHECK(result.number("facts") >= 1);         // Production fact, controlled_test clock input.
         CHECK(result.large("pmax_ns") <= 700000);   // Never rounded up to a full ms.
         CHECK(result.number("latched") == 0);       // Exact identity held for every fact.
         CHECK(result.number("pzero") == 0);
+        CHECK(result.text("input") == "subms_controlled_700us_v1");
+        CHECK(result.text("clock_source") == "controlled_test");
+        CHECK(result.number("threw") == 0);
+        CHECK(result.number("resolve_attempted") == 1);
+        CHECK(result.number("observation_returned") == 1);
+        CHECK(result.number("started") == 1);
+        CHECK(result.number("forks") == 1); // The resolver's real fork; probe is counted separately.
+        CHECK(result.number("probe_forks") == 1);
+        CHECK(result.number("read_eintr") == 1 && result.number("read_eintr_left") == 0);
+        CHECK(result.number("read_facts") >= 1 && result.number("exact") == 1);
+        CHECK(result.number("violations") == 0 && result.number("overflow") == 0);
+        CHECK(result.large("base_ns") > 0);
+        CHECK(result.large("deadline_ns") - result.large("base_ns") == 700000);
+        CHECK(result.large("frozen_ns") == result.large("deadline_ns"));
+        CHECK(result.large("before_resolve_ns") >= result.large("base_ns"));
+        CHECK(result.large("pmax_ns") == 600000); // Additional exactness, preserves the original bound.
+        CHECK(result.number("clock_hits") > 0 && result.number("production_clock_hits") > 0);
+        CHECK(result.number("clock_phase") == 2);
+        CHECK(result.large("clock_now_ns") == result.large("deadline_ns"));
+        CHECK(result.number("clock_eintr") == 1 && result.number("clock_read_facts") == 1);
+        CHECK(result.number("clock_monotonic") == 1 && result.number("clock_fact_valid") == 1);
+        CHECK(result.number("clock_armed") == 0 && result.number("scope_restored") == 1);
+        for (const char* key : {"unarmed_real", "other_thread_real", "non_monotonic_real",
+                               "fork_pid_real", "failure_semantics", "normal_restore",
+                               "exception_restore"})
+            CHECK(result.number(key) == 1);
+        CHECK(result.number("ok") == 0 && result.number("addr") == 0);
+
+        // Second internal input: a fresh staged process with genuinely spent
+        // 700us, independent of the first input's pending child/owned cleanup.
+        const Fields expired = run(fixture, "subms-expired-real");
+        CHECK(expired.exited_zero);
+        CHECK(expired.text("input") == "subms_real_expired_700us_v1");
+        CHECK(expired.text("clock_source") == "real");
+        CHECK(expired.large("outer_us") < 30000);
+        CHECK(expired.large("base_ns") > 0);
+        CHECK(expired.large("deadline_ns") - expired.large("base_ns") == 700000);
+        CHECK(expired.large("frozen_ns") == expired.large("deadline_ns"));
+        CHECK(expired.large("before_resolve_ns") > expired.large("deadline_ns"));
+        CHECK(expired.number("crossed") == 1 && expired.number("resolve_attempted") == 1);
+        CHECK(expired.number("observation_returned") == 1);
+        CHECK(expired.number("threw") == 0 && expired.number("started") == 0);
+        CHECK(expired.number("forks") == 0 && expired.number("facts") == 0);
+        CHECK(expired.number("read_facts") == 0 && expired.number("read_eintr") == 0);
+        CHECK(expired.number("pending") == 0 && expired.number("addr") == 0);
+        CHECK(expired.number("ok") == 0 && expired.text("first") == "-");
+        CHECK(expired.number("latched") == 0 && expired.number("violations") == 0);
+        CHECK(expired.number("pzero") == 0 && expired.large("pmax_ns") == 0);
+        CHECK(expired.number("clock_hits") == 0 && expired.number("production_clock_hits") == 0);
+        CHECK(expired.number("clock_armed") == 0 && expired.number("scope_restored") == 1);
+        CHECK(expired.number("unarmed_real") == 1 && expired.number("probe_forks") == 0);
+        std::printf("SUBMS_INTERNAL_INPUTS controlled=1 real_expired=1 named_mother_cases_added=0\n");
     });
     cases.emplace_back("lifecycle_cancel_blocked_child", [&] {
         const Fields result = run(fixture, "cancel-block");
