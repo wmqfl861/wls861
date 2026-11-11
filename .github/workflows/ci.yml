@@ -130,6 +130,35 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Diagnose package-source DNS and HTTPS access
+        if: needs.classify.outputs.mode != 'docs-only'
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -uo pipefail
+          for apt_source in \
+            azure.archive.ubuntu.com/ubuntu/dists/noble/InRelease \
+            archive.ubuntu.com/ubuntu/dists/noble/InRelease \
+            security.ubuntu.com/ubuntu/dists/noble-security/InRelease \
+            packages.microsoft.com/ubuntu/24.04/prod/dists/noble/InRelease; do
+            source_host=${apt_source%%/*}
+            printf '::group::Package-source probe: %s\n' "$source_host"
+            if timeout --kill-after=1s 8s getent ahostsv4 "$source_host" >/dev/null 2>&1; then
+              printf 'dns_ipv4=ok\n'
+            else
+              printf 'dns_ipv4=failed exit=%s\n' "$?"
+            fi
+            if timeout --kill-after=1s 12s curl --disable --head --silent --show-error --fail \
+              --proto '=https' --noproxy '*' --retry 0 --connect-timeout 5 --max-time 10 \
+              --output /dev/null --write-out 'http_status=%{http_code}\n' "https://$apt_source"; then
+              printf 'https_head=ok\n'
+            else
+              printf 'https_head=failed exit=%s\n' "$?"
+            fi
+            printf '::endgroup::\n'
+          done
+          # Observations only: the original dependency installation and test gates follow.
+          exit 0
       - name: Install C++ development dependencies
         if: needs.classify.outputs.mode != 'docs-only'
         run: |
