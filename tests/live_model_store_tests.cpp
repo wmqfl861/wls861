@@ -21,9 +21,7 @@ std::unique_ptr<fixture::Assets> assets;
 
 void bounded_warnings_preserve_settlement_and_recover_without_capacity_charge() {
     fixture::Fixture f(*assets, fixture::settings(), true, 410, true);
-    auto input = fixture::admission(*assets, f.live, "bounded", true, true);
-    input.config_snapshot.at("system").at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
-    input.config_snapshot.at("system").at("budget_defaults").at("max_wall_minutes") = 1;
+    auto input = fixture::admission(*assets, f.live, "bounded", true, true, true);
     input.budget = BudgetLimits{5, 1000, 100, 1000};
     f.request_id = text(f.store->admit(input), "request_id");
     const auto request = f.request("bounded-original");
@@ -68,6 +66,7 @@ void bounded_warnings_preserve_settlement_and_recover_without_capacity_charge() 
     CHECK(fixture::sql_text(f.path, "SELECT count(*) FROM events WHERE type='budget_warning'") == "4");
     CHECK(f.store->attempt(request.attempt_id) == original);
     fixture::sql(f.path, "UPDATE requests SET created_at=strftime('%Y-%m-%dT%H:%M:%SZ','now','-2 minutes');");
+    f.store.reset(); f.store = assets->open(f.path);
     CHECK(f.store->observe_runtime_controls(f.request_id) <= 0);
     CHECK(f.store->observe_runtime_controls(f.request_id) <= 0);
     CHECK(fixture::sql_text(f.path, "SELECT count(*) FROM events WHERE type='budget_warning'") == "5");
@@ -82,9 +81,7 @@ void bounded_warnings_preserve_settlement_and_recover_without_capacity_charge() 
 
 void bounded_first_send_checks_original_creation_time() {
     fixture::Fixture f(*assets);
-    auto input = fixture::admission(*assets, f.live, "bounded-send");
-    input.config_snapshot.at("system").at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
-    input.config_snapshot.at("system").at("budget_defaults").at("max_wall_minutes") = 1;
+    auto input = fixture::admission(*assets, f.live, "bounded-send", true, false, true);
     f.request_id = text(f.store->admit(input), "request_id");
     const auto request = f.request(); (void)f.reserve(request);
     fixture::sql(f.path, "UPDATE requests SET created_at=strftime('%Y-%m-%dT%H:%M:%SZ','now','-2 minutes');");

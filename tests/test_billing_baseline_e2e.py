@@ -765,7 +765,8 @@ class BillingBaselineIntegration(unittest.TestCase):
         with tls.Peer(self.contexts['server'], endpoint) as peer:
             profile = copy.deepcopy(self.profile)
             provider = profile['responses']['provider_profile']
-            provider.update(base_url=f'https://localhost:{peer.port}', max_output_tokens=16384)
+            provider.update(base_url=f'https://localhost:{peer.port}')
+            provider['capabilities']['max_output_tokens'] = 16384
             provider.pop('billing_challenge', None)
             provider['pricing'] = PRICING
             profile['capabilities']['max_output_tokens'] = 16384

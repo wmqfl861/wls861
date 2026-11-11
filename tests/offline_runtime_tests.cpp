@@ -72,17 +72,19 @@ void bounded_output_and_display_estimate_preserve_legacy_limits() {
     for (int scenario = 0; scenario < 4; ++scenario) {
         test::TempDir directory;
         Store store(directory.path / "bounded.db", base_sql, migration_sql);
-        auto admission = input();
-        admission.original_text += " UTF-8 中文 \"quoted\" \\escaped\n";
-        auto& system = admission.config_snapshot.at("system");
+        auto system = config().json().at("system");
         const auto model = text(system.at("defaults").at("model_ref"));
         system.at("models").at(model).at("capabilities").at("max_output_tokens") = 16384;
         if (scenario != 0) system.at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
-        if (scenario == 2) admission.budget.output_tokens = 7;
         if (scenario == 3) {
             system.at("models").at(model).at("capabilities").at("context_window") = 1;
             system.at("models").at(model).at("capabilities").at("max_output_tokens") = 1;
         }
+        write(directory.path / "system.json", canonical_json(system));
+        auto admission = input(load_config_catalog(directory.path / "system.json", source / "config/examples/functions",
+            source / "prompts").freeze("general"));
+        admission.original_text += " UTF-8 中文 \"quoted\" \\escaped\n";
+        if (scenario == 2) admission.budget.output_tokens = 7;
         const auto id = text(store.admit(admission).at("request_id"));
         OfflineRuntime runtime(store, *schemas);
         if (scenario == 3) {

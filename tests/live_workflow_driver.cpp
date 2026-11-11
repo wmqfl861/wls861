@@ -118,11 +118,9 @@ int main(int argc, char** argv) {
             live.provider.pricing = pricing;
         }
         auto store = assets.open(text(config, "database"));
-        auto input = fixture::admission(assets, live, "workflow", !flag(config, "disabled"));
+        auto input = fixture::admission(assets, live, "workflow", !flag(config, "disabled"), false, flag(config, "bounded"));
         input.original_text = string_option(config, "material", "Complete a synthetic loopback workflow.");
         input.constraint_catalog = Array{};
-        if (flag(config, "bounded"))
-            input.config_snapshot.at("system").at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
         const auto frozen = FrozenRequestConfig::restore(canonical_json(input.config_snapshot), sha256_hex(canonical_json(input.config_snapshot)));
         const auto grants = frozen.worker_tools(); input.tool_allowlist.assign(grants.begin(), grants.end());
         input.budget = BudgetLimits{64, 4000000, 1000000, 100000};

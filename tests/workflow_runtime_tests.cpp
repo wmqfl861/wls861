@@ -37,12 +37,18 @@ void expect(ErrorCode code, const std::function<void()>& action) {
     }
     CHECK(caught);
 }
-AdmissionInput input(std::int64_t correction_limit = 2) {
+AdmissionInput input(std::int64_t correction_limit = 2, std::int64_t stall_limit = 0) {
     test::TempDir configuration;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
     const std::string marker = "  schema_retry_max: 2";
     const auto position = yaml.find(marker); CHECK(position != std::string::npos);
     yaml.replace(position, marker.size(), "  schema_retry_max: " + std::to_string(correction_limit));
+    if (stall_limit > 0) {
+        yaml.replace(yaml.find("model_calls:\n"), std::string("model_calls:\n").size(),
+            "model_calls:\n  runtime_policy: bounded-v1\n");
+        const std::string stall = "  stall_same_error_repeats: 3";
+        yaml.replace(yaml.find(stall), stall.size(), "  stall_same_error_repeats: " + std::to_string(stall_limit));
+    }
     write(configuration.path / "system.yaml", yaml);
     const auto frozen = load_config_catalog(configuration.path / "system.yaml", source / "config/examples/functions",
                                             source / "prompts").freeze("general");
@@ -507,13 +513,11 @@ void correction_file_failures_limits_reset_and_reopen() {
 }
 
 void bounded_same_error_count_survives_reopen_and_resets_on_success_or_target_change() {
-    auto admission = input(10);
-    auto& system = admission.config_snapshot.at("system");
-    system.at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
-    system.at("limits").at("stall_same_error_repeats") = 2;
+    auto admission = input(10, 2);
     Fixture f(admission); f.ready();
     const auto count = [](const Json& result) { return result.at("correction_feedback").at("bounded_runtime_v1").at("same_error_repeats"); };
     CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 1);
+    CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "different-absent.txt"}})) == 1);
     (void)f.invoke(Role::Worker, "fs_write", Object{{"path", "exists.txt"}, {"content", "original"}});
     CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 1);
     f.reopen();

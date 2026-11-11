@@ -491,11 +491,11 @@ void unsupported_enforcement_is_visible_without_changing_frozen_bytes() {
     CHECK(frozen.explain(Role::Worker).at("runtime_support") == support);
     CHECK(frozen.serialize() == bytes);
     CHECK(FrozenRequestConfig::restore(bytes, frozen.sha256()).runtime_support() == support);
-    auto bounded = frozen.json();
-    bounded.at("system").at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
+    auto bounded = frozen.json().at("system");
+    bounded.at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
     const auto restore = [&] {
-        const auto changed = canonical_json(bounded);
-        return FrozenRequestConfig::restore(changed, sha256_hex(changed));
+        fixture.system(bounded);
+        return fixture.freeze();
     };
     const auto selected = restore();
     CHECK(selected.bounded_runtime() && selected.max_total_calls() == 200);
@@ -508,7 +508,7 @@ void unsupported_enforcement_is_visible_without_changing_frozen_bytes() {
     CHECK(!paths.contains("system.limits.stall_same_error_repeats"));
     CHECK(paths.contains("system.limits.stall_minutes"));
     for (const int invalid : {0, 201}) {
-        bounded.at("system").at("model_calls").as_object()["max_total_calls"] = invalid;
+        bounded.at("model_calls").as_object()["max_total_calls"] = invalid;
         expect_error(ErrorCode::InvalidInput, [&] { (void)restore(); });
     }
 }
