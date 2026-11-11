@@ -393,7 +393,9 @@ void answered_rejection_keeps_wakeup_after_invalid_response() {
     Fixture f; (void)reject(f); const auto q=escalate(f);
     (void)f.runtime().pump(f.id,EventFakeScript{}); answer(f,q);
     EventFakeScript bad; bad.default_steps={step(Role::Dispatcher,"change_task",Object{{"correction","missing rationale"}})};
-    const auto failure=f.runtime().pump(f.id,bad); CHECK(blocked(failure,"invalid_input"));
+    const auto failure=f.runtime().pump(f.id,bad); CHECK(failure.at("calls").as_array().size()==1);
+    CHECK(failure.at("calls").as_array().front().at("result").at("correction_feedback").at("reason")=="model_arguments");
+    CHECK(blocked(failure,"missing_script"));
     EventFakeScript valid; valid.default_steps={step(Role::Dispatcher,"change_task",correction())};
     const auto result=f.runtime().pump(f.id,valid);
     CHECK(result.at("calls").as_array().size()==1 && f.task().at("status")=="READY");

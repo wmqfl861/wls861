@@ -313,7 +313,8 @@ void snapshot_requires_complete_authorized_bounded_files() {
     auto admission = input();
     std::erase(admission.tool_allowlist, "fs_read");
     Fixture f(admission); f.ready(); write(f.directory.path / "alpha/result.txt", "private\n");
-    expect(ErrorCode::InvalidInput, [&] { (void)f.submit(); });
+    const auto rejected = f.submit();
+    CHECK(rejected.at("status") == "FAILED" && rejected.at("correction_feedback").at("reason") == "tool_selection");
     CHECK(f.store->current_submission(f.binding().task_id).is_null());
 }
 

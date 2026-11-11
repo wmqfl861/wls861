@@ -469,6 +469,15 @@ def logical_agent_evidence(db, request, attempts, condition, policy):
             'authority_roles_are_separate_agents': False, 'private_history_in_report': False}
 
 
+def correction_semantic_target(value):
+    if isinstance(value, dict):
+        return {key: correction_semantic_target(child) for key, child in value.items()
+                if key not in ('state_version', 'expected_task_version', 'execution_epoch', 'dispatcher_epoch')}
+    if isinstance(value, list):
+        return [correction_semantic_target(child) for child in value]
+    return value
+
+
 def model_applications(db, request_id, attempts):
     """Check original response -> captured target -> feedback -> business event.
 
@@ -538,6 +547,23 @@ def model_applications(db, request_id, attempts):
                         'response': recorded, 'result': result}) == feedback['record_sha256'],
                 'original feedback fingerprint mismatch')
         if not isinstance(result, dict) or result.get('runtime_error'):
+            continue
+        correction = result.get('correction_feedback')
+        if (result.get('status') == 'FAILED' and isinstance(correction, dict) and
+                correction.get('format') == 'wls-correction-feedback-v1' and
+                correction.get('reason') in ('model_arguments', 'tool_selection', 'missing_leaf')):
+            count = correction.get('consecutive_failures')
+            require(set(result) == {'status', 'correction_feedback'} and type(count) is int and 0 < count <= 10**12,
+                    'invalid original correction rejection')
+            target = {'role': attempt['role'], 'binding': correction_semantic_target(binding),
+                      'config': response['config_snapshot_id'], 'action': correction_semantic_target(contract.get('workflow_action'))}
+            require(correction.get('target_sha256') == original_digest(target), 'correction rejection changed captured target')
+            command = attempt['attempt_id'] + ':' + tool['call_id']
+            prefix = command + ':'
+            require(not rows(db, 'SELECT event_id FROM events WHERE request_id=? AND '
+                             '(command_id=? OR substr(command_id,1,?)=?)', (request_id, command, len(prefix), prefix)) and
+                    not rows(db, 'SELECT op_id FROM ops WHERE request_id=? AND business_idempotency_key=?',
+                             (request_id, attempt['attempt_id'])), 'correction rejection has an application')
             continue
         action = contract.get('workflow_action')
         name, arguments = tool['name'], tool['arguments']

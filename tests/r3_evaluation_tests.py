@@ -177,7 +177,8 @@ class Evaluation(unittest.TestCase):
         self.execute(request, script=rejected, max_calls=1)
         feedback = self.rows('SELECT response,result FROM model_tool_feedback')[0]
         self.assertEqual(json.loads(feedback['response'])['tool_calls'][0]['arguments']['unexpected_fraction'], 0.1)
-        self.assertTrue(json.loads(feedback['result'])['runtime_error'])
+        self.assertEqual(json.loads(feedback['result'])['status'], 'FAILED')
+        self.assertEqual(json.loads(feedback['result'])['correction_feedback']['reason'], 'model_arguments')
         accepted = self.fixture()
         self.execute(request, script=accepted, max_calls=12, worker_calls=2)
         self.ack(request, self.publish(request))
@@ -191,6 +192,18 @@ class Evaluation(unittest.TestCase):
             self.assertEqual(legacy['status'], 'failed', legacy)
             self.assertFalse(legacy['checks']['condition_roles'])
         self.assertEqual(self.snapshot(), before)
+        # A valid rejection marker cannot hide an actual applied plan, even rehashed.
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.row_factory = sqlite3.Row
+            applied = db.execute("SELECT f.* FROM model_tool_feedback f JOIN call_attempts a USING(attempt_id) "
+                                 "WHERE a.role='dispatcher' AND json_extract(f.result,'$.plan_revision')=1").fetchone()
+            fact = {key: e.strict_json(applied[key]) for key in ('original_binding', 'response')}
+            fact.update(attempt_id=applied['attempt_id'], result=e.strict_json(feedback['result']))
+            db.execute('DROP TRIGGER model_tool_feedback_immutable')
+            db.execute('UPDATE model_tool_feedback SET result=?,record_sha256=? WHERE attempt_id=?',
+                       (e.original_canonical(fact['result']).decode(), e.original_digest(fact), applied['attempt_id']))
+        with e.database(self.database) as db, self.assertRaisesRegex(e.InvalidEvidence, 'correction rejection has an application'):
+            e.model_applications(db, request, e.rows(db, 'SELECT * FROM call_attempts WHERE request_id=? ORDER BY rowid', (request,)))
 
     def test_v3_rehashed_omission_of_actual_native_history_refuses(self):
         request = self.logical_seed()

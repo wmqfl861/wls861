@@ -193,9 +193,8 @@ void raw_submission_cannot_skip_team_lead_check() {
     const auto call = f.capture(Role::Dispatcher, fake);
     CHECK(call.workflow_action.is_null());
     CHECK(call.request.context.tool_names == std::vector<std::string>{"submit_plan"});
-    expect(ErrorCode::InvalidInput, [&] {
-        (void)OfflineRuntime(*f.store, *schemas, f.alpha.get()).accept_response(call, fake.complete(call.request));
-    });
+    const auto rejected = OfflineRuntime(*f.store, *schemas, f.alpha.get()).accept_response(call, fake.complete(call.request));
+    CHECK(rejected.at("status") == "FAILED" && rejected.at("correction_feedback").at("reason") == "tool_selection");
     CHECK(f.task().at("status") == "SUBMITTED" && f.store->experience_jobs(f.id).empty());
     CHECK(f.store->current_submission(f.binding().task_id).at("status") == "SUBMITTED");
 }
