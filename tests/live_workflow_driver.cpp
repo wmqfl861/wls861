@@ -121,6 +121,8 @@ int main(int argc, char** argv) {
         auto input = fixture::admission(assets, live, "workflow", !flag(config, "disabled"));
         input.original_text = string_option(config, "material", "Complete a synthetic loopback workflow.");
         input.constraint_catalog = Array{};
+        if (flag(config, "bounded"))
+            input.config_snapshot.at("system").at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
         const auto frozen = FrozenRequestConfig::restore(canonical_json(input.config_snapshot), sha256_hex(canonical_json(input.config_snapshot)));
         const auto grants = frozen.worker_tools(); input.tool_allowlist.assign(grants.begin(), grants.end());
         input.budget = BudgetLimits{64, 4000000, 1000000, 100000};
@@ -144,6 +146,7 @@ int main(int argc, char** argv) {
         // work; correctness scenarios must not accidentally become deadlines.
         options.max_batch_duration = std::chrono::milliseconds(number_option(config, "timeout_ms", 60000));
         options.limits.max_calls = number_option(config, "max_calls", 32);
+        options.max_total_calls = number_option(config, "max_total_calls", 0);
         options.limits.max_worker_calls_per_task = number_option(config, "worker_calls", 16);
         options.credentials = [&](std::string_view name) {
             ++credentials; CHECK(name == live.provider.api_key_env);

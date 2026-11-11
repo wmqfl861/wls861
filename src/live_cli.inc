@@ -22,20 +22,22 @@ LiveCliAuthorization live_cli_authorization(const Json& value) {
             !value.as_object().contains("kind"))
         throw Error(ErrorCode::InvalidInput, "live authorization requires a versioned host envelope");
     const auto version = integer(value.at("schema_version"));
-    if ((version != 1 && version != 2) || text(value.at("kind")) !=
-            (version == 1 ? "wls-live-workflow-authorization-v1" : "wls-live-workflow-authorization-v2"))
+    if ((version != 1 && version != 2 && version != 3) || text(value.at("kind")) !=
+            (version == 1 ? "wls-live-workflow-authorization-v1" : version == 2 ?
+                "wls-live-workflow-authorization-v2" : "wls-live-workflow-authorization-v3"))
         throw Error(ErrorCode::Unsupported, "unsupported live authorization version");
     std::set<std::string> fields{"schema_version", "kind", "request_id",
         "config_snapshot_sha256", "execution_kind", "network_enabled", "provider_enabled", "models",
         "max_calls", "max_worker_calls_per_task", "max_batch_duration_ms", "reserved_cost_micro_usd"};
-    if (version == 2) fields.insert("billing_policy_sha256");
+    if (version == 2 || (version == 3 && value.as_object().contains("billing_policy_sha256"))) fields.insert("billing_policy_sha256");
+    if (version == 3) fields.insert("max_total_calls");
     if (value.as_object().size() != fields.size())
         throw Error(ErrorCode::InvalidInput, "live authorization requires the complete versioned host envelope");
     for (const auto& item : value.as_object())
         if (!fields.contains(std::string(item.key())))
             throw Error(ErrorCode::InvalidInput, "live authorization contains an unsupported field");
     LiveCliAuthorization result;
-    if (version == 2) {
+    if (fields.contains("billing_policy_sha256")) {
         result.billing_policy_sha256 = text(value.at("billing_policy_sha256"));
         if (!live_cli_digest(result.billing_policy_sha256))
             throw Error(ErrorCode::InvalidInput, "live authorization requires the exact billing-policy digest");
@@ -66,10 +68,12 @@ LiveCliAuthorization live_cli_authorization(const Json& value) {
         result.models.emplace(name, digest);
     }
     result.workflow.limits.max_calls = integer(value.at("max_calls"));
+    if (version == 3) result.workflow.max_total_calls = integer(value.at("max_total_calls"));
     result.workflow.limits.max_worker_calls_per_task = integer(value.at("max_worker_calls_per_task"));
     const auto duration = integer(value.at("max_batch_duration_ms"));
     result.workflow.reserved_cost_micro_usd = integer(value.at("reserved_cost_micro_usd"));
-    if (result.workflow.limits.max_calls < 1 || result.workflow.limits.max_calls > 64 ||
+    if ((version == 3 && (result.workflow.max_total_calls < 1 || result.workflow.max_total_calls > 200)) ||
+            result.workflow.limits.max_calls < 1 || result.workflow.limits.max_calls > 64 ||
             result.workflow.limits.max_worker_calls_per_task < 1 ||
             result.workflow.limits.max_worker_calls_per_task > 16 || duration < 1 || duration > 3600000 ||
             result.workflow.reserved_cost_micro_usd <= 0)
@@ -143,7 +147,7 @@ Json live_cli_status(Store& store, const std::string& request_id) {
         roles.push_back(Object{{"role", role_name(role)}, {"model_ref", model}, {"profile_sha256", digest},
             {"execution_kind", settings.execution_kind}});
     }
-    return Object{{"request_id", request_id}, {"config_snapshot_sha256", frozen.sha256()},
+    Object result{{"request_id", request_id}, {"config_snapshot_sha256", frozen.sha256()},
         {"roles", std::move(roles)}, {"accounting", store.live_accounting_status(request_id)},
         {"budget", store.budget(request_id)}, {"credentials_resolved", false},
         {"authorization_template", Object{{"schema_version", 1},
@@ -152,4 +156,11 @@ Json live_cli_status(Store& store, const std::string& request_id) {
             {"network_enabled", false}, {"provider_enabled", false}, {"models", std::move(models)},
             {"max_calls", 1}, {"max_worker_calls_per_task", 1}, {"max_batch_duration_ms", 30000},
             {"reserved_cost_micro_usd", 0}}}};
+    if (frozen.bounded_runtime()) {
+        auto& authorization = result.at("authorization_template").as_object();
+        authorization["schema_version"] = 3;
+        authorization["kind"] = "wls-live-workflow-authorization-v3";
+        authorization["max_total_calls"] = frozen.max_total_calls();
+    }
+    return result;
 }

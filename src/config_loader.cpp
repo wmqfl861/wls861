@@ -519,7 +519,13 @@ CapabilityRegistry validate_system(const Json& system) {
 
     const auto& calls = required(system, "model_calls", "system");
     fields(calls, "system.model_calls", {{"real_calls_enabled", 'b'}, {"max_paid_retries", 'z'},
-        {"charge_all_attempts", 'b'}, {"require_fresh_reservation_for_retry", 'b'}, {"unknown_cost_policy", 's'}});
+        {"charge_all_attempts", 'b'}, {"require_fresh_reservation_for_retry", 'b'}, {"unknown_cost_policy", 's'},
+        {"runtime_policy", 's'}, {"max_total_calls", 'i'}}, {"runtime_policy", "max_total_calls"});
+    if (optional(calls, "runtime_policy")) literal(calls, "runtime_policy", "bounded-v1", "system.model_calls");
+    if (const auto* total = optional(calls, "max_total_calls")) {
+        if (!optional(calls, "runtime_policy")) invalid("system.model_calls", "max_total_calls requires bounded-v1");
+        (void)integer_value(*total, "system.model_calls.max_total_calls", 1, 200);
+    }
     if (bool_value(required(calls, "real_calls_enabled", "system.model_calls"), "system.model_calls.real_calls_enabled")) {
         bool has_live_profile = false;
         for (const auto& entry : required(system, "models", "system").as_object())
@@ -977,6 +983,15 @@ std::int64_t FrozenRequestConfig::schema_retry_max() const {
         "context", "system"), "schema_retry_max", "system.context"), "system.context.schema_retry_max", 0));
 }
 
+bool FrozenRequestConfig::bounded_runtime() const {
+    return document_.at("system").at("model_calls").as_object().contains("runtime_policy");
+}
+
+std::int64_t FrozenRequestConfig::max_total_calls() const {
+    const auto* total = optional(document_.at("system").at("model_calls"), "max_total_calls");
+    return total ? integer_value(*total, "system.model_calls.max_total_calls", 1, 200) : 200;
+}
+
 Json FrozenRequestConfig::runtime_support() const {
     Array deferred;
     const auto add = [&](std::string_view section, std::string_view key, std::string_view reason) {
@@ -985,7 +1000,7 @@ Json FrozenRequestConfig::runtime_support() const {
         deferred.emplace_back(Object{{"path", "system." + std::string(section) + "." + std::string(key)},
             {"configured_value", value}, {"status", "validated_only"}, {"reason", reason}});
     };
-    for (const auto key : {"max_wall_minutes", "warn_at_fraction"})
+    if (!bounded_runtime()) for (const auto key : {"max_wall_minutes", "warn_at_fraction"})
         add("budget_defaults", key, "requires persistent request-lifetime deadlines and warnings; live batches have separate host deadlines");
     for (const auto key : {"compaction_at_fraction", "snapshot_decision_log_entries"})
         add("context", key, "requires bounded structured history/compaction; no automatic retry");
@@ -993,8 +1008,8 @@ Json FrozenRequestConfig::runtime_support() const {
                           "reserve_workers_for_review", "review_reservation_policy", "release_slots_while_waiting",
                           "max_concurrent_model_calls_per_endpoint", "max_concurrent_ops"})
         add("limits", key, "the current S1 pump is serial, not the global concurrent scheduler");
-    for (const auto key : {"stall_minutes", "stall_same_error_repeats"})
-        add("limits", key, "requires persistent stall detection and escalation");
+    add("limits", "stall_minutes", "requires persistent inactivity detection and escalation");
+    if (!bounded_runtime()) add("limits", "stall_same_error_repeats", "requires explicit bounded-v1 runtime policy");
     add("cleanup", "vacuum_weekly", "no periodic private-data purge or maintenance scheduler");
     return Object{{"validation_scope", "configuration_shape_references_and_policies"},
         {"execution_mode", "explicit_host_selected"},
@@ -1002,6 +1017,7 @@ Json FrozenRequestConfig::runtime_support() const {
         {"model_output_correction", Object{{"schema_retry_max", schema_retry_max()},
             {"scope", "durable-feedback roles; consecutive same-target failures; original STOP guards retained"}}},
         {"live_workflow_available", true}, {"context_request_format", context_request_format()},
+        {"runtime_policy", bounded_runtime() ? Json("bounded-v1") : Json(nullptr)},
         {"history_window_integrated", !worker_history_policy().is_null()}, {"worker_history_policy", worker_history_policy()},
         {"management_window_integrated", !management_history_policy().is_null()},
         {"logical_agent_policy", logical_agent_policy()},

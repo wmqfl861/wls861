@@ -499,6 +499,29 @@ class LiveWorkflow(unittest.TestCase):
         self.assertEqual(bytes.fromhex(observed['raw_body_hex']), partial_body)
         self.assertTrue(json.loads(observed['safe_summary'])['network_started'])
 
+    def test_bounded_deadline_is_shared_across_automatic_wakes(self):
+        model = ModelPeer(self.directory)
+        partial_body = tls.response_body(tool=True)[:80]
+        def second_response_stalls(peer, connection):
+            if not peer.requests:
+                peer.stop.wait(1.5)
+                return model(peer, connection)
+            peer.request(connection)
+            connection.sendall(tls.headers(len(tls.response_body(tool=True))) + partial_body)
+            peer.stop.wait(30)
+        with tls.Peer(self.contexts['server'], second_response_stalls) as peer:
+            result = self.invoke(peer, model, reconcile=True, bounded=True,
+                                 max_calls=1, max_total_calls=20, timeout_ms=7000)
+            self.assertEqual(len(peer.requests), 2)
+        report = result['reports'][0]
+        self.assertEqual(report['wake_count'], 2)
+        self.assertEqual(report['stop_reason'], 'deadline', report)
+        attempts = self.rows('SELECT request_envelope,response FROM call_attempts ORDER BY rowid')
+        self.assertEqual(len(attempts), 2)
+        self.assertLess(json.loads(attempts[1]['request_envelope'])['timeout_ms'], 5500)
+        self.assertEqual(json.loads(attempts[1]['response'])['tool_calls'], [])
+        self.assertEqual(len(self.rows('SELECT * FROM live_send_claims')), 2)
+
     def test_preconditions_refuse_before_credentials_and_reservation(self):
         for option in ('disabled', 'unauthorized', 'host_dispositions'):
             with self.subTest(option=option):

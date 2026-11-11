@@ -506,6 +506,28 @@ void correction_file_failures_limits_reset_and_reopen() {
     CHECK(!std::filesystem::exists(disabled.directory.path / "alpha/result.txt"));
 }
 
+void bounded_same_error_count_survives_reopen_and_resets_on_success_or_target_change() {
+    auto admission = input(10);
+    auto& system = admission.config_snapshot.at("system");
+    system.at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
+    system.at("limits").at("stall_same_error_repeats") = 2;
+    Fixture f(admission); f.ready();
+    const auto count = [](const Json& result) { return result.at("correction_feedback").at("bounded_runtime_v1").at("same_error_repeats"); };
+    CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 1);
+    (void)f.invoke(Role::Worker, "fs_write", Object{{"path", "exists.txt"}, {"content", "original"}});
+    CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 1);
+    f.reopen();
+    CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 2);
+    f.reopen();
+    const auto attempts = f.store->budget(f.id).at("attempts");
+    expect(ErrorCode::NotReady, [&] { (void)f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}}); });
+    CHECK(f.store->budget(f.id).at("attempts") == attempts);
+    (void)f.store->amend(f.store->host_actor(Role::Root, f.id), number(f.store->request(f.id).at("state_version")),
+        "Retain the original constraints and update the exact task target.", fixture("s13_constraints.json"), "bounded-amend");
+    f.ready();
+    CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 1);
+}
+
 } // namespace
 
 int main() {
@@ -516,6 +538,7 @@ int main() {
     events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     workflow_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
     return test::run({
+        {"bounded same-error stop persists independently of schema retries and resets on success or target change", bounded_same_error_count_survives_reopen_and_resets_on_success_or_target_change},
         {"text-only correction preserves independent attempts and actor history scope", correction_text_only_preserves_independent_attempts_and_actor_scope},
         {"pure argument and tool selection failures correct for management and Worker", correction_arguments_and_selection_recover_for_managers_and_workers},
         {"file failure feedback persists consecutive limits across success and reopen", correction_file_failures_limits_reset_and_reopen},

@@ -4,6 +4,7 @@
 #include "wls/structured_context.hpp"
 #include "wls/worker_history.hpp"
 #include "wls/management_context.hpp"
+#include "wls/live_model.hpp"
 #include "runtime_config_internal.hpp"
 #include "amendment_disposition.hpp"
 #include "correction_detail.hpp"
@@ -413,6 +414,8 @@ CapturedModelCall OfflineRuntime::capture_call(
         ((role == Role::TeamLead || role == Role::Worker) && !task_id.empty()), ErrorCode::InvalidInput, "role and task scope disagree");
     const auto record = store_.request(request_id);
     const auto config = restore_request_config(record);
+    if (config.bounded_runtime())
+        require(store_.observe_runtime_controls(request_id) > 0, ErrorCode::NotReady, "wall_clock_exceeded");
     const auto task = task_id.empty() ? Json(nullptr) : store_.task(task_id);
     const auto binding = task_id.empty() ? store_.request_binding(request_id) : store_.binding(task_id);
     require(binding.request_id == request_id, ErrorCode::Unauthorized, "task belongs to another request");
@@ -538,6 +541,9 @@ CapturedModelCall OfflineRuntime::capture_call(
         const auto count = correction_detail::failures(correction_tail, correction_detail::target_key(request, action));
         require(config.schema_retry_max() == 0 || count < config.schema_retry_max(),
             ErrorCode::NotReady, correction_detail::limit_reason);
+        if (config.bounded_runtime()) require(correction_detail::same_errors(correction_tail,
+            correction_detail::target_key(request, action)) < integer_at(config.json().at("system").at("limits"),
+                "stall_same_error_repeats"), ErrorCode::NotReady, "stall_same_error_repeats");
     }
     const auto history_policy = role == Role::Worker ? config.worker_history_policy() : Json(nullptr);
     if (!history_policy.is_null()) {
@@ -681,7 +687,29 @@ CapturedModelCall OfflineRuntime::capture_call(
     request.reserved_output_tokens = request.max_output_tokens;
     request.reserved_cost_micro_usd = limits.reserved_cost_micro_usd;
     request.timeout = limits.timeout;
-    return {std::move(request), actor, integer_at(task_id.empty() ? record : task, "state_version"), std::move(action)};
+    Json estimate = nullptr;
+    if (config.bounded_runtime()) {
+        const auto budget = store_.budget(request_id);
+        const auto available = integer_at(budget, "output_limit") - integer_at(budget, "spent_output") - integer_at(budget, "reserved_output");
+        const auto window = integer_at(profile.at("capabilities"), "context_window");
+        request.max_output_tokens = std::min({integer_at(profile.at("capabilities"), "max_output_tokens"),
+            available, window - request.reserved_input_tokens});
+        require(request.max_output_tokens > 0, ErrorCode::Quota, "bounded output or context budget exhausted");
+        request.reserved_output_tokens = request.max_output_tokens;
+        if (string_at(profile, "adapter") == "openai-responses") {
+            const auto settings = live_model_settings_from_json(profile, request.model.model);
+            const auto wire_bytes = encode_responses_request(settings.provider, request, settings.stream).body.size();
+            require(wire_bytes <= static_cast<std::size_t>(INT64_MAX), ErrorCode::Quota, "encoded input reservation overflow");
+            request.reserved_input_tokens = std::max(request.reserved_input_tokens, static_cast<std::int64_t>(wire_bytes));
+        }
+        request.max_output_tokens = std::min(request.max_output_tokens, window - request.reserved_input_tokens);
+        require(request.max_output_tokens > 0, ErrorCode::Quota, "encoded input leaves no output capacity");
+        request.reserved_output_tokens = request.max_output_tokens;
+        estimate = Object{{"basis", "utf8_bytes_div_3_rough"}, {"tokens", (request.reserved_input_tokens + 2) / 3},
+            {"hard_reservation_basis", "max_original_logical_bytes_and_complete_encoded_body_bytes"},
+            {"reserved_input_tokens", request.reserved_input_tokens}};
+    }
+    return {std::move(request), actor, integer_at(task_id.empty() ? record : task, "state_version"), std::move(action), std::move(estimate)};
 }
 
 CapturedModelCall OfflineRuntime::reserve_call(const ModelAdapter& adapter,
@@ -777,10 +805,22 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         }
         return result;
     }
+    const auto config = restore_request_config(store_.request(captured.binding.request_id));
     const auto target_key = correction_detail::target_key(captured, call.workflow_action);
     const auto ordinary = [&](const char* reason, const std::string& observation = {}) {
-        auto result = correction_detail::failure(reason, target_key, 1 + correction_detail::failures(
-            store_.attempt_history_tail(call.actor, 2), target_key, captured.attempt_id));
+        const auto tail = store_.attempt_history_tail(call.actor, 2);
+        auto result = correction_detail::failure(reason, target_key,
+            1 + correction_detail::failures(tail, target_key, captured.attempt_id));
+        if (config.bounded_runtime()) {
+            Array tools;
+            for (const auto& tool : response.tool_calls) tools.emplace_back(Object{{"name", tool.name},
+                {"arguments_sha256", sha256_hex(canonical_json(tool.arguments))}});
+            const auto signature = sha256_hex(canonical_json(Object{{"reason", reason},
+                {"error_code", response.error_code}, {"observation", observation}, {"tools", tools}}));
+            result.at("correction_feedback").as_object()["bounded_runtime_v1"] = Object{
+                {"error_sha256", signature}, {"same_error_repeats", 1 + correction_detail::same_errors(
+                    tail, target_key, signature, captured.attempt_id)}};
+        }
         if (!observation.empty()) {
             auto& feedback = result.at("correction_feedback").as_object();
             feedback["observation"] = observation.size() <= 1024 ? Json(observation) : Json(nullptr);

@@ -24,7 +24,8 @@
             (type == "reserve_attempt" && command.contains("experience_job_id"));
     }
     static bool capacity_maintenance(std::string_view type) {
-        return type == "recover" || type == "event_bootstrap" || type == "recover_experience" || type.starts_with("capacity_");
+        return type == "recover" || type == "event_bootstrap" || type == "recover_experience" ||
+            type == "budget_warning" || type == "wall_clock_exceeded" || type.starts_with("capacity_");
     }
     static bool capacity_continuation(const Row& command) {
         // No new general operation/model admission here. Existing operation
@@ -79,7 +80,8 @@
         const auto control = capacity_control_sql();
         const auto row = one("SELECT COALESCE(SUM(CASE WHEN " + control + " THEN 0 ELSE 1 END),0) AS business_events, "
             "COALESCE(SUM(CASE WHEN " + control + " THEN 1 ELSE 0 END),0) AS control_events FROM events WHERE request_id=? AND seq>? "
-            "AND type NOT IN ('recover','event_bootstrap','recover_experience','capacity_warning','capacity_hold','capacity_checkpoint')", {id, state.seq});
+            "AND type NOT IN ('recover','event_bootstrap','recover_experience','capacity_warning','capacity_hold','capacity_checkpoint',"
+            "'budget_warning','wall_clock_exceeded')", {id, state.seq});
         state.business = number(row, "business_events"); state.control = number(row, "control_events");
         state.held = optional("SELECT seq FROM events WHERE request_id=? AND seq>? AND type='capacity_hold' LIMIT 1", {id,state.seq}).has_value();
         state.warned = optional("SELECT seq FROM events WHERE request_id=? AND seq>? AND type='capacity_warning' LIMIT 1", {id,state.seq}).has_value();

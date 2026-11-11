@@ -468,6 +468,9 @@ Json Store::claim_live_send(const StoreActor& actor, const std::string& attempt_
     require(impl_->live_schema && impl_->reconciliation_schema, ErrorCode::Unsupported, "live send requires the complete 410 schema");
     text_field(command_id, "live send command_id");
     require(expected_attempt_version > 0, ErrorCode::InvalidInput, "live send requires the original attempt CAS");
+    (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker}, false);
+    if (!impl_->optional("SELECT attempt_id FROM live_send_claims WHERE attempt_id=?", {attempt_id}))
+        require(impl_->observe_runtime_controls(actor.request_id) > 0, ErrorCode::NotReady, "wall_clock_exceeded");
     Impl::Transaction tx(*impl_);
     (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker}, false);
     const auto original = impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {attempt_id});
@@ -523,6 +526,11 @@ Json Store::claim_live_send(const StoreActor& actor, const std::string& attempt_
             request.reserved_input_tokens, request.reserved_output_tokens);
         require(minimum.available && request.reserved_cost_micro_usd >= minimum.cost_micro_usd,
                 ErrorCode::Quota, "live cost reservation is below the frozen pricing minimum");
+    }
+    if (runtime_wall_remaining(current_request, frozen) <= 0) {
+        tx.commit();
+        (void)impl_->observe_runtime_controls(actor.request_id);
+        throw Error(ErrorCode::NotReady, "wall_clock_exceeded");
     }
     const auto claim_id = new_id("send");
     impl_->execute("INSERT INTO live_send_claims VALUES (?,?,?,?,?,?,?,?,?)",
@@ -679,7 +687,9 @@ Json Store::settle_unobserved_live(const StoreActor& root, const std::string& at
     const auto answer = impl_->settle_model_attempt(attempt_id, request.binding, request.config_snapshot_id,
         "INTERRUPTED", to_json(response.usage), to_json(response), true);
     require(answer.at("accepted") == 0, ErrorCode::Corrupt, "host missing-response observation cannot restore business authority");
-    tx.commit(); return answer;
+    tx.commit();
+    (void)impl_->observe_runtime_controls(root.request_id);
+    return answer;
 }
 
 Json Store::reconcile_usage(const StoreActor& root, const VerifiedUsageEvidence& evidence,
@@ -784,7 +794,9 @@ Json Store::reconcile_usage(const StoreActor& root, const VerifiedUsageEvidence&
          reconciliation.expected_projection_version, fingerprint, evidence.sha256(), evidence.source_kind(),
          evidence.source_reference(), live_hex(evidence.bytes()), canonical_json(command.at("statement")), json_text(answer), stamp()});
     impl_->event(root.request_id, "usage:" + reconciliation.reconciliation_id, command, answer, "root");
-    tx.commit(); return answer;
+    tx.commit();
+    (void)impl_->observe_runtime_controls(root.request_id);
+    return answer;
 }
 
 Json Store::replay_usage_reconciliation(const StoreActor& root, const VerifiedUsageEvidence& evidence,

@@ -19,6 +19,79 @@ using fixture::error;
 namespace {
 std::unique_ptr<fixture::Assets> assets;
 
+void bounded_warnings_preserve_settlement_and_recover_without_capacity_charge() {
+    fixture::Fixture f(*assets, fixture::settings(), true, 410, true);
+    auto input = fixture::admission(*assets, f.live, "bounded", true, true);
+    input.config_snapshot.at("system").at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
+    input.config_snapshot.at("system").at("budget_defaults").at("max_wall_minutes") = 1;
+    input.budget = BudgetLimits{5, 1000, 100, 1000};
+    f.request_id = text(f.store->admit(input), "request_id");
+    const auto request = f.request("bounded-original");
+    const auto actor = f.actor();
+    const auto reservation = f.reservation(request, true);
+    (void)f.store->reserve_attempt(actor, request.binding, reservation);
+    const auto capacity = f.store->capacity_status(f.request_id);
+    FakeModelStep step; step.role = Role::Dispatcher; step.role_call_index = 1;
+    step.text = "Original synthetic usage"; step.usage = {800, 80, 0, 0, 800};
+    const auto response = FakeModel({step}, request.model.model).complete(request);
+    const auto settle = [&] { return f.store->settle_attempt(request.attempt_id, request.binding,
+        request.config_snapshot_id, "COMPLETED", to_json(response.usage), to_json(response)); };
+    fixture::sql(f.path, "CREATE TRIGGER fail_runtime_warning BEFORE INSERT ON events WHEN NEW.type='budget_warning' "
+        "BEGIN SELECT RAISE(ABORT,'fixture warning failure'); END;");
+    error(ErrorCode::Storage, settle);
+    const auto original = f.store->attempt(request.attempt_id);
+    CHECK(!original.at("settlement_sha256").is_null() && original.at("usage") == to_json(response.usage));
+    CHECK(number(f.store->budget(f.request_id), "spent_input") == 800);
+    auto next = f.request("bounded-next");
+    next.max_output_tokens = next.reserved_output_tokens = 1;
+    next.reserved_input_tokens = next.reserved_cost_micro_usd = 1;
+    error(ErrorCode::Storage, [&] { (void)f.store->reserve_attempt(f.actor(), next.binding, f.reservation(next, true)); });
+    CHECK(number(f.store->budget(f.request_id), "attempts") == 1);
+    CHECK(settle() == original); // Exact settlement replay does not retry failed observations.
+    fixture::sql(f.path, "DROP TRIGGER fail_runtime_warning;");
+    (void)f.store->observe_runtime_controls(f.request_id);
+    const auto after = f.store->capacity_status(f.request_id);
+    CHECK(number(after.at("counts"), "control_events") == number(capacity.at("counts"), "control_events") + 1);
+    CHECK(number(after.at("counts"), "business_events") == number(capacity.at("counts"), "business_events"));
+    CHECK(number(after, "reserved_control") == 16);
+    CHECK(fixture::sql_text(f.path, "SELECT count(*) FROM events WHERE type='budget_warning'") == "3");
+    for (int i = 0; i < 3; ++i) {
+        auto call = next; call.call_id += std::to_string(i); call.attempt_id += std::to_string(i);
+        (void)f.store->reserve_attempt(f.actor(), call.binding, f.reservation(call, true));
+        step.usage = {0, 0, 0, 0, 0};
+        const auto zero = FakeModel({step}, call.model.model).complete(call);
+        (void)f.store->settle_attempt(call.attempt_id, call.binding, call.config_snapshot_id,
+            "COMPLETED", to_json(zero.usage), to_json(zero));
+    }
+    f.store.reset(); f.store = assets->open(f.path);
+    (void)f.store->observe_runtime_controls(f.request_id);
+    CHECK(fixture::sql_text(f.path, "SELECT count(*) FROM events WHERE type='budget_warning'") == "4");
+    CHECK(f.store->attempt(request.attempt_id) == original);
+    fixture::sql(f.path, "UPDATE requests SET created_at=strftime('%Y-%m-%dT%H:%M:%SZ','now','-2 minutes');");
+    CHECK(f.store->observe_runtime_controls(f.request_id) <= 0);
+    CHECK(f.store->observe_runtime_controls(f.request_id) <= 0);
+    CHECK(fixture::sql_text(f.path, "SELECT count(*) FROM events WHERE type='budget_warning'") == "5");
+    CHECK(fixture::sql_text(f.path, "SELECT count(*) FROM events WHERE type='wall_clock_exceeded'") == "1");
+    CHECK(f.store->reserve_attempt(actor, request.binding, reservation) == original);
+    CHECK(settle() == original);
+    next = f.request("expired-new");
+    error(ErrorCode::NotReady, [&] { (void)f.store->reserve_attempt(f.actor(), next.binding, f.reservation(next, true)); });
+    fixture::sql(f.path, "UPDATE requests SET created_at='invalid';");
+    error(ErrorCode::Corrupt, [&] { (void)f.store->observe_runtime_controls(f.request_id); });
+}
+
+void bounded_first_send_checks_original_creation_time() {
+    fixture::Fixture f(*assets);
+    auto input = fixture::admission(*assets, f.live, "bounded-send");
+    input.config_snapshot.at("system").at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
+    input.config_snapshot.at("system").at("budget_defaults").at("max_wall_minutes") = 1;
+    f.request_id = text(f.store->admit(input), "request_id");
+    const auto request = f.request(); (void)f.reserve(request);
+    fixture::sql(f.path, "UPDATE requests SET created_at=strftime('%Y-%m-%dT%H:%M:%SZ','now','-2 minutes');");
+    error(ErrorCode::NotReady, [&] { (void)f.claim(request); });
+    CHECK(f.store->live_attempt(request.attempt_id).at("send_claim").is_null());
+}
+
 // Inject a separate writer's commit immediately after the observer finishes
 // reading its budget. SQLite's documented per-connection trace hook fixes the
 // interleaving without sleeps or a probabilistic reader/writer stress loop.
@@ -687,6 +760,8 @@ int main(int argc, char** argv) {
     try { assets = std::make_unique<fixture::Assets>(argc > 1 ? argv[1] : WLS_SOURCE_DIR); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     return test::run({
+        {"bounded warnings preserve original usage and settlement capacity across failure and reopen", bounded_warnings_preserve_settlement_and_recover_without_capacity_charge},
+        {"bounded first send enforces original request creation time", bounded_first_send_checks_original_creation_time},
         {"read-only ledger reconstruction uses one snapshot across a separate writer commit", readonly_ledger_observes_one_snapshot},
         {"priced accounting status observes one budget snapshot across a late receipt", priced_status_observes_one_budget_snapshot_across_late_receipt},
         {"completed usage reconciliation releases settlement capacity while missing cache stays reserved", reconciled_usage_releases_settlement_capacity},
