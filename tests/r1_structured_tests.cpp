@@ -611,6 +611,10 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
     for (const bool fake : {true, false}) {
         ::test::TempDir directory; auto store = assets.open(directory.path / "guided.sqlite");
         auto admission = wls::test::live::admission(assets, wls::test::live::settings(), "guided", true, fake);
+        admission.original_text = "保留原始需求；不要调用外部服务。";
+        admission.constraint_catalog = Array{
+            Object{{"constraint_id", "c1"}, {"text", "保留原始需求"}, {"source_revision", 1}},
+            Object{{"constraint_id", "c2"}, {"text", "不要调用外部服务"}, {"source_revision", 1}}};
         admission.config_snapshot.at("system").at("context").as_object()["request_format"] = "structured-v2";
         if (!fake)
             for (auto& role : admission.config_snapshot.at("function").at("roles").as_object())
