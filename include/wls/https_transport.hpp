@@ -28,8 +28,8 @@ struct HttpsTransportOptions {
     // Optional host-provided exact IPv4 route for the URL host/port. TLS SNI
     // and hostname verification still use the original URL. No DNS lookup is
     // performed for this route; it is not inferred from environment settings.
-    // Without it, hostname resolution requires libcurl's c-ares backend;
-    // threaded getaddrinfo cleanup cannot promise bounded cancellation.
+    // The legacy policy requires c-ares without a mapping; the opt-in policy
+    // bounds waiting for its own independent host resolver.
     std::string resolved_ipv4;
     std::size_t max_header_bytes{64U * 1024U};
     std::size_t max_header_line_bytes{8U * 1024U};
@@ -38,6 +38,7 @@ struct HttpsTransportOptions {
     // Empty preserves the original route/snapshot contract; opt in explicitly.
     std::string policy;
     std::chrono::milliseconds dns_timeout{10000};
+    std::string proxy_url; // New policy: unauthenticated http://numeric-IPv4:port CONNECT only.
 };
 
 Json https_transport_options_descriptor(const HttpsTransportOptions& options);
@@ -66,6 +67,7 @@ struct HttpsTransportResult {
     bool network_started{false};
     bool extended_policy{false};
     bool dns_started{false};
+    bool proxy_used{false};
     bool transfer_complete{false};
     bool raw_headers_truncated{false};
     bool raw_body_truncated{false};
@@ -91,8 +93,8 @@ struct HttpsTransportResult {
 };
 
 // Trusted-host component only. It validates the exact encoded request against
-// the profile and original request, performs one HTTPS POST with no redirects,
-// proxies or retries, then consumes the existing strict HTTP/SSE codec. It does
+// the profile and original request, performs one HTTPS POST with no redirects
+// or retries, then consumes the existing strict HTTP/SSE codec. It does
 // not resolve credential references, open Store, admit attempts, settle usage,
 // dispatch tools or enable any live CLI/ModelAdapter. R3.3b must wrap this call
 // in durable admission and one-time send authority before production use.

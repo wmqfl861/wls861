@@ -7,6 +7,7 @@
 #include <curl/curl.h>
 #include <netdb.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -189,6 +190,7 @@ int main(int argc, char** argv) {
         options.max_total_response_bytes = size(config, "max_total_bytes", options.max_total_response_bytes);
         options.poll_interval = std::chrono::milliseconds(integer(config, "poll_ms", 25));
         options.policy = text(config, "policy");
+        options.proxy_url = text(config, "proxy_url");
         options.dns_timeout = std::chrono::milliseconds(integer(config, "dns_timeout_ms", 10000));
         resolver_delay_ms = static_cast<int>(integer(config, "resolver_delay_ms", 0));
         resolver_failure = boolean(config, "resolver_failure");

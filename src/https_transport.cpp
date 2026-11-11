@@ -168,6 +168,7 @@ Object summary_record(const HttpsTransportResult& result) {
     if (result.extended_policy) {
         summary["format"] = "wls-https-transport-summary-v2";
         summary["dns_started"] = result.dns_started;
+        summary["proxy_used"] = result.proxy_used;
     }
     return summary;
 }
@@ -472,6 +473,24 @@ Endpoint endpoint_of(std::string_view validated_url, const HttpsTransportOptions
     require(options.dns_timeout.count() > 0 && options.dns_timeout <= Milliseconds(60000) &&
             (!options.policy.empty() || options.dns_timeout == Milliseconds(10000)),
             ErrorCode::InvalidInput, "HTTPS DNS timeout must be 1..60000 ms under the new policy");
+    if (!options.proxy_url.empty()) {
+        require(!options.policy.empty() && options.resolved_ipv4.empty() &&
+                options.proxy_url.size() <= 64 && options.proxy_url.starts_with("http://"),
+                ErrorCode::InvalidInput, "HTTPS proxy requires the new policy and no explicit mapping");
+        const auto authority = std::string_view(options.proxy_url).substr(7);
+        const auto colon = authority.find(':');
+        require(colon != std::string_view::npos && colon + 1 < authority.size(),
+                ErrorCode::InvalidInput, "HTTPS proxy requires an explicit port");
+        const auto host = std::string(authority.substr(0, colon));
+        const auto service = colon == std::string_view::npos ? std::string_view{} : authority.substr(colon + 1);
+        unsigned port{};
+        const auto parsed_port = std::from_chars(service.data(), service.data() + service.size(), port);
+        in_addr proxy_address{};
+        require(::inet_pton(AF_INET, host.c_str(), &proxy_address) == 1 && host.find('\0') == std::string::npos &&
+                parsed_port.ec == std::errc{} && parsed_port.ptr == service.data() + service.size() &&
+                port > 0 && port <= 65535 && service == std::to_string(port), ErrorCode::InvalidInput,
+                "HTTPS proxy must be http://strict-numeric-IPv4:port without auth, path, query or fragment");
+    }
     // Both callers first validate the provider's HTTPS authority and port.
     // That validation accepts no userinfo, percent escapes or IPv6.
     const auto url = validated_url.substr(8);
@@ -512,6 +531,8 @@ Endpoint endpoint_of(std::string_view validated_url, const HttpsTransportOptions
 }
 
 std::string resolve_host(Transfer& transfer, const Endpoint& endpoint) {
+    if (transfer.interrupted()) return {};
+    const auto deadline = std::min(transfer.deadline, Clock::now() + transfer.options.dns_timeout);
     struct State { std::atomic<bool> done{false}; std::string address; };
     static std::atomic<unsigned> active{0};
     auto state = std::make_shared<State>();
@@ -539,7 +560,6 @@ std::string resolve_host(Transfer& transfer, const Endpoint& endpoint) {
         }).detach();
     } catch (...) { --active; return {}; }
     transfer.result.dns_started = true;
-    const auto deadline = std::min(transfer.deadline, Clock::now() + transfer.options.dns_timeout);
     while (!transfer.interrupted() && Clock::now() < deadline) {
         if (state->done.load(std::memory_order_acquire)) return state->address;
         std::this_thread::sleep_until(std::min(deadline, Clock::now() + Milliseconds(25)));
@@ -660,6 +680,7 @@ Json https_transport_options_descriptor(const HttpsTransportOptions& options) {
         descriptor["format"] = "wls-https-transport-options-v2";
         descriptor["dns_policy"] = options.policy;
         descriptor["dns_timeout_ms"] = options.dns_timeout.count();
+        descriptor["proxy_url"] = options.proxy_url;
     }
     return descriptor;
 }
@@ -741,16 +762,16 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
 
     const auto* version = initialize_curl();
     auto route = options.resolved_ipv4;
-    if (result.extended_policy && !endpoint.numeric && route.empty()) {
+    if (result.extended_policy && options.proxy_url.empty() && !endpoint.numeric && route.empty()) {
         route = resolve_host(transfer, endpoint);
-        if (route.empty() || transfer.interrupted()) {
+        if (transfer.interrupted() || route.empty()) {
             if (transfer.aborted != Abort::None) classify_abort(result, transfer.aborted, CURLE_ABORTED_BY_CALLBACK);
             else fail(result, HttpsTransportStatus::ConnectionError, "dns_failed");
             finalize(result, transfer);
             return result;
         }
     }
-    require(endpoint.numeric || !route.empty() ||
+    require(!options.proxy_url.empty() || endpoint.numeric || !route.empty() ||
             (version->ares != nullptr && *version->ares != '\0'), ErrorCode::Unsupported,
             "HTTPS DNS names need an explicit address mapping or a c-ares resolver for bounded cleanup");
     Handles handles;
@@ -771,9 +792,14 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     option(easy, CURLOPT_REDIR_PROTOCOLS_STR, "https");
     option(easy, CURLOPT_HTTP_VERSION, static_cast<long>(CURL_HTTP_VERSION_1_1));
     option(easy, CURLOPT_HTTP09_ALLOWED, 0L);
-    option(easy, CURLOPT_PROXY, "");
+    option(easy, CURLOPT_PROXY, options.proxy_url.c_str());
     option(easy, CURLOPT_PRE_PROXY, "");
-    option(easy, CURLOPT_NOPROXY, "*");
+    option(easy, CURLOPT_NOPROXY, options.proxy_url.empty() ? "*" : "");
+    option(easy, CURLOPT_PROXYTYPE, static_cast<long>(CURLPROXY_HTTP));
+    option(easy, CURLOPT_PROXYAUTH, static_cast<long>(CURLAUTH_NONE));
+    option(easy, CURLOPT_HTTPPROXYTUNNEL, 1L);
+    option(easy, CURLOPT_SUPPRESS_CONNECT_HEADERS, 1L);
+    option(easy, CURLOPT_HEADEROPT, static_cast<long>(CURLHEADER_SEPARATE));
     option(easy, CURLOPT_NETRC, static_cast<long>(CURL_NETRC_IGNORED));
     option(easy, CURLOPT_HTTPAUTH, static_cast<long>(CURLAUTH_NONE));
     option(easy, CURLOPT_FOLLOWLOCATION, 0L);
@@ -839,6 +865,7 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     int running = 0;
     while (!transfer.interrupted()) {
         result.network_started = true;
+        result.proxy_used = !options.proxy_url.empty();
         transfer.advance(HttpsTransportPhase::Connecting);
         const auto performed = curl_multi_perform(handles.multi, &running);
         collect_observations(easy, transfer);
