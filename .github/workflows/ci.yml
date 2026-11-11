@@ -133,6 +133,11 @@ jobs:
       - name: Install C++ development dependencies
         if: needs.classify.outputs.mode != 'docs-only'
         run: |
+          # The hosted runner's Azure mirror DNS is unavailable. Use the
+          # kernel.org Ubuntu mirror redirect, while retaining Ubuntu's
+          # signed InRelease/package verification and the original suites.
+          test -f /etc/apt/apt-mirrors.txt && test ! -L /etc/apt/apt-mirrors.txt
+          printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get update
           sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libcurl4-openssl-dev libyaml-dev openssl
           if [ "${{ matrix.compiler }}" = clang++-18 ]; then
