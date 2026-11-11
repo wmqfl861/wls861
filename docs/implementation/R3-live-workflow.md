@@ -141,3 +141,19 @@ hook 位于应用之前，以满足原验收和收尾的完整账目门禁，但
 
 `--workspaces-file` 沿原节点工作区映射与原 `WorkerTools` 守卫；只有显式工作区时才接受
 `--sandbox-manifest`。命令不自动发布或签收交付；这些仍使用原独立命令和精确回执。
+
+## 冻结价格与估算门禁（G1-1）
+
+profile 可携带冻结 `pricing`（见 [原 Store live 契约](R3-original-store-live.md)）。
+带价表的请求把 `needs_accounting` 判定改为预算账目完成：已结算、无争议、全部适用
+token 已知且有效费用已知（估算或已确认实际）。估算完成的 attempt 释放 settlement
+控制预留并允许后续调用；被 N/A 冻结的 cache 维度不计入未知，`not_applicable_dimensions`
+单独列出。EventRuntime 在捕获后、encode/凭据前复核最低费用预留（输入侧按适用 rate
+最大值 + output rate 向上取整），不足即 Quota，无新预约/claim/发送；Store reserve 与
+claim 首发前重复同一复核。无 pricing 的请求保持原五维 UNKNOWN 停止语义逐字不变。
+
+`live-status`/`pump` 的 `accounting` 对价表请求给出 estimated/reported 费用分项、
+仍未知预留和 blocker 原因（含 `policy_mismatch`）；`budget` 追加
+`accounting_format=wls-estimated-budget-v1` 与 cost breakdown。估算金额永远标注
+basis，不冒充 actual；不含 `billing_challenge` 的 profile 才能用估算完成账目，
+带 challenge 的签名路径见 [签名计费契约](R3-signed-billing.md)。

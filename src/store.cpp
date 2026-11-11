@@ -1708,6 +1708,13 @@ public:
     bool has_unsettled_model(const std::string& id, const std::string& team_id = {}) const;
     void live_accounting_ready(const std::string& request_id, const std::string& excluding = {}) const;
     void initialize_usage_projection(const Row& original);
+    std::optional<TokenPricing> attempt_pricing(const Row& original) const;
+    std::optional<std::int64_t> attempt_settlement_estimate(const Row& original,
+        const ModelUsage& usage, bool completed) const;
+    Json pricing_accounting_scan(const std::string& id, const std::string& excluding = {},
+        const std::string& team_id = {}) const;
+    Json attempt_budget_view(const Row& original) const;
+    Json pricing_budget_summary(const std::string& id) const;
     Json settle_model_attempt(const std::string& attempt_id, const ExecutionBinding& frozen,
         const std::string& config_hash, const std::string& outcome, const Json& usage, const Json& response,
         bool existing_transaction = false);
@@ -1777,7 +1784,15 @@ Json Store::operation(const std::string& id) const {
     const std::lock_guard lock(impl_->mutex); return exposed(impl_->op_row(id));
 }
 Json Store::budget(const std::string& id) const {
-    const std::lock_guard lock(impl_->mutex); return impl_->one("SELECT * FROM request_budgets WHERE request_id=?", {id});
+    const std::lock_guard lock(impl_->mutex);
+    auto row = impl_->one("SELECT * FROM request_budgets WHERE request_id=?", {id});
+    // Priced requests label their effective cost basis so the raw spent_cost
+    // balance is never mistaken for provider-confirmed actual usage.
+    if (const auto summary = impl_->pricing_budget_summary(id); !summary.is_null()) {
+        row["accounting_format"] = "wls-estimated-budget-v1";
+        row["cost_breakdown"] = summary;
+    }
+    return row;
 }
 Json Store::attempt(const std::string& id) const {
     const std::lock_guard lock(impl_->mutex); return exposed(impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {id}));
@@ -3722,6 +3737,14 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
                 reservation.reserved_cost_micro_usd > 0, ErrorCode::InvalidInput,
                 "live admission requires explicit positive token and cost reservations");
         live_settings = live_model_settings_from_json(profile, reservation.model_ref);
+        // A frozen price table defines the minimum effective reservation; the
+        // host's explicit positive reservation must cover it before INSERT.
+        if (live_settings->provider.pricing) {
+            const auto minimum = minimum_cost_reservation(*live_settings->provider.pricing,
+                reservation.reserved_input_tokens, reservation.reserved_output_tokens);
+            require(minimum.available && reservation.reserved_cost_micro_usd >= minimum.cost_micro_usd,
+                    ErrorCode::Quota, "live cost reservation is below the frozen pricing minimum");
+        }
         live_encoded = encode_responses_request(live_settings->provider, original_model_request, live_settings->stream);
         impl_->live_accounting_ready(actor.request_id);
     }
@@ -3884,9 +3907,22 @@ Json Store::Impl::settle_model_attempt(const std::string& attempt_id, const Exec
         current = false;
     }
     const bool accepted = current && outcome == "COMPLETED";
+    // A completed priced response books its deterministic estimate as the
+    // effective budget cost while every original row keeps its nullable usage.
+    std::optional<std::int64_t> effective_estimate;
+    if (live && outcome == "COMPLETED") {
+        ModelUsage settled_usage;
+        for (const auto& [value, name] : {std::pair<std::optional<std::int64_t>*, const char*>{&settled_usage.input_tokens, "input_tokens"},
+                {&settled_usage.output_tokens, "output_tokens"}, {&settled_usage.cache_read_tokens, "cache_read_tokens"},
+                {&settled_usage.cache_write_tokens, "cache_write_tokens"}})
+            if (!usage_value(name).is_null()) *value = usage_value(name).as_int64();
+        effective_estimate = attempt_settlement_estimate(record, settled_usage, true);
+    }
     auto budget_row = one("SELECT * FROM request_budgets WHERE request_id=?", {request_id});
     for (const auto& dimension : {std::pair<std::string, std::string>{"input", "input_tokens"}, {"output", "output_tokens"}, {"cost", "cost_micro_usd"}}) {
-        const auto value = usage_value(dimension.second);
+        auto value = usage_value(dimension.second);
+        if (dimension.first == "cost" && value.is_null() && effective_estimate)
+            value = Json(*effective_estimate);
         const auto reserved = number(record, "reserved_" + dimension.first);
         const auto was_unknown = number(record, "unknown_" + dimension.first) == 1;
         if (!value.is_null()) {
