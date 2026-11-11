@@ -52,8 +52,21 @@
   nullable usage or replacing the signed-receipt path. Store remains 410.
   The exact PR head `ed243d4` passed all five checks in core run
   43002694200 and source run 43002694238. On combined main `ef71c09`,
-  source run 43004295747 passed; full six-configuration run 43004296055 is
-  still in progress, not counted as green. The existing
+  source run 43004295747 passed. The push six-configuration run
+  43004296055 was CANCELLED at 11:05:43 UTC by the automatic schedule run
+  43009034403 on the same exact SHA: strict, umask-0002, Clang-18 and
+  UBSan each passed 78/78 (zero failed/skipped/not-run), while ASan and
+  Make-ASan were interrupted and count as neither failed nor fully passed.
+  The existing workflow/ref concurrency with cancellation enabled caused
+  the interruption. The independent schedule run 43009034403 then passed
+  all six configurations on exact `ef71c09c6bf88702aaf042f8c26c9bdad6b1ee6a`
+  (11:05:28–11:48:44 UTC, 43m16s), with no manual rerun: five CTest
+  configurations each passed 78/78 with zero failed/skipped/not-run;
+  the original Make-ASan path completed all 78 top-level commands
+  (46 C++ and 32 Python), which are not CTest registrations. Full counts
+  and timings are in `docs/reports/stage0-convergence.md`; the cancelled
+  push run retains its original result and supplies no missing pass.
+  The existing
   `billing_baseline_e2e` evidence covers 31 calls to a local synthetic TLS
   peer using two explicit test-driven pumps, not real provider/model
   acceptance or paid calls; F-08 product auto-continuation remains open.
@@ -67,11 +80,15 @@
   05 updates its stage-0 status row and appends an owner-decision/execution
   addendum; 03 stays an unapproved archived proposal, not
   migrated into the v0.4.1 blueprint), add the one-page stage-0 milestone
-  `docs/reports/stage0-convergence.md` (stage 0 in progress, exit not
-  reached; #48/#49 merged, combined main six-configuration validation and
-  F-26 merge pending), and point ROADMAP and the v0.4.1
+  `docs/reports/stage0-convergence.md` (#48/#49 and product six-configuration
+  conditions met; stage 0 completes when #51 merges under D-1, with its
+  actual merge state linked from the report), and point ROADMAP and the v0.4.1
   requirements tracing at the in-repo copies while keeping the
-  frozen-commit provenance.
+  frozen-commit provenance. The published F-26 head `8c7b705` passed
+  its PR three-core run 43006279800 and source run 43006279560; those
+  results cover that head and do not replace checks for a later head.
+  The latest head, CI and actual merge state remain visible on #51;
+  this entry does not predeclare its merge.
 - Store stays 410; real provider calls remain zero/NOT_RUN, Windows 11
   NOT_RUN; private CI evidence hosting remains BLOCKED, with raw originals
   retained locally. No new observability tool chains.
