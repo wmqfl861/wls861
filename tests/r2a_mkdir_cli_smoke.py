@@ -196,7 +196,7 @@ class MkdirCliSmoke(unittest.TestCase):
     def test_model_cannot_request_recursive_creation_or_supply_authority(self):
         request = self.submit()
         self.run_calls(request, [("fs_mkdir", {"path": "forged", "parents": True, "mode": 0o777})],
-                       error="invalid_input")
+                       error="quota")
         self.assertFalse((self.workspace / "forged").exists())
         self.assertEqual(self.rows("SELECT * FROM ops"), [])
         budget = self.rows("SELECT attempts,spent_input,spent_output FROM request_budgets")[0]
@@ -205,6 +205,10 @@ class MkdirCliSmoke(unittest.TestCase):
         self.assertIn("fs_mkdir", json.loads(worker_attempt["request_envelope"])["context"]["tool_names"])
         response = json.loads(worker_attempt["response"])
         self.assertTrue(response["tool_calls"][0]["arguments"]["parents"])
+        feedback = json.loads(self.rows("SELECT result FROM model_tool_feedback f JOIN call_attempts a "
+                                        "USING(attempt_id) WHERE a.role='worker'")[0]["result"])
+        self.assertEqual(feedback["status"], "FAILED")
+        self.assertEqual(feedback["correction_feedback"]["reason"], "model_arguments")
 
     def test_upgrading_template_does_not_grant_mkdir_to_existing_frozen_request(self):
         functions = self.directory / "functions"
@@ -222,7 +226,11 @@ class MkdirCliSmoke(unittest.TestCase):
         old_facts = self.rows("SELECT * FROM operation_results ORDER BY op_id")
         before_budget = self.rows("SELECT attempts,spent_input FROM request_budgets WHERE request_id=?", (request,))[0]
         template.write_text(current_template, encoding="utf-8")
-        self.run_calls(request, [("fs_mkdir", {"path": "not-retroactively-granted"})], error="invalid_input")
+        self.run_calls(request, [("fs_mkdir", {"path": "not-retroactively-granted"})], error="quota")
+        feedback = json.loads(self.rows("SELECT result FROM model_tool_feedback f JOIN call_attempts a "
+                                        "USING(attempt_id) WHERE a.role='worker' ORDER BY a.rowid DESC LIMIT 1")[0]["result"])
+        self.assertEqual(feedback["status"], "FAILED")
+        self.assertEqual(feedback["correction_feedback"]["reason"], "tool_selection")
         self.assertEqual(self.frozen_rows(request), frozen_before)
         self.assertEqual(self.rows("SELECT * FROM workspace_bindings"), policy_before)
         self.assertEqual(self.rows("SELECT * FROM operation_results ORDER BY op_id"), old_facts)

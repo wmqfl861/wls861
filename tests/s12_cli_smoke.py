@@ -192,15 +192,20 @@ class WorkerCliSmoke(unittest.TestCase):
         self.assertEqual((self.workspace / "result.txt").read_bytes(), b"verified from S1.2\n")
         self.assertEqual(len(self.rows("SELECT * FROM operation_results")), 2)
 
-    def test_overwrite_conflict_stops_the_explicit_worker_batch(self):
+    def test_overwrite_conflict_is_recorded_before_the_explicit_call_limit(self):
         request_id = self.submit()
         (self.workspace / "result.txt").write_text("host supplied", encoding="utf-8")
-        run = self.run_files(request_id)
-        self.assertEqual(len(run["calls"]), 3)
-        self.assertEqual(run["calls"][-1]["result"]["operation"]["status"], "FAILED")
+        self.run_files(request_id, calls=1, error="quota")
+        failed = json.loads(self.rows("SELECT result FROM model_tool_feedback f JOIN call_attempts a "
+                                      "USING(attempt_id) WHERE a.role='worker'")[0]["result"])
+        self.assertEqual(failed["operation"]["status"], "FAILED")
+        self.assertEqual(failed["correction_feedback"]["reason"], "tool_result")
         self.assertEqual((self.workspace / "result.txt").read_text(), "host supplied")
         self.assertEqual(len(self.rows("SELECT * FROM ops")), 1)
-        self.assertFalse(run["business_delivered"])
+        self.assertEqual(self.rows("SELECT status FROM ops"), [{"status": "FAILED"}])
+        self.assertEqual(self.rows("SELECT attempts,spent_input,spent_output FROM request_budgets"),
+                         [{"attempts": 3, "spent_input": 300, "spent_output": 60}])
+        self.assertNotEqual(self.rows("SELECT status FROM requests")[0]["status"], "DELIVERED")
 
     def test_invalid_new_options_do_not_open_a_writer(self):
         script = FIXTURES / "s12_fake_workspace.json"
