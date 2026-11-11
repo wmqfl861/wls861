@@ -126,7 +126,7 @@ class IntegratedRecovery(unittest.TestCase):
         self.assertEqual(self.snapshot(sibling), before_b)
 
     def test_invalid_corrective_response_accounts_only_target_attempt(self):
-        request = self.rejected()
+        request = self.rejected(schema_retry_max=0)
         sibling, _, _ = self.sibling()
         before = self.snapshot(sibling)
         original = self.view(request)['tasks'][0]
@@ -134,7 +134,9 @@ class IntegratedRecovery(unittest.TestCase):
             'rationale': 'Reject forged target.', 'correction': 'Preserve criterion.', 'task_id': 'forged'})]}
         result = self.pump(request, self.json_file('invalid-correction.json', script))
         self.assertEqual(len(result['calls']), 1, result)
-        self.assertTrue(any(x['code'] == 'invalid_input' for x in result['blocked']), result)
+        self.assertTrue(any(x['code'] == 'correction_limit' for x in result['blocked']), result)
+        self.assertEqual(result['calls'][0]['result']['status'], 'FAILED')
+        self.assertEqual(result['calls'][0]['result']['correction_feedback']['reason'], 'model_arguments')
         self.assertEqual(self.view(request)['tasks'][0]['task_revision'], original['task_revision'])
         self.assertEqual(self.snapshot(sibling), before)
 
