@@ -103,6 +103,8 @@ class WindowCli(unittest.TestCase):
         self.assertTrue(all(item['sequence'] <= high for item in page['items']))
 
     def test_invalid_or_foreign_reads_are_recorded_not_authorized(self):
+        # Each malformed read is a single-response fixture, not a recovery script.
+        self.config.write_text(self.config.read_text().replace('schema_retry_max: 2', 'schema_retry_max: 0'))
         self.work_file('small'); request=self.admit(); self.pump(request,self.read_script(1),1)
         # TeamLead evidence belongs to a different scope despite sharing request/task.
         foreign=self.rows("SELECT f.* FROM model_tool_feedback f JOIN call_attempts a USING(attempt_id) WHERE a.role='team_lead'")[0]
@@ -116,7 +118,14 @@ class WindowCli(unittest.TestCase):
                               (self.read_args(own,offset=-1),'invalid_input'),
                               (dict(self.read_args(own),task_id='forged'),'invalid_input')]:
             result=self.pump(request,self.control_script('history_read',args),1)
-            self.assertTrue(any(b['code']==expected for b in result['blocked']),result)
+            if expected == 'invalid_input':
+                self.assertTrue(any(b['code']=='correction_limit' for b in result['blocked']),result)
+                feedback = json.loads(self.feedback()[-1]['result'])
+                self.assertEqual(feedback['status'], 'FAILED')
+                self.assertEqual(feedback['correction_feedback']['reason'], 'model_arguments')
+            else:
+                self.assertTrue(any(b['code']==expected for b in result['blocked']),result)
+                self.assertEqual(json.loads(self.feedback()[-1]['result'])['error_code'], expected)
 
     def test_rate_budget_is_persistent_across_reopen(self):
         self.config.write_text(self.config.read_text().replace('max_queries_per_minute: 60','max_queries_per_minute: 2'))

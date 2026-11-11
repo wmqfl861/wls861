@@ -300,15 +300,16 @@ void historical_worker_tools_do_not_authorize_a_manager() {
     step.usage = {1, 1, 0, 0, 0};
     FakeModel model({step}); OfflineRuntime original(*f.store, *schemas);
     const auto captured = original.reserve_call(model, f.id, Role::Dispatcher);
-    expect(ErrorCode::InvalidInput, [&] { (void)original.accept_independent_response(captured, model.complete(captured.request)); });
+    CHECK(original.accept_independent_response(captured, model.complete(captured.request)).at("status") == "FAILED");
     CHECK(!std::filesystem::exists(f.directory.path / "alpha/pwn.txt"));
     CHECK(!std::filesystem::exists(f.directory.path / "beta/pwn.txt"));
     const auto history = f.history(); CHECK(history.size() == 8);
-    CHECK(history.back().at("feedback").at("result").at("runtime_error") == true);
+    CHECK(history.back().at("feedback").at("result").at("correction_feedback").at("reason") == "tool_selection");
     const auto next = f.worker();
     const auto& last = next.request.context.logical_input.at("messages").as_array().back();
-    CHECK(last.at("role") == "user" && last.at("tool_calls").as_array().empty());
-    CHECK(text(parse_json_strict(std::string(last.at("content").as_string())), "attempt_id") == captured.request.attempt_id);
+    CHECK(last.at("role") == "tool" && last.at("tool_calls").as_array().empty());
+    CHECK(text(last.at("source"), "attempt_id") == captured.request.attempt_id);
+    CHECK(parse_json_strict(std::string(last.at("content").as_string())).at("status") == "FAILED");
 }
 
 void normal_restart_keeps_one_chain_and_old_bindings() {

@@ -979,6 +979,11 @@ Json FrozenRequestConfig::logical_agent_policy() const {
     return policy ? *policy : Json(nullptr);
 }
 
+std::int64_t FrozenRequestConfig::schema_retry_max() const {
+    return static_cast<std::int64_t>(integer_value(required(required(required(document_, "system", "snapshot"),
+        "context", "system"), "schema_retry_max", "system.context"), "system.context.schema_retry_max", 0));
+}
+
 Json FrozenRequestConfig::runtime_support() const {
     Array deferred;
     const auto add = [&](std::string_view section, std::string_view key, std::string_view reason) {
@@ -989,7 +994,7 @@ Json FrozenRequestConfig::runtime_support() const {
     };
     for (const auto key : {"max_wall_minutes", "warn_at_fraction"})
         add("budget_defaults", key, "requires persistent request-lifetime deadlines and warnings; live batches have separate host deadlines");
-    for (const auto key : {"compaction_at_fraction", "schema_retry_max", "snapshot_decision_log_entries"})
+    for (const auto key : {"compaction_at_fraction", "snapshot_decision_log_entries"})
         add("context", key, "requires bounded structured history/compaction; no automatic retry");
     for (const auto key : {"max_active_dispatchers", "max_active_workers", "reserve_dispatchers_for_review",
                           "reserve_workers_for_review", "review_reservation_policy", "release_slots_while_waiting",
@@ -1001,6 +1006,8 @@ Json FrozenRequestConfig::runtime_support() const {
     return Object{{"validation_scope", "configuration_shape_references_and_policies"},
         {"execution_mode", "explicit_host_selected"},
         {"available_execution_modes", Array{"offline_fake", "controlled_live"}},
+        {"model_output_correction", Object{{"schema_retry_max", schema_retry_max()},
+            {"scope", "durable-feedback roles; consecutive same-target failures; original STOP guards retained"}}},
         {"live_workflow_available", true}, {"context_request_format", context_request_format()},
         {"context_prompt_policy", context_prompt_policy()},
         {"history_window_integrated", !worker_history_policy().is_null()}, {"worker_history_policy", worker_history_policy()},

@@ -320,7 +320,9 @@ void forbidden_model_fields_and_unknown_nodes_never_change_business_state() {
         const auto before = f.store->tasks(f.id), old_events = f.store->events(f.id);
         const FakeModel fake({step(Role::Dispatcher, "submit_amendment_plan", args)});
         const auto call = f.capture(fake);
-        expect({ErrorCode::InvalidInput, ErrorCode::Unsupported, ErrorCode::Unauthorized}, [&] {
+        if (variant <= 3 || variant == 5)
+            CHECK(f.offline().accept_independent_response(call, fake.complete(call.request)).at("status") == "FAILED");
+        else expect({ErrorCode::InvalidInput, ErrorCode::Unsupported, ErrorCode::Unauthorized}, [&] {
             (void)f.offline().accept_independent_response(call, fake.complete(call.request));
         });
         CHECK(f.store->tasks(f.id) == before);
@@ -339,13 +341,14 @@ void empty_decisions_leave_plan_and_tasks_unchanged_without_retry() {
     const auto before = f.store->tasks(f.id);
     const auto result = f.runtime().pump(f.id, script);
     CHECK(result.at("calls").as_array().size() == 1);
-    CHECK(blocked(result, "invalid_input"));
+    CHECK(result.at("calls").as_array().front().at("result").at("status") == "FAILED");
+    CHECK(blocked(result, "missing_script"));
     CHECK(f.store->tasks(f.id) == before);
     CHECK(f.store->request(f.id).at("plan_revision") == 1);
     CHECK(!std::filesystem::exists(f.directory.path / "alpha/r2.txt"));
     (void)f.decide("submit_amendment_plan", plan_arguments(Object{{"alpha", decision("update")}}));
     const auto beta = f.task("beta");
-    expect({ErrorCode::InvalidInput}, [&] { (void)f.decide("resolve_amendment", Object{{"dispositions", Object{}}}); });
+    CHECK(f.decide("resolve_amendment", Object{{"dispositions", Object{}}}).at("status") == "FAILED");
     CHECK(f.task("beta") == beta && f.store->request(f.id).at("plan_revision") == 2);
 }
 
@@ -356,9 +359,7 @@ void resolve_cannot_redecide_current_node_or_replace_the_plan() {
     expect({ErrorCode::InvalidInput, ErrorCode::Conflict, ErrorCode::Unauthorized}, [&] {
         (void)f.decide("resolve_amendment", Object{{"dispositions", Object{{"alpha", decision("cancel")}}}});
     });
-    expect({ErrorCode::InvalidInput}, [&] {
-        (void)f.decide("submit_amendment_plan", plan_arguments(Object{{"beta", decision("keep")}}));
-    });
+    CHECK(f.decide("submit_amendment_plan", plan_arguments(Object{{"beta", decision("keep")}})).at("status") == "FAILED");
     CHECK(f.store->tasks(f.id) == before && f.store->request(f.id).at("plan_revision") == 2);
 }
 
@@ -370,7 +371,7 @@ void worker_cannot_submit_dispatcher_amendment_decisions() {
     const auto call = f.offline().reserve_call(fake, f.id, Role::Worker, f.binding().task_id);
     CHECK(std::find(call.request.context.tool_names.begin(), call.request.context.tool_names.end(),
         "submit_amendment_plan") == call.request.context.tool_names.end());
-    expect({ErrorCode::InvalidInput}, [&] { (void)f.offline().accept_response(call, fake.complete(call.request)); });
+    CHECK(f.offline().accept_response(call, fake.complete(call.request)).at("status") == "FAILED");
     CHECK(f.store->tasks(f.id) == before);
     CHECK(!f.store->attempt(call.request.attempt_id).at("settlement_sha256").is_null());
 }

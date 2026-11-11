@@ -125,6 +125,7 @@ private:
 
 // This checks the captured call envelope, not current state or permission.
 // Even a valid complete response must pass the Store's current tuple gate.
+void validate_response_envelope(const ModelRequest& request, const ModelResponse& response);
 void validate_response(const ModelRequest& request, const ModelResponse& response);
 void require_complete_response(const ModelRequest& request,
                                const ModelResponse& response);

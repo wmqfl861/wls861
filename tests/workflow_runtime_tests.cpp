@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <set>
 
 #ifndef WLS_SOURCE_DIR
 #define WLS_SOURCE_DIR "."
@@ -36,14 +37,21 @@ void expect(ErrorCode code, const std::function<void()>& action) {
     }
     CHECK(caught);
 }
-AdmissionInput input() {
-    const auto frozen = load_config_catalog(source / "config/examples/system.yaml", source / "config/examples/functions",
+AdmissionInput input(std::int64_t correction_limit = 2) {
+    test::TempDir configuration;
+    auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string marker = "  schema_retry_max: 2";
+    const auto position = yaml.find(marker); CHECK(position != std::string::npos);
+    yaml.replace(position, marker.size(), "  schema_retry_max: " + std::to_string(correction_limit));
+    write(configuration.path / "system.yaml", yaml);
+    const auto frozen = load_config_catalog(configuration.path / "system.yaml", source / "config/examples/functions",
                                             source / "prompts").freeze("general");
     AdmissionInput result;
     result.tenant_id = "test-tenant"; result.project_id = "test-project"; result.root_id = "test-root";
     result.function_id = frozen.function_id(); result.idempotency_key = new_id("key");
     result.original_text = read_runtime_file(source / "tests/fixtures/s13_request.txt");
-    result.config_snapshot = frozen.json(); result.constraint_catalog = fixture("s13_constraints.json");
+    result.config_snapshot = frozen.json();
+    result.constraint_catalog = fixture("s13_constraints.json");
     const auto grants = frozen.worker_tools(); result.tool_allowlist.assign(grants.begin(), grants.end());
     result.budget.input_tokens = 20000000; result.budget.output_tokens = 1000000;
     return result;
@@ -245,44 +253,40 @@ void original_target_and_question_cas_reject_retargeting() {
 }
 
 void model_question_arguments_cannot_forge_targets_or_versions() {
-    Fixture f; f.ready(); const auto question = f.ask();
+    Fixture f(input(10)); f.ready(); const auto question = f.ask();
     for (const auto& arguments : std::vector<Json>{
             Object{{"text", "answer"}, {"question_id", question.at("question_id")}},
             Object{{"text", "answer"}, {"state_version", 1}},
             Object{{"text", "answer"}, {"execution_epoch", f.binding().execution_epoch}},
             Object{{"text", " \t\n"}}, Object{}}) {
-        expect(ErrorCode::InvalidInput, [&] { (void)f.invoke(Role::TeamLead, "answer_question", arguments); });
+        CHECK(f.invoke(Role::TeamLead, "answer_question", arguments).at("status") == "FAILED");
         CHECK(f.store->question(text(question.at("question_id"))).at("status") == "OPEN");
     }
-    expect(ErrorCode::InvalidInput, [&] {
-        (void)f.invoke(Role::TeamLead, "forward_question", Object{{"note", "forward"}, {"holder", "user"}});
-    });
+    CHECK(f.invoke(Role::TeamLead, "forward_question", Object{{"note", "forward"}, {"holder", "user"}}).at("status") == "FAILED");
     const auto order = script().by_node.at("alpha").front().tool_calls.front().arguments;
-    expect(ErrorCode::InvalidInput, [&] { (void)f.invoke(Role::TeamLead, "issue_work_order", order); });
+    CHECK(f.invoke(Role::TeamLead, "issue_work_order", order).at("status") == "FAILED");
     CHECK(f.store->worker_wait(f.binding().task_id).at("status") == "WAITING");
     CHECK(f.task().at("instruction_revision") == 1);
 }
 
 void check_schema_refuses_self_approval_and_invalid_rework_shapes() {
-    Fixture f; f.ready(); write(f.directory.path / "alpha/result.txt", "bounded candidate\n");
+    Fixture f(input(10)); f.ready(); write(f.directory.path / "alpha/result.txt", "bounded candidate\n");
     auto forged_submission = submission_body();
     forged_submission.as_object()["team_lead_check"] = Object{{"passed", true}};
-    expect(ErrorCode::InvalidInput, [&] { (void)f.invoke(Role::Worker, "submit", forged_submission); });
+    CHECK(f.invoke(Role::Worker, "submit", forged_submission).at("status") == "FAILED");
     forged_submission = submission_body(); forged_submission.as_object()["submission_id"] = new_id("sub");
-    expect(ErrorCode::InvalidInput, [&] { (void)f.invoke(Role::Worker, "submit", forged_submission); });
+    CHECK(f.invoke(Role::Worker, "submit", forged_submission).at("status") == "FAILED");
     const auto submitted = f.submit();
     const auto order = script().by_node.at("alpha").front().tool_calls.front().arguments;
     for (const auto& arguments : std::vector<Json>{Object{{"passed", false}},
             Object{{"passed", true}, {"work_order", order}},
             Object{{"passed", true}, {"submission_id", submitted.at("submission_id")}},
             Object{{"passed", true}, {"state_version", 1}}}) {
-        expect(ErrorCode::InvalidInput, [&] { (void)f.invoke(Role::TeamLead, "check_submission", arguments); });
+        CHECK(f.invoke(Role::TeamLead, "check_submission", arguments).at("status") == "FAILED");
         CHECK(f.store->submission(text(submitted.at("submission_id"))).at("status") == "SUBMITTED");
     }
     Json forged_order = order; forged_order.as_object()["task_revision"] = 999;
-    expect(ErrorCode::InvalidInput, [&] {
-        (void)f.invoke(Role::TeamLead, "check_submission", Object{{"passed", false}, {"work_order", forged_order}});
-    });
+    CHECK(f.invoke(Role::TeamLead, "check_submission", Object{{"passed", false}, {"work_order", forged_order}}).at("status") == "FAILED");
     CHECK(f.task().at("instruction_revision") == 1 && f.task().at("task_revision") == 1);
 }
 
@@ -299,8 +303,9 @@ void snapshot_requires_complete_authorized_bounded_files() {
         }
         const auto code = std::string(mode) == "oversized" || std::string(mode) == "too_many" ? ErrorCode::Quota :
             (std::string(mode) == "traversal" ? ErrorCode::Unauthorized : ErrorCode::InvalidInput);
-        expect(code,
-            [&] { (void)f.invoke(Role::Worker, "submit", body); });
+        if (std::string(mode) == "missing")
+            CHECK(f.invoke(Role::Worker, "submit", body).at("status") == "FAILED");
+        else expect(code, [&] { (void)f.invoke(Role::Worker, "submit", body); });
         CHECK(f.store->current_submission(f.binding().task_id).is_null());
         CHECK(f.task().at("status") != "SUBMITTED");
         CHECK(f.store->submissions(f.binding().task_id).empty());
@@ -308,7 +313,8 @@ void snapshot_requires_complete_authorized_bounded_files() {
     auto admission = input();
     std::erase(admission.tool_allowlist, "fs_read");
     Fixture f(admission); f.ready(); write(f.directory.path / "alpha/result.txt", "private\n");
-    expect(ErrorCode::InvalidInput, [&] { (void)f.submit(); });
+    const auto rejected = f.submit();
+    CHECK(rejected.at("status") == "FAILED" && rejected.at("correction_feedback").at("reason") == "tool_selection");
     CHECK(f.store->current_submission(f.binding().task_id).is_null());
 }
 
@@ -409,6 +415,97 @@ void missing_script_and_budget_preserve_submission_events_without_retry() {
     CHECK(after.size() == inbox.size());
     for (std::size_t i = 0; i < inbox.size(); ++i) CHECK(after[i].at("inbox_id") == inbox[i].at("inbox_id"));
 }
+void correction_text_only_preserves_independent_attempts_and_actor_scope() {
+    Fixture f; auto run = script();
+    auto plan = run.default_steps.front(); plan.role_call_index = 2;
+    auto prose = plan; prose.role_call_index = 1; prose.tool_calls.clear(); prose.text = "Call the declared tool next.";
+    run.default_steps = {prose, plan};
+    auto& node = run.by_node.at("alpha");
+    for (auto& value : node) if (value.role == Role::Worker) ++value.role_call_index;
+    auto worker = prose; worker.role = Role::Worker; node.push_back(worker);
+    EventPumpOptions limits; limits.max_worker_calls_per_task = 4;
+    const auto report = f.runtime().pump(f.id, run, limits);
+    const auto& calls = report.at("calls").as_array(); CHECK(calls.size() == 6);
+    std::set<std::string> attempts;
+    for (const auto& call : calls) {
+        CHECK(attempts.insert(text(call.at("attempt_id"))).second);
+        CHECK(!f.store->tool_feedback(text(call.at("attempt_id"))).is_null());
+    }
+    CHECK(calls[0].at("result").at("status") == "FAILED");
+    CHECK(calls[3].at("result").at("status") == "FAILED");
+    for (const auto index : {1U, 4U}) {
+        const auto original = f.store->attempt(text(calls[index].at("attempt_id")));
+        const auto request = model_request_from_json(original.at("request_envelope"));
+        CHECK(request.context.dynamic_suffix.find("tool_selection") != std::string::npos);
+        CHECK(request.context.dynamic_suffix.find("Call the declared tool next.") != std::string::npos);
+    }
+    CHECK(f.store->budget(f.id).at("attempts") == 6);
+    for (const auto role : {Role::Dispatcher, Role::TeamLead, Role::Worker}) {
+        const auto actor = f.store->host_actor(role, f.id, role == Role::Dispatcher ? "" : f.binding().team_id);
+        const auto tail = f.store->attempt_history_tail(actor, 8);
+        for (const auto& item : tail.at("items").as_array()) {
+            CHECK(item.at("response").at("role") == Json(role_name(role)));
+            CHECK(item.at("response").at("binding").at("request_id") == Json(f.id));
+        }
+        auto forged = actor; forged.principal_id = "another-principal";
+        expect(ErrorCode::Unauthorized, [&] { (void)f.store->attempt_history_tail(forged, 1); });
+    }
+}
+void correction_arguments_and_selection_recover_for_managers_and_workers() {
+    for (const auto role : {Role::TeamLead, Role::Worker}) for (int kind = 0; kind != 3; ++kind) {
+        Fixture f; f.ready(); if (role == Role::TeamLead) (void)f.ask();
+        const auto correct = role == Role::TeamLead ? step(role, "answer_question", Object{{"text", "Keep original."}}, 2)
+            : step(role, "fs_write", Object{{"path", "result.txt"}, {"content", "corrected"}}, 2);
+        auto bad = correct; bad.role_call_index = 1;
+        if (kind == 0) bad.tool_calls.front().arguments = Object{{"text", 7}};
+        else bad.tool_calls.front().name = kind == 1 ? "undeclared_tool" : role == Role::TeamLead ? "issue_work_order" : "answer_question";
+        EventFakeScript run; run.by_node["alpha"] = {bad, correct};
+        EventPumpOptions limits; limits.max_calls = 2; limits.max_worker_calls_per_task = 2;
+        const auto report = f.runtime().pump(f.id, run, limits);
+        const auto& calls = report.at("calls").as_array();
+        if (calls.size() != 2) throw std::runtime_error(canonical_json(report));
+        CHECK(calls.front().at("result").at("status") == "FAILED");
+        CHECK(!calls.front().at("result").as_object().contains("operation"));
+        const auto attempt = f.store->attempt(text(calls.back().at("attempt_id")));
+        CHECK(canonical_json(attempt.at("request_envelope")).find(kind == 0 ? "model_arguments" : "tool_selection") != std::string::npos);
+        if (role == Role::TeamLead) CHECK(calls.back().at("result").at("status") == "ANSWERED");
+        else CHECK(calls.back().at("result").at("operation").at("status") == "SUCCEEDED");
+    }
+}
+void correction_file_failures_limits_reset_and_reopen() {
+    for (const bool precondition : {false, true}) {
+        Fixture f; f.ready();
+        if (precondition) write(f.directory.path / "alpha/result.txt", "old");
+        const auto bad = precondition ? step(Role::Worker, "fs_write", Object{{"path", "result.txt"}, {"content", "new"}})
+            : step(Role::Worker, "fs_read", Object{{"path", "absent.txt"}});
+        auto good = step(Role::Worker, "fs_write", Object{{"path", "result.txt"}, {"content", "new"}}, 2);
+        if (precondition) good.tool_calls.front().arguments.as_object()["expected_sha256"] = sha256_hex("old");
+        EventFakeScript run; run.by_node["alpha"] = {bad, good}; EventPumpOptions limits; limits.max_calls = 2; limits.max_worker_calls_per_task = 2;
+        const auto report = f.runtime().pump(f.id, run, limits); const auto& calls = report.at("calls").as_array();
+        if (calls.size() != 2) throw std::runtime_error(canonical_json(report));
+        CHECK(calls.back().at("result").at("operation").at("status") == "SUCCEEDED");
+        CHECK(calls.front().at("result").at("correction_feedback").at("consecutive_failures") == 1);
+        if (precondition) CHECK(calls.front().at("result").at("execution_result").at("evidence").at("failure_kind") == "content_precondition");
+        // A success clears the same target's consecutive count.
+        const auto next = f.invoke(Role::Worker, "fs_read", Object{{"path", "still-absent.txt"}});
+        CHECK(next.at("correction_feedback").at("consecutive_failures") == 1);
+    }
+    Fixture f; f.ready(); (void)f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}});
+    f.reopen(); EventFakeScript run; run.by_node["alpha"] = {step(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})};
+    auto report = f.runtime().pump(f.id, run);
+    CHECK(report.at("calls").as_array().size() == 1 && blocked(report, "correction_limit"));
+    CHECK(report.at("calls").as_array().front().at("result").at("correction_feedback").at("consecutive_failures") == 2);
+    f.reopen(); report = f.runtime().pump(f.id, run);
+    CHECK(report.at("calls").as_array().empty() && blocked(report, "correction_limit"));
+    CHECK(!f.store->inbox(f.store->host_actor(Role::Worker, f.id, f.binding().team_id)).empty());
+    auto admission = input(0);
+    Fixture disabled(admission); disabled.ready();
+    run.by_node["alpha"].push_back(step(Role::Worker, "fs_write", Object{{"path", "result.txt"}, {"content", "no automatic call"}}, 2));
+    report = disabled.runtime().pump(disabled.id, run);
+    CHECK(report.at("calls").as_array().size() == 1 && blocked(report, "correction_limit"));
+    CHECK(!std::filesystem::exists(disabled.directory.path / "alpha/result.txt"));
+}
+
 } // namespace
 
 int main() {
@@ -419,6 +516,9 @@ int main() {
     events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     workflow_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
     return test::run({
+        {"text-only correction preserves independent attempts and actor history scope", correction_text_only_preserves_independent_attempts_and_actor_scope},
+        {"pure argument and tool selection failures correct for management and Worker", correction_arguments_and_selection_recover_for_managers_and_workers},
+        {"file failure feedback persists consecutive limits across success and reopen", correction_file_failures_limits_reset_and_reopen},
         {"bounded submit-check-rework-resubmit keeps original candidates", complete_bounded_rework_preserves_two_original_candidates},
         {"TeamLead checks original snapshot despite later workspace mutation", check_reads_original_snapshot_not_mutated_workspace},
         {"binary submission bytes remain lossless and explicitly non-text", binary_snapshot_remains_lossless_and_explicit},

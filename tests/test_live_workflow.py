@@ -69,6 +69,11 @@ class ModelPeer:
         self.contracts.append(contract)
         action, binding = contract.get('workflow_action'), contract['binding']
         names = {tool['name'] for tool in body['tools']}
+        if self.mode == 'correction' and not self.actions:
+            return 'undeclared_tool', {}
+        if self.mode == 'correction' and len(self.actions) == 1:
+            assert 'tool_selection' in json.dumps(body['input'])
+            assert any(item.get('name') == 'undeclared_tool' for item in body['input'])
         if action:
             kind, target = action['kind'], action['target']
             if kind == 'amendment':
@@ -126,7 +131,7 @@ class ModelPeer:
         body = json.loads(observed['body'])
         name, arguments = self.choose(body)
         names = {tool['name'] for tool in body['tools']}
-        if name not in names:
+        if name not in names and not (self.mode == 'correction' and not self.actions):
             raise AssertionError(f'{name} was not declared: {sorted(names)}')
         call_id = f'fixture-call-{len(self.actions) + 1}'
         self.actions.append(name)
@@ -206,6 +211,25 @@ class LiveWorkflow(unittest.TestCase):
         for private in (BEARER, 'PRIVATE_RESOLVER_FAILURE_7C91', 'private-server-receipt:',
                         'raw_body_hex', 'raw_headers_hex', 'Synthetic candidate task revision'):
             self.assertNotIn(private, encoded)
+
+    def test_loopback_provider_corrects_unknown_tool_with_a_new_send(self):
+        model = ModelPeer(self.directory, 'correction')
+        with tls.Peer(self.contexts['server'], model) as peer:
+            result = self.invoke(peer, model, synthetic_provider=True)
+            self.assertEqual(len(peer.requests), 8, result)
+        self.assertEqual(model.actions[:2], ['undeclared_tool', 'submit_plan'])
+        self.assertEqual(result['reports'][0]['provider_calls'], 8)
+        self.assertEqual(self.rows('SELECT count(*) AS n FROM live_send_claims')[0]['n'], 8)
+        originals = self.rows('SELECT attempt_id, response, usage FROM call_attempts ORDER BY rowid')
+        self.assertEqual(len({row['attempt_id'] for row in originals}), 8)
+        first = json.loads(originals[0]['response'])
+        self.assertEqual(first['tool_calls'][0]['name'], 'undeclared_tool')
+        feedback = json.loads(self.rows('SELECT result FROM model_tool_feedback WHERE attempt_id=?',
+                                      (originals[0]['attempt_id'],))[0]['result'])
+        self.assertEqual(feedback['status'], 'FAILED')
+        self.assertEqual(feedback['correction_feedback']['reason'], 'tool_selection')
+        self.assertEqual(self.rows('SELECT status FROM tasks')[0]['status'], 'ACCEPTED')
+        self.assert_private_safe(result)
 
     def test_model_refusal_records_model_layer_feedback_without_dispatch(self):
         compat = self.directory / 'compat-profile.json'

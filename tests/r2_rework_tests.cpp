@@ -365,7 +365,7 @@ void concurrent_corrections_have_one_cas_winner() {
 void malformed_model_arguments_are_accounted_not_applied() {
     Fixture f; (void)reject(f); auto forged=correction(); forged.as_object()["submission_id"]=new_id("sub");
     const FakeModel fake({step(Role::Dispatcher,"change_task",forged)}); const auto call=f.capture(Role::Dispatcher,fake);
-    expect(ErrorCode::InvalidInput,[&] { OfflineRuntime(*f.store,*schemas,f.alpha.get()).accept_response(call,fake.complete(call.request)); });
+    CHECK(OfflineRuntime(*f.store,*schemas,f.alpha.get()).accept_response(call,fake.complete(call.request)).at("status")=="FAILED");
     CHECK(!f.store->attempt(call.request.attempt_id).at("settlement_sha256").is_null());
     CHECK(!f.store->tool_feedback(call.request.attempt_id).is_null());
     CHECK(f.task().at("status")=="BLOCKED" && f.store->rejected_submission(f.binding().task_id).at("team_rework_count")==0);
@@ -393,7 +393,9 @@ void answered_rejection_keeps_wakeup_after_invalid_response() {
     Fixture f; (void)reject(f); const auto q=escalate(f);
     (void)f.runtime().pump(f.id,EventFakeScript{}); answer(f,q);
     EventFakeScript bad; bad.default_steps={step(Role::Dispatcher,"change_task",Object{{"correction","missing rationale"}})};
-    const auto failure=f.runtime().pump(f.id,bad); CHECK(blocked(failure,"invalid_input"));
+    const auto failure=f.runtime().pump(f.id,bad); CHECK(failure.at("calls").as_array().size()==1);
+    CHECK(failure.at("calls").as_array().front().at("result").at("correction_feedback").at("reason")=="model_arguments");
+    CHECK(blocked(failure,"missing_script"));
     EventFakeScript valid; valid.default_steps={step(Role::Dispatcher,"change_task",correction())};
     const auto result=f.runtime().pump(f.id,valid);
     CHECK(result.at("calls").as_array().size()==1 && f.task().at("status")=="READY");

@@ -28,9 +28,11 @@ class ReworkCli(unittest.TestCase):
                 'usage':{'input_tokens':100,'output_tokens':20,'cache_read_tokens':0,
                          'cache_write_tokens':0,'cost_micro_usd':0}}
 
-    def rejected(self, *, maximum=3, max_attempts=64, structured=False):
+    def rejected(self, *, maximum=3, max_attempts=64, structured=False, schema_retry_max=2):
         config=(h.SOURCE/'config/examples/system.yaml').read_text().replace(
             '  team_internal_rework_max: 3', f'  team_internal_rework_max: {maximum}')
+        # A caller may freeze zero for a single-response safety rejection fixture.
+        config=config.replace('schema_retry_max: 2', f'schema_retry_max: {schema_retry_max}')
         if structured:
             config=config.replace('request_format: framed-v1','request_format: structured-v2')
         config_path=self.directory/'system.yaml'; config_path.write_text(config)
@@ -172,12 +174,14 @@ class ReworkCli(unittest.TestCase):
         self.assertTrue(self.rows("SELECT * FROM event_inbox WHERE role='dispatcher' AND status='PENDING'"))
 
     def test_model_cannot_choose_target_or_replace_obligations(self):
-        request=self.rejected()
+        request=self.rejected(schema_retry_max=0)
         original=self.view(request)['tasks'][0]
         for field in ('task_id','submission_id','brief','rework_limit','task_revision'):
             args={'rationale':'correct','correction':'unchanged obligations',field:'forged'}
             result=self.pump(request,self.json_file('forged.json',{'default':[self.step('dispatcher','change_task',args)]}))
-            self.assertTrue(any(x['code']=='invalid_input' for x in result['blocked']),result)
+            self.assertTrue(any(x['code']=='correction_limit' for x in result['blocked']),result)
+            self.assertEqual(result['calls'][0]['result']['status'], 'FAILED')
+            self.assertEqual(result['calls'][0]['result']['correction_feedback']['reason'], 'model_arguments')
             task=self.view(request)['tasks'][0]
             self.assertEqual(task['status'],'BLOCKED')
             self.assertEqual(task['brief'],original['brief'])
@@ -185,7 +189,7 @@ class ReworkCli(unittest.TestCase):
         self.assertEqual(self.rows('SELECT rework_count FROM team_workflow_state'),[{'rework_count':0}])
 
     def test_amendment_captures_new_disposition_and_rejects_old_correction_tool(self):
-        request=self.rejected()
+        request=self.rejected(schema_retry_max=0)
         original=self.rows('SELECT submission_id,original_binding,body,artifact_snapshot,record_sha256 FROM workflow_submissions')
         workspace_bytes=(self.workspace/'result.txt').read_bytes()
         self.invoke('amend','--db',self.database,'--request',request,
@@ -209,7 +213,9 @@ class ReworkCli(unittest.TestCase):
         self.assertEqual(call['role'],'dispatcher')
         self.assertEqual(call['workflow_action']['kind'],'amendment')
         self.assertIs(call['workflow_action']['target']['plan_required'],True)
-        self.assertEqual(call['error']['code'],'invalid_input',call)
+        self.assertEqual(call['result']['status'], 'FAILED')
+        self.assertEqual(call['result']['correction_feedback']['reason'], 'tool_selection')
+        self.assertTrue(any(x['code']=='correction_limit' for x in result['blocked']),result)
         attempt=self.rows('SELECT input_tokens,output_tokens,response,settlement_sha256 FROM call_attempts WHERE attempt_id=?',
                           (call['attempt_id'],))[0]
         self.assertEqual((attempt['input_tokens'],attempt['output_tokens']),(100,20))
