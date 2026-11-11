@@ -2,6 +2,12 @@
 
 ## Unreleased — G0 closeout and G1 start (2026-11-07 through 2026-11-11, in progress; no version cut)
 
+- Merge G1-C tool descriptions (#56, `c783d9e`, 18:52:43 UTC) and G1-B
+  durable model-output correction (#55, `951c95d`, 19:05:52 UTC) on
+  2026-11-11. Each PR passed three core configurations (78/78 each) and
+  source checks. D/J are in progress; E waits for D. Internal v3 remains
+  unavailable for persisted requests until E completes its final layout.
+
 - Merge the owner-approved G0 engineering PRs into main in order with normal
   merge commits: #43 restore the S1 disposition/retained-path guards on
   Store 410 (`d28c4a5`), #44 consolidate CI to one Linux PR gate with the
@@ -103,7 +109,7 @@
 - Complete G1-A test layering in PR #53, normally merged as `ce6fe0d`
   at 17:37:54 UTC on 2026-11-11. Its PR run 43066941090 passed all three
   core configurations (78/78 each), and source run 43066941031 passed.
-  G1 has started; G1-B/C remain in progress, with C's internal v3 still
+  G1 has started; G1-B/C are merged, with C's internal v3 still
   awaiting G1-E's final layout before persistent request admission.
 - Merge G1-I bounded host DNS and frozen explicit HTTP CONNECT policy
   (PR #54) as `231291e` at 18:14:44 UTC on 2026-11-11; prior frozen

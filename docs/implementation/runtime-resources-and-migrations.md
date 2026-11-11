@@ -8,7 +8,7 @@
 ## 1. 资源与请求配置的身份
 
 运行程序认可的资源由 `src/runtime_resource_catalog.inc` 固定，源码分发清单是
-`resources/runtime-manifest.json`。当前资源为 35 份、160549 字节：
+`resources/runtime-manifest.json`。当前资源为 35 份、159200 字节：
 
 | 类别 | 内容 | 消费者 |
 | --- | --- | --- |
@@ -57,6 +57,14 @@ Manifest 的 format 为 `wls-runtime-resources-v1`，Store 版本为 410。顶�
 `validate_frozen_prompts(frozen)`，要求四份默认依赖各出现一次且内容/hash 等于捕获资源。
 因此冻结期间改动默认提示词会被拒绝。显式 `--prompts-dir` 允许调用方提供另一组
 外部提示词；它们仍通过原有安全加载和冻结过程，但不冒充分发默认资源。
+
+新请求可显式冻结 `context.prompt_policy: guided-v1`，示例已选择该策略。它按当前角色
+提供稳定的工具使用、阻塞及完成指引；workflow 动作和目标保留在完整任务契约中。
+环境卡使用所选模型的真实 adapter、声明能力和原冻结环境模板；模板声明不代表检查
+已经执行。Worker 的模型投影省略审计布尔值，宿主原环境证据及执行策略身份保持。
+缺少策略的旧快照不补字段，继续原规则和环境字节，并只读取快照中的原提示词依赖。
+更新公共提示词会改变当前 bundle 身份，不改变 Store 已记录的原 SQL 迁移身份；
+已捕获请求不以当前公共提示词替换旧字节。该策略独立于 context 格式，不开放 v3。
 
 ## 3. 迁移注册与原 Store 边界
 

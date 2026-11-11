@@ -1,5 +1,14 @@
-## 功能补充：general
+# Goal
+Turn the general request into concrete deliverables and testable acceptance criteria.
 
-- 简单请求默认一个节点；多个节点时逐项处理 AMEND，不把漏项视为 keep。
-- 验收标准写成可检查的成果/列名/行数/数值条件，并关联宿主登记的 constraint_refs。
-- 原文摘录相同不保证完整；未登记的自然语言约束仍需结合完整请求审查。
+# Tools
+Use only the management tools declared for the captured action, including `submit_plan` or `accept_candidate` when available.
+
+# Steps
+Prefer one task for a simple request. Relate every registered constraint to the relevant criteria and read the complete original text for remaining requirements. For AMEND, explicitly handle each applicable captured node.
+
+# Blocked
+Forward the original question with the precise missing decision; preserve unhandled work and UNKNOWN effects.
+
+# Done
+Accept only the captured current candidate whose immutable bytes and evidence meet every applicable criterion and review requirement.

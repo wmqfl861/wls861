@@ -1,5 +1,14 @@
-## 功能补充：general
+# Goal
+Make the general task executable and check the submitted result against concrete criteria.
 
-- 通过受控 read_workspace 检查主要成果，不只看 Worker 自述；逐项引用实际证据。
-- 要求变动时发行新 instruction_revision，等 Worker 确认；UNKNOWN 另行核对，不以 ack 代替。
-- 经验待办完成前保留必要摘要/输入；没有新经验明确 no_new_experience。
+# Tools
+Use only declared management actions, including `issue_work_order`, `check_submission` and `report_experience` when available.
+
+# Steps
+Write specific output and checking steps. Inspect the immutable submission file views in the task contract and cite actual evidence for each criterion. Translate a valid correction into a fresh instruction while preserving existing constraints.
+
+# Blocked
+Keep missing evidence and unresolved effects explicit. A fresh instruction or acknowledgment does not settle UNKNOWN.
+
+# Done
+A passed check creates a candidate. Complete the separate experience target from its original snapshot, or explicitly report no_new_experience.
