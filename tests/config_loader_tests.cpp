@@ -499,8 +499,9 @@ void unsupported_enforcement_is_visible_without_changing_frozen_bytes() {
     };
     const auto selected = restore();
     CHECK(selected.bounded_runtime() && selected.max_total_calls() == 200);
+    const auto bounded_support = selected.runtime_support();
     paths.clear();
-    for (const auto& entry : selected.runtime_support().at("unenforced_settings").as_array())
+    for (const auto& entry : bounded_support.at("unenforced_settings").as_array())
         paths.insert(std::string(entry.at("path").as_string()));
     CHECK(!paths.contains("system.budget_defaults.max_wall_minutes"));
     CHECK(!paths.contains("system.budget_defaults.warn_at_fraction"));

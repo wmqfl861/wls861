@@ -805,13 +805,13 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         }
         return result;
     }
-    const auto config = restore_request_config(store_.request(captured.binding.request_id));
+    const auto runtime_config = restore_request_config(store_.request(captured.binding.request_id));
     const auto target_key = correction_detail::target_key(captured, call.workflow_action);
     const auto ordinary = [&](const char* reason, const std::string& observation = {}) {
         const auto tail = store_.attempt_history_tail(call.actor, 2);
         auto result = correction_detail::failure(reason, target_key,
             1 + correction_detail::failures(tail, target_key, captured.attempt_id));
-        if (config.bounded_runtime()) {
+        if (runtime_config.bounded_runtime()) {
             Array tools;
             for (const auto& tool : response.tool_calls) tools.emplace_back(Object{{"name", tool.name},
                 {"arguments_sha256", sha256_hex(canonical_json(tool.arguments))}});
