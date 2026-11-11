@@ -14,11 +14,10 @@ permissions:
   contents: read
 
 concurrency:
-  # One run per workflow per ref: a newer run for the same pull request or
-  # branch cancels the superseded run, and different pull requests never
-  # cancel each other. A cancelled run reports CANCELLED, never a pass.
+  # Cancel superseded PR runs, while allowing running main/nightly/manual
+  # verification to finish. A cancelled run reports CANCELLED, never a pass.
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   classify:
@@ -28,6 +27,7 @@ jobs:
     outputs:
       mode: ${{ steps.classify.outputs.mode }}
       matrix: ${{ steps.classify.outputs.matrix }}
+      slow_tests: ${{ steps.classify.outputs.slow_tests }}
     steps:
       - name: Check out the full history for a trusted base/head diff
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -59,6 +59,7 @@ jobs:
           ]}'
           base_sha=''
           changed=0
+          slow_tests=all
           if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
             mode=full
             matrix="$full_matrix"
@@ -72,30 +73,56 @@ jobs:
             # List changes NUL-separated against the real merge base. Renames
             # are split into their two paths, so a rename always classifies
             # like its worst side. A missing base, shallow history or failing
-            # diff can never classify as docs-only.
+            # diff can never classify as docs-only or selected tests.
             if [ -n "$base_sha" ] && git diff --name-only --no-renames -z "$base_sha" "$PR_HEAD_SHA" > "$RUNNER_TEMP/changed-paths.z" 2>/dev/null; then
               mode=docs-only
+              selected_slow=()
               while IFS= read -r -d '' path; do
                 changed=$((changed + 1))
+                slow=''
                 case "$path" in
-                  README.md|docs/STATUS.md|docs/ROADMAP.md|docs/REVISION-v0.4.1.md) ;;
-                  docs/reviews/*.md|docs/reports/*.md|docs/adr/*.md|docs/implementation/*.md) ;;
+                  README.md|docs/STATUS.md|docs/ROADMAP.md|docs/REVISION-v0.4.1.md) continue ;;
+                  docs/reviews/*.md|docs/reports/*.md|docs/adr/*.md|docs/implementation/*.md) continue ;;
+                  tests/test_billing_baseline_e2e.py) slow=billing_baseline_e2e ;;
+                  tests/live_workflow_driver.cpp) slow=live_workflow ;;
+                  tests/audit24_capacity_repro_tests.cpp) slow=audit24_capacity_repro ;;
+                  tests/https_transport_driver.cpp) slow=https_transport ;;
+                  tests/r3_evaluation_tests.py) slow=r3_evaluation ;;
+                  tests/r1_management_tests.cpp) slow=r1_management ;;
+                  tests/journal_tests.cpp|tests/config_tests.cpp|tests/scheduler_tests.cpp|tests/task_engine_tests.cpp|\
+                  tests/runtime_types_tests.cpp|tests/runtime_resources_tests.cpp|tests/store_tests.cpp|tests/event_store_tests.cpp|\
+                  tests/workflow_store_tests.cpp|tests/acceptance_store_tests.cpp|tests/config_loader_tests.cpp|tests/model_tests.cpp|\
+                  tests/schema_tests.cpp|tests/offline_runtime_tests.cpp|tests/event_runtime_tests.cpp|tests/workflow_runtime_tests.cpp|\
+                  tests/acceptance_runtime_tests.cpp|tests/workspace_tests.cpp|tests/sandbox_tests.cpp|tests/worker_tools_tests.cpp|\
+                  tests/delivery_tests.cpp|tests/cleanup_tests.cpp|tests/cleanup_runtime_tests.cpp|tests/audit24_reopen_tests.cpp|\
+                  tests/process_evidence_tests.cpp|tests/audit24_reconcile_tests.cpp|tests/audit24_capacity_tests.cpp|tests/r1_history_tests.cpp|\
+                  tests/r1_structured_tests.cpp|tests/r1_window_tests.cpp|tests/r2_rework_tests.cpp|tests/r2_recovery_tests.cpp|\
+                  tests/r2_amend_tests.cpp|tests/r2a_mkdir_tests.cpp|tests/allocation_recovery_tests.cpp|tests/doctor_diagnostics_tests.cpp|\
+                  tests/protocol_codec_tests.cpp|tests/sse_replay_tests.cpp|tests/owned_capacity_tests.cpp|tests/owned_capacity_runtime_tests.cpp|\
+                  tests/live_model_store_tests.cpp|tests/billing_tests.cpp|tests/single_agent_tests.cpp) ;;
                   *)
-                    # docs/handoff, docs/spec, sources, tests, SQL, schemas,
-                    # build/CI configuration, scripts, generated inputs and
-                    # every unknown path stay on the core compile path.
+                    # Shared helpers, headers, fixtures and every other path
+                    # retain all tests, including unknown or new paths.
                     mode=core
+                    continue
                     ;;
                 esac
+                if [ "$mode" = docs-only ]; then mode=selected; fi
+                if [ -n "$slow" ]; then selected_slow+=("$slow"); fi
               done < "$RUNNER_TEMP/changed-paths.z"
               if [ "$changed" -eq 0 ]; then
                 # An empty change list is not evidence of a docs-only change.
                 mode=core
               fi
+              if [ "$mode" = selected ]; then
+                slow_tests="$(IFS=';'; echo "${selected_slow[*]}")"
+                slow_tests="${slow_tests:-none}"
+              fi
             fi
           fi
           {
             echo "mode=$mode"
+            echo "slow_tests=$slow_tests"
             echo "matrix<<MATRIX_JSON_EOF"
             printf '%s\n' "$matrix"
             echo "MATRIX_JSON_EOF"
@@ -103,6 +130,7 @@ jobs:
           {
             echo "### Change classification: \`$mode\`"
             echo "- event: $GITHUB_EVENT_NAME, matrix entries: $(printf '%s' "$matrix" | grep -c '"name"')"
+            echo "- slow tests: $slow_tests (selected mode always includes all fast tests)"
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
               echo "- PR head: \`$PR_HEAD_SHA\`; diff merge base: \`${base_sha:-unavailable, fell back to core}\`"
               echo "- changed paths counted: $changed"
@@ -151,16 +179,25 @@ jobs:
       - name: Configure CMake
         if: needs.classify.outputs.mode != 'docs-only' && matrix.name != 'Make-ASan'
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }} -DWLS_ENABLE_ASAN=${{ matrix.asan }} -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }} -DWLS_ENABLE_ASAN=${{ matrix.asan }} -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python" -DWLS_CI_SLOW_TESTS="${{ needs.classify.outputs.slow_tests }}"
       - name: Build with warnings as errors
         if: needs.classify.outputs.mode != 'docs-only' && matrix.name != 'Make-ASan'
-        run: cmake --build build --parallel 2
-      - name: Run complete CTest as an ordinary user
+        run: |
+          if [ "${{ needs.classify.outputs.mode }}" = selected ]; then
+            cmake --build build --target wls_ci_selected --parallel 2
+          else
+            cmake --build build --parallel 2
+          fi
+      - name: Run CTest as an ordinary user
         if: needs.classify.outputs.mode != 'docs-only' && matrix.name != 'Make-ASan'
         run: |
           test "$(id -u)" -ne 0
           umask "${{ matrix.test_umask }}"
-          ctest --test-dir build --output-on-failure
+          if [ "${{ needs.classify.outputs.mode }}" = selected ]; then
+            ctest --test-dir build -L '^ci_selected$' --output-on-failure
+          else
+            ctest --test-dir build --output-on-failure
+          fi
       - name: Verify the original GCC ASan Make target and user CPPFLAGS
         if: needs.classify.outputs.mode != 'docs-only' && matrix.name == 'Make-ASan'
         run: |
