@@ -615,6 +615,12 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
         if (!fake)
             for (auto& role : admission.config_snapshot.at("function").at("roles").as_object())
                 role.value().as_object().erase("prompt_append");
+        const auto system_path = directory.path / "system.yaml";
+        const auto functions = directory.path / "functions";
+        std::filesystem::copy(root / "config/examples/functions", functions, std::filesystem::copy_options::recursive);
+        std::ofstream(system_path) << canonical_json(admission.config_snapshot.at("system"));
+        std::ofstream(functions / "general/function.yaml") << canonical_json(admission.config_snapshot.at("function"));
+        admission.config_snapshot = load_config_catalog(system_path, functions, root / "prompts").freeze("general").json();
         const auto snapshot = canonical_json(admission.config_snapshot);
         const auto frozen = FrozenRequestConfig::restore(snapshot, sha256_hex(snapshot));
         CHECK(frozen.context_prompt_policy() == "guided-v1");
