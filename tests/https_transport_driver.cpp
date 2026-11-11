@@ -5,7 +5,9 @@
 #include "protocol_test_support.hpp"
 
 #include <curl/curl.h>
+#include <netdb.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -18,6 +20,20 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
+
+// Linker seam exists only in this fixture executable, never in production API/config.
+std::atomic<int> resolver_delay_ms{0}, resolver_started{0}, resolver_finished{0};
+std::atomic<bool> resolver_failure{false};
+extern "C" int __real_getaddrinfo(const char*, const char*, const addrinfo*, addrinfo**);
+extern "C" int __wrap_getaddrinfo(const char* host, const char* service,
+                                const addrinfo* hints, addrinfo** result) {
+    ++resolver_started;
+    std::this_thread::sleep_for(std::chrono::milliseconds(resolver_delay_ms.load()));
+    const auto error = resolver_failure ? EAI_NONAME : __real_getaddrinfo(host, service, hints, result);
+    ++resolver_finished;
+    return error;
+}
 
 namespace {
 using namespace wls::s1;
@@ -172,6 +188,10 @@ int main(int argc, char** argv) {
         options.max_header_line_bytes = size(config, "max_header_line_bytes", options.max_header_line_bytes);
         options.max_total_response_bytes = size(config, "max_total_bytes", options.max_total_response_bytes);
         options.poll_interval = std::chrono::milliseconds(integer(config, "poll_ms", 25));
+        options.policy = text(config, "policy");
+        options.dns_timeout = std::chrono::milliseconds(integer(config, "dns_timeout_ms", 10000));
+        resolver_delay_ms = static_cast<int>(integer(config, "resolver_delay_ms", 0));
+        resolver_failure = boolean(config, "resolver_failure");
 
         const auto mutation = text(config, "mutation");
         if (mutation == "body") encoded.body += " ";
@@ -211,8 +231,27 @@ int main(int argc, char** argv) {
             });
         }
 
-        const auto result = perform_responses_https(profile, request, encoded, options, bearer,
-                                                    cancellation.get_token());
+        const auto run = [&] { return perform_responses_https(profile, request, encoded, options, bearer,
+                                                              cancellation.get_token()); };
+        Object resolver_checks;
+        if (boolean(config, "dns_batch")) {
+            std::vector<HttpsTransportResult> failures(4);
+            std::vector<std::jthread> callers;
+            for (auto& failure : failures) callers.emplace_back([&failure, &run] { failure = run(); });
+            for (auto& caller : callers) caller.join();
+            const auto capped = run();
+            resolver_checks["four_running"] = resolver_started == 4 && resolver_finished == 0;
+            resolver_checks["cap_refused"] = capped.reason == "dns_failed" && !capped.dns_started;
+            resolver_checks["all_zero_upload"] = std::all_of(failures.begin(), failures.end(), [](const auto& item) {
+                return item.reason == "dns_failed" && !item.network_started && item.request_body_bytes_supplied == 0;
+            });
+            while (resolver_finished < 4) std::this_thread::sleep_for(2ms);
+            std::this_thread::sleep_for(25ms);
+            resolver_delay_ms = 0;
+        }
+        const auto result = run();
+        // Keep late resolver results alive through teardown so ASan can observe misuse.
+        while (resolver_finished < resolver_started) std::this_thread::sleep_for(2ms);
         interruptor.request_stop();
         if (interruptor.joinable()) interruptor.join();
         Object integrity_checks;
@@ -236,6 +275,7 @@ int main(int argc, char** argv) {
             integrity_checks["transport_options"] = rejected(changed);
         }
         const Object report{
+            {"resolver_checks", resolver_checks},
             {"cares_resolver", cares_resolver}, {"integrity_checks", integrity_checks},
             {"status", status_name(result.status)}, {"phase", phase_name(result.phase)},
             {"reason", result.reason}, {"http_status", result.http_status},

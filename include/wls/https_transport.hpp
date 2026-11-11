@@ -35,7 +35,12 @@ struct HttpsTransportOptions {
     std::size_t max_header_line_bytes{8U * 1024U};
     std::size_t max_total_response_bytes{5U * 1024U * 1024U};
     std::chrono::milliseconds poll_interval{25};
+    // Empty preserves the original route/snapshot contract; opt in explicitly.
+    std::string policy;
+    std::chrono::milliseconds dns_timeout{10000};
 };
+
+Json https_transport_options_descriptor(const HttpsTransportOptions& options);
 
 // Pure preflight shared by configuration admission and the transport. Rejects
 // ambiguous numeric hosts, malformed IPv4 mappings and conflicting numeric
@@ -59,6 +64,8 @@ struct HttpsTransportResult {
     std::string transport_options_sha256;
     int http_status{};
     bool network_started{false};
+    bool extended_policy{false};
+    bool dns_started{false};
     bool transfer_complete{false};
     bool raw_headers_truncated{false};
     bool raw_body_truncated{false};

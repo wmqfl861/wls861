@@ -419,6 +419,37 @@ class HttpsTransport(unittest.TestCase):
             self.assertEqual(result["error"], "unsupported")
             self.assertEqual(peer.accepted, 0)
 
+    def test_host_dns_policy_and_bounded_failures(self):
+        policy = {"host": "localhost", "route_kind": "none", "policy": "host-dns-connect-v1"}
+        with self.peer() as peer:
+            result = self.invoke(peer, **policy)
+        self.assertEqual(result["status"], "completed")
+        self.assertTrue(result["summary"]["dns_started"])
+        self.assertEqual(len(peer.requests), 1)
+        with self.peer(certificate="wrong-host") as peer:
+            self.assert_failed(self.invoke(peer, **policy), "certificate_error")
+        self.assertEqual(peer.requests, [])
+        cases = [({"dns_timeout_ms": 45, "resolver_delay_ms": 250}, "connection_error"),
+                 ({"timeout_ms": 45, "resolver_delay_ms": 250}, "deadline"),
+                 ({"cancel_after_ms": 45, "resolver_delay_ms": 250}, "cancelled"),
+                 ({"resolver_failure": True}, "connection_error")]
+        for options, status in cases:
+            with self.subTest(options=options), self.peer() as peer:
+                result = self.invoke(peer, **policy, **options)
+            self.assert_failed(result, status)
+            self.assertLess(result["elapsed_us"], 200000)
+            self.assertFalse(result["network_started"])
+            self.assertEqual(result["request_body_bytes_supplied"], 0)
+            self.assertEqual(peer.requests, [])
+            self.assertEqual(peer.accepted, 0)
+            if status == "connection_error":
+                self.assertEqual(result["reason"], "dns_failed")
+        with self.peer() as peer:
+            result = self.invoke(peer, **policy, dns_timeout_ms=60, resolver_delay_ms=500, dns_batch=True)
+        self.assertTrue(all(result["resolver_checks"].values()), result)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(peer.requests), 1)
+
     def test_http_errors_never_retry(self):
         for code in (429, 500, 503):
             with self.subTest(status=code):

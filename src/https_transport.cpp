@@ -5,13 +5,17 @@
 #include <curl/curl.h>
 
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <sys/socket.h>
 
 #include <algorithm>
+#include <atomic>
 #include <charconv>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <memory>
+#include <thread>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -121,7 +125,7 @@ Json time_json(const std::optional<Microseconds>& time) {
 }
 
 Object summary_record(const HttpsTransportResult& result) {
-    return Object{
+    auto summary = Object{
         {"format", "wls-https-transport-summary-v1"},
         {"record_kind", "local_transport_observation"},
         {"timing_source", "executor_steady_clock"},
@@ -161,6 +165,11 @@ Object summary_record(const HttpsTransportResult& result) {
         {"provider_receipt_verified", false}, {"billing_verified", false},
         {"retry_attempts", 0}, {"tools_dispatched", 0}, {"business_accepted", false}
     };
+    if (result.extended_policy) {
+        summary["format"] = "wls-https-transport-summary-v2";
+        summary["dns_started"] = result.dns_started;
+    }
+    return summary;
 }
 
 enum class Abort {
@@ -458,6 +467,11 @@ struct Endpoint {
 };
 
 Endpoint endpoint_of(std::string_view validated_url, const HttpsTransportOptions& options) {
+    require(options.policy.empty() || options.policy == "host-dns-connect-v1",
+            ErrorCode::InvalidInput, "unsupported HTTPS transport policy");
+    require(options.dns_timeout.count() > 0 && options.dns_timeout <= Milliseconds(60000) &&
+            (!options.policy.empty() || options.dns_timeout == Milliseconds(10000)),
+            ErrorCode::InvalidInput, "HTTPS DNS timeout must be 1..60000 ms under the new policy");
     // Both callers first validate the provider's HTTPS authority and port.
     // That validation accepts no userinfo, percent escapes or IPv6.
     const auto url = validated_url.substr(8);
@@ -495,6 +509,42 @@ Endpoint endpoint_of(std::string_view validated_url, const HttpsTransportOptions
                 ErrorCode::InvalidInput, "HTTPS numeric endpoint conflicts with its explicit address mapping");
     }
     return endpoint;
+}
+
+std::string resolve_host(Transfer& transfer, const Endpoint& endpoint) {
+    struct State { std::atomic<bool> done{false}; std::string address; };
+    static std::atomic<unsigned> active{0};
+    auto state = std::make_shared<State>();
+    if (active.fetch_add(1) >= 4) { --active; return {}; }
+    try {
+        std::thread([state, host = endpoint.host, service = endpoint.port] {
+            try {
+                addrinfo hints{}; hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
+                hints.ai_flags = AI_NUMERICSERV;
+                addrinfo* raw{};
+                const auto error = ::getaddrinfo(host.c_str(), service.c_str(), &hints, &raw);
+                std::unique_ptr<addrinfo, decltype(&::freeaddrinfo)> addresses(raw, ::freeaddrinfo);
+                for (auto* item = raw; error == 0 && item != nullptr; item = item->ai_next) {
+                    if (item->ai_family != AF_INET || item->ai_addrlen < sizeof(sockaddr_in)) continue;
+                    char address[INET_ADDRSTRLEN]{};
+                    const auto* socket_address = reinterpret_cast<const sockaddr_in*>(item->ai_addr);
+                    if (::inet_ntop(AF_INET, &socket_address->sin_addr, address, sizeof(address))) {
+                        state->address = address;
+                        break;
+                    }
+                }
+            } catch (...) { /* Only this thread's private result is discarded. */ }
+            state->done.store(true, std::memory_order_release);
+            --active; // A timed-out caller never releases a still-running resolver slot.
+        }).detach();
+    } catch (...) { --active; return {}; }
+    transfer.result.dns_started = true;
+    const auto deadline = std::min(transfer.deadline, Clock::now() + transfer.options.dns_timeout);
+    while (!transfer.interrupted() && Clock::now() < deadline) {
+        if (state->done.load(std::memory_order_acquire)) return state->address;
+        std::this_thread::sleep_until(std::min(deadline, Clock::now() + Milliseconds(25)));
+    }
+    return {};
 }
 
 void collect_observations(CURL* easy, Transfer& transfer) noexcept {
@@ -599,6 +649,21 @@ void finalize(HttpsTransportResult& result, const Transfer& transfer) {
 
 } // namespace
 
+Json https_transport_options_descriptor(const HttpsTransportOptions& options) {
+    Object descriptor{{"format", "wls-https-transport-options-v1"},
+        {"ca_bundle_sha256", sha256_hex(options.ca_bundle_pem)}, {"resolved_ipv4", options.resolved_ipv4},
+        {"max_header_bytes", options.max_header_bytes}, {"max_header_line_bytes", options.max_header_line_bytes},
+        {"max_total_response_bytes", options.max_total_response_bytes},
+        {"poll_interval_ms", options.poll_interval.count()}, {"socket_send_buffer_bytes", socket_send_buffer},
+        {"upload_buffer_bytes", 16U * 1024U}, {"dns_policy", "strict_ipv4_or_explicit_mapping_or_cares"}};
+    if (!options.policy.empty()) {
+        descriptor["format"] = "wls-https-transport-options-v2";
+        descriptor["dns_policy"] = options.policy;
+        descriptor["dns_timeout_ms"] = options.dns_timeout.count();
+    }
+    return descriptor;
+}
+
 void validate_responses_https_target(const ProviderProfile& profile,
                                      const HttpsTransportOptions& options) {
     validate_provider_profile(profile);
@@ -664,14 +729,8 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     result.profile_sha256 = encoded.profile_sha256;
     result.logical_request_sha256 = encoded.logical_request_sha256;
     result.ca_bundle_sha256 = sha256_hex(options.ca_bundle_pem);
-    result.transport_options_sha256 = sha256_hex(canonical_json(Object{
-        {"format", "wls-https-transport-options-v1"}, {"ca_bundle_sha256", result.ca_bundle_sha256},
-        {"resolved_ipv4", options.resolved_ipv4}, {"max_header_bytes", options.max_header_bytes},
-        {"max_header_line_bytes", options.max_header_line_bytes},
-        {"max_total_response_bytes", options.max_total_response_bytes},
-        {"poll_interval_ms", options.poll_interval.count()},
-        {"socket_send_buffer_bytes", socket_send_buffer}, {"upload_buffer_bytes", 16U * 1024U},
-        {"dns_policy", "strict_ipv4_or_explicit_mapping_or_cares"}}));
+    result.extended_policy = !options.policy.empty();
+    result.transport_options_sha256 = sha256_hex(canonical_json(https_transport_options_descriptor(options)));
     Transfer transfer{profile, encoded, options, result, stop, started, started + request.timeout,
                       Abort::None, {}, {}, 0, 0};
     if (transfer.interrupted()) {
@@ -681,7 +740,17 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     }
 
     const auto* version = initialize_curl();
-    require(endpoint.numeric || !options.resolved_ipv4.empty() ||
+    auto route = options.resolved_ipv4;
+    if (result.extended_policy && !endpoint.numeric && route.empty()) {
+        route = resolve_host(transfer, endpoint);
+        if (route.empty() || transfer.interrupted()) {
+            if (transfer.aborted != Abort::None) classify_abort(result, transfer.aborted, CURLE_ABORTED_BY_CALLBACK);
+            else fail(result, HttpsTransportStatus::ConnectionError, "dns_failed");
+            finalize(result, transfer);
+            return result;
+        }
+    }
+    require(endpoint.numeric || !route.empty() ||
             (version->ares != nullptr && *version->ares != '\0'), ErrorCode::Unsupported,
             "HTTPS DNS names need an explicit address mapping or a c-ares resolver for bounded cleanup");
     Handles handles;
@@ -742,8 +811,8 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     option(easy, CURLOPT_XFERINFOFUNCTION, &progress);
     option(easy, CURLOPT_XFERINFODATA, &transfer);
     option(easy, CURLOPT_NOPROGRESS, 0L);
-    if (!options.resolved_ipv4.empty() && !endpoint.numeric) {
-        const auto mapping = endpoint.host + ":" + endpoint.port + ":" + options.resolved_ipv4;
+    if (!route.empty() && !endpoint.numeric) {
+        const auto mapping = endpoint.host + ":" + endpoint.port + ":" + route;
         handles.resolution = curl_slist_append(nullptr, mapping.c_str());
         require(handles.resolution != nullptr, ErrorCode::Storage, "HTTPS address mapping allocation failed");
         option(easy, CURLOPT_RESOLVE, handles.resolution);

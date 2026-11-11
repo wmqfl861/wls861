@@ -83,22 +83,20 @@ std::string endpoint_host(const ProviderProfile& provider) {
 
 Json live_transport_options_json(const HttpsTransportOptions& options) {
     validate_transport(options);
-    return Object{{"ca_bundle_pem", options.ca_bundle_pem}, {"resolved_ipv4", options.resolved_ipv4},
+    Object result{{"ca_bundle_pem", options.ca_bundle_pem}, {"resolved_ipv4", options.resolved_ipv4},
         {"max_header_bytes", options.max_header_bytes}, {"max_header_line_bytes", options.max_header_line_bytes},
         {"max_total_response_bytes", options.max_total_response_bytes},
         {"poll_interval_ms", options.poll_interval.count()}};
+    if (!options.policy.empty()) {
+        result["policy"] = options.policy;
+        result["dns_timeout_ms"] = options.dns_timeout.count();
+    }
+    return result;
 }
 
 std::string live_transport_options_sha256(const HttpsTransportOptions& options) {
     validate_transport(options);
-    // The versioned transport observation uses this exact descriptor. Tests
-    // compare the helper to an executed local TLS result to detect drift.
-    return sha256_hex(canonical_json(Object{{"format", "wls-https-transport-options-v1"},
-        {"ca_bundle_sha256", sha256_hex(options.ca_bundle_pem)}, {"resolved_ipv4", options.resolved_ipv4},
-        {"max_header_bytes", options.max_header_bytes}, {"max_header_line_bytes", options.max_header_line_bytes},
-        {"max_total_response_bytes", options.max_total_response_bytes},
-        {"poll_interval_ms", options.poll_interval.count()}, {"socket_send_buffer_bytes", 64 * 1024},
-        {"upload_buffer_bytes", 16U * 1024U}, {"dns_policy", "strict_ipv4_or_explicit_mapping_or_cares"}}));
+    return sha256_hex(canonical_json(https_transport_options_descriptor(options)));
 }
 
 Json live_model_settings_json(const LiveModelSettings& settings) {
@@ -122,8 +120,19 @@ LiveModelSettings live_model_settings_from_json(const Json& profile, std::string
     require(settings.provider.model_ref == model_ref && settings.provider.model == text(profile, "model"),
             ErrorCode::Conflict, "live model registration differs from its embedded provider profile");
     const auto& transport = field(source, "transport");
-    exact(transport, {"ca_bundle_pem", "resolved_ipv4", "max_header_bytes", "max_header_line_bytes",
-                      "max_total_response_bytes", "poll_interval_ms"});
+    std::set<std::string> transport_keys{"ca_bundle_pem", "resolved_ipv4", "max_header_bytes",
+        "max_header_line_bytes", "max_total_response_bytes", "poll_interval_ms"};
+    if (object(transport).contains("policy")) {
+        settings.transport.policy = text(transport, "policy");
+        require(settings.transport.policy == "host-dns-connect-v1", ErrorCode::InvalidInput,
+                "unsupported HTTPS transport policy");
+        transport_keys.insert("policy");
+        if (object(transport).contains("dns_timeout_ms")) {
+            transport_keys.insert("dns_timeout_ms");
+            settings.transport.dns_timeout = std::chrono::milliseconds(number(transport, "dns_timeout_ms"));
+        }
+    }
+    exact(transport, transport_keys);
     settings.transport.ca_bundle_pem = text(transport, "ca_bundle_pem", 1024U * 1024U);
     settings.transport.resolved_ipv4 = text(transport, "resolved_ipv4", 15);
     const auto size = [&](std::string_view key) {
