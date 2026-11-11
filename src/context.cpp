@@ -305,7 +305,8 @@ Json to_json(const CompiledContext& context) {
 
 CompiledContext compiled_context_from_json(const Json& value) {
     const auto& source = object(value);
-    if (string_field(source, "format") == "wls-compiled-context-v2")
+    if (string_field(source, "format") == "wls-compiled-context-v2" ||
+        string_field(source, "format") == "wls-compiled-context-v3")
         return structured_context_from_json(value);
     check_fields(source, {"format", "role", "model_ref", "reasoning_mode", "reasoning_effort",
         "adapter_version", "protocol_version", "stable_prefix", "dynamic_suffix",

@@ -3,6 +3,7 @@
 #include "wls/worker_history.hpp"
 #include "wls/management_context.hpp"
 #include "wls/single_agent.hpp"
+#include "wls/worker_tools.hpp"
 #include "protocol_test_support.hpp"
 #include "test_support.hpp"
 
@@ -146,6 +147,162 @@ void legacy_bytes_unchanged() {
     CHECK(compiled_task_contract(c) == input.task_contract);
     CHECK(canonical_json(to_json(compiled_context_from_json(parse_json_strict(bytes)))) == bytes);
     CHECK(!to_json(c).as_object().contains("logical_input_sha256"));
+}
+void legacy_full_byte_fingerprints() {
+    // Captured from the unchanged ce6fe0d product sources, not this implementation.
+    auto r = fixture::request();
+    r.context = ContextCompiler{}.compile(fixture::context());
+    CHECK(sha256_hex(canonical_json(to_json(r))) == "3d599a427fb8f068a7f3f4cef920de0ab82436587e9694474ca1c3a6d008661c");
+    CHECK(sha256_hex(canonical_json(to_json(r.context))) == "ea5b7ce1ffa8b5753dbe8703d915cf5eb2ecc24378163bc6387615a12bc264a4");
+    CHECK(r.context.prefix_sha256 == "5cee3d963ba92db4540c562c8f70ff12cbbbeadc9b7d9c926ffa663c81a0f205");
+    CHECK(r.context.cache_identity == "5470dda1ff3e946b78e07b3263303324977aa9f7c7dbd79925b3b8b8e12d33f1");
+    CHECK(to_json(model_request_from_json(to_json(r))) == to_json(r));
+    r = fixture::request();
+    CHECK(sha256_hex(canonical_json(to_json(r))) == "3a45973e2c457421a0a9a9302735c780a9224d645b5a684b304742183a0e2b2a");
+    CHECK(sha256_hex(canonical_json(to_json(r.context))) == "68205fcecda7704acd27291dcddf53cebd18b0487ad51b15cb216a3d8f67ea90");
+    CHECK(r.context.prefix_sha256 == "7ec1a07fa60837358643b390a768bce18bfd373d83baa624c979028fcf2aaa3e");
+    CHECK(r.context.cache_identity == "564585c2d02ee8a98fddf014568f56caff921c41021d7519a04a7c727d2a182c");
+    CHECK(r.context.logical_input_sha256 == "128e9a2535f757b12479a2501a17aad699958dcf3c0641ce15fb6e4818c1e7d2");
+    CHECK(to_json(r).at("logical_request_sha256") == "33bbc68d70389621f98051ccae9899cb846ea49f405371c712c1e7c5210037ac");
+    CHECK(encode_responses_request(fixture::profile(), r).body_sha256 == "9c2517780d9e1b96f29af56247fd474fdc8391ad5f09fb5f86c37ce2be4b8d82");
+    CHECK(to_json(model_request_from_json(to_json(r))) == to_json(r));
+}
+void check_parameter_descriptions(const Json& schema) {
+    if (!schema.is_object()) return;
+    const auto& object = schema.as_object();
+    if (const auto* properties = object.if_contains("properties"))
+        for (const auto& property : properties->as_object()) {
+            CHECK(property.value().at("description").is_string());
+            CHECK(!property.value().at("description").as_string().empty());
+            check_parameter_descriptions(property.value());
+        }
+    for (const auto child : {"items", "additionalProperties", "contains", "not", "if", "then", "else"})
+        if (const auto* value = object.if_contains(child)) check_parameter_descriptions(*value);
+    for (const auto child : {"allOf", "anyOf", "oneOf"})
+        if (const auto* values = object.if_contains(child))
+            for (const auto& value : values->as_array()) check_parameter_descriptions(value);
+}
+void all_builtin_v3_descriptions_preserve_registry() {
+    SchemaRegistry schemas(root / "schemas");
+    auto input = base(); input.tools.clear();
+    for (const auto& tool : worker_tool_registry())
+        input.tools.push_back({tool.name, tool.version, tool.input_schema, builtin_tool_description(tool.name)});
+    const std::map<std::string, std::string> management{{"submit_plan", "plan"}, {"issue_work_order", "work_order"},
+        {"ask", "question"}, {"submit", "submission"}, {"answer_question", "answer_question"},
+        {"forward_question", "forward_question"}, {"accept_candidate", "accept_candidate"},
+        {"change_task", "change_task"}, {"escalate_task", "escalate_task"}, {"report_experience", "experience_report"},
+        {"check_submission", "check_submission"}, {"resolve_amendment", "resolve_amendment"},
+        {"submit_amendment_plan", "submit_amendment_plan"}};
+    for (const auto& [tool, schema] : management)
+        input.tools.push_back({tool, "1", schemas.project_model_input(schema), builtin_tool_description(tool)});
+    for (const auto& tool : history_control_declarations()) input.tools.push_back(tool);
+    for (const auto& tool : management_history_declarations()) input.tools.push_back(tool);
+    CHECK(input.tools.size() == 29);
+    const auto original = input.tools;
+    const auto v1 = ContextCompiler{}.compile(input);
+    const auto v2 = compile_structured_context(input, {});
+    const auto v3 = compile_structured_context(input, {}, {}, StructuredContextFormat::V3);
+    for (const auto& tool : v3.logical_input.at("prefix").at("tools").as_array()) {
+        CHECK(!tool.at("description").as_string().empty());
+        check_parameter_descriptions(tool.at("parameters"));
+    }
+    for (std::size_t index = 0; index < input.tools.size(); ++index) {
+        CHECK(input.tools[index].definition == original[index].definition);
+        input.tools[index].description += " Modified wording.";
+    }
+    CHECK(to_json(compile_structured_context(input, {})) == to_json(v2));
+    CHECK(to_json(ContextCompiler{}.compile(input)) == to_json(v1));
+    CHECK(to_json(compiled_context_from_json(to_json(v3))) == to_json(v3));
+    // Restoring frozen descriptions must not replace them with today's catalog.
+    auto frozen = v3;
+    frozen.logical_input.at("prefix").at("tools").as_array().front().at("parameters").at("properties").at("passed").at("description") = "Original frozen acceptance decision wording.";
+    frozen.stable_prefix = canonical_json(frozen.logical_input.at("prefix"));
+    frozen.prefix_sha256 = sha256_hex(frozen.stable_prefix);
+    frozen.cache_identity = sha256_hex(canonical_json(Object{{"format", "wls-context-cache-v3"},
+        {"selection", frozen.logical_input.at("selection")}, {"prefix_sha256", frozen.prefix_sha256}}));
+    frozen.logical_input_sha256 = sha256_hex(frozen.prompt());
+    CHECK(to_json(compiled_context_from_json(to_json(frozen))) == to_json(frozen));
+    for (const auto& tool : worker_tool_registry())
+        CHECK(tool.input_schema == std::find_if(original.begin(), original.end(),
+            [&](const auto& item) { return item.name == tool.name; })->definition);
+    for (const auto& [tool, schema] : management)
+        CHECK(schemas.project_model_input(schema) == std::find_if(original.begin(), original.end(),
+            [&](const auto& item) { return item.name == tool; })->definition);
+}
+ContextInput described_fixture() {
+    auto input = fixture::context();
+    input.tools.front().description = builtin_tool_description("note");
+    input.tools.front().definition.at("properties").at("message").as_object()["description"] = "Observation to retain in this synthetic fixture.";
+    return input;
+}
+void v3_hash_roundtrip_and_wire() {
+    auto input = described_fixture(); auto r = fixture::request();
+    r.context = compile_structured_context(input, {}, {}, StructuredContextFormat::V3);
+    const auto c = r.context; const auto document = to_json(c);
+    CHECK(document.at("format") == "wls-compiled-context-v3");
+    CHECK(c.logical_input.at("format") == "wls-logical-input-v3");
+    CHECK(c.logical_input.at("prefix").at("format") == "wls-logical-prefix-v3");
+    CHECK(c.prefix_sha256 == sha256_hex(c.stable_prefix));
+    CHECK(c.logical_input_sha256 == sha256_hex(c.prompt()));
+    CHECK(to_json(compiled_context_from_json(document)) == document);
+    const auto encoded = encode_responses_request(fixture::profile(), r);
+    const auto body = parse_json_strict(encoded.body);
+    const auto& tool = body.at("tools").as_array().front();
+    CHECK(tool.at("description") == Json(input.tools.front().description));
+    CHECK(tool.at("parameters") == input.tools.front().definition);
+    CHECK(encoded.body_sha256 == sha256_hex(encoded.body));
+    for (int change = 0; change < 2; ++change) {
+        auto updated = input;
+        if (change == 0) updated.tools.front().description += " More detail.";
+        else updated.tools.front().definition.at("properties").at("message").at("description") = "A changed parameter explanation.";
+        const auto next = compile_structured_context(updated, {}, {}, StructuredContextFormat::V3);
+        CHECK(next.prefix_sha256 != c.prefix_sha256);
+        CHECK(next.cache_identity != c.cache_identity);
+        CHECK(next.logical_input_sha256 != c.logical_input_sha256);
+    }
+    auto limits = ContextLimits{}; limits.max_prefix_bytes = c.stable_prefix.size() - 1;
+    fails(ErrorCode::Quota, [&] { (void)compile_structured_context(input, {}, limits, StructuredContextFormat::V3); });
+    auto profile = fixture::profile(); profile.limits.max_request_bytes = encoded.body.size() - 1;
+    fails(ErrorCode::Quota, [&] { (void)encode_responses_request(profile, r); });
+    // C can encode an internal context, but cannot freeze its intermediate layout.
+    fails(ErrorCode::InvalidInput, [&] { (void)model_request_from_json(to_json(r)); });
+}
+void v3_missing_invalid_and_oversized_descriptions_refuse() {
+    auto input = described_fixture();
+    const auto compile = [&](const ContextInput& value) {
+        return compile_structured_context(value, {}, {}, StructuredContextFormat::V3);
+    };
+    input.tools.front().description.clear();
+    fails(ErrorCode::InvalidInput, [&] { (void)compile(input); });
+    input.tools.front().description = " \t\r\n";
+    fails(ErrorCode::InvalidInput, [&] { (void)compile(input); });
+    input = described_fixture(); input.tools.front().name = "unregistered";
+    input.tools.front().definition.at("properties").at("message").as_object().erase("description");
+    fails(ErrorCode::InvalidInput, [&] { (void)compile(input); });
+    input = described_fixture(); input.tools.front().description = std::string(1024, 'x');
+    input.tools.front().definition.at("properties").at("message").at("description") = std::string(1024, 'y');
+    CHECK(compile(input).structured());
+    for (const auto& invalid : {Json(""), Json(" \n"), Json(7), Json(std::string(1025, 'x'))}) {
+        input = described_fixture();
+        input.tools.front().definition.at("properties").at("message").at("description") = invalid;
+        const auto code = invalid.is_string() && invalid.as_string().size() > 1024 ? ErrorCode::Quota : ErrorCode::InvalidInput;
+        fails(code, [&] { (void)compile(input); });
+        auto c = compile(described_fixture());
+        c.logical_input.at("prefix").at("tools").as_array().front().at("description") = invalid;
+        c.stable_prefix = canonical_json(c.logical_input.at("prefix"));
+        fails(code, [&] { (void)to_json(c); });
+        auto value = to_json(compile(described_fixture()));
+        value.at("input").at("prefix").at("tools").as_array().front().at("description") = invalid;
+        fails(code, [&] { (void)compiled_context_from_json(value); });
+        value = to_json(compile(described_fixture()));
+        value.at("input").at("prefix").at("tools").as_array().front().at("parameters").at("properties").at("message").at("description") = invalid;
+        fails(code, [&] { (void)compiled_context_from_json(value); });
+    }
+    auto value = to_json(compile(described_fixture()));
+    value.at("input").at("prefix").at("tools").as_array().front().as_object().erase("description");
+    fails(ErrorCode::InvalidInput, [&] { (void)compiled_context_from_json(value); });
+    value = to_json(compile(described_fixture())); value.at("format") = "wls-compiled-context-v2";
+    fails(ErrorCode::InvalidInput, [&] { (void)compiled_context_from_json(value); });
 }
 void fake_uses_same_persisted_structure() {
     const auto r = request(); const auto restored = model_request_from_json(to_json(r));
@@ -351,6 +508,7 @@ void frozen_choice_and_legacy_default() {
     CHECK(FrozenRequestConfig::restore(next.serialize(), next.sha256()).context_request_format() == "structured-v2");
     CHECK(next.runtime_support().at("history_window_integrated") == false);
     fails(ErrorCode::InvalidInput, [&] { (void)f.load("unknown-v99"); });
+    fails(ErrorCode::InvalidInput, [&] { (void)f.load("structured-v3"); });
 }
 void store_rejects_format_policy_mismatch() {
     ConfigFixture f; const auto config = f.load("structured-v2");
@@ -374,6 +532,11 @@ void store_rejects_format_policy_mismatch() {
     const auto budget = store.budget(id);
     fails(ErrorCode::Unauthorized, [&] { (void)store.reserve_attempt(store.host_actor(Role::Dispatcher, id), r.binding, reservation); });
     CHECK(store.budget(id) == budget);
+    c.tools.clear();
+    r.context = compile_structured_context(c, {}, {}, StructuredContextFormat::V3);
+    reservation.request_envelope = to_json(r);
+    fails(ErrorCode::InvalidInput, [&] { (void)store.reserve_attempt(store.host_actor(Role::Dispatcher, id), r.binding, reservation); });
+    CHECK(store.budget(id) == budget);
 }
 } // namespace
 
@@ -388,6 +551,10 @@ int main() {
         {"metadata and projection tampering reject", metadata_tampering_rejects},
         {"capacity and unconverted legacy input reject", bounds_and_legacy_messages_refuse},
         {"legacy serialized bytes unchanged", legacy_bytes_unchanged},
+        {"legacy full canonical and wire fingerprints", legacy_full_byte_fingerprints},
+        {"all builtin v3 descriptions preserve original schemas", all_builtin_v3_descriptions_preserve_registry},
+        {"v3 description hashes roundtrip and native encoding", v3_hash_roundtrip_and_wire},
+        {"v3 missing malformed or oversized descriptions reject", v3_missing_invalid_and_oversized_descriptions_refuse},
         {"FakeModel consumes restored structured envelope", fake_uses_same_persisted_structure},
         {"full envelope hash covers reservation and format", full_envelope_integrity_covers_reservations},
         {"restored envelopes and later mutable requests keep all validation gates", restored_requests_keep_deep_and_public_validation},

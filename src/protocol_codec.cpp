@@ -343,6 +343,8 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         const auto name = text(definition, "name");
         tools.push_back(Object{{"type", "function"}, {"name", name},
             {"parameters", definition.at("parameters")}, {"strict", false}});
+        if (logical.at("format") == "wls-logical-input-v3")
+            tools.back().as_object()["description"] = definition.at("description");
         tool_versions.push_back(Object{{"name", name}, {"version", definition.at("version")}});
     }
     std::size_t index = 0;

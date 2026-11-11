@@ -73,7 +73,7 @@
   See `docs/reports/g1-billing-validation.md`. PR #50 is closed with its
   branch preserved, superseded by the minimal networking slice of the
   adopted route in `docs/ROADMAP.md`.
-- Prepare the stage-0 documentation convergence (F-26, docs-only draft PR #51,
+- Merge the stage-0 documentation convergence (F-26, docs-only PR #51,
   `docs/f26-handoff-20261111-h6ose7wz`): archive the seven 2026-11-11
   audit/plan files from frozen commit `7d1dadb` under
   `docs/reviews/claude-2026-11-11/` (six retain their original bytes;
@@ -81,8 +81,8 @@
   addendum; 03 stays an unapproved archived proposal, not
   migrated into the v0.4.1 blueprint), add the one-page stage-0 milestone
   `docs/reports/stage0-convergence.md` (#48/#49 and product six-configuration
-  conditions met; stage 0 completes when #51 merges under D-1, with its
-  actual merge state linked from the report), and point ROADMAP and the v0.4.1
+  conditions met; #51 normally merged as `ff2c899` at 17:06:26 UTC on
+  2026-11-11, completing stage 0), and point ROADMAP and the v0.4.1
   requirements tracing at the in-repo copies while keeping the
   frozen-commit provenance. The published F-26 head `8c7b705` passed
   its PR three-core run 43006279800 and source run 43006279560; those
@@ -99,8 +99,15 @@
   branch normally merges that main repair; its new head must pass its own
   three-core/source checks. Product/SQL bytes are unchanged by #52, so
   the existing `ef71c09` six-configuration evidence retains its scope.
-  The latest head, CI and actual merge state remain visible on #51;
-  this entry does not predeclare its merge.
+  The post-merge main `ff2c899` six-configuration run 43064884085 passed.
+- Complete G1-A test layering in PR #53, normally merged as `ce6fe0d`
+  at 17:37:54 UTC on 2026-11-11. Its PR run 43066941090 passed all three
+  core configurations (78/78 each), and source run 43066941031 passed.
+  G1 has started; G1-B/C remain in progress, with C's internal v3 still
+  awaiting G1-E's final layout before persistent request admission.
+- Merge G1-I bounded host DNS and frozen explicit HTTP CONNECT policy
+  (PR #54) as `231291e` at 18:14:44 UTC on 2026-11-11; prior frozen
+  transport configurations retain their original interpretation and hashes.
 - Store stays 410; real provider calls remain zero/NOT_RUN, Windows 11
   NOT_RUN; private CI evidence hosting remains BLOCKED, with raw originals
   retained locally. No new observability tool chains.

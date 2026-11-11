@@ -368,6 +368,8 @@ ModelRequest model_request_from_json(const Json& value) {
     request.binding = execution_binding_from_json(field(source, "binding"));
     request.config_snapshot_id = string_field(source, "config_snapshot_id");
     request.context = compiled_context_from_json(field(source, "context"));
+    require(string_field(object(field(source, "context"), "context"), "format") ==
+        (structured ? "wls-compiled-context-v2" : "wls-compiled-context-v1"), "unpublished context format cannot be persisted");
     request.model = request.context.model;
     request.max_output_tokens = integer_field(source, "max_output_tokens");
     request.reserved_input_tokens = integer_field(source, "reserved_input_tokens");
