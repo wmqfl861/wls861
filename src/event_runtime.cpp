@@ -2,6 +2,7 @@
 #include "wls/worker_tools.hpp"
 #include "wls/management_context.hpp"
 #include "runtime_config_internal.hpp"
+#include "correction_detail.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -193,7 +194,7 @@ Json EventRuntime::pump(const std::string& id, const EventFakeScript& script,
     const auto block = [&](Role role, const std::string& node, const std::string& task,
                            std::string_view code, const std::string& reason) {
         blocked.push_back(Object{{"role", role_name(role)}, {"node_id", node}, {"task_id", task},
-                                 {"code", code}, {"reason", reason}});
+                                 {"code", reason == correction_detail::limit_reason ? "correction_limit" : code}, {"reason", reason}});
     };
     const auto finish = [&](const StoreActor& actor, const Json& claim,
                             const std::vector<std::int64_t>& completed) {
@@ -202,6 +203,7 @@ Json EventRuntime::pump(const std::string& id, const EventFakeScript& script,
     };
     const auto invoke = [&](Role role, const std::string& node, const std::string& task,
                             WorkerTools* tools) -> std::optional<Json> {
+        while (true) {
         if (store_.capacity_status(id).at("status") == "WAITING_INPUT") {
             block(role, node, task, "capacity_waiting_input", "Root capacity-checkpoint required; no new model reservation");
             return std::nullopt;
@@ -217,6 +219,10 @@ Json EventRuntime::pump(const std::string& id, const EventFakeScript& script,
         const auto found = script.by_node.find(node);
         const auto& steps = node.empty() || found == script.by_node.end() ? script.default_steps : found->second;
         const auto index = indices[{role, node}] + 1;
+        if (role == Role::Worker && index > options.max_worker_calls_per_task) {
+            block(role, node, task, "worker_limit", "this task reached the explicit per-pump Worker call limit");
+            return std::nullopt;
+        }
         if (std::none_of(steps.begin(), steps.end(), [&](const auto& step) {
                 return step.role == role && step.role_call_index == index;
             })) {
@@ -240,6 +246,13 @@ Json EventRuntime::pump(const std::string& id, const EventFakeScript& script,
                 : runtime.accept_response(captured, response);
             invocation["result"] = result;
             calls.push_back(std::move(invocation));
+            if (const auto* correction = correction_detail::correction(result)) {
+                if (config.schema_retry_max() == 0 || number(*correction, "consecutive_failures") >= config.schema_retry_max()) {
+                    block(role, node, task, "correction_limit", correction_detail::limit_reason);
+                    return std::nullopt;
+                }
+                continue;
+            }
             return result;
         } catch (const Error& error) {
             invocation["error"] = Object{{"code", error_name(error.code())}, {"message", error.what()}};
@@ -249,6 +262,7 @@ Json EventRuntime::pump(const std::string& id, const EventFakeScript& script,
             invocation["error"] = Object{{"code", "unexpected"}, {"message", error.what()}};
             calls.push_back(std::move(invocation));
             throw;
+        }
         }
     };
 
@@ -461,6 +475,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     bool dispositions_applied = options.amendment_dispositions.as_object().empty();
     const auto block = [&](Role role, const std::string& node, const std::string& task,
                            std::string_view code, const std::string& reason) {
+        if (reason == correction_detail::limit_reason) code = "correction_limit";
         const auto key = std::string(role_name(role)) + ":" + node + ":" + std::string(code);
         if (block_keys.insert(key).second)
             blocked.push_back(Object{{"role", role_name(role)}, {"node_id", node}, {"task_id", task},
@@ -567,6 +582,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     };
     const auto invoke = [&](Role role, const std::string& node, const std::string& task,
                             WorkerTools* tools, const Json& claim) -> std::optional<Json> {
+        while (true) {
         if (!live_continue() || !accounting_ready()) return std::nullopt;
         const ActorKey key{role, node};
         if (stopped.contains(key)) return std::nullopt;
@@ -773,7 +789,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 invocation["result"] = live_record_summary(result);
                 static_cast<void>(accounting_ready());
                 const auto* operation = result.is_object() ? result.as_object().if_contains("operation") : nullptr;
-                if (operation && text(*operation, "status") != "SUCCEEDED") {
+                if (operation && text(*operation, "status") != "SUCCEEDED" && !correction_detail::correction(result)) {
                     live_halted = true; stop_reason = "error";
                     block(role, node, task, "operation_incomplete", "failed or unknown operation stops the live batch");
                 }
@@ -785,6 +801,15 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 invocation["result"] = result;
             }
             calls.push_back(std::move(invocation));
+            if (const auto* correction = correction_detail::correction(result)) {
+                if (config.schema_retry_max() == 0 || number(*correction, "consecutive_failures") >= config.schema_retry_max()) {
+                    block(role, node, task, "correction_limit", correction_detail::limit_reason);
+                    stopped.insert(key);
+                    if (live && !live_halted) { live_halted = true; stop_reason = "correction_limit"; }
+                    return std::nullopt;
+                }
+                continue; // Capture/reserve/send/settle a new independent attempt under the same uncompleted claim.
+            }
             return result;
         } catch (const Error& error) {
             preserve_observation_gap();
@@ -805,6 +830,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             calls.push_back(std::move(invocation)); stopped.insert(key);
             if (live) { live_halted = true; stop_reason = "error"; }
             throw;
+        }
         }
     };
 

@@ -295,7 +295,7 @@ ModelResponse FakeModel::complete(ModelRequest request, std::stop_token stop) co
     return response;
 }
 
-void validate_response(const ModelRequest& request, const ModelResponse& response) {
+void validate_response_envelope(const ModelRequest& request, const ModelResponse& response) {
     validate_envelope(request);
     validate_response_shape(response);
     if (request.call_id != response.call_id || request.attempt_id != response.attempt_id ||
@@ -303,6 +303,10 @@ void validate_response(const ModelRequest& request, const ModelResponse& respons
         request.binding != response.binding || request.config_snapshot_id != response.config_snapshot_id) {
         throw Error(ErrorCode::Stale, "model response does not match its original frozen call");
     }
+}
+
+void validate_response(const ModelRequest& request, const ModelResponse& response) {
+    validate_response_envelope(request, response);
     for (const auto& call : response.tool_calls) {
         require(std::find(request.context.tool_names.begin(), request.context.tool_names.end(),
                           call.name) != request.context.tool_names.end(),
