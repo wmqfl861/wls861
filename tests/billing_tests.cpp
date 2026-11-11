@@ -325,6 +325,103 @@ void no_claim_or_proven_no_network_cannot_consume_issuer_receipt() {
     error(ErrorCode::Conflict, [&] { (void)verify_signed_billing_receipt(*cancelled.store, other_policy, other.attempt_id,
         issuer.sign(receipt_payload(cancelled, other))); });
 }
+
+TokenPricing example_pricing() {
+    TokenPricing pricing;
+    pricing.input_micro_usd_per_million_tokens = 1500000;
+    pricing.output_micro_usd_per_million_tokens = 4000000;
+    pricing.cache_read_applicable = true;
+    pricing.cache_read_micro_usd_per_million_tokens = 250000;
+    return pricing;  // cache write stays frozen not-applicable
+}
+ModelUsage priced_usage(std::int64_t cost = -1) {
+    ModelUsage usage;
+    usage.input_tokens = 11; usage.output_tokens = 7; usage.cache_read_tokens = 3;
+    if (cost >= 0) usage.cost_micro_usd = cost;
+    return usage;
+}
+
+void strict_token_pricing_parse_and_frozen_profile_hash() {
+    const auto pricing = example_pricing();
+    const auto encoded = to_json(pricing);
+    CHECK(token_pricing_from_json(encoded) == pricing);
+    CHECK(token_pricing_sha256(pricing) == sha256_hex(canonical_json(encoded)));
+    CHECK(token_pricing_sha256(pricing) != token_pricing_sha256([] {
+        auto changed = example_pricing(); changed.output_micro_usd_per_million_tokens = 4000001; return changed; }()));
+    auto profile = fixture::settings().provider;
+    const auto legacy_hash = provider_profile_sha256(profile);
+    profile.pricing = pricing;
+    const auto extended = to_json(profile);
+    CHECK(extended.as_object().contains("pricing"));
+    CHECK(provider_profile_sha256(provider_profile_from_json(extended)) == provider_profile_sha256(profile));
+    CHECK(provider_profile_sha256(provider_profile_from_json(extended)) != legacy_hash);
+    const auto& p = fixture::settings().provider;
+    const ProviderProfile old_aggregate{p.profile_id, p.adapter_version, p.protocol, p.base_url,
+        p.responses_path, p.model_ref, p.model, p.api_key_env, p.streaming, p.tool_calling,
+        p.parallel_tool_calls, p.reasoning_provider_default, p.reasoning_off, p.reasoning_efforts,
+        p.context_window, p.max_output_tokens, p.limits};
+    CHECK(!to_json(old_aggregate).as_object().contains("pricing"));
+    const auto reject = [&](const Json& value) { error(ErrorCode::InvalidInput, [&] { (void)token_pricing_from_json(value); }); };
+    auto bad = parse_json_strict(canonical_json(encoded)); bad.as_object()["surplus"] = 1; reject(bad);
+    bad = parse_json_strict(canonical_json(encoded)); bad.as_object().erase("cache_write"); reject(bad);
+    bad = parse_json_strict(canonical_json(encoded)); bad.at("format") = "wls-token-pricing-v2";
+    error(ErrorCode::Unsupported, [&] { (void)token_pricing_from_json(bad); });
+    bad = parse_json_strict(canonical_json(encoded)); bad.at("currency") = "EUR";
+    error(ErrorCode::Unsupported, [&] { (void)token_pricing_from_json(bad); });
+    bad = parse_json_strict(canonical_json(encoded)); bad.at("input_micro_usd_per_million_tokens") = -1; reject(bad);
+    bad = parse_json_strict(canonical_json(encoded)); bad.at("input_micro_usd_per_million_tokens") = 1000000000001LL; reject(bad);
+    bad = parse_json_strict(canonical_json(encoded)); bad.at("input_micro_usd_per_million_tokens") = 1.5; reject(bad);
+    bad = parse_json_strict(canonical_json(encoded)); bad.at("cache_read").as_object().erase("micro_usd_per_million_tokens"); reject(bad);
+    bad = parse_json_strict(canonical_json(encoded)); bad.at("cache_write").as_object()["micro_usd_per_million_tokens"] = 1; reject(bad);
+    bad = parse_json_strict(canonical_json(encoded)); bad.at("cache_write") = Json(nullptr); reject(bad);
+    bad = parse_json_strict(canonical_json(encoded)); bad.at("cache_write") = Json(Object{}); reject(bad);
+    bad = parse_json_strict(canonical_json(encoded)); bad.at("cache_read").at("applicability") = "sometimes"; reject(bad);
+    auto unbounded = fixture::settings().provider; unbounded.pricing = pricing;
+    unbounded.pricing->output_micro_usd_per_million_tokens = 1000000000001LL;
+    error(ErrorCode::InvalidInput, [&] { validate_provider_profile(unbounded); });
+}
+
+void estimate_math_and_minimum_reservation_vectors() {
+    const auto pricing = example_pricing();
+    // One final ceil after exact summation, not a per-term ceil: 0.5*4 terms.
+    TokenPricing half; half.input_micro_usd_per_million_tokens = 500000;
+    half.output_micro_usd_per_million_tokens = 500000;
+    half.cache_read_applicable = true; half.cache_read_micro_usd_per_million_tokens = 500000;
+    half.cache_write_applicable = true; half.cache_write_micro_usd_per_million_tokens = 500000;
+    ModelUsage quartered; quartered.input_tokens = 3; quartered.output_tokens = 1;
+    quartered.cache_read_tokens = 1; quartered.cache_write_tokens = 1;
+    const auto halved = estimate_token_cost(half, quartered);
+    CHECK(halved.available && halved.cost_micro_usd == 2);
+    const auto estimate = estimate_token_cost(pricing, priced_usage());
+    CHECK(estimate.available && estimate.cost_micro_usd == 41);
+    ModelUsage zeroed; zeroed.input_tokens = 0; zeroed.output_tokens = 0;
+    zeroed.cache_read_tokens = 0; zeroed.cache_write_tokens = 0;
+    CHECK(estimate_token_cost(half, zeroed).available);
+    CHECK(estimate_token_cost(half, zeroed).cost_micro_usd == 0);
+    TokenPricing free_rates;  // zero rates never turn a missing count into zero
+    free_rates.cache_read_applicable = true; free_rates.cache_write_applicable = true;
+    auto missing = priced_usage(); missing.cache_read_tokens.reset();
+    CHECK(!estimate_token_cost(free_rates, missing).available);
+    missing = priced_usage(); missing.input_tokens.reset();
+    CHECK(!estimate_token_cost(pricing, missing).available);
+    missing = priced_usage(); missing.output_tokens.reset();
+    CHECK(!estimate_token_cost(pricing, missing).available);
+    auto subset = priced_usage(); subset.cache_read_tokens = 12;  // exceeds input
+    CHECK(!estimate_token_cost(pricing, subset).available);
+    auto mismatch = priced_usage(); mismatch.cache_write_tokens = 1;  // frozen not-applicable
+    const auto conflicted = estimate_token_cost(pricing, mismatch);
+    CHECK(!conflicted.available && conflicted.policy_mismatch);
+    TokenPricing boundary = pricing; boundary.input_micro_usd_per_million_tokens = 1000000000000LL;
+    auto huge = priced_usage(); huge.input_tokens = INT64_MAX;
+    CHECK(!estimate_token_cost(boundary, huge).available);  // checked, never overflow UB
+    CHECK(estimate_token_cost(boundary, priced_usage()).available);
+    const auto minimum = minimum_cost_reservation(pricing, 1, 1);
+    CHECK(minimum.available && minimum.cost_micro_usd == 6);  // ceil(1*1.5 + 1*4)
+    TokenPricing raised = pricing; raised.cache_read_micro_usd_per_million_tokens = 5000000;
+    const auto dominated = minimum_cost_reservation(raised, 2, 0);
+    CHECK(dominated.available && dominated.cost_micro_usd == 10);  // max applicable input rate
+    CHECK(!minimum_cost_reservation(raised, -1, 0).available);
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -342,6 +439,8 @@ int main(int argc, char** argv) {
         {"same receipt partial revision and contradictions preserve known facts", same_receipt_revision_can_fill_partial_usage_but_never_overwrite},
         {"receipt ownership and accounting commit atomically", exclusive_receipt_claim_and_budget_rollback_together},
         {"read-only exact replay survives writer epoch without effects", exact_readonly_replay_survives_writer_epoch_without_new_authority},
-        {"no claim or proven no network cannot consume signed charge", no_claim_or_proven_no_network_cannot_consume_issuer_receipt}
+        {"no claim or proven no network cannot consume signed charge", no_claim_or_proven_no_network_cannot_consume_issuer_receipt},
+        {"strict token pricing parse, bounds and frozen profile hash", strict_token_pricing_parse_and_frozen_profile_hash},
+        {"deterministic estimate math and minimum reservation vectors", estimate_math_and_minimum_reservation_vectors}
     });
 }

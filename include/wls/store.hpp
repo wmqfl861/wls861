@@ -148,6 +148,9 @@ public:
     Json instruction(const std::string& task_id) const;
     void validate_brief(const std::string& request_id, const Json& brief) const;
     Json operation(const std::string& op_id) const;
+    // Raw nullable budget balances. For requests frozen with a token price
+    // table, spent_cost is the effective booked amount (deterministic estimate
+    // or a later confirmed actual), labeled by the appended cost_breakdown.
     Json budget(const std::string& request_id) const;
     Json attempt(const std::string& attempt_id) const;
     std::vector<Json> events(const std::string& request_id,
