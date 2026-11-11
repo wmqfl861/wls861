@@ -10,6 +10,7 @@ import contextlib
 import hashlib
 import json
 import os
+import select
 from pathlib import Path
 import socket
 import ssl
@@ -179,6 +180,41 @@ class Peer:
 
     def __exit__(self, *_):
         self.close()
+
+
+class ConnectProxy(Peer):
+    def __init__(self, target_port, status=200):
+        self.target_port, self.status = target_port, status
+        super().__init__(None)
+
+    def _serve(self, connection):
+        try:
+            connection.settimeout(3)
+            head = bytearray()
+            while b"\r\n\r\n" not in head:
+                chunk = connection.recv(4096)
+                if not chunk or len(head) + len(chunk) > 8192:
+                    raise ConnectionError("CONNECT fixture bound")
+                head.extend(chunk)
+            self.requests.append(bytes(head))
+            connection.sendall(f"HTTP/1.1 {self.status} Tunnel\r\nProxy-Only: fixture\r\n\r\n".encode())
+            if self.status != 200:
+                return
+            upstream = socket.create_connection(("127.0.0.1", self.target_port), timeout=3)
+            with self.lock:
+                self.sockets.append(upstream)
+            with upstream:
+                while not self.stop.is_set():
+                    ready, _, _ = select.select([connection, upstream], [], [], 0.05)
+                    for source in ready:
+                        chunk = source.recv(65536)
+                        if not chunk:
+                            return
+                        (upstream if source is connection else connection).sendall(chunk)
+        except OSError:
+            pass
+        finally:
+            connection.close()
 
 
 def headers(length=None, *, status=200, content_type="application/json", extra=b"", chunked=False):
@@ -419,6 +455,43 @@ class HttpsTransport(unittest.TestCase):
             self.assertEqual(result["error"], "unsupported")
             self.assertEqual(peer.accepted, 0)
 
+    def test_host_dns_policy_and_bounded_failures(self):
+        policy = {"host": "localhost", "route_kind": "none", "policy": "host-dns-connect-v1"}
+        with self.peer() as peer:
+            result = self.invoke(peer, **policy)
+        self.assertEqual(result["status"], "completed")
+        self.assertTrue(result["summary"]["dns_started"])
+        self.assertEqual(len(peer.requests), 1)
+        with self.peer(certificate="wrong-host") as peer:
+            self.assert_failed(self.invoke(peer, **policy), "certificate_error")
+        self.assertEqual(peer.requests, [])
+        with self.peer(handshake_delay=0.16) as peer:
+            result = self.invoke(peer, **policy, resolver_delay_ms=80, timeout_ms=120)
+        self.assert_failed(result, "deadline")
+        self.assertLess(result["elapsed_us"], 200000)
+        self.assertEqual(peer.requests, [])
+        cases = [({"pre_cancel": True}, "cancelled"),
+                 ({"dns_timeout_ms": 45, "resolver_delay_ms": 250}, "connection_error"),
+                 ({"timeout_ms": 45, "resolver_delay_ms": 250}, "deadline"),
+                 ({"cancel_after_ms": 45, "resolver_delay_ms": 250}, "cancelled"),
+                 ({"resolver_failure": True}, "connection_error")]
+        for options, status in cases:
+            with self.subTest(options=options), self.peer() as peer:
+                result = self.invoke(peer, **policy, **options)
+            self.assert_failed(result, status)
+            self.assertLess(result["elapsed_us"], 200000)
+            self.assertFalse(result["network_started"])
+            self.assertEqual(result["request_body_bytes_supplied"], 0)
+            self.assertEqual(peer.requests, [])
+            self.assertEqual(peer.accepted, 0)
+            if status == "connection_error":
+                self.assertEqual(result["reason"], "dns_failed")
+        with self.peer() as peer:
+            result = self.invoke(peer, **policy, dns_timeout_ms=60, resolver_delay_ms=500, dns_batch=True)
+        self.assertTrue(all(result["resolver_checks"].values()), result)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(peer.requests), 1)
+
     def test_http_errors_never_retry(self):
         for code in (429, 500, 503):
             with self.subTest(status=code):
@@ -430,6 +503,38 @@ class HttpsTransport(unittest.TestCase):
                 self.assertEqual(bytes.fromhex(result["raw_body_hex"]), body)
                 self.assertEqual(peer.accepted, 1)
                 self.assertEqual(len(peer.requests), 1)
+
+    def test_connect_preserves_target_tls_identity_and_has_no_direct_fallback(self):
+        policy = {"host": "localhost", "route_kind": "none", "policy": "host-dns-connect-v1",
+                  "resolver_failure": True}
+        environment = dict(os.environ, http_proxy="http://127.0.0.2:1", HTTPS_PROXY="http://127.0.0.2:1",
+                           ALL_PROXY="http://127.0.0.2:1", no_proxy="*", NO_PROXY="*")
+        with self.peer() as peer, ConnectProxy(peer.port) as proxy:
+            url = f"http://127.0.0.1:{proxy.port}"
+            result = self.invoke(peer, **policy, proxy_url=url, environment=environment)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(peer.requests), 1)
+        self.assertEqual(len(proxy.requests), 1)
+        self.assertTrue(proxy.requests[0].startswith(f"CONNECT localhost:{peer.port} HTTP/1.1\r\n".encode()))
+        self.assertNotIn(BEARER.encode(), proxy.requests[0])
+        self.assertNotIn(b"Authorization", proxy.requests[0])
+        self.assertNotIn(b"Proxy-Only", bytes.fromhex(result["raw_headers_hex"]))
+        self.assertTrue(result["summary"]["proxy_used"])
+        self.assertFalse(result["summary"]["dns_started"])
+        self.assertNotIn(url, json.dumps(result["summary"]))
+        for options in ({"ca_path": str(self.certificates / "untrusted.pem")}, {"certificate": "wrong-host"}):
+            with self.subTest(options=options), self.peer(certificate=options.get("certificate", "server")) as peer:
+                with ConnectProxy(peer.port) as proxy:
+                    result = self.invoke(peer, **policy, proxy_url=f"http://127.0.0.1:{proxy.port}",
+                                         **{k: v for k, v in options.items() if k != "certificate"})
+            self.assert_failed(result, "certificate_error")
+            self.assertEqual(peer.requests, [])
+            self.assertEqual(len(proxy.requests), 1)
+        with self.peer() as peer, ConnectProxy(peer.port, status=407) as proxy:
+            result = self.invoke(peer, **policy, proxy_url=f"http://127.0.0.1:{proxy.port}")
+        self.assert_failed(result)
+        self.assertEqual(peer.accepted, 0)
+        self.assertEqual(len(proxy.requests), 1)
 
     def test_redirect_never_contacts_target_or_forwards_credentials(self):
         with self.peer() as target:

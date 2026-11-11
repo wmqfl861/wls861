@@ -138,6 +138,7 @@ if(BUILD_TESTING)
     # Local TLS fixture harness only: never installed or exposed by wls CLI.
     add_executable(https_transport_driver tests/https_transport_driver.cpp)
     target_link_libraries(https_transport_driver PRIVATE wls_s1)
+    target_link_options(https_transport_driver PRIVATE -Wl,--wrap=getaddrinfo)
     target_include_directories(https_transport_driver PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     target_compile_definitions(https_transport_driver PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME https_transport
