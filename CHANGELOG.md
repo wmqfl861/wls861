@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — G0 closeout (2026-11-07, in progress; no version cut)
+## Unreleased — G0 closeout and G1 start (2026-11-07 through 2026-11-11, in progress; no version cut)
 
 - Merge the owner-approved G0 engineering PRs into main in order with normal
   merge commits: #43 restore the S1 disposition/retained-path guards on
@@ -12,7 +12,10 @@
   42382161297/42382173458) and one fresh combination hard review passed;
   the final main gates are green (Linux run 42385790587: six product
   configurations, five CTest configurations × 78 registered tests, zero
-  failures; source run 42385790585 archive verified byte-exact).
+  failures; source run 42385790585 archive verified byte-exact). The
+  intermediate post-#44 main Linux run 42385652115 was cancelled by the
+  next main push and never counted as passing (its source run 42385652162
+  succeeded).
 - Close the historical 43-item PR queue as recorded in
   `docs/reviews/claude-2026-11-06-disposition.md` and
   `docs/reviews/claude-2026-11-06-pr-convergence.md`: #1–#42 closed with
@@ -21,14 +24,83 @@
 - Preserve the complete development contract verbatim in the new
   `docs/implementation/development-contract.md` and reduce the root
   `AGENTS.md` to a short entry point; restructure `docs/STATUS.md` to
-  current capabilities/gaps and link batch history here (PR #47, draft,
-  not merged).
+  current capabilities/gaps and link batch history here (PR #47, merged
+  into main in `f7760e5` on 2026-11-08).
 - Share the update/keep/cancel disposition word list and bounded integer
   field access across the CLI, offline runtime and Store, with explicit
-  InvalidInput error semantics and regression coverage (PR #46, draft,
-  not merged; remote PR core CI 42388192709 and source 42388192705 green,
-  local registered CTest 4/4, independent hard review PASS; merge awaits
-  separate owner confirmation).
+  InvalidInput error semantics and regression coverage (PR #46, merged
+  into main in `4987f2c` on 2026-11-08; remote PR core CI 42388192709 and
+  source 42388192705 green, local registered CTest 4/4, independent hard
+  review PASS).
+- Merge G1-2 Responses protocol compatibility (PR #48, merged into main in
+  `f29d5bd` on 2026-11-11): the opt-in profile extension retains encrypted
+  reasoning items, classifies refusals without tool dispatch, permits
+  explicit alias mappings and emits plain-text instructions; native
+  history pairs tool results within their original round, and two native
+  rounds persist across a Store reopen. Legacy profiles and Store 410
+  stay compatible. For the exact head `01c330d`: PR core run 42488178636,
+  the explicit full six-configuration run 42488303902 (78/78 per CTest
+  configuration, including the original Make-ASan path) and source run
+  42488306828 all passed, with a fresh independent hard review PASS; see
+  `docs/reports/g1-2-responses-compat-validation.md`. The post-merge main
+  source run 42996980508 and full six-configuration run 42996980600 passed.
+- Merge G1-1 frozen estimated billing (PR #49, merged into main in
+  `ef71c09` on 2026-11-11) after an ordinary merge of main into its
+  published branch, with no history rewrite. Frozen token prices produce
+  versioned estimates from original usage and responses; trusted late
+  actual costs adjust only the difference without overwriting original
+  nullable usage or replacing the signed-receipt path. Store remains 410.
+  The exact PR head `ed243d4` passed all five checks in core run
+  43002694200 and source run 43002694238. On combined main `ef71c09`,
+  source run 43004295747 passed. The push six-configuration run
+  43004296055 was CANCELLED at 11:05:43 UTC by the automatic schedule run
+  43009034403 on the same exact SHA: strict, umask-0002, Clang-18 and
+  UBSan each passed 78/78 (zero failed/skipped/not-run), while ASan and
+  Make-ASan were interrupted and count as neither failed nor fully passed.
+  The existing workflow/ref concurrency with cancellation enabled caused
+  the interruption. The independent schedule run 43009034403 then passed
+  all six configurations on exact `ef71c09c6bf88702aaf042f8c26c9bdad6b1ee6a`
+  (11:05:28–11:48:44 UTC, 43m16s), with no manual rerun: five CTest
+  configurations each passed 78/78 with zero failed/skipped/not-run;
+  the original Make-ASan path completed all 78 top-level commands
+  (46 C++ and 32 Python), which are not CTest registrations. Full counts
+  and timings are in `docs/reports/stage0-convergence.md`; the cancelled
+  push run retains its original result and supplies no missing pass.
+  The existing
+  `billing_baseline_e2e` evidence covers 31 calls to a local synthetic TLS
+  peer using two explicit test-driven pumps, not real provider/model
+  acceptance or paid calls; F-08 product auto-continuation remains open.
+  See `docs/reports/g1-billing-validation.md`. PR #50 is closed with its
+  branch preserved, superseded by the minimal networking slice of the
+  adopted route in `docs/ROADMAP.md`.
+- Prepare the stage-0 documentation convergence (F-26, docs-only draft PR #51,
+  `docs/f26-handoff-20261111-h6ose7wz`): archive the seven 2026-11-11
+  audit/plan files from frozen commit `7d1dadb` under
+  `docs/reviews/claude-2026-11-11/` (six retain their original bytes;
+  05 updates its stage-0 status row and appends an owner-decision/execution
+  addendum; 03 stays an unapproved archived proposal, not
+  migrated into the v0.4.1 blueprint), add the one-page stage-0 milestone
+  `docs/reports/stage0-convergence.md` (#48/#49 and product six-configuration
+  conditions met; stage 0 completes when #51 merges under D-1, with its
+  actual merge state linked from the report), and point ROADMAP and the v0.4.1
+  requirements tracing at the in-repo copies while keeping the
+  frozen-commit provenance. The published F-26 head `8c7b705` passed
+  its PR three-core run 43006279800 and source run 43006279560; those
+  results cover that head and do not replace checks for a later head.
+  Later head `613ad3c` had two failed attempts of PR run 43045698130:
+  all three matrix jobs stopped in apt dependency installation with
+  `Temporary failure resolving 'azure.archive.ubuntu.com'` (exit 100),
+  before any build or product test (zero product tests per attempt).
+  Preserve both failures. PR #52 then added only five CI lines selecting
+  the kernel.org Ubuntu mirror while retaining Ubuntu signature/package
+  verification and the original suites; exact head `b99a6a6` passed all
+  five checks in core run 43060702533 and source run 43060702172, and was
+  normally merged at `fcc5cfa` on 2026-11-11 at 16:51:00 UTC. This docs
+  branch normally merges that main repair; its new head must pass its own
+  three-core/source checks. Product/SQL bytes are unchanged by #52, so
+  the existing `ef71c09` six-configuration evidence retains its scope.
+  The latest head, CI and actual merge state remain visible on #51;
+  this entry does not predeclare its merge.
 - Store stays 410; real provider calls remain zero/NOT_RUN, Windows 11
   NOT_RUN; private CI evidence hosting remains BLOCKED, with raw originals
   retained locally. No new observability tool chains.

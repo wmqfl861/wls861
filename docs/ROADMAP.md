@@ -4,6 +4,14 @@
 当前能力、实现版本及证据集中在[STATUS](STATUS.md)，历史阶段成果见 CHANGELOG 和 reports。
 第二份审核处置见[10-24记录](reviews/claude-2026-10-24-disposition.md)和[ADR-064–066](adr/064-audit24-recovery.md)。
 
+## 0. 当前执行路线（2026-11-11 owner 采纳）
+
+2026-11-11 审计与后续开发计划已由 owner 采纳，全文入库存档于 [claude-2026-11-11](reviews/claude-2026-11-11/README.md)（原始字节冻结于提交 [`7d1dadb`](https://github.com/wmqfl861/wls861/commit/7d1dadb17bd5d089c23d1dbb086c694991c1e6e2)，仅 05 的 §2 状态列与追加 §16 为执行更新）：要点入口[开发计划 05](reviews/claude-2026-11-11/05-development-plan.md)、[审计报告 01](reviews/claude-2026-11-11/01-audit-report.md)；当前事实以[STATUS](STATUS.md)为准。执行顺序：阶段 0 收敛 → G1 接入真实模型前的改造 → G2 首个真实闭环 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10。
+
+覆盖要点：D-2/D-3 未给出，保持零真实/付费调用；D-4 元数据未知键宽容并记录、未知输出项类型拒绝（覆盖旧文档中"未知输出项跳过"的表述）；D-6 取消配对复现、独立硬审、资源采样、源码身份清单等合并前置，测试行数不超过产品行数 2 倍；清理默认值推迟到 G9（D-7）。蓝图仍为 v0.4.1；03 的 v0.5 提案未批准，仅存档，不迁入规格目录。
+
+阶段 0 实时进度（#48/#49/#50 状态、main CI）见[STATUS](STATUS.md)与[阶段 0 里程碑](reports/stage0-convergence.md)；本节不预写未合并结果。
+
 ## 1. 近期关键路径：先验证真实任务价值
 
 | 顺序 | 工作与相关任务卡 | 完成条件 |
