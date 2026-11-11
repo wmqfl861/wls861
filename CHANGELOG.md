@@ -42,21 +42,34 @@
   the explicit full six-configuration run 42488303902 (78/78 per CTest
   configuration, including the original Make-ASan path) and source run
   42488306828 all passed, with a fresh independent hard review PASS; see
-  `docs/reports/g1-2-responses-compat-validation.md`. On the post-merge
-  main push the source run 42996980508 passed while the full
-  six-configuration run 42996980600 was still in progress when this entry
-  was written — not counted as green. PR #49 (G1-1 frozen estimated
-  billing) remains open and unmerged; PR #50 was closed with its branch
-  preserved (superseded by the minimal networking slice of the adopted
-  route in `docs/ROADMAP.md`).
-- Publish the stage-0 documentation convergence (F-26, docs-only draft PR
+  `docs/reports/g1-2-responses-compat-validation.md`. The post-merge main
+  source run 42996980508 and full six-configuration run 42996980600 passed.
+- Merge G1-1 frozen estimated billing (PR #49, merged into main in
+  `ef71c09` on 2026-11-11) after an ordinary merge of main into its
+  published branch, with no history rewrite. Frozen token prices produce
+  versioned estimates from original usage and responses; trusted late
+  actual costs adjust only the difference without overwriting original
+  nullable usage or replacing the signed-receipt path. Store remains 410.
+  The exact PR head `ed243d4` passed all five checks in core run
+  43002694200 and source run 43002694238. On combined main `ef71c09`,
+  source run 43004295747 passed; full six-configuration run 43004296055 is
+  still in progress, not counted as green. The existing
+  `billing_baseline_e2e` evidence covers 31 calls to a local synthetic TLS
+  peer using two explicit test-driven pumps, not real provider/model
+  acceptance or paid calls; F-08 product auto-continuation remains open.
+  See `docs/reports/g1-billing-validation.md`. PR #50 is closed with its
+  branch preserved, superseded by the minimal networking slice of the
+  adopted route in `docs/ROADMAP.md`.
+- Prepare the stage-0 documentation convergence (F-26, docs-only draft PR #51,
   `docs/f26-handoff-20261111-h6ose7wz`): archive the seven 2026-11-11
-  audit/plan files from frozen commit `7d1dadb` byte-identical under
-  `docs/reviews/claude-2026-11-11/` (05 additionally carries an appended
-  owner-decision/execution addendum; 03 stays an archived proposal, not
+  audit/plan files from frozen commit `7d1dadb` under
+  `docs/reviews/claude-2026-11-11/` (six retain their original bytes;
+  05 updates its stage-0 status row and appends an owner-decision/execution
+  addendum; 03 stays an unapproved archived proposal, not
   migrated into the v0.4.1 blueprint), add the one-page stage-0 milestone
   `docs/reports/stage0-convergence.md` (stage 0 in progress, exit not
-  reached; #49 open pending integration), and point ROADMAP and the v0.4.1
+  reached; #48/#49 merged, combined main six-configuration validation and
+  F-26 merge pending), and point ROADMAP and the v0.4.1
   requirements tracing at the in-repo copies while keeping the
   frozen-commit provenance.
 - Store stays 410; real provider calls remain zero/NOT_RUN, Windows 11
