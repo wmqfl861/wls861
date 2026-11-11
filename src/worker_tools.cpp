@@ -340,7 +340,7 @@ std::vector<ContextTool> WorkerTools::declarations(const StoreActor& actor) cons
     std::vector<ContextTool> result;
     for (const auto& entry : worker_tool_registry()) if ((capacity.is_null() || entry.name != "run") &&
         std::find(grants.begin(), grants.end(), entry.name) != grants.end())
-        result.push_back({entry.name, entry.version, entry.input_schema});
+        result.push_back({entry.name, entry.version, entry.input_schema, builtin_tool_description(entry.name)});
     return result;
 }
 

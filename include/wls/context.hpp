@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace wls::s1 {
@@ -13,7 +14,10 @@ struct ContextTool {
     std::string name;
     std::string version;
     Json definition;
+    std::string description{};
 };
+
+std::string builtin_tool_description(std::string_view name);
 
 struct ContextDependency {
     // Logical dependency identity, never a random request ID or host path.

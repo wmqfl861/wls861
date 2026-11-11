@@ -1,5 +1,6 @@
 #include "wls/context.hpp"
 #include "wls/structured_context.hpp"
+#include "tool_descriptions.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -191,6 +192,10 @@ void validate_compiled_frames(const CompiledContext& context) {
 }
 
 } // namespace
+
+std::string builtin_tool_description(std::string_view name) {
+    return description_detail::lookup(std::string(name));
+}
 
 std::string CompiledContext::prompt() const {
     return structured() ? canonical_json(logical_input) : stable_prefix + dynamic_suffix;
