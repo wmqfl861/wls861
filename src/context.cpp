@@ -1,5 +1,6 @@
 #include "wls/context.hpp"
 #include "wls/structured_context.hpp"
+#include "tool_descriptions.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -192,6 +193,10 @@ void validate_compiled_frames(const CompiledContext& context) {
 
 } // namespace
 
+std::string builtin_tool_description(std::string_view name) {
+    return description_detail::lookup(std::string(name));
+}
+
 std::string CompiledContext::prompt() const {
     return structured() ? canonical_json(logical_input) : stable_prefix + dynamic_suffix;
 }
@@ -300,7 +305,8 @@ Json to_json(const CompiledContext& context) {
 
 CompiledContext compiled_context_from_json(const Json& value) {
     const auto& source = object(value);
-    if (string_field(source, "format") == "wls-compiled-context-v2")
+    if (string_field(source, "format") == "wls-compiled-context-v2" ||
+        string_field(source, "format") == "wls-compiled-context-v3")
         return structured_context_from_json(value);
     check_fields(source, {"format", "role", "model_ref", "reasoning_mode", "reasoning_effort",
         "adapter_version", "protocol_version", "stable_prefix", "dynamic_suffix",

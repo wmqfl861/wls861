@@ -77,8 +77,8 @@ std::vector<ContextTool> management_history_declarations() {
             {"record_sha256", Object{{"type", "string"}, {"pattern", "^[0-9a-f]{64}$"}}},
             {"record_version", integer_schema(1, INT64_MAX)}, {"offset", integer_schema(0, INT64_MAX)},
             {"max_bytes", integer_schema(1, 4096)}}}};
-    return {{"management_history_page", "wls-management-history-v1", page},
-            {"management_history_read", "wls-management-history-v1", read}};
+    return {{"management_history_page", "wls-management-history-v1", page, builtin_tool_description("management_history_page")},
+            {"management_history_read", "wls-management-history-v1", read, builtin_tool_description("management_history_read")}};
 }
 
 Json execute_management_history_control(Store& store, const StoreActor& actor,

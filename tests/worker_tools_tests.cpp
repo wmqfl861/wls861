@@ -171,7 +171,10 @@ void succeeded(const Json& result) {
 }
 std::set<std::string> declared(const std::vector<ContextTool>& tools) {
     std::set<std::string> names;
-    for (const auto& tool : tools) names.insert(tool.name);
+    for (const auto& tool : tools) {
+        CHECK(!tool.description.empty());
+        names.insert(tool.name);
+    }
     return names;
 }
 

@@ -26,8 +26,10 @@ struct StructuredContextMessage {
 
 // The base contains stable sections and the complete task contract. Its legacy
 // messages must be empty, so no caller can silently drop an old transcript.
+enum class StructuredContextFormat { V2, V3 }; // V3 is internal until G1-E freezes its layout.
 CompiledContext compile_structured_context(const ContextInput& base,
-    const std::vector<StructuredContextMessage>& messages, ContextLimits limits = {});
+    const std::vector<StructuredContextMessage>& messages, ContextLimits limits = {},
+    StructuredContextFormat format = StructuredContextFormat::V2);
 
 // Convert complete, scoped Store attempt history without rewriting its source.
 // Missing/unapplied observations remain data, not invented native tool results.

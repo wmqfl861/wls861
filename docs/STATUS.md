@@ -4,7 +4,7 @@
 
 main 产品组合基线 [`ef71c09`](https://github.com/wmqfl861/wls861/commit/ef71c09c6bf88702aaf042f8c26c9bdad6b1ee6a)（2026-11-11）已含 G1-2 Responses 协议兼容 [#48](https://github.com/wmqfl861/wls861/pull/48)（普通合并 `f29d5bd`）与 G1-1 冻结 token 单价估算/原用量保留 [#49](https://github.com/wmqfl861/wls861/pull/49)（普通合并 `ef71c09`）。能力与缺口见下表，原范围证据见 [Responses 验证](reports/g1-2-responses-compat-validation.md)与[计费验证](reports/g1-billing-validation.md)；G0、#46/#47 及各精确 head 的 CI 历史见 [CHANGELOG](../CHANGELOG.md)。
 
-当前组合 main `ef71c09` 的 source run [43004295747](https://github.com/wmqfl861/wls861/actions/runs/43004295747) 与自动 schedule 六配置 run [43009034403](https://github.com/wmqfl861/wls861/actions/runs/43009034403) 全部 SUCCESS，产品及六配置验证条件已满足。旧 push run [43004296055](https://github.com/wmqfl861/wls861/actions/runs/43004296055) 保留为 CANCELLED，不计为通过。[#50](https://github.com/wmqfl861/wls861/pull/50) 已关闭保分支，由最小联网切片替代；F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 按 D-1 合入后阶段 0 完成，实际合并状态见该 PR，计数与限制见[同一里程碑](reports/stage0-convergence.md)。
+产品基线 `ef71c09` 的 source run [43004295747](https://github.com/wmqfl861/wls861/actions/runs/43004295747) 与自动 schedule 六配置 run [43009034403](https://github.com/wmqfl861/wls861/actions/runs/43009034403) 全部 SUCCESS；旧 push run [43004296055](https://github.com/wmqfl861/wls861/actions/runs/43004296055) 保留为 CANCELLED。[#50](https://github.com/wmqfl861/wls861/pull/50) 已关闭保分支。F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 于 2026-11-11 17:06:26 UTC 普通合并为 `ff2c899`，阶段 0 完成；计数与限制见[同一里程碑](reports/stage0-convergence.md)。G1 已开始，A/I 完成，B/C 在制。
 
 ## 尚缺的真实能力（当前边界）
 
@@ -15,7 +15,9 @@ main 产品组合基线 [`ef71c09`](https://github.com/wmqfl861/wls861/commit/ef
 
 ## 阶段 0 文档交付
 
-- F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 直接基于 main，对齐 STATUS/CHANGELOG/ROADMAP/需求追踪；7 份审核/计划文件自冻结提交 `7d1dadb` 入库存档（六文件原字节不变，05 更新 §2 状态列与追加执行附录），维护唯一[阶段 0 里程碑](reports/stage0-convergence.md)。文档 head `8c7b705` 的三核心配置与 source 检查全部成功，结果只绑定该 head；PR 的最新 head、CI 与实际合并状态以 #51 为准，不由本页预写。产品六配置已满足；#51 按 D-1 合入后阶段 0 完成。
+- F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 已合并，对齐 STATUS/CHANGELOG/ROADMAP/需求追踪；7 份审核/计划文件自冻结提交 `7d1dadb` 入库存档（六文件原字节不变，05 更新 §2 状态列与追加执行附录），维护唯一[阶段 0 里程碑](reports/stage0-convergence.md)。合并 main `ff2c899` 的六配置 run [43064884085](https://github.com/wmqfl861/wls861/actions/runs/43064884085) 全部 SUCCESS。
+- G1-A [#53](https://github.com/wmqfl861/wls861/pull/53) 于 17:37:54 UTC 普通合并为 `ce6fe0d`；PR run [43066941090](https://github.com/wmqfl861/wls861/actions/runs/43066941090) 三核心配置各 78/78、source run [43066941031](https://github.com/wmqfl861/wls861/actions/runs/43066941031) SUCCESS。当前 main 的后续检查独立核对，不以该 PR 结果替代。
+- G1-I [#54](https://github.com/wmqfl861/wls861/pull/54) 于 18:14:44 UTC 普通合并为 `231291e`，加入冻结的新 DNS/代理策略；旧配置和路由解释保持。B [#55](https://github.com/wmqfl861/wls861/pull/55) 与 C 仍在制。
 
 ## 能力矩阵
 
@@ -47,7 +49,7 @@ R2a.2已按[ADR-075](adr/075-owned-allocation-recovery.md)实现迁移、创建�
 R2a.3、R3.1、R3.2 的上述限定接口已实施；真实强沙箱部署正向验收保持独立。
 R3.3a/b、两项长任务前置及受控event pump/CLI已按限定范围实施。迁移注册表与可安装资源
 已补齐服务化之前置，但daemon/API继续后置。签名计费适配和单Agent逻辑身份执行器已并入。
-下一步按 owner 2026-11-11 采纳的开发路线（见[ROADMAP](ROADMAP.md)「当前执行路线」：阶段 0 收敛 → G1 → G2 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10）推进：#48/#49 与产品六配置条件已满足，F-26 #51 按 D-1 合入后阶段 0 完成，再进入 G1；核验实际中转签发与所选端点能力，在凭据、预算和明确授权具备后进行真实小任务与同条件对照，保留全部失败和未知样本。
+下一步按 owner 2026-11-11 采纳的开发路线（见[ROADMAP](ROADMAP.md)「当前执行路线」：阶段 0 收敛 → G1 → G2 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10）推进：阶段 0 与 G1-A 已完成，G1-B/C 正在实施，G1-I 已合并；在凭据、预算和明确授权具备后进行真实小任务与同条件对照，保留全部失败和未知样本。
 离线codec profile继续固定real_calls_enabled=false；外层宿主live配置另有显式开关和独立执行授权，
 默认关闭，max_paid_retries=0；CLI只有完整宿主授权后的受控入口，本次未使用真实供应商。
 并发租约和选中请求按需提升代次继续开放，不因模型 AMEND 接入而视为完成。

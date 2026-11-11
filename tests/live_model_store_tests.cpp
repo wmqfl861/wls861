@@ -178,6 +178,76 @@ void live_profile_route_is_rejected_before_admission() {
     CHECK(live_model_settings_json(live_model_settings_from_json(dns, selected.provider.model_ref)) == dns.at("responses"));
 }
 
+void versioned_transport_routes_are_frozen() {
+    auto legacy = fixture::settings();
+    CHECK(live_transport_options_sha256(legacy.transport) ==
+          "1eaccfa1b9fe89aa798aa071f6e07b7b7121b17763a974a448b3039785d2ff03");
+    const auto original = fixture::model_profile(legacy);
+    CHECK(live_model_settings_json(live_model_settings_from_json(original, legacy.provider.model_ref)) ==
+          original.at("responses"));
+    CHECK(live_transport_options_json(legacy.transport).as_object().size() == 6);
+    auto extra = original;
+    extra.at("responses").at("transport").as_object()["dns_timeout_ms"] = 10000;
+    error(ErrorCode::InvalidInput, [&] { (void)live_model_settings_from_json(extra, legacy.provider.model_ref); });
+    auto selected = legacy;
+    selected.transport.policy = "host-dns-connect-v1";
+    selected.transport.resolved_ipv4.clear();
+    selected.provider.base_url = "https://127.0.0.1:443";
+    selected.transport.proxy_url = "http://127.0.0.1:12345";
+    auto profile = fixture::model_profile(selected);
+    auto defaults = profile;
+    defaults.at("responses").at("transport").as_object().erase("dns_timeout_ms");
+    CHECK(live_model_settings_from_json(defaults, selected.provider.model_ref).transport.dns_timeout.count() == 10000);
+    for (const auto* url : {"http://localhost:80", "http://127.1:80", "http://127.0.0.1:",
+            "http://user@127.0.0.1:80", "http://127.0.0.1:80/", "http://127.0.0.1:80?q",
+            "http://127.0.0.1:80#f", "https://127.0.0.1:80", "socks5://127.0.0.1:80"}) {
+        auto invalid = profile;
+        invalid.at("responses").at("transport").at("proxy_url") = url;
+        error(ErrorCode::InvalidInput, [&] { (void)live_model_settings_from_json(invalid, selected.provider.model_ref); });
+    }
+    for (const auto timeout : {-1, 0, 60001}) {
+        auto invalid = profile;
+        invalid.at("responses").at("transport").at("dns_timeout_ms") = timeout;
+        error(ErrorCode::InvalidInput, [&] { (void)live_model_settings_from_json(invalid, selected.provider.model_ref); });
+    }
+    auto conflicting = profile;
+    conflicting.at("responses").at("transport").at("resolved_ipv4") = "127.0.0.1";
+    error(ErrorCode::InvalidInput, [&] { (void)live_model_settings_from_json(conflicting, selected.provider.model_ref); });
+    conflicting = profile;
+    conflicting.at("responses").at("transport").at("proxy_url") = "http://127.0.0.2:80";
+    error(ErrorCode::Unauthorized, [&] { (void)live_model_settings_from_json(conflicting, selected.provider.model_ref); });
+    for (const auto& frozen : {legacy, selected}) {
+        fixture::Fixture f(*assets, frozen);
+        const auto request = f.request(); (void)f.reserve(request);
+        const auto encoded = encode_responses_request(f.live.provider, request, false);
+        for (int mutation = 0; mutation < 3; ++mutation) {
+            auto changed = f.live.transport;
+            if (mutation == 0) ++changed.max_header_bytes;
+            else if (mutation == 1) {
+                changed.policy = changed.policy.empty() ? "host-dns-connect-v1" : "";
+                changed.proxy_url.clear();
+            }
+            else if (changed.policy.empty()) changed.resolved_ipv4 = "127.0.0.2";
+            else changed.proxy_url = "http://127.0.0.1:12346";
+            error(ErrorCode::Conflict, [&] {
+                (void)f.store->claim_live_send(f.actor(), request.attempt_id, 1, encoded, changed, "tampered");
+            });
+        }
+        const auto transport = f.cancelled(request);
+        if (!frozen.transport.policy.empty()) {
+            auto changed = frozen.transport; ++changed.dns_timeout;
+            error(ErrorCode::Conflict, [&] {
+                (void)f.store->claim_live_send(f.actor(), request.attempt_id, 1, encoded, changed, "dns-tampered");
+            });
+        }
+        CHECK(transport.transport_options_sha256 == live_transport_options_sha256(f.live.transport));
+        CHECK(https_transport_summary(transport).at("format") == (frozen.transport.policy.empty() ?
+              "wls-https-transport-summary-v1" : "wls-https-transport-summary-v2"));
+    }
+    legacy.transport.proxy_url = "http://127.0.0.1:80";
+    error(ErrorCode::InvalidInput, [&] { (void)live_transport_options_sha256(legacy.transport); });
+}
+
 void frozen_identity_and_one_claim() {
     fixture::Fixture f(*assets); const auto request = f.request();
     const auto reservation = f.reserve(request); CHECK(f.reserve(request) == reservation);
@@ -625,6 +695,7 @@ int main(int argc, char** argv) {
         {"live profile capacity rejects impossible durable evidence before admission", live_profile_capacity_is_rejected_before_admission},
         {"invalid live routes reject before admission and valid DNS/numeric routes remain exact", live_profile_route_is_rejected_before_admission},
         {"original encoding/options CAS and concurrent one-time durable send claim", frozen_identity_and_one_claim},
+        {"legacy hash and versioned DNS/CONNECT route admission and send-claim tampering", versioned_transport_routes_are_frozen},
         {"reservation and send-claim faults roll back original budget and authority", reservation_and_claim_rollback},
         {"private observation and immutable original settlement faults are atomic", observation_and_original_settlement_rollback},
         {"partial usage, exact replay, version conflict and dimension completion", partial_usage_exact_replay_and_completion},

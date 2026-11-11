@@ -1,6 +1,7 @@
 #include "wls/structured_context.hpp"
 
 #include "responses_compat.hpp"
+#include "tool_descriptions.hpp"
 
 #include <algorithm>
 #include <map>
@@ -63,8 +64,39 @@ Json selection(const CompiledContext& c) {
         {"adapter_version", c.adapter_version}, {"protocol_version", c.protocol_version}};
 }
 std::string cache_hash(const CompiledContext& c) {
-    return sha256_hex(canonical_json(Object{{"format", "wls-context-cache-v2"},
+    return sha256_hex(canonical_json(Object{{"format", c.logical_input.at("format") == "wls-logical-input-v3"
+            ? "wls-context-cache-v3" : "wls-context-cache-v2"},
         {"selection", selection(c)}, {"prefix_sha256", c.prefix_sha256}}));
+}
+void description(const Json& value) {
+    require(value.is_string() && value.as_string().find_first_not_of(" \t\r\n") != std::string::npos,
+            "v3 tool and parameter descriptions must be nonempty text");
+    capacity(value.as_string().size() <= 1024, "v3 description exceeds 1024 bytes");
+}
+void describe_parameters(Json& schema, const std::string& key, bool project) {
+    if (!schema.is_object()) return;
+    auto& source = schema.as_object();
+    if (auto* properties = source.if_contains("properties")) {
+        require(properties->is_object(), "v3 properties must be an object");
+        for (auto& property : properties->as_object()) {
+            const auto path = key + "." + std::string(property.key());
+            require(property.value().is_object(), "v3 parameter must have a described object schema");
+            auto& body = property.value().as_object();
+            if (body.contains("description")) description(body.at("description"));
+            if (project) body["description"] = description_detail::lookup(path, body.if_contains("description"));
+            require(body.contains("description"), "v3 parameter description missing: " + path);
+            description(body.at("description"));
+            describe_parameters(property.value(), path, project);
+        }
+    }
+    for (const auto child : {"items", "additionalProperties", "contains", "not", "if", "then", "else"}) {
+        if (auto* value = source.if_contains(child))
+            describe_parameters(*value, key + (std::string_view(child) == "items" ? "[]" :
+                std::string_view(child) == "additionalProperties" ? "{}" : ""), project);
+    }
+    for (const auto child : {"allOf", "anyOf", "oneOf"})
+        if (auto* values = source.if_contains(child))
+            for (auto& value : values->as_array()) describe_parameters(value, key, project);
 }
 bool identifier(const std::string& value) {
     return !value.empty() && value.size() <= 128 &&
@@ -114,8 +146,9 @@ Array encode_messages(const std::vector<StructuredContextMessage>& messages,
 }
 } // namespace
 
-CompiledContext compile_structured_context(const ContextInput& base,
-        const std::vector<StructuredContextMessage>& messages, ContextLimits limits) {
+static CompiledContext compile_structured(const ContextInput& base,
+        const std::vector<StructuredContextMessage>& messages, ContextLimits limits,
+        StructuredContextFormat format, bool project) {
     require(base.messages.empty(), "legacy messages must be explicitly converted, never discarded");
     // Reuse the established validation of model selection, required sections,
     // tool definitions and dependency hashes. No adapter parses legacy frames.
@@ -123,14 +156,18 @@ CompiledContext compile_structured_context(const ContextInput& base,
     auto tools = base.tools;
     std::sort(tools.begin(), tools.end(), [](const auto& a, const auto& b) { return a.name < b.name; });
     Array definitions;
-    for (const auto& tool : tools)
+    const bool v3 = format == StructuredContextFormat::V3;
+    for (auto tool : tools) {
+        if (v3) { description(Json(tool.description)); describe_parameters(tool.definition, tool.name, project); }
         definitions.push_back(Object{{"name", tool.name}, {"version", tool.version}, {"parameters", tool.definition}});
+        if (v3) definitions.back().as_object()["description"] = tool.description;
+    }
     auto dependencies = base.dependencies;
     std::sort(dependencies.begin(), dependencies.end(), [](const auto& a, const auto& b) { return a.name < b.name; });
     Array sources;
     for (const auto& dep : dependencies)
         sources.push_back(Object{{"name", dep.name}, {"version", dep.version}, {"content_sha256", dep.content_sha256}});
-    const Json prefix = Object{{"format", "wls-logical-prefix-v1"}, {"tools", definitions},
+    const Json prefix = Object{{"format", v3 ? "wls-logical-prefix-v3" : "wls-logical-prefix-v1"}, {"tools", definitions},
         {"system", Object{{"system_prompt", base.system_prompt}, {"role_prompt", base.role_prompt},
             {"function_prompt", base.function_prompt}, {"environment_card", base.environment_card},
             {"approved_rules", base.approved_rules}, {"project_snapshot", base.project_snapshot}}},
@@ -138,7 +175,7 @@ CompiledContext compile_structured_context(const ContextInput& base,
     const auto encoded = encode_messages(messages, limits);
     result.stable_prefix = canonical_json(prefix);
     result.dynamic_suffix = canonical_json(Object{{"task_contract", base.task_contract}, {"messages", encoded}});
-    result.logical_input = Object{{"format", "wls-logical-input-v1"}, {"selection", selection(result)},
+    result.logical_input = Object{{"format", v3 ? "wls-logical-input-v3" : "wls-logical-input-v1"}, {"selection", selection(result)},
         {"prefix", prefix}, {"task_contract", base.task_contract}, {"messages", encoded}};
     capacity(result.stable_prefix.size() <= limits.max_prefix_bytes,
              "structured context byte limit exceeded; no authoritative content was truncated");
@@ -151,6 +188,11 @@ CompiledContext compile_structured_context(const ContextInput& base,
     return result;
 }
 
+CompiledContext compile_structured_context(const ContextInput& base,
+        const std::vector<StructuredContextMessage>& messages, ContextLimits limits, StructuredContextFormat format) {
+    return compile_structured(base, messages, limits, format, true);
+}
+
 Json structured_context_to_json(const CompiledContext& c) {
     require(c.structured(), "expected a structured context");
     require(field(c.logical_input, "selection") == selection(c), "logical selection differs from context metadata");
@@ -158,7 +200,16 @@ Json structured_context_to_json(const CompiledContext& c) {
             c.dynamic_suffix == canonical_json(Object{{"task_contract", field(c.logical_input, "task_contract")},
                 {"messages", field(c.logical_input, "messages")}}), "structured context projections differ from original input");
     Object result = selection(c).as_object();
-    result["format"] = "wls-compiled-context-v2";
+    const bool v3 = text(c.logical_input, "format") == "wls-logical-input-v3";
+    if (v3) {
+        for (auto tool : array(field(field(c.logical_input, "prefix"), "tools"))) {
+            description(field(tool, "description"));
+            describe_parameters(tool.at("parameters"), text(tool, "name"), false);
+        }
+        capacity(c.stable_prefix.size() <= ContextLimits{}.max_prefix_bytes &&
+            c.prompt().size() <= ContextLimits{}.max_total_bytes, "v3 serialization exceeds byte limit");
+    }
+    result["format"] = v3 ? "wls-compiled-context-v3" : "wls-compiled-context-v2";
     result["input"] = c.logical_input;
     result["prefix_sha256"] = c.prefix_sha256;
     result["cache_identity"] = c.cache_identity;
@@ -174,17 +225,18 @@ CompiledContext structured_context_from_json(const Json& value) {
     exact(value, {"format", "role", "model_ref", "reasoning_mode", "reasoning_effort",
         "adapter_version", "protocol_version", "input", "prefix_sha256", "cache_identity",
         "logical_input_sha256", "wire_sha256", "tool_names"});
-    require(text(value, "format") == "wls-compiled-context-v2" && field(value, "wire_sha256").is_null(),
+    const bool v3 = text(value, "format") == "wls-compiled-context-v3";
+    require((v3 || text(value, "format") == "wls-compiled-context-v2") && field(value, "wire_sha256").is_null(),
             "unsupported structured context or fabricated wire fingerprint");
     const auto& input = field(value, "input");
     exact(input, {"format", "selection", "prefix", "task_contract", "messages"});
-    require(text(input, "format") == "wls-logical-input-v1", "unsupported logical input format");
+    require(text(input, "format") == (v3 ? "wls-logical-input-v3" : "wls-logical-input-v1"), "unsupported logical input format");
     // Bound canonical logical bytes before reconstructing a compiled context.
     const ContextLimits limits;
     capacity(canonical_json(input).size() <= limits.max_total_bytes, "structured restore exceeds byte limit");
     const auto& prefix = field(input, "prefix");
     exact(prefix, {"format", "tools", "system", "dependencies"});
-    require(text(prefix, "format") == "wls-logical-prefix-v1", "unsupported logical prefix format");
+    require(text(prefix, "format") == (v3 ? "wls-logical-prefix-v3" : "wls-logical-prefix-v1"), "unsupported logical prefix format");
     const auto& system = field(prefix, "system");
     exact(system, {"system_prompt", "role_prompt", "function_prompt", "environment_card", "approved_rules", "project_snapshot"});
     ContextInput base;
@@ -204,8 +256,11 @@ CompiledContext structured_context_from_json(const Json& value) {
              array(field(prefix, "dependencies")).size() <= limits.max_dependencies,
              "structured restore exceeds item capacity");
     for (const auto& tool : array(field(prefix, "tools"))) {
-        exact(tool, {"name", "version", "parameters"});
+        auto keys = std::set<std::string>{"name", "version", "parameters"};
+        if (v3) keys.insert("description");
+        exact(tool, keys);
         base.tools.push_back({text(tool, "name"), text(tool, "version"), field(tool, "parameters")});
+        if (v3) base.tools.back().description = text(tool, "description");
     }
     for (const auto& dep : array(field(prefix, "dependencies"))) {
         exact(dep, {"name", "version", "content_sha256"});
@@ -229,7 +284,8 @@ CompiledContext structured_context_from_json(const Json& value) {
             message.responses_output = field(item, "responses_output");
         messages.push_back(std::move(message));
     }
-    auto result = compile_structured_context(base, messages);
+    auto result = compile_structured(base, messages, limits,
+        v3 ? StructuredContextFormat::V3 : StructuredContextFormat::V2, false);
     require(structured_context_to_json(result) == value,
             "structured context differs from its canonical structure, metadata or fingerprints");
     return result;
