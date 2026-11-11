@@ -989,7 +989,7 @@ bool FrozenRequestConfig::bounded_runtime() const {
 
 std::int64_t FrozenRequestConfig::max_total_calls() const {
     const auto* total = optional(document_.at("system").at("model_calls"), "max_total_calls");
-    return total ? integer_value(*total, "system.model_calls.max_total_calls", 1, 200) : 200;
+    return total ? static_cast<std::int64_t>(integer_value(*total, "system.model_calls.max_total_calls", 1, 200)) : 200;
 }
 
 Json FrozenRequestConfig::runtime_support() const {
