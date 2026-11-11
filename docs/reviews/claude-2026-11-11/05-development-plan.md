@@ -43,8 +43,8 @@
 
 | 顺序 | 阶段 | 内容 | PR 数 | 粗估 | 出口 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | 收敛 | 合并 #48、#49；处置在途分支；文档对齐 | 2 合并 + 1 文档 | 1 天 | 在制 ≤3，main 含 G1-1、G1-2 | 产品及六配置条件已满足（2026-11-11，main `ef71c09`，#50 关闭保分支）；F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 按 D-1 合入后阶段 0 完成，实际合并状态见该 PR；见 §16 执行附录 |
-| 1 | G1 | 纠错、模型可用性、缓存布局、联网、付费保护、一键入口 | 约 12 | 7–10 天 | G1 总门禁 | 未开始 |
+| 0 | 收敛 | 合并 #48、#49；处置在途分支；文档对齐 | 2 合并 + 1 文档 | 1 天 | 在制 ≤3，main 含 G1-1、G1-2 | 已完成：2026-11-11 17:06:26 UTC，F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 普通合并为 `ff2c899`；见 §16 执行附录 |
+| 1 | G1 | 纠错、模型可用性、缓存布局、联网、付费保护、一键入口 | 约 12 | 7–10 天 | G1 总门禁 | 已开始：A/I 完成（#53/#54），B/C 在制 |
 | 2 | G2 | 首个真实闭环 | 0–3 修复 | 1–3 天 | U1、U2，一页报告 | 等 D-2、D-3 |
 | 3 | G4 | 沙箱 `standard` 档、环境卡片、输入目录 | 3–4 | 4–5 天 | U3、U4 | 等 D-5 |
 | 4 | G3 | 普通单 Agent、对照评测、快路径 | 3 | 3–4 天 | 一页对照报告 | — |
@@ -238,7 +238,7 @@ G2 ─→ G8（记忆需要真实任务产出的经验）；G8 的检索卡片�
 
 ## 16. 执行附录（2026-11-11 追加，非原文）
 
-原文整体冻结于提交 `7d1dadb17bd5d089c23d1dbb086c694991c1e6e2`，本目录其余六文件保持原字节；除 §2 阶段 0 状态列外，上文保持原文。本节为 owner 采纳后的执行时追加，只记录决定与当前覆盖；03 仍为未批准提案，蓝图 v0.4.1、Store 410 不变。
+原文整体冻结于提交 `7d1dadb17bd5d089c23d1dbb086c694991c1e6e2`，本目录其余六文件保持原字节；除 §2 状态列外，上文保持原文。本节为 owner 采纳后的执行时追加，只记录决定与当前覆盖；03 仍为未批准提案，蓝图 v0.4.1、Store 410 不变。
 
 ### Owner 决定（2026-11-11）
 
@@ -256,7 +256,7 @@ G2 ─→ G8（记忆需要真实任务产出的经验）；G8 的检索卡片�
 - 0-2 已完成：#48（G1-2 Responses 协议兼容）于 2026-11-11 普通合并为 `f29d5bd658bd5b050a889d6033b32520212504da`；#46、#47 已于 2026-11-08 合入。
 - 0-3 已完成：#49（G1-1 按冻结单价估算费用并保留原用量）在原分支普通 merge main 后，精确 head `ed243d49484dbf73b526c1e9c3ac65dfc6caf512` 的核心 run [43002694200](https://github.com/wmqfl861/wls861/actions/runs/43002694200) 与 source run [43002694238](https://github.com/wmqfl861/wls861/actions/runs/43002694238) 全部 5 项检查成功，随后按 D-1 普通合并为 `ef71c09c6bf88702aaf042f8c26c9bdad6b1ee6a`。既有本机合成 TLS 31 次调用计费验证保留，两次 pump 由测试显式发起；F-08 产品自动续批仍未完成，不计为真实模型或付费验收。
 - 0-4 已完成：#50 已按 owner 决定关闭，分支保留。
-- 0-5 文档交付：F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 直接基于更新后 main、无堆叠，维护同一组文档和里程碑。文档 head `8c7b705` 的核心 run [43006279800](https://github.com/wmqfl861/wls861/actions/runs/43006279800) 三配置与 source run [43006279560](https://github.com/wmqfl861/wls861/actions/runs/43006279560) 全部成功，结果只绑定该 head；最新 head、CI 与实际合并状态以该 PR 为准。
-- 组合 main 验证：`ef71c09` 的 source run [43004295747](https://github.com/wmqfl861/wls861/actions/runs/43004295747) 成功；旧 push 六配置 run [43004296055](https://github.com/wmqfl861/wls861/actions/runs/43004296055) 仍记 CANCELLED。独立自动 schedule run [43009034403](https://github.com/wmqfl861/wls861/actions/runs/43009034403) 在同一精确 SHA 完整六配置 SUCCESS（11:05:28–11:48:44 UTC，43 分 16 秒），没有手动重跑或跨 run 拼接。产品及六配置条件已满足；#51 按 D-1 合入后阶段 0 完成。实际计数、取消原因及限制见同一阶段 0 里程碑。
-- G1 及以后各阶段（G1-A…G1-M、G2 起）均未开始。
+- 0-5 文档交付已完成：F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 于 17:06:26 UTC 普通合并为 `ff2c899affd7f9cb88105cbc44e0381ae2a2301c`；该 main 的六配置 run [43064884085](https://github.com/wmqfl861/wls861/actions/runs/43064884085) 全部 SUCCESS。维护同一组文档与里程碑，不改历史检查的绑定。
+- 组合 main 验证：`ef71c09` 的 source run [43004295747](https://github.com/wmqfl861/wls861/actions/runs/43004295747) 成功；旧 push 六配置 run [43004296055](https://github.com/wmqfl861/wls861/actions/runs/43004296055) 仍记 CANCELLED。独立自动 schedule run [43009034403](https://github.com/wmqfl861/wls861/actions/runs/43009034403) 在同一精确 SHA 完整六配置 SUCCESS（11:05:28–11:48:44 UTC，43 分 16 秒），没有手动重跑或跨 run 拼接。#51 合入后阶段 0 已完成；实际计数、取消原因及限制见同一阶段 0 里程碑。
+- G1 已开始，A 已完成：[#53](https://github.com/wmqfl861/wls861/pull/53) 于 17:37:54 UTC 普通合并为 `ce6fe0d907e286593df66288ab7149dc0af60b94`；PR run [43066941090](https://github.com/wmqfl861/wls861/actions/runs/43066941090) 三核心配置各 78/78、source run [43066941031](https://github.com/wmqfl861/wls861/actions/runs/43066941031) SUCCESS。I [#54](https://github.com/wmqfl861/wls861/pull/54) 已于 18:14:44 UTC 普通合并为 `231291efd25fa3bd60a6e06f78c65a4351ecb948`；B [#55](https://github.com/wmqfl861/wls861/pull/55)/C 在制，其余 G1 切片与 G2 起尚未开始；C 内部 v3 的持久化准入等待 E 最终布局。
 - 阶段 0 事实与出口见 `docs/reports/stage0-convergence.md`；始终维护同一报告，#51 的合并事件与产品验证独立核对，不另建报告或为自身合并再建 PR。

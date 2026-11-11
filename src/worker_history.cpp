@@ -56,7 +56,8 @@ std::vector<ContextTool> history_control_declarations() {
             {"record_sha256", Object{{"type", "string"}, {"pattern", "^[0-9a-f]{64}$"}}},
             {"section", Object{{"type", "string"}, {"enum", Array{"response", "result"}}}},
             {"offset", integer_schema(0, INT64_MAX)}, {"max_bytes", integer_schema(1, 4096)}}}};
-    return {{"history_page", "wls-history-control-v1", page}, {"history_read", "wls-history-control-v1", read}};
+    return {{"history_page", "wls-history-control-v1", page, builtin_tool_description("history_page")},
+            {"history_read", "wls-history-control-v1", read, builtin_tool_description("history_read")}};
 }
 
 Json execute_history_control(Store& store, const StoreActor& actor,
