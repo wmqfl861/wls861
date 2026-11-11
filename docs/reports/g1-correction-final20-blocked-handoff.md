@@ -56,3 +56,41 @@ docs/reports/g1-correction-remediation-v8.md（同期勘误与源码准备）均
 
 Windows 11 NOT_RUN；私有证据托管 BLOCKED；Store schema 410 与既有 SQL 不变；
 真实/付费 WLS 模型调用 0；开放 PR 与发布流程不在本页范围。
+
+## 2026-11-11 追加：Strict0002 有限准入结论
+
+本节仅补充既有不可变输入的一次前置核查；上文保留为原始时点记录。
+原执行器的 `activation-precondition-result.json` 为 **HELD_PREACTIVATION**：
+产品调用 0；active S/D 未开始，未写 active stage、grant 或 root-ready，
+未创建 TMP、未运行监督器。JUnit **NOT_GENERATED**，focused9 **9 NOT_RUN**，
+G **BLOCKED**；本次没有产品失败、超时或新的目标 RED。
+
+唯一阻断是最新 Context 前驱（`context-capture-projection-tail-01`）监督器
+PID 80385 的 `starttime_ticks=UNKNOWN_NOT_CAPTURED`。原件记录真实 await exit 1、
+cleanup_complete=true、remaining_owned=[]、ownership_gaps=[]；PID 已不存在，
+不能据此补回未捕获的代际 tick。不可变 recipe 要求真实 PID/tick；实现的 missing-PID
+分支不豁免该前置条件。`observer_stopped` 不是该 Correction guard 的硬读字段，
+不列作阻断。未以较旧前驱替代，未另造适配器或复跑制造 latest。
+
+本次实际边界 B=472114.480580465、F=475594.480580465；原核查采样距 B 为
+302.485909158 秒。S/D 未产生，H 无从定义，不能把该采样写成最终 H 或时限通过。
+旧准备的已知 545.793979 秒与其余 UNKNOWN 的非零审查/等待均保留；历史总耗时
+仍 UNKNOWN，旧 broad120 路线仍 NOT_SATISFIED，未重置窗口或补记为零。
+
+本结论不改变既有 strict0022/Clang18 的有限功能结论及其原证据范围；完整正式资格
+仍 **FAIL/UNPROVEN**。UBSan/GCC-ASan 的真实 C0 失败与 G BLOCKED 保留；
+Make 仍 **OPEN / NO_CORRECTED_CONTINUATION_SELECTED**。Release/Correction
+依赖仍未合格，组件继续 BLOCKED / NOT_FULL_GREEN / NOT_COMPLETE。
+验收标志 LOCAL_VALIDATION=false、PR_REVIEW=false、MERGED=false；本报告
+PRE_PUSH=PENDING，新增报告字节的远端 CI NOT_RUN。Windows 11 NOT_RUN、
+私有证据托管 BLOCKED、付费 WLS 调用 NOT_RUN。
+
+下列仅为本次交接所需的原件 basename 与 SHA-256；原件继续私有保留：
+
+| 原件 | SHA-256 |
+| --- | --- |
+| `strict0002-immutable-input-validation-boundary-final22-01.json` | `f6697447537330495c32d91794243f1e1fe517d94661058ff64da63adc3f96bb` |
+| `root-launch-recipe.inert.json` | `e2ea7d78f89157a0492b73bd30b6271abcb79d6ccd8fc5f37b0431024d0af964` |
+| `activation-precondition-result.json` | `0942bddff957d5982818aa69a693a73e524f2b7a3c7337c48fde8b3dd8e05ec4` |
+| `context-capture-projection-tail-01/root-entry-terminal.json` | `9743abcbec482aaaf67c9e3ad8cc07bf5c9dfe1a98b5e9da74d8efe8addf056f` |
+| `root-context-capture-projection-tail-01-actual-await.json` | `948a2b84946c0c71c7e1b898396315d58ff461fe0b0898d422927a0cce5cae94` |
