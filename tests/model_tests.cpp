@@ -347,6 +347,51 @@ void independent_attempt_identity_and_frozen_round_trip() {
     // adapter never starts one implicitly or replaces a previous attempt ID.
 }
 
+// ---- G1-2 opaque responses output serialization ---------------------------
+
+void responses_output_roundtrip_and_consistency() {
+    const FakeModel fake({text_step()});
+    const auto response = fake.complete(request_fixture());
+    auto document = to_json(response);
+    CHECK(!document.as_object().contains("responses_output"));
+    const Json payload = boost::json::object{
+        {"format", "wls-responses-output-v1"}, {"reference", "openai-responses-2026-11-08"},
+        {"model", "o3-2025-04-16"},
+        {"output", boost::json::array{boost::json::object{
+            {"id", "msg_compat_fixture"}, {"type", "message"}, {"role", "assistant"},
+            {"status", "completed"},
+            {"content", boost::json::array{boost::json::object{
+                {"type", "output_text"}, {"text", response.text}, {"annotations", boost::json::array{}}}}}}}}};
+    document.as_object()["responses_output"] = payload;
+    const auto restored = model_response_from_json(document);
+    CHECK(to_json(restored) == document);
+    CHECK(!to_json(response).as_object().contains("responses_output"));
+    auto mismatch = document; mismatch.as_object()["text"] = "changed projection";
+    expect_error(ErrorCode::InvalidInput, [&] { (void)model_response_from_json(mismatch); });
+    auto unknown = document;
+    unknown.at("responses_output").as_object()["extra"] = 1;
+    expect_error(ErrorCode::InvalidInput, [&] { (void)model_response_from_json(unknown); });
+    auto interrupted = document;
+    interrupted.as_object()["status"] = "interrupted";
+    interrupted.as_object()["error_code"] = "cancelled";
+    interrupted.as_object()["error_message"] = "stopped";
+    expect_error(ErrorCode::InvalidInput, [&] { (void)model_response_from_json(interrupted); });
+    auto refusal = document;
+    refusal.as_object()["status"] = "error";
+    refusal.as_object()["error_code"] = "model_refusal";
+    refusal.as_object()["error_message"] = "provider refused; original payload retained";
+    refusal.as_object()["text"] = "";
+    refusal.as_object()["tool_calls"] = boost::json::array{};
+    refusal.at("responses_output").at("output").as_array()[0].at("content").as_array()[0] =
+        boost::json::object{{"type", "refusal"}, {"refusal", "cannot comply"}};
+    CHECK(to_json(model_response_from_json(refusal)) == refusal);
+    // A refusal code without a refusal part in the payload is inconsistent.
+    auto forged = refusal;
+    forged.at("responses_output").at("output").as_array()[0].at("content").as_array()[0] =
+        boost::json::object{{"type", "output_text"}, {"text", ""}, {"annotations", boost::json::array{}}};
+    expect_error(ErrorCode::InvalidInput, [&] { (void)model_response_from_json(forged); });
+}
+
 void reservations_and_context_mismatches_reject_before_call() {
     const FakeModel fake({text_step()});
     auto request = request_fixture();
@@ -402,6 +447,7 @@ int main() {
         {"cancel and timeout preserve unknown usage; late transport stays fenced", cancellation_timeout_and_late_transport},
         {"missing usage remains null rather than zero", nullable_usage_does_not_invent_zero},
         {"request and response round trips preserve separate attempt identity", independent_attempt_identity_and_frozen_round_trip},
+        {"responses output roundtrips and projection consistency", responses_output_roundtrip_and_consistency},
         {"invalid reservations and frozen-context mismatches reject", reservations_and_context_mismatches_reject_before_call},
         {"fake script shape, sequences and delay limits are bounded", script_shape_and_bounds}
     });

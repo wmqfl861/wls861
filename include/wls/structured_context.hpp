@@ -19,6 +19,9 @@ struct StructuredContextMessage {
     std::vector<ContextToolInvocation> tool_calls;
     std::string tool_call_id;
     Json source = nullptr;
+    // Opaque responses-output original (null keeps legacy bytes); only a
+    // checked native assistant round may carry it, never tool/user messages.
+    Json responses_output = nullptr;
 };
 
 // The base contains stable sections and the complete task contract. Its legacy

@@ -139,6 +139,7 @@ if(BUILD_TESTING)
     add_executable(https_transport_driver tests/https_transport_driver.cpp)
     target_link_libraries(https_transport_driver PRIVATE wls_s1)
     target_include_directories(https_transport_driver PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_compile_definitions(https_transport_driver PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME https_transport
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_https_transport.py"
                 "$<TARGET_FILE:https_transport_driver>" "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -146,6 +147,7 @@ if(BUILD_TESTING)
     add_executable(live_model_store_driver tests/live_model_store_driver.cpp)
     target_link_libraries(live_model_store_driver PRIVATE wls_s1)
     target_include_directories(live_model_store_driver PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_compile_definitions(live_model_store_driver PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME live_model_store_tls
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_live_model_store.py"
                 "$<TARGET_FILE:live_model_store_driver>" "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -153,6 +155,7 @@ if(BUILD_TESTING)
     add_executable(live_workflow_driver tests/live_workflow_driver.cpp)
     target_link_libraries(live_workflow_driver PRIVATE wls_s1)
     target_include_directories(live_workflow_driver PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_compile_definitions(live_workflow_driver PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME live_workflow
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_live_workflow.py"
                 "$<TARGET_FILE:live_workflow_driver>" "${CMAKE_CURRENT_SOURCE_DIR}")

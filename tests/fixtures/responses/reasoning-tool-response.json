@@ -1,0 +1,45 @@
+{
+  "id": "resp_compat_fixture_tool",
+  "object": "response",
+  "access_programs": null,
+  "input": [],
+  "reasoning_effort": null,
+  "status": "completed",
+  "model": "o3-2025-04-16",
+  "output": [
+    {
+      "id": "rs_6806bfca0b2481918a5748308061a2600d3ce51bdffd5476",
+      "type": "reasoning",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "**Responding to a greeting**\n\nThe user just said, \"Hello!\" So, it seems I need to engage. I'll greet them back and offer help since they're looking to chat. I could say something like, \"Hello! How can I assist you today?\" That feels friendly and open. They didn't ask a specific question, so this approach will work well for starting a conversation. Let's see where it goes from there!"
+        }
+      ],
+      "encrypted_content": "gAAAAAB3bHlzLXN5bnRoZXRpYy1lbmNyeXB0ZWQtcmVhc29uaW5nLW8zLTAwMDE=",
+      "status": "completed"
+    },
+    {
+      "id": "fc_compat_fixture",
+      "type": "function_call",
+      "call_id": "call_compat_fixture",
+      "name": "note",
+      "arguments": "{\"message\":\"compat fixture\"}",
+      "status": "completed"
+    }
+  ],
+  "error": null,
+  "incomplete_details": null,
+  "usage": {
+    "input_tokens": 11,
+    "output_tokens": 7,
+    "total_tokens": 18,
+    "input_tokens_details": {
+      "cached_tokens": 2,
+      "cache_write_tokens": 1
+    },
+    "output_tokens_details": {
+      "reasoning_tokens": 4
+    }
+  }
+}

@@ -4,8 +4,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace wls::s1 {
 
@@ -25,6 +27,15 @@ struct ProtocolLimits {
     std::size_t max_sse_events{4096};
     std::size_t max_sse_chunks{16384};
     std::int64_t max_timeout_ms{60000};
+};
+
+// Opt-in Responses compatibility subset: model_aliases carries exactly one
+// key (the profile model alias) to its explicit snapshot list; the normalized
+// sorted list joins the frozen profile hash. No wildcard/prefix/date inference.
+struct ResponsesCompatibility {
+    std::string format{"wls-responses-compat-v1"};
+    std::string reference{"openai-responses-2026-11-08"};
+    std::vector<std::string> model_aliases;
 };
 
 struct ProviderProfile {
@@ -50,6 +61,8 @@ struct ProviderProfile {
     // Appended optional extension: old aggregate field order is preserved.
     // Empty preserves the original v1 profile and wire encoding byte-for-byte.
     std::string billing_challenge{};
+    // Appended optional extension; absent keeps the legacy strict subset.
+    std::optional<ResponsesCompatibility> responses_compatibility{};
 };
 
 // All profile fields, including limits, must be explicitly supplied. Unknown

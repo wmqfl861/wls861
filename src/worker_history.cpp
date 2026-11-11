@@ -31,8 +31,11 @@ std::size_t message_size(const std::vector<StructuredContextMessage>& messages) 
         Array calls;
         for (const auto& call : message.tool_calls)
             calls.push_back(Object{{"call_id", call.call_id}, {"name", call.name}, {"arguments", call.arguments}});
-        result.push_back(Object{{"role", message.role}, {"content", message.content},
-            {"tool_calls", calls}, {"tool_call_id", message.tool_call_id}, {"source", message.source}});
+        auto encoded = Object{{"role", message.role}, {"content", message.content},
+            {"tool_calls", calls}, {"tool_call_id", message.tool_call_id}, {"source", message.source}};
+        // Opaque originals count toward window capacity; they are never free.
+        if (!message.responses_output.is_null()) encoded["responses_output"] = message.responses_output;
+        result.push_back(std::move(encoded));
     }
     return canonical_json(result).size();
 }
@@ -106,12 +109,21 @@ std::vector<StructuredContextMessage> worker_history_messages(const Json& tail, 
         "Missing feedback is unknown, never tool success. Current requirements and unresolved state remain in task_contract.";
     std::vector<StructuredContextMessage> result{{"user", canonical_json(index), {}, {},
         Object{{"kind", "history_window"}, {"not_execution_authority", true}}}};
-    for (const auto& attempt : tail.at("items").as_array()) {
+    const auto& tail_items = tail.at("items").as_array();
+    for (std::size_t tail_index = 0; tail_index < tail_items.size(); ++tail_index) {
+        const auto& attempt = tail_items[tail_index];
         auto messages = structured_attempt_history({attempt});
+        const bool reasoning_bearing = std::any_of(messages.begin(), messages.end(),
+            [](const StructuredContextMessage& message) { return !message.responses_output.is_null(); });
         if (message_size(messages) <= static_cast<std::size_t>(inline_bytes)) {
             result.insert(result.end(), messages.begin(), messages.end());
             continue;
         }
+        // The most recent reasoning-bearing round must not degrade into a
+        // reasoning-less reference: fail before any reservation instead.
+        // Older completed rounds keep the original reference policy.
+        if (reasoning_bearing && tail_index + 1 == tail_items.size())
+            throw Error(ErrorCode::Quota, "recent reasoning round exceeds the frozen inline window");
         Object ref{{"kind", "history_reference"}, {"not_execution_authority", true},
             {"attempt_id", attempt.at("attempt_id")}, {"call_id", attempt.at("call_id")},
             {"sequence", attempt.at("sequence")}, {"original_binding", attempt.at("frozen_binding")},
