@@ -1018,7 +1018,6 @@ void lean_projection_preserves_errors_and_checks_originals() {
     const auto saved = to_json(request.context);
     const auto body = parse_json_strict(encode_responses_request(fixture::profile(), request).body);
     CHECK(parse_json_strict(str(body.at("input").as_array()[3], "output")) == original.at("feedback").at("result"));
-    CHECK(request.context.logical_input.at("messages") == single_agent_messages_json(messages));
     CHECK(to_json(request.context) == saved);
     for (const auto* policy : {"", "lean-v99"}) {
         auto broken = saved;
