@@ -861,7 +861,10 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(len(report['calls']), 22)
             self.assertEqual(len(peer.requests), 22)
             self.assertFalse(report['resume_after_wake_limit'])
-            self.assertTrue(any(item['code'] == 'workspace_missing' for item in report['blocked']))
+            self.assertTrue(any(item['code'] == 'workspace_missing' and item['node_id'] == 'gamma'
+                                for item in report['blocked']))
+            self.assertEqual(report['budget']['attempts'], 22)
+            self.assertEqual(rows(case['database'], 'SELECT count(*) AS n FROM call_attempts')[0]['n'], 22)
             self.assertEqual(rows(case['database'], 'SELECT count(*) AS n FROM live_send_claims')[0]['n'], 22)
 
     def test_90_invalid_signed_sources_never_advance_business_or_repeat_send(self):
