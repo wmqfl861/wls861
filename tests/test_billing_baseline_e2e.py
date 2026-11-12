@@ -829,7 +829,8 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual([item['status'] for item in rows(database, 'SELECT status FROM experience_jobs')], ['DONE'] * 3)
             artifacts = list(Path(summary['delivery_path']).glob('artifact-*.bin'))
             self.assertEqual([item.read_bytes() for item in artifacts], [b'alpha\nbeta\n'] * 3)
-            feedback = rows(database, 'SELECT attempt_id,result FROM model_tool_feedback ORDER BY rowid')
+            feedback = rows(database, 'SELECT attempt_id,result,record_sha256 FROM model_tool_feedback ORDER BY rowid')
+            feedback_hashes = {item['attempt_id']: item['record_sha256'] for item in feedback}
             corrections = [item for item in feedback if 'bounded_runtime_v1' in item['result']]
             self.assertEqual(len(corrections), 1)
             corrected = next(index for index, item in enumerate(attempts)
@@ -839,7 +840,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertIn('correction_feedback', endpoint.records[corrected + 1]['request'].decode())
             self.assertEqual(json.loads(corrections[0]['result'])['correction_feedback']
                 ['bounded_runtime_v1']['same_error_repeats'], 1)
-            roles, workers, managers = {}, {}, {}
+            roles, workers, managers, worker_attempts = {}, {}, {}, {}
             totals = dict(input_tokens=0, output_tokens=0, cache_read_tokens=0, cache_write_tokens=None)
             expected_cost = 0
             legacy_cache = SimulatedPrefixCache()
@@ -892,6 +893,12 @@ class BillingBaselineIntegration(unittest.TestCase):
                     self.assertEqual(attempt['reserved_output'], captured['reserved_output_tokens'])
                     history = logical['worker_history']
                     self.assertEqual(history['fold_generation'], 0)
+                    previous_ids = worker_attempts.setdefault(attempt['task_id'], [])
+                    self.assertEqual([turn['attempt_id'] for turn in history['visible_turns']], previous_ids)
+                    self.assertTrue(all(turn['completed'] for turn in history['visible_turns']))
+                    self.assertEqual([turn['record_sha256'] for turn in history['visible_turns']],
+                                     [feedback_hashes[original] for original in previous_ids])
+                    previous_ids.append(attempt['attempt_id'])
                     self.assertLess(captured['reserved_input_tokens'],
                                     CONTEXT_WINDOW * context['compaction_at_fraction'])
                     own = workers.setdefault(attempt['task_id'], [])
