@@ -7,6 +7,15 @@
 
 ## 1. 接口和顺序
 
+`wls run --config FILE --text-file FILE [--constraints-file FILE] [--budget-usd N]
+[--data DIR] [--yes]` 由本地宿主确认一次后调用一次公开 `pump_live`，使用明确冻结的
+`bounded-v1`、原角色作用域和 token 价格表。实际模型 ID、端点主机名和预算先显示；
+凭据只从冻结的 ENV 引用解析。role-broker 和外置签名计费策略仍使用既有专用命令。
+每个 `run-key-v1` 请求首次在 `<data>/requests/<req_id>/control.sqlite` 建库；独占私有
+意图绑定完整摘要、原准入元组和目录身份。重复命令保持原预算/创建时间；变更配置或
+预算拒绝复用。已完成重复只核原包。宿主在计划提交后分配 owned workspace，交付复用
+原授权/无覆盖发布/`durable_local` 技术确认；这不记录用户阅读或审阅，也不执行清理。
+
 `OfflineRuntime::capture_call` 返回原 `CapturedModelCall`，包括编译上下文、原身份、
 捕获的状态版本和单个工作流目标。此阶段不创建 attempt。
 `CapturedCallLimits` 只选择宿主费用预留和调用 timeout；不改模型、端点、工具或输出能力。

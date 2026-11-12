@@ -17,6 +17,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -205,7 +206,7 @@ class PricingFlowEndpoint:
     11/7/3 usage shape without cache-write so the host estimate is exercised.
     """
 
-    def __init__(self, correctable_read=False):
+    def __init__(self, correctable_read=False, initialize_seed=False):
         fixture = workflow.without_constraints(json.loads(
             (SOURCE / 'tests/fixtures/s15_fake_complete.json').read_text()))
         self.plan = fixture['default'][0]['tool_calls'][0]['arguments']
@@ -220,6 +221,7 @@ class PricingFlowEndpoint:
         self.acceptance = fixture['default'][1]['tool_calls'][0]['arguments']
         self.steps, self.actions = {}, []
         self.correctable_read = correctable_read
+        self.initialize_seed = initialize_seed
 
     def choose(self, body):
         contract = json.loads(json.loads(body['input'][0]['content'])['task_contract'])
@@ -250,6 +252,8 @@ class PricingFlowEndpoint:
                                   'expected_sha256': hashlib.sha256(b'alpha\nbeta\n').hexdigest()}),
                     ('fs_read', {'path': 'result.txt'}),
                     ('submit', self.submission)]
+        if self.initialize_seed:
+            sequence[0] = ('fs_write', {'path': 'seed.txt', 'content': 'alpha\nbeta\n'})
         return sequence[index]
 
     def __call__(self, peer, connection):
@@ -563,6 +567,239 @@ class BillingBaselineIntegration(unittest.TestCase):
 
     def test_05_original_delivery_exact_receipt_pair(self):
         self.run_pair(4)
+
+    @classmethod
+    def run_inputs(cls, label, peer):
+        directory = cls.directory / label
+        directory.mkdir(mode=0o700)
+        shutil.copytree(cls.functions, directory / 'functions')
+        system, profile = copy.deepcopy(cls.system), copy.deepcopy(cls.profile)
+        provider = profile['responses']['provider_profile']
+        provider.update(base_url=f'https://localhost:{peer.port}', profile_id='one-command-pricing', pricing=PRICING)
+        provider.pop('billing_challenge', None)
+        system['models'][MODEL_REF] = profile
+        system['defaults']['model_ref'] = MODEL_REF
+        system['context']['request_format'] = 'structured-v2'
+        system['context'].pop('logical_agent', None)
+        system['model_calls'].update(real_calls_enabled=True, runtime_policy='bounded-v1', max_total_calls=40)
+        system['budget_defaults'].update(max_cost_usd=8, max_input_tokens=4000000, max_output_tokens=1000000)
+        system['paths']['data'] = str(directory / 'data')
+        configuration = write_json(directory / 'system.json', system)
+        material = directory / 'request.txt'
+        material.write_text('Create three independent original local file results.\n', encoding='utf-8')
+        constraints = write_json(directory / 'constraints.json', [])
+        return {'directory': directory, 'configuration': configuration, 'material': material,
+                'constraints': constraints, 'system': system, 'data': directory / 'data'}
+
+    @classmethod
+    def run_arguments(cls, case, *extra):
+        return [str(BINARY), 'run', '--config', str(case['configuration']), '--text-file', str(case['material']),
+                '--constraints-file', str(case['constraints']), '--source-root', str(SOURCE), *(str(x) for x in extra)]
+
+    def invoke_run(self, case, *extra, answer='yes\n'):
+        result = subprocess.run(self.run_arguments(case, *extra), cwd=case['directory'], env=self.environment,
+            input=answer, capture_output=True, text=True, encoding='utf-8', timeout=150, check=False)
+        for private in (BEARER, PRIVATE_ERROR, 'signature_hex', 'raw_body_hex', 'raw_headers_hex'):
+            self.assertNotIn(private, result.stdout + result.stderr)
+        return result
+
+    def test_06_run_once_delivers_three_tasks_and_two_requests_share_data(self):
+        endpoint = PricingFlowEndpoint(initialize_seed=True)
+        with tls.Peer(self.contexts['server'], endpoint) as peer:
+            case = self.run_inputs('run-complete', peer)
+            result = self.invoke_run(case)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(result.stderr.count('Authorize this bounded run?'), 1)
+            preview = json.loads(result.stderr.splitlines()[0])
+            summary = json.loads(result.stdout)
+            self.assertEqual({item['endpoint_host'] for item in preview['models']}, {'localhost'})
+            self.assertEqual({item['model_ref'] for item in preview['models']}, {MODEL_REF})
+            self.assertEqual({item['model'] for item in preview['models']}, {self.profile['model']})
+            self.assertEqual(summary['status'], 'DELIVERED')
+            self.assertEqual(summary['role_calls'], {'dispatcher': 4, 'team_lead': 9, 'worker': 18})
+            self.assertEqual(summary['original_tokens'], {'input_tokens': 341, 'output_tokens': 217,
+                'cache_read_tokens': 93, 'cache_write_tokens': None})
+            self.assertAlmostEqual(summary['cache_read_ratio'], 3 / 11)
+            self.assertEqual(summary['budget']['cost_breakdown']['estimated_micro_usd'], 31 * PRICED_UNIT_MICRO_USD)
+            self.assertEqual(summary['budget']['cost_breakdown']['reported_micro_usd'], 0)
+            self.assertTrue(summary['technical_acknowledgement'])
+            self.assertEqual(summary['user_review'], 'not_recorded')
+            self.assertEqual(summary['blockers'], [])
+            expected = digest({'format': 'run-key-v1', 'text': case['material'].read_text(),
+                               'constraints': [], 'config_locator': str(case['configuration'].absolute())})
+            alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+            number, encoded = int(expected[:32], 16), ''
+            for _ in range(26):
+                encoded = alphabet[number & 31] + encoded
+                number >>= 5
+            self.assertEqual(summary['request_id'], 'req_' + encoded)
+            request = case['data'] / 'requests' / summary['request_id']
+            database = request / 'control.sqlite'
+            self.assertFalse((case['data'] / 'control.sqlite').exists())
+            intent = json.loads((request / 'intent.json').read_text())
+            self.assertEqual(intent['admission']['run_key_sha256'], expected)
+            self.assertEqual((request / 'intent.json').stat().st_mode & 0o777, 0o600)
+            self.assertEqual(database.stat().st_mode & 0o777, 0o600)
+            self.assertEqual([row['status'] for row in rows(database, 'SELECT status FROM tasks')], ['ACCEPTED'] * 3)
+            self.assertEqual(rows(database, 'SELECT count(*) n FROM live_send_claims')[0]['n'], 31)
+            resources = rows(database, 'SELECT status,intent FROM owned_workspaces')
+            self.assertEqual(len(resources), 3)
+            self.assertTrue(all(row['status'] == 'OWNED' for row in resources))
+            self.assertTrue(all(json.loads(row['intent'])['parent_identity']['path'] == str(request / 'workspaces') for row in resources))
+            files = [path for path in Path(summary['delivery_path']).iterdir() if path.name != 'manifest.json']
+            self.assertEqual([path.read_bytes() for path in files], [b'alpha\nbeta\n'] * 3)
+            original = rows(database, 'SELECT created_at,config_snapshot,budget FROM requests')
+            # Canonical constraints identity survives spelling changes. A completed
+            # repeat inspects the original durable package without another send.
+            case['constraints'].write_text(' [ ] \n')
+            replay = self.invoke_run(case, '--yes')
+            self.assertEqual(replay.returncode, 0, replay.stderr)
+            self.assertEqual(json.loads(replay.stdout)['stop_reason'], 'completed_replay')
+            self.assertEqual(len(peer.requests), 31)
+            self.assertEqual(rows(database, 'SELECT created_at,config_snapshot,budget FROM requests'), original)
+            changed = self.invoke_run(case, '--yes', '--budget-usd', 4)
+            self.assertEqual(changed.returncode, 3, changed.stderr)
+            self.assertFalse(changed.stdout)
+            self.assertNotIn('wls-run-confirmation', changed.stderr)
+            self.assertEqual(len(peer.requests), 31)
+            case['material'].write_text('A distinct request creates its own three file results.\n')
+            other = self.invoke_run(case, '--yes')
+            self.assertEqual(other.returncode, 0, other.stderr)
+            self.assertNotEqual(json.loads(other.stdout)['request_id'], summary['request_id'])
+            self.assertEqual(len(list((case['data'] / 'requests').glob('*/control.sqlite'))), 2)
+            self.assertEqual(len(peer.requests), 62)
+
+    def test_07_run_refusal_config_budget_and_unsafe_paths_before_confirmation(self):
+        endpoint = PricingFlowEndpoint(initialize_seed=True)
+        with tls.Peer(self.contexts['server'], endpoint) as peer:
+            case = self.run_inputs('run-refusals', peer)
+            declined = self.invoke_run(case, answer='no\n')
+            self.assertEqual(declined.returncode, 2)
+            self.assertFalse(declined.stdout)
+            self.assertFalse(case['data'].exists())
+            self.assertEqual(len(peer.requests), 0)
+            low = self.invoke_run(case, '--yes', '--budget-usd', '0.01')
+            self.assertEqual(low.returncode, 2)
+            self.assertNotIn('wls-run-confirmation', low.stderr)
+            self.assertFalse(case['data'].exists())
+            for enabled, base in ((False, f'https://localhost:{peer.port}'), (False, 'https://hostname'),
+                                  (False, 'https://127.0.0.1:443')):
+                system = copy.deepcopy(case['system'])
+                system['model_calls']['real_calls_enabled'] = enabled
+                system['models'][MODEL_REF]['responses']['provider_profile']['base_url'] = base
+                write_json(case['configuration'], system)
+                denied = self.invoke_run(case, '--yes')
+                self.assertEqual(denied.returncode, 2, denied.stderr)
+                self.assertNotIn('runtime_error', denied.stderr)
+                self.assertNotIn('wls-run-confirmation', denied.stderr)
+            write_json(case['configuration'], case['system'])
+            unsafe = case['directory'] / 'unsafe'
+            unsafe.mkdir(mode=0o700)
+            unsafe.chmod(0o777)
+            rejected = self.invoke_run(case, '--yes', '--data', unsafe)
+            self.assertEqual(rejected.returncode, 2)
+            self.assertNotIn('wls-run-confirmation', rejected.stderr)
+            link = case['directory'] / 'linked'
+            link.symlink_to(unsafe, target_is_directory=True)
+            rejected = self.invoke_run(case, '--yes', '--data', link)
+            self.assertEqual(rejected.returncode, 2)
+            self.assertNotIn('wls-run-confirmation', rejected.stderr)
+            # An existing deterministic leaf without its exclusive original
+            # intent is ambiguous and must never be adopted.
+            request_id = json.loads(declined.stderr.splitlines()[0])['request_id']
+            abandoned = case['data'] / 'requests' / request_id
+            abandoned.mkdir(mode=0o700, parents=True)
+            rejected = self.invoke_run(case, '--yes')
+            self.assertEqual(rejected.returncode, 3)
+            self.assertNotIn('wls-run-confirmation', rejected.stderr)
+            self.assertFalse(list(case['data'].rglob('control.sqlite')))
+            self.assertEqual(len(peer.requests), 0)
+
+    def test_08_run_ctrl_c_after_settlement_resumes_original_claims_and_effects(self):
+        endpoint = PricingFlowEndpoint(initialize_seed=True)
+        with tls.Peer(self.contexts['server'], endpoint) as peer:
+            case = self.run_inputs('run-interrupted', peer)
+            process = subprocess.Popen(self.run_arguments(case, '--yes'), cwd=case['directory'], env=self.environment,
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.addCleanup(lambda: process.poll() is None and process.kill())
+            deadline, database = time.monotonic() + 40, None
+            interrupted = False
+            while process.poll() is None and time.monotonic() < deadline:
+                candidates = list(case['data'].glob('requests/*/control.sqlite'))
+                if candidates:
+                    database = candidates[0]
+                    try:
+                        attempts = rows(database, 'SELECT status,settlement_sha256 FROM call_attempts')
+                        feedback = rows(database, 'SELECT count(*) n FROM model_tool_feedback')
+                        if len(attempts) >= 4 and feedback[0]['n'] == len(attempts) and all(
+                                row['settlement_sha256'] and row['status'] != 'UNKNOWN' for row in attempts):
+                            process.send_signal(signal.SIGINT)
+                            interrupted = True
+                            break
+                    except sqlite3.OperationalError:
+                        pass
+                time.sleep(0.001)
+            stdout, stderr = process.communicate(timeout=30)
+            self.assertTrue(interrupted, stderr + stdout)
+            self.assertEqual(process.returncode, 130, stderr + stdout)
+            summary = json.loads(stdout)
+            self.assertEqual(summary['stop_reason'], 'cancelled')
+            self.assertTrue(summary['accounting']['ready'], summary)
+            original = rows(database, 'SELECT created_at,config_snapshot,budget FROM requests')
+            claims = rows(database, 'SELECT attempt_id,claim_id FROM live_send_claims ORDER BY rowid')
+            self.assertGreaterEqual(len(claims), 4)
+            self.assertLess(len(claims), 31)
+            operations = rows(database, 'SELECT op_id,status FROM ops ORDER BY rowid')
+            self.assertTrue(operations)
+            self.assertTrue(all(row['status'] == 'SUCCEEDED' for row in operations))
+            resumed = self.invoke_run(case, '--yes')
+            self.assertEqual(resumed.returncode, 0, resumed.stderr + resumed.stdout)
+            final = json.loads(resumed.stdout)
+            self.assertEqual(final['request_id'], summary['request_id'])
+            self.assertEqual(final['status'], 'DELIVERED')
+            self.assertEqual(final['role_calls'], {'dispatcher': 4, 'team_lead': 9, 'worker': 18})
+            self.assertEqual(rows(database, 'SELECT created_at,config_snapshot,budget FROM requests'), original)
+            self.assertEqual(rows(database, 'SELECT attempt_id,claim_id FROM live_send_claims ORDER BY rowid')[:len(claims)], claims)
+            self.assertEqual(rows(database, 'SELECT op_id,status FROM ops ORDER BY rowid')[:len(operations)], operations)
+            self.assertEqual(len(peer.requests), 31)
+
+    def test_09_run_unknown_send_stops_and_changed_configuration_cannot_resume(self):
+        requested, release = threading.Event(), threading.Event()
+        def delayed(peer, connection):
+            peer.request(connection)
+            requested.set()
+            release.wait(5)
+        with tls.Peer(self.contexts['server'], delayed) as peer:
+            case = self.run_inputs('run-unknown', peer)
+            process = subprocess.Popen(self.run_arguments(case, '--yes'), cwd=case['directory'], env=self.environment,
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.addCleanup(lambda: process.poll() is None and process.kill())
+            self.assertTrue(requested.wait(20))
+            process.send_signal(signal.SIGINT)
+            stdout, stderr = process.communicate(timeout=30)
+            self.assertEqual(process.returncode, 130, stderr + stdout)
+            first = json.loads(stdout)
+            self.assertFalse(first['accounting']['ready'])
+            database = next(case['data'].glob('requests/*/control.sqlite'))
+            original = rows(database, 'SELECT attempt_id,status,settlement_sha256 FROM call_attempts')
+            self.assertEqual(len(original), 1)
+            resumed = self.invoke_run(case, '--yes')
+            self.assertEqual(resumed.returncode, 0, resumed.stderr)
+            summary = json.loads(resumed.stdout)
+            self.assertEqual(summary['stop_reason'], 'needs_accounting')
+            self.assertFalse(summary['accounting']['ready'])
+            self.assertIsNone(summary['original_tokens']['input_tokens'])
+            self.assertEqual(rows(database, 'SELECT attempt_id,status,settlement_sha256 FROM call_attempts'), original)
+            self.assertEqual(len(peer.requests), 1)
+            system = copy.deepcopy(case['system'])
+            system['budget_defaults']['warn_at_fraction'] = 0.75
+            write_json(case['configuration'], system)
+            rejected = self.invoke_run(case, '--yes')
+            self.assertEqual(rejected.returncode, 3)
+            self.assertFalse(rejected.stdout)
+            self.assertNotIn('wls-run-confirmation', rejected.stderr)
+            self.assertEqual(len(peer.requests), 1)
+            release.set()
 
     def test_10_unsigned_estimated_billing_completes_thirty_one_original_calls(self):
         """One authorization: the first batch hits the frozen manager cap; an explicit second call completes 31 billings.

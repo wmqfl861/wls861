@@ -162,8 +162,10 @@ EventFakeScript event_fake_script_from_json(const Json& value) {
 }
 
 EventRuntime::EventRuntime(Store& store, const SchemaRegistry& schemas,
-                          std::map<std::string, WorkerTools*> tools_by_node)
-    : store_(store), schemas_(schemas), tools_by_node_(std::move(tools_by_node)) {
+                          std::map<std::string, WorkerTools*> tools_by_node,
+                          WorkspaceResolver workspace_resolver)
+    : store_(store), schemas_(schemas), tools_by_node_(std::move(tools_by_node)),
+      workspace_resolver_(std::move(workspace_resolver)) {
     require(tools_by_node_.size() <= 64, ErrorCode::InvalidInput, "too many explicit workspace mappings");
     std::set<WorkerTools*> assigned;
     for (const auto& [node, tools] : tools_by_node_) {
@@ -1007,6 +1009,11 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 if (!experience_pending && !experience_history &&
                     (number(assigned, "based_on_requirements_revision") != number(current_request, "requirements_revision") ||
                      number(assigned, "plan_revision") != number(current_request, "plan_revision"))) continue;
+                if (workspace_resolver_) {
+                    auto* resolved = workspace_resolver_(assigned);
+                    require(resolved, ErrorCode::NotReady, "host workspace resolver returned no WorkerTools");
+                    tools_by_node_[node] = resolved;
+                }
                 const auto mapped = tools_by_node_.find(node);
                 WorkerTools* tools = mapped == tools_by_node_.end() ? nullptr : mapped->second;
                 auto binding = store_.binding(task_id);

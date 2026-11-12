@@ -2867,6 +2867,8 @@ Json Store::checkpoint_capacity(const StoreActor& root, std::int64_t expected_wi
 
 Json Store::admit(const AdmissionInput& input) {
     const std::lock_guard lock(impl_->mutex);
+    require(input.request_id.empty() || is_typed_id(input.request_id, "req"),
+            ErrorCode::InvalidInput, "invalid host admission request ID");
     for (const auto* field : {&input.tenant_id, &input.project_id, &input.root_id, &input.function_id, &input.idempotency_key}) text_field(*field, "admission scope");
     text_field(input.original_text, "original text", 65536);
     require(input.config_snapshot.is_object(), ErrorCode::InvalidInput, "complete configuration snapshot required");
@@ -2906,12 +2908,14 @@ Json Store::admit(const AdmissionInput& input) {
         const auto old = impl_->optional(std::string("SELECT request_id,content_sha256 FROM ") + table + " WHERE tenant_id=? AND project_id=? AND root_id=? AND idempotency_key=?", identity);
         if (old) {
             require(str(*old, "content_sha256") == fingerprint, ErrorCode::Conflict, "admission key reused with different immutable input");
+            require(input.request_id.empty() || input.request_id == str(*old, "request_id"),
+                    ErrorCode::Conflict, "host admission request ID differs from original");
             const auto result = std::string_view(table) == "requests" ? exposed(impl_->request_row(str(*old, "request_id"))) : exposed(impl_->one("SELECT * FROM receipts WHERE request_id=?", {str(*old, "request_id")}));
             tx.commit(); return result;
         }
     }
     validate_store_capacity_admission(frozen_config.json().at("system"));
-    const auto id = new_id("req");
+    const auto id = input.request_id.empty() ? new_id("req") : input.request_id;
     const auto created = stamp();
     impl_->execute("INSERT INTO requests(request_id,tenant_id,project_id,root_id,function_id,origin,idempotency_key,content_sha256,dispatcher_id,status,config_snapshot,budget,created_at,updated_at) VALUES (?,?,?,?,?,'cli',?,?,?,'RECEIVED',?,?,?,?)",
         {id, input.tenant_id, input.project_id, input.root_id, input.function_id, input.idempotency_key, fingerprint, new_id("dispatcher"), config, canonical_json(budget), created, created});

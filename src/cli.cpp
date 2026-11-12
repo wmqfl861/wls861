@@ -22,6 +22,13 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <csignal>
+#include <thread>
+#include <condition_variable>
+#include <fcntl.h>
+#include <pwd.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace {
 using namespace wls;
@@ -36,7 +43,7 @@ public:
             std::string key(argv[i]);
             if (!key.starts_with("--") || key.size() <= 2 || values_.contains(key))
                 throw Error(ErrorCode::InvalidInput, "invalid or duplicate option: " + key);
-            if (key == "--model-input") { values_[key] = "true"; continue; }
+            if (key == "--model-input" || key == "--yes") { values_[key] = "true"; continue; }
             if (i + 1 >= argc || std::string_view(argv[i + 1]).starts_with("--"))
                 throw Error(ErrorCode::InvalidInput, "option needs a value: " + key);
             values_[key] = argv[++i];
@@ -311,6 +318,7 @@ Json request_view(Store& store, const std::string& id) {
 
 #include "live_cli.inc"
 #include "billing_cli.inc"
+#include "run_cli.inc"
 
 void help() {
     std::cout << R"(wls 0.11.1-r3.3c-audit — signed billing and a continuous single Agent
@@ -332,6 +340,8 @@ init is explicit all-request recovery and migration maintenance.
   wls replay-model --profile FILE --request FILE --sse-stream FILE [--chunk-bytes 4096]
   wls replay-model --profile FILE --request FILE --replay FILE
   wls init --db FILE
+  wls run --config FILE --text-file FILE [--constraints-file FILE]
+          [--budget-usd N] [--data DIRECTORY] [--yes]
   wls submit --db FILE --key KEY --text-file FILE [--constraints-file FILE]
              [--tenant local] [--project local] [--root local-root]
              [--function general] [--config FILE] [--max-attempts 64]
@@ -493,6 +503,7 @@ int run_cli(int argc, char** argv) {
         output(Object{{"resources", resources.diagnostics()}, {"migrations", MigrationRegistry(resources).diagnostics()}});
         return 0;
     }
+    if (command == "run") return run_request(options, resources);
     if (command == "config") {
         if (action != "check" && action != "explain") throw Error(ErrorCode::InvalidInput, "config needs check or explain");
         const auto frozen = live_config(options, resources);
