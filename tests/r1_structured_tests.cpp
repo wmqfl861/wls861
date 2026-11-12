@@ -374,6 +374,30 @@ void restored_requests_keep_deep_and_public_validation() {
     // even after this same object previously passed complete restoration.
     fails(ErrorCode::InvalidInput, [&] { (void)to_json(mutable_request); });
     fails(ErrorCode::InvalidInput, [&] { validate_response(mutable_request, response); });
+
+    auto numeric_request = fixture::request(); auto input = described_fixture();
+    input.task_contract = canonical_json(Object{{"request", Object{{"texts", Array{}},
+        {"constraint_catalog", Array{}}, {"requirements_revision", 1}}}, {"measurement", -0.0}});
+    numeric_request.context = compile_structured_context(input, {}, {}, StructuredContextFormat::V3);
+    const auto expected = to_json(numeric_request);
+    const auto expected_bytes = canonical_json(expected);
+    auto equivalent = expected;
+    equivalent.at("context").at("input").at("current_state").at("measurement") = 0.0;
+    // Equal JSON values need not have equal bytes. Restore the projection from
+    // the complete original contract, including its negative-zero spelling.
+    CHECK(equivalent == expected); CHECK(canonical_json(equivalent) != expected_bytes);
+    const auto rebuilt = model_request_from_json(equivalent);
+    CHECK(canonical_json(to_json(rebuilt)) == expected_bytes);
+    rehash(equivalent);
+    fails(ErrorCode::InvalidInput, [&] { (void)model_request_from_json(equivalent); });
+
+    // Public serialization validates afresh while retaining the mutable
+    // caller's original representation; restoration returns the rebuilt one.
+    numeric_request.context.logical_input = equivalent.at("context").at("input");
+    auto dynamic = numeric_request.context.logical_input.as_object();
+    for (const auto* key : {"prefix", "selection", "format"}) dynamic.erase(key);
+    numeric_request.context.dynamic_suffix = canonical_json(dynamic);
+    CHECK(canonical_json(to_json(numeric_request)) == canonical_json(equivalent));
 }
 void same_provider_ids_have_distinct_logical_ids() {
     const auto a = attempt(), b = attempt(); const auto m = structured_attempt_history({a, b});
