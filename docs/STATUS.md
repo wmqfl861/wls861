@@ -38,7 +38,7 @@ M head `c2aa6440dec010b9161527c1c80d6b75ccf2081a` 的 [core 43324561502](https:/
 | 运行资源 / 迁移 | 编译认可清单、35项固定资源、版本注册表及CMake安装 | 从无关cwd与删除安装来源后运行；prefix/DESTDIR、资源篡改/缺失/特殊文件拒绝、旧API/迁移兼容；配置和凭据外置 |
 | 单 Agent / 评测证据 | 显式冻结共享原生对话与原权限代理；v1结构验收、v2原模型来源、v3独立验证单逻辑Agent连续性 | 五任务双条件合成工程链、跨重启与错标/缺反馈反例；真实供应商质量、成本及长对话语义效果未验收 |
 | 事件/并发 | 持久inbox、逐任务AMEND、串行pump；冻结准入窗口/独立计数/Root检查点 | 旧快照不改写；到限可核对后续进；不清审计/不重置预算。CLI 已按请求恢复；默认全库维护仍保留。并发租约、只在确有在途时提升选中请求代次仍未实现 |
-| 配置执行状态 | check/explain显示 runtime_support 和 validated_only 项 | 形状有效不代表墙钟/告警/压缩/并发/停滞检测已执行 |
+| 配置执行状态 | check/explain按冻结配置披露runtime_support；G1-J的bounded-v1已接通请求墙钟期限、预算预警、输出上限/输入估算、同错停滞限制与有界续批 | 本地合成回归覆盖已接通路径；真实供应商未验收。未选bounded-v1时墙钟/预警/同错限制仍validated_only；全局并发/审核槽位、stall_minutes、snapshot_decision_log_entries及周期vacuum仍未执行；compaction_at_fraction仅append-fold-v1接通 |
 | 记忆、MCP、跨功能审核 | 规格/参考契约 | 完整C++闭环及真实互通未实现 |
 | 测试工具链 | 严格、UBSan、ASan、Clang、普通用户及umask矩阵 | PR按改动分层，核心含strict/umask 0002/Clang18；main push/nightly/手动完整矩阵为六配置、八个构建测试jobs（CMake与Make ASan各两片）；Make ASan默认-O0，原期限/flags保留；静态注册、定向子集与完整运行分别记录 |
 
