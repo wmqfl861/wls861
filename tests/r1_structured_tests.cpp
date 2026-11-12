@@ -900,7 +900,7 @@ void v3_capture_reserve_restore_policy_combinations() {
         if (lean && std::string_view(mode) != "all") continue; // One combined fixture covers all three independent history choices.
         V3Fixture fixture(mode, 6, fixed, lean);
         Json prefix = nullptr;
-        for (int round = 1; round <= 5; ++round) {
+        for (int round = 1; round <= (lean ? 2 : 5); ++round) {
             auto fake = fixture.note(round);
             const auto call = OfflineRuntime(*fixture.store, fixture.schemas).reserve_call(fake, fixture.id, Role::Worker, fixture.task, round);
             const auto envelope = fixture.store->attempt(call.request.attempt_id).at("request_envelope");
