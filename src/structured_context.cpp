@@ -7,6 +7,7 @@
 #include <map>
 #include <set>
 #include <string_view>
+#include <utility>
 
 namespace wls::s1 {
 namespace {
@@ -144,7 +145,87 @@ Array encode_messages(const std::vector<StructuredContextMessage>& messages,
     require(pending.empty(), "structured transcript ends with an unpaired tool call");
     return result;
 }
+
+// Separate semantic originals from live authority without editing either the
+// complete host contract or any historical message/provider payload.
+std::pair<Json, Json> contract_parts(const std::string& bytes) {
+    if (!bytes.starts_with("{")) return {Object{{"task_contract", bytes}}, Object{}};
+    auto state = parse_json_strict(bytes, 32U * 1024U * 1024U);
+    if (!state.is_object() || !state.as_object().contains("request"))
+        return {Object{{"task_contract", bytes}}, Object{}};
+    Object stable, versions, original_bindings;
+    auto& request = state.at("request").as_object();
+    Object original_request;
+    for (const auto* key : {"texts", "constraint_catalog"}) {
+        original_request[key] = request.at(key); request.erase(key);
+    }
+    stable["request"] = std::move(original_request);
+    versions["requirements_revision"] = request.at("requirements_revision");
+    for (const auto* section : {"task", "instruction"}) {
+        const auto* original = state.as_object().if_contains(section);
+        const auto body = std::string_view(section) == "task" ? "brief" : "body";
+        stable[section] = original && original->is_object() ? field(*original, body) : Json(nullptr);
+        if (stable.at(section).is_object()) {
+            Object binding;
+            const auto identity = to_json(ExecutionBinding{});
+            for (const auto& entry : identity.as_object())
+                if (const auto* value = stable.at(section).as_object().if_contains(entry.key())) {
+                    binding[entry.key()] = *value; stable.at(section).as_object().erase(entry.key());
+                }
+            original_bindings[section] = std::move(binding);
+        }
+        if (original && original->is_object()) {
+            auto& metadata = state.at(section).as_object();
+            for (const auto* key : {"task_revision", "instruction_revision"})
+                if (const auto* revision = metadata.if_contains(key)) versions[key] = *revision;
+            metadata.erase(body);
+        }
+    }
+    state.as_object()["original_contract_bindings"] = std::move(original_bindings);
+    state.as_object()["semantic_versions"] = std::move(versions);
+    return {stable, state};
+}
+Json versions(const Json& state) {
+    const auto* value = object(state).if_contains("semantic_versions");
+    return value ? *value : Json(Object{});
+}
+Json dynamic_projection(const Json& input) {
+    Object result;
+    for (const auto& entry : object(input))
+        if (entry.key() != "prefix" && entry.key() != "selection" && entry.key() != "format")
+            result[entry.key()] = entry.value();
+    return result;
+}
+std::string stable_projection(const Json& input) {
+    return text(input, "format") == "wls-logical-input-v3" ? canonical_json(Object{
+        {"prefix", field(input, "prefix")}, {"contract_anchor", field(input, "contract_anchor")}}) :
+        canonical_json(field(input, "prefix"));
+}
 } // namespace
+
+void continue_structured_contract(ContextInput& input, const Json& previous) {
+    const auto [stable, state] = contract_parts(input.task_contract);
+    input.contract_anchor = stable; input.contract_updates = Array{};
+    if (previous.is_null()) return;
+    exact(previous, {"attempt_id", "input"});
+    const auto& prior = field(previous, "input");
+    require(text(prior, "format") == "wls-logical-input-v3", "prior context is not verified v3");
+    input.contract_anchor = field(prior, "contract_anchor");
+    input.contract_updates = field(prior, "contract_updates");
+    const auto& updates = array(input.contract_updates);
+    const auto& last = updates.empty() ? input.contract_anchor : field(updates.back(), "contract");
+    if (last != stable || versions(field(prior, "current_state")) != versions(state))
+        input.contract_updates.as_array().push_back(Object{{"after_attempt_id", text(previous, "attempt_id")},
+            {"contract", stable}, {"semantic_versions", versions(state)}});
+}
+
+void validate_structured_contract_continuity(const CompiledContext& context, const Json& previous) {
+    ContextInput expected; expected.task_contract = compiled_task_contract(context);
+    continue_structured_contract(expected, previous);
+    require(field(context.logical_input, "contract_anchor") == expected.contract_anchor &&
+        field(context.logical_input, "contract_updates") == expected.contract_updates,
+        "v3 contract anchor or original update boundaries changed");
+}
 
 static CompiledContext compile_structured(const ContextInput& base,
         const std::vector<StructuredContextMessage>& messages, ContextLimits limits,
@@ -167,7 +248,7 @@ static CompiledContext compile_structured(const ContextInput& base,
     Array sources;
     for (const auto& dep : dependencies)
         sources.push_back(Object{{"name", dep.name}, {"version", dep.version}, {"content_sha256", dep.content_sha256}});
-    const Json prefix = Object{{"format", v3 ? "wls-logical-prefix-v3" : "wls-logical-prefix-v1"}, {"tools", definitions},
+    Json prefix = Object{{"format", v3 ? "wls-logical-prefix-v3" : "wls-logical-prefix-v1"}, {"tools", definitions},
         {"system", Object{{"system_prompt", base.system_prompt}, {"role_prompt", base.role_prompt},
             {"function_prompt", base.function_prompt}, {"environment_card", base.environment_card},
             {"approved_rules", base.approved_rules}, {"project_snapshot", base.project_snapshot}}},
@@ -177,6 +258,54 @@ static CompiledContext compile_structured(const ContextInput& base,
     result.dynamic_suffix = canonical_json(Object{{"task_contract", base.task_contract}, {"messages", encoded}});
     result.logical_input = Object{{"format", v3 ? "wls-logical-input-v3" : "wls-logical-input-v1"}, {"selection", selection(result)},
         {"prefix", prefix}, {"task_contract", base.task_contract}, {"messages", encoded}};
+    if (v3) {
+        auto [stable, state] = contract_parts(base.task_contract);
+        const auto anchor = base.contract_anchor.is_null() ? stable : base.contract_anchor;
+        require(anchor.is_object(), "v3 original contract anchor is missing or invalid");
+        const auto& updates = array(base.contract_updates);
+        capacity(updates.size() + encoded.size() <= limits.max_messages, "v3 contract/history count exceeds limit");
+        std::set<std::string> boundaries;
+        for (const auto& update : updates) {
+            exact(update, {"after_attempt_id", "contract", "semantic_versions"});
+            require(identifier(text(update, "after_attempt_id")) && field(update, "contract").is_object() &&
+                field(update, "semantic_versions").is_object() && boundaries.insert(text(update, "after_attempt_id")).second,
+                "invalid or repeated v3 contract update boundary");
+        }
+        require((updates.empty() ? anchor : field(updates.back(), "contract")) == stable &&
+            (updates.empty() || field(updates.back(), "semantic_versions") == versions(state)),
+            "v3 latest contract projection differs from the complete host contract");
+        Array windows, message_sources;
+        for (std::size_t index = 0; index < encoded.size(); ++index) {
+            const auto& message = encoded[index];
+            const auto& source = field(message, "source");
+            if (!source.is_null()) {
+                message_sources.push_back(Object{{"message_index", index}, {"source", source}});
+                const auto* kind = source.as_object().if_contains("kind");
+                if (kind && (*kind == "history_window" || *kind == "management_history_window"))
+                    windows.push_back(message);
+            }
+        }
+        state.as_object()["history_windows"] = windows;
+        state.as_object()["message_sources"] = message_sources;
+        auto& prefix_sources = prefix.at("dependencies").as_array();
+        for (auto dep = prefix_sources.begin(); dep != prefix_sources.end(); ++dep)
+            if (field(*dep, "name") == "worker_execution_policy") {
+                state.as_object()["worker_execution_policy"] = *dep;
+                auto environment = parse_json_strict(text(prefix.at("system"), "environment_card"));
+                auto& execution = environment.at("execution").as_object();
+                require(execution.at("execution_policy_sha256") == field(*dep, "content_sha256"),
+                    "execution policy environment and dependency disagree");
+                execution.erase("execution_policy_sha256");
+                prefix.at("system").at("environment_card") = canonical_json(environment);
+                prefix_sources.erase(dep); break;
+            }
+        result.logical_input.at("prefix") = prefix;
+        result.logical_input.as_object()["contract_anchor"] = anchor;
+        result.logical_input.as_object()["contract_updates"] = updates;
+        result.logical_input.as_object()["current_state"] = state;
+        result.stable_prefix = stable_projection(result.logical_input);
+        result.dynamic_suffix = canonical_json(dynamic_projection(result.logical_input));
+    }
     capacity(result.stable_prefix.size() <= limits.max_prefix_bytes,
              "structured context byte limit exceeded; no authoritative content was truncated");
     const auto logical_bytes = result.prompt();
@@ -196,11 +325,12 @@ CompiledContext compile_structured_context(const ContextInput& base,
 Json structured_context_to_json(const CompiledContext& c) {
     require(c.structured(), "expected a structured context");
     require(field(c.logical_input, "selection") == selection(c), "logical selection differs from context metadata");
-    require(c.stable_prefix == canonical_json(field(c.logical_input, "prefix")) &&
-            c.dynamic_suffix == canonical_json(Object{{"task_contract", field(c.logical_input, "task_contract")},
-                {"messages", field(c.logical_input, "messages")}}), "structured context projections differ from original input");
-    Object result = selection(c).as_object();
     const bool v3 = text(c.logical_input, "format") == "wls-logical-input-v3";
+    require(c.stable_prefix == stable_projection(c.logical_input) &&
+            c.dynamic_suffix == canonical_json(v3 ? dynamic_projection(c.logical_input) : Json(Object{
+                {"task_contract", field(c.logical_input, "task_contract")}, {"messages", field(c.logical_input, "messages")}})),
+            "structured context projections differ from original input");
+    Object result = selection(c).as_object();
     if (v3) {
         for (auto tool : array(field(field(c.logical_input, "prefix"), "tools"))) {
             description(field(tool, "description"));
@@ -229,7 +359,9 @@ CompiledContext structured_context_from_json(const Json& value) {
     require((v3 || text(value, "format") == "wls-compiled-context-v2") && field(value, "wire_sha256").is_null(),
             "unsupported structured context or fabricated wire fingerprint");
     const auto& input = field(value, "input");
-    exact(input, {"format", "selection", "prefix", "task_contract", "messages"});
+    auto input_keys = std::set<std::string>{"format", "selection", "prefix", "task_contract", "messages"};
+    if (v3) for (const auto* key : {"contract_anchor", "contract_updates", "current_state"}) input_keys.insert(key);
+    exact(input, input_keys);
     require(text(input, "format") == (v3 ? "wls-logical-input-v3" : "wls-logical-input-v1"), "unsupported logical input format");
     // Bound canonical logical bytes before reconstructing a compiled context.
     const ContextLimits limits;
@@ -252,6 +384,19 @@ CompiledContext structured_context_from_json(const Json& value) {
     base.function_prompt = text(system, "function_prompt"); base.environment_card = text(system, "environment_card");
     base.approved_rules = text(system, "approved_rules"); base.project_snapshot = text(system, "project_snapshot");
     base.task_contract = text(input, "task_contract");
+    if (v3) {
+        base.contract_anchor = field(input, "contract_anchor");
+        require(!base.contract_anchor.is_null(), "v3 original contract anchor is missing");
+        base.contract_updates = field(input, "contract_updates");
+        if (const auto* dep = object(field(input, "current_state")).if_contains("worker_execution_policy")) {
+            exact(*dep, {"name", "version", "content_sha256"});
+            require(text(*dep, "name") == "worker_execution_policy", "invalid v3 execution dependency");
+            base.dependencies.push_back({text(*dep, "name"), text(*dep, "version"), text(*dep, "content_sha256")});
+            auto environment = parse_json_strict(base.environment_card);
+            environment.at("execution").as_object()["execution_policy_sha256"] = field(*dep, "content_sha256");
+            base.environment_card = canonical_json(environment);
+        }
+    }
     capacity(array(field(prefix, "tools")).size() <= limits.max_tools &&
              array(field(prefix, "dependencies")).size() <= limits.max_dependencies,
              "structured restore exceeds item capacity");

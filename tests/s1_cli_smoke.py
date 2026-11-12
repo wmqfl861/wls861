@@ -58,6 +58,12 @@ class OfflineCliSmoke(unittest.TestCase):
         arguments = ["submit", "--db", self.database, "--key", key,
                      "--text-file", FIXTURES / "s1_request.txt",
                      "--constraints-file", FIXTURES / "s1_constraints.json"]
+        if "config" not in extra:
+            config = self.directory / "framed-system.yaml"
+            config.write_text((SOURCE / "config/examples/system.yaml").read_text().replace(
+                "request_format: structured-v3", "request_format: framed-v1"))
+            extra["config"] = config
+            extra.setdefault("functions_dir", SOURCE / "config/examples/functions")
         for option, value in extra.items():
             arguments.extend(["--" + option.replace("_", "-"), value])
         return self.invoke(*arguments)

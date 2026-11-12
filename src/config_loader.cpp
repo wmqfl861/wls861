@@ -605,13 +605,14 @@ CapabilityRegistry validate_system(const Json& system) {
     if (optional(context, "prompt_policy")) literal(context, "prompt_policy", "guided-v1", "system.context");
     if (const auto* format = optional(context, "request_format")) {
         const auto name = string_value(*format, "system.context.request_format");
-        if (name != "framed-v1" && name != "structured-v2")
-            invalid("system.context.request_format", "expected framed-v1 or structured-v2");
+        if (name != "framed-v1" && name != "structured-v2" && name != "structured-v3")
+            invalid("system.context.request_format", "expected framed-v1, structured-v2 or structured-v3");
     }
     if (const auto* history = optional(context, "worker_history")) {
         const auto* format = optional(context, "request_format");
-        if (!format || string_value(*format, "system.context.request_format") != "structured-v2")
-            invalid("system.context.worker_history", "window-v1 requires explicit structured-v2");
+        if (!format || (string_value(*format, "system.context.request_format") != "structured-v2" &&
+                string_value(*format, "system.context.request_format") != "structured-v3"))
+            invalid("system.context.worker_history", "window-v1 requires explicit structured-v2 or structured-v3");
         fields(*history, "system.context.worker_history", {{"mode", 's'}, {"recent_attempts", 'i'}, {"inline_bytes", 'i'}});
         literal(*history, "mode", "window-v1", "system.context.worker_history");
         const auto recent = integer_value(required(*history, "recent_attempts", "worker_history"), "worker_history.recent_attempts", 1, 8);
@@ -620,8 +621,9 @@ CapabilityRegistry validate_system(const Json& system) {
     }
     if (const auto* history = optional(context, "management_history")) {
         const auto* format = optional(context, "request_format");
-        if (!format || string_value(*format, "system.context.request_format") != "structured-v2")
-            invalid("system.context.management_history", "window-v1 requires explicit structured-v2");
+        if (!format || (string_value(*format, "system.context.request_format") != "structured-v2" &&
+                string_value(*format, "system.context.request_format") != "structured-v3"))
+            invalid("system.context.management_history", "window-v1 requires explicit structured-v2 or structured-v3");
         fields(*history, "system.context.management_history", {{"mode", 's'}, {"recent_attempts", 'i'},
             {"inline_bytes", 'i'}, {"max_context_bytes", 'i'}});
         literal(*history, "mode", "window-v1", "system.context.management_history");
@@ -635,8 +637,9 @@ CapabilityRegistry validate_system(const Json& system) {
     }
     if (const auto* logical = optional(context, "logical_agent")) {
         const auto* format = optional(context, "request_format");
-        if (!format || string_value(*format, "system.context.request_format") != "structured-v2")
-            invalid("system.context.logical_agent", "single-agent execution requires explicit structured-v2");
+        if (!format || (string_value(*format, "system.context.request_format") != "structured-v2" &&
+                string_value(*format, "system.context.request_format") != "structured-v3"))
+            invalid("system.context.logical_agent", "single-agent execution requires explicit structured-v2 or structured-v3");
         fields(*logical, "system.context.logical_agent", {{"mode", 's'}, {"max_attempts", 'i'}, {"max_history_bytes", 'i'}});
         literal(*logical, "mode", "single-agent-role-broker-v1", "system.context.logical_agent");
         (void)integer_value(required(*logical, "max_attempts", "logical_agent"), "logical_agent.max_attempts", 1, 128);

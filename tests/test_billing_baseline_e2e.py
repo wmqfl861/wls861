@@ -817,6 +817,58 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(len(peer.requests), 1)
             release.set()
 
+    def test_09b_run_resumes_exact_intent_after_empty_store_initialization(self):
+        endpoint = PricingFlowEndpoint(initialize_seed=True)
+        with tls.Peer(self.contexts['server'], endpoint) as peer:
+            case = self.run_inputs('run-partial-admission', peer)
+            declined = self.invoke_run(case, answer='no\n')
+            self.assertEqual(declined.returncode, 2)
+            request_id = json.loads(declined.stderr.splitlines()[0])['request_id']
+            # Freeze the exact configuration via the original loader/admission
+            # in a separate private reference DB. It is never moved or erased.
+            reference = case['directory'] / 'reference.sqlite'
+            self.command('submit', '--db', reference, '--key', 'freeze-reference',
+                '--config', case['configuration'], '--text-file', case['material'],
+                '--constraints-file', case['constraints'], '--max-attempts', 40,
+                '--input-budget', 4000000, '--output-budget', 1000000, '--cost-budget-micro-usd', 8000000)
+            frozen = rows(reference, 'SELECT config_snapshot,config_snapshot_sha256,budget '
+                'FROM requests JOIN request_runtime USING(request_id)')[0]
+            request = case['data'] / 'requests' / request_id
+            paths = (case['data'], case['data'] / 'requests', request, request / 'workspaces', request / 'delivery')
+            for path in paths:
+                path.mkdir(mode=0o700)
+            roots = [{'path': str(path), 'device': path.stat().st_dev, 'inode': path.stat().st_ino} for path in paths]
+            key = digest({'format': 'run-key-v1', 'text': case['material'].read_text(),
+                'constraints': [], 'config_locator': str(case['configuration'].absolute())})
+            intent = {'format': 'wls-run-intent-v1', 'admission': {'run_key_sha256': key,
+                'request_id': request_id, 'config_locator': str(case['configuration'].absolute()),
+                'original_text': case['material'].read_text(), 'constraints': [],
+                'config_snapshot': json.loads(frozen['config_snapshot']), 'budget': json.loads(frozen['budget'])},
+                'roots': roots}
+            with (request / 'intent.json').open('xb') as stream:
+                stream.write(canonical(intent))
+                stream.flush()
+                os.fsync(stream.fileno())
+            (request / 'intent.json').chmod(0o600)
+            database = request / 'control.sqlite'
+            self.command('init', '--db', database)
+            self.assertEqual(rows(database, 'PRAGMA user_version')[0]['user_version'], 410)
+            self.assertEqual(rows(database, 'SELECT count(*) n FROM requests')[0]['n'], 0)
+            self.assertEqual(rows(database, 'SELECT count(*) n FROM events')[0]['n'], 0)
+            self.assertEqual(len(peer.requests), 0)
+            original_intent = (request / 'intent.json').read_bytes()
+            resumed = self.invoke_run(case, '--yes')
+            self.assertEqual(resumed.returncode, 0, resumed.stderr + resumed.stdout)
+            summary = json.loads(resumed.stdout)
+            self.assertEqual((summary['request_id'], summary['status']), (request_id, 'DELIVERED'))
+            admitted = rows(database, 'SELECT request_id,config_snapshot,config_snapshot_sha256,budget '
+                'FROM requests JOIN request_runtime USING(request_id)')
+            self.assertEqual(len(admitted), 1)
+            self.assertEqual({key: admitted[0][key] for key in frozen}, frozen)
+            self.assertEqual(rows(database, "SELECT count(*) n FROM events WHERE type='admit'")[0]['n'], 1)
+            self.assertEqual((request / 'intent.json').read_bytes(), original_intent)
+            self.assertEqual(len(peer.requests), 31)
+
     def test_10_unsigned_estimated_billing_completes_thirty_one_original_calls(self):
         """One authorization: the first batch hits the frozen manager cap; an explicit second call completes 31 billings.
 

@@ -48,6 +48,9 @@ struct ContextInput {
     // prefix. The host must pass the complete authoritative contract here.
     std::string task_contract;
     std::vector<ContextMessage> messages;
+    // V3 host projections. Originals remain in task_contract/messages.
+    Json contract_anchor = nullptr;
+    Json contract_updates = boost::json::array{};
 };
 
 struct ContextLimits {

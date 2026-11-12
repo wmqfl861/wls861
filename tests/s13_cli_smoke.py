@@ -86,7 +86,11 @@ class EventCliSmoke(unittest.TestCase):
         return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
     def submit(self, key="independent-request"):
+        config = self.directory / "framed-system.yaml"
+        config.write_text((SOURCE / "config/examples/system.yaml").read_text().replace(
+            "request_format: structured-v3", "request_format: framed-v1"))
         return self.invoke("submit", "--db", self.database, "--key", key,
+                           "--config", config, "--functions-dir", SOURCE / "config/examples/functions",
                            "--text-file", FIXTURES / "s13_request.txt",
                            "--constraints-file", FIXTURES / "s13_constraints.json")["request"]["request_id"]
 

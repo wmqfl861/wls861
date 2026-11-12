@@ -45,13 +45,21 @@ std::string decode(std::string encoded) {
         static_cast<std::size_t>(encoded[encoded.size() - 2] == '=');
     bytes.resize(static_cast<std::size_t>(size) - padding); return bytes;
 }
+FrozenRequestConfig framed_config() {
+    test::TempDir temp;
+    auto yaml = read(source / "config/examples/system.yaml");
+    const std::string format = "request_format: structured-v3";
+    const auto at = yaml.find(format); CHECK(at != std::string::npos);
+    yaml.replace(at, format.size(), "request_format: framed-v1");
+    { std::ofstream file(temp.path / "system.yaml"); file << yaml; CHECK(static_cast<bool>(file)); }
+    return load_config_catalog(temp.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general");
+}
 struct Fixture {
     test::TempDir temp;
     std::filesystem::path path{temp.path / "runtime.sqlite"};
     std::unique_ptr<Store> store;
     std::string request;
-    FrozenRequestConfig config{load_config_catalog(source / "config/examples/system.yaml",
-        source / "config/examples/functions", source / "prompts").freeze("general")};
+    FrozenRequestConfig config{framed_config()};
     Json brief = Object{{"goal", "preserve originals"}, {"constraint_refs", Array{"c1"}},
         {"constraints_verbatim", Array{"preserve originals"}}};
     Fixture() {

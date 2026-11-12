@@ -35,8 +35,8 @@ context:
   # 其他既有 context 字段继续保留，不能仅用此片段替换完整配置。
 ```
 
-支持 framed-v1、structured-v2；缺字段按 framed-v1，未知值在准入前拒绝。兼容样例保留
-framed-v1，`config check/explain` 返回 context_request_format 与 history_window_integrated=false。
+支持 framed-v1、structured-v2、structured-v3；缺字段按 framed-v1，未知值在准入前拒绝。
+新请求样例选择 structured-v3；窗口仍是独立显式策略，`config check/explain` 返回原冻结选择。
 已有请求只恢复其原冻结配置，不读取后来 YAML。Store 在新预约时同时检查格式选择，错配
 不消耗预算；已有精确预约重放保留旧封装。数据库格式和已发布迁移不改变。
 
@@ -73,3 +73,35 @@ provider item/call ID（跨轮重复在编码前拒绝），旧 profile 保持 h
 `scripts/evaluate_r3.py` 的独立 logical-agent projection 同步携带并校验该原件，缺失/篡改
 encrypted_content 为 invalid evidence。边界详见
 [ADR-077 G1-2 节](../adr/077-responses-offline-codec.md)。
+
+## G1-E v3 契约锚、更新和当前状态
+
+本布局接合已合入的 D #57 `guided-v1` 提示词、K #59 响应/profile 解码及 J #58
+`bounded-v1` 运行控制；各自原冻结选择、费用/用量原件和宿主安全检查继续独立生效。
+
+`structured-v3` 同时保存完整原 `task_contract`、原 `messages`、对象 `contract_anchor`、
+有序 `contract_updates` 和末条 `current_state`。宿主的 CAS、目标及经验判断继续只读完整原
+task_contract。锚保存请求原文/约束、任务 brief 和说明正文（含验收项）；正文中的宿主绑定
+单独保存在 current_state，原件仍完整留在 task_contract。预算、版本/代次、待办、等待、
+workflow_action 原目标、全部问题/提交/经验/文件原件及未决事实留在 current_state。
+
+第一次捕获冻结锚。后续 AMEND/新说明只追加完整语义投影及 semantic_versions，使用
+`after_attempt_id` 标明原历史边界，不把当前契约替换锚，不使用窗口中的消息偏移充当持久位置。
+相同内容/语义版本不重复追加。Store 仅加载最近一个同 Actor 作用域的原 envelope；单 Agent
+采用原请求级全角色作用域。该次有界读取最多 2 MiB，重新验证完整 context/request/reservation
+指纹；损坏、缺锚、错版本或超限最新记录都拒绝，不回退旧记录或用当前契约补造原锚。
+
+wire 顺序为 tools、稳定 instructions、稳定锚、原历史与按边界插入的契约更新、最后一条 user
+current_state。不改历史 provider item/call ID、reasoning、feedback 或原逻辑消息。窗口索引
+和 message_sources 在末条状态出站；团队唯一 execution_policy_sha256 及其 worker_execution_policy
+依赖也移到状态，WorkerTools 与 Store 仍验证原冻结工作区身份。末条状态不写入原历史。
+
+`wls-model-request-v3` 只接受 `wls-compiled-context-v3` / `wls-logical-input-v3`；v1/v2 同样精确
+匹配且原字节/哈希解释不变。v3 prefix_sha256 覆盖规范 prefix 与原锚，完整 logical/request
+指纹另外覆盖所有投影、原件及预约字段。restore 重建精确投影并核哈希，Store 新预约在事务内
+核锚与更新连续性。管理窗口按完整最终逻辑字节计量，单 Agent 仍逐值核全角色原 messages。
+
+稳定前缀比较采用实际 encoder 的有序 input 项（去掉最后状态），并分别比较 tools/instructions；
+不比较带结束括号的完整 HTTP body。window-v1 保持原整轮淘汰语义：窗口移动会改变前缀，更新
+边界离开窗口后按原更新顺序放在可见历史之前。角色或权限工具集变化同样是缓存边界。
+固定角色工具目录、元数据不出站、纯文本优化与折叠仍是后续显式冻结策略，不重解释已持久 v3。

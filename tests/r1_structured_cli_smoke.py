@@ -35,7 +35,7 @@ class StructuredCli(unittest.TestCase):
 
     def configure(self, choice):
         source = (SOURCE / 'config/examples/system.yaml').read_text()
-        marker = '  request_format: framed-v1\n'
+        marker = '  request_format: structured-v3\n'
         self.assertIn(marker, source)
         source = source.replace(marker, '' if choice is None else f'  request_format: {choice}\n')
         self.config.write_text(source)

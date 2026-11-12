@@ -58,13 +58,21 @@ std::vector<std::string> rows(const std::filesystem::path& path, const std::stri
     }
     sqlite3_finalize(stmt); sqlite3_close(db); CHECK(rc == SQLITE_DONE); return result;
 }
+FrozenRequestConfig framed_config() {
+    test::TempDir temp;
+    auto yaml = read(source / "config/examples/system.yaml");
+    const std::string format = "request_format: structured-v3";
+    const auto at = yaml.find(format); CHECK(at != std::string::npos);
+    yaml.replace(at, format.size(), "request_format: framed-v1");
+    { std::ofstream file(temp.path / "system.yaml"); file << yaml; CHECK(static_cast<bool>(file)); }
+    return load_config_catalog(temp.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general");
+}
 struct Node { std::string request, task, team; };
 struct Fixture {
     test::TempDir dir;
     std::filesystem::path path{dir.path / "state.sqlite"};
     std::unique_ptr<Store> store;
-    FrozenRequestConfig config{load_config_catalog(source / "config/examples/system.yaml",
-        source / "config/examples/functions", source / "prompts").freeze("general")};
+    FrozenRequestConfig config{framed_config()};
     Json brief = Object{{"goal", "preserve observations"}, {"constraint_refs", Array{"c1"}},
                         {"constraints_verbatim", Array{"preserve observations"}}};
     Node a, b;

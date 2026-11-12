@@ -176,7 +176,7 @@ class LiveWorkflowCli(unittest.TestCase):
                 'capability_evidence_sha256': hashlib.sha256(b'synthetic CLI capabilities only').hexdigest()}}
         system['defaults']['model_ref'] = 'cli-loopback'
         system['model_calls']['real_calls_enabled'] = True
-        system['context']['request_format'] = 'structured-v2'
+        system['context']['request_format'] = 'structured-v3'
         self.configuration.write_text(json.dumps(system))
         result = self.invoke('submit', '--db', self.database, '--key', key,
             '--text-file', SOURCE / 'tests/fixtures/s1_request.txt', '--config', self.configuration,

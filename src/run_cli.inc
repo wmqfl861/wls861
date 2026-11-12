@@ -308,8 +308,15 @@ int run_request(Options& options, const RuntimeResources& resources) {
     bool completed = false;
     if (preflight.roots.size() == 5 && run_private_file(*preflight.roots[2], "control.sqlite")) {
         Store inspect(database, migrations, StoreOpenMode::ReadOnly);
-        validate_live_cli_authorization(inspect, input.request_id, authorized);
-        completed = text(inspect.request(input.request_id).at("status")) == "DELIVERED";
+        Json record = nullptr;
+        try { record = inspect.request(input.request_id); }
+        catch (const Error& error) {
+            if (error.code() != ErrorCode::InvalidInput || std::string_view(error.what()) != "authoritative record not found") throw;
+        }
+        if (!record.is_null()) {
+            validate_live_cli_authorization(inspect, input.request_id, authorized);
+            completed = text(record.at("status")) == "DELIVERED";
+        }
     }
     std::cerr << canonical_json(Object{{"kind", "wls-run-confirmation-v1"}, {"request_id", input.request_id}, {"models", selected},
         {"budget_micro_usd", input.budget.cost_micro_usd}, {"max_attempts", input.budget.max_attempts},

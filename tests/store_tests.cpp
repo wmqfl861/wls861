@@ -70,6 +70,11 @@ AdmissionInput input(std::string key = "first", std::int64_t teams = 4, std::int
     std::filesystem::copy(source_root / "config/examples", config.path / "config", std::filesystem::copy_options::recursive);
     std::filesystem::copy(source_root / "prompts", config.path / "prompts", std::filesystem::copy_options::recursive);
     const auto system_path = config.path / "config/system.yaml";
+    auto yaml = read(system_path);
+    const std::string format = "request_format: structured-v3";
+    const auto at = yaml.find(format); CHECK(at != std::string::npos);
+    yaml.replace(at, format.size(), "request_format: framed-v1");
+    { std::ofstream file(system_path); file << yaml; CHECK(static_cast<bool>(file)); }
     auto catalog = load_config_catalog(system_path, config.path / "config/functions", config.path / "prompts");
     if (teams != 4 || tools != 200) {
         auto system = catalog.freeze("general").json().at("system");
