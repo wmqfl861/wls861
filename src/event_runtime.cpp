@@ -127,8 +127,9 @@ void validate_live_workflow_config(const FrozenRequestConfig& config,
             "live workflow requires a trusted credential resolver");
     require(config.json().at("system").at("model_calls").at("real_calls_enabled").as_bool(),
             ErrorCode::Unauthorized, "live calls are disabled in the frozen request configuration");
-    require(config.context_request_format() == "structured-v2", ErrorCode::Unsupported,
-            "live workflow requires the original structured-v2 context policy");
+    require(config.context_request_format() == "structured-v2" || config.context_request_format() == "structured-v3",
+        ErrorCode::Unsupported,
+            "live workflow requires the original structured-v2 or structured-v3 context policy");
     for (const auto role : {Role::Dispatcher, Role::TeamLead, Role::Worker}) {
         const auto settings = live_model_settings_from_json(config.model_profile(role), config.resolve(role).model);
         require(settings.execution_kind == "local_tls" || options.authorization.provider_enabled,

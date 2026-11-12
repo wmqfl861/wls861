@@ -44,8 +44,9 @@ void validate_single_agent_config(const FrozenRequestConfig& config) {
     const auto policy = config.logical_agent_policy();
     require(policy.is_object() && text(policy, "mode") == single_agent_contract,
         ErrorCode::Unauthorized, "single-Agent runner requires its original frozen logical policy");
-    require(config.context_request_format() == "structured-v2", ErrorCode::Unauthorized,
-        "single-Agent execution requires original structured-v2 input");
+    require(config.context_request_format() == "structured-v2" || config.context_request_format() == "structured-v3",
+        ErrorCode::Unauthorized,
+        "single-Agent execution requires original structured-v2 or structured-v3 input");
     const auto selected = config.resolve(Role::Dispatcher);
     for (const auto role : {Role::TeamLead, Role::Worker})
         require(config.resolve(role) == selected, ErrorCode::Unauthorized,

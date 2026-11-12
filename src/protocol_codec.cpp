@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <map>
 #include <optional>
 #include <set>
 #include <string_view>
@@ -338,6 +339,7 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     const auto envelope = validate_request(profile, request, stream);
     const auto& logical = request.context.logical_input;
     const auto& prefix = logical.at("prefix");
+    const bool v3 = logical.at("format") == "wls-logical-input-v3";
     Array tools, tool_versions, sources;
     for (const auto& definition : array(prefix.at("tools"))) {
         const auto name = text(definition, "name");
@@ -356,12 +358,40 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     Array input{Object{{"role", "user"}, {"content", canonical_json(Object{
         {"format", "wls-responses-task-v1"}, {"task_contract", logical.at("task_contract")},
         {"message_sources", sources}})}}};
+    if (v3) input.front().at("content") = canonical_json(Object{{"format", "wls-responses-contract-v3"},
+        {"task_contract", logical.at("contract_anchor")}});
+    std::map<std::size_t, Array> updates;
+    if (v3) for (const auto& update : array(logical.at("contract_updates"))) {
+        std::size_t boundary = 0, position = 0;
+        for (const auto& message : array(logical.at("messages"))) {
+            ++position;
+            Json identity = message.at("source");
+            if ((!identity.is_object() || !identity.as_object().contains("attempt_id")) &&
+                    text(message, "role") == "user" && text(message, "content").starts_with("{"))
+                identity = parse_json_strict(text(message, "content"));
+            if (identity.is_object()) for (const auto* key : {"attempt_id", "record_id"})
+                if (const auto* id = identity.as_object().if_contains(key); id && *id == update.at("after_attempt_id"))
+                    boundary = position;
+        }
+        updates[boundary].push_back(Object{{"role", "user"}, {"content", canonical_json(Object{
+            {"format", "wls-responses-contract-update-v3"}, {"task_contract", update.at("contract")},
+            {"semantic_versions", update.at("semantic_versions")}})}});
+    }
+    const auto append_updates = [&](std::size_t position) {
+        if (const auto found = updates.find(position); found != updates.end())
+            for (const auto& update : found->second) input.push_back(update);
+    };
+    index = 0;
     const bool compat = profile.responses_compatibility.has_value();
     std::set<std::string> provider_item_ids, provider_call_ids;
     const Array* native_calls = nullptr;    // logical tool_calls of the native round
     std::vector<std::string> native_provider_call_ids;
     std::size_t native_consumed = 0;
     for (const auto& message : array(logical.at("messages"))) {
+        append_updates(index++);
+        const auto& source = message.at("source");
+        const auto* kind = source.is_object() ? source.as_object().if_contains("kind") : nullptr;
+        if (v3 && kind && (*kind == "history_window" || *kind == "management_history_window")) continue;
         const auto role = text(message, "role");
         const auto content = text(message, "content");
         const Json* payload = compat ? message.as_object().if_contains("responses_output") : nullptr;
@@ -387,7 +417,8 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
                     const auto& source = message.at("source");
                     const bool rejected = source.is_object() && source.as_object().contains("rejected_tool_selection") &&
                         source.at("rejected_tool_selection") == true;
-                    require(rejected || std::find(request.context.tool_names.begin(), request.context.tool_names.end(),
+                    const bool shared = v3 && logical.at("current_state").as_object().contains("logical_agent_execution");
+                    require(rejected || shared || std::find(request.context.tool_names.begin(), request.context.tool_names.end(),
                             std::string(item.at("name").as_string())) != request.context.tool_names.end(),
                             ErrorCode::Unauthorized, "native round replay names an unavailable tool");
                     native_provider_call_ids.push_back(call_id);
@@ -424,6 +455,9 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
             native_calls = nullptr;
         }
     }
+    append_updates(index);
+    if (v3) input.push_back(Object{{"role", "user"}, {"content", canonical_json(Object{
+        {"format", "wls-responses-current-state-v3"}, {"current_state", logical.at("current_state")}})}});
     std::string instructions = canonical_json(Object{{"format", "wls-responses-system-v1"},
         {"system", prefix.at("system")},
         {"dependencies", prefix.at("dependencies")}, {"tool_versions", tool_versions}});

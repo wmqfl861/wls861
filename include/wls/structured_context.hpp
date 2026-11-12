@@ -26,10 +26,15 @@ struct StructuredContextMessage {
 
 // The base contains stable sections and the complete task contract. Its legacy
 // messages must be empty, so no caller can silently drop an old transcript.
-enum class StructuredContextFormat { V2, V3 }; // V3 is internal until G1-E freezes its layout.
+enum class StructuredContextFormat { V2, V3 };
 CompiledContext compile_structured_context(const ContextInput& base,
     const std::vector<StructuredContextMessage>& messages, ContextLimits limits = {},
     StructuredContextFormat format = StructuredContextFormat::V2);
+
+// previous is null or one verified same-scope {attempt_id,input} projection.
+// Updates retain original attempt boundaries, independently of window offsets.
+void continue_structured_contract(ContextInput& input, const Json& previous);
+void validate_structured_contract_continuity(const CompiledContext& context, const Json& previous);
 
 // Convert complete, scoped Store attempt history without rewriting its source.
 // Missing/unapplied observations remain data, not invented native tool results.

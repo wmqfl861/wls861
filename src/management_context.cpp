@@ -177,7 +177,7 @@ std::vector<StructuredContextMessage> management_history_messages(const Json& vi
 }
 
 CompiledContext compile_management_context(const ContextInput& input,
-        const std::vector<StructuredContextMessage>& messages, const Json& policy) {
+        const std::vector<StructuredContextMessage>& messages, const Json& policy, StructuredContextFormat format) {
     validate_policy(policy);
     const auto limit = integer(policy.at("max_context_bytes"));
     Object sections;
@@ -198,7 +198,7 @@ CompiledContext compile_management_context(const ContextInput& input,
     ContextLimits measurement;
     measurement.max_total_bytes = 32U * 1024U * 1024U;
     CompiledContext compiled;
-    try { compiled = compile_structured_context(input, messages, measurement); }
+    try { compiled = compile_structured_context(input, messages, measurement, format); }
     catch (const Error& error) {
         if (error.code() != ErrorCode::Quota) throw;
         diagnostic["measurement_complete"] = false;
@@ -207,7 +207,7 @@ CompiledContext compile_management_context(const ContextInput& input,
     diagnostic["measurement_complete"] = true;
     diagnostic["required_context_bytes"] = compiled.prompt().size();
     diagnostic["stable_prefix_bytes"] = compiled.stable_prefix.size();
-    if (compiled.prompt().size() > static_cast<std::size_t>(limit))
+    if (compiled.prompt().size() > std::min(static_cast<std::size_t>(limit), ContextLimits{}.max_total_bytes))
         throw Error(ErrorCode::Quota, "management context blocked before reservation: " + canonical_json(diagnostic));
     return compiled;
 }
