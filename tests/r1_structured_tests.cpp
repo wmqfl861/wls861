@@ -710,7 +710,7 @@ void v3_five_round_encoded_prefix_and_originals(bool lean = false) {
         input.tools.push_back({read.name, read.version, read.input_schema, builtin_tool_description(read.name)});
     }
     if (fixed) input.tool_policy = "fixed-role-v1";
-    Workspace workspace(pages.path);
+    Workspace workspace(pages.path, WorkspaceAccess::ReadOnly);
     Json contract = Object{{"request", Object{{"requirements_revision", 1},
         {"texts", Array{Object{{"text", "original request"}, {"kind", "ORIGINAL"}}}}, {"constraint_catalog", Array{}}}},
         {"task", Object{{"brief", Object{{"goal", "retain original bytes"}}}, {"task_revision", 1}, {"state_version", 1}}},
