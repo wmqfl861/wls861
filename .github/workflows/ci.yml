@@ -43,7 +43,7 @@ jobs:
           set -euo pipefail
           # The pull-request compile matrix keeps exactly the three existing
           # core configurations; main pushes, the nightly UTC schedule and
-          # manual dispatches keep the complete six-entry matrix below.
+          # manual dispatches keep six configurations across seven jobs below.
           pr_matrix='{"include":[
           {"name":"strict","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0022"},
           {"name":"strict-umask-0002","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0002"},
@@ -54,7 +54,8 @@ jobs:
           {"name":"strict-umask-0002","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0002"},
           {"name":"UBSan","compiler":"g++","build_type":"Debug","ubsan":"ON","asan":"OFF","test_umask":"0002"},
           {"name":"ASan","compiler":"g++","build_type":"Debug","ubsan":"OFF","asan":"ON","test_umask":"0002"},
-          {"name":"Make-ASan","compiler":"g++","build_type":"Debug","ubsan":"OFF","asan":"ON","test_umask":"0002"},
+          {"name":"Make-ASan-1/2","compiler":"g++","build_type":"Debug","ubsan":"OFF","asan":"ON","test_umask":"0002","make_shard":"1"},
+          {"name":"Make-ASan-2/2","compiler":"g++","build_type":"Debug","ubsan":"OFF","asan":"ON","test_umask":"0002","make_shard":"2"},
           {"name":"Clang-18","compiler":"clang++-18","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0002"}
           ]}'
           base_sha=''
@@ -141,11 +142,10 @@ jobs:
     name: Linux C++20 (${{ matrix.name }})
     needs: classify
     runs-on: ubuntu-24.04
-    # The 78-suite ASan jobs exhausted the former 40-minute total budget.
-    # Make reached the final integration suite after almost 39 minutes; the
-    # same-source CMake suite took 497.88s, with two Make suites still after it.
-    # Reserve 55 minutes only for ASan. Keep all per-test deadlines, assertions,
-    # leak checks, ordinary-user checks and the original Make CPPFLAGS path.
+    # Keep the existing 55-minute ASan budget for CMake and each Make shard.
+    # Two independent Make runners cover consecutive parts of the full suite.
+    # Keep all per-test deadlines, assertions, leak checks, ordinary-user
+    # checks and the original Make CPPFLAGS path.
     timeout-minutes: ${{ matrix.asan == 'ON' && 55 || 40 }}
     strategy:
       fail-fast: false
@@ -158,6 +158,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
       - name: Install C++ development dependencies
         if: needs.classify.outputs.mode != 'docs-only'
         run: |
@@ -177,11 +178,11 @@ jobs:
           python3 -m venv .local/test-venv
           .local/test-venv/bin/python -m pip install -r requirements-test.txt
       - name: Configure CMake
-        if: needs.classify.outputs.mode != 'docs-only' && matrix.name != 'Make-ASan'
+        if: needs.classify.outputs.mode != 'docs-only' && !matrix.make_shard
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }} -DWLS_ENABLE_ASAN=${{ matrix.asan }} -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python" -DWLS_CI_SLOW_TESTS="${{ needs.classify.outputs.slow_tests }}"
       - name: Build with warnings as errors
-        if: needs.classify.outputs.mode != 'docs-only' && matrix.name != 'Make-ASan'
+        if: needs.classify.outputs.mode != 'docs-only' && !matrix.make_shard
         run: |
           if [ "${{ needs.classify.outputs.mode }}" = selected ]; then
             cmake --build build --target wls_ci_selected --parallel 2
@@ -189,7 +190,7 @@ jobs:
             cmake --build build --parallel 2
           fi
       - name: Run CTest as an ordinary user
-        if: needs.classify.outputs.mode != 'docs-only' && matrix.name != 'Make-ASan'
+        if: needs.classify.outputs.mode != 'docs-only' && !matrix.make_shard
         run: |
           test "$(id -u)" -ne 0
           umask "${{ matrix.test_umask }}"
@@ -198,12 +199,18 @@ jobs:
           else
             ctest --test-dir build --output-on-failure
           fi
-      - name: Verify the original GCC ASan Make target and user CPPFLAGS
-        if: needs.classify.outputs.mode != 'docs-only' && matrix.name == 'Make-ASan'
+      - name: Verify GCC ASan Make shard ${{ matrix.make_shard }}/2 and user CPPFLAGS
+        if: needs.classify.outputs.mode != 'docs-only' && matrix.make_shard
+        shell: bash
         run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          echo "Expected event SHA: $GITHUB_SHA"
+          echo "Checked out SHA: $actual_sha"
+          test "$actual_sha" = "$GITHUB_SHA"
           test "$(id -u)" -ne 0
           umask 0002
-          make -j2 asan BUILD_DIR=build-make CPPFLAGS=-DWLS_CI_USER_CPPFLAGS=1 PYTHON="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
+          make -j2 asan BUILD_DIR=build-make CPPFLAGS=-DWLS_CI_USER_CPPFLAGS=1 PYTHON="$GITHUB_WORKSPACE/.local/test-venv/bin/python" TEST_SHARD="${{ matrix.make_shard }}"
       - name: Docs-only frozen-material check (no product build or tests)
         if: needs.classify.outputs.mode == 'docs-only'
         shell: bash
