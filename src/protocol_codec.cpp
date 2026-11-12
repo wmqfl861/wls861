@@ -393,8 +393,8 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     std::size_t native_consumed = 0;
     for (const auto& message : array(logical.at("messages"))) {
         append_updates(index++);
-        const auto& source = message.at("source");
-        const auto* kind = source.is_object() ? source.as_object().if_contains("kind") : nullptr;
+        const auto& history_source = message.at("source");
+        const auto* kind = history_source.is_object() ? history_source.as_object().if_contains("kind") : nullptr;
         if (v3 && kind && (*kind == "history_window" || *kind == "management_history_window")) continue;
         const auto role = text(message, "role");
         const auto content = text(message, "content");

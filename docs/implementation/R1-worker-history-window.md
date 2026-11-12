@@ -7,6 +7,9 @@
 
 新请求可在 system.context 中显式配置 request_format=structured-v2，以及
 worker_history={mode:window-v1,recent_attempts:4,inline_bytes:32768}。
+structured-v3 也接受同一冻结 window-v1；整轮选择/引用、容量及原件回读语义不变。
+v3 将首条动态窗口索引放到末条 current_state 出站，logical_input.messages 仍保留原投影。
+契约更新按原 attempt 身份恢复；窗口移动后不能宣称严格追加前缀，见 R1-structured-context。
 近期数1..8，单轮编码后字节32768..65536，乘积不得超过196608；组合/类型/未知字段在配置校验时拒绝。
 不提供自动迁移：缺失worker_history保持原完整历史编译；缺失request_format继续framed-v1。
 更新磁盘YAML不改变已有请求。策略进入冻结快照、当前任务契约及前缀依赖哈希；Store预约再次核对。

@@ -76,11 +76,13 @@ class MkdirCliSmoke(unittest.TestCase):
         return path
 
     def submit(self, key="mkdir-request", functions=None):
+        config = self.directory / "framed-system.yaml"
+        config.write_text((SOURCE / "config/examples/system.yaml").read_text().replace(
+            "request_format: structured-v3", "request_format: framed-v1"))
         args = ["submit", "--db", self.database, "--key", key,
+                "--config", config, "--functions-dir", functions or SOURCE / "config/examples/functions",
                 "--text-file", FIXTURES / "s12_request.txt",
                 "--constraints-file", FIXTURES / "s12_constraints.json"]
-        if functions is not None:
-            args += ["--functions-dir", functions]
         return self.invoke(*args)["request"]["request_id"]
 
     def script(self, calls):

@@ -58,10 +58,10 @@ void expect(std::initializer_list<ErrorCode> codes, const std::function<void()>&
 AdmissionInput input(bool structured = false) {
     test::TempDir directory;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
-    if (structured) {
-        const std::string old = "request_format: framed-v1";
+    {
+        const std::string old = "request_format: structured-v3";
         const auto at = yaml.find(old); CHECK(at != std::string::npos);
-        yaml.replace(at, old.size(), "request_format: structured-v2");
+        yaml.replace(at, old.size(), structured ? "request_format: structured-v2" : "request_format: framed-v1");
     }
     { std::ofstream output(directory.path / "system.yaml"); output << yaml; CHECK(static_cast<bool>(output)); }
     const auto frozen = load_config_catalog(directory.path / "system.yaml", source / "config/examples/functions",

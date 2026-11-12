@@ -97,7 +97,12 @@ inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& l
     std::filesystem::copy(assets.source / "prompts", directory.path / "prompts", std::filesystem::copy_options::recursive);
     const auto system_path = directory.path / "config/system.yaml";
     auto catalog = load_config_catalog(system_path, directory.path / "config/functions", directory.path / "prompts");
-    if (!fake) {
+    if (fake) {
+        auto system = catalog.freeze("general").json().at("system");
+        system.at("context").at("request_format") = "framed-v1";
+        { std::ofstream output(system_path); output << canonical_json(system); }
+        catalog = load_config_catalog(system_path, directory.path / "config/functions", directory.path / "prompts");
+    } else {
         auto system = catalog.freeze("general").json().at("system");
         system.at("models").as_object()[live.provider.model_ref] = model_profile(live);
         system.at("defaults").at("model_ref") = live.provider.model_ref;

@@ -31,7 +31,13 @@ Json fixture(const std::string& name) { return parse_json_strict(read_runtime_fi
 EventFakeScript initial_script() { return event_fake_script_from_json(fixture("s13_fake_initial.json")); }
 EventFakeScript amended_script() { return event_fake_script_from_json(fixture("s13_fake_amended.json")); }
 FrozenRequestConfig config() {
-    return load_config_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts").freeze("general");
+    test::TempDir temp;
+    auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string format = "request_format: structured-v3";
+    const auto at = yaml.find(format); CHECK(at != std::string::npos);
+    yaml.replace(at, format.size(), "request_format: framed-v1");
+    { std::ofstream output(temp.path / "system.yaml"); output << yaml; CHECK(static_cast<bool>(output)); }
+    return load_config_catalog(temp.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general");
 }
 AdmissionInput input() {
     const auto frozen = config();
