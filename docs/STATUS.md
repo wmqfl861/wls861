@@ -2,9 +2,11 @@
 
 当前实现 **0.11.1-r3.3c-audit**，目标蓝图 **v0.4.1**，Store **410**（无 013 迁移、异步协调器或持久事件扩展）。
 
-main 产品组合基线 [`ef71c09`](https://github.com/wmqfl861/wls861/commit/ef71c09c6bf88702aaf042f8c26c9bdad6b1ee6a)（2026-11-11）已含 G1-2 Responses 协议兼容 [#48](https://github.com/wmqfl861/wls861/pull/48)（普通合并 `f29d5bd`）与 G1-1 冻结 token 单价估算/原用量保留 [#49](https://github.com/wmqfl861/wls861/pull/49)（普通合并 `ef71c09`）。能力与缺口见下表，原范围证据见 [Responses 验证](reports/g1-2-responses-compat-validation.md)与[计费验证](reports/g1-billing-validation.md)；G0、#46/#47 及各精确 head 的 CI 历史见 [CHANGELOG](../CHANGELOG.md)。
+更新：2026-11-12（UTC；CI快照23:28:39）。**G1-A–M已普通合并，产品合并基线 main@[`b09848e787e307a002ab97282c1b3d95901a397f`](https://github.com/wmqfl861/wls861/commit/b09848e787e307a002ab97282c1b3d95901a397f)**（[#66](https://github.com/wmqfl861/wls861/pull/66)，23:09:34 UTC）；本页属于随后文档提交。完整架构、模块/PR/merge SHA、构建步骤、证据及接手清单集中在[完整交接](reviews/g1-main-handoff-20261112.md)；[G1简报](reports/g1-exit.md)汇总结果与限制。
 
-产品基线 `ef71c09` 的 source run [43004295747](https://github.com/wmqfl861/wls861/actions/runs/43004295747) 与自动 schedule 六配置 run [43009034403](https://github.com/wmqfl861/wls861/actions/runs/43009034403) 全部 SUCCESS；旧 push run [43004296055](https://github.com/wmqfl861/wls861/actions/runs/43004296055) 保留为 CANCELLED。[#50](https://github.com/wmqfl861/wls861/pull/50) 已关闭保分支。F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 于 2026-11-11 17:06:26 UTC 普通合并为 `ff2c899`，阶段 0 完成；计数与限制见[同一里程碑](reports/stage0-convergence.md)。G1 已开始，A/B/C/I 已合，D/J 在制，E 待 D。
+M head `c2aa6440dec010b9161527c1c80d6b75ccf2081a` 的 [core 43324561502](https://github.com/wmqfl861/wls861/actions/runs/43324561502) 三路各83/83 PASS、[source 43324561578](https://github.com/wmqfl861/wls861/actions/runs/43324561578) SUCCESS。本机新Release构建后，注册 `g1_exit_e2e` 单次1/1 PASS（19.80秒，原300秒期限）；83项注册、Make59+24及CMake ASan42+41的静态核对不等于本机全部执行。
+
+产品合并基线 `b09848e7` 的 [full 43326432461](https://github.com/wmqfl861/wls861/actions/runs/43326432461) IN_PROGRESS、[source 43326432580](https://github.com/wmqfl861/wls861/actions/runs/43326432580) SUCCESS；上一main `b267ae5b` 的 [full 43323428497](https://github.com/wmqfl861/wls861/actions/runs/43323428497) 已于23:26:26 UTC完整SUCCESS（四配置各82/82，CMake ASan两片各41/41，Make59+23条命令含2完整性脚本成功）。先前 `fba19b5` 完整ASan两个单项超时、job中断及本机capture 90.17秒超时仍OPEN。**owner本次特定合并要求不代表全矩阵通过、正式PR评审或G1正式验收，也不扩大未来合并权限。** D-2/D-3未给出，真实供应商/付费调用为0。
 
 ## 尚缺的真实能力（当前边界）
 
@@ -13,12 +15,11 @@ main 产品组合基线 [`ef71c09`](https://github.com/wmqfl861/wls861/commit/ef
 - daemon/API、私有行清理 runner、完整记忆与独立审核闭环、获准真实小任务与同条件对照仍未实现。
 - 0.11.1 全代码审核（ADR-090）已修复项、未采纳疑点与限制见[审核报告](reviews/code-audit-20261027.md)与[验证报告](reports/code-audit-20261027-validation.md)。
 
-## 阶段 0 文档交付
+## 当前 G1 与历史阶段入口
 
-- F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 已合并，对齐 STATUS/CHANGELOG/ROADMAP/需求追踪；7 份审核/计划文件自冻结提交 `7d1dadb` 入库存档（六文件原字节不变，05 更新 §2 状态列与追加执行附录），维护唯一[阶段 0 里程碑](reports/stage0-convergence.md)。合并 main `ff2c899` 的六配置 run [43064884085](https://github.com/wmqfl861/wls861/actions/runs/43064884085) 全部 SUCCESS。
-- G1-A [#53](https://github.com/wmqfl861/wls861/pull/53) 于 17:37:54 UTC 普通合并为 `ce6fe0d`；PR run [43066941090](https://github.com/wmqfl861/wls861/actions/runs/43066941090) 三核心配置各 78/78、source run [43066941031](https://github.com/wmqfl861/wls861/actions/runs/43066941031) SUCCESS。当前 main 的后续检查独立核对，不以该 PR 结果替代。
-- G1-I [#54](https://github.com/wmqfl861/wls861/pull/54) 于 18:14:44 UTC 普通合并为 `231291e`，加入冻结的新 DNS/代理策略；旧配置和路由解释保持。C [#56](https://github.com/wmqfl861/wls861/pull/56) 于 18:52:43 UTC 合为 `c783d9e`；B [#55](https://github.com/wmqfl861/wls861/pull/55) 于 19:05:52 UTC 合为 `951c95d`，各自 PR 三核心配置 78/78 与 source 检查成功。D/J 在制；内部 v3 持久化仍等待 E。
-- A/B/C/I 组合 main `951c95d` 的六配置 run [43083978529](https://github.com/wmqfl861/wls861/actions/runs/43083978529) 全部 SUCCESS：五组 CTest 各 78/78，Make-ASan 独立成功；旧本地 sanitizer 失败仍为 OPEN，Windows 11 保持 NOT_RUN，私有证据托管保持 BLOCKED。
+- G1-A–M的产品与CI增量已合并，D/J在制、E待D的旧进度已被取代。M包含合成验收及H的两项实际产品修复，完整差异与当前精确结果见[交接 §3、§6](reviews/g1-main-handoff-20261112.md)。`structured-v3` 在 G1 总门禁正式通过前仍视为未发布。
+- M 新 head `c2aa644` 的本机合成场景独立实测完成一条 `wls run`、一次确认、三个文件任务与 32 次合成调用；Worker 每任务第三次调用起最低模拟缓存读取 72.0093408%，估算 $0.234326，原 cache-write/provider-cost 保持 NULL。整体模拟缓存62.1915%与逐任务最低值分开；不作真实供应商费用或缓存证据。
+- 阶段 0 已于 F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 合并为 `ff2c899` 时完成，原计数、取消与失败保留在[阶段 0 里程碑](reports/stage0-convergence.md)。旧 A/B/C/I 组合 `951c95d` 的六配置成功也仅绑定当时提交，不替代当前 main。
 
 ## 能力矩阵
 
@@ -30,16 +31,16 @@ main 产品组合基线 [`ef71c09`](https://github.com/wmqfl861/wls861/commit/ef
 | 问答/候选/验收 | Worker问题、原字节提交、TL/Dispatcher共享有限返工、验收及用户升级 | 固定脚本实现拒绝→新说明/确认→重提/验收及耗尽上报；回答不追加额度。通用任务重定义仍未实现 |
 | AMEND | Dispatcher模型提交新计划及逐节点update/keep/cancel；遗漏节点按同计划续办 | 捕获请求/任务CAS和团队代次，遗漏保留待办、keep须新说明/ack；双格式/重开/预算/兄弟隔离回归。真实模型判断质量尚未验收 |
 | 交付/清理 | 不可变包、精确回执、经验作业、固定清单受控 work 删除 | 实际发布/删除/恢复；私有行、owner收据保留；全局cleanup仍PENDING；PREPARED有原收据恢复/显式弃置；弃置残留保留、不可重用。部署 doctor 不扫描或采用分配残留 |
-| 上下文/模型 | 冻结选择v1/v2和Worker window-v1；近期完整轮次、旧/大结果原证据引用；模型回读与持久频率限制 | FakeModel大文件多轮/重开继续、模型回读原字节；旧请求不迁移。已接管理角色冻结窗口和原Store网络attempt；LLM语义压缩/真实模型质量待验收，完整当前契约超限在预约前拒绝 |
+| 上下文/模型 | 冻结选择v1/v2/v3、Worker window-v1、固定角色工具/允许列表、lean-v1与追加折叠；原文回读与持久频率限制 | FakeModel大文件多轮/重开继续、模型回读原字节；旧请求不迁移。已接管理角色冻结窗口和原Store网络attempt；LLM语义压缩/真实模型质量待验收，完整当前契约超限在预约前拒绝 |
 | Responses 离线协议 | 显式 provider profile、HTTP 文本/function_call 编解码、有界 SSE 回放；独立 encode-model/replay-model；#48 起 opt-in 扩展保留加密 reasoning、refusal 不派发、显式别名映射，原生历史按回合配对 call/result 身份并跨 Store 重开保持 | 两个CLI仍零网络、零凭据解析、零工具派发。Schema/Completed 不授予权限；原wire字段不改标；旧 profile 与 Store 410 兼容保持 |
-| HTTPS / live工作流 | libcurl multi、显式CA/host验证、有界deadline/取消、原HTTP/SSE解码；原角色event pump与精确授权CLI | 自建loopback TLS，严格IPv4/显式路由，DNS名另需c-ares；零自动重试。原 nullable 用量保留；显式冻结 pricing 可形成有效估算账目，未能有效结算仍停止新业务；签名 v2 为独立可选路径，选用后不得回退估算。实际供应商与c-ares外部DNS验收未执行 |
-| 估算与签名计费 / 迟到核账 | #49 增加冻结 token 单价估算、最低费用预留、原响应与结算用量投影及可信迟到实际费用差额调整；签名路径仍独立，原五维 nullable 账目不覆写 | 本机合成 TLS 的 31 次调用验证与整数账目断言，两次 pump 由测试显式发起；实际供应商/模型验收和付费调用仍未执行，自定义中转契约待实际服务接入。签名收据错绑、重放、缺值、超预留和错误响应依原账本限制 |
+| HTTPS / live工作流 | libcurl multi、显式CA/host验证、有界deadline/取消、原HTTP/SSE解码；原角色event pump与精确授权CLI | 自建loopback TLS；G1-I加入冻结DNS/显式代理策略，旧配置保留原解释；零付费自动重试。原 nullable 用量保留；显式冻结 pricing 可形成有效估算账目，未能有效结算仍停止新业务；签名 v2 为独立可选路径，选用后不得回退估算。实际供应商、外部DNS/代理验收未执行 |
+| 估算与签名计费 / 迟到核账 | #49 增加冻结 token 单价估算、最低费用预留、原响应与结算用量投影及可信迟到实际费用差额调整；签名路径仍独立，原五维 nullable 账目不覆写 | 原31次合成计费验证保留；G1-J/L已接通有界续批与wls run，M的32次合成场景按各精确head单独登记；实际供应商/模型验收和付费调用仍未执行，自定义中转契约待实际服务接入。签名收据错绑、重放、缺值、超预留和错误响应依原账本限制 |
 | 运行资源 / 迁移 | 编译认可清单、35项固定资源、版本注册表及CMake安装 | 从无关cwd与删除安装来源后运行；prefix/DESTDIR、资源篡改/缺失/特殊文件拒绝、旧API/迁移兼容；配置和凭据外置 |
 | 单 Agent / 评测证据 | 显式冻结共享原生对话与原权限代理；v1结构验收、v2原模型来源、v3独立验证单逻辑Agent连续性 | 五任务双条件合成工程链、跨重启与错标/缺反馈反例；真实供应商质量、成本及长对话语义效果未验收 |
 | 事件/并发 | 持久inbox、逐任务AMEND、串行pump；冻结准入窗口/独立计数/Root检查点 | 旧快照不改写；到限可核对后续进；不清审计/不重置预算。CLI 已按请求恢复；默认全库维护仍保留。并发租约、只在确有在途时提升选中请求代次仍未实现 |
-| 配置执行状态 | check/explain显示 runtime_support 和 validated_only 项 | 形状有效不代表墙钟/告警/压缩/并发/停滞检测已执行 |
+| 配置执行状态 | check/explain按冻结配置披露runtime_support；G1-J的bounded-v1已接通请求墙钟期限、预算预警、输出上限/输入估算、同错停滞限制与有界续批 | 本地合成回归覆盖已接通路径；真实供应商未验收。未选bounded-v1时墙钟/预警/同错限制仍validated_only；全局并发/审核槽位、stall_minutes、snapshot_decision_log_entries及周期vacuum仍未执行；compaction_at_fraction仅append-fold-v1接通 |
 | 记忆、MCP、跨功能审核 | 规格/参考契约 | 完整C++闭环及真实互通未实现 |
-| 测试工具链 | 严格、UBSan、ASan、Clang、普通用户及umask矩阵 | #44 后 PR 走一套 Linux 核心门禁（strict/umask 0002/Clang18），ASan/UBSan/Make-ASan 在 main push、nightly 与手动全量（Release/两种umask、UBSan、CMake ASan、Make ASan、Clang18；Make ASan默认-O0，其他优化构建保留）；结果须按报告和具体 CI 提交核对 |
+| 测试工具链 | 严格、UBSan、ASan、Clang、普通用户及umask矩阵 | PR按改动分层，核心含strict/umask 0002/Clang18；main push/nightly/手动完整矩阵为六配置、八个构建测试jobs（CMake与Make ASan各两片）；Make ASan默认-O0，原期限/flags保留；静态注册、定向子集与完整运行分别记录 |
 
 ## 阶段
 
@@ -50,7 +51,7 @@ R2a.2已按[ADR-075](adr/075-owned-allocation-recovery.md)实现迁移、创建�
 R2a.3、R3.1、R3.2 的上述限定接口已实施；真实强沙箱部署正向验收保持独立。
 R3.3a/b、两项长任务前置及受控event pump/CLI已按限定范围实施。迁移注册表与可安装资源
 已补齐服务化之前置，但daemon/API继续后置。签名计费适配和单Agent逻辑身份执行器已并入。
-下一步按 owner 2026-11-11 采纳的开发路线（见[ROADMAP](ROADMAP.md)「当前执行路线」：阶段 0 收敛 → G1 → G2 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10）推进：阶段 0 与 G1-A 已完成，G1-B/C/I 已合，D/J 在制，E 待 D；在凭据、预算和明确授权具备后进行真实小任务与同条件对照，保留全部失败和未知样本。
+下一步按 owner 2026-11-11 采纳的开发路线（见[ROADMAP](ROADMAP.md)「当前执行路线」：阶段 0 收敛 → G1 → G2 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10）推进：阶段0完成、G1-A–M已合，当前main完整矩阵仍在途；新G1单次验证已完成，优先登记剩余CI结果并有界诊断已知超时，不为交接重复已完成测试。G2须等待D-2/D-3及明确真实执行授权，保留全部失败和未知样本。
 离线codec profile继续固定real_calls_enabled=false；外层宿主live配置另有显式开关和独立执行授权，
 默认关闭，max_paid_retries=0；CLI只有完整宿主授权后的受控入口，本次未使用真实供应商。
 并发租约和选中请求按需提升代次继续开放，不因模型 AMEND 接入而视为完成。
