@@ -118,7 +118,7 @@ int main(int argc, char** argv) {
             live.provider.pricing = pricing;
         }
         auto store = assets.open(text(config, "database"));
-        auto input = fixture::admission(assets, live, "workflow", !flag(config, "disabled"));
+        auto input = fixture::admission(assets, live, "workflow", !flag(config, "disabled"), false, flag(config, "bounded"));
         input.original_text = string_option(config, "material", "Complete a synthetic loopback workflow.");
         input.constraint_catalog = Array{};
         const auto frozen = FrozenRequestConfig::restore(canonical_json(input.config_snapshot), sha256_hex(canonical_json(input.config_snapshot)));
@@ -144,6 +144,7 @@ int main(int argc, char** argv) {
         // work; correctness scenarios must not accidentally become deadlines.
         options.max_batch_duration = std::chrono::milliseconds(number_option(config, "timeout_ms", 60000));
         options.limits.max_calls = number_option(config, "max_calls", 32);
+        options.max_total_calls = number_option(config, "max_total_calls", 0);
         options.limits.max_worker_calls_per_task = number_option(config, "worker_calls", 16);
         options.credentials = [&](std::string_view name) {
             ++credentials; CHECK(name == live.provider.api_key_env);
@@ -151,6 +152,7 @@ int main(int argc, char** argv) {
             return std::string(bearer);
         };
         if (flag(config, "reconcile")) options.usage_evidence = [&](const ModelRequest& request, const ModelResponse& response, const Json& settlement) {
+            if (response.status != ModelResultStatus::Completed) return std::optional<VerifiedUsageEvidence>{};
             ++evidence_calls; return std::optional<VerifiedUsageEvidence>(receipt(config, live, request, response, settlement));
         };
         if (flag(config, "host_dispositions")) options.limits.amendment_dispositions = Object{{"alpha", Object{{"disposition", "keep"}, {"rationale", "fixture refusal"}}}};

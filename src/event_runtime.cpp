@@ -125,6 +125,9 @@ void validate_live_workflow_config(const FrozenRequestConfig& config,
             "live workflow needs explicit positive cost reservation and a bounded batch deadline");
     require(static_cast<bool>(options.credentials), ErrorCode::InvalidInput,
             "live workflow requires a trusted credential resolver");
+    require(options.max_total_calls == 0 || (config.bounded_runtime() && options.max_total_calls > 0 &&
+            options.max_total_calls <= config.max_total_calls()), ErrorCode::Unauthorized,
+            "continuation requires explicit bounded-v1 total-call authorization");
     require(config.json().at("system").at("model_calls").at("real_calls_enabled").as_bool(),
             ErrorCode::Unauthorized, "live calls are disabled in the frozen request configuration");
     require(config.context_request_format() == "structured-v2", ErrorCode::Unsupported,
@@ -422,7 +425,11 @@ Json EventRuntime::pump_live(const std::string& id, const LiveWorkflowOptions& o
     require(store_.live_model_enabled() && store_.workflow_runtime_enabled(), ErrorCode::Unsupported,
             "live workflow requires the complete Store 410 workflow and accounting path");
     validate_live_workflow_config(restore_request_config(store_.request(id)), options);
-    const auto deadline = std::chrono::steady_clock::now() + options.max_batch_duration;
+    const auto command_started = std::chrono::steady_clock::now();
+    const auto wall_remaining = store_.observe_runtime_controls(id);
+    const auto deadline = std::min(command_started + options.max_batch_duration,
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(
+            std::min(options.max_batch_duration.count(), std::max<std::int64_t>(0, wall_remaining))));
     std::stop_source batch;
     std::stop_callback cancelled(stop, [&] { batch.request_stop(); });
     // One scoped deadline watcher cancels the existing bounded transport wait.
@@ -434,17 +441,51 @@ Json EventRuntime::pump_live(const std::string& id, const LiveWorkflowOptions& o
         static_cast<void>(wake.wait_until(lock, finished, deadline, [] { return false; }));
         if (!finished.stop_requested()) batch.request_stop();
     });
-    auto result = pump_workflow(id, {}, options.limits, &options, batch.get_token());
+    auto wake = options;
+    Array calls;
+    Json result;
+    std::int64_t wakes = 0, started = 0, providers = 0, managers = 0, unobserved = 0;
+    bool complete = true;
+    do {
+        if (options.max_total_calls > 0)
+            wake.limits.max_calls = std::min(options.limits.max_calls, options.max_total_calls - static_cast<std::int64_t>(calls.size()));
+        result = pump_workflow(id, {}, wake.limits, &wake, batch.get_token(), deadline);
+        ++wakes;
+        started += number(result, "network_started_calls"); providers += number(result, "provider_calls");
+        managers += number(result, "manager_calls"); unobserved += number(result, "unobserved_send_claims");
+        complete = complete && result.at("network_count_complete").as_bool();
+        const auto count = result.at("calls").as_array().size();
+        for (auto& call : result.at("calls").as_array()) calls.push_back(std::move(call));
+        if (options.max_total_calls == 0 || count == 0 || !result.at("resume_after_wake_limit").as_bool() ||
+                result.at("pending").as_array().empty() || batch.stop_requested()) break;
+    } while (static_cast<std::int64_t>(calls.size()) < options.max_total_calls);
+    result.at("calls") = std::move(calls);
+    result.at("network_started_calls") = started; result.at("provider_calls") = providers;
+    result.at("real_model_calls") = providers; result.at("manager_calls") = managers;
+    result.at("unobserved_send_claims") = unobserved; result.at("network_count_complete") = complete;
+    result.at("max_calls") = options.limits.max_calls;
+    result.at("elapsed_ms") = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - command_started).count();
+    if (options.max_total_calls > 0) {
+        result.as_object()["wake_count"] = wakes;
+        result.as_object()["max_total_calls"] = options.max_total_calls;
+        if (result.at("resume_after_wake_limit").as_bool() &&
+                result.at("calls").as_array().size() >= static_cast<std::size_t>(options.max_total_calls))
+            result.at("stop_reason") = "total_call_limit";
+    }
     if (result.at("stop_reason") == "cancelled" && !stop.stop_requested() &&
             std::chrono::steady_clock::now() >= deadline)
         result.as_object()["stop_reason"] = "deadline";
+    if (store_.observe_runtime_controls(id) <= 0) result.at("stop_reason") = "wall_clock_exceeded";
     return result;
 }
 
 Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& script,
                                  const EventPumpOptions& options,
-                                 const LiveWorkflowOptions* live, std::stop_token stop) {
+                                 const LiveWorkflowOptions* live, std::stop_token stop,
+                                 std::chrono::steady_clock::time_point deadline) {
     const auto batch_started = std::chrono::steady_clock::now();
+    if (live && deadline == std::chrono::steady_clock::time_point{}) deadline = batch_started + live->max_batch_duration;
     require(options.max_calls >= 1 && options.max_calls <= 64 && options.max_worker_calls_per_task >= 1 &&
             options.max_worker_calls_per_task <= 16, ErrorCode::InvalidInput, "invalid finite pump call limits");
     validate_dispositions(options.amendment_dispositions);
@@ -465,6 +506,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     Array calls, blocked;
     std::int64_t manager_calls = 0;
     bool live_halted = false;
+    bool wake_limited = false, made_progress = false, resume_blocked = false;
     std::string stop_reason = "quiescent";
     std::int64_t network_started_calls = 0, provider_calls = 0, unobserved_send_claims = 0;
     bool network_count_complete = true;
@@ -486,7 +528,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         if (live_halted) return false;
         if (stop.stop_requested()) {
             live_halted = true; stop_reason = "cancelled";
-        } else if (std::chrono::steady_clock::now() - batch_started >= live->max_batch_duration) {
+        } else if (std::chrono::steady_clock::now() >= deadline) {
             live_halted = true; stop_reason = "deadline";
         }
         if (live_halted) block(Role::Dispatcher, {}, {}, stop_reason, "live batch stopped before another action");
@@ -589,20 +631,24 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         if (store_.capacity_status(id).at("status") == "WAITING_INPUT") {
             const auto pending_action = role == Role::Worker ? Json(nullptr) : management_target(role, task);
             if (pending_action.is_null() || text(pending_action, "kind") != "experience") {
+                resume_blocked = true;
                 block(role, node, task, "capacity_waiting_input", "Root capacity-checkpoint required; no new model reservation");
                 stopped.insert(key); return std::nullopt;
             }
         }
         if (static_cast<std::int64_t>(calls.size()) >= options.max_calls) {
+            wake_limited = true;
             block(role, node, task, "call_limit", "this explicit pump reached its total call limit");
             if (live) { live_halted = true; stop_reason = "call_limit"; }
             stopped.insert(key); return std::nullopt;
         }
         if (role != Role::Worker && manager_calls >= manager_cap) {
+            wake_limited = true;
             block(role, node, task, "manager_limit", "the frozen management wake limit was reached");
             stopped.insert(key); return std::nullopt;
         }
         if (role == Role::Worker && indices[key] >= options.max_worker_calls_per_task) {
+            wake_limited = true;
             block(role, node, task, "worker_limit", "this task reached the explicit per-pump Worker call limit");
             stopped.insert(key); return std::nullopt;
         }
@@ -614,7 +660,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         if (live) {
             settings = live_model_settings_from_json(config.model_profile(role), config.resolve(role).model);
             const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                live->max_batch_duration - (std::chrono::steady_clock::now() - batch_started));
+                deadline - std::chrono::steady_clock::now());
             if (remaining.count() <= 0) {
                 live_halted = true; stop_reason = "deadline";
                 block(role, node, task, stop_reason, "batch deadline reached before capture");
@@ -672,6 +718,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         if (live) invocation["workflow_kind"] = captured.workflow_action.is_null()
             ? Json(nullptr) : captured.workflow_action.at("kind");
         else invocation["workflow_action"] = captured.workflow_action;
+        if (!captured.input_estimate.is_null()) invocation["input_estimate"] = captured.input_estimate;
         bool live_execution_started = false;
         const auto preserve_observation_gap = [&] {
             if (!live || !live_execution_started || invocation.contains("network_started")) return;
@@ -727,7 +774,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 catch (...) { throw Error(ErrorCode::InvalidInput, "trusted credential resolver failed"); }
                 if (!live_continue()) return std::nullopt;
                 const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    live->max_batch_duration - (std::chrono::steady_clock::now() - batch_started));
+                    deadline - std::chrono::steady_clock::now());
                 require(remaining.count() > 0, ErrorCode::NotReady, "batch deadline reached before live reservation");
                 captured.request.timeout = std::min(remaining,
                     std::chrono::milliseconds(settings->provider.limits.max_timeout_ms));
@@ -802,6 +849,14 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             }
             calls.push_back(std::move(invocation));
             if (const auto* correction = correction_detail::correction(result)) {
+                if (config.bounded_runtime() && correction_detail::same_errors(store_.attempt_history_tail(captured.actor, 1),
+                        correction_detail::target_key(captured.request, captured.workflow_action)) >=
+                        number(config.json().at("system").at("limits"), "stall_same_error_repeats")) {
+                    block(role, node, task, "stall_same_error_repeats", "persistent same-error limit reached");
+                    stopped.insert(key);
+                    if (live) { live_halted = true; stop_reason = "stall_same_error_repeats"; }
+                    return std::nullopt;
+                }
                 if (config.schema_retry_max() == 0 || number(*correction, "consecutive_failures") >= config.schema_retry_max()) {
                     block(role, node, task, "correction_limit", correction_detail::limit_reason);
                     stopped.insert(key);
@@ -1015,6 +1070,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 if ((status != "READY" && status != "RUNNING") ||
                         (!waiting.is_null() && text(waiting, "status") == "WAITING")) continue;
                 if (!tools_by_node_.empty() && !tools) {
+                    resume_blocked = true;
                     block(Role::Worker, node, task_id, "workspace_missing", "this task has no explicitly mapped WorkerTools host");
                     stopped.insert({Role::Worker, node}); continue;
                 }
@@ -1054,7 +1110,9 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                     catch (const std::exception& release) { block(role, node, task_id, "claim_release_failed", release.what()); }
             }
         }
+        made_progress = made_progress || progress;
         if (!progress || static_cast<std::int64_t>(calls.size()) >= options.max_calls) {
+            if (static_cast<std::int64_t>(calls.size()) >= options.max_calls) wake_limited = true;
             if (live && stop_reason == "quiescent" && static_cast<std::int64_t>(calls.size()) >= options.max_calls)
                 stop_reason = "call_limit";
             break;
@@ -1088,7 +1146,10 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             else block(Role::Worker, node, task_id, "submission_pending", "Worker submission awaits its captured TeamLead check");
         }
     }
-    for (const auto& question : runtime_detail::visible_management_questions(store_, Role::Dispatcher, id, {}, &config)) questions.push_back(question);
+    for (const auto& question : runtime_detail::visible_management_questions(store_, Role::Dispatcher, id, {}, &config)) {
+        if (text(question, "status") == "OPEN" && text(question, "holder") == "user") resume_blocked = true;
+        questions.push_back(question);
+    }
     if (static_cast<std::int64_t>(calls.size()) >= options.max_calls && !pending.empty())
         block(Role::Dispatcher, {}, {}, "call_limit", "this explicit pump reached its total call limit; remaining events stay durable");
     Object result{{"mode", live ? "event_live" : "event_fake"}, {"workflow_runtime", true}, {"request_id", id},
@@ -1110,6 +1171,8 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         result["experience_jobs"] = std::move(jobs);
     }
     if (live) {
+        result["resume_after_wake_limit"] = wake_limited && made_progress && !resume_blocked &&
+            (stop_reason == "quiescent" || stop_reason == "call_limit");
         result["stop_reason"] = stop_reason;
         result["network_started_calls"] = network_started_calls;
         result["provider_calls"] = provider_calls;

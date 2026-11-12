@@ -36,6 +36,7 @@ struct LiveWorkflowOptions {
     std::chrono::milliseconds max_batch_duration{};
     LiveCredentialResolver credentials;
     LiveUsageEvidenceHook usage_evidence;
+    std::int64_t max_total_calls{}; // Explicit v3 authorization only; zero preserves one original batch.
 };
 
 // Pure configuration/host-bound validation: no Store mutation, network or
@@ -67,7 +68,8 @@ private:
                        const EventFakeScript& script,
                        const EventPumpOptions& options,
                        const LiveWorkflowOptions* live = nullptr,
-                       std::stop_token stop = {});
+                       std::stop_token stop = {},
+                       std::chrono::steady_clock::time_point deadline = {});
     Store& store_;
     const SchemaRegistry& schemas_;
     std::map<std::string, WorkerTools*> tools_by_node_;

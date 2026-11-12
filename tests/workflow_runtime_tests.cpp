@@ -37,12 +37,18 @@ void expect(ErrorCode code, const std::function<void()>& action) {
     }
     CHECK(caught);
 }
-AdmissionInput input(std::int64_t correction_limit = 2) {
+AdmissionInput input(std::int64_t correction_limit = 2, std::int64_t stall_limit = 0) {
     test::TempDir configuration;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
     const std::string marker = "  schema_retry_max: 2";
     const auto position = yaml.find(marker); CHECK(position != std::string::npos);
     yaml.replace(position, marker.size(), "  schema_retry_max: " + std::to_string(correction_limit));
+    if (stall_limit > 0) {
+        yaml.replace(yaml.find("model_calls:\n"), std::string("model_calls:\n").size(),
+            "model_calls:\n  runtime_policy: bounded-v1\n");
+        const std::string stall = "  stall_same_error_repeats: 3";
+        yaml.replace(yaml.find(stall), stall.size(), "  stall_same_error_repeats: " + std::to_string(stall_limit));
+    }
     write(configuration.path / "system.yaml", yaml);
     const auto frozen = load_config_catalog(configuration.path / "system.yaml", source / "config/examples/functions",
                                             source / "prompts").freeze("general");
@@ -506,6 +512,32 @@ void correction_file_failures_limits_reset_and_reopen() {
     CHECK(!std::filesystem::exists(disabled.directory.path / "alpha/result.txt"));
 }
 
+void bounded_same_error_count_survives_reopen_and_resets_on_success_or_target_change() {
+    auto admission = input(10, 2);
+    Fixture f(admission); f.ready();
+    const auto count = [](const Json& result) { return result.at("correction_feedback").at("bounded_runtime_v1").at("same_error_repeats"); };
+    CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 1);
+    CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "different-absent.txt"}})) == 1);
+    (void)f.invoke(Role::Worker, "fs_write", Object{{"path", "exists.txt"}, {"content", "original"}});
+    CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 1);
+    f.reopen();
+    EventFakeScript repeat; repeat.by_node["alpha"] = {step(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})};
+    auto report = f.runtime().pump(f.id, repeat);
+    CHECK(report.at("calls").as_array().size() == 1 && blocked(report, "stall_same_error_repeats"));
+    CHECK(count(report.at("calls").as_array().front().at("result")) == 2);
+    f.reopen();
+    const auto attempts = f.store->budget(f.id).at("attempts");
+    report = f.runtime().pump(f.id, repeat);
+    CHECK(report.at("calls").as_array().empty() && blocked(report, "not_ready"));
+    CHECK(report.at("blocked").as_array().front().at("reason") == "stall_same_error_repeats");
+    CHECK(f.store->budget(f.id).at("attempts") == attempts);
+    (void)f.invoke(Role::TeamLead, "issue_work_order", script().by_node.at("alpha").front().tool_calls.front().arguments);
+    const auto binding = f.binding();
+    (void)f.store->acknowledge(f.store->host_actor(Role::Worker, f.id, binding.team_id), binding,
+        number(f.task().at("state_version")), "bounded-new-target-ack");
+    CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 1);
+}
+
 } // namespace
 
 int main() {
@@ -516,6 +548,7 @@ int main() {
     events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     workflow_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
     return test::run({
+        {"bounded same-error stop persists independently of schema retries and resets on success or target change", bounded_same_error_count_survives_reopen_and_resets_on_success_or_target_change},
         {"text-only correction preserves independent attempts and actor history scope", correction_text_only_preserves_independent_attempts_and_actor_scope},
         {"pure argument and tool selection failures correct for management and Worker", correction_arguments_and_selection_recover_for_managers_and_workers},
         {"file failure feedback persists consecutive limits across success and reopen", correction_file_failures_limits_reset_and_reopen},

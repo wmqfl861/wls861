@@ -57,6 +57,22 @@ inline Json failure(const char* reason, const std::string& key, std::int64_t cou
         {"target_sha256", key}, {"consecutive_failures", count},
         {"message", "Correct the rejected output using its original response and feedback; do not replay the old operation."}}}};
 }
+inline std::int64_t same_errors(const Json& tail, const std::string& key,
+                               const std::string& signature = {}, const std::string& excluding = {}) {
+    for (auto it = tail.at("items").as_array().rbegin(); it != tail.at("items").as_array().rend(); ++it) {
+        if (it->at("attempt_id") == Json(excluding)) continue;
+        const auto& feedback = it->at("feedback");
+        const auto* value = feedback.is_object() ? correction(feedback.at("result")) : nullptr;
+        if (!value || value->at("target_sha256") != Json(key)) return 0;
+        const auto* extension = value->as_object().if_contains("bounded_runtime_v1");
+        if (!extension || (!signature.empty() && extension->at("error_sha256") != Json(signature))) return 0;
+        const auto count = extension->at("same_error_repeats");
+        if (!count.is_int64() || count.as_int64() < 1 || count.as_int64() > 1000000000000LL)
+            throw Error(ErrorCode::Corrupt, "invalid persisted same-error count");
+        return count.as_int64();
+    }
+    return 0;
+}
 inline bool definite_failure(const Json& value) {
     if (!value.is_object() || !value.as_object().contains("operation") ||
         !value.as_object().contains("execution_result") || value.at("replayed") != false ||

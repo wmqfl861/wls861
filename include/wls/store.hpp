@@ -152,6 +152,9 @@ public:
     // table, spent_cost is the effective booked amount (deterministic estimate
     // or a later confirmed actual), labeled by the appended cost_breakdown.
     Json budget(const std::string& request_id) const;
+    // Append bounded control observations independently of original settlement.
+    // Return request wall time remaining; legacy requests return INT64_MAX.
+    std::int64_t observe_runtime_controls(const std::string& request_id);
     Json attempt(const std::string& attempt_id) const;
     std::vector<Json> events(const std::string& request_id,
                              std::int64_t after_seq = 0,

@@ -100,6 +100,24 @@ std::string stamp() {
     stream << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
     return stream.str();
 }
+std::int64_t runtime_wall_remaining(const Row& request, const FrozenRequestConfig& config) {
+    if (!config.bounded_runtime()) return INT64_MAX;
+    const auto created = str(request, "created_at");
+    std::tm utc{};
+    std::istringstream input(created);
+    input >> std::get_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+    require(!input.fail() && created.size() == 20, ErrorCode::Corrupt, "invalid original request creation time");
+    const auto seconds = ::timegm(&utc);
+    std::ostringstream canonical;
+    canonical << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+    const auto now = std::chrono::system_clock::now();
+    const auto start = std::chrono::system_clock::from_time_t(seconds);
+    require(seconds >= 0 && canonical.str() == created && start <= now,
+            ErrorCode::Corrupt, "invalid original request creation time");
+    const auto minutes = number(config.json().at("system").at("budget_defaults").as_object(), "max_wall_minutes");
+    require(minutes > 0 && minutes <= INT64_MAX / 60000, ErrorCode::Corrupt, "invalid frozen wall time");
+    return minutes * 60000 - std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
+}
 Json actor_json(const StoreActor& actor) {
     return Row{{"role", role_name(actor.role)}, {"principal_id", actor.principal_id},
         {"request_id", actor.request_id}, {"task_id", actor.task_id}, {"team_id", actor.team_id},
@@ -1267,6 +1285,39 @@ public:
     }
 #include "store_capacity.inc"
 
+    std::int64_t observe_runtime_controls(const std::string& id) {
+        const auto request = request_row(id);
+        const auto config = FrozenRequestConfig::restore(str(request, "config_snapshot"), str(request, "config_snapshot_sha256"));
+        const auto remaining = runtime_wall_remaining(request, config);
+        if (!config.bounded_runtime()) return remaining;
+        const auto& defaults = config.json().at("system").at("budget_defaults");
+        const auto wall = number(defaults.as_object(), "max_wall_minutes") * 60000;
+        const auto fraction = defaults.at("warn_at_fraction").as_double();
+        Transaction tx(*this);
+        const auto budget = one("SELECT * FROM request_budgets WHERE request_id=?", {id});
+        const auto append = [&](const std::string& key, const Row& command) {
+            if (!optional("SELECT seq FROM events WHERE request_id=? AND command_id=?", {id, key}))
+                capacity_raw_event(id, key, command, command);
+        };
+        for (const auto* dimension : {"attempts", "input", "output", "cost", "wall"}) {
+            const std::string name(dimension);
+            const auto used = name == "attempts" ? number(budget, "attempts") : name == "wall"
+                ? wall - remaining : number(budget, "spent_" + name);
+            const auto limit = name == "attempts" ? number(budget, "max_attempts") : name == "wall"
+                ? wall : number(budget, name + "_limit");
+            if (limit > 0 && static_cast<double>(used) / static_cast<double>(limit) >= fraction)
+                append("runtime:budget_warning:" + name, Row{{"type", "budget_warning"}, {"dimension", name},
+                    {"used", used}, {"limit", limit}, {"warn_at_fraction", fraction},
+                    {"basis", name == "cost" ? "effective_spent_including_frozen_price_estimates" :
+                        name == "wall" ? "original_created_at_elapsed_milliseconds" : "original_recorded_consumption"},
+                    {"unknown_is_zero", false}, {"config_snapshot_sha256", config.sha256()}});
+        }
+        if (remaining <= 0) append("runtime:wall_clock_exceeded", Row{{"type", "wall_clock_exceeded"},
+            {"created_at", request.at("created_at")}, {"max_wall_minutes", defaults.at("max_wall_minutes")}});
+        tx.commit();
+        return remaining;
+    }
+
     void event(const std::string& request_id, const std::string& command_id,
                const Row& command, const Json& result, std::string_view actor = "runtime",
                std::size_t payload_limit = 1024U * 1024U) {
@@ -1793,6 +1844,10 @@ Json Store::budget(const std::string& id) const {
         row["cost_breakdown"] = summary;
     }
     return row;
+}
+std::int64_t Store::observe_runtime_controls(const std::string& id) {
+    const std::lock_guard lock(impl_->mutex);
+    return impl_->observe_runtime_controls(id);
 }
 Json Store::attempt(const std::string& id) const {
     const std::lock_guard lock(impl_->mutex); return exposed(impl_->one("SELECT * FROM call_attempts WHERE attempt_id=?", {id}));
@@ -3689,6 +3744,10 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
             ErrorCode::Conflict, "model request envelope changed the reserved model");
     }
     const auto fingerprint = sha256_hex(canonical_json(command));
+    (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker}, false);
+    impl_->actor_binding(actor, frozen);
+    if (!impl_->optional("SELECT attempt_id FROM call_attempts WHERE attempt_id=? OR call_id=?", {reservation.attempt_id, reservation.call_id}))
+        require(impl_->observe_runtime_controls(actor.request_id) > 0, ErrorCode::NotReady, "wall_clock_exceeded");
     Impl::Transaction tx(*impl_);
     (void)impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker}, false);
     impl_->actor_binding(actor, frozen);
@@ -3814,6 +3873,11 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         const auto committed = add(number(budget_row, "spent_" + dimensions.first), number(budget_row, "reserved_" + dimensions.first));
         require(add(committed, dimensions.second) <= number(budget_row, dimensions.first + "_limit"), ErrorCode::Quota, "model " + dimensions.first + " budget exhausted");
     }
+    if (runtime_wall_remaining(r, frozen_config) <= 0) {
+        tx.commit();
+        (void)impl_->observe_runtime_controls(actor.request_id);
+        throw Error(ErrorCode::NotReady, "wall_clock_exceeded");
+    }
     impl_->cas("UPDATE request_budgets SET attempts=attempts+1,reserved_input=reserved_input+?,reserved_output=reserved_output+?,reserved_cost=reserved_cost+?,state_version=state_version+1 WHERE request_id=? AND state_version=?",
         {reservation.reserved_input_tokens, reservation.reserved_output_tokens, reservation.reserved_cost_micro_usd, actor.request_id, number(budget_row, "state_version")});
     impl_->execute("INSERT INTO call_attempts(attempt_id,call_id,request_id,task_id,team_id,role,principal_id,config_snapshot_sha256,model_ref,frozen_binding,request_envelope,reservation_sha256,reserved_input,reserved_output,reserved_cost,max_output_tokens,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'PENDING',?)",
@@ -3839,7 +3903,10 @@ Json Store::settle_attempt(const std::string& attempt_id, const ExecutionBinding
         const std::string& config_hash, const std::string& outcome, const Json& usage,
         const Json& response) {
     const std::lock_guard lock(impl_->mutex);
-    return impl_->settle_model_attempt(attempt_id, frozen, config_hash, outcome, usage, response);
+    const bool fresh = impl_->one("SELECT settlement_sha256 FROM call_attempts WHERE attempt_id=?", {attempt_id}).at("settlement_sha256").is_null();
+    const auto result = impl_->settle_model_attempt(attempt_id, frozen, config_hash, outcome, usage, response);
+    if (fresh) (void)impl_->observe_runtime_controls(frozen.request_id);
+    return result;
 }
 
 Json Store::Impl::settle_model_attempt(const std::string& attempt_id, const ExecutionBinding& frozen,

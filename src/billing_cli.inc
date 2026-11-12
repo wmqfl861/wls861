@@ -59,8 +59,10 @@ Json billing_cli_status(Store& store, const std::string& request_id,
     if (captured) {
         validate_billing_cli_policy(store, request_id, *captured);
         auto& authorization = result.at("authorization_template").as_object();
-        authorization["schema_version"] = 2;
-        authorization["kind"] = "wls-live-workflow-authorization-v2";
+        if (!frozen.bounded_runtime()) {
+            authorization["schema_version"] = 2;
+            authorization["kind"] = "wls-live-workflow-authorization-v2";
+        }
         authorization["billing_policy_sha256"] = captured->bytes_sha256;
         result.as_object()["billing_policy_sha256"] = captured->bytes_sha256;
         result.as_object()["billing_policy_canonical_sha256"] = captured->policy.sha256();
