@@ -271,6 +271,26 @@ std::optional<TokenPricing> Store::Impl::attempt_pricing(const Row& original) co
     return found == frozen.by_role.end() ? std::nullopt : std::optional<TokenPricing>(found->second);
 }
 
+std::optional<bool> Store::Impl::append_priced_accounting_ready(const Row& delta) const {
+    if (!reconciliation_schema) return std::nullopt;
+    const auto id = str(delta, "attempt_id");
+    const auto live = optional("SELECT settings,settings_sha256,profile_sha256 FROM live_attempt_execution WHERE attempt_id=?", {id});
+    if (!live) return std::nullopt;
+    auto original = one("SELECT request_id,role,config_snapshot_sha256,settlement_sha256,input_tokens,output_tokens,"
+        "cache_read_tokens,cache_write_tokens,reserved_cost FROM call_attempts WHERE attempt_id=?", {id});
+    const auto request = request_row(str(original, "request_id"));
+    require(str(request, "config_snapshot_sha256") == str(original, "config_snapshot_sha256"),
+        ErrorCode::Corrupt, "append attempt configuration differs from its original request");
+    const auto frozen = frozen_request_pricing(request);
+    if (!frozen.by_role.contains(str(original, "role"))) return std::nullopt;
+    const auto pricing = verified_pricing(original, *live, frozen.providers);
+    original["response"] = delta.at("response");
+    original["status"] = delta.at("status");
+    const auto projection = optional("SELECT * FROM live_usage_projection WHERE attempt_id=?", {id});
+    const auto effective = effective_attempt(original, projection, *pricing);
+    return effective.complete && !effective.over_reserved;
+}
+
 std::optional<std::int64_t> Store::Impl::attempt_settlement_estimate(const Row& original,
         const ModelUsage& usage, bool completed) const {
     const auto pricing = attempt_pricing(original);

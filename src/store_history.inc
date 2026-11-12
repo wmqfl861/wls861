@@ -315,10 +315,12 @@ Json append_history_delta(Implementation& impl, const StoreActor& actor, const J
             "append-fold original response exceeds bounded delta capacity");
         bounded_history_feedback(impl, str(row, "attempt_id"), 1048576);
         auto item = exposed(row); const auto feedback = impl.feedback_info(str(row, "attempt_id"));
+        if (const auto ready = impl.append_priced_accounting_ready(row))
+            item.as_object()["accounting_attention"] = *ready ? 0 : 1;
         // Never consume an unfinished rowid: late original feedback/usage then
         // remains in the next bounded delta instead of needing lifetime refresh.
         require(str(row, "status") != "PENDING" && str(row, "status") != "UNKNOWN" &&
-            number(row, "accounting_attention") == 0 && !feedback.is_null(), ErrorCode::NotReady,
+            number(item.as_object(), "accounting_attention") == 0 && !feedback.is_null(), ErrorCode::NotReady,
             "append-fold continuation awaits original feedback and complete accounting");
         if (!feedback.is_null()) require(feedback.at("original_binding") == item.at("frozen_binding") &&
             feedback.at("response") == item.at("response"), ErrorCode::Corrupt, "delta feedback differs from original attempt");
