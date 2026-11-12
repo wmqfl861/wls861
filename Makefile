@@ -168,7 +168,8 @@ ifneq ($(filter all 2,$(TEST_SHARD)),)
 	$(PYTHON) tests/test_live_model_store.py "$(abspath $(LIVE_TEST_DRIVER))" "$(abspath .)"
 	$(PYTHON) tests/test_live_workflow.py "$(abspath $(WORKFLOW_TEST_DRIVER))" "$(abspath .)"
 	$(PYTHON) tests/test_live_workflow_cli.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
-	$(PYTHON) tests/test_billing_baseline_e2e.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
+	$(PYTHON) tests/test_billing_baseline_e2e.py "$(abspath $(S1_APPLICATION))" "$(abspath .)" --group billing
+	$(PYTHON) tests/test_billing_baseline_e2e.py "$(abspath $(S1_APPLICATION))" "$(abspath .)" --group run
 	$(PYTHON) tests/runtime_resources_cli_tests.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/review_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 endif

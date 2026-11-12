@@ -9,6 +9,14 @@ on:
     # Nightly full-matrix verification at 03:17 UTC; GitHub cron is UTC.
     - cron: '17 3 * * *'
   workflow_dispatch:
+    inputs:
+      verification:
+        description: Verification scope (asan-affected runs three complete suites only)
+        type: choice
+        options:
+          - full
+          - asan-affected
+        default: full
 
 permissions:
   contents: read
@@ -39,6 +47,7 @@ jobs:
         shell: bash
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MANUAL_VERIFICATION: ${{ inputs.verification }}
         run: |
           set -euo pipefail
           # The pull-request compile matrix keeps exactly the three existing
@@ -61,7 +70,16 @@ jobs:
           base_sha=''
           changed=0
           slow_tests=all
-          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            case "${MANUAL_VERIFICATION:-full}" in
+              full|asan-affected) ;;
+              *) echo 'Unknown manual verification scope' >&2; exit 2 ;;
+            esac
+          fi
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "${MANUAL_VERIFICATION:-full}" = asan-affected ]; then
+            mode=asan-affected
+            matrix="$(printf '%s' "$full_matrix" | python3 -c 'import json,sys; m=json.load(sys.stdin); m["include"]=[x for x in m["include"] if x["name"]=="ASan"]; assert len(m["include"])==1; print(json.dumps(m))')"
+          elif [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
             mode=full
             matrix="$full_matrix"
           else
@@ -84,7 +102,7 @@ jobs:
                 case "$path" in
                   README.md|docs/STATUS.md|docs/ROADMAP.md|docs/REVISION-v0.4.1.md) continue ;;
                   docs/reviews/*.md|docs/reports/*.md|docs/adr/*.md|docs/implementation/*.md) continue ;;
-                  tests/test_billing_baseline_e2e.py) slow=billing_baseline_e2e ;;
+                  tests/test_billing_baseline_e2e.py) slow='billing_baseline_e2e;run_cli_e2e' ;;
                   tests/live_workflow_driver.cpp) slow=live_workflow ;;
                   tests/audit24_capacity_repro_tests.cpp) slow=audit24_capacity_repro ;;
                   tests/https_transport_driver.cpp) slow=https_transport ;;
@@ -132,6 +150,9 @@ jobs:
             echo "### Change classification: \`$mode\`"
             echo "- event: $GITHUB_EVENT_NAME, matrix entries: $(printf '%s' "$matrix" | grep -c '"name"')"
             echo "- slow tests: $slow_tests (selected mode always includes all fast tests)"
+            if [ "$mode" = asan-affected ]; then
+              echo '- Three complete affected ASan suites only: billing_baseline_e2e, run_cli_e2e, s15_cli_smoke. This is not the full gate.'
+            fi
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
               echo "- PR head: \`$PR_HEAD_SHA\`; diff merge base: \`${base_sha:-unavailable, fell back to core}\`"
               echo "- changed paths counted: $changed"
@@ -194,7 +215,10 @@ jobs:
         run: |
           test "$(id -u)" -ne 0
           umask "${{ matrix.test_umask }}"
-          if [ "${{ needs.classify.outputs.mode }}" = selected ]; then
+          if [ "${{ needs.classify.outputs.mode }}" = asan-affected ]; then
+            echo 'Running three complete affected ASan suites only; this is not the full gate.'
+            ctest --test-dir build -R '^(billing_baseline_e2e|run_cli_e2e|s15_cli_smoke)$' --output-on-failure
+          elif [ "${{ needs.classify.outputs.mode }}" = selected ]; then
             ctest --test-dir build -L '^ci_selected$' --output-on-failure
           else
             ctest --test-dir build --output-on-failure
