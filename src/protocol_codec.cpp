@@ -1,6 +1,7 @@
 #include "wls/protocol_codec.hpp"
 
 #include "responses_compat.hpp"
+#include "response_metadata.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -34,7 +35,9 @@ const Array& array(const Json& value) {
     require(value.is_array(), ErrorCode::InvalidInput, "protocol field must be an array");
     return value.as_array();
 }
-void only_fields(const Json& value, const std::set<std::string>& allowed) {
+void only_fields(const Json& value, const std::set<std::string>& allowed,
+                 bool ignore_metadata = false) {
+    if (ignore_metadata) return;
     for (const auto& entry : object(value))
         require(allowed.contains(std::string(entry.key())), ErrorCode::Unsupported,
                 "response field is outside the implemented protocol subset");
@@ -172,10 +175,10 @@ std::optional<std::int64_t> amount(const Json& value, std::string_view key) {
         return static_cast<std::int64_t>(item->as_uint64());
     throw Error(ErrorCode::InvalidInput, "provider usage must be a nonnegative integer or unknown");
 }
-ModelUsage usage(const Json& value) {
+ModelUsage usage(const Json& value, bool ignore_metadata) {
     ModelUsage result;
     if (value.is_null()) return result;
-    only_fields(value, {"input_tokens", "output_tokens", "total_tokens", "input_tokens_details", "output_tokens_details"});
+    only_fields(value, {"input_tokens", "output_tokens", "total_tokens", "input_tokens_details", "output_tokens_details"}, ignore_metadata);
     result.input_tokens = amount(value, "input_tokens");
     result.output_tokens = amount(value, "output_tokens");
     const auto total = amount(value, "total_tokens");
@@ -183,12 +186,12 @@ ModelUsage usage(const Json& value) {
         require(!total || !component || *component <= *total, ErrorCode::InvalidInput,
                 "provider usage component exceeds reported total");
     if (const auto* input = object(value).if_contains("input_tokens_details"); input && !input->is_null()) {
-        only_fields(*input, {"cached_tokens", "cache_write_tokens"});
+        only_fields(*input, {"cached_tokens", "cache_write_tokens"}, ignore_metadata);
         result.cache_read_tokens = amount(*input, "cached_tokens");
         result.cache_write_tokens = amount(*input, "cache_write_tokens");
     }
     if (const auto* output = object(value).if_contains("output_tokens_details"); output && !output->is_null()) {
-        only_fields(*output, {"reasoning_tokens"});
+        only_fields(*output, {"reasoning_tokens"}, ignore_metadata);
         const auto reasoning = amount(*output, "reasoning_tokens");
         require(!reasoning || !result.output_tokens || *reasoning <= *result.output_tokens,
                 ErrorCode::InvalidInput, "provider reasoning usage exceeds reported output");
@@ -486,6 +489,7 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
     evidence["provider_status"] = nullptr;
     evidence["provider_error"] = nullptr;
     evidence["incomplete_details"] = nullptr;
+    response_metadata::Collector metadata(profile);
     try {
         const auto source = parse_json_strict(raw_body, profile.limits.max_response_bytes, profile.limits.max_json_depth);
         (void)object(source);
@@ -494,19 +498,15 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
             failure(decoded.response, ModelResultStatus::Error, "http_" + std::to_string(http_status),
                     "offline HTTP response is not successful; automatic retry is disabled");
         } else {
-            only_fields(source, {"id", "object", "status", "model", "output", "error", "incomplete_details", "usage",
-                "background", "created_at", "completed_at", "instructions", "max_output_tokens", "parallel_tool_calls",
-                "previous_response_id", "reasoning", "store", "temperature", "text", "tool_choice", "tools", "top_p",
-                "truncation", "user", "metadata", "service_tier", "max_tool_calls", "top_logprobs", "prompt_cache_key",
-                "prompt_cache_options", "prompt_cache_retention", "safety_identifier", "prompt_cache_diagnostics",
-                "access_programs", "input", "reasoning_effort"});
+            metadata.response(source, "");
+            only_fields(source, response_metadata::response_fields, metadata.enabled);
             require(text(source, "object") == "response", ErrorCode::InvalidInput, "HTTP object is not a Responses response");
             const auto provider_id = text(source, "id");
             require(token(provider_id), ErrorCode::InvalidInput, "invalid provider response ID");
             decoded.provider_response_id = provider_id;
             require(model_accepted(profile, text(source, "model")), ErrorCode::Stale,
                     "provider response model differs from the explicit profile alias");
-            if (const auto* reported = object(source).if_contains("usage")) decoded.response.usage = usage(*reported);
+            if (const auto* reported = object(source).if_contains("usage")) decoded.response.usage = usage(*reported, metadata.enabled);
             // The documented response envelope includes these empty/null
             // metadata fields. Their presence does not enable program access,
             // an echoed-input format or a second reasoning configuration.
@@ -561,6 +561,7 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
     evidence["protocol_complete"] = decoded.response.status == ModelResultStatus::Completed;
     evidence["reason_code"] = decoded.response.status == ModelResultStatus::Completed ? "completed" : decoded.response.error_code;
     evidence["raw_retained"] = true;
+    metadata.write(evidence);
     decoded.evidence = std::move(evidence);
     decoded.record_sha256 = sha256_hex(canonical_json(decoded_record(decoded)));
     return decoded;
