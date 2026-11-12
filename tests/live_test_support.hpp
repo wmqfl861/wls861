@@ -91,23 +91,26 @@ inline Json model_profile(const LiveModelSettings& live) {
         {"responses", live_model_settings_json(live)}};
 }
 inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& live,
-                                std::string key = "fixture", bool enabled = true, bool fake = false) {
+                                std::string key = "fixture", bool enabled = true, bool fake = false,
+                                bool bounded = false) {
     ::test::TempDir directory;
     std::filesystem::copy(assets.source / "config/examples", directory.path / "config", std::filesystem::copy_options::recursive);
     std::filesystem::copy(assets.source / "prompts", directory.path / "prompts", std::filesystem::copy_options::recursive);
     const auto system_path = directory.path / "config/system.yaml";
     auto catalog = load_config_catalog(system_path, directory.path / "config/functions", directory.path / "prompts");
-    if (fake) {
+    {
         auto system = catalog.freeze("general").json().at("system");
-        system.at("context").at("request_format") = "framed-v1";
-        { std::ofstream output(system_path); output << canonical_json(system); }
-        catalog = load_config_catalog(system_path, directory.path / "config/functions", directory.path / "prompts");
-    } else {
-        auto system = catalog.freeze("general").json().at("system");
-        system.at("models").as_object()[live.provider.model_ref] = model_profile(live);
-        system.at("defaults").at("model_ref") = live.provider.model_ref;
-        system.at("model_calls").at("real_calls_enabled") = enabled;
-        system.at("context").at("request_format") = "structured-v2";
+        if (fake) system.at("context").at("request_format") = "framed-v1";
+        else {
+            system.at("models").as_object()[live.provider.model_ref] = model_profile(live);
+            system.at("defaults").at("model_ref") = live.provider.model_ref;
+            system.at("model_calls").at("real_calls_enabled") = enabled;
+            system.at("context").at("request_format") = "structured-v2";
+        }
+        if (bounded) {
+            system.at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
+            system.at("budget_defaults").at("max_wall_minutes") = 1;
+        }
         { std::ofstream output(system_path); output << canonical_json(system); }
         catalog = load_config_catalog(system_path, directory.path / "config/functions", directory.path / "prompts");
     }

@@ -167,7 +167,7 @@ class Evaluation(unittest.TestCase):
         self.assertFalse(legacy['checks']['condition_roles'])
 
     def test_v3_unapplied_fractional_response_keeps_complete_original_history(self):
-        request = self.logical_seed()
+        request = self.logical_seed(context_change=('model_calls:\n', 'model_calls:\n  runtime_policy: bounded-v1\n'))
         plan = self.logical_plan(request)
         with e.database(self.database) as db:
             legacy_plans = [e.make_plan(db, request, decision_evidence=decision)
@@ -179,6 +179,9 @@ class Evaluation(unittest.TestCase):
         self.assertEqual(json.loads(feedback['response'])['tool_calls'][0]['arguments']['unexpected_fraction'], 0.1)
         self.assertEqual(json.loads(feedback['result'])['status'], 'FAILED')
         self.assertEqual(json.loads(feedback['result'])['correction_feedback']['reason'], 'model_arguments')
+        extension = json.loads(feedback['result'])['correction_feedback']['bounded_runtime_v1']
+        self.assertEqual(extension['same_error_repeats'], 1)
+        self.assertEqual(len(extension['error_sha256']), 64)
         accepted = self.fixture()
         self.execute(request, script=accepted, max_calls=12, worker_calls=2)
         self.ack(request, self.publish(request))

@@ -68,6 +68,43 @@ void write(const std::filesystem::path& path, const std::string& bytes) {
     std::ofstream stream(path, std::ios::binary); stream << bytes; CHECK(static_cast<bool>(stream));
 }
 
+void bounded_output_and_display_estimate_preserve_legacy_limits() {
+    for (int scenario = 0; scenario < 4; ++scenario) {
+        test::TempDir directory;
+        Store store(directory.path / "bounded.db", base_sql, migration_sql);
+        auto system = config().json().at("system");
+        const auto model = text(system.at("defaults").at("model_ref"));
+        system.at("models").at(model).at("capabilities").at("max_output_tokens") = 16384;
+        if (scenario != 0) system.at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
+        if (scenario == 3) {
+            system.at("models").at(model).at("capabilities").at("context_window") = 1;
+            system.at("models").at(model).at("capabilities").at("max_output_tokens") = 1;
+        }
+        write(directory.path / "system.json", canonical_json(system));
+        auto admission = input(load_config_catalog(directory.path / "system.json", source / "config/examples/functions",
+            source / "prompts").freeze("general"));
+        admission.original_text += " UTF-8 中文 \"quoted\" \\escaped\n";
+        if (scenario == 2) admission.budget.output_tokens = 7;
+        const auto id = text(store.admit(admission).at("request_id"));
+        OfflineRuntime runtime(store, *schemas);
+        if (scenario == 3) {
+            expect(ErrorCode::Quota, [&] { (void)runtime.capture_call(id, Role::Dispatcher); });
+            CHECK(store.budget(id).at("attempts") == 0);
+            continue;
+        }
+        const auto call = runtime.capture_call(id, Role::Dispatcher);
+        CHECK(call.request.max_output_tokens == (scenario == 0 ? 8192 : scenario == 1 ? 16384 : 7));
+        CHECK(call.request.reserved_output_tokens == call.request.max_output_tokens);
+        CHECK(call.request.reserved_input_tokens >= static_cast<std::int64_t>(call.request.context.prompt().size()));
+        if (scenario == 0) CHECK(call.input_estimate.is_null());
+        else {
+            CHECK(call.input_estimate.at("basis") == "utf8_bytes_div_3_rough");
+            CHECK(number(call.input_estimate.at("tokens")) == (call.request.reserved_input_tokens + 2) / 3);
+            CHECK(restore_request_config(store.request(id)).max_total_calls() == 200);
+        }
+    }
+}
+
 void complete_offline_chain_and_persisted_input() {
     test::TempDir directory;
     Store store(directory.path / "request.db", base_sql, migration_sql);
@@ -414,6 +451,7 @@ int main() {
         {"invalid plan constraints keep accounting but do not change the plan", invalid_plan_is_accounted_without_plan_mutation},
         {"forged host fields and undeclared Worker tools never apply", host_metadata_forgery_and_undeclared_tool_keep_usage},
         {"AMEND fences late output and keep requires fresh instruction and ack", late_response_after_amend_and_explicit_keep},
+        {"bounded output follows frozen role cap and keeps byte reservation while legacy retains 8192", bounded_output_and_display_estimate_preserve_legacy_limits},
         {"interrupted usage holds reservation while cancellation retains capacity", interrupted_usage_stays_unknown_and_cancel_has_capacity},
         {"read-only access is inert and restart fences pending call before resume", restart_fences_pending_call_and_preserves_frozen_config},
         {"published plan resumes task binding after process restart", published_plan_resumes_before_any_new_model_call},

@@ -205,7 +205,7 @@ class PricingFlowEndpoint:
     11/7/3 usage shape without cache-write so the host estimate is exercised.
     """
 
-    def __init__(self):
+    def __init__(self, correctable_read=False):
         fixture = workflow.without_constraints(json.loads(
             (SOURCE / 'tests/fixtures/s15_fake_complete.json').read_text()))
         self.plan = fixture['default'][0]['tool_calls'][0]['arguments']
@@ -219,6 +219,7 @@ class PricingFlowEndpoint:
         self.check = fixture['nodes']['alpha'][3]['tool_calls'][0]['arguments']
         self.acceptance = fixture['default'][1]['tool_calls'][0]['arguments']
         self.steps, self.actions = {}, []
+        self.correctable_read = correctable_read
 
     def choose(self, body):
         contract = json.loads(json.loads(body['input'][0]['content'])['task_contract'])
@@ -236,6 +237,9 @@ class PricingFlowEndpoint:
             return 'submit_plan', self.plan
         if 'issue_work_order' in {tool['name'] for tool in body['tools']}:
             return 'issue_work_order', self.order
+        if self.correctable_read:
+            self.correctable_read = False
+            return 'fs_read', {'path': 'missing-original.txt'}
         key = (binding['task_id'], binding['instruction_revision'])
         index = self.steps.get(key, 0)
         self.steps[key] = index + 1
@@ -356,7 +360,7 @@ class BillingBaselineIntegration(unittest.TestCase):
 
     @classmethod
     def admit_case(cls, label, task, condition, *, receipt_mode='valid', register=True, database=None,
-                   profile=None, cost_budget=100000, nodes=None):
+                   profile=None, cost_budget=100000, nodes=None, bounded=False):
         directory = cls.directory / label
         directory.mkdir(mode=0o700)
         db = database or directory / 'runtime.sqlite'
@@ -365,6 +369,8 @@ class BillingBaselineIntegration(unittest.TestCase):
         system['models'][MODEL_REF] = copy.deepcopy(profile)
         system['defaults']['model_ref'] = MODEL_REF
         system['model_calls']['real_calls_enabled'] = True
+        if bounded:
+            system['model_calls'].update(runtime_policy='bounded-v1', max_total_calls=40)
         system['context']['request_format'] = 'structured-v2'
         system['context'].pop('logical_agent', None)
         if condition == 'single_agent':
@@ -407,8 +413,9 @@ class BillingBaselineIntegration(unittest.TestCase):
         status = cls.command('live-status', '--db', case['database'], '--request', case['request'],
                              '--billing-policy-file', case['policy'])
         authorization = status['authorization_template']
-        if authorization['schema_version'] != 2 or authorization['kind'] != 'wls-live-workflow-authorization-v2':
-            raise AssertionError('billing execution requires the explicit v2 authorization')
+        if (authorization['schema_version'], authorization['kind']) not in (
+                (2, 'wls-live-workflow-authorization-v2'), (3, 'wls-live-workflow-authorization-v3')):
+            raise AssertionError('billing execution requires its versioned authorization')
         if authorization['billing_policy_sha256'] != hashlib.sha256(case['policy'].read_bytes()).hexdigest():
             raise AssertionError('authorization must bind the captured policy bytes')
         authorization.update(network_enabled=True, reserved_cost_micro_usd=100,
@@ -753,6 +760,113 @@ class BillingBaselineIntegration(unittest.TestCase):
                 'final_request_status': second['request_status'],
                 'final_business_delivered': second['business_delivered']}, sort_keys=True))
 
+    def test_11_bounded_command_completes_three_tasks_with_one_corrected_failure(self):
+        endpoint = PricingFlowEndpoint(correctable_read=True)
+        with tls.Peer(self.contexts['server'], endpoint) as peer:
+            profile = copy.deepcopy(self.profile)
+            provider = profile['responses']['provider_profile']
+            provider.update(base_url=f'https://localhost:{peer.port}')
+            provider['capabilities']['max_output_tokens'] = 16384
+            provider.pop('billing_challenge', None)
+            provider['pricing'] = PRICING
+            profile['capabilities']['max_output_tokens'] = 16384
+            case = self.admit_case('bounded-three-tasks', 0, 'multi_agent', register=False,
+                profile=profile, cost_budget=32000000, nodes=('alpha', 'beta', 'gamma'), bounded=True)
+            for node in ('alpha', 'beta', 'gamma'):
+                (Path(case['workspaces'][node]) / 'seed.txt').write_bytes(b'alpha\nbeta\n')
+            status = self.command('live-status', '--db', case['database'], '--request', case['request'])
+            authorization = status['authorization_template']
+            self.assertEqual((authorization['schema_version'], authorization['max_total_calls']), (3, 40))
+            authorization.update(network_enabled=True, reserved_cost_micro_usd=800000,
+                max_calls=64, max_worker_calls_per_task=16, max_batch_duration_ms=120000)
+            write_json(case['authorization'], authorization)
+            report = self.command('pump-live', '--db', case['database'], '--request', case['request'],
+                '--authorization-file', case['authorization'], '--workspaces-file', case['mapping'])
+            self.assertEqual((report['wake_count'], len(report['calls']), report['manager_calls']), (2, 32, 13))
+            self.assertEqual(report['stop_reason'], 'quiescent', report['blocked'])
+            self.assertEqual(report['blocked'], [])
+            self.assertEqual(report['network_started_calls'], 32)
+            self.assertEqual(report['host_authorization_sha256'], hashlib.sha256(case['authorization'].read_bytes()).hexdigest())
+            self.assertEqual(report['budget']['spent_cost'], 32 * PRICED_UNIT_MICRO_USD)
+            self.assertTrue(report['accounting']['ready'])
+            attempts = rows(case['database'], 'SELECT attempt_id,request_envelope,response,usage '
+                'FROM call_attempts WHERE request_id=? ORDER BY rowid', (case['request'],))
+            self.assertEqual(len({row['attempt_id'] for row in attempts}), 32)
+            self.assertEqual(len(peer.requests), 32)
+            for attempt, sent, call in zip(attempts, peer.requests, report['calls']):
+                captured = json.loads(attempt['request_envelope'])
+                wire = json.loads(sent['body'])
+                self.assertEqual(wire['max_output_tokens'], 16384)
+                self.assertGreaterEqual(captured['reserved_input_tokens'], len(sent['body']))
+                self.assertEqual(call['input_estimate']['basis'], 'utf8_bytes_div_3_rough')
+                self.assertGreater(call['input_estimate']['reserved_input_tokens'], call['input_estimate']['tokens'])
+                self.assertIsNone(json.loads(attempt['usage'])['cost_micro_usd'])
+            corrections = [json.loads(row['result']) for row in rows(case['database'],
+                'SELECT result FROM model_tool_feedback') if 'bounded_runtime_v1' in row['result']]
+            self.assertEqual(len(corrections), 1)
+            self.assertEqual(corrections[0]['correction_feedback']['bounded_runtime_v1']['same_error_repeats'], 1)
+            for table in ('live_send_claims', 'live_transport_observations', 'model_tool_feedback'):
+                self.assertEqual(rows(case['database'], f'SELECT count(*) AS n FROM {table}')[0]['n'], 32)
+            for table in ('tasks', 'experience_jobs'):
+                self.assertEqual([row['status'] for row in rows(case['database'],
+                    f'SELECT status FROM {table} ORDER BY rowid')], ['ACCEPTED' if table == 'tasks' else 'DONE'] * 3)
+
+    def test_12_signed_v3_total_cap_and_legacy_authorization_limits(self):
+        case = self.admit_case('bounded-signed-limits', 0, 'multi_agent', bounded=True)
+        authorization = self.authorization(case, 1)
+        for version in (1, 2, 3):
+            selected = copy.deepcopy(authorization)
+            selected.update(schema_version=version, kind=f'wls-live-workflow-authorization-v{version}')
+            if version != 3:
+                selected.pop('max_total_calls')
+            if version == 1:
+                selected.pop('billing_policy_sha256')
+                write_json(case['authorization'], selected)
+                self.command('pump-live', '--db', case['database'], '--request', case['request'],
+                    '--authorization-file', case['authorization'], '--billing-policy-file', case['policy'],
+                    '--workspaces-file', case['mapping'], error=True)
+                self.assertEqual(len(self.endpoint.records[case['request']]), 0)
+                continue
+            if version == 3:
+                selected['max_total_calls'] = 2
+            write_json(case['authorization'], selected)
+            report = self.command('pump-live', '--db', case['database'], '--request', case['request'],
+                '--authorization-file', case['authorization'], '--billing-policy-file', case['policy'],
+                '--workspaces-file', case['mapping'])
+            self.assertEqual(len(report['calls']), 1 if version == 2 else 2)
+            self.assertEqual(report['stop_reason'], 'call_limit' if version == 2 else 'total_call_limit')
+        self.assertEqual(len(self.endpoint.records[case['request']]), 3)
+
+    def test_13_bounded_continuation_stops_at_a_missing_workspace(self):
+        endpoint = PricingFlowEndpoint()
+        with tls.Peer(self.contexts['server'], endpoint) as peer:
+            profile = copy.deepcopy(self.profile)
+            provider = profile['responses']['provider_profile']
+            provider.update(base_url=f'https://localhost:{peer.port}')
+            provider.pop('billing_challenge', None)
+            provider['pricing'] = PRICING
+            case = self.admit_case('bounded-missing-workspace', 0, 'multi_agent', register=False,
+                profile=profile, cost_budget=8000000, nodes=('alpha', 'beta', 'gamma'), bounded=True)
+            for node in ('alpha', 'beta', 'gamma'):
+                (Path(case['workspaces'][node]) / 'seed.txt').write_bytes(b'alpha\nbeta\n')
+            write_json(case['mapping'], {node: path for node, path in case['workspaces'].items() if node != 'gamma'})
+            authorization = self.command('live-status', '--db', case['database'],
+                                         '--request', case['request'])['authorization_template']
+            authorization.update(network_enabled=True, reserved_cost_micro_usd=200000,
+                max_calls=1, max_worker_calls_per_task=16, max_batch_duration_ms=120000)
+            write_json(case['authorization'], authorization)
+            report = self.command('pump-live', '--db', case['database'], '--request', case['request'],
+                '--authorization-file', case['authorization'], '--workspaces-file', case['mapping'])
+            self.assertEqual(report['wake_count'], len(report['calls']))  # No extra empty wake after the real blocker.
+            self.assertEqual(len(report['calls']), 22)
+            self.assertEqual(len(peer.requests), 22)
+            self.assertFalse(report['resume_after_wake_limit'])
+            self.assertTrue(any(item['code'] == 'workspace_missing' and item['node_id'] == 'gamma'
+                                for item in report['blocked']))
+            self.assertEqual(report['budget']['attempts'], 22)
+            self.assertEqual(rows(case['database'], 'SELECT count(*) AS n FROM call_attempts')[0]['n'], 22)
+            self.assertEqual(rows(case['database'], 'SELECT count(*) AS n FROM live_send_claims')[0]['n'], 22)
+
     def test_90_invalid_signed_sources_never_advance_business_or_repeat_send(self):
         for variant in ('bad_signature', 'wrong_challenge', 'wrong_response_hash', 'duplicate_header'):
             with self.subTest(variant=variant):
@@ -801,7 +915,7 @@ class BillingBaselineIntegration(unittest.TestCase):
     def test_91_partial_unknown_and_over_reserved_remain_stopped(self):
         for variant in ('partial_unknown', 'over_reserved'):
             with self.subTest(variant=variant):
-                case = self.admit_case('accounting-' + variant, 4, 'multi_agent', receipt_mode=variant)
+                case = self.admit_case('accounting-' + variant, 4, 'multi_agent', receipt_mode=variant, bounded=True)
                 report = self.pump(case)
                 self.assertEqual(report['stop_reason'], 'needs_accounting')
                 self.assertEqual(len(self.endpoint.records[case['request']]), 1)

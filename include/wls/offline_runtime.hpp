@@ -24,6 +24,7 @@ struct CapturedModelCall {
     // target. The identical value is inside the durable task_contract; model arguments never
     // choose an identity, CAS value, version, or a replacement target.
     Json workflow_action = nullptr;
+    Json input_estimate = nullptr; // Host diagnostic; never replaces original usage.
 };
 
 // Host-selected reservation bounds. Cost is a reservation, never observed

@@ -76,6 +76,9 @@ encrypted_content 为 invalid evidence。边界详见
 
 ## G1-E v3 契约锚、更新和当前状态
 
+本布局接合已合入的 D #57 `guided-v1` 提示词、K #59 响应/profile 解码及 J #58
+`bounded-v1` 运行控制；各自原冻结选择、费用/用量原件和宿主安全检查继续独立生效。
+
 `structured-v3` 同时保存完整原 `task_contract`、原 `messages`、对象 `contract_anchor`、
 有序 `contract_updates` 和末条 `current_state`。宿主的 CAS、目标及经验判断继续只读完整原
 task_contract。锚保存请求原文/约束、任务 brief 和说明正文（含验收项）；正文中的宿主绑定
