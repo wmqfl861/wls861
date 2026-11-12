@@ -140,8 +140,9 @@ std::string run_request_id(std::string_view digest) {
     return result;
 }
 
-volatile std::sig_atomic_t run_interrupted = 0;
-void run_signal(int) { run_interrupted = 1; }
+std::atomic<bool> run_interrupted{false};
+static_assert(decltype(run_interrupted)::is_always_lock_free);
+void run_signal(int) { run_interrupted.store(true, std::memory_order_relaxed); }
 struct RunCancellation {
     std::stop_source source;
     decltype(std::signal(SIGINT, run_signal)) previous{SIG_DFL};
@@ -340,7 +341,7 @@ int run_request(Options& options, const RuntimeResources& resources) {
             const auto resource = allocate_owned_workspace(store, input.request_id, task_id,
                 data / "requests" / input.request_id / "workspaces", "run-workspace-v1:" + text(task.at("team_id")));
             const auto path = text(resource.at("identity").at("workspace_identity").at("path"));
-            auto& owner = owners[task_id];
+            auto& owner = owners[text(task.at("team_id"))];
             if (!owner) owner = std::make_unique<WorkerTools>(store, path);
             return owner.get();
         };
@@ -348,7 +349,9 @@ int run_request(Options& options, const RuntimeResources& resources) {
             input.request_id, authorized.workflow, cancellation.source.get_token());
     }
     const auto tasks = store.tasks(input.request_id);
+    const auto jobs = store.experience_jobs(input.request_id);
     if (completed || (!run_interrupted && !tasks.empty() && store.live_accounting_status(input.request_id).at("ready").as_bool() &&
+            std::all_of(jobs.begin(), jobs.end(), [](const auto& job) { return job.at("status") == "DONE"; }) &&
             std::all_of(tasks.begin(), tasks.end(), [](const auto& task) { return task.at("status") == "ACCEPTED"; }))) {
         try {
             static_cast<void>(layout.identities());

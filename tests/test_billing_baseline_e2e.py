@@ -607,7 +607,7 @@ class BillingBaselineIntegration(unittest.TestCase):
         endpoint = PricingFlowEndpoint(initialize_seed=True)
         with tls.Peer(self.contexts['server'], endpoint) as peer:
             case = self.run_inputs('run-complete', peer)
-            result = self.invoke_run(case)
+            result = self.invoke_run(case, '--data', case['data'])
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertEqual(result.stderr.count('Authorize this bounded run?'), 1)
             preview = json.loads(result.stderr.splitlines()[0])
@@ -646,7 +646,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(len(resources), 3)
             self.assertTrue(all(row['status'] == 'OWNED' for row in resources))
             self.assertTrue(all(json.loads(row['intent'])['parent_identity']['path'] == str(request / 'workspaces') for row in resources))
-            files = [path for path in Path(summary['delivery_path']).iterdir() if path.name != 'manifest.json']
+            files = list(Path(summary['delivery_path']).glob('artifact-*.bin'))
             self.assertEqual([path.read_bytes() for path in files], [b'alpha\nbeta\n'] * 3)
             original = rows(database, 'SELECT created_at,config_snapshot,budget FROM requests')
             original_database = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
@@ -720,6 +720,16 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertNotIn('wls-run-confirmation', rejected.stderr)
             self.assertFalse(list(case['data'].rglob('control.sqlite')))
             self.assertEqual(len(peer.requests), 0)
+            limited = self.run_inputs('run-total-cap', peer)
+            limited['system']['model_calls']['max_total_calls'] = 30
+            write_json(limited['configuration'], limited['system'])
+            result = self.invoke_run(limited, '--yes')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            summary = json.loads(result.stdout)
+            self.assertEqual(summary['status'], 'RUNNING')
+            self.assertEqual(summary['stop_reason'], 'total_call_limit')
+            self.assertIsNone(summary['delivery_path'])
+            self.assertEqual(len(peer.requests), 30)
 
     def test_08_run_ctrl_c_after_settlement_resumes_original_claims_and_effects(self):
         endpoint = PricingFlowEndpoint(initialize_seed=True)

@@ -23,6 +23,7 @@
 #include <memory>
 #include <set>
 #include <csignal>
+#include <atomic>
 #include <thread>
 #include <condition_variable>
 #include <fcntl.h>
