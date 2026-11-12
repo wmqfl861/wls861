@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       verification:
-        description: Verification scope (asan-affected runs three complete suites only)
+        description: Verification scope (asan-affected runs five complete suites only)
         type: choice
         options:
           - full
@@ -115,7 +115,7 @@ jobs:
                   tests/acceptance_runtime_tests.cpp|tests/workspace_tests.cpp|tests/sandbox_tests.cpp|tests/worker_tools_tests.cpp|\
                   tests/delivery_tests.cpp|tests/cleanup_tests.cpp|tests/cleanup_runtime_tests.cpp|tests/audit24_reopen_tests.cpp|\
                   tests/process_evidence_tests.cpp|tests/audit24_reconcile_tests.cpp|tests/audit24_capacity_tests.cpp|tests/r1_history_tests.cpp|\
-                  tests/r1_structured_tests.cpp|tests/r1_window_tests.cpp|tests/r2_rework_tests.cpp|tests/r2_recovery_tests.cpp|\
+                  tests/r1_structured_tests.py|tests/r1_structured_cli_smoke.py|tests/r1_structured_tests.cpp|tests/r1_window_tests.cpp|tests/r2_rework_tests.cpp|tests/r2_recovery_tests.cpp|\
                   tests/r2_amend_tests.cpp|tests/r2a_mkdir_tests.cpp|tests/allocation_recovery_tests.cpp|tests/doctor_diagnostics_tests.cpp|\
                   tests/protocol_codec_tests.cpp|tests/sse_replay_tests.cpp|tests/owned_capacity_tests.cpp|tests/owned_capacity_runtime_tests.cpp|\
                   tests/live_model_store_tests.cpp|tests/billing_tests.cpp|tests/single_agent_tests.cpp) ;;
@@ -151,7 +151,7 @@ jobs:
             echo "- event: $GITHUB_EVENT_NAME, matrix entries: $(printf '%s' "$matrix" | grep -c '"name"')"
             echo "- slow tests: $slow_tests (selected mode always includes all fast tests)"
             if [ "$mode" = asan-affected ]; then
-              echo '- Three complete affected ASan suites only: billing_baseline_e2e, run_cli_e2e, s15_cli_smoke. This is not the full gate.'
+              echo '- Five complete affected ASan suites only: billing_baseline_e2e, run_cli_e2e, s15_cli_smoke, r1_structured, r1_structured_lean. This is not the full gate.'
             fi
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
               echo "- PR head: \`$PR_HEAD_SHA\`; diff merge base: \`${base_sha:-unavailable, fell back to core}\`"
@@ -216,8 +216,8 @@ jobs:
           test "$(id -u)" -ne 0
           umask "${{ matrix.test_umask }}"
           if [ "${{ needs.classify.outputs.mode }}" = asan-affected ]; then
-            echo 'Running three complete affected ASan suites only; this is not the full gate.'
-            ctest --test-dir build -R '^(billing_baseline_e2e|run_cli_e2e|s15_cli_smoke)$' --output-on-failure
+            echo 'Running five complete affected ASan suites only; this is not the full gate.'
+            ctest --test-dir build -R '^(billing_baseline_e2e|run_cli_e2e|s15_cli_smoke|r1_structured|r1_structured_lean)$' --output-on-failure
           elif [ "${{ needs.classify.outputs.mode }}" = selected ]; then
             ctest --test-dir build -L '^ci_selected$' --output-on-failure
           else

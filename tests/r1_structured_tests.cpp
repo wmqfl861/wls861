@@ -521,6 +521,9 @@ void frozen_choice_and_legacy_default() {
     CHECK(next.runtime_support().at("history_window_integrated") == false);
     fails(ErrorCode::InvalidInput, [&] { (void)f.load("unknown-v99"); });
     CHECK(f.load("structured-v3").context_request_format() == "structured-v3");
+}
+void lean_frozen_choice_and_policy() {
+    ConfigFixture f;
     CHECK(f.load("structured-v3").context_model_projection().empty());
     for (const auto* format : {"", "framed-v1", "structured-v2"})
         fails(ErrorCode::InvalidInput, [&] { (void)f.load(format, "lean-v1"); });
@@ -621,9 +624,9 @@ void legacy_frozen_capture_keeps_complete_context_and_wire_bytes() {
 }
 
 CompiledContext rehashed_context(Json document);
-void guided_capture_uses_real_adapter_and_stable_role_rules() {
+void guided_capture_uses_real_adapter_and_stable_role_rules(bool lean = false) {
     const wls::test::live::Assets assets(root); SchemaRegistry schemas(root / "schemas");
-    for (const bool lean : {false, true}) for (const bool fake : {true, false}) {
+    for (const bool fake : {true, false}) {
         if (lean && fake) continue;
         ::test::TempDir directory; auto store = assets.open(directory.path / "guided.sqlite");
         auto admission = wls::test::live::admission(assets, wls::test::live::settings(), "guided", true, fake);
@@ -654,7 +657,8 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
         fails(ErrorCode::InvalidInput, [&] { (void)FrozenRequestConfig::restore(invalid_bytes, sha256_hex(invalid_bytes)); });
         const auto id = str(store->admit(admission), "request_id");
         OfflineRuntime runtime(*store, schemas);
-        const auto first = runtime.capture_call(id, Role::Dispatcher, {}, 1, {}, false, {.reserved_cost_micro_usd = 100}).request;
+        const auto first = runtime.capture_call(id, Role::Dispatcher, {}, 1, {}, false,
+            {.reserved_cost_micro_usd = 100}).request;
         const auto system = first.context.logical_input.at("prefix").at("system");
         const auto environment = parse_json_strict(str(system, "environment_card"));
         CHECK(environment.at("adapter") == frozen.model_profile(Role::Dispatcher).at("adapter"));
@@ -699,18 +703,25 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
         CHECK(compiled_task_contract(amendment.request.context).find("Preserve the amended original requirement.") != std::string::npos);
     }
 }
+void lean_guided_capture_uses_real_adapter_and_stable_role_rules() {
+    guided_capture_uses_real_adapter_and_stable_role_rules(true);
+}
 
 void v3_five_round_encoded_prefix_and_originals(bool lean = false) {
     for (const bool fixed : {false, true}) {
     auto input = described_fixture();
-    ::test::TempDir pages;
+    std::unique_ptr<::test::TempDir> pages;
+    std::unique_ptr<Workspace> workspace;
     if (lean) input.model_projection = "lean-v1";
     if (lean || fixed) {
         const auto& read = worker_tool_definition("fs_read");
         input.tools.push_back({read.name, read.version, read.input_schema, builtin_tool_description(read.name)});
     }
     if (fixed) input.tool_policy = "fixed-role-v1";
-    Workspace workspace(pages.path, WorkspaceAccess::ReadOnly);
+    if (lean) {
+        pages = std::make_unique<::test::TempDir>();
+        workspace = std::make_unique<Workspace>(pages->path, WorkspaceAccess::ReadOnly);
+    }
     Json contract = Object{{"request", Object{{"requirements_revision", 1},
         {"texts", Array{Object{{"text", "original request"}, {"kind", "ORIGINAL"}}}}, {"constraint_catalog", Array{}}}},
         {"task", Object{{"brief", Object{{"goal", "retain original bytes"}}}, {"task_revision", 1}, {"state_version", 1}}},
@@ -785,8 +796,8 @@ void v3_five_round_encoded_prefix_and_originals(bool lean = false) {
             const std::string bytes = round == 0 ? "原始UTF-8😀" : round == 1 ? "" :
                 round == 2 ? std::string("\xff\0", 2) : round == 3 ? "😀" : std::string(2048, 'a');
             const auto path = "page" + std::to_string(round);
-            { std::ofstream file(pages.path / path, std::ios::binary); file << bytes; CHECK(file.good()); }
-            const auto page = workspace.read(path, 0, round == 3 ? 1 : 4096);
+            { std::ofstream file(pages->path / path, std::ios::binary); file << bytes; CHECK(file.good()); }
+            const auto page = workspace->read(path, 0, round == 3 ? 1 : 4096);
             auto& response = original.at("response");
             response.at("tool_calls").as_array()[0].at("name") = "fs_read";
             response.at("tool_calls").as_array()[0].at("arguments") = Object{{"path", path}};
@@ -838,6 +849,9 @@ void v3_five_round_encoded_prefix_and_originals(bool lean = false) {
     CHECK(amended.context.logical_input.at("messages") == single_agent_messages_json(messages));
     CHECK(encode_responses_request(profile, model_request_from_json(to_json(amended))).body == canonical_json(encoded));
     }
+}
+void lean_wire_projection_preserves_originals_and_ordered_prefix() {
+    v3_five_round_encoded_prefix_and_originals(true);
 }
 
 struct V3Fixture {
@@ -895,8 +909,8 @@ struct V3Fixture {
     }
 };
 
-void v3_capture_reserve_restore_policy_combinations() {
-    for (const bool lean : {false, true}) for (const bool fixed : {false, true}) for (const auto* mode : {"worker", "manager", "single", "all"}) {
+void v3_capture_reserve_restore_policy_combinations(bool lean = false) {
+    for (const bool fixed : {false, true}) for (const auto* mode : {"worker", "manager", "single", "all"}) {
         if (lean && std::string_view(mode) != "all") continue; // One combined fixture covers all three independent history choices.
         V3Fixture fixture(mode, 6, fixed, lean);
         Json prefix = nullptr;
@@ -932,6 +946,9 @@ void v3_capture_reserve_restore_policy_combinations() {
             CHECK(call.request.context.role == Role::Worker);
         }
     }
+}
+void lean_v3_capture_reserve_restore_policy_combinations() {
+    v3_capture_reserve_restore_policy_combinations(true);
 }
 
 void v3_amend_reopen_and_original_cas() {
@@ -1129,14 +1146,15 @@ void fixed_role_policy_tampering_and_current_revocation_reject() {
 
 } // namespace
 
-int main() {
-    return ::test::run({
-        {"v3 encoded five round prefix preserves native originals", [] { v3_five_round_encoded_prefix_and_originals(); }},
-        {"lean wire projection preserves originals and ordered prefix", [] { v3_five_round_encoded_prefix_and_originals(true); }},
-        {"lean projection preserves errors and checks originals", lean_projection_preserves_errors_and_checks_originals},
+namespace {
+using TestCase = ::test::Case;
+
+std::vector<TestCase> legacy_cases() {
+    return {
         {"fixed role disallowed selection settles once and preserves original history", fixed_role_selection_settles_once_and_keeps_original_history},
         {"fixed role policy tampering and current revocation reject", fixed_role_policy_tampering_and_current_revocation_reject},
-        {"v3 capture reserve restore history policy combinations", v3_capture_reserve_restore_policy_combinations},
+        {"v3 encoded five round prefix preserves native originals", [] { v3_five_round_encoded_prefix_and_originals(); }},
+        {"v3 capture reserve restore history policy combinations", [] { v3_capture_reserve_restore_policy_combinations(); }},
         {"v3 AMEND and reopen preserve anchor and original CAS", v3_amend_reopen_and_original_cas},
         {"v3 cross version and projection corruption reject", v3_cross_version_and_projection_corruption_reject},
         {"separate structure and exact restoration", separate_fields_and_round_trip},
@@ -1151,7 +1169,7 @@ int main() {
         {"legacy full canonical and wire fingerprints", legacy_full_byte_fingerprints},
         {"guided prompt identifiers name registered tools", guided_prompt_identifiers_are_registered_tools},
         {"legacy frozen captures keep complete context hashes and wire bytes", legacy_frozen_capture_keeps_complete_context_and_wire_bytes},
-        {"guided capture projects real adapters and stable role rules", guided_capture_uses_real_adapter_and_stable_role_rules},
+        {"guided capture projects real adapters and stable role rules", [] { guided_capture_uses_real_adapter_and_stable_role_rules(); }},
         {"all builtin v3 descriptions preserve original schemas", all_builtin_v3_descriptions_preserve_registry},
         {"v3 description hashes roundtrip and native encoding", v3_hash_roundtrip_and_wire},
         {"v3 missing malformed or oversized descriptions reject", v3_missing_invalid_and_oversized_descriptions_refuse},
@@ -1165,5 +1183,84 @@ int main() {
         {"Store refuses frozen format mismatch before reservation", store_rejects_format_policy_mismatch},
         {"responses output roundtrips restore and hash coverage", responses_output_roundtrip_restore_and_hash},
         {"window measurement counts payload and quota-fences recent reasoning", window_measurement_counts_payload_and_quota_guards_recent_reasoning}
-    });
+    };
+}
+
+std::vector<TestCase> lean_cases() {
+    return {
+        {"lean wire projection preserves originals and ordered prefix", lean_wire_projection_preserves_originals_and_ordered_prefix},
+        {"lean projection preserves errors and checks originals", lean_projection_preserves_errors_and_checks_originals},
+        {"guided capture projects lean adapter and stable role rules", lean_guided_capture_uses_real_adapter_and_stable_role_rules},
+        {"lean v3 capture reserve restore policy combinations", lean_v3_capture_reserve_restore_policy_combinations},
+        {"lean frozen format and policy selection", lean_frozen_choice_and_policy}
+    };
+}
+
+std::vector<TestCase> all_cases() {
+    return {
+        {"v3 encoded five round prefix preserves native originals", [] { v3_five_round_encoded_prefix_and_originals(); }},
+        {"lean wire projection preserves originals and ordered prefix", lean_wire_projection_preserves_originals_and_ordered_prefix},
+        {"lean projection preserves errors and checks originals", lean_projection_preserves_errors_and_checks_originals},
+        {"fixed role disallowed selection settles once and preserves original history", fixed_role_selection_settles_once_and_keeps_original_history},
+        {"fixed role policy tampering and current revocation reject", fixed_role_policy_tampering_and_current_revocation_reject},
+        {"v3 capture reserve restore history policy combinations", [] { v3_capture_reserve_restore_policy_combinations(); }},
+        {"lean v3 capture reserve restore policy combinations", lean_v3_capture_reserve_restore_policy_combinations},
+        {"v3 AMEND and reopen preserve anchor and original CAS", v3_amend_reopen_and_original_cas},
+        {"v3 cross version and projection corruption reject", v3_cross_version_and_projection_corruption_reject},
+        {"separate structure and exact restoration", separate_fields_and_round_trip},
+        {"canonical tools and dependencies", canonical_tools_and_dependencies},
+        {"logical request and prefix cache fingerprints", cache_and_full_request_are_distinct},
+        {"pairing and dynamic authority refusals", pairing_and_role_refusals},
+        {"parallel turns need every result", parallel_turn_requires_all_results},
+        {"self-consistent forged hash does not authorize malformed structure", forged_hash_does_not_authorize_structure},
+        {"metadata and projection tampering reject", metadata_tampering_rejects},
+        {"capacity and unconverted legacy input reject", bounds_and_legacy_messages_refuse},
+        {"legacy serialized bytes unchanged", legacy_bytes_unchanged},
+        {"legacy full canonical and wire fingerprints", legacy_full_byte_fingerprints},
+        {"guided prompt identifiers name registered tools", guided_prompt_identifiers_are_registered_tools},
+        {"legacy frozen captures keep complete context hashes and wire bytes", legacy_frozen_capture_keeps_complete_context_and_wire_bytes},
+        {"guided capture projects real adapters and stable role rules", [] { guided_capture_uses_real_adapter_and_stable_role_rules(); }},
+        {"guided capture projects lean adapter and stable role rules", lean_guided_capture_uses_real_adapter_and_stable_role_rules},
+        {"all builtin v3 descriptions preserve original schemas", all_builtin_v3_descriptions_preserve_registry},
+        {"v3 description hashes roundtrip and native encoding", v3_hash_roundtrip_and_wire},
+        {"v3 missing malformed or oversized descriptions reject", v3_missing_invalid_and_oversized_descriptions_refuse},
+        {"FakeModel consumes restored structured envelope", fake_uses_same_persisted_structure},
+        {"full envelope hash covers reservation and format", full_envelope_integrity_covers_reservations},
+        {"restored envelopes and later mutable requests keep all validation gates", restored_requests_keep_deep_and_public_validation},
+        {"provider tool IDs isolated by original attempt", same_provider_ids_have_distinct_logical_ids},
+        {"missing and unapplied attempts remain observations", missing_late_and_invalid_are_observations},
+        {"source corruption refuses", corrupted_source_binding_refuses},
+        {"frozen format and legacy defaults", frozen_choice_and_legacy_default},
+        {"lean frozen format and policy selection", lean_frozen_choice_and_policy},
+        {"Store refuses frozen format mismatch before reservation", store_rejects_format_policy_mismatch},
+        {"responses output roundtrips restore and hash coverage", responses_output_roundtrip_restore_and_hash},
+        {"window measurement counts payload and quota-fences recent reasoning", window_measurement_counts_payload_and_quota_guards_recent_reasoning}
+    };
+}
+} // namespace
+
+int main(int argc, char** argv) {
+    std::cout << std::unitbuf;
+    std::cerr << std::unitbuf;
+    std::string_view group = "all";
+    if (argc != 1) {
+        if (argc != 3 || std::string_view(argv[1]) != "--group") {
+            std::cerr << "usage: r1_structured_tests [--group all|legacy|lean]\n";
+            return 2;
+        }
+        group = argv[2];
+    }
+    if (group != "all" && group != "legacy" && group != "lean") {
+        std::cerr << "unknown group: " << group << "\n"
+                  << "usage: r1_structured_tests [--group all|legacy|lean]\n";
+        return 2;
+    }
+
+    const auto legacy = legacy_cases();
+    const auto lean = lean_cases();
+    std::vector<TestCase> selected;
+    if (group == "all") selected = all_cases();
+    else selected = group == "legacy" ? legacy : lean;
+    std::cout << "GROUP r1_structured " << group << ": " << selected.size() << " top-level cases\n";
+    return ::test::run(selected);
 }
