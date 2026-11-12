@@ -4,6 +4,7 @@ CXX ?= g++
 AR ?= ar
 PYTHON ?= python3
 BUILD_DIR ?= build
+TEST_SHARD ?= all
 CPPFLAGS ?=
 CXXFLAGS ?= -O2 -g
 LDFLAGS ?=
@@ -13,6 +14,13 @@ LDLIBS ?=
 # also through Valijson. Keep -Werror and all sanitizer checks enabled.
 # Use ASAN_OPTIMIZATION=-O1 explicitly on toolchains that support it.
 ASAN_OPTIMIZATION ?= -O0
+
+ifneq ($(words $(TEST_SHARD)),1)
+$(error TEST_SHARD must be one of all, 1, or 2)
+endif
+ifeq ($(filter all 1 2,$(TEST_SHARD)),)
+$(error TEST_SHARD must be one of all, 1, or 2)
+endif
 
 REQUIRED_CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -pthread
 INCLUDES := -Iinclude -Itests
@@ -80,6 +88,7 @@ verify-contracts:
 	$(PYTHON) tests/contracts_tests.py
 
 test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_DRIVER) $(WORKFLOW_TEST_DRIVER)
+ifneq ($(filter all 1,$(TEST_SHARD)),)
 	$(PYTHON) scripts/verify_handoff.py
 	$(PYTHON) scripts/verify_review_source.py
 	$(PYTHON) tests/contracts_tests.py
@@ -111,7 +120,9 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_
 	"$(BUILD_DIR)/audit24_capacity_tests"
 	"$(BUILD_DIR)/audit24_capacity_repro_tests"
 	"$(BUILD_DIR)/r1_history_tests"
-	"$(BUILD_DIR)/r1_structured_tests"
+	"$(BUILD_DIR)/r1_structured_tests" --group legacy-rest
+	"$(BUILD_DIR)/r1_structured_tests" --group legacy-capture
+	"$(BUILD_DIR)/r1_structured_tests" --group lean
 	"$(BUILD_DIR)/r1_window_tests"
 	"$(BUILD_DIR)/append_fold_tests"
 	"$(BUILD_DIR)/r2_rework_tests"
@@ -138,6 +149,8 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_
 	$(PYTHON) tests/s14_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/s15_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/s16_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
+endif
+ifneq ($(filter all 2,$(TEST_SHARD)),)
 	$(PYTHON) tests/audit24_capacity_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/audit24_reconcile_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/audit24_reopen_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
@@ -158,9 +171,11 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_
 	$(PYTHON) tests/test_live_model_store.py "$(abspath $(LIVE_TEST_DRIVER))" "$(abspath .)"
 	$(PYTHON) tests/test_live_workflow.py "$(abspath $(WORKFLOW_TEST_DRIVER))" "$(abspath .)"
 	$(PYTHON) tests/test_live_workflow_cli.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
-	$(PYTHON) tests/test_billing_baseline_e2e.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
+	$(PYTHON) tests/test_billing_baseline_e2e.py "$(abspath $(S1_APPLICATION))" "$(abspath .)" --group billing
+	$(PYTHON) tests/test_billing_baseline_e2e.py "$(abspath $(S1_APPLICATION))" "$(abspath .)" --group run
 	$(PYTHON) tests/runtime_resources_cli_tests.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/review_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
+endif
 
 # The default sanitizer gate is UBSan; ASan is independently available so a
 # runtime without working ASan support cannot be mistaken for a code failure.

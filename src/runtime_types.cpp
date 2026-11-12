@@ -1,6 +1,8 @@
 #include "wls/runtime_types.hpp"
 
 #include <boost/json/basic_parser_impl.hpp>
+#include <boost/json/monotonic_resource.hpp>
+#include <boost/json/serializer.hpp>
 #include <openssl/evp.h>
 #include <sys/random.h>
 
@@ -65,10 +67,24 @@ struct UniqueKeys {
     bool on_comment(View, ParseError&) { return true; }
 };
 
-void append_canonical(const Json& value, std::string& out, std::size_t depth) {
+struct CanonicalSerializer {
+    boost::json::serializer serializer;
+    char buffer[4096];
+    template <class T> void append(T item, std::string& out) {
+        serializer.reset(item);
+        while (!serializer.done()) {
+            const auto piece = serializer.read(buffer);
+            out.append(piece.data(), piece.size());
+        }
+    }
+};
+
+void append_canonical(const Json& value, std::string& out, std::size_t depth,
+                      CanonicalSerializer& serializer) {
     if (depth > 128) throw Error(ErrorCode::InvalidInput, "JSON exceeds canonical depth limit");
     if (value.is_object()) {
         std::vector<const boost::json::key_value_pair*> entries;
+        entries.reserve(value.as_object().size());
         for (const auto& member : value.as_object()) entries.push_back(&member);
         std::sort(entries.begin(), entries.end(), [](const auto* left, const auto* right) {
             return left->key() < right->key();
@@ -78,9 +94,9 @@ void append_canonical(const Json& value, std::string& out, std::size_t depth) {
         for (const auto* member : entries) {
             if (!first) out.push_back(',');
             first = false;
-            out += boost::json::serialize(member->key());
+            serializer.append(member->key(), out);
             out.push_back(':');
-            append_canonical(member->value(), out, depth + 1);
+            append_canonical(member->value(), out, depth + 1, serializer);
         }
         out.push_back('}');
     } else if (value.is_array()) {
@@ -89,13 +105,13 @@ void append_canonical(const Json& value, std::string& out, std::size_t depth) {
         for (const auto& element : value.as_array()) {
             if (!first) out.push_back(',');
             first = false;
-            append_canonical(element, out, depth + 1);
+            append_canonical(element, out, depth + 1, serializer);
         }
         out.push_back(']');
     } else {
         if (value.is_double() && !std::isfinite(value.as_double()))
             throw Error(ErrorCode::InvalidInput, "non-finite JSON number");
-        out += boost::json::serialize(value);
+        serializer.append(&value, out);
     }
 }
 
@@ -179,12 +195,15 @@ Json parse_json_strict(std::string_view text, std::size_t max_bytes, std::size_t
 
 std::string canonical_json(const Json& value) {
     std::string result;
-    append_canonical(value, result, 0);
+    CanonicalSerializer serializer;
+    append_canonical(value, result, 0, serializer);
     // Program-created strings also need UTF-8 validation before hashing/storing.
     boost::json::parse_options options;
     options.max_depth = 128;
     ParseError ec;
-    static_cast<void>(boost::json::parse(result, ec, {}, options));
+    unsigned char validation_buffer[4096];
+    boost::json::monotonic_resource validation_resource(validation_buffer);
+    static_cast<void>(boost::json::parse(result, ec, &validation_resource, options));
     if (ec) throw Error(ErrorCode::InvalidInput, "canonical JSON contains invalid UTF-8 or structure");
     return result;
 }

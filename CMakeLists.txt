@@ -122,6 +122,11 @@ if(BUILD_TESTING)
             add_test(NAME single_agent COMMAND single_agent_tests --group history)
             add_test(NAME single_agent_runtime COMMAND single_agent_tests --group runtime)
             set_tests_properties(single_agent_runtime PROPERTIES TIMEOUT 90)
+        elseif(suite STREQUAL "r1_structured")
+            add_test(NAME r1_structured COMMAND r1_structured_tests --group legacy-rest)
+            add_test(NAME r1_structured_capture COMMAND r1_structured_tests --group legacy-capture)
+            add_test(NAME r1_structured_lean COMMAND r1_structured_tests --group lean)
+            set_tests_properties(r1_structured_capture r1_structured_lean PROPERTIES TIMEOUT 90)
         else()
             add_test(NAME ${suite} COMMAND ${suite}_tests)
         endif()
@@ -167,8 +172,12 @@ if(BUILD_TESTING)
     set_tests_properties(live_workflow_cli PROPERTIES TIMEOUT 180)
     add_test(NAME billing_baseline_e2e
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_billing_baseline_e2e.py"
-                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
+                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}" --group billing)
     set_tests_properties(billing_baseline_e2e PROPERTIES TIMEOUT 900)
+    add_test(NAME run_cli_e2e
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_billing_baseline_e2e.py"
+                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}" --group run)
+    set_tests_properties(run_cli_e2e PROPERTIES TIMEOUT 600)
     add_test(NAME runtime_resources_cli
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime_resources_cli_tests.py"
                 "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
@@ -270,7 +279,7 @@ if(BUILD_TESTING)
 
     # Keep every test registered; CI selects execution and build dependencies together.
     set(WLS_CI_SLOW_TESTS "all" CACHE STRING "CI slow tests: all, none, or a semicolon-separated list")
-    set(wls_ci_slow_tests billing_baseline_e2e live_workflow audit24_capacity_repro
+    set(wls_ci_slow_tests billing_baseline_e2e run_cli_e2e live_workflow audit24_capacity_repro
         https_transport r3_evaluation r1_management)
     if(WLS_CI_SLOW_TESTS STREQUAL "all")
         set(wls_ci_selected_slow ${wls_ci_slow_tests})

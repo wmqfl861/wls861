@@ -10,6 +10,7 @@ engineering evidence, never provider identity or comparative model quality.
 from __future__ import annotations
 
 from contextlib import closing
+import argparse
 import copy
 import hashlib
 import importlib.util
@@ -27,9 +28,11 @@ import time
 import unittest
 
 if len(sys.argv) < 3:
-    raise SystemExit('usage: test_billing_baseline_e2e.py WLS SOURCE [unittest options]')
+    raise SystemExit('usage: test_billing_baseline_e2e.py WLS SOURCE [--group all|billing|run] [unittest options]')
 BINARY, SOURCE = (Path(value).resolve() for value in sys.argv[1:3])
-TEST_ARGUMENTS = sys.argv[3:]
+group_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+group_parser.add_argument('--group', choices=('all', 'billing', 'run'), default='all')
+GROUP_OPTIONS, TEST_ARGUMENTS = group_parser.parse_known_args(sys.argv[3:])
 sys.argv = [sys.argv[0], str(BINARY), str(SOURCE)]
 spec = importlib.util.spec_from_file_location('independent_workflow_fixture',
                                             SOURCE / 'tests/test_live_workflow.py')
@@ -1483,5 +1486,37 @@ class BillingBaselineIntegration(unittest.TestCase):
                      for row in report['rows']]}, sort_keys=True))
 
 
+# G1-L added these complete methods after the original billing suite existed.
+RUN_TEST_METHODS = frozenset((
+    'test_06_run_once_delivers_three_tasks_and_two_requests_share_data',
+    'test_07_run_refusal_config_budget_and_unsafe_paths_before_confirmation',
+    'test_08_run_ctrl_c_after_settlement_resumes_original_claims_and_effects',
+    'test_09_run_unknown_send_stops_and_changed_configuration_cannot_resume',
+    'test_09b_run_resumes_exact_intent_after_empty_store_initialization',
+))
+
+
+class BillingGroupLoader(unittest.TestLoader):
+    def getTestCaseNames(self, testCaseClass):
+        names = super().getTestCaseNames(testCaseClass)
+        if testCaseClass is BillingBaselineIntegration:
+            if not RUN_TEST_METHODS.issubset(unittest.defaultTestLoader.getTestCaseNames(testCaseClass)):
+                raise ValueError('run group does not match the complete G1-L methods')
+            names = [name for name in names
+                     if (name in RUN_TEST_METHODS) == (GROUP_OPTIONS.group == 'run')]
+            if not names:
+                raise ValueError('no tests match the requested group and unittest options')
+        return names
+
+    def loadTestsFromName(self, name, module=None):
+        tests = super().loadTestsFromName(name, module)
+        for test in tests:
+            if isinstance(test, BillingBaselineIntegration) and (
+                    (test._testMethodName in RUN_TEST_METHODS) != (GROUP_OPTIONS.group == 'run')):
+                raise ValueError('named unittest method does not match the requested group')
+        return tests
+
+
 if __name__ == '__main__':
-    unittest.main(verbosity=2)
+    unittest.main(verbosity=2, testLoader=(unittest.defaultTestLoader
+                  if GROUP_OPTIONS.group == 'all' else BillingGroupLoader()))

@@ -37,6 +37,43 @@ void canonical_and_digest() {
     test::throws<Error>([] { (void)canonical_json(Json(std::string(1, static_cast<char>(0xff)))); });
 }
 
+void canonical_long_keys_and_values_keep_original_bytes() {
+    std::string text;
+    for (int i = 0; i < 2048; ++i) {
+        text += "原始😀\n\"\\/";
+        text.push_back('\0');
+    }
+    CHECK(text.size() > 16384);
+    const Json value = boost::json::object{{text, 1}, {"z", text},
+        {"a", boost::json::array{true, text, nullptr}}};
+    // Keep the unchanged Boost leaf encoding as the oracle, with literal key order.
+    const auto quoted = boost::json::serialize(Json(text));
+    CHECK(canonical_json(value) == "{\"a\":[true," + quoted + ",null],\"z\":" + quoted + "," + quoted + ":1}");
+    Json invalid = boost::json::object{};
+    invalid.as_object().emplace(std::string(1, static_cast<char>(0xff)), 1);
+    bool rejected = false;
+    try { (void)canonical_json(invalid); }
+    catch (const Error& error) { rejected = error.code() == ErrorCode::InvalidInput; }
+    CHECK(rejected);
+}
+
+void canonical_depth_keeps_empty_container_boundary() {
+    for (const bool object_leaf : {false, true}) {
+        Json value = object_leaf ? Json(boost::json::object{}) : Json(boost::json::array{});
+        std::string expected = object_leaf ? "{}" : "[]";
+        for (int depth = 1; depth < 128; ++depth) {
+            value = boost::json::array{value};
+            expected = "[" + expected + "]";
+        }
+        CHECK(canonical_json(value) == expected);
+        value = boost::json::array{value};
+        bool rejected = false;
+        try { (void)canonical_json(value); }
+        catch (const Error& error) { rejected = error.code() == ErrorCode::InvalidInput; }
+        CHECK(rejected);
+    }
+}
+
 void decimal_money_limits_do_not_lose_microdollars() {
     for (int cents = 0; cents <= 20000; ++cents) {
         const auto spelling = std::to_string(cents / 100) + "." +
@@ -139,6 +176,8 @@ int main() {
     return test::run({
         {"strict JSON rejects duplicates, bad UTF-8 and non-finite input", strict_json},
         {"canonical bytes and SHA-256 preserve content identity", canonical_and_digest},
+        {"canonical long keys and values preserve original bytes and reject invalid keys", canonical_long_keys_and_values_keep_original_bytes},
+        {"canonical depth keeps the 128-container boundary for empty arrays and objects", canonical_depth_keeps_empty_container_boundary},
         {"decimal money limits preserve every cent and round down sub-micro amounts", decimal_money_limits_do_not_lose_microdollars},
         {"catalog input shape rejects missing keys and wrong types as invalid input", catalog_shape_errors_are_user_errors},
         {"typed ULIDs are monotonic and unique across threads", typed_ulids},

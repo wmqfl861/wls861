@@ -9,6 +9,14 @@ on:
     # Nightly full-matrix verification at 03:17 UTC; GitHub cron is UTC.
     - cron: '17 3 * * *'
   workflow_dispatch:
+    inputs:
+      verification:
+        description: Verification scope (asan-affected runs six complete suites only)
+        type: choice
+        options:
+          - full
+          - asan-affected
+        default: full
 
 permissions:
   contents: read
@@ -39,11 +47,13 @@ jobs:
         shell: bash
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MANUAL_VERIFICATION: ${{ inputs.verification }}
         run: |
           set -euo pipefail
           # The pull-request compile matrix keeps exactly the three existing
           # core configurations; main pushes, the nightly UTC schedule and
-          # manual dispatches keep the complete six-entry matrix below.
+          # full manual dispatches keep six configurations across eight jobs
+          # below: six CMake jobs and two Make jobs.
           pr_matrix='{"include":[
           {"name":"strict","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0022"},
           {"name":"strict-umask-0002","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0002"},
@@ -54,15 +64,32 @@ jobs:
           {"name":"strict-umask-0002","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0002"},
           {"name":"UBSan","compiler":"g++","build_type":"Debug","ubsan":"ON","asan":"OFF","test_umask":"0002"},
           {"name":"ASan","compiler":"g++","build_type":"Debug","ubsan":"OFF","asan":"ON","test_umask":"0002"},
-          {"name":"Make-ASan","compiler":"g++","build_type":"Debug","ubsan":"OFF","asan":"ON","test_umask":"0002"},
+          {"name":"Make-ASan-1/2","compiler":"g++","build_type":"Debug","ubsan":"OFF","asan":"ON","test_umask":"0002","make_shard":"1"},
+          {"name":"Make-ASan-2/2","compiler":"g++","build_type":"Debug","ubsan":"OFF","asan":"ON","test_umask":"0002","make_shard":"2"},
           {"name":"Clang-18","compiler":"clang++-18","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0002"}
           ]}'
           base_sha=''
           changed=0
           slow_tests=all
-          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            case "${MANUAL_VERIFICATION:-full}" in
+              full|asan-affected) ;;
+              *) echo 'Unknown manual verification scope' >&2; exit 2 ;;
+            esac
+          fi
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "${MANUAL_VERIFICATION:-full}" = asan-affected ]; then
+            mode=asan-affected
+            matrix="$(printf '%s' "$full_matrix" | python3 -c 'import json,sys; m=json.load(sys.stdin); m["include"]=[x for x in m["include"] if x["name"]=="ASan"]; assert len(m["include"])==1; print(json.dumps(m))')"
+          elif [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
             mode=full
-            matrix="$full_matrix"
+            matrix="$(printf '%s' "$full_matrix" | python3 -c '
+          import json, sys
+          matrix = json.load(sys.stdin)
+          matrix["include"] = [
+              dict(row, name=f"ASan-{shard}/2", cmake_shard=str(shard)) if row["name"] == "ASan" else row
+              for row in matrix["include"] for shard in ([1, 2] if row["name"] == "ASan" else [0])
+          ]
+          print(json.dumps(matrix))')"
           else
             mode=core
             matrix="$pr_matrix"
@@ -83,7 +110,7 @@ jobs:
                 case "$path" in
                   README.md|docs/STATUS.md|docs/ROADMAP.md|docs/REVISION-v0.4.1.md) continue ;;
                   docs/reviews/*.md|docs/reports/*.md|docs/adr/*.md|docs/implementation/*.md) continue ;;
-                  tests/test_billing_baseline_e2e.py) slow=billing_baseline_e2e ;;
+                  tests/test_billing_baseline_e2e.py) slow='billing_baseline_e2e;run_cli_e2e' ;;
                   tests/live_workflow_driver.cpp) slow=live_workflow ;;
                   tests/audit24_capacity_repro_tests.cpp) slow=audit24_capacity_repro ;;
                   tests/https_transport_driver.cpp) slow=https_transport ;;
@@ -96,7 +123,7 @@ jobs:
                   tests/acceptance_runtime_tests.cpp|tests/workspace_tests.cpp|tests/sandbox_tests.cpp|tests/worker_tools_tests.cpp|\
                   tests/delivery_tests.cpp|tests/cleanup_tests.cpp|tests/cleanup_runtime_tests.cpp|tests/audit24_reopen_tests.cpp|\
                   tests/process_evidence_tests.cpp|tests/audit24_reconcile_tests.cpp|tests/audit24_capacity_tests.cpp|tests/r1_history_tests.cpp|\
-                  tests/r1_structured_tests.cpp|tests/r1_window_tests.cpp|tests/r2_rework_tests.cpp|tests/r2_recovery_tests.cpp|\
+                  tests/r1_structured_tests.py|tests/r1_structured_cli_smoke.py|tests/r1_structured_tests.cpp|tests/r1_window_tests.cpp|tests/r2_rework_tests.cpp|tests/r2_recovery_tests.cpp|\
                   tests/r2_amend_tests.cpp|tests/r2a_mkdir_tests.cpp|tests/allocation_recovery_tests.cpp|tests/doctor_diagnostics_tests.cpp|\
                   tests/protocol_codec_tests.cpp|tests/sse_replay_tests.cpp|tests/owned_capacity_tests.cpp|tests/owned_capacity_runtime_tests.cpp|\
                   tests/live_model_store_tests.cpp|tests/billing_tests.cpp|tests/single_agent_tests.cpp) ;;
@@ -129,8 +156,11 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           {
             echo "### Change classification: \`$mode\`"
-            echo "- event: $GITHUB_EVENT_NAME, matrix entries: $(printf '%s' "$matrix" | grep -c '"name"')"
+            echo "- event: $GITHUB_EVENT_NAME, matrix entries: $(printf '%s' "$matrix" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["include"]))')"
             echo "- slow tests: $slow_tests (selected mode always includes all fast tests)"
+            if [ "$mode" = asan-affected ]; then
+              echo '- Six complete affected ASan suites only: r1_structured, r1_structured_capture, r1_structured_lean, billing_baseline_e2e, run_cli_e2e, s15_cli_smoke. This is not the full gate.'
+            fi
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
               echo "- PR head: \`$PR_HEAD_SHA\`; diff merge base: \`${base_sha:-unavailable, fell back to core}\`"
               echo "- changed paths counted: $changed"
@@ -141,11 +171,10 @@ jobs:
     name: Linux C++20 (${{ matrix.name }})
     needs: classify
     runs-on: ubuntu-24.04
-    # The 78-suite ASan jobs exhausted the former 40-minute total budget.
-    # Make reached the final integration suite after almost 39 minutes; the
-    # same-source CMake suite took 497.88s, with two Make suites still after it.
-    # Reserve 55 minutes only for ASan. Keep all per-test deadlines, assertions,
-    # leak checks, ordinary-user checks and the original Make CPPFLAGS path.
+    # Keep the existing 55-minute ASan budget for each CMake and Make shard.
+    # CMake runners cover odd/even registrations; Make keeps its two parts.
+    # Keep all per-test deadlines, assertions, leak checks, ordinary-user
+    # checks and the original Make CPPFLAGS path.
     timeout-minutes: ${{ matrix.asan == 'ON' && 55 || 40 }}
     strategy:
       fail-fast: false
@@ -158,14 +187,17 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
       - name: Install C++ development dependencies
         if: needs.classify.outputs.mode != 'docs-only'
         run: |
-          # The hosted runner's Azure mirror DNS is unavailable. Use the
-          # kernel.org Ubuntu mirror redirect, while retaining Ubuntu's
-          # signed InRelease/package verification and the original suites.
+          # Prefer Ubuntu's official archive, with the existing HTTPS mirror as fallback.
+          # APT keeps Ubuntu signature checks and tries the next mirror on failure.
           test -f /etc/apt/apt-mirrors.txt && test ! -L /etc/apt/apt-mirrors.txt
-          printf '%s\n' 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          printf '%s\tpriority:%s\n' \
+            'https://archive.ubuntu.com/ubuntu/' 1 \
+            'https://mirrors.edge.kernel.org/ubuntu/' 2 \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get update
           sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libcurl4-openssl-dev libyaml-dev openssl
           if [ "${{ matrix.compiler }}" = clang++-18 ]; then
@@ -177,11 +209,11 @@ jobs:
           python3 -m venv .local/test-venv
           .local/test-venv/bin/python -m pip install -r requirements-test.txt
       - name: Configure CMake
-        if: needs.classify.outputs.mode != 'docs-only' && matrix.name != 'Make-ASan'
+        if: needs.classify.outputs.mode != 'docs-only' && !matrix.make_shard
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }} -DWLS_ENABLE_ASAN=${{ matrix.asan }} -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python" -DWLS_CI_SLOW_TESTS="${{ needs.classify.outputs.slow_tests }}"
       - name: Build with warnings as errors
-        if: needs.classify.outputs.mode != 'docs-only' && matrix.name != 'Make-ASan'
+        if: needs.classify.outputs.mode != 'docs-only' && !matrix.make_shard
         run: |
           if [ "${{ needs.classify.outputs.mode }}" = selected ]; then
             cmake --build build --target wls_ci_selected --parallel 2
@@ -189,21 +221,47 @@ jobs:
             cmake --build build --parallel 2
           fi
       - name: Run CTest as an ordinary user
-        if: needs.classify.outputs.mode != 'docs-only' && matrix.name != 'Make-ASan'
+        if: needs.classify.outputs.mode != 'docs-only' && !matrix.make_shard
         run: |
           test "$(id -u)" -ne 0
           umask "${{ matrix.test_umask }}"
-          if [ "${{ needs.classify.outputs.mode }}" = selected ]; then
+          if [ "${{ needs.classify.outputs.mode }}" = asan-affected ]; then
+            echo 'Running six complete affected ASan suites only; this is not the full gate.'
+            ctest --test-dir build -R '^(r1_structured|r1_structured_capture|r1_structured_lean|billing_baseline_e2e|run_cli_e2e|s15_cli_smoke)$' --output-on-failure
+          elif [ "${{ needs.classify.outputs.mode }}" = selected ]; then
             ctest --test-dir build -L '^ci_selected$' --output-on-failure
+          elif [ "${{ needs.classify.outputs.mode }}" = full ] && [ -n "${{ matrix.cmake_shard }}" ]; then
+            python3 - <<'PY'
+          import json, subprocess
+          def names(*selection):
+              tests = json.loads(subprocess.check_output(
+                  ["ctest", "--test-dir", "build", "--show-only=json-v1", *selection], text=True))["tests"]
+              result = [test["name"] for test in tests]
+              assert result and len(result) == len(set(result)), "CTest names must be nonempty and unique"
+              return result
+          complete = names()
+          odd = names("-I", "1,,2")
+          even = names("-I", "2,,2")
+          assert odd == complete[::2] and even == complete[1::2], "CTest shard order differs"
+          assert set(odd).isdisjoint(even) and set(odd) | set(even) == set(complete), "CTest shard coverage differs"
+          print(f"CMake ASan registrations: {len(complete)} total = {len(odd)} odd + {len(even)} even")
+          PY
+            ctest --test-dir build -I "${{ matrix.cmake_shard }},,2" --output-on-failure
           else
             ctest --test-dir build --output-on-failure
           fi
-      - name: Verify the original GCC ASan Make target and user CPPFLAGS
-        if: needs.classify.outputs.mode != 'docs-only' && matrix.name == 'Make-ASan'
+      - name: Verify GCC ASan Make shard ${{ matrix.make_shard }}/2 and user CPPFLAGS
+        if: needs.classify.outputs.mode != 'docs-only' && matrix.make_shard
+        shell: bash
         run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          echo "Expected event SHA: $GITHUB_SHA"
+          echo "Checked out SHA: $actual_sha"
+          test "$actual_sha" = "$GITHUB_SHA"
           test "$(id -u)" -ne 0
           umask 0002
-          make -j2 asan BUILD_DIR=build-make CPPFLAGS=-DWLS_CI_USER_CPPFLAGS=1 PYTHON="$GITHUB_WORKSPACE/.local/test-venv/bin/python"
+          make -j2 asan BUILD_DIR=build-make CPPFLAGS=-DWLS_CI_USER_CPPFLAGS=1 PYTHON="$GITHUB_WORKSPACE/.local/test-venv/bin/python" TEST_SHARD="${{ matrix.make_shard }}"
       - name: Docs-only frozen-material check (no product build or tests)
         if: needs.classify.outputs.mode == 'docs-only'
         shell: bash
