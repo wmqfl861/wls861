@@ -1761,6 +1761,7 @@ public:
     void live_accounting_ready(const std::string& request_id, const std::string& excluding = {}) const;
     void initialize_usage_projection(const Row& original);
     std::optional<TokenPricing> attempt_pricing(const Row& original) const;
+    std::optional<bool> append_priced_accounting_ready(const Row& delta) const;
     std::optional<std::int64_t> attempt_settlement_estimate(const Row& original,
         const ModelUsage& usage, bool completed) const;
     Json pricing_accounting_scan(const std::string& id, const std::string& excluding = {},
