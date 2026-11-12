@@ -70,7 +70,7 @@ class Evaluation(unittest.TestCase):
     def logical_seed(self, task=4, *, logical=True, key='logical-seed', context_change=None, request_format='structured-v2'):
         system = (h.SOURCE / 'config/examples/system.yaml').read_text()
         self.assertIn('request_format: structured-v3', system)
-        system = system.replace('request_format: structured-v3', f'request_format: {request_format}')
+        system = system.replace('  tool_policy: fixed-role-v1\n', '').replace('  model_projection: lean-v1\n', '').replace('request_format: structured-v3', f'request_format: {request_format}')
         if logical:
             system = system.replace('context:\n', 'context:\n  logical_agent:\n'
                                     '    mode: single-agent-role-broker-v1\n'
@@ -165,6 +165,22 @@ class Evaluation(unittest.TestCase):
         legacy = e.build_report(legacy_plan, [self.run_entry(legacy_plan, request, 'single_agent', task=4)])['rows'][9]
         self.assertEqual(legacy['status'], 'failed', legacy)
         self.assertFalse(legacy['checks']['condition_roles'])
+
+    def test_lean_cache_and_frozen_projection_match_both_conditions(self):
+        for logical in (False, True):
+            request = self.logical_seed(logical=logical, key='lean-' + str(logical), request_format='structured-v3',
+                context_change=('context:\n', 'context:\n  model_projection: lean-v1\n'))
+            self.execute(request, max_calls=2)
+            with e.database(self.database) as db:
+                saved = dict(e.one(db, 'SELECT * FROM requests WHERE request_id=?', (request,)))
+                attempts = e.rows(db, 'SELECT * FROM call_attempts WHERE request_id=? ORDER BY rowid', (request,))
+                condition = 'single_agent' if logical else 'multi_agent'
+                e.logical_agent_evidence(db, saved, attempts, condition, e.DEFAULT_LOGICAL_AGENT_POLICY)
+                snapshot = e.strict_json(saved['config_snapshot'])
+                snapshot['system']['context'].pop('model_projection')
+                saved['config_snapshot'] = e.original_canonical(snapshot).decode()
+                with self.assertRaisesRegex(e.InvalidEvidence, 'model projection differs'):
+                    e.logical_agent_evidence(db, saved, attempts, condition, e.DEFAULT_LOGICAL_AGENT_POLICY)
 
     def test_v3_unapplied_fractional_response_keeps_complete_original_history(self):
         request = self.logical_seed(context_change=('model_calls:\n', 'model_calls:\n  runtime_policy: bounded-v1\n'))

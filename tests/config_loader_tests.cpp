@@ -547,6 +547,7 @@ void management_and_owned_capacity_policies_are_opt_in_and_frozen() {
     CHECK(legacy.management_history_policy().is_null());
     auto system = legacy.json().at("system");
     auto& context = field(system, "context").as_object();
+    context.erase("tool_policy"); context.erase("model_projection");
     context["request_format"] = "structured-v2";
     context["management_history"] = Object{{"mode", "window-v1"}, {"recent_attempts", 2},
         {"inline_bytes", 32768}, {"max_context_bytes", 262144}};

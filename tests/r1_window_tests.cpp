@@ -34,6 +34,9 @@ struct Fixture {
     std::filesystem::path db{temp.path / "state.db"};
     Fixture() {
         auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+        const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
+        yaml.erase(yaml.find(tool_policy), tool_policy.size());
+    yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
         const std::string old = "  request_format: structured-v3\n";
         yaml.replace(yaml.find(old), old.size(), "  request_format: structured-v2\n"
             "  worker_history: {mode: window-v1, recent_attempts: 4, inline_bytes: 32768}\n");

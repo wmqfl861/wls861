@@ -18,6 +18,8 @@ struct ContextTool {
 };
 
 std::string builtin_tool_description(std::string_view name);
+// Frozen enumeration: later registry additions never expand fixed-role-v1.
+std::vector<std::string> fixed_role_tool_names(Role role);
 
 struct ContextDependency {
     // Logical dependency identity, never a random request ID or host path.
@@ -52,6 +54,8 @@ struct ContextInput {
     Json contract_anchor = nullptr;
     Json contract_updates = boost::json::array{};
     std::string model_projection;
+    std::string tool_policy{};
+    std::vector<std::string> allowed_tools{};
 };
 
 struct ContextLimits {
@@ -94,6 +98,7 @@ private:
 };
 
 std::string compiled_task_contract(const CompiledContext& context);
+std::vector<std::string> model_allowed_tools(const CompiledContext& context);
 Json to_json(const CompiledContext& context);
 // Restores canonical frames under the standard ContextLimits and checks their
 // role/tool contents against metadata; hashes alone do not establish authority.

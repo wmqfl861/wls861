@@ -193,6 +193,37 @@ void validate_compiled_frames(const CompiledContext& context) {
 
 } // namespace
 
+std::vector<std::string> fixed_role_tool_names(Role role) {
+    if (role == Role::Dispatcher) return {"submit_plan", "submit_amendment_plan", "resolve_amendment",
+        "answer_question", "forward_question", "accept_candidate", "change_task", "escalate_task",
+        "management_history_page", "management_history_read"};
+    if (role == Role::TeamLead) return {"issue_work_order", "answer_question", "forward_question",
+        "check_submission", "report_experience", "management_history_page", "management_history_read"};
+    if (role == Role::Worker) return {"note", "fs_list", "fs_read", "fs_search", "fs_mkdir", "fs_write",
+        "fs_patch", "run", "op_status", "op_output", "op_cancel", "ack_change", "ask", "submit",
+        "history_page", "history_read"};
+    throw Error(ErrorCode::InvalidInput, "fixed-role-v1 has no Root model catalog");
+}
+
+std::vector<std::string> model_allowed_tools(const CompiledContext& context) {
+    if (!context.structured() || !context.logical_input.as_object().contains("tool_policy")) return context.tool_names;
+    require(context.logical_input.at("format") == "wls-logical-input-v3" &&
+        context.logical_input.at("tool_policy") == "fixed-role-v1", "invalid frozen tool policy");
+    const auto& state = object(context.logical_input.at("current_state"));
+    const auto* allowed = state.if_contains("allowed_tools");
+    require(allowed && allowed->is_array() && !allowed->as_array().empty() && allowed->as_array().size() <= 64,
+        "fixed-role-v1 needs 1..64 allowed tools");
+    std::vector<std::string> result;
+    for (const auto& name : allowed->as_array()) {
+        require(name.is_string(), "allowed tool must be a name");
+        const std::string tool(name.as_string());
+        require(std::find(context.tool_names.begin(), context.tool_names.end(), tool) != context.tool_names.end() &&
+            (result.empty() || result.back() < tool), "allowed tools must be a sorted unique catalog subset");
+        result.push_back(tool);
+    }
+    return result;
+}
+
 std::string builtin_tool_description(std::string_view name) {
     return description_detail::lookup(std::string(name));
 }

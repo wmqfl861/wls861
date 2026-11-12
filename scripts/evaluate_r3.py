@@ -313,6 +313,8 @@ def captured_contract(envelope):
         source = context['input']
         require(original_digest(source) == context['logical_input_sha256'], 'original logical input fingerprint mismatch')
         v3 = context['format'] == 'wls-compiled-context-v3'
+        if 'model_projection' in source:
+            require(v3 and source['model_projection'] == 'lean-v1', 'unknown original model projection')
         require(envelope['format'] == ('wls-model-request-v3' if v3 else 'wls-model-request-v2'),
                 'original model envelope and compiled context versions differ')
         prefix = {'prefix': source['prefix'], 'contract_anchor': source['contract_anchor']} if v3 else source['prefix']
@@ -324,8 +326,18 @@ def captured_contract(envelope):
             require(isinstance(source['contract_anchor'], dict) and isinstance(source['contract_updates'], list) and
                     isinstance(source['current_state'], dict) and contract['binding'] == envelope['binding'],
                     'original v3 projections or host binding differ')
-            require(original_digest({'format': 'wls-context-cache-v3', 'selection': source['selection'],
-                                     'prefix_sha256': context['prefix_sha256']}) == context['cache_identity'],
+            identity = {'format': 'wls-context-cache-v3', 'selection': source['selection'],
+                        'prefix_sha256': context['prefix_sha256']}
+            if 'tool_policy' in source:
+                require(source['tool_policy'] == 'fixed-role-v1', 'unknown original tool policy')
+                allowed = source['current_state'].get('allowed_tools')
+                require(isinstance(allowed, list) and 0 < len(allowed) <= 64 and
+                        all(isinstance(name, str) for name in allowed) and allowed == sorted(set(allowed)) and
+                        set(allowed) <= set(context['tool_names']), 'invalid original allowed tools')
+                identity['tool_policy'] = source['tool_policy']
+            if 'model_projection' in source:
+                identity['model_projection'] = source['model_projection']
+            require(original_digest(identity) == context['cache_identity'],
                     'original v3 cache fingerprint mismatch')
         return contract
     require(context['format'] == 'wls-compiled-context-v1', 'unknown captured context format')
@@ -403,6 +415,12 @@ def logical_agent_messages(history):
 def logical_agent_evidence(db, request, attempts, condition, policy):
     snapshot = strict_json(request['config_snapshot'])
     configured = snapshot['system']['context'].get('logical_agent')
+    for attempt in attempts:
+        original_input = strict_json(attempt['request_envelope'])['context'].get('input', {})
+        require(original_input.get('tool_policy') == snapshot['system']['context'].get('tool_policy'),
+                'original tool policy differs from the frozen configuration')
+        require(original_input.get('model_projection') == snapshot['system']['context'].get('model_projection'),
+                'original model projection differs from the frozen configuration')
     if condition == 'multi_agent':
         require(configured is None, 'multi-Agent condition uses the single-Agent shared-history policy')
         for attempt in attempts:

@@ -523,6 +523,12 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         {"parallel_tool_calls", profile.parallel_tool_calls}, {"stream", stream},
         {"store", false}, {"background", false}, {"truncation", "disabled"}};
     if (compat) body["include"] = Array{"reasoning.encrypted_content"};
+    if (logical.as_object().contains("tool_policy") && profile.tool_choice_policy == "allowed-tools-v1") {
+        Array allowed;
+        for (const auto& name : model_allowed_tools(request.context))
+            allowed.push_back(Object{{"type", "function"}, {"name", name}});
+        body["tool_choice"] = Object{{"type", "allowed_tools"}, {"mode", "auto"}, {"tools", allowed}};
+    }
     if (request.model.reasoning.mode == ReasoningMode::Disabled)
         body["reasoning"] = Object{{"effort", "none"}};
     else if (request.model.reasoning.mode == ReasoningMode::Explicit)

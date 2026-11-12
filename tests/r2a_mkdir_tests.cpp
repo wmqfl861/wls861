@@ -698,7 +698,13 @@ void settlement_failure_fences_an_already_prepared_mkdir() {
 
 int main() {
     schemas = std::make_unique<SchemaRegistry>(source / "schemas");
-    frozen = std::make_unique<FrozenRequestConfig>(load_config_catalog(source / "config/examples/system.yaml",
+    test::TempDir directory;
+    auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string policy = "  tool_policy: fixed-role-v1\n";
+    yaml.erase(yaml.find(policy), policy.size());
+    yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
+    host_write(directory.path / "system.yaml", yaml);
+    frozen = std::make_unique<FrozenRequestConfig>(load_config_catalog(directory.path / "system.yaml",
         source / "config/examples/functions", source / "prompts").freeze("general"));
     base_sql = read_runtime_file(source / "db/schema.sql");
     migration_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");

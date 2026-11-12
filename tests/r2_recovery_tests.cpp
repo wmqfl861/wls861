@@ -61,6 +61,9 @@ std::vector<std::string> rows(const std::filesystem::path& path, const std::stri
 FrozenRequestConfig framed_config() {
     test::TempDir temp;
     auto yaml = read(source / "config/examples/system.yaml");
+    const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
+    yaml.erase(yaml.find(tool_policy), tool_policy.size());
+    yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
     const std::string format = "request_format: structured-v3";
     const auto at = yaml.find(format); CHECK(at != std::string::npos);
     yaml.replace(at, format.size(), "request_format: framed-v1");
