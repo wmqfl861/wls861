@@ -34,6 +34,7 @@ FrozenRequestConfig config() {
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
     const std::string policy = "  tool_policy: fixed-role-v1\n";
     yaml.erase(yaml.find(policy), policy.size());
+    yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
     { std::ofstream file(directory.path / "system.yaml"); file << yaml; CHECK(file.good()); }
     return load_config_catalog(directory.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general");
 }

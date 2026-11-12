@@ -39,7 +39,7 @@ class ModelAmendCli(unittest.TestCase):
             config = self.directory / (key + '-system.yaml')
             source = (h.SOURCE / 'config/examples/system.yaml').read_text()
             if structured:
-                source = source.replace('  tool_policy: fixed-role-v1\n', '').replace('request_format: structured-v3', 'request_format: structured-v2')
+                source = source.replace('  tool_policy: fixed-role-v1\n', '').replace('  model_projection: lean-v1\n', '').replace('request_format: structured-v3', 'request_format: structured-v2')
             if schema_retry_max is not None:
                 # Freeze the single-response negative fixture before admission.
                 source = source.replace('schema_retry_max: 2', f'schema_retry_max: {schema_retry_max}')

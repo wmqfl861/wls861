@@ -70,7 +70,7 @@ class Evaluation(unittest.TestCase):
     def logical_seed(self, task=4, *, logical=True, key='logical-seed', context_change=None, request_format='structured-v2'):
         system = (h.SOURCE / 'config/examples/system.yaml').read_text()
         self.assertIn('request_format: structured-v3', system)
-        system = system.replace('  tool_policy: fixed-role-v1\n', '').replace('request_format: structured-v3', f'request_format: {request_format}')
+        system = system.replace('  tool_policy: fixed-role-v1\n', '').replace('  model_projection: lean-v1\n', '').replace('request_format: structured-v3', f'request_format: {request_format}')
         if logical:
             system = system.replace('context:\n', 'context:\n  logical_agent:\n'
                                     '    mode: single-agent-role-broker-v1\n'
@@ -288,7 +288,8 @@ class Evaluation(unittest.TestCase):
                 workspace = self.directory / ('restart-workspace-' + str(logical))
                 workspace.mkdir(mode=0o700)
                 self.mapping = self.json_file('restart-workspaces-' + str(logical) + '.json', {'alpha': str(workspace)})
-                request = self.logical_seed(logical=logical, key='restart-' + str(logical))
+                request = self.logical_seed(logical=logical, key='restart-' + str(logical), request_format='structured-v3',
+                    context_change=('context:\n', 'context:\n  model_projection: lean-v1\n'))
                 plan = self.logical_plan(request)
                 legacy_plan = self.plan(request, model_origin=True)
                 self.execute_across_two_recoveries(request)

@@ -100,7 +100,7 @@ inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& l
     auto catalog = load_config_catalog(system_path, directory.path / "config/functions", directory.path / "prompts");
     {
         auto system = catalog.freeze("general").json().at("system");
-        system.at("context").as_object().erase("tool_policy");
+        system.at("context").as_object().erase("tool_policy"); system.at("context").as_object().erase("model_projection");
         if (fake) system.at("context").at("request_format") = "framed-v1";
         else {
             system.at("models").as_object()[live.provider.model_ref] = model_profile(live);
@@ -158,7 +158,7 @@ struct Fixture {
         output.max_output_tokens = 100; output.timeout = std::chrono::seconds(3);
         return output;
     }
-    AttemptReservation reservation(const ModelRequest& request, bool fake = false) const {
+    static AttemptReservation reservation(const ModelRequest& request, bool fake = false) {
         AttemptReservation result;
         result.call_id = request.call_id; result.attempt_id = request.attempt_id;
         result.config_snapshot_sha256 = request.config_snapshot_id; result.model_ref = request.model.model;

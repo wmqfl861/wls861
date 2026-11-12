@@ -52,6 +52,7 @@ public:
     Json runtime_support() const;
     std::string context_request_format() const;
     std::string context_prompt_policy() const; // Empty preserves legacy rules and environment bytes.
+    std::string context_model_projection() const; // Empty preserves the original model wire projection.
     std::string context_tool_policy() const;
     std::vector<std::string> role_tool_catalog(Role role, std::string_view template_id = "default") const;
     Json worker_history_policy() const; // Null preserves the complete legacy history.

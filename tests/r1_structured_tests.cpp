@@ -500,13 +500,15 @@ void corrupted_source_binding_refuses() {
 }
 struct ConfigFixture {
     ::test::TempDir tmp;
-    FrozenRequestConfig load(const std::string& format) {
+    FrozenRequestConfig load(const std::string& format, const std::string& projection = {}) {
         auto yaml = read_runtime_file(root / "config/examples/system.yaml");
         const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
         yaml.erase(yaml.find(tool_policy), tool_policy.size());
+        yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
         const std::string marker = "  request_format: structured-v3\n";
         const auto pos = yaml.find(marker); CHECK(pos != std::string::npos);
         yaml.replace(pos, marker.size(), format.empty() ? "" : "  request_format: " + format + "\n");
+        if (!projection.empty()) yaml.insert(yaml.find("  compaction_at_fraction:"), "  model_projection: " + projection + "\n");
         { std::ofstream out(tmp.path / "system.yaml"); out << yaml; CHECK(out.good()); }
         return load_config_catalog(tmp.path / "system.yaml", root / "config/examples/functions", root / "prompts").freeze("general");
     }
@@ -519,6 +521,10 @@ void frozen_choice_and_legacy_default() {
     CHECK(next.runtime_support().at("history_window_integrated") == false);
     fails(ErrorCode::InvalidInput, [&] { (void)f.load("unknown-v99"); });
     CHECK(f.load("structured-v3").context_request_format() == "structured-v3");
+    CHECK(f.load("structured-v3").context_model_projection().empty());
+    for (const auto* format : {"", "framed-v1", "structured-v2"})
+        fails(ErrorCode::InvalidInput, [&] { (void)f.load(format, "lean-v1"); });
+    fails(ErrorCode::InvalidInput, [&] { (void)f.load("structured-v3", "lean-v99"); });
 }
 void store_rejects_format_policy_mismatch() {
     ConfigFixture f; const auto config = f.load("structured-v2");
@@ -614,16 +620,20 @@ void legacy_frozen_capture_keeps_complete_context_and_wire_bytes() {
     }
 }
 
+CompiledContext rehashed_context(Json document);
 void guided_capture_uses_real_adapter_and_stable_role_rules() {
     const wls::test::live::Assets assets(root); SchemaRegistry schemas(root / "schemas");
-    for (const bool fake : {true, false}) {
+    for (const bool lean : {false, true}) for (const bool fake : {true, false}) {
+        if (lean && fake) continue;
         ::test::TempDir directory; auto store = assets.open(directory.path / "guided.sqlite");
         auto admission = wls::test::live::admission(assets, wls::test::live::settings(), "guided", true, fake);
         admission.original_text = "保留原始需求；不要调用外部服务。";
         admission.constraint_catalog = Array{
             Object{{"constraint_id", "c1"}, {"text", "保留原始需求"}, {"source_revision", 1}},
             Object{{"constraint_id", "c2"}, {"text", "不要调用外部服务"}, {"source_revision", 1}}};
-        admission.config_snapshot.at("system").at("context").as_object()["request_format"] = "structured-v2";
+        auto& context = admission.config_snapshot.at("system").at("context").as_object();
+        context["request_format"] = lean ? "structured-v3" : "structured-v2";
+        if (lean) context["model_projection"] = "lean-v1";
         if (!fake)
             for (auto& role : admission.config_snapshot.at("function").at("roles").as_object())
                 role.value().as_object().erase("prompt_append");
@@ -636,6 +646,7 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
         const auto snapshot = canonical_json(admission.config_snapshot);
         const auto frozen = FrozenRequestConfig::restore(snapshot, sha256_hex(snapshot));
         CHECK(frozen.context_prompt_policy() == "guided-v1");
+        CHECK(frozen.context_model_projection() == (lean ? "lean-v1" : ""));
         CHECK(frozen.runtime_support().at("context_prompt_policy") == "guided-v1");
         auto invalid = admission.config_snapshot;
         invalid.at("system").at("context").at("prompt_policy") = "guided-v99";
@@ -643,7 +654,7 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
         fails(ErrorCode::InvalidInput, [&] { (void)FrozenRequestConfig::restore(invalid_bytes, sha256_hex(invalid_bytes)); });
         const auto id = str(store->admit(admission), "request_id");
         OfflineRuntime runtime(*store, schemas);
-        const auto first = runtime.capture_call(id, Role::Dispatcher).request;
+        const auto first = runtime.capture_call(id, Role::Dispatcher, {}, 1, {}, false, {.reserved_cost_micro_usd = 100}).request;
         const auto system = first.context.logical_input.at("prefix").at("system");
         const auto environment = parse_json_strict(str(system, "environment_card"));
         CHECK(environment.at("adapter") == frozen.model_profile(Role::Dispatcher).at("adapter"));
@@ -651,8 +662,20 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
         CHECK(str(system, "approved_rules").find("decode base64") == std::string::npos);
         if (!fake) {
             const auto profile = live_model_settings_from_json(frozen.model_profile(Role::Dispatcher), frozen.resolve(Role::Dispatcher).model).provider;
-            const auto body = parse_json_strict(encode_responses_request(profile, first).body);
+            const auto wire = encode_responses_request(profile, first).body;
+            const auto body = parse_json_strict(wire);
             CHECK(str(body, "instructions").find("fake") == std::string::npos);
+            if (lean) {
+                const auto actor = store->host_actor(Role::Dispatcher, id);
+                auto document = to_json(first.context); document.at("input").as_object().erase("model_projection");
+                auto mismatch = first; mismatch.context = rehashed_context(document);
+                fails(ErrorCode::Unauthorized, [&] { (void)store->reserve_attempt(actor, first.binding, wls::test::live::Fixture::reservation(mismatch)); });
+                CHECK(store->budget(id).at("attempts") == 0);
+                (void)store->reserve_attempt(actor, first.binding, wls::test::live::Fixture::reservation(first));
+                store.reset(); store = assets.open(directory.path / "guided.sqlite");
+                const auto restored = model_request_from_json(store->attempt(first.attempt_id).at("request_envelope"));
+                CHECK(encode_responses_request(profile, restored).body == wire);
+            }
             continue;
         }
         const auto steps = fake_model_steps_from_json(parse_json_strict(read_runtime_file(root / "tests/fixtures/s1_fake_initial.json")));
@@ -677,14 +700,17 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
     }
 }
 
-void v3_five_round_encoded_prefix_and_originals() {
+void v3_five_round_encoded_prefix_and_originals(bool lean = false) {
     for (const bool fixed : {false, true}) {
     auto input = described_fixture();
-    if (fixed) {
+    ::test::TempDir pages;
+    if (lean) input.model_projection = "lean-v1";
+    if (lean || fixed) {
         const auto& read = worker_tool_definition("fs_read");
         input.tools.push_back({read.name, read.version, read.input_schema, builtin_tool_description(read.name)});
-        input.tool_policy = "fixed-role-v1";
     }
+    if (fixed) input.tool_policy = "fixed-role-v1";
+    Workspace workspace(pages.path, WorkspaceAccess::ReadOnly);
     Json contract = Object{{"request", Object{{"requirements_revision", 1},
         {"texts", Array{Object{{"text", "original request"}, {"kind", "ORIGINAL"}}}}, {"constraint_catalog", Array{}}}},
         {"task", Object{{"brief", Object{{"goal", "retain original bytes"}}}, {"task_revision", 1}, {"state_version", 1}}},
@@ -692,6 +718,13 @@ void v3_five_round_encoded_prefix_and_originals() {
         {"binding", Object{{"execution_epoch", 1}}}, {"budget", Object{{"spent_input", 0}}}};
     auto profile = fixture::compat_profile();
     std::vector<StructuredContextMessage> messages;
+    if (lean) {
+        messages = worker_history_messages(Object{{"format", "wls-history-tail-v1"}, {"items", Array{}},
+            {"total_count", 1}, {"omitted_count", 1}, {"through_sequence", 7}},
+            Object{{"mode", "window-v1"}, {"recent_attempts", 1}, {"inline_bytes", 32768}});
+        messages.push_back({"user", "UNKNOWN: original observation missing; source business field stays readable.", {}, {},
+            Object{{"private_source", "must-stay-host-side"}}});
+    }
     Json previous = nullptr, anchor = nullptr, previous_body = nullptr;
     Array previous_input;
     for (int round = 0; round != 5; ++round) {
@@ -705,6 +738,15 @@ void v3_five_round_encoded_prefix_and_originals() {
         request.context = compile_structured_context(input, messages, {}, StructuredContextFormat::V3);
         const auto logical = request.context.logical_input;
         const auto body = parse_json_strict(encode_responses_request(profile, request).body);
+        if (lean) {
+            CHECK(canonical_json(body).find("must-stay-host-side") == std::string::npos);
+            CHECK(parse_json_strict(str(body.at("input").as_array().front(), "content")) == logical.at("contract_anchor"));
+            const auto state = parse_json_strict(str(body.at("input").as_array().back(), "content")).at("current_state");
+            CHECK(!state.as_object().contains("message_sources"));
+            CHECK(!state.at("history_windows").as_array().front().as_object().contains("source"));
+            CHECK(str(state.at("history_windows").as_array().front(), "content").find("through_sequence") != std::string::npos);
+            CHECK(canonical_json(body).find("UNKNOWN") != std::string::npos);
+        }
         if (fixed) {
             CHECK(!body.as_object().contains("tool_choice"));
             auto opted = profile; opted.tool_choice_policy = "allowed-tools-v1";
@@ -739,6 +781,19 @@ void v3_five_round_encoded_prefix_and_originals() {
         }
         original.at("response").at("tool_calls").as_array()[0].at("call_id") = "provider_" + std::to_string(round);
         original.at("feedback").at("response") = original.at("response");
+        if (lean) {
+            const std::string bytes = round == 0 ? "原始UTF-8😀" : round == 1 ? "" :
+                round == 2 ? std::string("\xff\0", 2) : round == 3 ? "😀" : std::string(2048, 'a');
+            const auto path = "page" + std::to_string(round);
+            { std::ofstream file(pages.path / path, std::ios::binary); file << bytes; CHECK(file.good()); }
+            const auto page = workspace.read(path, 0, round == 3 ? 1 : 4096);
+            auto& response = original.at("response");
+            response.at("tool_calls").as_array()[0].at("name") = "fs_read";
+            response.at("tool_calls").as_array()[0].at("arguments") = Object{{"path", path}};
+            auto& native = response.at("responses_output").at("output").as_array().back();
+            native.at("name") = "fs_read"; native.at("arguments") = canonical_json(Object{{"path", path}});
+            original.at("feedback").at("response") = response; original.at("feedback").at("result") = page;
+        }
         const auto turn = structured_attempt_history({original});
         CHECK(turn.front().responses_output == payload);
         messages.insert(messages.end(), turn.begin(), turn.end());
@@ -757,7 +812,29 @@ void v3_five_round_encoded_prefix_and_originals() {
     CHECK(amended.context.logical_input.at("contract_anchor") == anchor);
     CHECK(amended.context.logical_input.at("contract_updates").as_array().size() == 1);
     CHECK(amended.context.logical_input.at("contract_updates").as_array()[0].at("after_attempt_id") == previous.at("attempt_id"));
-    CHECK(parse_json_strict(str(ordered[ordered.size() - 2], "content")).at("format") == "wls-responses-contract-update-v3");
+    const auto update_text = parse_json_strict(str(ordered[ordered.size() - 2], "content"));
+    if (lean) {
+        CHECK(!update_text.as_object().contains("task_contract"));
+        CHECK(update_text.at("request") == amended.context.logical_input.at("contract_updates").as_array()[0].at("contract").at("request"));
+        CHECK(update_text.at("semantic_versions").at("instruction_revision") == 2);
+        for (const auto& item : ordered) if (item.as_object().contains("output")) {
+            const auto page = parse_json_strict(str(item, "output"));
+            const auto name = str(page, "path"); const bool text = name == "page0" || name == "page1" || name == "page4";
+            CHECK(page.as_object().contains("content") == text);
+            CHECK(page.as_object().contains("content_base64") != text);
+            CHECK(str(item, "call_id").starts_with("provider_"));
+        }
+        auto legacy = input; legacy.model_projection.clear();
+        auto e = amended; e.context = compile_structured_context(legacy, messages, {}, StructuredContextFormat::V3);
+        legacy.tool_policy.clear(); legacy.allowed_tools.clear();
+        auto v2 = amended; v2.context = compile_structured_context(legacy, messages);
+        const auto e_bytes = encode_responses_request(profile, e).body.size();
+        const auto v2_bytes = encode_responses_request(profile, v2).body.size();
+        const auto lean_bytes = canonical_json(encoded).size();
+        std::cout << "lean fixture bytes v2=" << v2_bytes << " E-v3=" << e_bytes << " lean=" << lean_bytes
+            << " ratios=" << double(lean_bytes) / double(v2_bytes) << ',' << double(lean_bytes) / double(e_bytes) << '\n';
+        CHECK(lean_bytes < e_bytes && lean_bytes < v2_bytes);
+    } else CHECK(update_text.at("format") == "wls-responses-contract-update-v3");
     CHECK(amended.context.logical_input.at("messages") == single_agent_messages_json(messages));
     CHECK(encode_responses_request(profile, model_request_from_json(to_json(amended))).body == canonical_json(encoded));
     }
@@ -770,14 +847,16 @@ struct V3Fixture {
     std::filesystem::path database{directory.path / "v3.sqlite"};
     std::unique_ptr<Store> store;
     std::string id, task;
-    explicit V3Fixture(const std::string& mode, int recent = 6, bool fixed = false) {
+    explicit V3Fixture(const std::string& mode, int recent = 6, bool fixed = false, bool lean = false) {
         auto yaml = read_runtime_file(root / "config/examples/system.yaml");
         const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
         yaml.erase(yaml.find(tool_policy), tool_policy.size());
+        yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
         const auto begin = yaml.find("  request_format: "); CHECK(begin != std::string::npos);
         yaml.replace(begin, yaml.find('\n', begin) - begin + 1, "  request_format: structured-v3\n");
         const auto position = yaml.find("  compaction_at_fraction:"); CHECK(position != std::string::npos);
         std::string policies;
+        if (lean) policies += "  model_projection: lean-v1\n";
         if (fixed) policies += "  tool_policy: fixed-role-v1\n";
         if (mode == "worker" || mode == "all") policies += "  worker_history: {mode: window-v1, recent_attempts: " +
             std::to_string(recent) + ", inline_bytes: 32768}\n";
@@ -817,10 +896,11 @@ struct V3Fixture {
 };
 
 void v3_capture_reserve_restore_policy_combinations() {
-    for (const bool fixed : {false, true}) for (const auto* mode : {"worker", "manager", "single", "all"}) {
-        V3Fixture fixture(mode, 6, fixed);
+    for (const bool lean : {false, true}) for (const bool fixed : {false, true}) for (const auto* mode : {"worker", "manager", "single", "all"}) {
+        if (lean && std::string_view(mode) != "all") continue; // One combined fixture covers all three independent history choices.
+        V3Fixture fixture(mode, 6, fixed, lean);
         Json prefix = nullptr;
-        for (int round = 1; round <= 5; ++round) {
+        for (int round = 1; round <= (lean ? 2 : 5); ++round) {
             auto fake = fixture.note(round);
             const auto call = OfflineRuntime(*fixture.store, fixture.schemas).reserve_call(fake, fixture.id, Role::Worker, fixture.task, round);
             const auto envelope = fixture.store->attempt(call.request.attempt_id).at("request_envelope");
@@ -928,6 +1008,33 @@ void v3_cross_version_and_projection_corruption_reject() {
     }
 }
 
+void lean_projection_preserves_errors_and_checks_originals() {
+    auto input = described_fixture(); input.model_projection = "lean-v1";
+    auto original = attempt();
+    original.at("feedback").at("result") = Object{{"content", "not a normal read page"}, {"content_base64", "must remain"},
+        {"source", "business field"}, {"metadata", Object{{"original", true}}}};
+    const auto messages = structured_attempt_history({original});
+    auto request = fixture::request(); request.context = compile_structured_context(input, messages, {}, StructuredContextFormat::V3);
+    const auto saved = to_json(request.context);
+    const auto body = parse_json_strict(encode_responses_request(fixture::profile(), request).body);
+    CHECK(parse_json_strict(str(body.at("input").as_array()[3], "output")) == original.at("feedback").at("result"));
+    CHECK(to_json(request.context) == saved);
+    for (const auto* policy : {"", "lean-v99"}) {
+        auto broken = saved;
+        if (*policy) broken.at("input").at("model_projection") = policy;
+        else broken.at("input").as_object().erase("model_projection");
+        fails(ErrorCode::InvalidInput, [&] { (void)compiled_context_from_json(broken); });
+    }
+    auto broken = saved; broken.at("input").at("messages").as_array()[1].at("source").as_object()["record_sha256"] = sha256_hex("forged");
+    fails(ErrorCode::InvalidInput, [&] { (void)compiled_context_from_json(broken); });
+    fails(ErrorCode::InvalidInput, [&] { (void)compile_structured_context(input, messages); });
+    fails(ErrorCode::InvalidInput, [&] { (void)ContextCompiler{}.compile(input); });
+    auto quota = ContextLimits{}; quota.max_total_bytes = quota.max_prefix_bytes = 1024;
+    fails(ErrorCode::Quota, [&] { (void)compile_structured_context(input, messages, quota, StructuredContextFormat::V3); });
+    auto profile = fixture::profile(); profile.limits.max_request_bytes = canonical_json(body).size() - 1;
+    fails(ErrorCode::Quota, [&] { (void)encode_responses_request(profile, request); });
+}
+
 CompiledContext rehashed_context(Json document) {
     const auto& logical = document.at("input");
     document.at("prefix_sha256") = sha256_hex(canonical_json(Object{{"prefix", logical.at("prefix")},
@@ -935,6 +1042,7 @@ CompiledContext rehashed_context(Json document) {
     Object identity{{"format", "wls-context-cache-v3"}, {"selection", logical.at("selection")},
         {"prefix_sha256", document.at("prefix_sha256")}};
     if (logical.as_object().contains("tool_policy")) identity["tool_policy"] = logical.at("tool_policy");
+    if (logical.as_object().contains("model_projection")) identity["model_projection"] = logical.at("model_projection");
     document.at("cache_identity") = sha256_hex(canonical_json(identity));
     document.at("logical_input_sha256") = sha256_hex(canonical_json(logical));
     return compiled_context_from_json(document);
@@ -1023,9 +1131,11 @@ void fixed_role_policy_tampering_and_current_revocation_reject() {
 
 int main() {
     return ::test::run({
+        {"v3 encoded five round prefix preserves native originals", [] { v3_five_round_encoded_prefix_and_originals(); }},
+        {"lean wire projection preserves originals and ordered prefix", [] { v3_five_round_encoded_prefix_and_originals(true); }},
+        {"lean projection preserves errors and checks originals", lean_projection_preserves_errors_and_checks_originals},
         {"fixed role disallowed selection settles once and preserves original history", fixed_role_selection_settles_once_and_keeps_original_history},
         {"fixed role policy tampering and current revocation reject", fixed_role_policy_tampering_and_current_revocation_reject},
-        {"v3 encoded five round prefix preserves native originals", v3_five_round_encoded_prefix_and_originals},
         {"v3 capture reserve restore history policy combinations", v3_capture_reserve_restore_policy_combinations},
         {"v3 AMEND and reopen preserve anchor and original CAS", v3_amend_reopen_and_original_cas},
         {"v3 cross version and projection corruption reject", v3_cross_version_and_projection_corruption_reject},

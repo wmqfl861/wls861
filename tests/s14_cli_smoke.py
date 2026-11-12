@@ -86,7 +86,7 @@ class WorkflowCliSmoke(unittest.TestCase):
         args = ["submit", "--db", self.database, "--key", key,
                 "--text-file", FIXTURES / "s14_request.txt",
                 "--constraints-file", FIXTURES / "s14_constraints.json"]
-        source = (SOURCE / "config/examples/system.yaml").read_text().replace("  tool_policy: fixed-role-v1\n", "").replace(
+        source = (SOURCE / "config/examples/system.yaml").read_text().replace("  tool_policy: fixed-role-v1\n", "").replace("  model_projection: lean-v1\n", "").replace(
             "request_format: structured-v3", "request_format: framed-v1")
         if schema_retry_max is not None:
             # Single-response safety fixtures disable continuation before freezing.

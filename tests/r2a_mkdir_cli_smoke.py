@@ -77,7 +77,7 @@ class MkdirCliSmoke(unittest.TestCase):
 
     def submit(self, key="mkdir-request", functions=None):
         config = self.directory / "framed-system.yaml"
-        config.write_text((SOURCE / "config/examples/system.yaml").read_text().replace("  tool_policy: fixed-role-v1\n", "").replace(
+        config.write_text((SOURCE / "config/examples/system.yaml").read_text().replace("  tool_policy: fixed-role-v1\n", "").replace("  model_projection: lean-v1\n", "").replace(
             "request_format: structured-v3", "request_format: framed-v1"))
         args = ["submit", "--db", self.database, "--key", key,
                 "--config", config, "--functions-dir", functions or SOURCE / "config/examples/functions",

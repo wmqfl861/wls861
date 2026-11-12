@@ -93,6 +93,7 @@ struct Fixture {
         auto yaml = read_runtime_file(source / "config/examples/system.yaml");
         const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
         yaml.erase(yaml.find(tool_policy), tool_policy.size());
+    yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
         replace(yaml, "  request_format: structured-v3\n", "  request_format: framed-v1\n");
         if (window) replace(yaml, "  request_format: framed-v1\n", "  request_format: structured-v2\n"
             "  management_history: {mode: window-v1, recent_attempts: 2, inline_bytes: 32768, max_context_bytes: 131072}\n");
