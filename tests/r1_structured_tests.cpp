@@ -505,6 +505,7 @@ struct ConfigFixture {
         const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
         yaml.erase(yaml.find(tool_policy), tool_policy.size());
         yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
+        yaml.erase(yaml.find("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n"), sizeof("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n") - 1);
         const std::string marker = "  request_format: structured-v3\n";
         const auto pos = yaml.find(marker); CHECK(pos != std::string::npos);
         yaml.replace(pos, marker.size(), format.empty() ? "" : "  request_format: " + format + "\n");
@@ -852,6 +853,7 @@ struct V3Fixture {
         const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
         yaml.erase(yaml.find(tool_policy), tool_policy.size());
         yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
+        yaml.erase(yaml.find("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n"), sizeof("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n") - 1);
         const auto begin = yaml.find("  request_format: "); CHECK(begin != std::string::npos);
         yaml.replace(begin, yaml.find('\n', begin) - begin + 1, "  request_format: structured-v3\n");
         const auto position = yaml.find("  compaction_at_fraction:"); CHECK(position != std::string::npos);

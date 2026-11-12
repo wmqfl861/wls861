@@ -70,7 +70,7 @@ class Evaluation(unittest.TestCase):
     def logical_seed(self, task=4, *, logical=True, key='logical-seed', context_change=None, request_format='structured-v2'):
         system = (h.SOURCE / 'config/examples/system.yaml').read_text()
         self.assertIn('request_format: structured-v3', system)
-        system = system.replace('  tool_policy: fixed-role-v1\n', '').replace('  model_projection: lean-v1\n', '').replace('request_format: structured-v3', f'request_format: {request_format}')
+        system = system.replace('  tool_policy: fixed-role-v1\n', '').replace('  model_projection: lean-v1\n', '').replace('  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n', '').replace('request_format: structured-v3', f'request_format: {request_format}')
         if logical:
             system = system.replace('context:\n', 'context:\n  logical_agent:\n'
                                     '    mode: single-agent-role-broker-v1\n'

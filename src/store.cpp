@@ -6,6 +6,7 @@
 #include "wls/model.hpp"
 #include "wls/live_model.hpp"
 #include "wls/owned_capacity.hpp"
+#include "wls/worker_history.hpp"
 #include "amendment_disposition.hpp"
 
 #include <sqlite3.h>
@@ -3785,8 +3786,21 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         require(context.tool_names == frozen_config.role_tool_catalog(actor.role, template_id), ErrorCode::Unauthorized,
             "complete tool catalog differs from frozen role/template permission");
     }
-    if (format == "structured-v3") validate_structured_contract_continuity(original_model_request.context,
-        previous_context_projection(*impl_, actor, frozen_config));
+    const auto previous = format == "structured-v3" ? previous_context_projection(*impl_, actor, frozen_config) : Json(nullptr);
+    if (format == "structured-v3") validate_structured_contract_continuity(context, previous);
+    const auto* history_projection = context.structured() ? context.logical_input.as_object().if_contains("worker_history") : nullptr;
+    const bool append = actor.role == Role::Worker && append_fold_policy(frozen_config.worker_history_policy());
+    require((history_projection != nullptr) == append, ErrorCode::Unauthorized, "history history_projection differs from frozen append-fold policy");
+    if (append) {
+        const auto generation = previous.is_null() ? 0 : number(previous.at("input").at("worker_history").as_object(), "fold_generation");
+        const auto requested = number(history_projection->as_object(), "fold_generation");
+        require(requested == generation || requested == generation + 1, ErrorCode::Conflict, "history fold generation changed");
+        auto expected = append_fold_history(previous.is_null() ? Json(nullptr) : previous.at("input"),
+            append_history_delta(*impl_, actor, previous), requested != generation);
+        const auto messages = expected.at("messages"); expected.as_object().erase("messages");
+        require(expected == *history_projection && messages == context.logical_input.at("messages"), ErrorCode::Conflict,
+            "append-fold history_projection does not continue current original history");
+    }
     const auto selected_model = frozen_config.resolve(actor.role);
     const auto profile = frozen_config.model_profile(actor.role);
     require(selected_model.model == reservation.model_ref, ErrorCode::Unauthorized, "model reference differs from frozen role selection");

@@ -36,6 +36,8 @@ struct Fixture {
     explicit Fixture(bool enabled=true){
         std::filesystem::create_directory(dir.path/"owned");std::filesystem::create_directory(dir.path/"delivery");
         auto bytes=read_runtime_file(source/"config/examples/system.yaml");
+        const std::string history = "  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n";
+        bytes.erase(bytes.find(history), history.size());
         const auto at=bytes.find("cleanup:\n  enabled: false");CHECK(at!=std::string::npos);
         if(enabled)bytes.replace(at,std::string("cleanup:\n  enabled: false").size(),"cleanup:\n  enabled: true");
         write(dir.path/"system.yaml",bytes);

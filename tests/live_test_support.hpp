@@ -101,6 +101,7 @@ inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& l
     {
         auto system = catalog.freeze("general").json().at("system");
         system.at("context").as_object().erase("tool_policy"); system.at("context").as_object().erase("model_projection");
+        system.at("context").as_object().erase("worker_history");
         if (fake) system.at("context").at("request_format") = "framed-v1";
         else {
             system.at("models").as_object()[live.provider.model_ref] = model_profile(live);

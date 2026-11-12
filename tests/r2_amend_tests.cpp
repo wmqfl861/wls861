@@ -61,6 +61,7 @@ AdmissionInput input(bool structured = false) {
     const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
     yaml.erase(yaml.find(tool_policy), tool_policy.size());
     yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
+    yaml.erase(yaml.find("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n"), sizeof("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n") - 1);
     {
         const std::string old = "request_format: structured-v3";
         const auto at = yaml.find(old); CHECK(at != std::string::npos);

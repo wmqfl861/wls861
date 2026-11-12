@@ -472,6 +472,7 @@ void simple_format_validators_preserve_the_original_grammar() {
 
 void unsupported_enforcement_is_visible_without_changing_frozen_bytes() {
     Fixture fixture;
+    auto system = fixture.system_json(); system.at("context").as_object().erase("worker_history"); fixture.system(system);
     const auto frozen = fixture.freeze();
     const auto bytes = frozen.serialize();
     const auto support = frozen.runtime_support();
@@ -547,7 +548,7 @@ void management_and_owned_capacity_policies_are_opt_in_and_frozen() {
     CHECK(legacy.management_history_policy().is_null());
     auto system = legacy.json().at("system");
     auto& context = field(system, "context").as_object();
-    context.erase("tool_policy"); context.erase("model_projection");
+    context.erase("tool_policy"); context.erase("model_projection"); context.erase("worker_history");
     context["request_format"] = "structured-v2";
     context["management_history"] = Object{{"mode", "window-v1"}, {"recent_attempts", 2},
         {"inline_bytes", 32768}, {"max_context_bytes", 262144}};

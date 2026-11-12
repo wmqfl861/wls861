@@ -411,6 +411,7 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     if (v3 && !lean) input.front().at("content") = canonical_json(Object{{"format", "wls-responses-contract-v3"},
         {"task_contract", logical.at("contract_anchor")}});
     std::map<std::size_t, Array> updates;
+    std::map<std::int64_t, Array> folded_updates;
     if (v3) for (const auto& update : array(logical.at("contract_updates"))) {
         std::size_t boundary = 0, position = 0;
         for (const auto& message : array(logical.at("messages"))) {
@@ -425,9 +426,15 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         }
         auto contract = update.at("contract");
         if (lean) contract.as_object()["semantic_versions"] = update.at("semantic_versions");
-        updates[boundary].push_back(Object{{"role", "user"}, {"content", lean ? canonical_json(contract) : canonical_json(Object{
+        const Json encoded_update = Object{{"role", "user"}, {"content", lean ? canonical_json(contract) : canonical_json(Object{
             {"format", "wls-responses-contract-update-v3"}, {"task_contract", update.at("contract")},
-            {"semantic_versions", update.at("semantic_versions")}})}});
+            {"semantic_versions", update.at("semantic_versions")}})}};
+        bool folded = false;
+        if (const auto* history = logical.as_object().if_contains("worker_history"))
+            for (const auto& entry : history->at("folded_entries").as_array()) if (entry.at("attempt_id") == update.at("after_attempt_id")) {
+                folded_updates[entry.at("sequence").to_number<std::int64_t>()].push_back(encoded_update); folded = true; break;
+            }
+        if (!folded) updates[boundary].push_back(encoded_update);
     }
     const auto append_updates = [&](std::size_t position) {
         if (const auto found = updates.find(position); found != updates.end())
@@ -443,6 +450,23 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         append_updates(index++);
         const auto& history_source = message.at("source");
         const auto* kind = history_source.is_object() ? history_source.as_object().if_contains("kind") : nullptr;
+        if (v3 && kind && *kind == "history_fold") {
+            Array entries;
+            const auto emit = [&] {
+                if (entries.empty()) return;
+                input.push_back(Object{{"role", "user"}, {"content", canonical_json(Object{{"kind", "history_fold"},
+                    {"from_sequence", entries.front().at("sequence")}, {"through_sequence", entries.back().at("sequence")}, {"entries", entries}})}});
+                entries.clear();
+            };
+            // One persisted flat record; wire slices retain immutable update boundaries.
+            for (const auto& entry : logical.at("worker_history").at("folded_entries").as_array()) {
+                entries.push_back(entry);
+                if (const auto found = folded_updates.find(entry.at("sequence").to_number<std::int64_t>()); found != folded_updates.end()) {
+                    emit(); for (const auto& update : found->second) input.push_back(update);
+                }
+            }
+            emit(); continue;
+        }
         if (v3 && kind && (*kind == "history_window" || *kind == "management_history_window")) continue;
         const auto role = text(message, "role");
         const auto content = text(message, "content");

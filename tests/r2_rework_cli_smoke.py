@@ -34,7 +34,7 @@ class ReworkCli(unittest.TestCase):
         # A caller may freeze zero for a single-response safety rejection fixture.
         config=config.replace('schema_retry_max: 2', f'schema_retry_max: {schema_retry_max}')
         if structured:
-            config=config.replace('  tool_policy: fixed-role-v1\n', '').replace('  model_projection: lean-v1\n', '').replace('request_format: structured-v3','request_format: structured-v2')
+            config=config.replace('  tool_policy: fixed-role-v1\n', '').replace('  model_projection: lean-v1\n', '').replace('  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n', '').replace('request_format: structured-v3','request_format: structured-v2')
         config_path=self.directory/'system.yaml'; config_path.write_text(config)
         request=self.invoke('submit','--db',self.database,'--key','reject-request',
             '--text-file',h.FIXTURES/'s14_request.txt','--constraints-file',h.FIXTURES/'s14_constraints.json',
