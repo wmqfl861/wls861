@@ -785,8 +785,12 @@ CapturedModelCall OfflineRuntime::capture_call(
         const auto input_bytes = [&] {
             auto bytes = request.context.prompt().size();
             if (string_at(profile, "adapter") == "openai-responses") {
+                auto measurement = request;
+                require(bytes < static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max()),
+                        ErrorCode::Quota, "input reservation overflow");
+                measurement.reserved_input_tokens = static_cast<std::int64_t>(bytes);
                 const auto settings = live_model_settings_from_json(profile, request.model.model);
-                bytes = std::max(bytes, encode_responses_request(settings.provider, request, settings.stream).body.size());
+                bytes = std::max(bytes, encode_responses_request(settings.provider, measurement, settings.stream).body.size());
             }
             return bytes;
         };
