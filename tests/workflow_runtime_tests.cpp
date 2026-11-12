@@ -528,7 +528,8 @@ void bounded_same_error_count_survives_reopen_and_resets_on_success_or_target_ch
     f.reopen();
     const auto attempts = f.store->budget(f.id).at("attempts");
     report = f.runtime().pump(f.id, repeat);
-    CHECK(report.at("calls").as_array().empty() && blocked(report, "stall_same_error_repeats"));
+    CHECK(report.at("calls").as_array().empty() && blocked(report, "not_ready"));
+    CHECK(report.at("blocked").as_array().front().at("reason") == "stall_same_error_repeats");
     CHECK(f.store->budget(f.id).at("attempts") == attempts);
     (void)f.invoke(Role::TeamLead, "issue_work_order", script().by_node.at("alpha").front().tool_calls.front().arguments);
     const auto binding = f.binding();

@@ -837,6 +837,33 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(report['stop_reason'], 'call_limit' if version == 2 else 'total_call_limit')
         self.assertEqual(len(self.endpoint.records[case['request']]), 3)
 
+    def test_13_bounded_continuation_stops_at_a_missing_workspace(self):
+        endpoint = PricingFlowEndpoint()
+        with tls.Peer(self.contexts['server'], endpoint) as peer:
+            profile = copy.deepcopy(self.profile)
+            provider = profile['responses']['provider_profile']
+            provider.update(base_url=f'https://localhost:{peer.port}')
+            provider.pop('billing_challenge', None)
+            provider['pricing'] = PRICING
+            case = self.admit_case('bounded-missing-workspace', 0, 'multi_agent', register=False,
+                profile=profile, cost_budget=8000000, nodes=('alpha', 'beta', 'gamma'), bounded=True)
+            for node in ('alpha', 'beta', 'gamma'):
+                (Path(case['workspaces'][node]) / 'seed.txt').write_bytes(b'alpha\nbeta\n')
+            write_json(case['mapping'], {node: path for node, path in case['workspaces'].items() if node != 'gamma'})
+            authorization = self.command('live-status', '--db', case['database'],
+                                         '--request', case['request'])['authorization_template']
+            authorization.update(network_enabled=True, reserved_cost_micro_usd=200000,
+                max_calls=1, max_worker_calls_per_task=16, max_batch_duration_ms=120000)
+            write_json(case['authorization'], authorization)
+            report = self.command('pump-live', '--db', case['database'], '--request', case['request'],
+                '--authorization-file', case['authorization'], '--workspaces-file', case['mapping'])
+            self.assertEqual(report['wake_count'], len(report['calls']))  # No extra empty wake after the real blocker.
+            self.assertEqual(len(report['calls']), 22)
+            self.assertEqual(len(peer.requests), 22)
+            self.assertFalse(report['resume_after_wake_limit'])
+            self.assertTrue(any(item['code'] == 'workspace_missing' for item in report['blocked']))
+            self.assertEqual(rows(case['database'], 'SELECT count(*) AS n FROM live_send_claims')[0]['n'], 22)
+
     def test_90_invalid_signed_sources_never_advance_business_or_repeat_send(self):
         for variant in ('bad_signature', 'wrong_challenge', 'wrong_response_hash', 'duplicate_header'):
             with self.subTest(variant=variant):

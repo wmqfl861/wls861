@@ -36,14 +36,14 @@ void bounded_warnings_preserve_settlement_and_recover_without_capacity_charge() 
         request.config_snapshot_id, "COMPLETED", to_json(response.usage), to_json(response)); };
     fixture::sql(f.path, "CREATE TRIGGER fail_runtime_warning BEFORE INSERT ON events WHEN NEW.type='budget_warning' "
         "BEGIN SELECT RAISE(ABORT,'fixture warning failure'); END;");
-    error(ErrorCode::Storage, settle);
+    error(ErrorCode::Conflict, settle);
     const auto original = f.store->attempt(request.attempt_id);
     CHECK(!original.at("settlement_sha256").is_null() && original.at("usage") == to_json(response.usage));
     CHECK(number(f.store->budget(f.request_id), "spent_input") == 800);
     auto next = f.request("bounded-next");
     next.max_output_tokens = next.reserved_output_tokens = 1;
     next.reserved_input_tokens = next.reserved_cost_micro_usd = 1;
-    error(ErrorCode::Storage, [&] { (void)f.store->reserve_attempt(f.actor(), next.binding, f.reservation(next, true)); });
+    error(ErrorCode::Conflict, [&] { (void)f.store->reserve_attempt(f.actor(), next.binding, f.reservation(next, true)); });
     CHECK(number(f.store->budget(f.request_id), "attempts") == 1);
     CHECK(settle() == original); // Exact settlement replay does not retry failed observations.
     fixture::sql(f.path, "DROP TRIGGER fail_runtime_warning;");

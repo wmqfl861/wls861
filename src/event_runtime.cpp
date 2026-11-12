@@ -506,7 +506,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     Array calls, blocked;
     std::int64_t manager_calls = 0;
     bool live_halted = false;
-    bool wake_limited = false, made_progress = false;
+    bool wake_limited = false, made_progress = false, resume_blocked = false;
     std::string stop_reason = "quiescent";
     std::int64_t network_started_calls = 0, provider_calls = 0, unobserved_send_claims = 0;
     bool network_count_complete = true;
@@ -631,6 +631,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         if (store_.capacity_status(id).at("status") == "WAITING_INPUT") {
             const auto pending_action = role == Role::Worker ? Json(nullptr) : management_target(role, task);
             if (pending_action.is_null() || text(pending_action, "kind") != "experience") {
+                resume_blocked = true;
                 block(role, node, task, "capacity_waiting_input", "Root capacity-checkpoint required; no new model reservation");
                 stopped.insert(key); return std::nullopt;
             }
@@ -1069,6 +1070,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 if ((status != "READY" && status != "RUNNING") ||
                         (!waiting.is_null() && text(waiting, "status") == "WAITING")) continue;
                 if (!tools_by_node_.empty() && !tools) {
+                    resume_blocked = true;
                     block(Role::Worker, node, task_id, "workspace_missing", "this task has no explicitly mapped WorkerTools host");
                     stopped.insert({Role::Worker, node}); continue;
                 }
@@ -1144,7 +1146,10 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             else block(Role::Worker, node, task_id, "submission_pending", "Worker submission awaits its captured TeamLead check");
         }
     }
-    for (const auto& question : runtime_detail::visible_management_questions(store_, Role::Dispatcher, id, {}, &config)) questions.push_back(question);
+    for (const auto& question : runtime_detail::visible_management_questions(store_, Role::Dispatcher, id, {}, &config)) {
+        if (text(question, "status") == "OPEN" && text(question, "holder") == "user") resume_blocked = true;
+        questions.push_back(question);
+    }
     if (static_cast<std::int64_t>(calls.size()) >= options.max_calls && !pending.empty())
         block(Role::Dispatcher, {}, {}, "call_limit", "this explicit pump reached its total call limit; remaining events stay durable");
     Object result{{"mode", live ? "event_live" : "event_fake"}, {"workflow_runtime", true}, {"request_id", id},
@@ -1166,7 +1171,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         result["experience_jobs"] = std::move(jobs);
     }
     if (live) {
-        result["resume_after_wake_limit"] = wake_limited && made_progress &&
+        result["resume_after_wake_limit"] = wake_limited && made_progress && !resume_blocked &&
             (stop_reason == "quiescent" || stop_reason == "call_limit");
         result["stop_reason"] = stop_reason;
         result["network_started_calls"] = network_started_calls;
