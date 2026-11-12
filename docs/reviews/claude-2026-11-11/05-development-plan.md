@@ -44,7 +44,7 @@
 | 顺序 | 阶段 | 内容 | PR 数 | 粗估 | 出口 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 0 | 收敛 | 合并 #48、#49；处置在途分支；文档对齐 | 2 合并 + 1 文档 | 1 天 | 在制 ≤3，main 含 G1-1、G1-2 | 已完成：2026-11-11 17:06:26 UTC，F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 普通合并为 `ff2c899`；见 §16 执行附录 |
-| 1 | G1 | 纠错、模型可用性、缓存布局、联网、付费保护、一键入口 | 约 12 | 7–10 天 | G1 总门禁 | 已开始：A/B/C/I 已合（#53–#56），D/J 在制；E 待 D |
+| 1 | G1 | 纠错、模型可用性、缓存布局、联网、付费保护、一键入口 | 约 12 | 7–10 天 | G1 总门禁 | A–M已合至产品基线main `b09848e7`；M三核心83/83、本机G1单项通过，main完整矩阵在途；未宣称正式通过，见§16 |
 | 2 | G2 | 首个真实闭环 | 0–3 修复 | 1–3 天 | U1、U2，一页报告 | 等 D-2、D-3 |
 | 3 | G4 | 沙箱 `standard` 档、环境卡片、输入目录 | 3–4 | 4–5 天 | U3、U4 | 等 D-5 |
 | 4 | G3 | 普通单 Agent、对照评测、快路径 | 3 | 3–4 天 | 一页对照报告 | — |
@@ -261,3 +261,11 @@ G2 ─→ G8（记忆需要真实任务产出的经验）；G8 的检索卡片�
 - G1 已开始，A 已完成：[#53](https://github.com/wmqfl861/wls861/pull/53) 于 17:37:54 UTC 普通合并为 `ce6fe0d907e286593df66288ab7149dc0af60b94`；PR run [43066941090](https://github.com/wmqfl861/wls861/actions/runs/43066941090) 三核心配置各 78/78、source run [43066941031](https://github.com/wmqfl861/wls861/actions/runs/43066941031) SUCCESS。I [#54](https://github.com/wmqfl861/wls861/pull/54) 已于 18:14:44 UTC 普通合并为 `231291efd25fa3bd60a6e06f78c65a4351ecb948`；C [#56](https://github.com/wmqfl861/wls861/pull/56) 于 18:52:43 UTC 普通合并为 `c783d9e`，B [#55](https://github.com/wmqfl861/wls861/pull/55) 于 19:05:52 UTC 普通合并为 `951c95d`；两 PR 各三核心配置 78/78 与 source 检查成功。D/J 在制，E 待 D；C 内部 v3 的持久化准入等待 E 最终布局。
 - 阶段 0 事实与出口见 `docs/reports/stage0-convergence.md`；始终维护同一报告，#51 的合并事件与产品验证独立核对，不另建报告或为自身合并再建 PR。
 - A/B/C/I 组合 main `951c95d` 的 run [43083978529](https://github.com/wmqfl861/wls861/actions/runs/43083978529) 六配置全部 SUCCESS（五组 CTest 各 78/78，Make-ASan 独立成功）。该结果不改写旧本地 sanitizer OPEN、Windows 11 NOT_RUN 或私有托管 BLOCKED。
+
+### 当前执行覆盖（2026-11-12，G1 主线交接）
+
+- 上一小节记录2026-11-11当时状态；D/J在制、E待D等历史描述不作为当前进度。A–M现已普通合并至产品基线 main@`b09848e787e307a002ab97282c1b3d95901a397f`（#66，23:09:34 UTC），包括A后续#62；逐项PR及完整merge SHA见[完整交接](../g1-main-handoff-20261112.md)。
+- M head `c2aa6440dec010b9161527c1c80d6b75ccf2081a` 已正常merge前一main后通过PR三核心各83/83与source；本机注册G1一次1/1 PASS（19.80秒）。83项注册、Make59+24及CMake ASan42+41是静态核对，不能写成本机全跑。23:11:47 UTC快照时新main full PENDING、source SUCCESS，旧结果不移用。
+- M含合成验收及H两项实际产品修复，不能按§4最初“只加测试”描述最终差异。本次owner明确要求正常合并与完整交接；该特定整合不表示全部矩阵通过、正式PR评审或G1正式验收，不扩大未来合并权限。原ASan单项超时及本机capture保持OPEN，`structured-v3`不提前宣称已正式冻结发布。
+- 按指定里程碑维护[同一G1简报](../../reports/g1-exit.md)；完整接手页集中架构、构建、证据和后续步骤。STATUS/CHANGELOG/ROADMAP同步当前事实，历史报告及handoff原件保持原状。
+- D-2/D-3仍未给出，真实供应商及付费调用为0；Windows11 NOT_RUN、强沙箱部署正向未验收、私有CI原件托管BLOCKED。下一步登记剩余main自动full结果并有界诊断已知超时，不重复已完成的新G1场景；之后仍按G1→G2→G4→G3既定顺序推进。

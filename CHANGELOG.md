@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased — G0 closeout and G1 start (2026-11-07 through 2026-11-11, in progress; no version cut)
+## Unreleased — G0 closeout and G1 integration (2026-11-07 through 2026-11-12, in progress; no version cut)
+
+- Merge G1-A–M through #66 on 2026-11-12, product baseline
+  `b09848e787e307a002ab97282c1b3d95901a397f` (23:09:34 UTC), and add
+  [the complete handoff](docs/reviews/g1-main-handoff-20261112.md) plus the
+  planned [G1 result page](docs/reports/g1-exit.md). Document the four-role
+  architecture, dependencies, safe synthetic entry points, exact-SHA evidence
+  and next-agent checklist. M head `c2aa644` passed three PR core
+  configurations (83/83 each) and one local registered G1 execution (19.80s).
+  At 23:11:47 UTC, new main full CI is PENDING and source CI is SUCCESS.
+  Preserve individual ASan timeouts, the local capture failure, Windows
+  NOT_RUN, private evidence hosting BLOCKED and zero real/paid provider calls.
+  This owner-authorized integration does not assert formal PR review,
+  formal G1 acceptance, broader future merge permission or a version release.
 
 - Merge G1-C tool descriptions (#56, `c783d9e`, 18:52:43 UTC) and G1-B
   durable model-output correction (#55, `951c95d`, 19:05:52 UTC) on
