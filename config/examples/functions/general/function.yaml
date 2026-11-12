@@ -3,7 +3,7 @@ schema_version: 1
 spec_version: 0.4.1
 id: general
 version: 1
-description: 通用演示：文件、脚本和数据处理；真实能力完成前只用 fake。
+description: 通用文件、脚本和数据处理；按当前声明工具、冻结环境及任务要求执行。
 
 # 每请求创建时冻结以下配置，后建团队和恢复继续用该快照。
 root:
