@@ -20,6 +20,7 @@
     "tool_calling": true
   },
   "format": "wls-provider-profile-v1",
+  "tool_choice_policy": "allowed-tools-v1",
   "limits": {
     "max_json_depth": 64,
     "max_output_items": 128,

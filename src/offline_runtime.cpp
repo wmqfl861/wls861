@@ -82,6 +82,36 @@ std::vector<ContextTool> tools_for(const SchemaRegistry& schemas, Role role) {
     throw Error(ErrorCode::Unsupported, "offline admission is host-owned; no Root model runner yet");
 }
 
+std::vector<ContextTool> fixed_tools(const SchemaRegistry& schemas, const std::vector<std::string>& names) {
+    const std::map<std::string, std::pair<std::string, std::string>> management{
+        {"submit_plan", {"v0.4.1", "plan"}}, {"issue_work_order", {"v0.4.1", "work_order"}},
+        {"submit_amendment_plan", {"wls-model-amendment-v1", "submit_amendment_plan"}},
+        {"resolve_amendment", {"wls-model-amendment-v1", "resolve_amendment"}},
+        {"answer_question", {"wls-question-answer-v1", "answer_question"}},
+        {"forward_question", {"wls-question-forward-v1", "forward_question"}},
+        {"accept_candidate", {"wls-candidate-acceptance-v1", "accept_candidate"}},
+        {"change_task", {"wls-corrective-task-v1", "change_task"}},
+        {"escalate_task", {"wls-rejection-escalation-v1", "escalate_task"}},
+        {"check_submission", {"wls-submission-check-v1", "check_submission"}},
+        {"report_experience", {"wls-experience-report-v1", "experience_report"}},
+        {"ask", {"wls-question-ask-v1", "question"}}, {"submit", {"wls-work-submit-v1", "submission"}}};
+    auto controls = history_control_declarations();
+    const auto manager_controls = management_history_declarations();
+    controls.insert(controls.end(), manager_controls.begin(), manager_controls.end());
+    std::vector<ContextTool> result;
+    for (const auto& name : names) {
+        if (const auto found = management.find(name); found != management.end())
+            result.push_back({name, found->second.first, schemas.project_model_input(found->second.second)});
+        else if (const auto control = std::find_if(controls.begin(), controls.end(), [&](const auto& item) { return item.name == name; }); control != controls.end())
+            result.push_back(*control);
+        else {
+            const auto& tool = worker_tool_definition(name);
+            result.push_back({name, tool.version, tool.input_schema});
+        }
+    }
+    return result;
+}
+
 Json captured_contract(const ModelRequest& request) {
     return parse_json_strict(compiled_task_contract(request.context), 1024U * 1024U);
 }
@@ -600,6 +630,14 @@ CapturedModelCall OfflineRuntime::capture_call(
     }
     if (role == Role::Worker)
         require(!declared_tools.empty(), ErrorCode::Unauthorized, "Worker has no implemented authorized tools");
+    std::vector<std::string> allowed_tools;
+    if (!config.context_tool_policy().empty()) {
+        require(store_.event_runtime_enabled(), ErrorCode::Unsupported, "fixed-role-v1 needs durable feedback storage");
+        for (const auto& tool : declared_tools) allowed_tools.push_back(tool.name);
+        std::sort(allowed_tools.begin(), allowed_tools.end());
+        allowed_tools.erase(std::unique(allowed_tools.begin(), allowed_tools.end()), allowed_tools.end());
+        declared_tools = fixed_tools(schemas_, config.role_tool_catalog(role, template_id));
+    }
     std::optional<SingleAgentTranscript> shared_transcript;
     const auto logical_policy = config.logical_agent_policy();
     if (!logical_policy.is_null()) {
@@ -611,6 +649,7 @@ CapturedModelCall OfflineRuntime::capture_call(
     }
     for (auto& tool : declared_tools) tool.description = builtin_tool_description(tool.name);
     auto context = make_context(config, role, template_id, declared_tools, contract);
+    context.tool_policy = config.context_tool_policy(); context.allowed_tools = std::move(allowed_tools);
     if (shared_transcript)
         context.dependencies.push_back({"logical_agent_policy", std::string(single_agent_contract), sha256_hex(canonical_json(logical_policy))});
     if (!history_policy.is_null())
@@ -714,7 +753,7 @@ CapturedModelCall OfflineRuntime::capture_call(
         if (structured) native_messages = structured_attempt_history({items.back()});
         else context.messages.push_back({"tool", canonical_json(items.back())});
     }
-    if (config.context_prompt_policy() == "guided-v1") {
+    if (config.context_prompt_policy() == "guided-v1" || !config.context_tool_policy().empty()) {
         context.approved_rules = guided_rules(role);
         context.project_snapshot = "Use the complete task contract and observed tool results for current facts.";
     }
@@ -899,8 +938,9 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     const auto& accepted = settlement.at("accepted");
     require((accepted.is_bool() && accepted.as_bool()) || (accepted.is_int64() && accepted.as_int64() == 1),
             ErrorCode::Stale, "response was recorded but cannot change current business state");
-    const bool declared = response.tool_calls.size() == 1 && std::find(captured.context.tool_names.begin(),
-        captured.context.tool_names.end(), response.tool_calls.front().name) != captured.context.tool_names.end();
+    const auto allowed = model_allowed_tools(captured.context);
+    const bool declared = response.tool_calls.size() == 1 && std::find(allowed.begin(),
+        allowed.end(), response.tool_calls.front().name) != allowed.end();
     if (durable_feedback && !declared) return ordinary("tool_selection", "offline wake requires exactly one declared tool call");
     require_complete_response(captured, response);
     require(response.tool_calls.size() == 1, ErrorCode::InvalidInput, "offline wake requires exactly one declared tool call");

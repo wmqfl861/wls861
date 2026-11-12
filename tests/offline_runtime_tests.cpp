@@ -30,7 +30,12 @@ Json fixture(const std::string& name) { return parse_json_strict(read_runtime_fi
 std::vector<FakeModelStep> initial_steps() { return fake_model_steps_from_json(fixture("s1_fake_initial.json")); }
 std::vector<FakeModelStep> amended_steps() { return fake_model_steps_from_json(fixture("s1_fake_amended.json")); }
 FrozenRequestConfig config() {
-    return load_config_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts").freeze("general");
+    test::TempDir directory;
+    auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string policy = "  tool_policy: fixed-role-v1\n";
+    yaml.erase(yaml.find(policy), policy.size());
+    { std::ofstream file(directory.path / "system.yaml"); file << yaml; CHECK(file.good()); }
+    return load_config_catalog(directory.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general");
 }
 AdmissionInput input(const FrozenRequestConfig& frozen = config()) {
     AdmissionInput result;

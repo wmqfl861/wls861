@@ -57,6 +57,8 @@ AdmissionInput admission() {
     input.original_text = "preserve fixture observations";
     test::TempDir temp;
     auto yaml = read(source_root / "config/examples/system.yaml");
+    const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
+    yaml.erase(yaml.find(tool_policy), tool_policy.size());
     const std::string format = "request_format: structured-v3";
     const auto at = yaml.find(format); CHECK(at != std::string::npos);
     yaml.replace(at, format.size(), "request_format: framed-v1");

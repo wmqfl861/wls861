@@ -249,6 +249,10 @@ void v3_hash_roundtrip_and_wire() {
     CHECK(c.logical_input_sha256 == sha256_hex(c.prompt()));
     CHECK(to_json(compiled_context_from_json(document)) == document);
     const auto encoded = encode_responses_request(fixture::profile(), r);
+    // Captured with the merged E binary, before the optional F policy existed.
+    CHECK(sha256_hex(canonical_json(document)) == "a5468d6021eb86bd7cd72e72c800680d10c94b4c3f304fa198bdc71db37334ca");
+    CHECK(sha256_hex(canonical_json(to_json(r))) == "97d680a0037304cedeecb686687e26bf37d454b38ead30c519b50efd1e51dd1c");
+    CHECK(encoded.body_sha256 == "3dea3be602fce76cc5d0b2d664d15854ecdd0dea52d7aa40862036bfc5251cfc");
     const auto body = parse_json_strict(encoded.body);
     const auto& tool = body.at("tools").as_array().front();
     CHECK(tool.at("description") == Json(input.tools.front().description));
@@ -498,6 +502,8 @@ struct ConfigFixture {
     ::test::TempDir tmp;
     FrozenRequestConfig load(const std::string& format) {
         auto yaml = read_runtime_file(root / "config/examples/system.yaml");
+        const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
+        yaml.erase(yaml.find(tool_policy), tool_policy.size());
         const std::string marker = "  request_format: structured-v3\n";
         const auto pos = yaml.find(marker); CHECK(pos != std::string::npos);
         yaml.replace(pos, marker.size(), format.empty() ? "" : "  request_format: " + format + "\n");
@@ -672,7 +678,13 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
 }
 
 void v3_five_round_encoded_prefix_and_originals() {
+    for (const bool fixed : {false, true}) {
     auto input = described_fixture();
+    if (fixed) {
+        const auto& read = worker_tool_definition("fs_read");
+        input.tools.push_back({read.name, read.version, read.input_schema, builtin_tool_description(read.name)});
+        input.tool_policy = "fixed-role-v1";
+    }
     Json contract = Object{{"request", Object{{"requirements_revision", 1},
         {"texts", Array{Object{{"text", "original request"}, {"kind", "ORIGINAL"}}}}, {"constraint_catalog", Array{}}}},
         {"task", Object{{"brief", Object{{"goal", "retain original bytes"}}}, {"task_revision", 1}, {"state_version", 1}}},
@@ -683,6 +695,7 @@ void v3_five_round_encoded_prefix_and_originals() {
     Json previous = nullptr, anchor = nullptr, previous_body = nullptr;
     Array previous_input;
     for (int round = 0; round != 5; ++round) {
+        if (fixed) input.allowed_tools = {round % 2 ? "fs_read" : "note"};
         contract.at("budget").at("spent_input") = round * 17;
         contract.at("binding").at("execution_epoch") = round + 1;
         contract.at("task").at("state_version") = round + 1;
@@ -692,6 +705,15 @@ void v3_five_round_encoded_prefix_and_originals() {
         request.context = compile_structured_context(input, messages, {}, StructuredContextFormat::V3);
         const auto logical = request.context.logical_input;
         const auto body = parse_json_strict(encode_responses_request(profile, request).body);
+        if (fixed) {
+            CHECK(!body.as_object().contains("tool_choice"));
+            auto opted = profile; opted.tool_choice_policy = "allowed-tools-v1";
+            const auto controlled = parse_json_strict(encode_responses_request(opted, request).body);
+            CHECK(controlled.at("tools") == body.at("tools"));
+            CHECK(controlled.at("tool_choice") == Json(Object{{"type", "allowed_tools"}, {"mode", "auto"},
+                {"tools", Array{Object{{"type", "function"}, {"name", input.allowed_tools.front()}}}}}));
+            CHECK(to_json(provider_profile_from_json(to_json(opted))) == to_json(opted));
+        }
         auto ordered = body.at("input").as_array();
         CHECK(parse_json_strict(str(ordered.back(), "content")).at("format") == "wls-responses-current-state-v3");
         ordered.pop_back();
@@ -738,6 +760,7 @@ void v3_five_round_encoded_prefix_and_originals() {
     CHECK(parse_json_strict(str(ordered[ordered.size() - 2], "content")).at("format") == "wls-responses-contract-update-v3");
     CHECK(amended.context.logical_input.at("messages") == single_agent_messages_json(messages));
     CHECK(encode_responses_request(profile, model_request_from_json(to_json(amended))).body == canonical_json(encoded));
+    }
 }
 
 struct V3Fixture {
@@ -747,12 +770,15 @@ struct V3Fixture {
     std::filesystem::path database{directory.path / "v3.sqlite"};
     std::unique_ptr<Store> store;
     std::string id, task;
-    explicit V3Fixture(const std::string& mode, int recent = 6) {
+    explicit V3Fixture(const std::string& mode, int recent = 6, bool fixed = false) {
         auto yaml = read_runtime_file(root / "config/examples/system.yaml");
+        const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
+        yaml.erase(yaml.find(tool_policy), tool_policy.size());
         const auto begin = yaml.find("  request_format: "); CHECK(begin != std::string::npos);
         yaml.replace(begin, yaml.find('\n', begin) - begin + 1, "  request_format: structured-v3\n");
         const auto position = yaml.find("  compaction_at_fraction:"); CHECK(position != std::string::npos);
         std::string policies;
+        if (fixed) policies += "  tool_policy: fixed-role-v1\n";
         if (mode == "worker" || mode == "all") policies += "  worker_history: {mode: window-v1, recent_attempts: " +
             std::to_string(recent) + ", inline_bytes: 32768}\n";
         if (mode == "manager" || mode == "all") policies += "  management_history: {mode: window-v1, recent_attempts: 2, inline_bytes: 32768, max_context_bytes: 1048576}\n";
@@ -791,14 +817,23 @@ struct V3Fixture {
 };
 
 void v3_capture_reserve_restore_policy_combinations() {
-    for (const auto* mode : {"worker", "manager", "single", "all"}) {
-        V3Fixture fixture(mode);
+    for (const bool fixed : {false, true}) for (const auto* mode : {"worker", "manager", "single", "all"}) {
+        V3Fixture fixture(mode, 6, fixed);
+        Json prefix = nullptr;
         for (int round = 1; round <= 5; ++round) {
             auto fake = fixture.note(round);
             const auto call = OfflineRuntime(*fixture.store, fixture.schemas).reserve_call(fake, fixture.id, Role::Worker, fixture.task, round);
             const auto envelope = fixture.store->attempt(call.request.attempt_id).at("request_envelope");
             CHECK(envelope.at("format") == "wls-model-request-v3");
             CHECK(to_json(model_request_from_json(envelope)) == envelope);
+            if (fixed) {
+                CHECK(call.request.context.logical_input.at("tool_policy") == "fixed-role-v1");
+                if (prefix.is_null()) prefix = call.request.context.logical_input.at("prefix");
+                CHECK(call.request.context.logical_input.at("prefix") == prefix);
+                const auto names = call.request.context.tool_names;
+                CHECK(std::find(names.begin(), names.end(), "recall") == names.end());
+                CHECK(std::find(names.begin(), names.end(), "load_memory") == names.end());
+            }
             CHECK(OfflineRuntime(*fixture.store, fixture.schemas).accept_response(call, fake.complete(call.request)).is_object());
             if (round == 2) fixture.reopen();
         }
@@ -893,10 +928,103 @@ void v3_cross_version_and_projection_corruption_reject() {
     }
 }
 
+CompiledContext rehashed_context(Json document) {
+    const auto& logical = document.at("input");
+    document.at("prefix_sha256") = sha256_hex(canonical_json(Object{{"prefix", logical.at("prefix")},
+        {"contract_anchor", logical.at("contract_anchor")}}));
+    Object identity{{"format", "wls-context-cache-v3"}, {"selection", logical.at("selection")},
+        {"prefix_sha256", document.at("prefix_sha256")}};
+    if (logical.as_object().contains("tool_policy")) identity["tool_policy"] = logical.at("tool_policy");
+    document.at("cache_identity") = sha256_hex(canonical_json(identity));
+    document.at("logical_input_sha256") = sha256_hex(canonical_json(logical));
+    return compiled_context_from_json(document);
+}
+void reserve_original(V3Fixture& f, const CapturedModelCall& call) {
+    const auto& r = call.request;
+    AttemptReservation reservation;
+    reservation.call_id = r.call_id; reservation.attempt_id = r.attempt_id;
+    reservation.config_snapshot_sha256 = r.config_snapshot_id; reservation.model_ref = r.model.model;
+    reservation.reserved_input_tokens = r.reserved_input_tokens; reservation.reserved_output_tokens = r.reserved_output_tokens;
+    reservation.reserved_cost_micro_usd = r.reserved_cost_micro_usd; reservation.max_output_tokens = r.max_output_tokens;
+    reservation.request_envelope = to_json(r);
+    (void)f.store->reserve_attempt(call.actor, r.binding, reservation);
+}
+void fixed_role_selection_settles_once_and_keeps_original_history() {
+    V3Fixture f("single", 6, true); OfflineRuntime runtime(*f.store, f.schemas);
+    auto fake = f.note(); const auto call = runtime.reserve_call(fake, f.id, Role::Worker, f.task);
+    auto response = fake.complete(call.request);
+    response.tool_calls.front().name = "fs_read";
+    response.tool_calls.front().arguments = Object{{"path", "must-not-be-read"}};
+    CHECK(std::find(call.request.context.tool_names.begin(), call.request.context.tool_names.end(), "fs_read") != call.request.context.tool_names.end());
+    fails(ErrorCode::InvalidInput, [&] { validate_response(call.request, response); });
+    const auto result = runtime.accept_response(call, response);
+    CHECK(result.at("correction_feedback").at("reason") == "tool_selection");
+    const auto budget = f.store->budget(f.id);
+    CHECK(runtime.accept_response(call, response) == result); CHECK(f.store->budget(f.id) == budget);
+    CHECK(f.store->attempt(call.request.attempt_id).at("response") == to_json(response));
+    f.reopen(); auto next_fake = f.note(2);
+    OfflineRuntime reopened(*f.store, f.schemas);
+    const auto next = reopened.reserve_call(next_fake, f.id, Role::Worker, f.task, 2);
+    const auto messages = next.request.context.logical_input.at("messages").as_array();
+    CHECK(messages[messages.size() - 2].at("source").at("rejected_tool_selection") == true);
+    CHECK(messages[messages.size() - 2].at("tool_calls").as_array().front().at("name") == "fs_read");
+    CHECK(reopened.accept_response(next, next_fake.complete(next.request)).is_object());
+    CHECK(f.store->tool_feedback(next.request.attempt_id).at("result").as_object().if_contains("correction_feedback") == nullptr);
+}
+void fixed_role_policy_tampering_and_current_revocation_reject() {
+    auto input = described_fixture(); input.tool_policy = "fixed-role-v1"; input.allowed_tools = {"note"};
+    const auto valid = compile_structured_context(input, {}, {}, StructuredContextFormat::V3);
+    for (const auto& allowed : {Array{}, Array{"undeclared"}, Array{"note", "note"}, Array{false}, Array(65, "note")}) {
+        auto changed = to_json(valid); changed.at("input").at("current_state").at("allowed_tools") = allowed;
+        fails(ErrorCode::InvalidInput, [&] { (void)rehashed_context(changed); });
+    }
+    auto changed = to_json(valid); changed.at("input").at("current_state").as_object().erase("allowed_tools");
+    fails(ErrorCode::InvalidInput, [&] { (void)rehashed_context(changed); });
+    changed = to_json(valid); changed.at("input").at("tool_policy") = "future-v2";
+    fails(ErrorCode::InvalidInput, [&] { (void)rehashed_context(changed); });
+    fails(ErrorCode::InvalidInput, [&] { (void)compile_structured_context(input, {}); });
+    input.tools.front().name = "submit_plan"; input.allowed_tools = {"submit_plan"};
+    fails(ErrorCode::InvalidInput, [&] { (void)compile_structured_context(input, {}, {}, StructuredContextFormat::V3); });
+    auto profile = fixture::profile(); auto profile_json = to_json(profile);
+    profile_json.as_object()["tool_choice_policy"] = "";
+    fails(ErrorCode::InvalidInput, [&] { (void)provider_profile_from_json(profile_json); });
+    for (const bool fixed : {false, true}) {
+        V3Fixture f("", 6, fixed); OfflineRuntime runtime(*f.store, f.schemas);
+        auto call = runtime.capture_call(f.id, Role::Worker, f.task);
+        auto document = to_json(call.request.context);
+        if (fixed) {
+            document.at("input").as_object().erase("tool_policy");
+            document.at("input").at("current_state").as_object().erase("allowed_tools");
+        } else {
+            document.at("input").as_object()["tool_policy"] = "fixed-role-v1";
+            document.at("input").at("current_state").as_object()["allowed_tools"] = document.at("tool_names");
+        }
+        call.request.context = rehashed_context(document);
+        const auto budget = f.store->budget(f.id);
+        fails(ErrorCode::Unauthorized, [&] { reserve_original(f, call); }); CHECK(f.store->budget(f.id) == budget);
+    }
+    V3Fixture f("", 6, true); OfflineRuntime runtime(*f.store, f.schemas);
+    auto call = runtime.capture_call(f.id, Role::Worker, f.task);
+    auto document = to_json(call.request.context);
+    auto& definitions = document.at("input").at("prefix").at("tools").as_array();
+    definitions.erase(std::find_if(definitions.begin(), definitions.end(), [](const auto& tool) { return tool.at("name") == "run"; }));
+    auto& names = document.at("tool_names").as_array();
+    names.erase(std::find(names.begin(), names.end(), Json("run")));
+    auto forged = call; forged.request.context = rehashed_context(document);
+    fails(ErrorCode::Unauthorized, [&] { reserve_original(f, forged); });
+    wls::test::live::sql(f.database, "UPDATE runtime_policy SET denied_tools='[\"note\"]',state_version=state_version+1");
+    fails(ErrorCode::Unauthorized, [&] { reserve_original(f, call); });
+    const auto next = runtime.capture_call(f.id, Role::Worker, f.task);
+    CHECK(next.request.context.tool_names == call.request.context.tool_names);
+    CHECK(model_allowed_tools(next.request.context) == std::vector<std::string>{"ask"});
+}
+
 } // namespace
 
 int main() {
     return ::test::run({
+        {"fixed role disallowed selection settles once and preserves original history", fixed_role_selection_settles_once_and_keeps_original_history},
+        {"fixed role policy tampering and current revocation reject", fixed_role_policy_tampering_and_current_revocation_reject},
         {"v3 encoded five round prefix preserves native originals", v3_five_round_encoded_prefix_and_originals},
         {"v3 capture reserve restore history policy combinations", v3_capture_reserve_restore_policy_combinations},
         {"v3 AMEND and reopen preserve anchor and original CAS", v3_amend_reopen_and_original_cas},
