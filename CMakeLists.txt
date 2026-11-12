@@ -167,8 +167,12 @@ if(BUILD_TESTING)
     set_tests_properties(live_workflow_cli PROPERTIES TIMEOUT 180)
     add_test(NAME billing_baseline_e2e
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_billing_baseline_e2e.py"
-                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
+                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}" --group legacy)
     set_tests_properties(billing_baseline_e2e PROPERTIES TIMEOUT 900)
+    add_test(NAME g1_exit_e2e
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_billing_baseline_e2e.py"
+                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}" --group g1)
+    set_tests_properties(g1_exit_e2e PROPERTIES TIMEOUT 300)
     add_test(NAME runtime_resources_cli
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime_resources_cli_tests.py"
                 "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
@@ -270,7 +274,7 @@ if(BUILD_TESTING)
 
     # Keep every test registered; CI selects execution and build dependencies together.
     set(WLS_CI_SLOW_TESTS "all" CACHE STRING "CI slow tests: all, none, or a semicolon-separated list")
-    set(wls_ci_slow_tests billing_baseline_e2e live_workflow audit24_capacity_repro
+    set(wls_ci_slow_tests billing_baseline_e2e g1_exit_e2e live_workflow audit24_capacity_repro
         https_transport r3_evaluation r1_management)
     if(WLS_CI_SLOW_TESTS STREQUAL "all")
         set(wls_ci_selected_slow ${wls_ci_slow_tests})

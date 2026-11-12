@@ -158,7 +158,8 @@ test: all $(TEST_BINARIES) $(S1_TEST_BINARIES) $(HTTPS_TEST_DRIVER) $(LIVE_TEST_
 	$(PYTHON) tests/test_live_model_store.py "$(abspath $(LIVE_TEST_DRIVER))" "$(abspath .)"
 	$(PYTHON) tests/test_live_workflow.py "$(abspath $(WORKFLOW_TEST_DRIVER))" "$(abspath .)"
 	$(PYTHON) tests/test_live_workflow_cli.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
-	$(PYTHON) tests/test_billing_baseline_e2e.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
+	$(PYTHON) tests/test_billing_baseline_e2e.py "$(abspath $(S1_APPLICATION))" "$(abspath .)" --group legacy
+	$(PYTHON) tests/test_billing_baseline_e2e.py "$(abspath $(S1_APPLICATION))" "$(abspath .)" --group g1
 	$(PYTHON) tests/runtime_resources_cli_tests.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/review_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 
