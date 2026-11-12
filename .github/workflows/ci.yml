@@ -52,7 +52,8 @@ jobs:
           set -euo pipefail
           # The pull-request compile matrix keeps exactly the three existing
           # core configurations; main pushes, the nightly UTC schedule and
-          # manual dispatches keep six configurations across seven jobs below.
+          # full manual dispatches keep six configurations across eight jobs
+          # below: six CMake jobs and two Make jobs.
           pr_matrix='{"include":[
           {"name":"strict","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0022"},
           {"name":"strict-umask-0002","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0002"},
@@ -81,7 +82,14 @@ jobs:
             matrix="$(printf '%s' "$full_matrix" | python3 -c 'import json,sys; m=json.load(sys.stdin); m["include"]=[x for x in m["include"] if x["name"]=="ASan"]; assert len(m["include"])==1; print(json.dumps(m))')"
           elif [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
             mode=full
-            matrix="$full_matrix"
+            matrix="$(printf '%s' "$full_matrix" | python3 -c '
+          import json, sys
+          matrix = json.load(sys.stdin)
+          matrix["include"] = [
+              dict(row, name=f"ASan-{shard}/2", cmake_shard=str(shard)) if row["name"] == "ASan" else row
+              for row in matrix["include"] for shard in ([1, 2] if row["name"] == "ASan" else [0])
+          ]
+          print(json.dumps(matrix))')"
           else
             mode=core
             matrix="$pr_matrix"
@@ -148,7 +156,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           {
             echo "### Change classification: \`$mode\`"
-            echo "- event: $GITHUB_EVENT_NAME, matrix entries: $(printf '%s' "$matrix" | grep -c '"name"')"
+            echo "- event: $GITHUB_EVENT_NAME, matrix entries: $(printf '%s' "$matrix" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["include"]))')"
             echo "- slow tests: $slow_tests (selected mode always includes all fast tests)"
             if [ "$mode" = asan-affected ]; then
               echo '- Six complete affected ASan suites only: r1_structured, r1_structured_capture, r1_structured_lean, billing_baseline_e2e, run_cli_e2e, s15_cli_smoke. This is not the full gate.'
@@ -163,8 +171,8 @@ jobs:
     name: Linux C++20 (${{ matrix.name }})
     needs: classify
     runs-on: ubuntu-24.04
-    # Keep the existing 55-minute ASan budget for CMake and each Make shard.
-    # Two independent Make runners cover consecutive parts of the full suite.
+    # Keep the existing 55-minute ASan budget for each CMake and Make shard.
+    # CMake runners cover odd/even registrations; Make keeps its two parts.
     # Keep all per-test deadlines, assertions, leak checks, ordinary-user
     # checks and the original Make CPPFLAGS path.
     timeout-minutes: ${{ matrix.asan == 'ON' && 55 || 40 }}
@@ -222,6 +230,23 @@ jobs:
             ctest --test-dir build -R '^(r1_structured|r1_structured_capture|r1_structured_lean|billing_baseline_e2e|run_cli_e2e|s15_cli_smoke)$' --output-on-failure
           elif [ "${{ needs.classify.outputs.mode }}" = selected ]; then
             ctest --test-dir build -L '^ci_selected$' --output-on-failure
+          elif [ "${{ needs.classify.outputs.mode }}" = full ] && [ -n "${{ matrix.cmake_shard }}" ]; then
+            python3 - <<'PY'
+          import json, subprocess
+          def names(*selection):
+              tests = json.loads(subprocess.check_output(
+                  ["ctest", "--test-dir", "build", "--show-only=json-v1", *selection], text=True))["tests"]
+              result = [test["name"] for test in tests]
+              assert result and len(result) == len(set(result)), "CTest names must be nonempty and unique"
+              return result
+          complete = names()
+          odd = names("-I", "1,,2")
+          even = names("-I", "2,,2")
+          assert odd == complete[::2] and even == complete[1::2], "CTest shard order differs"
+          assert set(odd).isdisjoint(even) and set(odd) | set(even) == set(complete), "CTest shard coverage differs"
+          print(f"CMake ASan registrations: {len(complete)} total = {len(odd)} odd + {len(even)} even")
+          PY
+            ctest --test-dir build -I "${{ matrix.cmake_shard }},,2" --output-on-failure
           else
             ctest --test-dir build --output-on-failure
           fi
