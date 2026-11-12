@@ -1,6 +1,7 @@
 #include "wls/sse_replay.hpp"
 
 #include "wls/protocol_codec.hpp"
+#include "response_metadata.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -314,8 +315,9 @@ struct ItemState {
 
 class Events {
 public:
-    explicit Events(const SseReplayLimits& limits, std::size_t max_depth, bool compat)
-        : limits_(limits), max_depth_(max_depth), compat_(compat) {}
+    explicit Events(const SseReplayLimits& limits, std::size_t max_depth, bool compat,
+                    response_metadata::Collector& metadata)
+        : limits_(limits), max_depth_(max_depth), compat_(compat), metadata_(metadata) {}
 
     void accept(std::string_view event_name, std::string_view data);
     Json observations() const;
@@ -351,6 +353,7 @@ private:
     const SseReplayLimits& limits_;
     std::size_t max_depth_;
     bool compat_;
+    response_metadata::Collector& metadata_;
     bool created_{false};
     bool in_progress_{false};
     std::string model_;
@@ -406,12 +409,17 @@ void Events::accept(std::string_view event_name, std::string_view data) {
         if (type == "response.function_call_arguments.delta") fields.insert("obfuscation");
     } else throw ReplayFailure("unsupported_event", "SSE event type is outside the implemented Responses subset");
     for (const auto& entry : event) {
-        if (!fields.contains(std::string(entry.key())))
-            throw ReplayFailure("unsupported_event", "SSE event field is outside the implemented Responses subset");
+        if (!fields.contains(std::string(entry.key()))) {
+            if (!metadata_.enabled || entry.key() == "obfuscation")
+                throw ReplayFailure("unsupported_event", "SSE event field is outside the implemented Responses subset");
+            metadata_.record("/events/" + std::to_string(sequence), entry.key());
+        }
     }
+    if (fields.contains("response")) metadata_.response(field(event, "response"), "/response");
     // Responses includes optional random padding on delta events by default.
     // Preserve it in raw_stream and its wire budgets, never in model text or
-    // function arguments. Other event kinds and unknown fields still refuse.
+    // function arguments. Other event kinds still reject obfuscation; unknown
+    // metadata uses only the explicit profile policy above.
     if (const auto* padding = event.if_contains("obfuscation")) {
         require(padding->is_string(), "SSE delta obfuscation must be a string");
         ++obfuscation_fields;
@@ -842,7 +850,8 @@ ResponsesSseReplay replay_responses_sse(const ProviderProfile& profile,
     }
     ResponsesSseReplay result;
     result.response = original_response(request);
-    Events events(limits, profile.limits.max_json_depth, profile.responses_compatibility.has_value());
+    response_metadata::Collector metadata(profile);
+    Events events(limits, profile.limits.max_json_depth, profile.responses_compatibility.has_value(), metadata);
     std::optional<ModelResponse> terminal_decoded;
     std::optional<ModelUsage> terminal_usage;
     Json terminal_codec_evidence = nullptr;
@@ -933,6 +942,7 @@ ResponsesSseReplay replay_responses_sse(const ProviderProfile& profile,
             "partial output observations are not dispatchable tool calls",
             "host current-version, tool schema and authorization checks remain required"}}
     };
+    metadata.write(result.evidence.as_object());
     result.record_sha256 = sha256_hex(canonical_json(replay_record(result)));
     return result;
 }

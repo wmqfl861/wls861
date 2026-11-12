@@ -97,6 +97,8 @@ struct ProviderProfile {
     std::optional<TokenPricing> pricing{};
     // Appended optional extension; absent keeps the legacy strict subset.
     std::optional<ResponsesCompatibility> responses_compatibility{};
+    // Empty retains strict decoding and the original profile bytes/hash.
+    std::string response_metadata_policy{};
 };
 
 // Strict parse/serialize; rates are integers in 0..10^12 micro USD.

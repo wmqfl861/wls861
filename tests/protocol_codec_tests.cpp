@@ -69,6 +69,89 @@ void profile_fields_versions_and_paid_refusals() {
         fails(ErrorCode::Unsupported, [&] { (void)provider_profile_from_json(j); });
     }
 }
+void response_metadata_policy_is_explicit_and_preserves_legacy_bytes() {
+    const auto legacy = fixture::profile(); const auto bytes = canonical_json(to_json(legacy));
+    CHECK(bytes.size() == 957);
+    CHECK(provider_profile_sha256(legacy) == "ae52984ce15e5aa30d85b71cefbccc9483d5b5c64e849f3e9e32337bca5ecda6");
+    auto value = to_json(legacy); value.as_object()["response_metadata_policy"] = "ignore-record-v1";
+    auto selected = provider_profile_from_json(value);
+    CHECK(selected.response_metadata_policy == "ignore-record-v1" && to_json(selected) == value);
+    CHECK(provider_profile_sha256(selected) != provider_profile_sha256(legacy));
+    CHECK(encode_responses_request(selected, fixture::request()).body == encode_responses_request(legacy, fixture::request()).body);
+    selected.response_metadata_policy.clear(); CHECK(canonical_json(to_json(selected)) == bytes);
+    for (const auto& invalid : {Json(""), Json("ignore-v2"), Json(nullptr), Json(true)}) {
+        value.as_object()["response_metadata_policy"] = invalid;
+        fails(ErrorCode::InvalidInput, [&] { (void)provider_profile_from_json(value); });
+    }
+}
+void response_metadata_paths_keep_originals_and_known_results() {
+    for (auto profile : {fixture::profile(), fixture::compat_profile()}) {
+        auto value = profile.responses_compatibility ? fixture::compat_json("reasoning-tool-response.json") : fixture::tool_response();
+        const auto known = decode(value, profile);
+        CHECK(!known.evidence.as_object().contains("unknown_fields"));
+        value.as_object()["future~/"] = Object{{"private-value", "never-copy-into-paths"}};
+        value.at("usage").as_object()["future"] = Array{true, nullptr};
+        value.at("usage").at("input_tokens_details").as_object()["future"] = "opaque";
+        value.at("usage").at("output_tokens_details").as_object()["future"] = false;
+        CHECK(decode(value, profile).response.error_code == "unsupported_response");
+        profile.response_metadata_policy = "ignore-record-v1";
+        const std::string raw = " \n" + canonical_json(value) + "\n ";
+        const auto result = decode_responses_response(profile, fixture::request(), 200, raw);
+        CHECK(to_json(result.response) == to_json(known.response));
+        CHECK(result.raw_body == raw && result.raw_body_sha256 == sha256_hex(raw));
+        CHECK((result.evidence.at("unknown_fields") == Json(Array{"/future~0~1", "/usage/future",
+            "/usage/input_tokens_details/future", "/usage/output_tokens_details/future"})));
+        CHECK(result.evidence.at("unknown_fields_observed") == 4);
+        CHECK(result.evidence.at("unknown_fields_truncated") == false);
+        CHECK(canonical_json(result.evidence.at("unknown_fields")).find("private-value") == std::string::npos);
+        CHECK(to_json(result).at("raw_body_sha256") == Json(sha256_hex(raw)));
+    }
+}
+void response_metadata_lists_are_bounded_without_losing_raw_bytes() {
+    auto profile = fixture::profile(); profile.response_metadata_policy = "ignore-record-v1";
+    for (const bool long_keys : {false, true}) {
+        auto value = fixture::text_response(); const int count = long_keys ? 3 : 140;
+        for (int i = 0; i < count; ++i)
+            value.as_object()[std::string(long_keys ? 9000 : 1, 'x') + std::to_string(i)] = "opaque-value";
+        const auto result = decode(value, profile);
+        CHECK(result.response.status == ModelResultStatus::Completed);
+        CHECK(result.evidence.at("unknown_fields_truncated") == true);
+        CHECK(result.evidence.at("unknown_fields_observed") == count);
+        const auto& paths = result.evidence.at("unknown_fields").as_array(); CHECK(paths.size() <= 128);
+        CHECK(paths.size() == (long_keys ? 1 : 128));
+        std::size_t bytes = 0; for (const auto& path : paths) bytes += path.as_string().size();
+        CHECK(bytes <= 16U * 1024U);
+        for (std::size_t i = 1; i < paths.size(); ++i) CHECK(paths[i - 1].as_string() < paths[i].as_string());
+        CHECK(result.raw_body == canonical_json(value));
+    }
+}
+void response_metadata_does_not_relax_outputs_identity_or_known_types() {
+    for (auto profile : {fixture::profile(), fixture::compat_profile()}) {
+        profile.response_metadata_policy = "ignore-record-v1";
+        const auto base = profile.responses_compatibility ? fixture::compat_json("reasoning-tool-response.json") : fixture::tool_response();
+        std::vector<Json> invalid;
+        auto value = base; value.at("output").as_array().back().as_object()["unknown"] = 1; invalid.push_back(value);
+        value = base; value.at("output").as_array().push_back(Object{{"id", "future_item"}, {"type", "future_output"}}); invalid.push_back(value);
+        value = base; auto message = fixture::text_response().at("output").as_array().front();
+        message.at("content").as_array().front().as_object()["unknown"] = 1;
+        value.at("output").as_array().push_back(message); invalid.push_back(value);
+        value = base; value.at("usage").as_object()["total_tokens"] = 1; invalid.push_back(value);
+        value = base; value.at("usage").as_object()["input_tokens"] = "11"; invalid.push_back(value);
+        value = base; value.at("usage").as_object()["input_tokens_details"] = Array{}; invalid.push_back(value);
+        value = base; value.as_object()["model"] = "unapproved-model"; invalid.push_back(value);
+        if (profile.responses_compatibility) {
+            value = base; value.at("output").as_array().front().as_object()["unknown"] = 1; invalid.push_back(value);
+        }
+        for (const auto& broken : invalid) {
+            const auto result = decode(broken, profile);
+            CHECK(result.response.status == ModelResultStatus::Error);
+            CHECK(result.response.text.empty() && result.response.tool_calls.empty());
+            CHECK(result.response.responses_output.is_null());
+        }
+        for (const auto& raw : {std::string("{\"id\":1,\"id\":2}"), std::string("{\"x\":\"") + char(0xff) + "\"}"})
+            CHECK(decode_responses_response(profile, fixture::request(), 200, raw).response.error_code == "invalid_response");
+    }
+}
 void endpoint_and_credential_references_are_explicit() {
     for (const auto* url : {"", "http://gateway.example.invalid", "https://secret@gateway.example.invalid",
             "https://gateway.example.invalid?key=secret", "https://gateway.example.invalid/#fragment",
@@ -821,6 +904,10 @@ void compat_two_native_rounds_pair_results_with_their_own_provider_calls() {
 
 int main() {
     return ::test::run({
+        {"response metadata policy freezes explicit selection and preserves legacy profile bytes", response_metadata_policy_is_explicit_and_preserves_legacy_bytes},
+        {"response metadata paths preserve originals and known decoding", response_metadata_paths_keep_originals_and_known_results},
+        {"response metadata count and byte overflow truncate paths without losing originals", response_metadata_lists_are_bounded_without_losing_raw_bytes},
+        {"response metadata tolerance keeps output identity usage and strict JSON guards", response_metadata_does_not_relax_outputs_identity_or_known_types},
         {"rejected selection and text-only feedback replay original native reasoning and call IDs", compat_rejected_selection_and_text_only_preserve_native_rounds},
         {"profile round trip binds effective capabilities and limits", profile_round_trip_and_effective_hash},
         {"profile rejects unknown fields versions credentials and paid execution", profile_fields_versions_and_paid_refusals},

@@ -614,3 +614,20 @@ Completed(reason=model_refusal)，但响应仍为 Error、`response_usable=false
 `failure_layer:"model", model_error_code:"model_refusal"`（保留 runtime_error 与原
 response/binding，重复回放同一错误），本阶段不做纠错重调。验证记录见
 [报告](../reports/g1-2-responses-compat-validation.md)。
+
+## G1-K：显式冻结的响应元数据策略
+
+可选 profile 字符串 `response_metadata_policy:"ignore-record-v1"` 仅允许已知 response
+顶层、usage 及 input/output token details 的额外键，并允许已知 SSE 事件最外层额外键。
+旧 profile 不补字段，保留原序列化、哈希及各自原有检查（包括 SSE start response 原有
+检查）；该选择独立于 `responses_compatibility`，随内嵌 profile 冻结和恢复。已知字段的
+类型、模型身份、usage、sequence、生命周期、obfuscation 和输出内部校验不变；未知
+事件、输出类型以及 item/content/reasoning/function 内部未知字段仍拒绝，失败不返回
+可派发的部分 text/tools，不授予重试或工具权限。
+
+仅新策略证据增加排序去重 JSON Pointer `unknown_fields`，转义 `~`/`/`；HTTP 路径如
+`/usage/input_tokens_details/new_key`，SSE 事件如 `/events/3/new_key`，response 路径
+以 `/response` 开头。列表只存路径，最多 128 条、累计 UTF-8 路径字节最多 16 KiB；
+超出时 `unknown_fields_truncated:true`，`unknown_fields_observed` 记录已检查范围的
+未知键出现次数（含重复路径）。完整原 body/已消费 stream 仍受原上限约束并无损保留；
+后续协议失败不会把该列表标作完整输入的扫描证明。旧证据不增加空字段。

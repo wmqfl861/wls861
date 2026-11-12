@@ -211,6 +211,29 @@ void live_profile_capacity_is_rejected_before_admission() {
     too_wide = accepted; ++too_wide.provider.limits.max_text_bytes;
     error(ErrorCode::InvalidInput, [&] { (void)live_model_settings_from_json(fixture::model_profile(too_wide), too_wide.provider.model_ref); });
 }
+void response_metadata_policy_survives_original_snapshot_restore() {
+    for (const bool selected : {false, true}) {
+        auto live = fixture::settings(); if (selected) live.provider.response_metadata_policy = "ignore-record-v1";
+        fixture::Fixture f(*assets, live); // admission writes and reloads the temporary source configuration.
+        const auto row = f.store->request(f.request_id);
+        const auto bytes = canonical_json(row.at("config_snapshot")); const auto hash = text(row, "config_snapshot_sha256");
+        const auto frozen = FrozenRequestConfig::restore(bytes, hash);
+        const auto restored = live_model_settings_from_json(frozen.model_profile(Role::Dispatcher), live.provider.model_ref);
+        CHECK(to_json(restored.provider) == to_json(live.provider));
+        CHECK(restored.provider.response_metadata_policy == (selected ? "ignore-record-v1" : ""));
+        auto value = wls::test::protocol::text_response(); value.as_object()["future"] = true;
+        const auto request = f.request(); (void)f.reserve(request);
+        const auto result = decode_responses_response(restored.provider, request, 200, canonical_json(value));
+        CHECK((result.response.status == ModelResultStatus::Completed) == selected);
+        CHECK(result.evidence.as_object().contains("unknown_fields") == selected);
+        auto current = live.provider; current.response_metadata_policy = selected ? "" : "ignore-record-v1";
+        error(ErrorCode::Conflict, [&] { (void)f.store->claim_live_send(f.actor(), request.attempt_id, 1,
+            encode_responses_request(current, request), live.transport, "changed-profile"); });
+        f.reopen(StoreRecoveryScope::request(f.request_id));
+        CHECK(canonical_json(f.store->request(f.request_id).at("config_snapshot")) == bytes);
+        CHECK(FrozenRequestConfig::restore(bytes, hash).sha256() == frozen.sha256());
+    }
+}
 
 void live_profile_route_is_rejected_before_admission() {
     auto selected = fixture::settings();
@@ -759,6 +782,7 @@ int main(int argc, char** argv) {
     return test::run({
         {"bounded warnings preserve original usage and settlement capacity across failure and reopen", bounded_warnings_preserve_settlement_and_recover_without_capacity_charge},
         {"bounded first send enforces original request creation time", bounded_first_send_checks_original_creation_time},
+        {"response metadata selection survives original snapshot restore and current-profile tampering refuses", response_metadata_policy_survives_original_snapshot_restore},
         {"read-only ledger reconstruction uses one snapshot across a separate writer commit", readonly_ledger_observes_one_snapshot},
         {"priced accounting status observes one budget snapshot across a late receipt", priced_status_observes_one_budget_snapshot_across_late_receipt},
         {"completed usage reconciliation releases settlement capacity while missing cache stays reserved", reconciled_usage_releases_settlement_capacity},
