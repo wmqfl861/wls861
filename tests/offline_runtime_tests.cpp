@@ -124,7 +124,7 @@ void complete_offline_chain_and_persisted_input() {
     CHECK(saved.context.dynamic_suffix.find("保留原始需求") != std::string::npos);
     CHECK(saved.context.dynamic_suffix.find("issue_work_order") == std::string::npos);
     CHECK(saved.context.dynamic_suffix.find("只通过已声明的 note") != std::string::npos);
-    CHECK(saved.context.stable_prefix.find("checks_executed") != std::string::npos);
+    CHECK(saved.context.stable_prefix.find("checks_executed") == std::string::npos);
     CHECK(saved.config_snapshot_id == text(result.at("config_snapshot_sha256")));
     CHECK(worker_call.at("result").at("status") == "SUCCEEDED");
     CHECK(!std::filesystem::exists(directory.path / "out"));

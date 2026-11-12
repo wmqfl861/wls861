@@ -5,11 +5,13 @@
 #include "wls/single_agent.hpp"
 #include "wls/worker_tools.hpp"
 #include "protocol_test_support.hpp"
+#include "live_test_support.hpp"
 #include "test_support.hpp"
 
 #include <algorithm>
 #include <fstream>
 #include <memory>
+#include <regex>
 #include <set>
 
 namespace {
@@ -538,6 +540,134 @@ void store_rejects_format_policy_mismatch() {
     fails(ErrorCode::InvalidInput, [&] { (void)store.reserve_attempt(store.host_actor(Role::Dispatcher, id), r.binding, reservation); });
     CHECK(store.budget(id) == budget);
 }
+
+void guided_prompt_identifiers_are_registered_tools() {
+    const std::set<std::string> non_tools{};
+    const std::regex identifier("`([a-z][a-z0-9_]*)`");
+    for (const auto* path : {"prompts/common.md", "prompts/dispatcher.md", "prompts/team_lead.md", "prompts/worker.md",
+            "config/examples/functions/general/prompts/dispatcher.md", "config/examples/functions/general/prompts/team_lead.md",
+            "config/examples/functions/general/prompts/worker.md"}) {
+        const auto bytes = read_runtime_file(root / path);
+        for (auto i = std::sregex_iterator(bytes.begin(), bytes.end(), identifier); i != std::sregex_iterator(); ++i) {
+            const auto name = (*i)[1].str();
+            if (!non_tools.contains(name)) CHECK(!builtin_tool_description(name).empty());
+        }
+    }
+}
+
+void legacy_frozen_capture_keeps_complete_context_and_wire_bytes() {
+    // Captured before D with C's final library; context/config/codec sources
+    // match c783d9e. Different transport sources were not used by this capture.
+    const auto cases = parse_json_strict(read_runtime_file(root / "tests/fixtures/g1d_legacy_frozen.json"));
+    const wls::test::live::Assets assets(root); SchemaRegistry schemas(root / "schemas");
+    for (const auto& item : cases.as_array()) {
+        const auto original = model_request_from_json(item.at("request"));
+        const auto snapshot = canonical_json(item.at("snapshot"));
+        const auto frozen = FrozenRequestConfig::restore(snapshot, original.config_snapshot_id);
+        CHECK(frozen.context_prompt_policy().empty()); CHECK(frozen.serialize() == snapshot);
+        CHECK(!frozen.json().at("system").at("context").as_object().contains("prompt_policy"));
+        ::test::TempDir directory; auto store = assets.open(directory.path / "legacy.sqlite");
+        auto admission = wls::test::live::admission(assets, wls::test::live::settings(), "legacy-guidance-fixture");
+        admission.config_snapshot = frozen.json();
+        const auto id = str(store->admit(admission), "request_id");
+        auto current = OfflineRuntime(*store, schemas).capture_call(id, Role::Dispatcher).request;
+        CHECK(current.context.stable_prefix == original.context.stable_prefix);
+        auto contract = parse_json_strict(compiled_task_contract(current.context));
+        const auto expected = parse_json_strict(compiled_task_contract(original.context));
+        // Replace only generated request/event identities and observation time.
+        for (const auto* key : {"binding", "budget", "request"})
+            contract.at(key).at("request_id") = expected.at(key).at("request_id");
+        auto& events = contract.at("pending_events").as_array();
+        const auto& old_events = expected.at("pending_events").as_array();
+        CHECK(events.size() == old_events.size());
+        for (std::size_t i = 0; i < events.size(); ++i) {
+            for (const auto* key : {"request_id", "event_id", "created_at"}) events[i].at(key) = old_events[i].at(key);
+            events[i].at("result").at("request_id") = old_events[i].at("result").at("request_id");
+        }
+        CHECK(contract == expected);
+        if (current.context.structured()) {
+            current.context.logical_input.at("task_contract") = canonical_json(contract);
+            current.context.dynamic_suffix = canonical_json(Object{{"task_contract", canonical_json(contract)}, {"messages", Array{}}});
+            current.context.logical_input_sha256 = sha256_hex(current.context.prompt());
+        } else {
+            const auto bytes = canonical_json(contract);
+            current.context.dynamic_suffix = "task_contract " + std::to_string(bytes.size()) + "\n" + bytes + "\n";
+        }
+        current.call_id = original.call_id; current.attempt_id = original.attempt_id; current.binding = original.binding;
+        CHECK(canonical_json(to_json(current.context)) == canonical_json(item.at("request").at("context")));
+        CHECK(canonical_json(to_json(current)) == canonical_json(item.at("request")));
+        if (item.as_object().contains("wire_body")) {
+            const auto profile = live_model_settings_from_json(frozen.model_profile(Role::Dispatcher), frozen.resolve(Role::Dispatcher).model).provider;
+            const auto wire = encode_responses_request(profile, current);
+            CHECK(wire.body == str(item, "wire_body")); CHECK(wire.body_sha256 == str(item, "wire_sha256"));
+        }
+        store.reset(); store = assets.open(directory.path / "legacy.sqlite");
+        CHECK(store->request(id).at("config_snapshot") == frozen.json());
+    }
+}
+
+void guided_capture_uses_real_adapter_and_stable_role_rules() {
+    const wls::test::live::Assets assets(root); SchemaRegistry schemas(root / "schemas");
+    for (const bool fake : {true, false}) {
+        ::test::TempDir directory; auto store = assets.open(directory.path / "guided.sqlite");
+        auto admission = wls::test::live::admission(assets, wls::test::live::settings(), "guided", true, fake);
+        admission.original_text = "保留原始需求；不要调用外部服务。";
+        admission.constraint_catalog = Array{
+            Object{{"constraint_id", "c1"}, {"text", "保留原始需求"}, {"source_revision", 1}},
+            Object{{"constraint_id", "c2"}, {"text", "不要调用外部服务"}, {"source_revision", 1}}};
+        admission.config_snapshot.at("system").at("context").as_object()["request_format"] = "structured-v2";
+        if (!fake)
+            for (auto& role : admission.config_snapshot.at("function").at("roles").as_object())
+                role.value().as_object().erase("prompt_append");
+        const auto system_path = directory.path / "system.yaml";
+        const auto functions = directory.path / "functions";
+        std::filesystem::copy(root / "config/examples/functions", functions, std::filesystem::copy_options::recursive);
+        std::ofstream(system_path) << canonical_json(admission.config_snapshot.at("system"));
+        std::ofstream(functions / "general/function.yaml") << canonical_json(admission.config_snapshot.at("function"));
+        admission.config_snapshot = load_config_catalog(system_path, functions, root / "prompts").freeze("general").json();
+        const auto snapshot = canonical_json(admission.config_snapshot);
+        const auto frozen = FrozenRequestConfig::restore(snapshot, sha256_hex(snapshot));
+        CHECK(frozen.context_prompt_policy() == "guided-v1");
+        CHECK(frozen.runtime_support().at("context_prompt_policy") == "guided-v1");
+        auto invalid = admission.config_snapshot;
+        invalid.at("system").at("context").at("prompt_policy") = "guided-v99";
+        const auto invalid_bytes = canonical_json(invalid);
+        fails(ErrorCode::InvalidInput, [&] { (void)FrozenRequestConfig::restore(invalid_bytes, sha256_hex(invalid_bytes)); });
+        const auto id = str(store->admit(admission), "request_id");
+        OfflineRuntime runtime(*store, schemas);
+        const auto first = runtime.capture_call(id, Role::Dispatcher).request;
+        const auto system = first.context.logical_input.at("prefix").at("system");
+        const auto environment = parse_json_strict(str(system, "environment_card"));
+        CHECK(environment.at("adapter") == frozen.model_profile(Role::Dispatcher).at("adapter"));
+        CHECK(!environment.as_object().contains("checks_executed"));
+        CHECK(str(system, "approved_rules").find("decode base64") == std::string::npos);
+        if (!fake) {
+            const auto profile = live_model_settings_from_json(frozen.model_profile(Role::Dispatcher), frozen.resolve(Role::Dispatcher).model).provider;
+            const auto body = parse_json_strict(encode_responses_request(profile, first).body);
+            CHECK(str(body, "instructions").find("fake") == std::string::npos);
+            continue;
+        }
+        const auto steps = fake_model_steps_from_json(parse_json_strict(read_runtime_file(root / "tests/fixtures/s1_fake_initial.json")));
+        (void)runtime.run(id, steps);
+        const auto task_id = str(store->tasks(id).front(), "task_id");
+        std::filesystem::create_directory(directory.path / "work");
+        WorkerTools worker(*store, directory.path / "work");
+        const auto call = OfflineRuntime(*store, schemas, &worker).capture_call(id, Role::Worker, task_id);
+        const auto projection = parse_json_strict(str(call.request.context.logical_input.at("prefix").at("system"), "environment_card"));
+        const auto evidence = worker.environment_card(call.actor);
+        CHECK(evidence.at("environment_checks_executed") == false); CHECK(evidence.at("process_isolation_verified") == false);
+        CHECK(!projection.at("execution").as_object().contains("environment_checks_executed"));
+        CHECK(!projection.at("execution").as_object().contains("process_isolation_verified"));
+        CHECK(projection.at("execution").at("execution_policy_sha256") == evidence.at("execution_policy_sha256"));
+        CHECK(projection.at("execution").at("logical_workspace") == "/work");
+        (void)store->amend(store->host_actor(Role::Root, id), store->request(id).at("state_version").as_int64(),
+            "Preserve the amended original requirement.", Array{}, new_id("amend"));
+        const auto amendment = runtime.capture_call(id, Role::Dispatcher, {}, 2, {}, true);
+        CHECK(amendment.workflow_action.at("kind") == "amendment");
+        CHECK(amendment.request.context.logical_input.at("prefix").at("system") == system);
+        CHECK(compiled_task_contract(amendment.request.context).find("Preserve the amended original requirement.") != std::string::npos);
+    }
+}
 } // namespace
 
 int main() {
@@ -552,6 +682,9 @@ int main() {
         {"capacity and unconverted legacy input reject", bounds_and_legacy_messages_refuse},
         {"legacy serialized bytes unchanged", legacy_bytes_unchanged},
         {"legacy full canonical and wire fingerprints", legacy_full_byte_fingerprints},
+        {"guided prompt identifiers name registered tools", guided_prompt_identifiers_are_registered_tools},
+        {"legacy frozen captures keep complete context hashes and wire bytes", legacy_frozen_capture_keeps_complete_context_and_wire_bytes},
+        {"guided capture projects real adapters and stable role rules", guided_capture_uses_real_adapter_and_stable_role_rules},
         {"all builtin v3 descriptions preserve original schemas", all_builtin_v3_descriptions_preserve_registry},
         {"v3 description hashes roundtrip and native encoding", v3_hash_roundtrip_and_wire},
         {"v3 missing malformed or oversized descriptions reject", v3_missing_invalid_and_oversized_descriptions_refuse},
