@@ -42,7 +42,7 @@ void expect(ErrorCode code, const std::function<void()>& action) {
     }
     CHECK(caught);
 }
-AdmissionInput input(bool fixed = false) {
+AdmissionInput input(bool fixed = false, bool lean = false) {
     ::test::TempDir temp;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
     const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
@@ -52,6 +52,7 @@ AdmissionInput input(bool fixed = false) {
     const auto at = yaml.find(format); CHECK(at != std::string::npos);
     yaml.replace(at, format.size(), fixed ? "request_format: structured-v3\n  tool_policy: fixed-role-v1\n"
         "  management_history: {mode: window-v1, recent_attempts: 2, inline_bytes: 32768, max_context_bytes: 1048576}" : "request_format: framed-v1");
+    if (lean) yaml.insert(yaml.find("  compaction_at_fraction:"), "  model_projection: lean-v1\n");
     write(temp.path / "system.yaml", yaml);
     const auto config = load_config_catalog(temp.path / "system.yaml", source / "config/examples/functions",
                                             source / "prompts").freeze("general");
@@ -180,10 +181,7 @@ void explicit_acceptance_and_experience_complete_without_implied_delivery() {
 
 void dispatcher_observes_original_bytes_and_response_replay_is_exact() {
     for (const bool lean : {false, true}) {
-    auto admission = input();
-    if (lean) { admission.config_snapshot.at("system").at("context").at("request_format") = "structured-v3";
-        admission.config_snapshot.at("system").at("context").as_object()["model_projection"] = "lean-v1"; }
-    Fixture f(admission); const auto original = f.candidate();
+    Fixture f(input(lean, lean)); const auto original = f.candidate();
     CHECK(original.at("artifact_snapshot").as_array().front().at("content_base64") == "YWxwaGEgY2FuZGlkYXRlIHZlcnNpb24gMQo=");
     write(f.directory.path / "alpha/result.txt", "mutated live workspace must not replace candidate evidence\n");
     const FakeModel fake({step(Role::Dispatcher, "accept_candidate", positive_acceptance())});
@@ -191,7 +189,7 @@ void dispatcher_observes_original_bytes_and_response_replay_is_exact() {
     CHECK(call.workflow_action.at("kind") == "acceptance");
     CHECK(call.workflow_action.at("target").at("submission_id") == original.at("submission_id"));
     CHECK(call.workflow_action.at("expected_task_version") == f.task().at("state_version"));
-    CHECK(call.request.context.tool_names == std::vector<std::string>{"accept_candidate"});
+    CHECK(model_allowed_tools(call.request.context) == std::vector<std::string>{"accept_candidate"});
     const auto context = parse_json_strict(compiled_task_contract(call.request.context));
     CHECK(context.at("submission_file_views").as_array().front().at("content") == "alpha candidate version 1\n");
     CHECK(context.at("acceptance_task").at("task_id") == f.task().at("task_id"));
