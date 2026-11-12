@@ -135,23 +135,25 @@ void validate_envelope_fields(const ModelRequest& request) {
             "model request does not match its compiled role/model");
 }
 
-void validate_envelope(const ModelRequest& request) {
+Json validate_envelope(const ModelRequest& request) {
     validate_envelope_fields(request);
     // Verify actual prefix bytes and all non-text cache parameters, including
     // when this request was restored from a persistent frozen snapshot.
-    (void)compiled_context_from_json(to_json(request.context));
+    auto context_json = to_json(request.context);
+    (void)compiled_context_from_json(context_json);
+    return context_json;
 }
 
 // Internal serialization after a complete validation. The parser has already
 // restored its context; it can compare the same complete envelope without
 // repeating that restoration through the public to_json entry point.
-Json serialize_validated_request(const ModelRequest& request) {
+Json serialize_validated_request(const ModelRequest& request, Json context_json) {
     boost::json::object result{
         {"format", request.context.structured() ? (request.context.logical_input.at("format") == "wls-logical-input-v3"
             ? "wls-model-request-v3" : "wls-model-request-v2") : "wls-model-request-v1"}, {"call_id", request.call_id},
         {"attempt_id", request.attempt_id}, {"role_call_index", request.role_call_index},
         {"role", role_name(request.role)}, {"binding", to_json(request.binding)},
-        {"config_snapshot_id", request.config_snapshot_id}, {"context", to_json(request.context)},
+        {"config_snapshot_id", request.config_snapshot_id}, {"context", std::move(context_json)},
         {"max_output_tokens", request.max_output_tokens},
         {"reserved_input_tokens", request.reserved_input_tokens},
         {"reserved_output_tokens", request.reserved_output_tokens},
@@ -351,8 +353,8 @@ ModelUsage model_usage_from_json(const Json& value) {
 }
 
 Json to_json(const ModelRequest& request) {
-    validate_envelope(request);
-    return serialize_validated_request(request);
+    auto context_json = validate_envelope(request);
+    return serialize_validated_request(request, std::move(context_json));
 }
 
 ModelRequest model_request_from_json(const Json& value) {
@@ -387,7 +389,7 @@ ModelRequest model_request_from_json(const Json& value) {
     // including native turns, projections, metadata and fingerprints.
     validate_envelope_fields(request);
     require(request.context.structured() == structured, "model envelope and context formats disagree");
-    if (structured) require(serialize_validated_request(request) == value,
+    if (structured) require(serialize_validated_request(request, to_json(request.context)) == value,
                             "logical model request fingerprint or transport evidence mismatch");
     return request;
 }
