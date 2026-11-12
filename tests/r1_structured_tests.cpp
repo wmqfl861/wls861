@@ -218,7 +218,8 @@ void all_builtin_v3_descriptions_preserve_registry() {
     // Restoring frozen descriptions must not replace them with today's catalog.
     auto frozen = v3;
     frozen.logical_input.at("prefix").at("tools").as_array().front().at("parameters").at("properties").at("passed").at("description") = "Original frozen acceptance decision wording.";
-    frozen.stable_prefix = canonical_json(frozen.logical_input.at("prefix"));
+    frozen.stable_prefix = canonical_json(Object{{"prefix", frozen.logical_input.at("prefix")},
+        {"contract_anchor", frozen.logical_input.at("contract_anchor")}});
     frozen.prefix_sha256 = sha256_hex(frozen.stable_prefix);
     frozen.cache_identity = sha256_hex(canonical_json(Object{{"format", "wls-context-cache-v3"},
         {"selection", frozen.logical_input.at("selection")}, {"prefix_sha256", frozen.prefix_sha256}}));
@@ -266,8 +267,8 @@ void v3_hash_roundtrip_and_wire() {
     fails(ErrorCode::Quota, [&] { (void)compile_structured_context(input, {}, limits, StructuredContextFormat::V3); });
     auto profile = fixture::profile(); profile.limits.max_request_bytes = encoded.body.size() - 1;
     fails(ErrorCode::Quota, [&] { (void)encode_responses_request(profile, r); });
-    // C can encode an internal context, but cannot freeze its intermediate layout.
-    fails(ErrorCode::InvalidInput, [&] { (void)model_request_from_json(to_json(r)); });
+    CHECK(to_json(model_request_from_json(to_json(r))) == to_json(r));
+    CHECK(to_json(r).at("format") == "wls-model-request-v3");
 }
 void v3_missing_invalid_and_oversized_descriptions_refuse() {
     auto input = described_fixture();
@@ -291,7 +292,8 @@ void v3_missing_invalid_and_oversized_descriptions_refuse() {
         fails(code, [&] { (void)compile(input); });
         auto c = compile(described_fixture());
         c.logical_input.at("prefix").at("tools").as_array().front().at("description") = invalid;
-        c.stable_prefix = canonical_json(c.logical_input.at("prefix"));
+        c.stable_prefix = canonical_json(Object{{"prefix", c.logical_input.at("prefix")},
+            {"contract_anchor", c.logical_input.at("contract_anchor")}});
         fails(code, [&] { (void)to_json(c); });
         auto value = to_json(compile(described_fixture()));
         value.at("input").at("prefix").at("tools").as_array().front().at("description") = invalid;
@@ -496,7 +498,7 @@ struct ConfigFixture {
     ::test::TempDir tmp;
     FrozenRequestConfig load(const std::string& format) {
         auto yaml = read_runtime_file(root / "config/examples/system.yaml");
-        const std::string marker = "  request_format: framed-v1\n";
+        const std::string marker = "  request_format: structured-v3\n";
         const auto pos = yaml.find(marker); CHECK(pos != std::string::npos);
         yaml.replace(pos, marker.size(), format.empty() ? "" : "  request_format: " + format + "\n");
         { std::ofstream out(tmp.path / "system.yaml"); out << yaml; CHECK(out.good()); }
@@ -510,7 +512,7 @@ void frozen_choice_and_legacy_default() {
     CHECK(FrozenRequestConfig::restore(next.serialize(), next.sha256()).context_request_format() == "structured-v2");
     CHECK(next.runtime_support().at("history_window_integrated") == false);
     fails(ErrorCode::InvalidInput, [&] { (void)f.load("unknown-v99"); });
-    fails(ErrorCode::InvalidInput, [&] { (void)f.load("structured-v3"); });
+    CHECK(f.load("structured-v3").context_request_format() == "structured-v3");
 }
 void store_rejects_format_policy_mismatch() {
     ConfigFixture f; const auto config = f.load("structured-v2");
@@ -537,7 +539,7 @@ void store_rejects_format_policy_mismatch() {
     c.tools.clear();
     r.context = compile_structured_context(c, {}, {}, StructuredContextFormat::V3);
     reservation.request_envelope = to_json(r);
-    fails(ErrorCode::InvalidInput, [&] { (void)store.reserve_attempt(store.host_actor(Role::Dispatcher, id), r.binding, reservation); });
+    fails(ErrorCode::Unauthorized, [&] { (void)store.reserve_attempt(store.host_actor(Role::Dispatcher, id), r.binding, reservation); });
     CHECK(store.budget(id) == budget);
 }
 
@@ -668,10 +670,237 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
         CHECK(compiled_task_contract(amendment.request.context).find("Preserve the amended original requirement.") != std::string::npos);
     }
 }
+
+void v3_five_round_encoded_prefix_and_originals() {
+    auto input = described_fixture();
+    Json contract = Object{{"request", Object{{"requirements_revision", 1},
+        {"texts", Array{Object{{"text", "original request"}, {"kind", "ORIGINAL"}}}}, {"constraint_catalog", Array{}}}},
+        {"task", Object{{"brief", Object{{"goal", "retain original bytes"}}}, {"task_revision", 1}, {"state_version", 1}}},
+        {"instruction", Object{{"body", Object{{"steps", Array{"read"}}}}, {"instruction_revision", 1}}},
+        {"binding", Object{{"execution_epoch", 1}}}, {"budget", Object{{"spent_input", 0}}}};
+    auto profile = fixture::compat_profile();
+    std::vector<StructuredContextMessage> messages;
+    Json previous = nullptr, anchor = nullptr, previous_body = nullptr;
+    Array previous_input;
+    for (int round = 0; round != 5; ++round) {
+        contract.at("budget").at("spent_input") = round * 17;
+        contract.at("binding").at("execution_epoch") = round + 1;
+        contract.at("task").at("state_version") = round + 1;
+        input.task_contract = canonical_json(contract);
+        continue_structured_contract(input, previous);
+        auto request = fixture::request();
+        request.context = compile_structured_context(input, messages, {}, StructuredContextFormat::V3);
+        const auto logical = request.context.logical_input;
+        const auto body = parse_json_strict(encode_responses_request(profile, request).body);
+        auto ordered = body.at("input").as_array();
+        CHECK(parse_json_strict(str(ordered.back(), "content")).at("format") == "wls-responses-current-state-v3");
+        ordered.pop_back();
+        if (round == 0) anchor = logical.at("contract_anchor");
+        else {
+            CHECK(body.at("tools") == previous_body.at("tools"));
+            CHECK(body.at("instructions") == previous_body.at("instructions"));
+            CHECK(ordered.size() > previous_input.size());
+            CHECK(std::equal(previous_input.begin(), previous_input.end(), ordered.begin()));
+        }
+        CHECK(logical.at("contract_anchor") == anchor);
+        CHECK(logical.at("contract_updates").as_array().empty());
+        CHECK(compiled_task_contract(request.context) == canonical_json(contract));
+        CHECK(to_json(model_request_from_json(to_json(request))) == to_json(request));
+        previous = Object{{"attempt_id", "attempt_round_" + std::to_string(round)}, {"input", logical}};
+        auto original = compat_record();
+        original.at("attempt_id") = previous.at("attempt_id");
+        original.at("response").at("attempt_id") = previous.at("attempt_id");
+        auto& payload = original.at("response").at("responses_output");
+        for (auto& item : payload.at("output").as_array()) {
+            item.at("id") = str(item, "id") + std::to_string(round);
+            if (item.at("type") == "function_call") item.at("call_id") = "provider_" + std::to_string(round);
+        }
+        original.at("response").at("tool_calls").as_array()[0].at("call_id") = "provider_" + std::to_string(round);
+        original.at("feedback").at("response") = original.at("response");
+        const auto turn = structured_attempt_history({original});
+        CHECK(turn.front().responses_output == payload);
+        messages.insert(messages.end(), turn.begin(), turn.end());
+        previous_body = body; previous_input = ordered;
+    }
+    contract.at("request").at("requirements_revision") = 2;
+    contract.at("request").at("texts").as_array().push_back(Object{{"text", "complete AMEND replacement"}, {"kind", "AMEND"}});
+    contract.at("instruction").at("instruction_revision") = 2;
+    contract.at("instruction").at("body") = Object{{"steps", Array{"new complete instruction"}}};
+    input.task_contract = canonical_json(contract); continue_structured_contract(input, previous);
+    auto amended = fixture::request();
+    amended.context = compile_structured_context(input, messages, {}, StructuredContextFormat::V3);
+    const auto encoded = parse_json_strict(encode_responses_request(profile, amended).body);
+    const auto& ordered = encoded.at("input").as_array();
+    CHECK(std::equal(previous_input.begin(), previous_input.end(), ordered.begin()));
+    CHECK(amended.context.logical_input.at("contract_anchor") == anchor);
+    CHECK(amended.context.logical_input.at("contract_updates").as_array().size() == 1);
+    CHECK(amended.context.logical_input.at("contract_updates").as_array()[0].at("after_attempt_id") == previous.at("attempt_id"));
+    CHECK(parse_json_strict(str(ordered[ordered.size() - 2], "content")).at("format") == "wls-responses-contract-update-v3");
+    CHECK(amended.context.logical_input.at("messages") == single_agent_messages_json(messages));
+    CHECK(encode_responses_request(profile, model_request_from_json(to_json(amended))).body == canonical_json(encoded));
+}
+
+struct V3Fixture {
+    ::test::TempDir directory;
+    wls::test::live::Assets assets{root};
+    SchemaRegistry schemas{root / "schemas"};
+    std::filesystem::path database{directory.path / "v3.sqlite"};
+    std::unique_ptr<Store> store;
+    std::string id, task;
+    explicit V3Fixture(const std::string& mode, int recent = 6) {
+        auto yaml = read_runtime_file(root / "config/examples/system.yaml");
+        const auto begin = yaml.find("  request_format: "); CHECK(begin != std::string::npos);
+        yaml.replace(begin, yaml.find('\n', begin) - begin + 1, "  request_format: structured-v3\n");
+        const auto position = yaml.find("  compaction_at_fraction:"); CHECK(position != std::string::npos);
+        std::string policies;
+        if (mode == "worker" || mode == "all") policies += "  worker_history: {mode: window-v1, recent_attempts: " +
+            std::to_string(recent) + ", inline_bytes: 32768}\n";
+        if (mode == "manager" || mode == "all") policies += "  management_history: {mode: window-v1, recent_attempts: 2, inline_bytes: 32768, max_context_bytes: 1048576}\n";
+        if (mode == "single" || mode == "all") policies += "  logical_agent: {mode: single-agent-role-broker-v1, max_attempts: 64, max_history_bytes: 524288}\n";
+        yaml.insert(position, policies);
+        { std::ofstream file(directory.path / "system.yaml"); file << yaml; CHECK(file.good()); }
+        const auto frozen = load_config_catalog(directory.path / "system.yaml", root / "config/examples/functions", root / "prompts").freeze("general");
+        AdmissionInput admission;
+        admission.tenant_id = "test"; admission.project_id = "test"; admission.root_id = "root";
+        admission.function_id = frozen.function_id(); admission.idempotency_key = "v3";
+        admission.original_text = read_runtime_file(root / "tests/fixtures/s1_request.txt");
+        admission.constraint_catalog = parse_json_strict(read_runtime_file(root / "tests/fixtures/s1_constraints.json"));
+        admission.config_snapshot = frozen.json();
+        const auto tools = frozen.worker_tools(); admission.tool_allowlist.assign(tools.begin(), tools.end());
+        admission.budget = {64, 10000000, 1000000, 0};
+        reopen(); id = str(store->admit(admission), "request_id");
+        (void)OfflineRuntime(*store, schemas).run(id, script("s1_fake_initial.json"));
+        task = str(store->tasks(id).front(), "task_id");
+    }
+    static std::vector<FakeModelStep> script(const std::string& name) {
+        return fake_model_steps_from_json(parse_json_strict(read_runtime_file(root / "tests/fixtures" / name)));
+    }
+    void reopen() {
+        store.reset(); store = assets.open(database);
+        if (!task.empty()) {
+            const auto binding = store->binding(task);
+            const auto actor = store->host_actor(Role::Worker, id, binding.team_id);
+            (void)store->acknowledge(actor, binding, store->task(task).at("state_version").as_int64(), new_id("ack"));
+        }
+    }
+    FakeModel note(std::int64_t index = 1) {
+        FakeModelStep step; step.role = Role::Worker; step.role_call_index = index;
+        step.tool_calls = {{"original_note", "note", Object{{"text", "persistent original feedback"}}}};
+        step.usage = {1, 1, 0, 0, 0}; return FakeModel({step});
+    }
+};
+
+void v3_capture_reserve_restore_policy_combinations() {
+    for (const auto* mode : {"worker", "manager", "single", "all"}) {
+        V3Fixture fixture(mode);
+        for (int round = 1; round <= 5; ++round) {
+            auto fake = fixture.note(round);
+            const auto call = OfflineRuntime(*fixture.store, fixture.schemas).reserve_call(fake, fixture.id, Role::Worker, fixture.task, round);
+            const auto envelope = fixture.store->attempt(call.request.attempt_id).at("request_envelope");
+            CHECK(envelope.at("format") == "wls-model-request-v3");
+            CHECK(to_json(model_request_from_json(envelope)) == envelope);
+            CHECK(OfflineRuntime(*fixture.store, fixture.schemas).accept_response(call, fake.complete(call.request)).is_object());
+            if (round == 2) fixture.reopen();
+        }
+        const auto frozen = restore_request_config(fixture.store->request(fixture.id));
+        const auto worker = fixture.store->host_actor(Role::Worker, fixture.id, fixture.store->binding(fixture.task).team_id);
+        const auto prior = fixture.store->previous_context(worker);
+        fixture.reopen();
+        const auto current_worker = fixture.store->host_actor(Role::Worker, fixture.id, fixture.store->binding(fixture.task).team_id);
+        CHECK(fixture.store->previous_context(current_worker) == prior);
+        const auto call = OfflineRuntime(*fixture.store, fixture.schemas).capture_call(fixture.id, Role::Worker, fixture.task);
+        CHECK(call.request.context.logical_input.at("contract_anchor") == prior.at("input").at("contract_anchor"));
+        CHECK(call.request.context.logical_input.at("contract_updates") == prior.at("input").at("contract_updates"));
+        if (!frozen.logical_agent_policy().is_null()) {
+            const auto transcript = single_agent_transcript(fixture.id, frozen, fixture.store->logical_agent_history(current_worker));
+            CHECK(call.request.context.logical_input.at("messages") == single_agent_messages_json(transcript.messages));
+            CHECK(call.request.context.role == Role::Worker);
+        }
+    }
+}
+
+void v3_amend_reopen_and_original_cas() {
+    V3Fixture fixture("worker", 1); auto fake = fixture.note();
+    auto runtime = [&] { return OfflineRuntime(*fixture.store, fixture.schemas); };
+    const auto old = runtime().reserve_call(fake, fixture.id, Role::Worker, fixture.task);
+    const auto anchor = old.request.context.logical_input.at("contract_anchor");
+    (void)fixture.store->amend(fixture.store->host_actor(Role::Root, fixture.id),
+        fixture.store->request(fixture.id).at("state_version").as_int64(),
+        read_runtime_file(root / "tests/fixtures/s1_amendment.txt"),
+        parse_json_strict(read_runtime_file(root / "tests/fixtures/s1_amended_constraints.json")), new_id("amend"));
+    fails(ErrorCode::Stale, [&] { (void)runtime().accept_response(old, fake.complete(old.request)); });
+    CHECK(fixture.store->attempt(old.request.attempt_id).at("request_envelope") == to_json(old.request));
+    (void)runtime().run(fixture.id, V3Fixture::script("s1_fake_amended.json"), "update");
+    const auto first = runtime().capture_call(fixture.id, Role::Worker, fixture.task);
+    CHECK(first.request.context.logical_input.at("contract_anchor") == anchor);
+    CHECK(first.request.context.logical_input.at("contract_updates").as_array().size() == 1);
+    CHECK(canonical_json(first.request.context.logical_input.at("contract_updates")).find("改为中文") != std::string::npos);
+    fixture.reopen();
+    const auto reopened = runtime().capture_call(fixture.id, Role::Worker, fixture.task);
+    CHECK(reopened.request.context.logical_input.at("contract_anchor") == anchor);
+    CHECK(reopened.request.context.logical_input.at("contract_updates") == first.request.context.logical_input.at("contract_updates"));
+    for (int round = 0; round != 3; ++round) {
+        const auto call = runtime().reserve_call(fake, fixture.id, Role::Worker, fixture.task);
+        (void)runtime().accept_response(call, fake.complete(call.request));
+    }
+    fixture.reopen();
+    const auto moved = runtime().capture_call(fixture.id, Role::Worker, fixture.task);
+    CHECK(moved.request.context.logical_input.at("contract_anchor") == anchor);
+    CHECK(moved.request.context.logical_input.at("contract_updates") == first.request.context.logical_input.at("contract_updates"));
+    auto input = described_fixture();
+    input.task_contract = compiled_task_contract(moved.request.context);
+    input.contract_anchor = anchor;
+    input.contract_updates = moved.request.context.logical_input.at("contract_updates");
+    const auto frozen = restore_request_config(fixture.store->request(fixture.id));
+    const auto messages = worker_history_messages(fixture.store->attempt_history_tail(moved.actor, 1), frozen.worker_history_policy());
+    auto projection = fixture::request();
+    projection.context = compile_structured_context(input, messages, {}, StructuredContextFormat::V3);
+    const auto body = parse_json_strict(encode_responses_request(fixture::profile(), projection).body);
+    CHECK(parse_json_strict(str(body.at("input").as_array()[1], "content")).at("format") == "wls-responses-contract-update-v3");
+    const auto latest = fixture.store->previous_context(moved.actor);
+    const auto attempt_id = str(latest, "attempt_id");
+    const auto original = canonical_json(fixture.store->attempt(attempt_id).at("request_envelope"));
+    wls::test::live::sql(fixture.database, "UPDATE call_attempts SET state_version=state_version+1,request_envelope=json_set(request_envelope,'$.oversized','" +
+        std::string(2097152, 'x') + "') WHERE attempt_id='" + attempt_id + "'");
+    fails(ErrorCode::Quota, [&] { (void)runtime().capture_call(fixture.id, Role::Worker, fixture.task); });
+    std::string escaped;
+    for (char ch : original) { escaped += ch; if (ch == '\'') escaped += '\''; }
+    wls::test::live::sql(fixture.database, "UPDATE call_attempts SET state_version=state_version+1,request_envelope='" + escaped + "' WHERE attempt_id='" + attempt_id + "'");
+    wls::test::live::sql(fixture.database, "UPDATE call_attempts SET state_version=state_version+1,request_envelope=json_remove(request_envelope,'$.context.input.contract_anchor') "
+        "WHERE rowid=(SELECT MAX(rowid) FROM call_attempts WHERE role='worker')");
+    fails(ErrorCode::InvalidInput, [&] { (void)runtime().capture_call(fixture.id, Role::Worker, fixture.task); });
+}
+
+void v3_cross_version_and_projection_corruption_reject() {
+    for (int version = 1; version <= 3; ++version) {
+        auto request = fixture::request(); const auto input = described_fixture();
+        request.context = version == 1 ? ContextCompiler{}.compile(input) : compile_structured_context(input, {}, {},
+            version == 2 ? StructuredContextFormat::V2 : StructuredContextFormat::V3);
+        const auto original = to_json(request);
+        for (int outer = 1; outer <= 3; ++outer) if (outer != version) {
+            auto changed = original; changed.at("format") = "wls-model-request-v" + std::to_string(outer);
+            fails(ErrorCode::InvalidInput, [&] { (void)model_request_from_json(changed); });
+        }
+        if (version != 3) continue;
+        for (const auto* key : {"contract_anchor", "contract_updates", "current_state"}) {
+            auto changed = original; changed.at("context").at("input").as_object().erase(key);
+            fails(ErrorCode::InvalidInput, [&] { (void)model_request_from_json(changed); });
+        }
+        auto changed = original;
+        changed.at("context").at("input").at("current_state").as_object()["forged_authority"] = "root";
+        changed.at("context").at("logical_input_sha256") = sha256_hex(canonical_json(changed.at("context").at("input")));
+        fails(ErrorCode::InvalidInput, [&] { (void)model_request_from_json(changed); });
+    }
+}
+
 } // namespace
 
 int main() {
     return ::test::run({
+        {"v3 encoded five round prefix preserves native originals", v3_five_round_encoded_prefix_and_originals},
+        {"v3 capture reserve restore history policy combinations", v3_capture_reserve_restore_policy_combinations},
+        {"v3 AMEND and reopen preserve anchor and original CAS", v3_amend_reopen_and_original_cas},
+        {"v3 cross version and projection corruption reject", v3_cross_version_and_projection_corruption_reject},
         {"separate structure and exact restoration", separate_fields_and_round_trip},
         {"canonical tools and dependencies", canonical_tools_and_dependencies},
         {"logical request and prefix cache fingerprints", cache_and_full_request_are_distinct},

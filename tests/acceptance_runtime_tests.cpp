@@ -41,7 +41,13 @@ void expect(ErrorCode code, const std::function<void()>& action) {
     CHECK(caught);
 }
 AdmissionInput input() {
-    const auto config = load_config_catalog(source / "config/examples/system.yaml", source / "config/examples/functions",
+    test::TempDir temp;
+    auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string format = "request_format: structured-v3";
+    const auto at = yaml.find(format); CHECK(at != std::string::npos);
+    yaml.replace(at, format.size(), "request_format: framed-v1");
+    write(temp.path / "system.yaml", yaml);
+    const auto config = load_config_catalog(temp.path / "system.yaml", source / "config/examples/functions",
                                             source / "prompts").freeze("general");
     AdmissionInput value;
     value.tenant_id = "test-tenant"; value.project_id = "test-project"; value.root_id = "test-root";

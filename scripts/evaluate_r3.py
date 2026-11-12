@@ -259,7 +259,8 @@ def make_plan(db, request_id, model_ref='fake', reasoning=None, evidence_mode='s
     if identity_contract:
         request = one(db, 'SELECT config_snapshot FROM requests WHERE request_id=?', (request_id,))
         context = strict_json(request['config_snapshot'])['system']['context']
-        require(context.get('request_format') == 'structured-v2', 'logical Agent comparison requires a structured-v2 seed')
+        require(context.get('request_format') in ('structured-v2', 'structured-v3'),
+                'logical Agent comparison requires a structured seed')
         policy = context.get('logical_agent', DEFAULT_LOGICAL_AGENT_POLICY)
         validate_logical_agent_policy(policy)
         plan.update(schema_version=3, benchmark_id='r3-small-tasks-v3', identity_contract=identity_contract,
@@ -308,11 +309,25 @@ def validate_plan(plan):
 def captured_contract(envelope):
     """Read the original compiled input, never today's task or workspace."""
     context = envelope['context']
-    if context['format'] == 'wls-compiled-context-v2':
+    if context['format'] in ('wls-compiled-context-v2', 'wls-compiled-context-v3'):
         source = context['input']
         require(original_digest(source) == context['logical_input_sha256'], 'original logical input fingerprint mismatch')
-        require(original_digest(source['prefix']) == context['prefix_sha256'], 'original context prefix fingerprint mismatch')
-        return strict_json(source['task_contract'])
+        v3 = context['format'] == 'wls-compiled-context-v3'
+        require(envelope['format'] == ('wls-model-request-v3' if v3 else 'wls-model-request-v2'),
+                'original model envelope and compiled context versions differ')
+        prefix = {'prefix': source['prefix'], 'contract_anchor': source['contract_anchor']} if v3 else source['prefix']
+        require(original_digest(prefix) == context['prefix_sha256'], 'original context prefix fingerprint mismatch')
+        contract = strict_json(source['task_contract'])
+        if v3:
+            require(source['format'] == 'wls-logical-input-v3' and source['prefix']['format'] == 'wls-logical-prefix-v3',
+                    'original v3 logical formats differ')
+            require(isinstance(source['contract_anchor'], dict) and isinstance(source['contract_updates'], list) and
+                    isinstance(source['current_state'], dict) and contract['binding'] == envelope['binding'],
+                    'original v3 projections or host binding differ')
+            require(original_digest({'format': 'wls-context-cache-v3', 'selection': source['selection'],
+                                     'prefix_sha256': context['prefix_sha256']}) == context['cache_identity'],
+                    'original v3 cache fingerprint mismatch')
+        return contract
     require(context['format'] == 'wls-compiled-context-v1', 'unknown captured context format')
     raw = context['dynamic_suffix'].encode()
     header, separator, remaining = raw.partition(b'\n')
@@ -394,7 +409,7 @@ def logical_agent_evidence(db, request, attempts, condition, policy):
             envelope = strict_json(attempt['request_envelope'])
             require('logical_agent_execution' not in captured_contract(envelope),
                     'multi-Agent condition contains a shared logical execution marker')
-            if envelope['context']['format'] == 'wls-compiled-context-v2':
+            if envelope['context']['format'] in ('wls-compiled-context-v2', 'wls-compiled-context-v3'):
                 for message in envelope['context']['input']['messages']:
                     source = message['source'] or {}
                     if source.get('kind') == 'unapplied_or_missing_observation':
@@ -408,7 +423,8 @@ def logical_agent_evidence(db, request, attempts, condition, policy):
                 'shared_request_history': False}
     require(configured == policy, 'single-Agent frozen policy differs from the precommitted plan')
     validate_logical_agent_policy(configured)
-    require(snapshot['system']['context'].get('request_format') == 'structured-v2', 'single-Agent input is not structured-v2')
+    require(snapshot['system']['context'].get('request_format') in ('structured-v2', 'structured-v3'),
+            'single-Agent input is not structured')
     require(len(attempts) <= policy['max_attempts'], 'single-Agent history exceeds its frozen attempt capacity')
     resolutions = snapshot['role_resolutions']
     selected = resolutions['dispatcher']
@@ -425,7 +441,9 @@ def logical_agent_evidence(db, request, attempts, condition, policy):
     tables = {row['name'] for row in rows(db, "SELECT name FROM sqlite_master WHERE type='table'")}
     for attempt in attempts:
         envelope = strict_json(attempt['request_envelope'])
-        require(envelope['context']['format'] == 'wls-compiled-context-v2', 'single-Agent original context is not structured')
+        require(envelope['context']['format'] == ('wls-compiled-context-v3' if
+                snapshot['system']['context']['request_format'] == 'structured-v3' else 'wls-compiled-context-v2'),
+                'single-Agent original context differs from its frozen format')
         contract = captured_contract(envelope)
         marker = logical_agent_marker(logical_id, history, chain)
         require(contract.get('logical_agent_execution') == marker, 'single-Agent execution chain is missing, reordered or forked')

@@ -147,7 +147,8 @@ void validate_envelope(const ModelRequest& request) {
 // repeating that restoration through the public to_json entry point.
 Json serialize_validated_request(const ModelRequest& request) {
     boost::json::object result{
-        {"format", request.context.structured() ? "wls-model-request-v2" : "wls-model-request-v1"}, {"call_id", request.call_id},
+        {"format", request.context.structured() ? (request.context.logical_input.at("format") == "wls-logical-input-v3"
+            ? "wls-model-request-v3" : "wls-model-request-v2") : "wls-model-request-v1"}, {"call_id", request.call_id},
         {"attempt_id", request.attempt_id}, {"role_call_index", request.role_call_index},
         {"role", role_name(request.role)}, {"binding", to_json(request.binding)},
         {"config_snapshot_id", request.config_snapshot_id}, {"context", to_json(request.context)},
@@ -357,7 +358,8 @@ Json to_json(const ModelRequest& request) {
 ModelRequest model_request_from_json(const Json& value) {
     const auto& source = object(value, "model request");
     const auto format = string_field(source, "format");
-    const bool structured = format == "wls-model-request-v2";
+    const bool v3 = format == "wls-model-request-v3";
+    const bool structured = v3 || format == "wls-model-request-v2";
     require(structured || format == "wls-model-request-v1", "unsupported model request format");
     std::set<std::string> fields{"format", "call_id", "attempt_id", "role_call_index", "role", "binding",
         "config_snapshot_id", "context", "max_output_tokens", "reserved_input_tokens",
@@ -373,7 +375,8 @@ ModelRequest model_request_from_json(const Json& value) {
     request.config_snapshot_id = string_field(source, "config_snapshot_id");
     request.context = compiled_context_from_json(field(source, "context"));
     require(string_field(object(field(source, "context"), "context"), "format") ==
-        (structured ? "wls-compiled-context-v2" : "wls-compiled-context-v1"), "unpublished context format cannot be persisted");
+        (v3 ? "wls-compiled-context-v3" : structured ? "wls-compiled-context-v2" : "wls-compiled-context-v1"),
+        "model envelope and compiled context versions disagree");
     request.model = request.context.model;
     request.max_output_tokens = integer_field(source, "max_output_tokens");
     request.reserved_input_tokens = integer_field(source, "reserved_input_tokens");

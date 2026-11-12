@@ -2,6 +2,46 @@
 // narrow implementation can use the existing private Store transaction/actor
 // helpers without widening the trusted-host API or changing SQL assets.
 namespace {
+template<class Implementation>
+Json previous_context_projection(Implementation& impl, const StoreActor& actor,
+                                 const FrozenRequestConfig& config) {
+    const bool shared = !config.logical_agent_policy().is_null();
+    const Array scope = shared ? Array{actor.request_id} : Array{
+        actor.request_id, role_name(actor.role), actor.principal_id, actor.task_id, actor.team_id};
+    const auto filter = shared ? std::string("request_id=?") : std::string(
+        "request_id=? AND role=? AND principal_id=? AND COALESCE(task_id,'')=? AND COALESCE(team_id,'')=?");
+    const auto row = impl.optional("SELECT attempt_id,call_id,role,principal_id,frozen_binding,reservation_sha256,"
+        "CASE WHEN length(CAST(request_envelope AS BLOB))<=2097152 "
+        "THEN request_envelope ELSE NULL END AS request_envelope FROM call_attempts WHERE " + filter +
+        " ORDER BY rowid DESC LIMIT 1", scope);
+    if (!row) return nullptr;
+    require(!row->at("request_envelope").is_null(), ErrorCode::Quota, "prior v3 envelope exceeds bounded recovery limit");
+    const auto envelope = parse_json_strict(str(*row, "request_envelope"), 2U * 1024U * 1024U);
+    const auto original = model_request_from_json(envelope); // Entire envelope and logical hashes.
+    require(envelope.at("format") == "wls-model-request-v3" && original.attempt_id == str(*row, "attempt_id") &&
+        original.call_id == str(*row, "call_id") && to_json(original.binding) == parse_json_strict(str(*row, "frozen_binding")) &&
+        original.binding.request_id == actor.request_id && original.config_snapshot_id == config.sha256() &&
+        (shared || (original.role == actor.role && original.binding.task_id == actor.task_id && original.binding.team_id == actor.team_id)),
+        ErrorCode::Corrupt, "prior v3 envelope changed its original scope or frozen configuration");
+    StoreActor source{original.role, str(*row, "principal_id"), actor.request_id, original.binding.task_id,
+        original.binding.team_id, original.binding.dispatcher_epoch, original.binding.execution_epoch};
+    auto command = payload(source, "reserve_attempt", Row{{"binding", to_json(original.binding)},
+        {"call_id", original.call_id}, {"attempt_id", original.attempt_id}, {"config_snapshot_sha256", config.sha256()},
+        {"model_ref", original.model.model}, {"adapter_kind", config.model_profile(original.role).at("adapter")},
+        {"reserved_input_tokens", original.reserved_input_tokens}, {"reserved_output_tokens", original.reserved_output_tokens},
+        {"reserved_cost_micro_usd", original.reserved_cost_micro_usd}, {"max_output_tokens", original.max_output_tokens},
+        {"request_envelope", envelope}});
+    if (impl.acceptance_schema) if (const auto experience = impl.optional(
+        "SELECT * FROM experience_attempts WHERE attempt_id=?", {original.attempt_id})) {
+        command["experience_job_id"] = experience->at("experience_id");
+        command["experience_job_version"] = experience->at("job_version");
+        command["experience_source_sha256"] = experience->at("source_sha256");
+    }
+    require(sha256_hex(canonical_json(command)) == str(*row, "reservation_sha256"), ErrorCode::Corrupt,
+        "prior v3 envelope differs from its original reservation hash");
+    return Row{{"attempt_id", original.attempt_id}, {"input", original.context.logical_input}};
+}
+
 std::string history_accounting_attention(bool reconciliation, const std::string& alias) {
     const auto original = "(" + alias + ".unknown_input=1 OR " + alias +
         ".unknown_output=1 OR " + alias + ".unknown_cost=1)";
@@ -28,6 +68,14 @@ Json history_unresolved_fact(Implementation& impl, const Row& row) {
     return fact;
 }
 } // namespace
+
+Json Store::previous_context(const StoreActor& actor) const {
+    const std::lock_guard lock(impl_->mutex);
+    const auto request = impl_->authorize(actor, {Role::Dispatcher, Role::TeamLead, Role::Worker});
+    const auto config = FrozenRequestConfig::restore(str(request, "config_snapshot"), str(request, "config_snapshot_sha256"));
+    require(config.context_request_format() == "structured-v3", ErrorCode::Unauthorized, "v3 recovery requires frozen v3 policy");
+    return previous_context_projection(*impl_, actor, config);
+}
 
 Json Store::attempt_history_page(const StoreActor& actor, std::int64_t after,
         std::int64_t through, std::int64_t limit) const {

@@ -26,6 +26,7 @@ std::vector<StructuredContextMessage> management_history_messages(
 // Measures the complete logical input before any reservation. Capacity errors
 // contain section sizes and an actionable explanation, never clipped content.
 CompiledContext compile_management_context(const ContextInput& input,
-    const std::vector<StructuredContextMessage>& messages, const Json& frozen_policy);
+    const std::vector<StructuredContextMessage>& messages, const Json& frozen_policy,
+    StructuredContextFormat format = StructuredContextFormat::V2);
 
 } // namespace wls::s1

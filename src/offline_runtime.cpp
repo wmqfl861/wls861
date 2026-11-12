@@ -667,7 +667,8 @@ CapturedModelCall OfflineRuntime::capture_call(
                 "memory_assessments must be empty until versioned memory-load receipts are implemented.";
     }
     require(role == Role::Worker || tool_feedback.empty(), ErrorCode::InvalidInput, "tool feedback belongs to the Worker context");
-    const bool structured = config.context_request_format() == "structured-v2";
+    const bool v3 = config.context_request_format() == "structured-v3";
+    const bool structured = v3 || config.context_request_format() == "structured-v2";
     std::vector<StructuredContextMessage> native_messages;
     if (shared_transcript) {
         native_messages = std::move(shared_transcript->messages);
@@ -717,9 +718,11 @@ CapturedModelCall OfflineRuntime::capture_call(
         context.approved_rules = guided_rules(role);
         context.project_snapshot = "Use the complete task contract and observed tool results for current facts.";
     }
+    if (v3) continue_structured_contract(context, store_.previous_context(actor));
+    const auto format = v3 ? StructuredContextFormat::V3 : StructuredContextFormat::V2;
     request.context = !management_policy.is_null()
-        ? compile_management_context(context, native_messages, management_policy)
-        : (structured ? compile_structured_context(context, native_messages) : ContextCompiler().compile(context));
+        ? compile_management_context(context, native_messages, management_policy, format)
+        : (structured ? compile_structured_context(context, native_messages, {}, format) : ContextCompiler().compile(context));
     const auto profile = config.model_profile(role);
     require(string_at(profile.at("capabilities"), "tool_calling") == "supported",
             ErrorCode::Unsupported, "frozen model profile does not support required tool calls");

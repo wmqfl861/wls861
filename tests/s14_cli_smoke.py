@@ -86,12 +86,14 @@ class WorkflowCliSmoke(unittest.TestCase):
         args = ["submit", "--db", self.database, "--key", key,
                 "--text-file", FIXTURES / "s14_request.txt",
                 "--constraints-file", FIXTURES / "s14_constraints.json"]
+        source = (SOURCE / "config/examples/system.yaml").read_text().replace(
+            "request_format: structured-v3", "request_format: framed-v1")
         if schema_retry_max is not None:
             # Single-response safety fixtures disable continuation before freezing.
-            config = self.directory / f"{key}-system.yaml"
-            config.write_text((SOURCE / "config/examples/system.yaml").read_text().replace(
-                "schema_retry_max: 2", f"schema_retry_max: {schema_retry_max}"))
-            args += ["--config", config, "--functions-dir", SOURCE / "config/examples/functions"]
+            source = source.replace("schema_retry_max: 2", f"schema_retry_max: {schema_retry_max}")
+        config = self.directory / f"{key}-system.yaml"
+        config.write_text(source)
+        args += ["--config", config, "--functions-dir", SOURCE / "config/examples/functions"]
         return self.invoke(*args)["request"]["request_id"]
 
     def tasks(self, request):

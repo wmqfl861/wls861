@@ -708,7 +708,13 @@ void exact_old_ack_replays_without_acknowledging_new_order() {
 
 int main() {
     schemas = std::make_unique<SchemaRegistry>(source / "schemas");
-    frozen = std::make_unique<FrozenRequestConfig>(load_config_catalog(source / "config/examples/system.yaml",
+    test::TempDir temp;
+    auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string format = "request_format: structured-v3";
+    const auto at = yaml.find(format); CHECK(at != std::string::npos);
+    yaml.replace(at, format.size(), "request_format: framed-v1");
+    host_write(temp.path / "system.yaml", yaml);
+    frozen = std::make_unique<FrozenRequestConfig>(load_config_catalog(temp.path / "system.yaml",
         source / "config/examples/functions", source / "prompts").freeze("general"));
     base_sql = read_runtime_file(source / "db/schema.sql");
     migration_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");

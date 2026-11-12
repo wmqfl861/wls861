@@ -256,6 +256,9 @@ public:
     // Current-scope, chronological recent originals plus explicit omission index.
     // Does not change the legacy complete-history API or any stored record.
     Json attempt_history_tail(const StoreActor& actor, std::int64_t limit) const;
+    // One bounded, fully verified original v3 envelope; null only before the
+    // first attempt in the actor scope (request scope for single-Agent).
+    Json previous_context(const StoreActor& actor) const;
     std::vector<std::string> authorized_history_tools(const StoreActor& actor,
         const ExecutionBinding& current) const;
     void authorize_history_control(const StoreActor& actor, const ExecutionBinding& current,

@@ -20,6 +20,10 @@ logical_agent:
 `max_attempts` 是逻辑历史容量，不增加原请求尝试预算；原预算仍可更低。历史字节和
 原上下文整体容量分别检查，超限显式退出，不能截断已有失败或未解决事实。
 
+structured-v3 也可显式冻结同一单 Agent 策略。完整原 task_contract 与全角色原 messages
+连续性、链、当前角色权限和预算检查保持；锚/更新从最近一份请求级已验证 v3 envelope
+有界恢复，Store 在同一预约事务内核其连续性。每次角色切换是缓存边界，不扩大历史权限。
+
 库入口为 `SingleAgentRuntime::pump` 和 `pump_live`；CLI 对应 `pump-single-fake` 与
 `pump-single-live`，参数及网络/计费授权沿用各自原 pump。原 `pump-fake`、`pump-live`
 拒绝单 Agent 冻结策略，防止命令名称和执行拓扑混淆；`live-status` 可只读查看原冻结身份。
@@ -65,7 +69,7 @@ Store 的 `previous_*` 指向不可变原工单 epoch，不是上一投影；评
 失败；v1/v2 继续要求工单与提交的完整 binding 相等，不重新解释旧报告。
 
 使用 `evaluate_r3.py plan --identity-contract single-agent-role-broker-v1` 显式生成 v3。
-种子请求须 structured-v2，且尚未发生模型调用。计划固定五任务、两个条件及一轮重复；
+种子请求须 structured-v2 或 structured-v3，且尚未发生模型调用。计划固定五任务、两个条件及一轮重复；
 `single_agent_policy` 采用种子已有策略或上面的128步/512KiB策略。每个实际 single 请求
 须精确匹配该策略，多角色请求不含该字段；报告保留所有失败和未执行样本。
 

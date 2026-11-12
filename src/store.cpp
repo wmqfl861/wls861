@@ -3762,9 +3762,12 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
     impl_->matches(frozen);
     require(str(r, "config_snapshot_sha256") == reservation.config_snapshot_sha256, ErrorCode::Stale, "model attempt changed the frozen request configuration");
     const auto frozen_config = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256"));
-    require(original_model_request.context.structured() ==
-            (frozen_config.context_request_format() == "structured-v2"), ErrorCode::Unauthorized,
+    const auto format = frozen_config.context_request_format();
+    require(reservation.request_envelope.at("format") == (format == "structured-v3" ? "wls-model-request-v3" :
+            format == "structured-v2" ? "wls-model-request-v2" : "wls-model-request-v1"), ErrorCode::Unauthorized,
             "model context format differs from frozen request policy");
+    if (format == "structured-v3") validate_structured_contract_continuity(original_model_request.context,
+        previous_context_projection(*impl_, actor, frozen_config));
     const auto selected_model = frozen_config.resolve(actor.role);
     const auto profile = frozen_config.model_profile(actor.role);
     require(selected_model.model == reservation.model_ref, ErrorCode::Unauthorized, "model reference differs from frozen role selection");

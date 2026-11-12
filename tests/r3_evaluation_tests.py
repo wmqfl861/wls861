@@ -67,10 +67,10 @@ class Evaluation(unittest.TestCase):
             '--script', self.json_file('script.json', fixture), '--workspaces-file', self.mapping,
             '--worker-calls', worker_calls, '--max-calls', max_calls)
 
-    def logical_seed(self, task=4, *, logical=True, key='logical-seed', context_change=None):
+    def logical_seed(self, task=4, *, logical=True, key='logical-seed', context_change=None, request_format='structured-v2'):
         system = (h.SOURCE / 'config/examples/system.yaml').read_text()
-        self.assertIn('request_format: framed-v1', system)
-        system = system.replace('request_format: framed-v1', 'request_format: structured-v2')
+        self.assertIn('request_format: structured-v3', system)
+        system = system.replace('request_format: structured-v3', f'request_format: {request_format}')
         if logical:
             system = system.replace('context:\n', 'context:\n  logical_agent:\n'
                                     '    mode: single-agent-role-broker-v1\n'
@@ -150,7 +150,7 @@ class Evaluation(unittest.TestCase):
         self.assertFalse(report['provider_quality_acceptance_established'])
 
     def test_v3_one_logical_agent_reaches_original_confirmed_delivery(self):
-        request = self.logical_seed()
+        request = self.logical_seed(request_format='structured-v3')
         plan = self.logical_plan(request)
         legacy_plan = self.plan(request, model_origin=True)
         self.execute(request, max_calls=12, worker_calls=2)
@@ -437,7 +437,7 @@ class Evaluation(unittest.TestCase):
         self.assertIn('feedback changed original response', row['reason'])
 
     def test_v2_captured_target_must_match_actual_application(self):
-        request = self.seed(task=4)
+        request = self.logical_seed(task=4, logical=False, request_format='framed-v1')
         plan = self.plan(request, model_origin=True)
         self.execute(request, max_calls=12, worker_calls=2)
         self.ack(request, self.publish(request))
