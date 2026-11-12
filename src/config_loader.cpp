@@ -594,8 +594,9 @@ CapabilityRegistry validate_system(const Json& system) {
     const auto& context = required(system, "context", "system");
     fields(context, "system.context", {{"compaction_at_fraction", 'n'}, {"snapshot_decision_log_entries", 'i'},
         {"schema_retry_max", 'z'}, {"cache_dependencies", 'a'}, {"policy_updates_use_runtime_gate", 'b'},
-        {"request_format", 's'}, {"worker_history", '-'}, {"management_history", '-'}, {"logical_agent", '-'}},
-        {"request_format", "worker_history", "management_history", "logical_agent"});
+        {"request_format", 's'}, {"prompt_policy", 's'}, {"worker_history", '-'}, {"management_history", '-'}, {"logical_agent", '-'}},
+        {"request_format", "prompt_policy", "worker_history", "management_history", "logical_agent"});
+    if (optional(context, "prompt_policy")) literal(context, "prompt_policy", "guided-v1", "system.context");
     if (const auto* format = optional(context, "request_format")) {
         const auto name = string_value(*format, "system.context.request_format");
         if (name != "framed-v1" && name != "structured-v2")
@@ -954,6 +955,12 @@ std::string FrozenRequestConfig::context_request_format() const {
     return format ? string_value(*format, "system.context.request_format") : "framed-v1";
 }
 
+std::string FrozenRequestConfig::context_prompt_policy() const {
+    const auto& context = required(required(document_, "system", "snapshot"), "context", "system");
+    const auto* policy = optional(context, "prompt_policy");
+    return policy ? string_value(*policy, "system.context.prompt_policy") : "";
+}
+
 Json FrozenRequestConfig::worker_history_policy() const {
     const auto& context = required(required(document_, "system", "snapshot"), "context", "system");
     const auto* policy = optional(context, "worker_history");
@@ -1002,6 +1009,7 @@ Json FrozenRequestConfig::runtime_support() const {
         {"model_output_correction", Object{{"schema_retry_max", schema_retry_max()},
             {"scope", "durable-feedback roles; consecutive same-target failures; original STOP guards retained"}}},
         {"live_workflow_available", true}, {"context_request_format", context_request_format()},
+        {"context_prompt_policy", context_prompt_policy()},
         {"history_window_integrated", !worker_history_policy().is_null()}, {"worker_history_policy", worker_history_policy()},
         {"management_window_integrated", !management_history_policy().is_null()},
         {"logical_agent_policy", logical_agent_policy()},

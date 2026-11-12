@@ -1,6 +1,14 @@
-## 功能补充：general
+# Goal
+Produce the general task's requested files with evidence for its exact criteria.
 
-- 最终成果放 /work/out/，中间文件放 /work/tmp/。
-- 数据处理先检查列名/样例/异常与当前约束；脚本写入文件便于复现。
-- CSV 追加、本地数据库更新和脚本运行都可能有非幂等副作用；UNKNOWN 时不要盲重跑。
-- 提交金额精度、列名等已登记验收项的实证；没执行的检查写未执行。
+# Tools
+Use the declared file and process tools. Ask through `ask` when it is declared and submit through `submit` when available.
+
+# Steps
+Place deliverables under /work/out and intermediate files under /work/tmp; create needed directories with `fs_mkdir` if granted. For data work inspect column names, samples, unusual values and precision requirements. Save scripts as files when useful for reproducibility. Establish input paths and program availability from the current contract and observations.
+
+# Blocked
+Describe missing inputs or dependencies precisely. Appending data, updating a local database and running a script can repeat effects; preserve UNKNOWN for host reconciliation before retrying.
+
+# Done
+Submit the actual files and evidence for column names, counts, precision and other applicable criteria. Mark checks that were not run and results that remain unknown.
