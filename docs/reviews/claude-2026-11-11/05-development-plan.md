@@ -265,7 +265,7 @@ G2 ─→ G8（记忆需要真实任务产出的经验）；G8 的检索卡片�
 ### 当前执行覆盖（2026-11-12，G1 主线交接）
 
 - 上一小节记录2026-11-11当时状态；D/J在制、E待D等历史描述不作为当前进度。A–M现已普通合并至产品基线 main@`b09848e787e307a002ab97282c1b3d95901a397f`（#66，23:09:34 UTC），包括A后续#62；逐项PR及完整merge SHA见[完整交接](../g1-main-handoff-20261112.md)。
-- M head `c2aa6440dec010b9161527c1c80d6b75ccf2081a` 已正常merge前一main后通过PR三核心各83/83与source；本机注册G1一次1/1 PASS（19.80秒）。83项注册、Make59+24及CMake ASan42+41是静态核对，不能写成本机全跑。23:11:47 UTC快照时新main full PENDING、source SUCCESS，旧结果不移用。
+- M head `c2aa6440dec010b9161527c1c80d6b75ccf2081a` 已正常merge前一main后通过PR三核心各83/83与source；本机注册G1一次1/1 PASS（19.80秒）。83项注册、Make59+24及CMake ASan42+41是静态核对，不能写成本机全跑。23:28:39 UTC快照时新main full IN_PROGRESS、source SUCCESS；上一main b267完整矩阵已SUCCESS（23:26:26 UTC结束），旧结果不移用。
 - M含合成验收及H两项实际产品修复，不能按§4最初“只加测试”描述最终差异。本次owner明确要求正常合并与完整交接；该特定整合不表示全部矩阵通过、正式PR评审或G1正式验收，不扩大未来合并权限。原ASan单项超时及本机capture保持OPEN，`structured-v3`不提前宣称已正式冻结发布。
 - 按指定里程碑维护[同一G1简报](../../reports/g1-exit.md)；完整接手页集中架构、构建、证据和后续步骤。STATUS/CHANGELOG/ROADMAP同步当前事实，历史报告及handoff原件保持原状。
 - D-2/D-3仍未给出，真实供应商及付费调用为0；Windows11 NOT_RUN、强沙箱部署正向未验收、私有CI原件托管BLOCKED。下一步登记剩余main自动full结果并有界诊断已知超时，不重复已完成的新G1场景；之后仍按G1→G2→G4→G3既定顺序推进。

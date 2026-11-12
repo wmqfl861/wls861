@@ -9,7 +9,8 @@
   architecture, dependencies, safe synthetic entry points, exact-SHA evidence
   and next-agent checklist. M head `c2aa644` passed three PR core
   configurations (83/83 each) and one local registered G1 execution (19.80s).
-  At 23:11:47 UTC, new main full CI is PENDING and source CI is SUCCESS.
+  At 23:28:39 UTC, new main full CI is IN_PROGRESS and source CI is SUCCESS;
+  preceding main `b267ae5b` completed the full matrix successfully at 23:26:26 UTC.
   Preserve individual ASan timeouts, the local capture failure, Windows
   NOT_RUN, private evidence hosting BLOCKED and zero real/paid provider calls.
   This owner-authorized integration does not assert formal PR review,

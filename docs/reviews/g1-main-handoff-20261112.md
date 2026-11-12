@@ -3,7 +3,7 @@
 本页是当前项目的完整接手入口；[STATUS](../STATUS.md)提供能力快照，[G1 结果页](../reports/g1-exit.md)提供简短结果与限制。
 实现版本仍为 **0.11.1-r3.3c-audit**，目标蓝图 **v0.4.1**，数据库 **Store 410**；没有发布新版本。
 **产品合并基线为 main@`b09848e787e307a002ab97282c1b3d95901a397f`，G1-A–M 已普通合并；本文属于随后文档提交。**
-状态快照：2026-11-12 23:11:47 UTC；在途CI以所链接run的后续实际状态为准。
+状态快照：2026-11-12 23:28:39 UTC；在途CI以所链接run的后续实际状态为准。
 合并是 owner 本次明确要求的正常整合；不代表完整 sanitizer 矩阵通过、G1 正式验收或真实模型获准。
 
 ## 1. 阅读顺序与事实基线
@@ -18,7 +18,7 @@
 | 本页产品合并基线 | [`b09848e787e307a002ab97282c1b3d95901a397f`](https://github.com/wmqfl861/wls861/commit/b09848e787e307a002ab97282c1b3d95901a397f)；#66于2026-11-12 23:09:34 UTC普通合并 |
 | A 后续 PR #62 head | `a862ad102b226792fcbdecfff18667fc74d760fa`；2026-11-12 22:49:24 UTC 普通合并为 `b267ae5b7f2d0fff7c20d78225c5263ebd2fcd33` |
 | M PR #66 | 合入A后head `c2aa6440dec010b9161527c1c80d6b75ccf2081a`；该head与上述main的tree均为 `801d51e65fbf8ca2735f9cb03058f20948167511` |
-| 新M组合本机 / CI | 单次注册G1 1/1 PASS；PR三核心各83/83 PASS、source SUCCESS；新main full PENDING，旧结果不转记 |
+| 新M组合本机 / CI | 单次注册G1 1/1 PASS；PR三核心各83/83 PASS、source SUCCESS；新main full IN_PROGRESS，旧结果不转记 |
 | 本文档提交 | 属于随后独立的文档提交；产品基线不随文档提交自动获得新的测试结果 |
 
 六项状态分别登记；`SCOPED_PASS`只表示所列范围通过，`NOT_CLAIMED`表示没有代签正式PR评审。
@@ -28,7 +28,7 @@
 | IMPLEMENTATION_COMPLETE | YES | YES |
 | LOCAL_VALIDATION_COMPLETE | PARTIAL；capture OPEN | SCOPED_PASS；G1一次1/1，非83项全跑 |
 | PUSH_COMPLETE | YES | YES，head `c2aa644`与main合并均在远端 |
-| REMOTE_CI_COMPLETE | PARTIAL；PR PASS，main full IN_PROGRESS | PARTIAL；PR三路83/83 PASS，main full PENDING |
+| REMOTE_CI_COMPLETE | YES；PR及main完整矩阵PASS | PARTIAL；PR三路83/83 PASS，main full IN_PROGRESS |
 | PR_REVIEW_COMPLETE | NOT_CLAIMED | NOT_CLAIMED |
 | MERGED | YES，`b267ae5b` | YES，`b09848e7` |
 
@@ -105,7 +105,7 @@ Store 013/411、异步协调器、DAG 等旧分支仍冻结未合，不属于本
 
 | 开放项 | 状态与下一条件 |
 | --- | --- |
-| 当前组合完整测试 / sanitizer | PENDING / OPEN；精确观察见 §6，禁止用旧 SHA 绿灯补齐 |
+| 当前组合完整测试 / sanitizer | IN_PROGRESS / 本机OPEN；精确观察见 §6，禁止用旧 SHA 绿灯补齐 |
 | 真实供应商与付费调用 | **0 / NOT_RUN**；D-2 端点、模型、认证引用及 D-3 预算/执行授权尚未给出 |
 | 强沙箱部署正向 | 未验收；doctor 只读前提观察、拒绝用例和监督 fixture 不能替代真实隔离/后代退出证明 |
 | Windows 11 | **NOT_RUN**；Linux 本机与 GitHub Ubuntu 结果不能迁移为 Windows 结果 |
@@ -170,16 +170,19 @@ PR 核心通常是 strict / umask 0002 / Clang 三配置；完整矩阵另含 UB
 | 同一候选 / GitHub 定向 ASan | [affected 43258653864](https://github.com/wmqfl861/wls861/actions/runs/43258653864) | 六个完整受影响注册项 6/6 PASS；capture 65.95 秒，不替代完整矩阵 |
 | 同一候选 / 本机正式 ASan capture | 私有 `ctest.stdout.log` 原件 | 90.17 秒 TIMEOUT，仍 OPEN；不能用 CI capture 成绩覆盖 |
 | A head `a862ad102b226792fcbdecfff18667fc74d760fa` / GitHub PR | [core 43275846213](https://github.com/wmqfl861/wls861/actions/runs/43275846213)、[source 43275846242](https://github.com/wmqfl861/wls861/actions/runs/43275846242) | 三核心各 82/82 PASS、source SUCCESS；新完整 ASan 41+41 当时仅静态核对 |
-| A 合并 main `b267ae5b7f2d0fff7c20d78225c5263ebd2fcd33` / GitHub | [full 43323428497](https://github.com/wmqfl861/wls861/actions/runs/43323428497)、[source 43323428558](https://github.com/wmqfl861/wls861/actions/runs/43323428558) | full IN_PROGRESS；八个 jobs 已开始；source SUCCESS |
+| A 合并 main `b267ae5b7f2d0fff7c20d78225c5263ebd2fcd33` / GitHub | [full 43323428497](https://github.com/wmqfl861/wls861/actions/runs/43323428497)、[source 43323428558](https://github.com/wmqfl861/wls861/actions/runs/43323428558) | full SUCCESS；strict/umask/Clang/UBSan各82/82，CMake ASan两片各41/41，Make59+23命令全部成功；source SUCCESS |
 | 新 M head `c2aa6440dec010b9161527c1c80d6b75ccf2081a` / 本机 | 新 Release `-O1 -g0 -DNDEBUG` 构建143.11秒；一次注册 `g1_exit_e2e` | 1/1 PASS，19.80秒（CTest总19.81秒）；未执行全部83项 |
 | 同一新M head / GitHub PR | [core 43324561502](https://github.com/wmqfl861/wls861/actions/runs/43324561502)、[source 43324561578](https://github.com/wmqfl861/wls861/actions/runs/43324561578) | 三核心各83/83 PASS；source SUCCESS |
-| 产品合并main `b09848e787e307a002ab97282c1b3d95901a397f` / GitHub | [full 43326432461](https://github.com/wmqfl861/wls861/actions/runs/43326432461)、[source 43326432580](https://github.com/wmqfl861/wls861/actions/runs/43326432580) | full PENDING；source SUCCESS；与上一main运行独立 |
+| 产品合并main `b09848e787e307a002ab97282c1b3d95901a397f` / GitHub | [full 43326432461](https://github.com/wmqfl861/wls861/actions/runs/43326432461)、[source 43326432580](https://github.com/wmqfl861/wls861/actions/runs/43326432580) | full IN_PROGRESS；source SUCCESS；与上一main运行独立 |
 
 M的PR核心实际checkout为 `bac6682d25823b1d52148486bc57a964e5a92715`，tree与c2aa/main产品基线同为 `801d51e65fbf8ca2735f9cb03058f20948167511`；记录PR测试身份，不把它写成main自动full。
 
 旧 full 的两个独立超时是 `acceptance_runtime` 90.27 秒、`r3_evaluation` 180.01 秒；`s16_cli_smoke` 在 job 截止时中断。
 该 full 内 `r1_structured_capture` 的8种fixture组合共40轮捕获/预约/恢复，在原90秒期限内86.60秒PASS；这是单一CTest注册项、单一顶层case，40是轮数。
-分片用于分摊聚合job负载，当前尚未据此确认完整通过；不能推断两个单项超时或本机capture根因已解决，失败与取消原记录保留。
+b267的CMake ASan两片互斥、并集精确覆盖82项；Make第一片59条=49次C++调用+8个tests/Python入口+2个完整性脚本，第二片23个Python入口，全部成功。
+b267完整矩阵于23:26:26 UTC完成；其ASan `acceptance_runtime` 88.23秒、`r3_evaluation` 174.30秒、`r1_structured_capture` 78.98秒均在原期限内PASS。
+这证明b267的新分片完整运行通过；前两项距原90/180秒期限余量有限，历史超时根因未闭环。
+旧fba失败与本机capture OPEN仍保留，不能据此归因或关闭本机问题，也不等于b098完整通过。
 
 ## 7. G1 合成结果如何解释
 

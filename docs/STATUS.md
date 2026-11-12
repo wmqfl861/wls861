@@ -2,11 +2,11 @@
 
 当前实现 **0.11.1-r3.3c-audit**，目标蓝图 **v0.4.1**，Store **410**（无 013 迁移、异步协调器或持久事件扩展）。
 
-更新：2026-11-12（UTC；CI快照23:11:47）。**G1-A–M已普通合并，产品合并基线 main@[`b09848e787e307a002ab97282c1b3d95901a397f`](https://github.com/wmqfl861/wls861/commit/b09848e787e307a002ab97282c1b3d95901a397f)**（[#66](https://github.com/wmqfl861/wls861/pull/66)，23:09:34 UTC）；本页属于随后文档提交。完整架构、模块/PR/merge SHA、构建步骤、证据及接手清单集中在[完整交接](reviews/g1-main-handoff-20261112.md)；[G1简报](reports/g1-exit.md)汇总结果与限制。
+更新：2026-11-12（UTC；CI快照23:28:39）。**G1-A–M已普通合并，产品合并基线 main@[`b09848e787e307a002ab97282c1b3d95901a397f`](https://github.com/wmqfl861/wls861/commit/b09848e787e307a002ab97282c1b3d95901a397f)**（[#66](https://github.com/wmqfl861/wls861/pull/66)，23:09:34 UTC）；本页属于随后文档提交。完整架构、模块/PR/merge SHA、构建步骤、证据及接手清单集中在[完整交接](reviews/g1-main-handoff-20261112.md)；[G1简报](reports/g1-exit.md)汇总结果与限制。
 
 M head `c2aa6440dec010b9161527c1c80d6b75ccf2081a` 的 [core 43324561502](https://github.com/wmqfl861/wls861/actions/runs/43324561502) 三路各83/83 PASS、[source 43324561578](https://github.com/wmqfl861/wls861/actions/runs/43324561578) SUCCESS。本机新Release构建后，注册 `g1_exit_e2e` 单次1/1 PASS（19.80秒，原300秒期限）；83项注册、Make59+24及CMake ASan42+41的静态核对不等于本机全部执行。
 
-产品合并基线 `b09848e7` 的 [full 43326432461](https://github.com/wmqfl861/wls861/actions/runs/43326432461) PENDING、[source 43326432580](https://github.com/wmqfl861/wls861/actions/runs/43326432580) SUCCESS；上一main `b267ae5b` 的 [full 43323428497](https://github.com/wmqfl861/wls861/actions/runs/43323428497) 仍IN_PROGRESS。先前 `fba19b5` 完整ASan两个单项超时、job中断及本机capture 90.17秒超时仍OPEN。**owner本次特定合并要求不代表全矩阵通过、正式PR评审或G1正式验收，也不扩大未来合并权限。** D-2/D-3未给出，真实供应商/付费调用为0。
+产品合并基线 `b09848e7` 的 [full 43326432461](https://github.com/wmqfl861/wls861/actions/runs/43326432461) IN_PROGRESS、[source 43326432580](https://github.com/wmqfl861/wls861/actions/runs/43326432580) SUCCESS；上一main `b267ae5b` 的 [full 43323428497](https://github.com/wmqfl861/wls861/actions/runs/43323428497) 已于23:26:26 UTC完整SUCCESS（四配置各82/82，CMake ASan两片各41/41，Make59+23条命令含2完整性脚本成功）。先前 `fba19b5` 完整ASan两个单项超时、job中断及本机capture 90.17秒超时仍OPEN。**owner本次特定合并要求不代表全矩阵通过、正式PR评审或G1正式验收，也不扩大未来合并权限。** D-2/D-3未给出，真实供应商/付费调用为0。
 
 ## 尚缺的真实能力（当前边界）
 
