@@ -244,6 +244,25 @@ void unknown_database_is_preserved() {
     std::filesystem::create_symlink(path, symlink);
     error(ErrorCode::Storage, [&] { Store store(symlink, base_sql, migration_sql); });
 }
+void host_admission_identity_preserves_legacy_replay() {
+    test::TempDir temp;
+    const auto path = temp.path / "host-id.sqlite";
+    Store store(path, base_sql, migration_sql);
+    auto admission = input("host-id");
+    admission.request_id = "req_80000000000000000000000000";
+    error(ErrorCode::InvalidInput, [&] { store.admit(admission); });
+    CHECK(raw_number(path, "SELECT count(*) FROM requests") == 0);
+    admission.request_id = new_id("req");
+    const auto original = store.admit(admission);
+    CHECK(s(original, "request_id") == admission.request_id);
+    CHECK(store.admit(admission) == original);
+    admission.request_id = new_id("req");
+    error(ErrorCode::Conflict, [&] { store.admit(admission); });
+    admission.request_id.clear();
+    CHECK(store.admit(admission) == original);
+    CHECK(raw_number(path, "SELECT count(*) FROM requests") == 1);
+    CHECK(raw_number(path, "SELECT count(*) FROM events") == 1);
+}
 void scoped_admission_and_original_retry() {
     Fixture f;
     CHECK(s(f.store->admit(input()), "request_id") == f.request_id);
@@ -869,6 +888,7 @@ int main(int argc, char** argv) {
         {"SQLite FULL/WAL/FK, writer lease, read-only and repeated migration", durability_migration_and_readonly},
         {"inherited Store destruction cannot release the parent writer lease", inherited_store_destruction_preserves_writer_lease},
         {"unknown and incomplete reference databases remain intact", unknown_database_is_preserved},
+        {"host admission ID validates and preserves absent-field replay", host_admission_identity_preserves_legacy_replay},
         {"scoped immutable admission and original retry after AMEND", scoped_admission_and_original_retry},
         {"state, plan and event commit atomically", event_failure_rolls_back_whole_transaction},
         {"initial instruction, bounded acknowledgment and durable command retry", instruction_ack_and_durable_exact_commands},

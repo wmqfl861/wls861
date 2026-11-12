@@ -49,6 +49,8 @@ struct AdmissionInput {
     std::vector<std::string> tool_allowlist;
     Json constraint_catalog = boost::json::array{};
     BudgetLimits budget;
+    // Optional trusted-host identity; absent preserves historical fingerprints.
+    std::string request_id;
 };
 
 struct AttemptReservation {

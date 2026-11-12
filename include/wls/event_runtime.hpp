@@ -55,8 +55,12 @@ void validate_live_workflow_config(const FrozenRequestConfig& config,
 // Package publication and receiving acknowledgement stay explicit host actions.
 class EventRuntime final {
 public:
+    // Host-only allocation for an already committed current task. The host
+    // retains each returned WorkerTools through the complete pump invocation.
+    using WorkspaceResolver = std::function<WorkerTools*(const Json& task)>;
     EventRuntime(Store& store, const SchemaRegistry& schemas,
-                 std::map<std::string, WorkerTools*> tools_by_node = {});
+                 std::map<std::string, WorkerTools*> tools_by_node = {},
+                 WorkspaceResolver workspace_resolver = {});
     Json pump(const std::string& request_id, const EventFakeScript& script,
               const EventPumpOptions& options = {});
     Json pump_live(const std::string& request_id,
@@ -73,6 +77,7 @@ private:
     Store& store_;
     const SchemaRegistry& schemas_;
     std::map<std::string, WorkerTools*> tools_by_node_;
+    WorkspaceResolver workspace_resolver_;
 };
 
 } // namespace wls::s1
