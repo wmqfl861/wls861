@@ -65,9 +65,12 @@ Json selection(const CompiledContext& c) {
         {"adapter_version", c.adapter_version}, {"protocol_version", c.protocol_version}};
 }
 std::string cache_hash(const CompiledContext& c) {
-    return sha256_hex(canonical_json(Object{{"format", c.logical_input.at("format") == "wls-logical-input-v3"
+    Object descriptor{{"format", c.logical_input.at("format") == "wls-logical-input-v3"
             ? "wls-context-cache-v3" : "wls-context-cache-v2"},
-        {"selection", selection(c)}, {"prefix_sha256", c.prefix_sha256}}));
+        {"selection", selection(c)}, {"prefix_sha256", c.prefix_sha256}};
+    if (const auto* policy = c.logical_input.as_object().if_contains("model_projection"))
+        descriptor["model_projection"] = *policy;
+    return sha256_hex(canonical_json(descriptor));
 }
 void description(const Json& value) {
     require(value.is_string() && value.as_string().find_first_not_of(" \t\r\n") != std::string::npos,
@@ -233,11 +236,15 @@ static CompiledContext compile_structured(const ContextInput& base,
     require(base.messages.empty(), "legacy messages must be explicitly converted, never discarded");
     // Reuse the established validation of model selection, required sections,
     // tool definitions and dependency hashes. No adapter parses legacy frames.
-    auto result = ContextCompiler(limits).compile(base);
+    auto validation_base = base;
+    validation_base.model_projection.clear();
+    auto result = ContextCompiler(limits).compile(validation_base);
     auto tools = base.tools;
     std::sort(tools.begin(), tools.end(), [](const auto& a, const auto& b) { return a.name < b.name; });
     Array definitions;
     const bool v3 = format == StructuredContextFormat::V3;
+    require(base.model_projection.empty() || (v3 && base.model_projection == "lean-v1"),
+        "model projection requires explicit v3 lean-v1");
     for (auto tool : tools) {
         if (v3) { description(Json(tool.description)); describe_parameters(tool.definition, tool.name, project); }
         definitions.push_back(Object{{"name", tool.name}, {"version", tool.version}, {"parameters", tool.definition}});
@@ -303,6 +310,7 @@ static CompiledContext compile_structured(const ContextInput& base,
         result.logical_input.as_object()["contract_anchor"] = anchor;
         result.logical_input.as_object()["contract_updates"] = updates;
         result.logical_input.as_object()["current_state"] = state;
+        if (!base.model_projection.empty()) result.logical_input.as_object()["model_projection"] = base.model_projection;
         result.stable_prefix = stable_projection(result.logical_input);
         result.dynamic_suffix = canonical_json(dynamic_projection(result.logical_input));
     }
@@ -361,6 +369,7 @@ CompiledContext structured_context_from_json(const Json& value) {
     const auto& input = field(value, "input");
     auto input_keys = std::set<std::string>{"format", "selection", "prefix", "task_contract", "messages"};
     if (v3) for (const auto* key : {"contract_anchor", "contract_updates", "current_state"}) input_keys.insert(key);
+    if (v3 && object(input).contains("model_projection")) input_keys.insert("model_projection");
     exact(input, input_keys);
     require(text(input, "format") == (v3 ? "wls-logical-input-v3" : "wls-logical-input-v1"), "unsupported logical input format");
     // Bound canonical logical bytes before reconstructing a compiled context.
@@ -384,6 +393,7 @@ CompiledContext structured_context_from_json(const Json& value) {
     base.function_prompt = text(system, "function_prompt"); base.environment_card = text(system, "environment_card");
     base.approved_rules = text(system, "approved_rules"); base.project_snapshot = text(system, "project_snapshot");
     base.task_contract = text(input, "task_contract");
+    if (object(input).contains("model_projection")) base.model_projection = text(input, "model_projection");
     if (v3) {
         base.contract_anchor = field(input, "contract_anchor");
         require(!base.contract_anchor.is_null(), "v3 original contract anchor is missing");

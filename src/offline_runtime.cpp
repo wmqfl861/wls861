@@ -611,6 +611,7 @@ CapturedModelCall OfflineRuntime::capture_call(
     }
     for (auto& tool : declared_tools) tool.description = builtin_tool_description(tool.name);
     auto context = make_context(config, role, template_id, declared_tools, contract);
+    context.model_projection = config.context_model_projection();
     if (shared_transcript)
         context.dependencies.push_back({"logical_agent_policy", std::string(single_agent_contract), sha256_hex(canonical_json(logical_policy))});
     if (!history_policy.is_null())

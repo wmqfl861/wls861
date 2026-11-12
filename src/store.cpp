@@ -3767,6 +3767,10 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
     require(str(r, "config_snapshot_sha256") == reservation.config_snapshot_sha256, ErrorCode::Stale, "model attempt changed the frozen request configuration");
     const auto frozen_config = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256"));
     const auto format = frozen_config.context_request_format();
+    const auto& context_input = original_model_request.context.logical_input;
+    const auto* projection = context_input.is_object() ? context_input.as_object().if_contains("model_projection") : nullptr;
+    require((projection ? std::string(projection->as_string()) : "") == frozen_config.context_model_projection(),
+        ErrorCode::Unauthorized, "model projection differs from frozen request policy");
     require(reservation.request_envelope.at("format") == (format == "structured-v3" ? "wls-model-request-v3" :
             format == "structured-v2" ? "wls-model-request-v2" : "wls-model-request-v1"), ErrorCode::Unauthorized,
             "model context format differs from frozen request policy");

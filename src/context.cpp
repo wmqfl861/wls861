@@ -208,6 +208,7 @@ ContextCompiler::ContextCompiler(ContextLimits limits) : limits_(limits) {
 }
 
 CompiledContext ContextCompiler::compile(const ContextInput& input) const {
+    require(input.model_projection.empty(), "model projection requires structured-v3");
     validate_model(input.model);
     require(!input.adapter_version.empty() && !input.protocol_version.empty(),
             "context requires frozen adapter and protocol versions");

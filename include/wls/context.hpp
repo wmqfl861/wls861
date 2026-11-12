@@ -51,6 +51,7 @@ struct ContextInput {
     // V3 host projections. Originals remain in task_contract/messages.
     Json contract_anchor = nullptr;
     Json contract_updates = boost::json::array{};
+    std::string model_projection;
 };
 
 struct ContextLimits {

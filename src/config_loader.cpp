@@ -600,9 +600,13 @@ CapabilityRegistry validate_system(const Json& system) {
     const auto& context = required(system, "context", "system");
     fields(context, "system.context", {{"compaction_at_fraction", 'n'}, {"snapshot_decision_log_entries", 'i'},
         {"schema_retry_max", 'z'}, {"cache_dependencies", 'a'}, {"policy_updates_use_runtime_gate", 'b'},
-        {"request_format", 's'}, {"prompt_policy", 's'}, {"worker_history", '-'}, {"management_history", '-'}, {"logical_agent", '-'}},
-        {"request_format", "prompt_policy", "worker_history", "management_history", "logical_agent"});
+        {"request_format", 's'}, {"prompt_policy", 's'}, {"model_projection", 's'}, {"worker_history", '-'}, {"management_history", '-'}, {"logical_agent", '-'}},
+        {"request_format", "prompt_policy", "model_projection", "worker_history", "management_history", "logical_agent"});
     if (optional(context, "prompt_policy")) literal(context, "prompt_policy", "guided-v1", "system.context");
+    if (optional(context, "model_projection")) {
+        literal(context, "model_projection", "lean-v1", "system.context");
+        literal(context, "request_format", "structured-v3", "system.context");
+    }
     if (const auto* format = optional(context, "request_format")) {
         const auto name = string_value(*format, "system.context.request_format");
         if (name != "framed-v1" && name != "structured-v2" && name != "structured-v3")
@@ -968,6 +972,12 @@ std::string FrozenRequestConfig::context_prompt_policy() const {
     const auto& context = required(required(document_, "system", "snapshot"), "context", "system");
     const auto* policy = optional(context, "prompt_policy");
     return policy ? string_value(*policy, "system.context.prompt_policy") : "";
+}
+
+std::string FrozenRequestConfig::context_model_projection() const {
+    const auto& context = required(required(document_, "system", "snapshot"), "context", "system");
+    const auto* policy = optional(context, "model_projection");
+    return policy ? string_value(*policy, "system.context.model_projection") : "";
 }
 
 Json FrozenRequestConfig::worker_history_policy() const {

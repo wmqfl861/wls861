@@ -249,6 +249,10 @@ void v3_hash_roundtrip_and_wire() {
     CHECK(c.logical_input_sha256 == sha256_hex(c.prompt()));
     CHECK(to_json(compiled_context_from_json(document)) == document);
     const auto encoded = encode_responses_request(fixture::profile(), r);
+    // E baseline, independently measured before either F/G optional policy.
+    CHECK(sha256_hex(canonical_json(document)) == "a5468d6021eb86bd7cd72e72c800680d10c94b4c3f304fa198bdc71db37334ca");
+    CHECK(sha256_hex(canonical_json(to_json(r))) == "97d680a0037304cedeecb686687e26bf37d454b38ead30c519b50efd1e51dd1c");
+    CHECK(encoded.body_sha256 == "3dea3be602fce76cc5d0b2d664d15854ecdd0dea52d7aa40862036bfc5251cfc");
     const auto body = parse_json_strict(encoded.body);
     const auto& tool = body.at("tools").as_array().front();
     CHECK(tool.at("description") == Json(input.tools.front().description));
@@ -496,11 +500,12 @@ void corrupted_source_binding_refuses() {
 }
 struct ConfigFixture {
     ::test::TempDir tmp;
-    FrozenRequestConfig load(const std::string& format) {
+    FrozenRequestConfig load(const std::string& format, const std::string& projection = {}) {
         auto yaml = read_runtime_file(root / "config/examples/system.yaml");
         const std::string marker = "  request_format: structured-v3\n";
         const auto pos = yaml.find(marker); CHECK(pos != std::string::npos);
         yaml.replace(pos, marker.size(), format.empty() ? "" : "  request_format: " + format + "\n");
+        if (!projection.empty()) yaml.insert(yaml.find("  compaction_at_fraction:"), "  model_projection: " + projection + "\n");
         { std::ofstream out(tmp.path / "system.yaml"); out << yaml; CHECK(out.good()); }
         return load_config_catalog(tmp.path / "system.yaml", root / "config/examples/functions", root / "prompts").freeze("general");
     }
@@ -671,8 +676,15 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
     }
 }
 
-void v3_five_round_encoded_prefix_and_originals() {
+void v3_five_round_encoded_prefix_and_originals(bool lean = false) {
     auto input = described_fixture();
+    ::test::TempDir pages;
+    if (lean) {
+        input.model_projection = "lean-v1";
+        const auto& read = worker_tool_definition("fs_read");
+        input.tools.push_back({read.name, read.version, read.input_schema, builtin_tool_description(read.name)});
+    }
+    Workspace workspace(pages.path);
     Json contract = Object{{"request", Object{{"requirements_revision", 1},
         {"texts", Array{Object{{"text", "original request"}, {"kind", "ORIGINAL"}}}}, {"constraint_catalog", Array{}}}},
         {"task", Object{{"brief", Object{{"goal", "retain original bytes"}}}, {"task_revision", 1}, {"state_version", 1}}},
@@ -680,6 +692,13 @@ void v3_five_round_encoded_prefix_and_originals() {
         {"binding", Object{{"execution_epoch", 1}}}, {"budget", Object{{"spent_input", 0}}}};
     auto profile = fixture::compat_profile();
     std::vector<StructuredContextMessage> messages;
+    if (lean) {
+        messages = worker_history_messages(Object{{"format", "wls-history-tail-v1"}, {"items", Array{}},
+            {"total_count", 1}, {"omitted_count", 1}, {"through_sequence", 7}},
+            Object{{"mode", "window-v1"}, {"recent_attempts", 1}, {"inline_bytes", 32768}});
+        messages.push_back({"user", "UNKNOWN: original observation missing; source business field stays readable.", {}, {},
+            Object{{"private_source", "must-stay-host-side"}}});
+    }
     Json previous = nullptr, anchor = nullptr, previous_body = nullptr;
     Array previous_input;
     for (int round = 0; round != 5; ++round) {
@@ -692,6 +711,15 @@ void v3_five_round_encoded_prefix_and_originals() {
         request.context = compile_structured_context(input, messages, {}, StructuredContextFormat::V3);
         const auto logical = request.context.logical_input;
         const auto body = parse_json_strict(encode_responses_request(profile, request).body);
+        if (lean) {
+            CHECK(canonical_json(body).find("must-stay-host-side") == std::string::npos);
+            CHECK(parse_json_strict(str(body.at("input").as_array().front(), "content")) == logical.at("contract_anchor"));
+            const auto state = parse_json_strict(str(body.at("input").as_array().back(), "content")).at("current_state");
+            CHECK(!state.as_object().contains("message_sources"));
+            CHECK(!state.at("history_windows").as_array().front().as_object().contains("source"));
+            CHECK(str(state.at("history_windows").as_array().front(), "content").find("through_sequence") != std::string::npos);
+            CHECK(canonical_json(body).find("UNKNOWN") != std::string::npos);
+        }
         auto ordered = body.at("input").as_array();
         CHECK(parse_json_strict(str(ordered.back(), "content")).at("format") == "wls-responses-current-state-v3");
         ordered.pop_back();
@@ -717,6 +745,19 @@ void v3_five_round_encoded_prefix_and_originals() {
         }
         original.at("response").at("tool_calls").as_array()[0].at("call_id") = "provider_" + std::to_string(round);
         original.at("feedback").at("response") = original.at("response");
+        if (lean) {
+            const std::string bytes = round == 0 ? "原始UTF-8😀" : round == 1 ? "" :
+                round == 2 ? std::string("\xff\0", 2) : round == 3 ? "😀" : std::string(2048, 'a');
+            const auto path = "page" + std::to_string(round);
+            { std::ofstream file(pages.path / path, std::ios::binary); file << bytes; CHECK(file.good()); }
+            const auto page = workspace.read(path, 0, round == 3 ? 1 : 4096);
+            auto& response = original.at("response");
+            response.at("tool_calls").as_array()[0].at("name") = "fs_read";
+            response.at("tool_calls").as_array()[0].at("arguments") = Object{{"path", path}};
+            auto& native = response.at("responses_output").at("output").as_array().back();
+            native.at("name") = "fs_read"; native.at("arguments") = canonical_json(Object{{"path", path}});
+            original.at("feedback").at("response") = response; original.at("feedback").at("result") = page;
+        }
         const auto turn = structured_attempt_history({original});
         CHECK(turn.front().responses_output == payload);
         messages.insert(messages.end(), turn.begin(), turn.end());
@@ -735,7 +776,28 @@ void v3_five_round_encoded_prefix_and_originals() {
     CHECK(amended.context.logical_input.at("contract_anchor") == anchor);
     CHECK(amended.context.logical_input.at("contract_updates").as_array().size() == 1);
     CHECK(amended.context.logical_input.at("contract_updates").as_array()[0].at("after_attempt_id") == previous.at("attempt_id"));
-    CHECK(parse_json_strict(str(ordered[ordered.size() - 2], "content")).at("format") == "wls-responses-contract-update-v3");
+    const auto update_text = parse_json_strict(str(ordered[ordered.size() - 2], "content"));
+    if (lean) {
+        CHECK(!update_text.as_object().contains("task_contract"));
+        CHECK(update_text.at("request") == amended.context.logical_input.at("contract_updates").as_array()[0].at("contract").at("request"));
+        CHECK(update_text.at("semantic_versions").at("instruction_revision") == 2);
+        for (const auto& item : ordered) if (item.as_object().contains("output")) {
+            const auto page = parse_json_strict(str(item, "output"));
+            const auto name = str(page, "path"); const bool text = name == "page0" || name == "page1" || name == "page4";
+            CHECK(page.as_object().contains("content") == text);
+            CHECK(page.as_object().contains("content_base64") != text);
+            CHECK(str(item, "call_id").starts_with("provider_"));
+        }
+        auto legacy = input; legacy.model_projection.clear();
+        auto e = amended; e.context = compile_structured_context(legacy, messages, {}, StructuredContextFormat::V3);
+        auto v2 = amended; v2.context = compile_structured_context(legacy, messages);
+        const auto e_bytes = encode_responses_request(profile, e).body.size();
+        const auto v2_bytes = encode_responses_request(profile, v2).body.size();
+        const auto lean_bytes = canonical_json(encoded).size();
+        std::cout << "lean fixture bytes v2=" << v2_bytes << " E-v3=" << e_bytes << " lean=" << lean_bytes
+            << " ratios=" << double(lean_bytes) / double(v2_bytes) << ',' << double(lean_bytes) / double(e_bytes) << '\n';
+        CHECK(lean_bytes < e_bytes && lean_bytes < v2_bytes);
+    } else CHECK(update_text.at("format") == "wls-responses-contract-update-v3");
     CHECK(amended.context.logical_input.at("messages") == single_agent_messages_json(messages));
     CHECK(encode_responses_request(profile, model_request_from_json(to_json(amended))).body == canonical_json(encoded));
 }
@@ -893,11 +955,85 @@ void v3_cross_version_and_projection_corruption_reject() {
     }
 }
 
+void lean_frozen_capture_reopen_and_policy_guards() {
+    ConfigFixture config;
+    for (const auto* format : {"", "framed-v1", "structured-v2"})
+        fails(ErrorCode::InvalidInput, [&] { (void)config.load(format, "lean-v1"); });
+    fails(ErrorCode::InvalidInput, [&] { (void)config.load("structured-v3", "lean-v99"); });
+    const auto frozen = config.load("structured-v3", "lean-v1");
+    CHECK(FrozenRequestConfig::restore(frozen.serialize(), frozen.sha256()).context_model_projection() == "lean-v1");
+    CHECK(config.load("structured-v3").context_model_projection().empty());
+    ::test::TempDir directory; wls::test::live::Assets assets(root); SchemaRegistry schemas(root / "schemas");
+    auto settings = wls::test::live::settings();
+    auto admission = wls::test::live::admission(assets, settings);
+    auto& context = admission.config_snapshot.at("system").at("context");
+    context.at("request_format") = "structured-v3"; context.as_object()["model_projection"] = "lean-v1";
+    const auto database = directory.path / "lean.sqlite";
+    auto store = assets.open(database); const auto id = str(store->admit(admission), "request_id");
+    CapturedCallLimits limits; limits.reserved_cost_micro_usd = 100;
+    const auto call = OfflineRuntime(*store, schemas).capture_call(id, Role::Dispatcher, {}, 1, {}, false, limits);
+    const auto& request = call.request;
+    CHECK(request.context.logical_input.at("model_projection") == "lean-v1");
+    const auto wire = encode_responses_request(settings.provider, request).body;
+    CHECK(!parse_json_strict(str(parse_json_strict(wire).at("input").as_array().front(), "content")).as_object().contains("task_contract"));
+    AttemptReservation reservation;
+    reservation.call_id = request.call_id; reservation.attempt_id = request.attempt_id;
+    reservation.config_snapshot_sha256 = request.config_snapshot_id; reservation.model_ref = request.model.model;
+    reservation.adapter_kind = "openai-responses"; reservation.max_output_tokens = request.max_output_tokens;
+    reservation.reserved_input_tokens = request.reserved_input_tokens; reservation.reserved_output_tokens = request.reserved_output_tokens;
+    reservation.reserved_cost_micro_usd = request.reserved_cost_micro_usd; reservation.request_envelope = to_json(request);
+    auto stripped = to_json(request.context); stripped.at("input").as_object().erase("model_projection");
+    stripped.at("logical_input_sha256") = sha256_hex(canonical_json(stripped.at("input")));
+    stripped.at("cache_identity") = sha256_hex(canonical_json(Object{{"format", "wls-context-cache-v3"},
+        {"selection", request.context.logical_input.at("selection")}, {"prefix_sha256", request.context.prefix_sha256}}));
+    auto mismatch = request; mismatch.context = compiled_context_from_json(stripped);
+    CHECK(mismatch.context.cache_identity != request.context.cache_identity);
+    auto denied = reservation; denied.request_envelope = to_json(mismatch);
+    fails(ErrorCode::Unauthorized, [&] { (void)store->reserve_attempt(call.actor, request.binding, denied); });
+    CHECK(store->budget(id).at("attempts") == 0);
+    (void)store->reserve_attempt(call.actor, request.binding, reservation); // Local reservation only; no send/transport.
+    store.reset(); store = assets.open(database);
+    const auto restored = model_request_from_json(store->attempt(request.attempt_id).at("request_envelope"));
+    CHECK(encode_responses_request(settings.provider, restored).body == wire);
+    CHECK(restore_request_config(store->request(id)).context_model_projection() == "lean-v1");
+}
+
+void lean_projection_preserves_errors_and_checks_originals() {
+    auto input = described_fixture(); input.model_projection = "lean-v1";
+    auto original = attempt();
+    original.at("feedback").at("result") = Object{{"content", "not a normal read page"}, {"content_base64", "must remain"},
+        {"source", "business field"}, {"metadata", Object{{"original", true}}}};
+    const auto messages = structured_attempt_history({original});
+    auto request = fixture::request(); request.context = compile_structured_context(input, messages, {}, StructuredContextFormat::V3);
+    const auto saved = to_json(request.context);
+    const auto body = parse_json_strict(encode_responses_request(fixture::profile(), request).body);
+    CHECK(parse_json_strict(str(body.at("input").as_array()[3], "output")) == original.at("feedback").at("result"));
+    CHECK(request.context.logical_input.at("messages") == single_agent_messages_json(messages));
+    CHECK(to_json(request.context) == saved);
+    for (const auto* policy : {"", "lean-v99"}) {
+        auto broken = saved;
+        if (*policy) broken.at("input").at("model_projection") = policy;
+        else broken.at("input").as_object().erase("model_projection");
+        fails(ErrorCode::InvalidInput, [&] { (void)compiled_context_from_json(broken); });
+    }
+    auto broken = saved; broken.at("input").at("messages").as_array()[1].at("source").as_object()["record_sha256"] = sha256_hex("forged");
+    fails(ErrorCode::InvalidInput, [&] { (void)compiled_context_from_json(broken); });
+    fails(ErrorCode::InvalidInput, [&] { (void)compile_structured_context(input, messages); });
+    fails(ErrorCode::InvalidInput, [&] { (void)ContextCompiler{}.compile(input); });
+    auto quota = ContextLimits{}; quota.max_total_bytes = quota.max_prefix_bytes = 1024;
+    fails(ErrorCode::Quota, [&] { (void)compile_structured_context(input, messages, quota, StructuredContextFormat::V3); });
+    auto profile = fixture::profile(); profile.limits.max_request_bytes = canonical_json(body).size() - 1;
+    fails(ErrorCode::Quota, [&] { (void)encode_responses_request(profile, request); });
+}
+
 } // namespace
 
 int main() {
     return ::test::run({
-        {"v3 encoded five round prefix preserves native originals", v3_five_round_encoded_prefix_and_originals},
+        {"v3 encoded five round prefix preserves native originals", [] { v3_five_round_encoded_prefix_and_originals(); }},
+        {"lean wire projection preserves originals and ordered prefix", [] { v3_five_round_encoded_prefix_and_originals(true); }},
+        {"lean frozen capture reopens identical wire and rejects policy mismatch", lean_frozen_capture_reopen_and_policy_guards},
+        {"lean projection preserves errors and checks originals", lean_projection_preserves_errors_and_checks_originals},
         {"v3 capture reserve restore history policy combinations", v3_capture_reserve_restore_policy_combinations},
         {"v3 AMEND and reopen preserve anchor and original CAS", v3_amend_reopen_and_original_cas},
         {"v3 cross version and projection corruption reject", v3_cross_version_and_projection_corruption_reject},

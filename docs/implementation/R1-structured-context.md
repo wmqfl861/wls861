@@ -105,3 +105,19 @@ current_state。不改历史 provider item/call ID、reasoning、feedback 或原
 不比较带结束括号的完整 HTTP body。window-v1 保持原整轮淘汰语义：窗口移动会改变前缀，更新
 边界离开窗口后按原更新顺序放在可见历史之前。角色或权限工具集变化同样是缓存边界。
 固定角色工具目录、元数据不出站、纯文本优化与折叠仍是后续显式冻结策略，不重解释已持久 v3。
+
+## G1-G：可选 lean-v1 模型投影
+
+新请求可在 `system.context` 显式选择 `request_format: structured-v3` 与
+`model_projection: lean-v1`。缺字段保留原 v1/v2/E-v3 字节；冻结、capture、restore 和
+Store 新预约校验同一选择，逻辑/请求指纹及 cache identity 绑定该选择。它独立于工具目录策略。
+
+lean-v1 仅在编码副本中移除 message_sources 及窗口消息的来源 sidecar；原逻辑 messages、
+来源与反馈原件继续供宿主核验。窗口遗漏、UNKNOWN、未决事实及原读取句柄仍完整可读；
+业务对象中名为 source/metadata 的字段保持。稳定契约和按 E 原边界插入的契约更新直接编码
+为单层规范 JSON 对象文本，更新保留 semantic_versions，末条状态仍最后出站。
+
+只有已配对的原 fs_read 调用且结果符合正常页结构才去重：content 为字符串（含空串）时
+仅省略 content_base64；content 为 null（含 UTF-8 分页切分）时仅省略 content。路径、偏移、
+大小、SHA、EOF 和 next_offset 保留；错误与观察不改写。宿主提交快照仍读取原 base64，
+原生 reasoning 与 provider item/call ID 保留。原逻辑与 wire 字节上限继续分别执行。
