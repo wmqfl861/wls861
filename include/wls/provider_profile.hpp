@@ -99,6 +99,7 @@ struct ProviderProfile {
     std::optional<ResponsesCompatibility> responses_compatibility{};
     // Empty retains strict decoding and the original profile bytes/hash.
     std::string response_metadata_policy{};
+    std::string tool_choice_policy{};
 };
 
 // Strict parse/serialize; rates are integers in 0..10^12 micro USD.

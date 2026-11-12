@@ -1,5 +1,7 @@
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
+#include "wls/structured_context.hpp"
+#include "protocol_test_support.hpp"
 #include "test_support.hpp"
 #include "capacity_test_support.hpp"
 
@@ -40,12 +42,15 @@ void expect(ErrorCode code, const std::function<void()>& action) {
     }
     CHECK(caught);
 }
-AdmissionInput input() {
-    test::TempDir temp;
+AdmissionInput input(bool fixed = false) {
+    ::test::TempDir temp;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
+    yaml.erase(yaml.find(tool_policy), tool_policy.size());
     const std::string format = "request_format: structured-v3";
     const auto at = yaml.find(format); CHECK(at != std::string::npos);
-    yaml.replace(at, format.size(), "request_format: framed-v1");
+    yaml.replace(at, format.size(), fixed ? "request_format: structured-v3\n  tool_policy: fixed-role-v1\n"
+        "  management_history: {mode: window-v1, recent_attempts: 2, inline_bytes: 32768, max_context_bytes: 1048576}" : "request_format: framed-v1");
     write(temp.path / "system.yaml", yaml);
     const auto config = load_config_catalog(temp.path / "system.yaml", source / "config/examples/functions",
                                             source / "prompts").freeze("general");
@@ -95,7 +100,7 @@ bool blocked(const Json& result, std::string_view code) {
         [&](const auto& row) { return row.at("code").as_string() == code; });
 }
 struct Fixture {
-    test::TempDir directory;
+    ::test::TempDir directory;
     std::unique_ptr<Store> store;
     std::unique_ptr<WorkerTools> alpha, beta;
     std::string id;
@@ -475,7 +480,7 @@ void independent_candidates_and_experience_do_not_share_targets() {
 
 void ordinary_event_capacity_keeps_only_bounded_experience_reservation() {
     Fixture f; const auto job = f.accepted();
-    test::fill_business_capacity(*f.store, f.directory.path / "control.db", f.id);
+    ::test::fill_business_capacity(*f.store, f.directory.path / "control.db", f.id);
     const auto budget = f.store->budget(f.id);
     const auto plan = full_script().default_steps.front();
     expect(ErrorCode::NotReady, [&] { (void)f.capture(Role::Dispatcher, FakeModel({plan})); });
@@ -488,6 +493,53 @@ void ordinary_event_capacity_keeps_only_bounded_experience_reservation() {
     CHECK(f.store->experience_job(text(job.at("experience_id"))).at("status") == "DONE");
     CHECK(number(f.store->budget(f.id).at("attempts")) == number(budget.at("attempts")) + 1);
 }
+
+void fixed_role_catalog_stays_stable_across_actions_and_experience() {
+    Fixture f(input(true));
+    const auto wire = [](ModelRequest request) {
+        auto context = to_json(request.context);
+        request.model = wls::test::protocol::context().model;
+        context.at("model_ref") = request.model.model; context.at("protocol_version") = "openai-responses-v1";
+        context.at("input").at("selection").at("model_ref") = request.model.model;
+        context.at("input").at("selection").at("protocol_version") = "openai-responses-v1";
+        context.at("cache_identity") = sha256_hex(canonical_json(Object{{"format", "wls-context-cache-v3"},
+            {"selection", context.at("input").at("selection")}, {"prefix_sha256", context.at("prefix_sha256")},
+            {"tool_policy", "fixed-role-v1"}}));
+        context.at("logical_input_sha256") = sha256_hex(canonical_json(context.at("input")));
+        request.context = compiled_context_from_json(context);
+        request.reserved_input_tokens = 90000; request.reserved_output_tokens = 4096; request.max_output_tokens = 4096;
+        return parse_json_strict(encode_responses_request(wls::test::protocol::profile(), request).body);
+    };
+    const auto initial = OfflineRuntime(*f.store, *schemas, f.alpha.get()).capture_call(f.id, Role::Dispatcher);
+    const auto first = wire(initial.request);
+    (void)f.pump_to(2);
+    (void)f.invoke(Role::Worker, "ask", Object{{"text", "Confirm the intended original value."}, {"blocking", false}});
+    (void)f.invoke(Role::TeamLead, "forward_question", Object{{"note", "Request-level clarification."}});
+    const auto question = OfflineRuntime(*f.store, *schemas, f.alpha.get()).capture_call(f.id, Role::Dispatcher);
+    CHECK(question.workflow_action.at("kind") == "question");
+    CHECK(model_allowed_tools(question.request.context) != model_allowed_tools(initial.request.context));
+    (void)f.invoke(Role::Dispatcher, "answer_question", Object{{"text", "Preserve the original requested value."}});
+    write(f.directory.path / "alpha/result.txt", "alpha candidate version 1\n");
+    const auto submission = f.invoke(Role::Worker, "submit", full_script().by_node.at("alpha").at(2).tool_calls.front().arguments);
+    (void)submission; (void)f.invoke(Role::TeamLead, "check_submission", positive_check());
+    const auto acceptance = OfflineRuntime(*f.store, *schemas, f.alpha.get()).capture_call(f.id, Role::Dispatcher);
+    CHECK(acceptance.workflow_action.at("kind") == "acceptance");
+    CHECK(model_allowed_tools(acceptance.request.context) != model_allowed_tools(question.request.context));
+    for (const auto& call : {question, acceptance}) {
+        const auto body = wire(call.request);
+        CHECK(body.at("tools") == first.at("tools")); CHECK(body.at("instructions") == first.at("instructions"));
+    }
+    (void)f.invoke(Role::Dispatcher, "accept_candidate", positive_acceptance());
+    const auto fake = FakeModel({step(Role::TeamLead, "management_history_page", Object{})});
+    const auto experience = f.capture(Role::TeamLead, fake);
+    CHECK(model_allowed_tools(experience.request.context) == std::vector<std::string>{"report_experience"});
+    CHECK(std::find(experience.request.context.tool_names.begin(), experience.request.context.tool_names.end(),
+        "management_history_page") != experience.request.context.tool_names.end());
+    const auto feedback = OfflineRuntime(*f.store, *schemas, f.alpha.get()).accept_response(experience, fake.complete(experience.request));
+    CHECK(feedback.at("correction_feedback").at("reason") == "tool_selection");
+    CHECK(f.invoke(Role::TeamLead, "report_experience", no_experience()).is_object());
+    CHECK(f.store->experience_jobs(f.id).front().at("status") == "DONE");
+}
 } // namespace
 
 int main() {
@@ -498,7 +550,8 @@ int main() {
     events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     workflow_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
     acceptance_sql = read_runtime_file(source / "db/migrations/008_acceptance_runtime.sql");
-    return test::run({
+    return ::test::run({
+        {"fixed role catalogs stay stable across Dispatcher actions and experience", fixed_role_catalog_stays_stable_across_actions_and_experience},
         {"Dispatcher acceptance and explicit experience do not imply delivery", explicit_acceptance_and_experience_complete_without_implied_delivery},
         {"Dispatcher sees immutable candidate bytes and exact response replay", dispatcher_observes_original_bytes_and_response_replay_is_exact},
         {"raw Worker submission cannot bypass TeamLead checking", raw_submission_cannot_skip_team_lead_check},

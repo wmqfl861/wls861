@@ -74,6 +74,31 @@ provider item/call ID（跨轮重复在编码前拒绝），旧 profile 保持 h
 encrypted_content 为 invalid evidence。边界详见
 [ADR-077 G1-2 节](../adr/077-responses-offline-codec.md)。
 
+## G1-F：固定角色目录与本轮允许工具
+
+新请求可显式冻结 `context.tool_policy: fixed-role-v1`，仅支持 `structured-v3`
+和持久反馈 Store。示例现已选择它；缺字段的 v1/v2/E-v3 快照不补默认值，原
+context、缓存身份、请求哈希和协议字节保持原解释。
+
+完整 `tool_names`/协议 `tools` 使用固定枚举与冻结角色/Worker 模板许可；以后新增
+注册工具不会扩充 `fixed-role-v1`。未实现的 recall/load_memory 不列入目录，
+owned-capacity 仍禁止 run。角色变化继续形成缓存边界，单 Agent 的历史保留原回合
+权限、provider IDs、opaque 输出及来源，不以当前角色或本轮允许列表重审旧回合。
+
+捕获时先计算原动作和当前授权得到本轮工具，再构造完整目录。规范逻辑请求保存
+`tool_policy`，末尾 `current_state.allowed_tools` 保存排序唯一、非空、至多64项的
+目录子集；两者进入逻辑/请求身份，策略还区分缓存身份。恢复重编译和 Store 准入
+均核冻结选择与完整目录，当前授权/history/experience 检查针对本轮列表。
+experience 本轮仅允许 report_experience，即使完整目录包含 history 也不能打开它。
+本轮不允许的模型工具选择在原用量结算及 accepted/CAS 门禁后进入 tool_selection
+纠错反馈；宿主撤权、UNKNOWN、预算、期限及最终派发守卫仍立即停止。
+
+ProviderProfile 可独立显式选择 `tool_choice_policy: allowed-tools-v1`。仅配合新
+固定目录策略时，Responses encoder 输出官方 allowed_tools 的 type/mode/tools
+对象；未选择能力的端点保持完整 tools 和末尾允许列表，由宿主强制执行。
+tool_choice 是动态控制字段；稳定性比较仅覆盖 tools/instructions 与有序历史项，
+不把整个 HTTP JSON 声称为严格前缀。此改动不实现折叠、模型投影或真实缓存验收。
+
 ## G1-E v3 契约锚、更新和当前状态
 
 本布局接合已合入的 D #57 `guided-v1` 提示词、K #59 响应/profile 解码及 J #58

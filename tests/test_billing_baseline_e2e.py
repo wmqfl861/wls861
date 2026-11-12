@@ -372,6 +372,7 @@ class BillingBaselineIntegration(unittest.TestCase):
         if bounded:
             system['model_calls'].update(runtime_policy='bounded-v1', max_total_calls=40)
         system['context']['request_format'] = 'structured-v2'
+        system['context'].pop('tool_policy', None)
         system['context'].pop('logical_agent', None)
         if condition == 'single_agent':
             system['context']['logical_agent'] = {'mode': IDENTITY, 'max_attempts': 128,

@@ -40,6 +40,8 @@ void expect(ErrorCode code, const std::function<void()>& action) {
 AdmissionInput input(std::int64_t correction_limit = 2, std::int64_t stall_limit = 0) {
     test::TempDir configuration;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
+    yaml.erase(yaml.find(tool_policy), tool_policy.size());
     const std::string format = "request_format: structured-v3";
     const auto format_at = yaml.find(format); CHECK(format_at != std::string::npos);
     yaml.replace(format_at, format.size(), "request_format: framed-v1");

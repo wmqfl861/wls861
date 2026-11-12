@@ -308,9 +308,9 @@ void validate_response_envelope(const ModelRequest& request, const ModelResponse
 
 void validate_response(const ModelRequest& request, const ModelResponse& response) {
     validate_response_envelope(request, response);
+    const auto allowed = model_allowed_tools(request.context);
     for (const auto& call : response.tool_calls) {
-        require(std::find(request.context.tool_names.begin(), request.context.tool_names.end(),
-                          call.name) != request.context.tool_names.end(),
+        require(std::find(allowed.begin(), allowed.end(), call.name) != allowed.end(),
                 "model response contains an unavailable tool");
     }
 }

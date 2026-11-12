@@ -326,6 +326,7 @@ void validate_provider_profile(const ProviderProfile& p) {
     }
     require(p.response_metadata_policy.empty() || p.response_metadata_policy == "ignore-record-v1",
             "unsupported response metadata policy");
+    require(p.tool_choice_policy.empty() || p.tool_choice_policy == "allowed-tools-v1", "unsupported tool choice policy");
     require(!p.parallel_tool_calls || p.tool_calling, "parallel tool calls require tool calling capability");
     require(p.reasoning_provider_default || p.reasoning_off || !p.reasoning_efforts.empty(),
             "provider must explicitly declare a reasoning mode");
@@ -358,6 +359,7 @@ ProviderProfile provider_profile_from_json(const Json& value) {
     if (object(value).contains("pricing")) keys.insert("pricing");
     if (object(value).contains("responses_compatibility")) keys.insert("responses_compatibility");
     if (object(value).contains("response_metadata_policy")) keys.insert("response_metadata_policy");
+    if (object(value).contains("tool_choice_policy")) keys.insert("tool_choice_policy");
     exact(value, keys);
     if (text(value, "format") != "wls-provider-profile-v1" || text(value, "adapter") != "openai-responses")
         throw Error(ErrorCode::Unsupported, "unsupported offline provider profile format or adapter");
@@ -368,6 +370,10 @@ ProviderProfile provider_profile_from_json(const Json& value) {
     p.protocol = text(value, "protocol"); p.base_url = text(value, "base_url");
     p.responses_path = text(value, "responses_path"); p.model_ref = text(value, "model_ref");
     p.model = text(value, "model"); p.api_key_env = text(value, "api_key_env");
+    if (object(value).contains("tool_choice_policy")) {
+        p.tool_choice_policy = text(value, "tool_choice_policy");
+        require(p.tool_choice_policy == "allowed-tools-v1", "unsupported tool choice policy");
+    }
     if (object(value).contains("response_metadata_policy")) {
         p.response_metadata_policy = text(value, "response_metadata_policy");
         require(p.response_metadata_policy == "ignore-record-v1", "unsupported response metadata policy");
@@ -451,6 +457,7 @@ Json to_json(const ProviderProfile& p) {
     if (!p.billing_challenge.empty()) result["billing_challenge"] = p.billing_challenge;
     if (p.pricing) result["pricing"] = to_json(*p.pricing);
     if (!p.response_metadata_policy.empty()) result["response_metadata_policy"] = p.response_metadata_policy;
+    if (!p.tool_choice_policy.empty()) result["tool_choice_policy"] = p.tool_choice_policy;
     if (p.responses_compatibility) {
         Array snapshots;
         for (const auto& alias : p.responses_compatibility->model_aliases) snapshots.emplace_back(alias);

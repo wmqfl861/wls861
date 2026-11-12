@@ -71,6 +71,8 @@ AdmissionInput input(std::string key = "first", std::int64_t teams = 4, std::int
     std::filesystem::copy(source_root / "prompts", config.path / "prompts", std::filesystem::copy_options::recursive);
     const auto system_path = config.path / "config/system.yaml";
     auto yaml = read(system_path);
+    const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
+    yaml.erase(yaml.find(tool_policy), tool_policy.size());
     const std::string format = "request_format: structured-v3";
     const auto at = yaml.find(format); CHECK(at != std::string::npos);
     yaml.replace(at, format.size(), "request_format: framed-v1");
