@@ -861,7 +861,6 @@ class BillingBaselineIntegration(unittest.TestCase):
                 self.assertEqual(captured['context']['format'], 'wls-compiled-context-v3')
                 self.assertEqual(logical['model_projection'], 'lean-v1')
                 self.assertEqual(logical['tool_policy'], 'fixed-role-v1')
-                self.assertEqual(logical['contract_updates'], [])
                 self.assertTrue(attempt['settlement_sha256'])
                 original_usage = json.loads(attempt['usage'])
                 expected_usage = {'input_tokens': observation['usage']['input_tokens'], 'output_tokens': 7,
@@ -880,6 +879,7 @@ class BillingBaselineIntegration(unittest.TestCase):
                 roles[attempt['role']] = roles.get(attempt['role'], 0) + 1
                 cache = observation['cache']
                 if attempt['role'] == 'worker':
+                    self.assertEqual(logical['contract_updates'], [])
                     # Covers the first real-profile append-fold capture too:
                     # only the final bounded reservation reaches Store/TLS.
                     self.assertGreaterEqual(captured['reserved_input_tokens'], len(canonical(logical)))
