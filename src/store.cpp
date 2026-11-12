@@ -3772,7 +3772,7 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
             "model context format differs from frozen request policy");
     const auto& context = original_model_request.context;
     const auto* tool_policy = context.structured() ? context.logical_input.as_object().if_contains("tool_policy") : nullptr;
-    require((tool_policy ? *tool_policy : Json("")) == frozen_config.context_tool_policy(), ErrorCode::Unauthorized,
+    require((tool_policy ? *tool_policy : Json("")) == Json(frozen_config.context_tool_policy()), ErrorCode::Unauthorized,
         "model tool policy differs from frozen request policy");
     const auto allowed_tools = model_allowed_tools(context);
     if (tool_policy) {
