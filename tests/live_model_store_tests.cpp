@@ -159,7 +159,7 @@ void response_metadata_policy_survives_original_snapshot_restore() {
         auto current = live.provider; current.response_metadata_policy = selected ? "" : "ignore-record-v1";
         error(ErrorCode::Conflict, [&] { (void)f.store->claim_live_send(f.actor(), request.attempt_id, 1,
             encode_responses_request(current, request), live.transport, "changed-profile"); });
-        f.reopen(StoreRecoveryScope{f.request_id});
+        f.reopen(StoreRecoveryScope::request(f.request_id));
         CHECK(canonical_json(f.store->request(f.request_id).at("config_snapshot")) == bytes);
         CHECK(FrozenRequestConfig::restore(bytes, hash).sha256() == frozen.sha256());
     }

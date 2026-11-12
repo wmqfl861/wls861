@@ -418,7 +418,8 @@ void Events::accept(std::string_view event_name, std::string_view data) {
     if (fields.contains("response")) metadata_.response(field(event, "response"), "/response");
     // Responses includes optional random padding on delta events by default.
     // Preserve it in raw_stream and its wire budgets, never in model text or
-    // function arguments. Other event kinds and unknown fields still refuse.
+    // function arguments. Other event kinds still reject obfuscation; unknown
+    // metadata uses only the explicit profile policy above.
     if (const auto* padding = event.if_contains("obfuscation")) {
         require(padding->is_string(), "SSE delta obfuscation must be a string");
         ++obfuscation_fields;

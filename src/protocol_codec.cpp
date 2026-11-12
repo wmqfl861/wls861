@@ -37,8 +37,9 @@ const Array& array(const Json& value) {
 }
 void only_fields(const Json& value, const std::set<std::string>& allowed,
                  bool ignore_metadata = false) {
+    const auto& source = object(value);
     if (ignore_metadata) return;
-    for (const auto& entry : object(value))
+    for (const auto& entry : source)
         require(allowed.contains(std::string(entry.key())), ErrorCode::Unsupported,
                 "response field is outside the implemented protocol subset");
 }
