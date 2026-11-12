@@ -428,9 +428,9 @@ class BillingBaselineIntegration(unittest.TestCase):
         tls.HttpsTransport.tearDownClass.__func__(cls)
 
     @classmethod
-    def command(cls, *arguments, error=False, timeout=150):
+    def command(cls, *arguments, error=False, timeout=150, source_root=True):
         completed = subprocess.run([str(BINARY), *(str(value) for value in arguments),
-            '--source-root', str(SOURCE)], cwd=cls.directory, env=cls.environment,
+            *(['--source-root', str(SOURCE)] if source_root else [])], cwd=cls.directory, env=cls.environment,
             capture_output=True, text=True, encoding='utf-8', timeout=timeout, check=False)
         for private in (BEARER, PRIVATE_ERROR, 'BEGIN PRIVATE KEY', 'signature_hex', 'raw_body_hex', 'raw_headers_hex'):
             if private in completed.stdout + completed.stderr:
@@ -798,11 +798,16 @@ class BillingBaselineIntegration(unittest.TestCase):
             result = self.invoke_run(case)
             write_json(case['directory'] / 'command-result.json', {'returncode': result.returncode,
                 'stdout': result.stdout, 'stderr': result.stderr})
+            for index, observation in enumerate(endpoint.records):
+                captured_path = case['directory'] / f'captured-wire-{index}.json'
+                captured_path.write_bytes(observation['request'])
+                captured_path.chmod(0o600)
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertEqual(result.stderr.count('Authorize this bounded run?'), 1)
             summary = json.loads(result.stdout)
             self.assertEqual(summary['status'], 'DELIVERED')
             self.assertEqual(summary['blockers'], [])
+            self.assertTrue(summary['accounting']['ready'])
             self.assertTrue(summary['technical_acknowledgement'])
             self.assertEqual(summary['user_review'], 'not_recorded')
             request = case['data'] / 'requests' / summary['request_id']
@@ -849,9 +854,6 @@ class BillingBaselineIntegration(unittest.TestCase):
             for index, (attempt, sent, observation) in enumerate(zip(attempts, peer.requests, endpoint.records)):
                 self.assertNotIn(b'x-wls-billing-challenge', sent['headers'])
                 self.assertEqual(sent['body'], observation['request'])
-                captured_path = case['directory'] / f'captured-wire-{index}.json'
-                captured_path.write_bytes(sent['body'])
-                captured_path.chmod(0o600)
                 self.assertEqual(executions[attempt['attempt_id']]['request_body_sha256'],
                                  hashlib.sha256(sent['body']).hexdigest())
                 self.assertEqual(executions[attempt['attempt_id']]['profile_sha256'], endpoint.profile_sha256)
@@ -915,7 +917,8 @@ class BillingBaselineIntegration(unittest.TestCase):
                 # Re-encode these exact original materials through the existing
                 # offline v2 codec. This creates no second business run or send.
                 original_path = write_json(case['directory'] / f'offline-v2-{index}.json', v2_comparison_request(captured))
-                offline = self.command('encode-model', '--profile', profile_path, '--request', original_path)
+                offline = self.command('encode-model', '--profile', profile_path, '--request', original_path,
+                                       source_root=False)
                 self.assertEqual((offline['network_requests'], offline['paid_attempts'], offline['tool_dispatches']), (0, 0, 0))
                 self.assertFalse(offline['store_opened'])
                 legacy_body = offline['encoded_request']['body'].encode('utf-8')
@@ -955,6 +958,7 @@ class BillingBaselineIntegration(unittest.TestCase):
                 'v2_cache_read_ratio': v2_ratio, 'v3_cache_read_ratio': summary['cache_read_ratio'],
                 'original_tokens': totals, 'estimated_micro_usd': expected_cost,
                 'worker_min_ratio_from_third': min(item['ratio'] for own in workers.values() for item in own[2:]),
+                'worker_ratios': {task: [item['ratio'] for item in own] for task, own in workers.items()},
                 'attempts': comparison}
             write_json(case['directory'] / 'g1-exit-result.json', report)
             print('G1_EXIT_SYNTHETIC_RESULT ' + json.dumps({key: value for key, value in report.items()
