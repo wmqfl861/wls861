@@ -812,15 +812,18 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertGreaterEqual(count, 30)
             self.assertEqual(len(peer.requests), count)
             self.assertEqual(len(endpoint.records), count)
-            self.assertEqual(len({item['attempt_id'] for item in attempts}), count)
+            attempt_ids = {item['attempt_id'] for item in attempts}
+            self.assertEqual(len(attempt_ids), count)
             claims = rows(database, 'SELECT attempt_id,claim_id FROM live_send_claims')
-            self.assertEqual({item['attempt_id'] for item in claims}, {item['attempt_id'] for item in attempts})
+            self.assertEqual({item['attempt_id'] for item in claims}, attempt_ids)
             self.assertEqual(len({item['claim_id'] for item in claims}), count)
             for table in ('live_transport_observations', 'model_tool_feedback', 'live_usage_projection'):
                 self.assertEqual(rows(database, f'SELECT count(*) n FROM {table}')[0]['n'], count, table)
             executions = {item['attempt_id']: item for item in rows(database, 'SELECT * FROM live_attempt_execution')}
             projections = {item['attempt_id']: item for item in rows(database, 'SELECT * FROM live_usage_projection')}
             transports = {item['attempt_id']: item for item in rows(database, 'SELECT * FROM live_transport_observations')}
+            for originals in (executions, projections, transports):
+                self.assertEqual(set(originals), attempt_ids)
             self.assertEqual(rows(database, 'SELECT * FROM usage_reconciliations'), [])
             self.assertEqual([item['status'] for item in rows(database, 'SELECT status FROM tasks')], ['ACCEPTED'] * 3)
             self.assertEqual([item['status'] for item in rows(database, 'SELECT status FROM experience_jobs')], ['DONE'] * 3)
@@ -877,6 +880,16 @@ class BillingBaselineIntegration(unittest.TestCase):
                 roles[attempt['role']] = roles.get(attempt['role'], 0) + 1
                 cache = observation['cache']
                 if attempt['role'] == 'worker':
+                    # Covers the first real-profile append-fold capture too:
+                    # only the final bounded reservation reaches Store/TLS.
+                    self.assertGreaterEqual(captured['reserved_input_tokens'], len(canonical(logical)))
+                    self.assertGreaterEqual(captured['reserved_input_tokens'], len(sent['body']))
+                    self.assertGreater(captured['max_output_tokens'], 0)
+                    self.assertGreaterEqual(captured['reserved_output_tokens'], captured['max_output_tokens'])
+                    self.assertLessEqual(captured['reserved_input_tokens'] + captured['reserved_output_tokens'],
+                                         provider['capabilities']['context_window'])
+                    self.assertEqual(attempt['reserved_input'], captured['reserved_input_tokens'])
+                    self.assertEqual(attempt['reserved_output'], captured['reserved_output_tokens'])
                     history = logical['worker_history']
                     self.assertEqual(history['fold_generation'], 0)
                     self.assertLess(captured['reserved_input_tokens'],
