@@ -261,6 +261,9 @@ public:
     // One bounded, fully verified original v3 envelope; null only before the
     // first attempt in the actor scope (request scope for single-Agent).
     Json previous_context(const StoreActor& actor) const;
+    Json append_history_capture(const StoreActor& actor) const;
+    Json read_history_sequence(const StoreActor& actor, std::int64_t sequence,
+        const std::string& section, std::int64_t offset = 0, std::int64_t max_bytes = 24576) const;
     std::vector<std::string> authorized_history_tools(const StoreActor& actor,
         const ExecutionBinding& current) const;
     void authorize_history_control(const StoreActor& actor, const ExecutionBinding& current,

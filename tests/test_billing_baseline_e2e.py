@@ -380,6 +380,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             system['model_calls'].update(runtime_policy='bounded-v1', max_total_calls=40)
         system['context']['request_format'] = 'structured-v2'
         system['context'].pop('model_projection', None); system['context'].pop('tool_policy', None)
+        system['context'].pop('worker_history', None)
         system['context'].pop('logical_agent', None)
         if condition == 'single_agent':
             system['context']['logical_agent'] = {'mode': IDENTITY, 'max_attempts': 128,
@@ -586,6 +587,7 @@ class BillingBaselineIntegration(unittest.TestCase):
         system['context']['request_format'] = 'structured-v2'
         system['context'].pop('logical_agent', None)
         system['context'].pop('model_projection', None); system['context'].pop('tool_policy', None)
+        system['context'].pop('worker_history', None)
         system['model_calls'].update(real_calls_enabled=True, runtime_policy='bounded-v1', max_total_calls=40)
         system['budget_defaults'].update(max_cost_usd=8, max_input_tokens=4000000, max_output_tokens=1000000)
         system['paths']['data'] = str(directory / 'data')

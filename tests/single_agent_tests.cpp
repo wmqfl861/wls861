@@ -36,6 +36,7 @@ AdmissionInput admission(const Json& logical = policy()) {
     auto catalog = load_config_catalog(directory.path / "config/system.yaml", directory.path / "config/functions", source / "prompts");
     auto system = catalog.freeze("general").json().at("system");
     system.at("context").as_object().erase("tool_policy"); system.at("context").as_object().erase("model_projection");
+    system.at("context").as_object().erase("worker_history");
     system.at("context").as_object()["request_format"] = "structured-v2";
     if (!logical.is_null()) system.at("context").as_object()["logical_agent"] = logical;
     else system.at("context").as_object().erase("logical_agent");

@@ -64,3 +64,24 @@ COUNT/MAX与尾部查询之间提交新调用，验证当前窗口不混入、�
 
 不改SQL迁移、vendor、交接/审核原件，不发起真实模型请求。管理角色窗口、旧请求迁移、LLM摘要、实际provider
 wire收据、模型决策质量、强环境部署验收、否定验收后继仍独立推进。
+
+## G1-H：追加、批量折叠与文本回读
+
+示例配置为新 structured-v3/lean-v1 请求默认冻结 `worker_history: {mode: append-fold-v1,
+read_max_bytes: 24576, read_token_budget: 196608}`。缺字段、旧 window-v1 和旧格式保持原身份、
+4096 字节模型读取及原协议字节；管理窗口独立。完整原生跨角色历史的 single-agent-role-broker-v1
+不支持 append-fold 组合，已有 window+single 继续原完整历史行为。
+
+每次捕获复用一个完整验证的前驱 envelope，只读取作用域内至多 64 个新原回合，不载入生命周期历史。
+未完成、缺反馈或核账未知的回合在消费序号前拒绝，迟到原反馈完成后仍由同一序号进入下一次增量。
+投影在原 v3 envelope 保存 scope、高水位、折叠代次、可见回合边界和平铺条目；原生消息只保存一份。
+预约事务重算投影和原消息，旧捕获不能分叉。完整逻辑输入与实际协议输入按保守字节上界估算，超过
+冻结 context_window×compaction_at_fraction 时仅折叠最旧可完成前缀的一半。最新原生 reasoning、未决事实、
+恢复绑定、完整当前 CAS 契约及 AMEND/说明更新保持。一次折叠不能恢复容量即在预约前退出；重开沿用
+已持久边界，后续增长才允许再次折叠。wire 更新依原序号插入，折叠间保持追加前缀。
+
+新 history_read 参数为 `sequence, section, offset, max_bytes?`，section 为 response/result 的原规范 JSON，
+或 result_data 的原 fs_read 捕获字节。宿主先核完整反馈哈希、原响应和绑定，再分页并复核授权；不读取现文件。
+结果附原序号/反馈哈希/绑定、payload_sha256、大小、offset/next_offset/EOF。有效 UTF-8 返回 content，二进制
+返回 content_base64；拒绝字符中间的起点并收齐页尾字符。完整序列化页按冻结保守 token 预算检查，实际下一
+输入仍执行原完整上限。默认 24 KiB 可在三次普通记账调用内回读 60 KiB，包含多字节边界修整。

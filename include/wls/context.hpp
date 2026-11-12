@@ -56,6 +56,7 @@ struct ContextInput {
     std::string model_projection;
     std::string tool_policy{};
     std::vector<std::string> allowed_tools{};
+    Json worker_history = nullptr;
 };
 
 struct ContextLimits {

@@ -37,6 +37,7 @@ struct Fixture {
         const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
         yaml.erase(yaml.find(tool_policy), tool_policy.size());
     yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
+    yaml.erase(yaml.find("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n"), sizeof("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n") - 1);
         const std::string old = "  request_format: structured-v3\n";
         yaml.replace(yaml.find(old), old.size(), "  request_format: structured-v2\n"
             "  worker_history: {mode: window-v1, recent_attempts: 4, inline_bytes: 32768}\n");
@@ -144,7 +145,11 @@ void inconsistent_window_membership_is_rejected() {
     expect(ErrorCode::InvalidInput, [&] { (void)worker_history_messages(tail, policy); });
 }
 void empty_policy_defaults() {
-    const auto c=load_config_catalog(source/"config/examples/system.yaml",source/"config/examples/functions",source/"prompts").freeze("general");
+    auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string example_history = "  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n";
+    yaml.erase(yaml.find(example_history), example_history.size());
+    test::TempDir temp; { std::ofstream file(temp.path / "system.yaml"); file << yaml; CHECK(file.good()); }
+    const auto c=load_config_catalog(temp.path/"system.yaml",source/"config/examples/functions",source/"prompts").freeze("general");
     CHECK(c.worker_history_policy().is_null()); CHECK(c.runtime_support().at("history_window_integrated")==false);
 }
 void tail_is_original_and_small_turn_is_paired() {
