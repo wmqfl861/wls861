@@ -521,14 +521,19 @@ void bounded_same_error_count_survives_reopen_and_resets_on_success_or_target_ch
     (void)f.invoke(Role::Worker, "fs_write", Object{{"path", "exists.txt"}, {"content", "original"}});
     CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 1);
     f.reopen();
-    CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 2);
+    EventFakeScript repeat; repeat.by_node["alpha"] = {step(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})};
+    auto report = f.runtime().pump(f.id, repeat);
+    CHECK(report.at("calls").as_array().size() == 1 && blocked(report, "stall_same_error_repeats"));
+    CHECK(count(report.at("calls").as_array().front().at("result")) == 2);
     f.reopen();
     const auto attempts = f.store->budget(f.id).at("attempts");
-    expect(ErrorCode::NotReady, [&] { (void)f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}}); });
+    report = f.runtime().pump(f.id, repeat);
+    CHECK(report.at("calls").as_array().empty() && blocked(report, "stall_same_error_repeats"));
     CHECK(f.store->budget(f.id).at("attempts") == attempts);
-    (void)f.store->amend(f.store->host_actor(Role::Root, f.id), number(f.store->request(f.id).at("state_version")),
-        "Retain the original constraints and update the exact task target.", fixture("s13_constraints.json"), "bounded-amend");
-    f.ready();
+    (void)f.invoke(Role::TeamLead, "issue_work_order", script().by_node.at("alpha").front().tool_calls.front().arguments);
+    const auto binding = f.binding();
+    (void)f.store->acknowledge(f.store->host_actor(Role::Worker, f.id, binding.team_id), binding,
+        number(f.task().at("state_version")), "bounded-new-target-ack");
     CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 1);
 }
 

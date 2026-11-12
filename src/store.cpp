@@ -1305,7 +1305,7 @@ public:
                 ? wall - remaining : number(budget, "spent_" + name);
             const auto limit = name == "attempts" ? number(budget, "max_attempts") : name == "wall"
                 ? wall : number(budget, name + "_limit");
-            if (limit > 0 && static_cast<long double>(used) >= static_cast<long double>(limit) * fraction)
+            if (limit > 0 && static_cast<double>(used) / static_cast<double>(limit) >= fraction)
                 append("runtime:budget_warning:" + name, Row{{"type", "budget_warning"}, {"dimension", name},
                     {"used", used}, {"limit", limit}, {"warn_at_fraction", fraction},
                     {"basis", name == "cost" ? "effective_spent_including_frozen_price_estimates" :

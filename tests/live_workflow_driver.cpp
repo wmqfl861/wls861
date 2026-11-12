@@ -152,6 +152,7 @@ int main(int argc, char** argv) {
             return std::string(bearer);
         };
         if (flag(config, "reconcile")) options.usage_evidence = [&](const ModelRequest& request, const ModelResponse& response, const Json& settlement) {
+            if (response.status != ModelResultStatus::Completed) return std::optional<VerifiedUsageEvidence>{};
             ++evidence_calls; return std::optional<VerifiedUsageEvidence>(receipt(config, live, request, response, settlement));
         };
         if (flag(config, "host_dispositions")) options.limits.amendment_dispositions = Object{{"alpha", Object{{"disposition", "keep"}, {"rationale", "fixture refusal"}}}};

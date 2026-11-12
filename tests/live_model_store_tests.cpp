@@ -65,7 +65,7 @@ void bounded_warnings_preserve_settlement_and_recover_without_capacity_charge() 
     (void)f.store->observe_runtime_controls(f.request_id);
     CHECK(fixture::sql_text(f.path, "SELECT count(*) FROM events WHERE type='budget_warning'") == "4");
     CHECK(f.store->attempt(request.attempt_id) == original);
-    fixture::sql(f.path, "UPDATE requests SET created_at=strftime('%Y-%m-%dT%H:%M:%SZ','now','-2 minutes');");
+    fixture::sql(f.path, "UPDATE requests SET created_at=strftime('%Y-%m-%dT%H:%M:%SZ','now','-2 minutes'),state_version=state_version+1;");
     f.store.reset(); f.store = assets->open(f.path);
     CHECK(f.store->observe_runtime_controls(f.request_id) <= 0);
     CHECK(f.store->observe_runtime_controls(f.request_id) <= 0);
@@ -75,7 +75,7 @@ void bounded_warnings_preserve_settlement_and_recover_without_capacity_charge() 
     CHECK(settle() == original);
     next = f.request("expired-new");
     error(ErrorCode::NotReady, [&] { (void)f.store->reserve_attempt(f.actor(), next.binding, f.reservation(next, true)); });
-    fixture::sql(f.path, "UPDATE requests SET created_at='invalid';");
+    fixture::sql(f.path, "UPDATE requests SET created_at='invalid',state_version=state_version+1;");
     error(ErrorCode::Corrupt, [&] { (void)f.store->observe_runtime_controls(f.request_id); });
 }
 
@@ -84,7 +84,7 @@ void bounded_first_send_checks_original_creation_time() {
     auto input = fixture::admission(*assets, f.live, "bounded-send", true, false, true);
     f.request_id = text(f.store->admit(input), "request_id");
     const auto request = f.request(); (void)f.reserve(request);
-    fixture::sql(f.path, "UPDATE requests SET created_at=strftime('%Y-%m-%dT%H:%M:%SZ','now','-2 minutes');");
+    fixture::sql(f.path, "UPDATE requests SET created_at=strftime('%Y-%m-%dT%H:%M:%SZ','now','-2 minutes'),state_version=state_version+1;");
     error(ErrorCode::NotReady, [&] { (void)f.claim(request); });
     CHECK(f.store->live_attempt(request.attempt_id).at("send_claim").is_null());
 }
