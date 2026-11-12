@@ -1,6 +1,7 @@
 #include "wls/model.hpp"
 
 #include "responses_compat.hpp"
+#include "context_internal.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -139,9 +140,7 @@ Json validate_envelope(const ModelRequest& request) {
     validate_envelope_fields(request);
     // Verify actual prefix bytes and all non-text cache parameters, including
     // when this request was restored from a persistent frozen snapshot.
-    auto context_json = to_json(request.context);
-    (void)compiled_context_from_json(context_json);
-    return context_json;
+    return context_detail::validate_context_to_json(request.context);
 }
 
 // Internal serialization after a complete validation. The parser has already
@@ -375,7 +374,8 @@ ModelRequest model_request_from_json(const Json& value) {
     request.role = role_from_string(string_field(source, "role"));
     request.binding = execution_binding_from_json(field(source, "binding"));
     request.config_snapshot_id = string_field(source, "config_snapshot_id");
-    request.context = compiled_context_from_json(field(source, "context"));
+    auto restored = context_detail::restore_context_with_json(field(source, "context"));
+    request.context = std::move(restored.context);
     require(string_field(object(field(source, "context"), "context"), "format") ==
         (v3 ? "wls-compiled-context-v3" : structured ? "wls-compiled-context-v2" : "wls-compiled-context-v1"),
         "model envelope and compiled context versions disagree");
@@ -389,7 +389,7 @@ ModelRequest model_request_from_json(const Json& value) {
     // including native turns, projections, metadata and fingerprints.
     validate_envelope_fields(request);
     require(request.context.structured() == structured, "model envelope and context formats disagree");
-    if (structured) require(serialize_validated_request(request, to_json(request.context)) == value,
+    if (structured) require(serialize_validated_request(request, std::move(restored.rebuilt_json)) == value,
                             "logical model request fingerprint or transport evidence mismatch");
     return request;
 }

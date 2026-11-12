@@ -1,5 +1,6 @@
 #include "wls/context.hpp"
 #include "wls/structured_context.hpp"
+#include "context_internal.hpp"
 #include "tool_descriptions.hpp"
 
 #include <algorithm>
@@ -381,6 +382,22 @@ CompiledContext compiled_context_from_json(const Json& value) {
             "compiled context cache identity mismatch");
     validate_compiled_frames(context);
     return context;
+}
+
+context_detail::ContextRestoreResult context_detail::restore_context_with_json(const Json& value) {
+    const auto& source = object(value);
+    const auto format = string_field(source, "format");
+    if (format == "wls-compiled-context-v2" || format == "wls-compiled-context-v3")
+        return restore_structured_with_json(value);
+    // V1 keeps its original restoration path and has no envelope fingerprint.
+    return {compiled_context_from_json(value), nullptr};
+}
+
+Json context_detail::validate_context_to_json(const CompiledContext& context) {
+    if (context.structured()) return validate_structured_to_json(context);
+    auto encoded = to_json(context);
+    (void)compiled_context_from_json(encoded);
+    return encoded;
 }
 
 } // namespace wls::s1
