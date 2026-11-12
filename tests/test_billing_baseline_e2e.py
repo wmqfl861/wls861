@@ -29,10 +29,10 @@ import time
 import unittest
 
 if len(sys.argv) < 3:
-    raise SystemExit('usage: test_billing_baseline_e2e.py WLS SOURCE [--group all|legacy|g1] [unittest options]')
+    raise SystemExit('usage: test_billing_baseline_e2e.py WLS SOURCE [--group all|billing|run|g1|legacy] [unittest options]')
 BINARY, SOURCE = (Path(value).resolve() for value in sys.argv[1:3])
 group_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
-group_parser.add_argument('--group', choices=('all', 'legacy', 'g1'), default='all')
+group_parser.add_argument('--group', choices=('all', 'billing', 'run', 'g1', 'legacy'), default='all')
 GROUP_OPTIONS, TEST_ARGUMENTS = group_parser.parse_known_args(sys.argv[3:])
 sys.argv = [sys.argv[0], str(BINARY), str(SOURCE)]
 spec = importlib.util.spec_from_file_location('independent_workflow_fixture',
@@ -1771,21 +1771,38 @@ class BillingBaselineIntegration(unittest.TestCase):
                      for row in report['rows']]}, sort_keys=True))
 
 
-# Keep the original 26-method billing entry intact until G1-A's billing/run
-# split merges. Its parser/loader can extend these same explicit groups.
+# G1-L added these complete methods after the original billing suite existed.
+RUN_TEST_METHODS = frozenset((
+    'test_06_run_once_delivers_three_tasks_and_two_requests_share_data',
+    'test_07_run_refusal_config_budget_and_unsafe_paths_before_confirmation',
+    'test_08_run_ctrl_c_after_settlement_resumes_original_claims_and_effects',
+    'test_09_run_unknown_send_stops_and_changed_configuration_cannot_resume',
+    'test_09b_run_resumes_exact_intent_after_empty_store_initialization',
+))
 G1_TEST_METHODS = frozenset((
     'test_g1_exit_one_command_with_correction_and_simulated_prefix_cache',
 ))
+
+
+def in_selected_group(name):
+    actual = ('g1' if name in G1_TEST_METHODS else
+              'run' if name in RUN_TEST_METHODS else 'billing')
+    group = GROUP_OPTIONS.group
+    return group == actual or (group == 'legacy' and actual != 'g1')
 
 
 class BillingGroupLoader(unittest.TestLoader):
     def getTestCaseNames(self, testCaseClass):
         names = super().getTestCaseNames(testCaseClass)
         if testCaseClass is BillingBaselineIntegration:
-            if not G1_TEST_METHODS.issubset(unittest.defaultTestLoader.getTestCaseNames(testCaseClass)):
+            all_names = unittest.defaultTestLoader.getTestCaseNames(testCaseClass)
+            if not G1_TEST_METHODS.issubset(all_names):
                 raise ValueError('g1 group does not match the complete G1 exit method')
-            names = [name for name in names
-                     if (name in G1_TEST_METHODS) == (GROUP_OPTIONS.group == 'g1')]
+            if not RUN_TEST_METHODS.issubset(all_names):
+                raise ValueError('run group does not match the complete G1-L methods')
+            if not G1_TEST_METHODS.isdisjoint(RUN_TEST_METHODS):
+                raise ValueError('g1 and run groups must be disjoint')
+            names = [name for name in names if in_selected_group(name)]
             if not names:
                 raise ValueError('no tests match the requested group and unittest options')
         return names
@@ -1794,7 +1811,7 @@ class BillingGroupLoader(unittest.TestLoader):
         tests = super().loadTestsFromName(name, module)
         for test in tests:
             if isinstance(test, BillingBaselineIntegration) and (
-                    (test._testMethodName in G1_TEST_METHODS) != (GROUP_OPTIONS.group == 'g1')):
+                    not in_selected_group(test._testMethodName)):
                 raise ValueError('named unittest method does not match the requested group')
         return tests
 

@@ -3,9 +3,13 @@
 
 #include "responses_compat.hpp"
 #include "tool_descriptions.hpp"
+#include "context_internal.hpp"
 
 #include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <map>
+#include <optional>
 #include <set>
 #include <string_view>
 #include <utility>
@@ -14,6 +18,43 @@ namespace wls::s1 {
 namespace {
 using Object = boost::json::object;
 using Array = boost::json::array;
+
+// Only these three derived representations live on this invocation's stack.
+// A source pointer never escapes, and a different representation regenerates
+// its bytes. JSON equality alone conflates signed zero and integer kinds.
+struct CanonicalArtifacts {
+    const Json* input;
+    std::optional<std::string> stable, dynamic, logical;
+};
+bool same_representation(const Json& left, const Json& right, std::size_t depth = 0) {
+    if (depth > 128 || left.kind() != right.kind()) return false;
+    switch (left.kind()) {
+    case boost::json::kind::object:
+        if (left.as_object().size() != right.as_object().size()) return false;
+        for (const auto& item : left.as_object()) {
+            const auto* other = right.as_object().if_contains(item.key());
+            if (!other || !same_representation(item.value(), *other, depth + 1)) return false;
+        }
+        return true;
+    case boost::json::kind::array:
+        if (left.as_array().size() != right.as_array().size()) return false;
+        for (std::size_t i = 0; i < left.as_array().size(); ++i)
+            if (!same_representation(left.as_array()[i], right.as_array()[i], depth + 1)) return false;
+        return true;
+    case boost::json::kind::string: return left.as_string() == right.as_string();
+    case boost::json::kind::int64: return left.as_int64() == right.as_int64();
+    case boost::json::kind::uint64: return left.as_uint64() == right.as_uint64();
+    case boost::json::kind::double_:
+        return std::bit_cast<std::uint64_t>(left.as_double()) == std::bit_cast<std::uint64_t>(right.as_double());
+    case boost::json::kind::bool_: return left.as_bool() == right.as_bool();
+    case boost::json::kind::null: return true;
+    }
+    return false;
+}
+struct StructuredCompilation {
+    CompiledContext context;
+    std::string logical_bytes;
+};
 
 void require(bool valid, const std::string& message) {
     if (!valid) throw Error(ErrorCode::InvalidInput, message);
@@ -231,9 +272,9 @@ void validate_structured_contract_continuity(const CompiledContext& context, con
         "v3 contract anchor or original update boundaries changed");
 }
 
-static CompiledContext compile_structured(const ContextInput& base,
+static StructuredCompilation compile_structured(const ContextInput& base,
         const std::vector<StructuredContextMessage>& messages, ContextLimits limits,
-        StructuredContextFormat format, bool project) {
+        StructuredContextFormat format, bool project, const CanonicalArtifacts* artifacts = nullptr) {
     require(base.messages.empty(), "legacy messages must be explicitly converted, never discarded");
     // Reuse the established validation of model selection, required sections,
     // tool definitions and dependency hashes. No adapter parses legacy frames.
@@ -271,10 +312,13 @@ static CompiledContext compile_structured(const ContextInput& base,
             {"approved_rules", base.approved_rules}, {"project_snapshot", base.project_snapshot}}},
         {"dependencies", sources}};
     const auto encoded = encode_messages(messages, limits);
-    result.stable_prefix = canonical_json(prefix);
-    result.dynamic_suffix = canonical_json(Object{{"task_contract", base.task_contract}, {"messages", encoded}});
     result.logical_input = Object{{"format", v3 ? "wls-logical-input-v3" : "wls-logical-input-v1"}, {"selection", selection(result)},
         {"prefix", prefix}, {"task_contract", base.task_contract}, {"messages", encoded}};
+    bool reuse = !v3 && artifacts && same_representation(result.logical_input, *artifacts->input);
+    // V3 still checks its original intermediate encodings before projection.
+    result.stable_prefix = reuse && artifacts->stable ? *artifacts->stable : canonical_json(prefix);
+    result.dynamic_suffix = reuse && artifacts->dynamic ? *artifacts->dynamic :
+        canonical_json(Object{{"task_contract", base.task_contract}, {"messages", encoded}});
     if (v3) {
         if (!base.worker_history.is_null()) {
             require(base.model_projection == "lean-v1" && base.role == Role::Worker,
@@ -337,44 +381,31 @@ static CompiledContext compile_structured(const ContextInput& base,
             result.logical_input.at("current_state").as_object()["allowed_tools"] = allowed;
             (void)model_allowed_tools(result);
         }
-        result.stable_prefix = stable_projection(result.logical_input);
-        result.dynamic_suffix = canonical_json(dynamic_projection(result.logical_input));
+        reuse = artifacts && same_representation(result.logical_input, *artifacts->input);
+        result.stable_prefix = reuse && artifacts->stable ? *artifacts->stable : stable_projection(result.logical_input);
+        result.dynamic_suffix = reuse && artifacts->dynamic ? *artifacts->dynamic :
+            canonical_json(dynamic_projection(result.logical_input));
     }
     capacity(result.stable_prefix.size() <= limits.max_prefix_bytes,
              "structured context byte limit exceeded; no authoritative content was truncated");
-    const auto logical_bytes = result.prompt();
+    auto logical_bytes = reuse && artifacts->logical ? *artifacts->logical : result.prompt();
     capacity(logical_bytes.size() <= limits.max_total_bytes,
              "structured context byte limit exceeded; no authoritative content was truncated");
     result.prefix_sha256 = sha256_hex(result.stable_prefix);
     result.cache_identity = cache_hash(result);
     result.logical_input_sha256 = sha256_hex(logical_bytes);
-    return result;
+    return {std::move(result), std::move(logical_bytes)};
 }
 
 CompiledContext compile_structured_context(const ContextInput& base,
         const std::vector<StructuredContextMessage>& messages, ContextLimits limits, StructuredContextFormat format) {
-    return compile_structured(base, messages, limits, format, true);
+    return compile_structured(base, messages, limits, format, true).context;
 }
 
-Json structured_context_to_json(const CompiledContext& c) {
-    require(c.structured(), "expected a structured context");
-    require(field(c.logical_input, "selection") == selection(c), "logical selection differs from context metadata");
-    const bool v3 = text(c.logical_input, "format") == "wls-logical-input-v3";
-    (void)model_allowed_tools(c);
-    require(c.stable_prefix == stable_projection(c.logical_input) &&
-            c.dynamic_suffix == canonical_json(v3 ? dynamic_projection(c.logical_input) : Json(Object{
-                {"task_contract", field(c.logical_input, "task_contract")}, {"messages", field(c.logical_input, "messages")}})),
-            "structured context projections differ from original input");
+static Json assemble_structured_json(const CompiledContext& c) {
     Object result = selection(c).as_object();
-    if (v3) {
-        for (auto tool : array(field(field(c.logical_input, "prefix"), "tools"))) {
-            description(field(tool, "description"));
-            describe_parameters(tool.at("parameters"), text(tool, "name"), false);
-        }
-        capacity(c.stable_prefix.size() <= ContextLimits{}.max_prefix_bytes &&
-            c.prompt().size() <= ContextLimits{}.max_total_bytes, "v3 serialization exceeds byte limit");
-    }
-    result["format"] = v3 ? "wls-compiled-context-v3" : "wls-compiled-context-v2";
+    result["format"] = text(c.logical_input, "format") == "wls-logical-input-v3"
+        ? "wls-compiled-context-v3" : "wls-compiled-context-v2";
     result["input"] = c.logical_input;
     result["prefix_sha256"] = c.prefix_sha256;
     result["cache_identity"] = c.cache_identity;
@@ -386,7 +417,36 @@ Json structured_context_to_json(const CompiledContext& c) {
     return result;
 }
 
-CompiledContext structured_context_from_json(const Json& value) {
+static Json serialize_structured(const CompiledContext& c, CanonicalArtifacts& artifacts) {
+    require(c.structured(), "expected a structured context");
+    require(field(c.logical_input, "selection") == selection(c), "logical selection differs from context metadata");
+    const bool v3 = text(c.logical_input, "format") == "wls-logical-input-v3";
+    (void)model_allowed_tools(c);
+    artifacts.stable = stable_projection(c.logical_input);
+    require(c.stable_prefix == *artifacts.stable,
+            "structured context projections differ from original input");
+    artifacts.dynamic = canonical_json(v3 ? dynamic_projection(c.logical_input) : Json(Object{
+        {"task_contract", field(c.logical_input, "task_contract")}, {"messages", field(c.logical_input, "messages")}}));
+    require(c.dynamic_suffix == *artifacts.dynamic,
+            "structured context projections differ from original input");
+    if (v3) {
+        for (auto tool : array(field(field(c.logical_input, "prefix"), "tools"))) {
+            description(field(tool, "description"));
+            describe_parameters(tool.at("parameters"), text(tool, "name"), false);
+        }
+        capacity(c.stable_prefix.size() <= ContextLimits{}.max_prefix_bytes, "v3 serialization exceeds byte limit");
+        artifacts.logical = c.prompt();
+        capacity(artifacts.logical->size() <= ContextLimits{}.max_total_bytes, "v3 serialization exceeds byte limit");
+    }
+    return assemble_structured_json(c);
+}
+
+Json structured_context_to_json(const CompiledContext& c) {
+    CanonicalArtifacts artifacts{&c.logical_input, {}, {}, {}};
+    return serialize_structured(c, artifacts);
+}
+
+static context_detail::ContextRestoreResult restore_structured(const Json& value, CanonicalArtifacts* source) {
     exact(value, {"format", "role", "model_ref", "reasoning_mode", "reasoning_effort",
         "adapter_version", "protocol_version", "input", "prefix_sha256", "cache_identity",
         "logical_input_sha256", "wire_sha256", "tool_names"});
@@ -403,7 +463,10 @@ CompiledContext structured_context_from_json(const Json& value) {
     require(text(input, "format") == (v3 ? "wls-logical-input-v3" : "wls-logical-input-v1"), "unsupported logical input format");
     // Bound canonical logical bytes before reconstructing a compiled context.
     const ContextLimits limits;
-    capacity(canonical_json(input).size() <= limits.max_total_bytes, "structured restore exceeds byte limit");
+    CanonicalArtifacts local{&input, {}, {}, {}};
+    if (!source || !same_representation(input, *source->input)) source = &local;
+    if (!source->logical) source->logical = canonical_json(input);
+    capacity(source->logical->size() <= limits.max_total_bytes, "structured restore exceeds byte limit");
     const auto& prefix = field(input, "prefix");
     exact(prefix, {"format", "tools", "system", "dependencies"});
     require(text(prefix, "format") == (v3 ? "wls-logical-prefix-v3" : "wls-logical-prefix-v1"), "unsupported logical prefix format");
@@ -479,9 +542,31 @@ CompiledContext structured_context_from_json(const Json& value) {
         messages.push_back(std::move(message));
     }
     auto result = compile_structured(base, messages, limits,
-        v3 ? StructuredContextFormat::V3 : StructuredContextFormat::V2, false);
-    require(structured_context_to_json(result) == value,
+        v3 ? StructuredContextFormat::V3 : StructuredContextFormat::V2, false, source);
+    // Compilation has just checked selection, tools, native turns, projections,
+    // descriptions and the same default byte limits. Assemble its own result;
+    // source JSON equality does not establish identical canonical number bytes.
+    if (v3) capacity(result.context.stable_prefix.size() <= ContextLimits{}.max_prefix_bytes &&
+        result.logical_bytes.size() <= ContextLimits{}.max_total_bytes, "v3 serialization exceeds byte limit");
+    auto rebuilt_json = assemble_structured_json(result.context);
+    require(rebuilt_json == value,
             "structured context differs from its canonical structure, metadata or fingerprints");
-    return result;
+    return {std::move(result.context), std::move(rebuilt_json)};
+}
+
+CompiledContext structured_context_from_json(const Json& value) {
+    return restore_structured(value, nullptr).context;
+}
+
+context_detail::ContextRestoreResult context_detail::restore_structured_with_json(const Json& value) {
+    return restore_structured(value, nullptr);
+}
+
+Json context_detail::validate_structured_to_json(const CompiledContext& context) {
+    CanonicalArtifacts artifacts{&context.logical_input, {}, {}, {}};
+    auto encoded = serialize_structured(context, artifacts);
+    (void)restore_structured(encoded, &artifacts);
+    // Mutable serialization keeps the original representation after checking it.
+    return encoded;
 }
 } // namespace wls::s1

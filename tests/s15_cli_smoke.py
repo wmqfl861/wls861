@@ -81,10 +81,24 @@ class AcceptanceCliSmoke(unittest.TestCase):
         return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
     def admit(self, key="acceptance-request", max_attempts=64):
-        return self.invoke("submit", "--db", self.database, "--key", key,
-                           "--text-file", FIXTURES / "s14_request.txt",
-                           "--constraints-file", FIXTURES / "s14_constraints.json",
-                           "--max-attempts", max_attempts)["request"]["request_id"]
+        source = (SOURCE / "config/examples/system.yaml").read_text().replace("  tool_policy: fixed-role-v1\n", "").replace("  model_projection: lean-v1\n", "").replace(
+            "  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n", "").replace(
+            "request_format: structured-v3", "request_format: framed-v1")
+        config = self.directory / f"{key}-system.yaml"
+        config.write_text(source)
+        request = self.invoke("submit", "--db", self.database, "--key", key,
+                              "--text-file", FIXTURES / "s14_request.txt",
+                              "--constraints-file", FIXTURES / "s14_constraints.json",
+                              "--max-attempts", max_attempts, "--config", config,
+                              "--functions-dir", SOURCE / "config/examples/functions")["request"]["request_id"]
+        frozen = json.loads(self.rows("SELECT config_snapshot FROM requests WHERE request_id=?",
+                                      (request,))[0]["config_snapshot"])["system"]["context"]
+        self.assertEqual(frozen["request_format"], "framed-v1")
+        self.assertNotIn("tool_policy", frozen)
+        self.assertNotIn("model_projection", frozen)
+        self.assertNotIn("worker_history", frozen)
+        self.assertEqual(frozen["prompt_policy"], "guided-v1")
+        return request
 
     def view(self, request):
         return self.invoke("show", "--db", self.database, "--request", request)
