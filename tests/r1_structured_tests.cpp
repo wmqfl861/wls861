@@ -897,6 +897,7 @@ struct V3Fixture {
 
 void v3_capture_reserve_restore_policy_combinations() {
     for (const bool lean : {false, true}) for (const bool fixed : {false, true}) for (const auto* mode : {"worker", "manager", "single", "all"}) {
+        if (lean && std::string_view(mode) != "all") continue; // One combined fixture covers all three independent history choices.
         V3Fixture fixture(mode, 6, fixed, lean);
         Json prefix = nullptr;
         for (int round = 1; round <= 5; ++round) {
