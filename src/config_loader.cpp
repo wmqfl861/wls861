@@ -619,6 +619,15 @@ CapabilityRegistry validate_system(const Json& system) {
             invalid("system.context.tool_policy", "fixed-role-v1 requires explicit structured-v3");
     }
     if (const auto* history = optional(context, "worker_history")) {
+        const bool append = required(*history, "mode", "worker_history") == "append-fold-v1";
+        if (append) {
+            literal(context, "request_format", "structured-v3", "system.context");
+            literal(context, "model_projection", "lean-v1", "system.context");
+            fields(*history, "worker_history", {{"mode", 's'}, {"read_max_bytes", 'i'}, {"read_token_budget", 'i'}});
+            (void)integer_value(required(*history, "read_max_bytes", "worker_history"), "worker_history.read_max_bytes", 4, 24576);
+            (void)integer_value(required(*history, "read_token_budget", "worker_history"), "worker_history.read_token_budget", 4096, 196608);
+            if (optional(context, "logical_agent")) invalid("worker_history", "append-fold-v1 cannot replace complete single-Agent history");
+        } else {
         const auto* format = optional(context, "request_format");
         if (!format || (string_value(*format, "system.context.request_format") != "structured-v2" &&
                 string_value(*format, "system.context.request_format") != "structured-v3"))
@@ -628,6 +637,7 @@ CapabilityRegistry validate_system(const Json& system) {
         const auto recent = integer_value(required(*history, "recent_attempts", "worker_history"), "worker_history.recent_attempts", 1, 8);
         const auto bytes = integer_value(required(*history, "inline_bytes", "worker_history"), "worker_history.inline_bytes", 32768, 65536);
         if (recent * bytes > 196608) invalid("system.context.worker_history", "combined inline history exceeds 192 KiB");
+        }
     }
     if (const auto* history = optional(context, "management_history")) {
         const auto* format = optional(context, "request_format");
@@ -1047,6 +1057,7 @@ Json FrozenRequestConfig::runtime_support() const {
     if (!bounded_runtime()) for (const auto key : {"max_wall_minutes", "warn_at_fraction"})
         add("budget_defaults", key, "requires persistent request-lifetime deadlines and warnings; live batches have separate host deadlines");
     for (const auto key : {"compaction_at_fraction", "snapshot_decision_log_entries"})
+        if (std::string_view(key) != "compaction_at_fraction" || worker_history_policy().is_null() || worker_history_policy().at("mode") != "append-fold-v1")
         add("context", key, "requires bounded structured history/compaction; no automatic retry");
     for (const auto key : {"max_active_dispatchers", "max_active_workers", "reserve_dispatchers_for_review",
                           "reserve_workers_for_review", "review_reservation_policy", "release_slots_while_waiting",

@@ -82,7 +82,7 @@ std::vector<ContextTool> tools_for(const SchemaRegistry& schemas, Role role) {
     throw Error(ErrorCode::Unsupported, "offline admission is host-owned; no Root model runner yet");
 }
 
-std::vector<ContextTool> fixed_tools(const SchemaRegistry& schemas, const std::vector<std::string>& names) {
+std::vector<ContextTool> fixed_tools(const SchemaRegistry& schemas, const std::vector<std::string>& names, const Json& history_policy) {
     const std::map<std::string, std::pair<std::string, std::string>> management{
         {"submit_plan", {"v0.4.1", "plan"}}, {"issue_work_order", {"v0.4.1", "work_order"}},
         {"submit_amendment_plan", {"wls-model-amendment-v1", "submit_amendment_plan"}},
@@ -95,7 +95,7 @@ std::vector<ContextTool> fixed_tools(const SchemaRegistry& schemas, const std::v
         {"check_submission", {"wls-submission-check-v1", "check_submission"}},
         {"report_experience", {"wls-experience-report-v1", "experience_report"}},
         {"ask", {"wls-question-ask-v1", "question"}}, {"submit", {"wls-work-submit-v1", "submission"}}};
-    auto controls = history_control_declarations();
+    auto controls = history_control_declarations(history_policy);
     const auto manager_controls = management_history_declarations();
     controls.insert(controls.end(), manager_controls.begin(), manager_controls.end());
     std::vector<ContextTool> result;
@@ -613,13 +613,17 @@ CapturedModelCall OfflineRuntime::capture_call(
                 "stall_same_error_repeats"), ErrorCode::NotReady, "stall_same_error_repeats");
     }
     const auto history_policy = role == Role::Worker ? config.worker_history_policy() : Json(nullptr);
+    const bool append = append_fold_policy(history_policy);
+    const auto history_capture = append ? store_.append_history_capture(actor) : Json(nullptr);
     if (!history_policy.is_null()) {
         require(store_.event_runtime_enabled(), ErrorCode::Unsupported, "history window needs durable feedback storage");
         const auto available = store_.authorized_history_tools(actor, binding);
         require(available.size() == 2, ErrorCode::Unauthorized,
             "history window requires both current readback controls; policy revoked");
-        for (const auto& tool : history_control_declarations()) declared_tools.push_back(tool);
+        for (const auto& tool : history_control_declarations(history_policy)) declared_tools.push_back(tool);
         contract.as_object()["worker_history_policy"] = history_policy;
+        if (append) for (const auto* key : {"unresolved_operations", "unresolved_attempts"})
+            contract.as_object()[key] = correction_tail.at(key);
     }
     const bool management_controls = !management_policy.is_null() &&
         (action.is_null() || string_at(action, "kind") != "experience");
@@ -636,7 +640,7 @@ CapturedModelCall OfflineRuntime::capture_call(
         for (const auto& tool : declared_tools) allowed_tools.push_back(tool.name);
         std::sort(allowed_tools.begin(), allowed_tools.end());
         allowed_tools.erase(std::unique(allowed_tools.begin(), allowed_tools.end()), allowed_tools.end());
-        declared_tools = fixed_tools(schemas_, config.role_tool_catalog(role, template_id));
+        declared_tools = fixed_tools(schemas_, config.role_tool_catalog(role, template_id), history_policy);
     }
     std::optional<SingleAgentTranscript> shared_transcript;
     const auto logical_policy = config.logical_agent_policy();
@@ -647,14 +651,16 @@ CapturedModelCall OfflineRuntime::capture_call(
         shared_transcript = single_agent_transcript(request_id, config, history);
         contract.as_object()["logical_agent_execution"] = shared_transcript->execution;
     }
-    for (auto& tool : declared_tools) tool.description = builtin_tool_description(tool.name);
+    for (auto& tool : declared_tools) tool.description = tool.version == "wls-history-text-v1"
+        ? "Read scoped immutable history as UTF-8 text, or base64 for binary result_data; the host verifies originals before paging."
+        : builtin_tool_description(tool.name);
     auto context = make_context(config, role, template_id, declared_tools, contract);
     context.model_projection = config.context_model_projection();
     context.tool_policy = config.context_tool_policy(); context.allowed_tools = std::move(allowed_tools);
     if (shared_transcript)
         context.dependencies.push_back({"logical_agent_policy", std::string(single_agent_contract), sha256_hex(canonical_json(logical_policy))});
     if (!history_policy.is_null())
-        context.dependencies.push_back({"worker_history_policy", "window-v1", sha256_hex(canonical_json(history_policy))});
+        context.dependencies.push_back({"worker_history_policy", string_at(history_policy, "mode"), sha256_hex(canonical_json(history_policy))});
     if (!management_policy.is_null())
         context.dependencies.push_back({"management_history_policy", "window-v1", sha256_hex(canonical_json(management_policy))});
     if (role == Role::Worker && worker_tools_) {
@@ -723,6 +729,11 @@ CapturedModelCall OfflineRuntime::capture_call(
             "Only completed older facts are omitted; all OPEN questions, unresolved effects/usage and the exact captured target remain complete. "
             "Readback does not answer a question, approve a candidate, revise a plan or refresh old CAS guards. "
             "Every query consumes an ordinary model attempt and the persistent control allowance.";
+    } else if (append) {
+        const auto& prior = history_capture.at("previous");
+        context.worker_history = append_fold_history(prior.is_null() ? Json(nullptr) : prior.at("input"), history_capture.at("delta"));
+        native_messages = append_fold_messages(context.worker_history);
+        context.worker_history.as_object().erase("messages");
     } else if (!history_policy.is_null()) {
         native_messages = worker_history_messages(store_.attempt_history_tail(actor,
             integer_at(history_policy, "recent_attempts")), history_policy);
@@ -758,15 +769,38 @@ CapturedModelCall OfflineRuntime::capture_call(
         context.approved_rules = guided_rules(role);
         context.project_snapshot = "Use the complete task contract and observed tool results for current facts.";
     }
-    if (v3) continue_structured_contract(context, store_.previous_context(actor));
+    if (v3) continue_structured_contract(context, append ? history_capture.at("previous") : store_.previous_context(actor));
     const auto format = v3 ? StructuredContextFormat::V3 : StructuredContextFormat::V2;
-    request.context = !management_policy.is_null()
+    const auto compile = [&] { return !management_policy.is_null()
         ? compile_management_context(context, native_messages, management_policy, format)
-        : (structured ? compile_structured_context(context, native_messages, {}, format) : ContextCompiler().compile(context));
+        : (structured ? compile_structured_context(context, native_messages, {}, format) : ContextCompiler().compile(context)); };
     const auto profile = config.model_profile(role);
     require(string_at(profile.at("capabilities"), "tool_calling") == "supported",
             ErrorCode::Unsupported, "frozen model profile does not support required tool calls");
     request.max_output_tokens = std::min<std::int64_t>(8192, integer_at(profile.at("capabilities"), "max_output_tokens"));
+    if (append) {
+        request.reserved_output_tokens = request.max_output_tokens; request.timeout = limits.timeout;
+        const auto threshold = static_cast<std::size_t>(static_cast<double>(integer_at(profile.at("capabilities"), "context_window")) *
+            config.json().at("system").at("context").at("compaction_at_fraction").to_number<double>());
+        const auto input_bytes = [&] {
+            auto bytes = request.context.prompt().size();
+            if (string_at(profile, "adapter") == "openai-responses") {
+                const auto settings = live_model_settings_from_json(profile, request.model.model);
+                bytes = std::max(bytes, encode_responses_request(settings.provider, request, settings.stream).body.size());
+            }
+            return bytes;
+        };
+        bool crossing = false;
+        try { request.context = compile(); crossing = input_bytes() > threshold; }
+        catch (const Error& error) { if (error.code() != ErrorCode::Quota) throw; crossing = true; }
+        if (crossing) {
+            const auto& prior = history_capture.at("previous");
+            context.worker_history = append_fold_history(prior.is_null() ? Json(nullptr) : prior.at("input"), history_capture.at("delta"), true);
+            native_messages = append_fold_messages(context.worker_history); context.worker_history.as_object().erase("messages");
+            request.context = compile();
+            require(input_bytes() <= threshold, ErrorCode::Quota, "one history fold cannot restore complete input capacity");
+        }
+    } else request.context = compile();
     // A conservative byte-based reservation is not a claim about provider
     // tokenization. Fake usage is explicit fixture data or remains unknown.
     const auto prompt_size = request.context.prompt().size();
@@ -957,7 +991,8 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         }
     }
     if (durable_feedback && (is_history_control(tool.name) || is_management_history_control(tool.name))) {
-        auto declarations = is_history_control(tool.name) ? history_control_declarations() : management_history_declarations();
+        auto declarations = is_history_control(tool.name) ? history_control_declarations(
+            restore_request_config(store_.request(captured.binding.request_id)).worker_history_policy()) : management_history_declarations();
         for (const auto& definition : declarations) if (definition.name == tool.name) {
             auto schema = definition.definition;
             schema.as_object()["$schema"] = "http://json-schema.org/draft-07/schema#";

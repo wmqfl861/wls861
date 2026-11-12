@@ -99,11 +99,11 @@ storage:
 
 context:
   # New requests freeze the v3 anchor, ordered contract updates and final state.
-  # Existing snapshots keep their original format; history window policies
-  # remain separate explicit choices.
+  # Existing snapshots keep their original format and history policy.
   request_format: structured-v3
   model_projection: lean-v1
   tool_policy: fixed-role-v1
+  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}
   prompt_policy: guided-v1  # Explicit new-request guidance; absent snapshots retain legacy bytes.
   compaction_at_fraction: 0.6
   snapshot_decision_log_entries: 20

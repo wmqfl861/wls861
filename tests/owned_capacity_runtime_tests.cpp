@@ -64,6 +64,7 @@ struct Fixture {
     explicit Fixture(Json selected = policy()) : capacity(std::move(selected)) {
         std::filesystem::create_directory(parent); std::filesystem::create_directory(temp.path / "delivery");
         system = load_config_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts").freeze("general").json().at("system");
+        system.at("context").as_object().erase("worker_history");
         system.at("cleanup").as_object()["enabled"] = true;
         frozen = freeze(capacity);
         open(); request_id = admit(frozen, "original");

@@ -31,7 +31,13 @@ class HistoryCli(unittest.TestCase):
             path.mkdir(mode=0o700)
             (path / "r1.txt").write_text("原始内容😀\n" + "x" * 61100, encoding="utf-8")
         self.mapping = self.write("workspaces.json", {k: str(v) for k, v in self.work.items()})
+        self.config = self.root / "legacy-history.yaml"
+        source = (SOURCE / "config/examples/system.yaml").read_text(encoding="utf-8")
+        history = "  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n"
+        self.assertIn(history, source)
+        self.config.write_text(source.replace(history, ""), encoding="utf-8")
         self.request = self.call("submit", "--db", self.db, "--key", "r1-history",
+            "--config", self.config, "--functions-dir", SOURCE / "config/examples/functions",
             "--text-file", FIXTURES / "s13_request.txt", "--constraints-file", FIXTURES / "s13_constraints.json")["request"]["request_id"]
 
     def write(self, name, value):
@@ -156,6 +162,7 @@ class HistoryCli(unittest.TestCase):
     def test_cross_request_task_is_not_a_read_capability(self):
         item = self.start()[0]
         other = self.call("submit", "--db", self.db, "--key", "r1-other-request",
+            "--config", self.config, "--functions-dir", SOURCE / "config/examples/functions",
             "--text-file", FIXTURES / "s13_request.txt", "--constraints-file", FIXTURES / "s13_constraints.json")["request"]["request_id"]
         before = self.snapshot()
         self.call("history-page", "--db", self.db, "--request", other, "--role", "worker",

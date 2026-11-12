@@ -136,8 +136,15 @@ class ReviewCLI(helpers.AcceptanceCliSmoke):
         self.assertEqual(awake["status"], "AWAKE")
 
     def test_config_shape_valid_does_not_claim_unenforced_limits(self):
-        checked = self.invoke("config", "check")
-        explained = self.invoke("config", "explain", "--role", "worker")
+        config = self.directory / "legacy-history.yaml"
+        source = (SOURCE / "config/examples/system.yaml").read_text(encoding="utf-8")
+        history = "  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n"
+        self.assertIn(history, source)
+        config.write_text(source.replace(history, ""), encoding="utf-8")
+        functions = SOURCE / "config/examples/functions"
+        checked = self.invoke("config", "check", "--config", config, "--functions-dir", functions)
+        explained = self.invoke("config", "explain", "--role", "worker", "--config", config,
+                                "--functions-dir", functions)
         self.assertTrue(checked["valid"])
         support = checked["runtime_support"]
         self.assertEqual(support, explained["runtime_support"])

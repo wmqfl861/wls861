@@ -1,4 +1,5 @@
 #include "wls/structured_context.hpp"
+#include "wls/worker_history.hpp"
 
 #include "responses_compat.hpp"
 #include "tool_descriptions.hpp"
@@ -243,6 +244,7 @@ static CompiledContext compile_structured(const ContextInput& base,
     std::sort(tools.begin(), tools.end(), [](const auto& a, const auto& b) { return a.name < b.name; });
     Array definitions;
     const bool v3 = format == StructuredContextFormat::V3;
+    require(base.worker_history.is_null() || v3, "append-fold cannot change historical context formats");
     require(base.model_projection.empty() || (v3 && base.model_projection == "lean-v1"),
         "model projection requires explicit v3 lean-v1");
     require(base.tool_policy.empty() ? base.allowed_tools.empty() : v3 && base.tool_policy == "fixed-role-v1",
@@ -253,7 +255,8 @@ static CompiledContext compile_structured(const ContextInput& base,
             "fixed role catalog contains an unknown or foreign role tool");
     }
     for (auto tool : tools) {
-        if (v3) { description(Json(tool.description)); describe_parameters(tool.definition, tool.name, project); }
+        if (v3) { description(Json(tool.description)); describe_parameters(tool.definition,
+            tool.version == "wls-history-text-v1" ? "history_read_text" : tool.name, project); }
         definitions.push_back(Object{{"name", tool.name}, {"version", tool.version}, {"parameters", tool.definition}});
         if (v3) definitions.back().as_object()["description"] = tool.description;
     }
@@ -273,6 +276,15 @@ static CompiledContext compile_structured(const ContextInput& base,
     result.logical_input = Object{{"format", v3 ? "wls-logical-input-v3" : "wls-logical-input-v1"}, {"selection", selection(result)},
         {"prefix", prefix}, {"task_contract", base.task_contract}, {"messages", encoded}};
     if (v3) {
+        if (!base.worker_history.is_null()) {
+            require(base.model_projection == "lean-v1" && base.role == Role::Worker,
+                "append-fold projection needs Worker structured-v3 lean-v1");
+            const auto checked = append_fold_history(Object{{"worker_history", base.worker_history}, {"messages", encoded}},
+                Object{{"scope", base.worker_history.at("scope")}, {"through_sequence", base.worker_history.at("last_sequence")}, {"items", Array{}}});
+            require(checked.at("messages") == encoded,
+                "append-fold visible originals differ from compiled messages");
+            result.logical_input.as_object()["worker_history"] = base.worker_history;
+        }
         auto [stable, state] = contract_parts(base.task_contract);
         const auto anchor = base.contract_anchor.is_null() ? stable : base.contract_anchor;
         require(anchor.is_object(), "v3 original contract anchor is missing or invalid");
@@ -385,6 +397,7 @@ CompiledContext structured_context_from_json(const Json& value) {
     auto input_keys = std::set<std::string>{"format", "selection", "prefix", "task_contract", "messages"};
     if (v3) for (const auto* key : {"contract_anchor", "contract_updates", "current_state"}) input_keys.insert(key);
     if (v3 && object(input).contains("model_projection")) input_keys.insert("model_projection");
+    if (v3 && object(input).contains("worker_history")) input_keys.insert("worker_history");
     if (object(input).contains("tool_policy")) input_keys.insert("tool_policy");
     exact(input, input_keys);
     require(text(input, "format") == (v3 ? "wls-logical-input-v3" : "wls-logical-input-v1"), "unsupported logical input format");
@@ -411,6 +424,7 @@ CompiledContext structured_context_from_json(const Json& value) {
     base.task_contract = text(input, "task_contract");
     if (object(input).contains("model_projection")) base.model_projection = text(input, "model_projection");
     if (v3) {
+        if (object(input).contains("worker_history")) base.worker_history = field(input, "worker_history");
         if (object(input).contains("tool_policy")) {
             base.tool_policy = text(input, "tool_policy");
             CompiledContext declared; declared.logical_input = input;

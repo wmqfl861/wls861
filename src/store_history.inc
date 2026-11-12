@@ -288,6 +288,47 @@ Json management_scope(const StoreActor& actor) {
         {"principal_id", actor.principal_id}, {"task_id", actor.task_id}, {"team_id", actor.team_id}};
 }
 
+template<class Implementation>
+void bounded_history_feedback(Implementation& impl, const std::string& id, std::int64_t maximum) {
+    const auto sizes = impl.optional("SELECT length(CAST(original_binding AS BLOB)) AS binding_size,"
+        "length(CAST(response AS BLOB)) AS response_size,length(CAST(result AS BLOB)) AS result_size FROM model_tool_feedback WHERE attempt_id=?", {id});
+    if (sizes) require(number(*sizes, "binding_size") <= 65536 && number(*sizes, "response_size") <= maximum &&
+        number(*sizes, "result_size") <= maximum, ErrorCode::Quota, "original feedback exceeds bounded history read capacity");
+}
+
+template<class Implementation>
+Json append_history_delta(Implementation& impl, const StoreActor& actor, const Json& previous) {
+    const auto after = previous.is_null() ? 0 : number(previous.at("input").at("worker_history").as_object(), "last_sequence");
+    const Array scope{actor.request_id, role_name(actor.role), actor.principal_id, actor.task_id, actor.team_id};
+    const std::string filter = "request_id=? AND role=? AND principal_id=? AND COALESCE(task_id,'')=? AND COALESCE(team_id,'')=?";
+    const auto high = number(impl.one("SELECT COALESCE(MAX(rowid),0) AS high FROM call_attempts WHERE " + filter, scope), "high");
+    require(after >= 0 && after <= high, ErrorCode::Conflict, "append-fold consumed watermark is stale");
+    auto parameters = scope; parameters.emplace_back(after); parameters.emplace_back(high);
+    const auto rows = impl.all("SELECT rowid AS sequence,attempt_id,call_id,frozen_binding,status,accepted,"
+        "CASE WHEN length(CAST(response AS BLOB))<=1048576 THEN response ELSE NULL END AS response,length(CAST(response AS BLOB)) AS response_size," +
+        history_accounting_attention(impl.reconciliation_schema, "call_attempts") + " AS accounting_attention FROM call_attempts WHERE " +
+        filter + " AND rowid>? AND rowid<=? ORDER BY rowid LIMIT 65", parameters);
+    require(rows.size() <= 64, ErrorCode::Quota, "append-fold delta exceeds 64 original turns");
+    Array items;
+    for (const auto& row : rows) {
+        require(row.at("response_size").is_null() || number(row, "response_size") <= 1048576, ErrorCode::Quota,
+            "append-fold original response exceeds bounded delta capacity");
+        bounded_history_feedback(impl, str(row, "attempt_id"), 1048576);
+        auto item = exposed(row); const auto feedback = impl.feedback_info(str(row, "attempt_id"));
+        // Never consume an unfinished rowid: late original feedback/usage then
+        // remains in the next bounded delta instead of needing lifetime refresh.
+        require(str(row, "status") != "PENDING" && str(row, "status") != "UNKNOWN" &&
+            number(row, "accounting_attention") == 0 && !feedback.is_null(), ErrorCode::NotReady,
+            "append-fold continuation awaits original feedback and complete accounting");
+        if (!feedback.is_null()) require(feedback.at("original_binding") == item.at("frozen_binding") &&
+            feedback.at("response") == item.at("response"), ErrorCode::Corrupt, "delta feedback differs from original attempt");
+        item.as_object()["feedback"] = feedback;
+        items.push_back(std::move(item));
+        (void)json_text(items, 1024U * 1024U); // Aggregate bound; no lifetime envelope reads.
+    }
+    return Row{{"scope", management_scope(actor)}, {"through_sequence", high}, {"items", items}};
+}
+
 template <typename Implementation>
 FrozenRequestConfig management_authorize(Implementation& impl, const StoreActor& actor,
         const ExecutionBinding& current, const std::string& tool = {}) {
@@ -422,6 +463,91 @@ void management_cursor(Implementation& impl, const ManagementSource& source, std
             "management history cursor is outside the current role/request/target scope");
 }
 } // namespace
+
+Json Store::append_history_capture(const StoreActor& actor) const {
+    const std::lock_guard lock(impl_->mutex);
+    ManagementReadSnapshot snapshot(impl_->db);
+    const auto request = impl_->authorize(actor, {Role::Worker});
+    const auto config = FrozenRequestConfig::restore(str(request, "config_snapshot"), str(request, "config_snapshot_sha256"));
+    require(append_fold_policy(config.worker_history_policy()), ErrorCode::Unauthorized, "append-fold history is not frozen");
+    const auto previous = previous_context_projection(*impl_, actor, config);
+    const Json result = Row{{"previous", previous}, {"delta", append_history_delta(*impl_, actor, previous)}};
+    snapshot.finish();
+    return result;
+}
+
+Json Store::read_history_sequence(const StoreActor& actor, std::int64_t sequence,
+        const std::string& section, std::int64_t offset, std::int64_t max_bytes) const {
+    const std::lock_guard lock(impl_->mutex);
+    ManagementReadSnapshot snapshot(impl_->db);
+    const auto request = impl_->authorize(actor, {Role::Worker});
+    const auto config = FrozenRequestConfig::restore(str(request, "config_snapshot"), str(request, "config_snapshot_sha256"));
+    const auto policy = config.worker_history_policy();
+    require(append_fold_policy(policy), ErrorCode::Unauthorized, "text history requires frozen append-fold policy");
+    require(sequence > 0 && offset >= 0 && max_bytes > 0 && max_bytes <= number(policy.as_object(), "read_max_bytes") &&
+        (section == "response" || section == "result" || section == "result_data"), ErrorCode::InvalidInput, "invalid text history page bounds or section");
+    const auto row = impl_->optional("SELECT attempt_id,frozen_binding,accepted,length(CAST(response AS BLOB)) AS response_size,"
+        "CASE WHEN length(CAST(response AS BLOB))<=4194304 THEN response ELSE NULL END AS response FROM call_attempts WHERE rowid=? AND "
+        "request_id=? AND role=? AND principal_id=? AND COALESCE(task_id,'')=? AND COALESCE(team_id,'')=?",
+        {sequence, actor.request_id, role_name(actor.role), actor.principal_id, actor.task_id, actor.team_id});
+    require(row.has_value(), ErrorCode::Unauthorized, "history sequence is outside the current actor scope");
+    require(row->at("response_size").is_null() || number(*row, "response_size") <= 4194304, ErrorCode::Quota,
+        "original history response exceeds 4 MiB");
+    const auto id = str(*row, "attempt_id"); bounded_history_feedback(*impl_, id, 4194304);
+    const auto feedback = impl_->feedback_info(id);
+    require(!feedback.is_null(), ErrorCode::NotReady, "original feedback is missing");
+    require(feedback.at("original_binding") == parse_json_strict(str(*row, "frozen_binding")) &&
+        !row->at("response").is_null() && feedback.at("response") == parse_json_strict(str(*row, "response"), 4U * 1024U * 1024U),
+        ErrorCode::Corrupt, "text history differs from settled original binding/response");
+    std::string bytes;
+    if (section == "result_data") {
+        const auto response = model_response_from_json(feedback.at("response"));
+        require(number(*row, "accepted") == 1 && response.status == ModelResultStatus::Completed &&
+            response.tool_calls.size() == 1 && response.tool_calls.front().name == "fs_read", ErrorCode::InvalidInput,
+            "result_data requires a completed original fs_read");
+        const auto& page = feedback.at("result");
+        object_fields(page, {"path", "offset", "bytes_returned", "size_bytes", "sha256", "content", "content_base64", "eof", "next_offset"},
+            {"path", "offset", "bytes_returned", "size_bytes", "sha256", "content", "content_base64", "eof", "next_offset"});
+        bytes = decoded_base64(str(page.as_object(), "content_base64"));
+        const auto begin = number(page.as_object(), "offset"), size = number(page.as_object(), "size_bytes");
+        const auto& args = response.tool_calls.front().arguments;
+        const auto& hash = str(page.as_object(), "sha256");
+        require(page.at("path") == args.at("path") && begin == (args.as_object().contains("offset") ? number(args.as_object(), "offset") : 0) &&
+            bytes.size() <= static_cast<std::uint64_t>(args.as_object().contains("max_bytes") ? number(args.as_object(), "max_bytes") : 65536) &&
+            hash.size() == 64 && std::all_of(hash.begin(), hash.end(), [](char ch) { return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'); }),
+            ErrorCode::Corrupt, "result_data differs from original fs_read range or file identity");
+        require(begin >= 0 && size >= begin && number(page.as_object(), "bytes_returned") == static_cast<std::int64_t>(bytes.size()) &&
+            bytes.size() <= static_cast<std::uint64_t>(size - begin) && page.at("eof") == (begin + static_cast<std::int64_t>(bytes.size()) == size) &&
+            (page.at("content").is_null() || page.at("content") == Json(bytes)) &&
+            (page.at("eof") == true ? page.at("next_offset").is_null() : page.at("next_offset") == begin + static_cast<std::int64_t>(bytes.size())),
+            ErrorCode::Corrupt, "invalid original fs_read payload");
+        if (begin == 0 && static_cast<std::int64_t>(bytes.size()) == size)
+            require(sha256_hex(bytes) == str(page.as_object(), "sha256"), ErrorCode::Corrupt, "original fs_read full payload hash differs");
+    } else bytes = json_text(feedback.at(section), 4U * 1024U * 1024U);
+    bool utf8 = true;
+    try { (void)canonical_json(Json(bytes)); } catch (const Error&) { utf8 = false; }
+    require(static_cast<std::uint64_t>(offset) <= bytes.size(), ErrorCode::InvalidInput, "history offset exceeds original payload");
+    const auto start = static_cast<std::size_t>(offset);
+    auto end = start + std::min(static_cast<std::size_t>(max_bytes), bytes.size() - start);
+    const auto continuation = [&](std::size_t pos) { return pos < bytes.size() && (static_cast<unsigned char>(bytes[pos]) & 0xc0U) == 0x80U; };
+    if (utf8) {
+        require(!continuation(start), ErrorCode::InvalidInput, "history offset splits a UTF-8 codepoint");
+        while (end > start && continuation(end)) --end;
+        require(end > start || start == bytes.size(), ErrorCode::InvalidInput, "history page cannot fit one UTF-8 codepoint");
+    }
+    const auto page = std::string_view(bytes).substr(start, end - start);
+    Json result = Row{{"format", "wls-history-text-v1"}, {"sequence", sequence}, {"attempt_id", id},
+        {"record_sha256", feedback.at("record_sha256")}, {"original_binding", feedback.at("original_binding")},
+        {"section", section}, {"payload_sha256", sha256_hex(bytes)}, {"size_bytes", bytes.size()}, {"offset", offset},
+        {"bytes_returned", page.size()}, {"encoding", utf8 ? "utf-8" : "base64"}, {"eof", end == bytes.size()},
+        {"next_offset", end == bytes.size() ? Json(nullptr) : Json(end)}};
+    result.as_object()[utf8 ? "content" : "content_base64"] = utf8 ? std::string(page) : base64_bytes(page);
+    require(canonical_json(result).size() <= static_cast<std::uint64_t>(number(policy.as_object(), "read_token_budget")),
+        ErrorCode::Quota, "serialized history page exceeds frozen conservative token budget");
+    snapshot.finish();
+    (void)impl_->authorize(actor, {Role::Worker});
+    return result;
+}
 
 std::vector<std::string> Store::authorized_management_tools(const StoreActor& actor,
         const ExecutionBinding& current) const {
