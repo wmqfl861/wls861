@@ -177,6 +177,7 @@ class LiveWorkflowCli(unittest.TestCase):
         system['defaults']['model_ref'] = 'cli-loopback'
         system['model_calls']['real_calls_enabled'] = True
         system['context']['request_format'] = 'structured-v3'
+        system['context'].pop('tool_policy', None)  # Keep the original priced fixture's frozen request size.
         self.configuration.write_text(json.dumps(system))
         result = self.invoke('submit', '--db', self.database, '--key', key,
             '--text-file', SOURCE / 'tests/fixtures/s1_request.txt', '--config', self.configuration,
