@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       verification:
-        description: Verification scope (asan-affected runs five complete suites only)
+        description: Verification scope (asan-affected runs six complete suites only)
         type: choice
         options:
           - full
@@ -151,7 +151,7 @@ jobs:
             echo "- event: $GITHUB_EVENT_NAME, matrix entries: $(printf '%s' "$matrix" | grep -c '"name"')"
             echo "- slow tests: $slow_tests (selected mode always includes all fast tests)"
             if [ "$mode" = asan-affected ]; then
-              echo '- Five complete affected ASan suites only: billing_baseline_e2e, run_cli_e2e, s15_cli_smoke, r1_structured, r1_structured_lean. This is not the full gate.'
+              echo '- Six complete affected ASan suites only: r1_structured, r1_structured_capture, r1_structured_lean, billing_baseline_e2e, run_cli_e2e, s15_cli_smoke. This is not the full gate.'
             fi
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
               echo "- PR head: \`$PR_HEAD_SHA\`; diff merge base: \`${base_sha:-unavailable, fell back to core}\`"
@@ -216,8 +216,8 @@ jobs:
           test "$(id -u)" -ne 0
           umask "${{ matrix.test_umask }}"
           if [ "${{ needs.classify.outputs.mode }}" = asan-affected ]; then
-            echo 'Running five complete affected ASan suites only; this is not the full gate.'
-            ctest --test-dir build -R '^(billing_baseline_e2e|run_cli_e2e|s15_cli_smoke|r1_structured|r1_structured_lean)$' --output-on-failure
+            echo 'Running six complete affected ASan suites only; this is not the full gate.'
+            ctest --test-dir build -R '^(r1_structured|r1_structured_capture|r1_structured_lean|billing_baseline_e2e|run_cli_e2e|s15_cli_smoke)$' --output-on-failure
           elif [ "${{ needs.classify.outputs.mode }}" = selected ]; then
             ctest --test-dir build -L '^ci_selected$' --output-on-failure
           else

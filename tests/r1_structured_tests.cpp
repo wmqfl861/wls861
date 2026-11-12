@@ -1247,21 +1247,38 @@ int main(int argc, char** argv) {
     std::string_view group = "all";
     if (argc != 1) {
         if (argc != 3 || std::string_view(argv[1]) != "--group") {
-            std::cerr << "usage: r1_structured_tests [--group all|legacy|lean]\n";
+            std::cerr << "usage: r1_structured_tests [--group all|legacy|legacy-rest|legacy-capture|lean]\n";
             return 2;
         }
         group = argv[2];
     }
-    if (group != "all" && group != "legacy" && group != "lean") {
+    if (group != "all" && group != "legacy" && group != "legacy-rest" &&
+        group != "legacy-capture" && group != "lean") {
         std::cerr << "unknown group: " << group << "\n"
-                  << "usage: r1_structured_tests [--group all|legacy|lean]\n";
+                  << "usage: r1_structured_tests [--group all|legacy|legacy-rest|legacy-capture|lean]\n";
         return 2;
     }
 
     const auto legacy = legacy_cases();
     const auto lean = lean_cases();
+    std::vector<TestCase> legacy_rest, legacy_capture;
+    std::set<std::string> legacy_names;
+    for (const auto& test_case : legacy) {
+        legacy_names.insert(test_case.first);
+        if (test_case.first == "v3 capture reserve restore history policy combinations")
+            legacy_capture.push_back(test_case);
+        else legacy_rest.push_back(test_case);
+    }
+    if (legacy.size() != 32 || legacy_names.size() != legacy.size() ||
+        legacy_rest.size() != 31 || legacy_capture.size() != 1 ||
+        legacy_rest.size() + legacy_capture.size() != legacy.size()) {
+        std::cerr << "invalid legacy case partition: expected 31 rest and one unique capture case\n";
+        return 2;
+    }
     std::vector<TestCase> selected;
     if (group == "all") selected = all_cases();
+    else if (group == "legacy-rest") selected = legacy_rest;
+    else if (group == "legacy-capture") selected = legacy_capture;
     else selected = group == "legacy" ? legacy : lean;
     std::cout << "GROUP r1_structured " << group << ": " << selected.size() << " top-level cases\n";
     return ::test::run(selected);

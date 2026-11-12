@@ -120,7 +120,8 @@ ifneq ($(filter all 1,$(TEST_SHARD)),)
 	"$(BUILD_DIR)/audit24_capacity_tests"
 	"$(BUILD_DIR)/audit24_capacity_repro_tests"
 	"$(BUILD_DIR)/r1_history_tests"
-	"$(BUILD_DIR)/r1_structured_tests" --group legacy
+	"$(BUILD_DIR)/r1_structured_tests" --group legacy-rest
+	"$(BUILD_DIR)/r1_structured_tests" --group legacy-capture
 	"$(BUILD_DIR)/r1_structured_tests" --group lean
 	"$(BUILD_DIR)/r1_window_tests"
 	"$(BUILD_DIR)/append_fold_tests"
