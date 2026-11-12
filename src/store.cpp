@@ -3770,6 +3770,17 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
     require(reservation.request_envelope.at("format") == (format == "structured-v3" ? "wls-model-request-v3" :
             format == "structured-v2" ? "wls-model-request-v2" : "wls-model-request-v1"), ErrorCode::Unauthorized,
             "model context format differs from frozen request policy");
+    const auto& context = original_model_request.context;
+    const auto* tool_policy = context.structured() ? context.logical_input.as_object().if_contains("tool_policy") : nullptr;
+    require((tool_policy ? *tool_policy : Json("")) == Json(frozen_config.context_tool_policy()), ErrorCode::Unauthorized,
+        "model tool policy differs from frozen request policy");
+    const auto allowed_tools = model_allowed_tools(context);
+    if (tool_policy) {
+        impl_->require_events_schema();
+        const auto template_id = actor.role == Role::Worker ? str(impl_->task_row(actor.task_id), "template_id") : "default";
+        require(context.tool_names == frozen_config.role_tool_catalog(actor.role, template_id), ErrorCode::Unauthorized,
+            "complete tool catalog differs from frozen role/template permission");
+    }
     if (format == "structured-v3") validate_structured_contract_continuity(original_model_request.context,
         previous_context_projection(*impl_, actor, frozen_config));
     const auto selected_model = frozen_config.resolve(actor.role);
@@ -3825,7 +3836,7 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
             require(declared && *declared == history_policy, ErrorCode::Unauthorized,
                 "Worker window differs from frozen history policy");
         }
-        for (const auto& tool : original_model_request.context.tool_names) {
+        for (const auto& tool : allowed_tools) {
             if (tool == "history_page" || tool == "history_read") {
                 const auto denied = parse_json_strict(str(impl_->one("SELECT denied_tools FROM runtime_policy WHERE singleton=1"), "denied_tools"));
                 require(!history_policy.is_null() && !contains(denied, tool), ErrorCode::Unauthorized,
@@ -3836,8 +3847,7 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
     if ((actor.role == Role::Dispatcher || actor.role == Role::TeamLead) && !experience) {
         const auto history_policy = frozen_config.management_history_policy();
         const auto declared = [&](std::string_view tool) {
-            return std::find(original_model_request.context.tool_names.begin(),
-                original_model_request.context.tool_names.end(), tool) != original_model_request.context.tool_names.end();
+            return std::find(allowed_tools.begin(), allowed_tools.end(), tool) != allowed_tools.end();
         };
         if (!history_policy.is_null()) {
             impl_->require_events_schema(); impl_->require_workflow_schema();
@@ -3855,7 +3865,7 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
     if (experience) {
         const auto job = impl_->validate_experience_target(actor, frozen, reservation.experience_job_id,
             reservation.experience_job_version, reservation.experience_source_sha256);
-        require(original_model_request.context.tool_names.size() == 1 && original_model_request.context.tool_names.front() == "report_experience",
+        require(allowed_tools.size() == 1 && allowed_tools.front() == "report_experience",
                 ErrorCode::Unauthorized, "experience attempt may declare only report_experience");
         const auto contract = model_contract(original_model_request);
         require(contract.is_object() && contract.as_object().contains("workflow_action") && contract.at("workflow_action").is_object(),

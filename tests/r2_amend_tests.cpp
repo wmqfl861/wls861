@@ -58,6 +58,8 @@ void expect(std::initializer_list<ErrorCode> codes, const std::function<void()>&
 AdmissionInput input(bool structured = false) {
     test::TempDir directory;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+    const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
+    yaml.erase(yaml.find(tool_policy), tool_policy.size());
     {
         const std::string old = "request_format: structured-v3";
         const auto at = yaml.find(old); CHECK(at != std::string::npos);

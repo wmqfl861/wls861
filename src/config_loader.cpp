@@ -1,4 +1,5 @@
 #include "wls/config_loader.hpp"
+#include "wls/context.hpp"
 #include "wls/capacity.hpp"
 #include "wls/live_model.hpp"
 #include "wls/owned_capacity.hpp"
@@ -600,13 +601,18 @@ CapabilityRegistry validate_system(const Json& system) {
     const auto& context = required(system, "context", "system");
     fields(context, "system.context", {{"compaction_at_fraction", 'n'}, {"snapshot_decision_log_entries", 'i'},
         {"schema_retry_max", 'z'}, {"cache_dependencies", 'a'}, {"policy_updates_use_runtime_gate", 'b'},
-        {"request_format", 's'}, {"prompt_policy", 's'}, {"worker_history", '-'}, {"management_history", '-'}, {"logical_agent", '-'}},
-        {"request_format", "prompt_policy", "worker_history", "management_history", "logical_agent"});
+        {"request_format", 's'}, {"prompt_policy", 's'}, {"tool_policy", 's'}, {"worker_history", '-'}, {"management_history", '-'}, {"logical_agent", '-'}},
+        {"request_format", "prompt_policy", "tool_policy", "worker_history", "management_history", "logical_agent"});
     if (optional(context, "prompt_policy")) literal(context, "prompt_policy", "guided-v1", "system.context");
     if (const auto* format = optional(context, "request_format")) {
         const auto name = string_value(*format, "system.context.request_format");
         if (name != "framed-v1" && name != "structured-v2" && name != "structured-v3")
             invalid("system.context.request_format", "expected framed-v1, structured-v2 or structured-v3");
+    }
+    if (optional(context, "tool_policy")) {
+        literal(context, "tool_policy", "fixed-role-v1", "system.context");
+        if (!optional(context, "request_format") || context.at("request_format") != "structured-v3")
+            invalid("system.context.tool_policy", "fixed-role-v1 requires explicit structured-v3");
     }
     if (const auto* history = optional(context, "worker_history")) {
         const auto* format = optional(context, "request_format");
@@ -968,6 +974,24 @@ std::string FrozenRequestConfig::context_prompt_policy() const {
     const auto& context = required(required(document_, "system", "snapshot"), "context", "system");
     const auto* policy = optional(context, "prompt_policy");
     return policy ? string_value(*policy, "system.context.prompt_policy") : "";
+}
+
+std::string FrozenRequestConfig::context_tool_policy() const {
+    const auto* policy = document_.at("system").at("context").as_object().if_contains("tool_policy");
+    return policy ? string_value(*policy, "system.context.tool_policy") : "";
+}
+
+std::vector<std::string> FrozenRequestConfig::role_tool_catalog(Role role, std::string_view template_id) const {
+    auto names = fixed_role_tool_names(role);
+    const auto grants = role == Role::Worker ? worker_tools(template_id) : ToolSet{};
+    const bool history = role == Role::Worker ? !worker_history_policy().is_null() : !management_history_policy().is_null();
+    const bool owned = !owned_workspace_capacity_policy(document_).is_null();
+    std::erase_if(names, [&](const auto& name) {
+        if (name.ends_with("history_page") || name.ends_with("history_read")) return !history;
+        return role == Role::Worker && (!grants.contains(name) || (owned && name == "run"));
+    });
+    std::sort(names.begin(), names.end());
+    return names;
 }
 
 Json FrozenRequestConfig::worker_history_policy() const {
