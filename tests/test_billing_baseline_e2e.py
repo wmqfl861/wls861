@@ -649,6 +649,9 @@ class BillingBaselineIntegration(unittest.TestCase):
             files = [path for path in Path(summary['delivery_path']).iterdir() if path.name != 'manifest.json']
             self.assertEqual([path.read_bytes() for path in files], [b'alpha\nbeta\n'] * 3)
             original = rows(database, 'SELECT created_at,config_snapshot,budget FROM requests')
+            original_database = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                                 for path in request.glob('control.sqlite*') if not path.name.endswith('-shm')}
+            original_events = rows(database, 'SELECT seq,type,payload,result FROM events ORDER BY seq')
             # Canonical constraints identity survives spelling changes. A completed
             # repeat inspects the original durable package without another send.
             case['constraints'].write_text(' [ ] \n')
@@ -657,6 +660,9 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(json.loads(replay.stdout)['stop_reason'], 'completed_replay')
             self.assertEqual(len(peer.requests), 31)
             self.assertEqual(rows(database, 'SELECT created_at,config_snapshot,budget FROM requests'), original)
+            self.assertEqual(rows(database, 'SELECT seq,type,payload,result FROM events ORDER BY seq'), original_events)
+            self.assertEqual({path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                              for path in request.glob('control.sqlite*') if not path.name.endswith('-shm')}, original_database)
             changed = self.invoke_run(case, '--yes', '--budget-usd', 4)
             self.assertEqual(changed.returncode, 3, changed.stderr)
             self.assertFalse(changed.stdout)
