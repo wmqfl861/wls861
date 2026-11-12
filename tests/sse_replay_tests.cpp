@@ -839,10 +839,65 @@ void compat_summary_and_refusal_event_fields_and_budgets() {
     CHECK(legacy.response.error_code == "unsupported_output");
 }
 
+void response_metadata_records_event_sequence_and_shared_terminal_paths() {
+    auto events = compat_reasoning_events();
+    const auto known = compat_replay(events);
+    CHECK(!known.evidence.as_object().contains("unknown_fields"));
+    events[3].as_object()["future/~"] = "opaque-secret";
+    events.front().at("response").as_object()["future"] = true;
+    auto& terminal = events.back().at("response"); terminal.as_object()["future"] = false;
+    terminal.at("usage").as_object()["future"] = nullptr;
+    terminal.at("usage").at("input_tokens_details").as_object()["future"] = 1;
+    terminal.at("usage").at("output_tokens_details").as_object()["future"] = Array{};
+    CHECK(compat_replay(events).response.error_code == "unsupported_event");
+    auto profile = fixture::compat_profile(); profile.response_metadata_policy = "ignore-record-v1";
+    const auto raw = stream(events);
+    const auto result = replay_responses_sse(profile, fixture::request(), {{raw, 0ms}});
+    CHECK(to_json(result.response) == to_json(known.response));
+    CHECK(result.raw_stream == raw && to_json(result).at("raw_stream_sha256") == Json(sha256_hex(raw)));
+    CHECK((result.evidence.at("unknown_fields") == Json(Array{"/events/3/future~1~0", "/response/future",
+        "/response/usage/future", "/response/usage/input_tokens_details/future", "/response/usage/output_tokens_details/future"})));
+    CHECK(result.evidence.at("unknown_fields_observed") == 6);
+    CHECK(result.evidence.at("unknown_fields_truncated") == false);
+    CHECK(result.evidence.at("terminal_codec").at("unknown_fields").as_array().front() == "/future");
+    const auto late = replay_responses_sse(profile, fixture::request(), {{raw + "data: {}\n\n", 0ms}});
+    CHECK(late.response.status == ModelResultStatus::Error && late.response.tool_calls.empty() && late.response.text.empty());
+    CHECK(late.response.usage.input_tokens == result.response.usage.input_tokens);
+}
+void response_metadata_sse_bounds_and_strict_output_failures() {
+    auto profile = fixture::profile(); profile.response_metadata_policy = "ignore-record-v1";
+    auto events = tool_events();
+    for (auto& event : events) for (int i = 0; i < 20; ++i) event.as_object()["future_" + std::to_string(i)] = "opaque";
+    const auto result = replay_responses_sse(profile, fixture::request(), {{stream(events), 0ms}});
+    CHECK(result.response.status == ModelResultStatus::Completed);
+    CHECK(result.evidence.at("unknown_fields").as_array().size() == 128);
+    CHECK(result.evidence.at("unknown_fields_truncated") == true);
+    CHECK(result.evidence.at("unknown_fields_observed") == events.size() * 20);
+    CHECK(result.raw_stream == stream(events));
+    std::vector<EventList> invalid;
+    events = tool_events(); events.back().as_object()["type"] = "response.future"; invalid.push_back(events);
+    events = tool_events(); events[1].at("item").as_object()["unknown"] = 1; invalid.push_back(events);
+    events = tool_events(); events.back().at("response").at("usage").as_object()["total_tokens"] = 1; invalid.push_back(events);
+    events = tool_events(); events.back().as_object()["sequence_number"] = 100; invalid.push_back(events);
+    events = tool_events(); events.front().as_object()["obfuscation"] = "padding"; invalid.push_back(events);
+    events = text_events(); events[3].at("part").as_object()["unknown"] = 1; invalid.push_back(events);
+    events = tool_events(); events.pop_back();
+    add(events, "response.output_item.added", {{"output_index", 1}, {"item", Object{{"id", "future"}, {"type", "future_output"}}}});
+    invalid.push_back(events); // A fully observed function before an unknown output cannot leak tools.
+    for (const auto& broken : invalid) {
+        const auto raw = stream(broken);
+        const auto rejected = replay_responses_sse(profile, fixture::request(), {{raw, 0ms}});
+        CHECK(rejected.response.status == ModelResultStatus::Error);
+        CHECK(rejected.response.text.empty() && rejected.response.tool_calls.empty());
+        CHECK(rejected.raw_stream == raw);
+    }
+}
 } // namespace
 
 int main() {
     return ::test::run({
+        {"SSE metadata records sequence paths and shared terminal metadata without changing known output", response_metadata_records_event_sequence_and_shared_terminal_paths},
+        {"SSE metadata overflow stays bounded and unknown outputs never leak a completed function", response_metadata_sse_bounds_and_strict_output_failures},
         {"SSE preserves a complete unknown tool name without releasing corrupt output", completed_unknown_name_is_observation_but_corrupt_stream_stays_stopped},
         {"SSE every two-chunk split preserves exact UTF-8 text, usage and identity", text_completion_is_independent_of_every_two_chunk_split},
         {"SSE bytewise reads preserve split BOM, Unicode and CRLF", one_byte_reads_keep_bom_utf8_and_crlf_intact},
