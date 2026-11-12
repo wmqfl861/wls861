@@ -82,6 +82,7 @@ class AcceptanceCliSmoke(unittest.TestCase):
 
     def admit(self, key="acceptance-request", max_attempts=64):
         source = (SOURCE / "config/examples/system.yaml").read_text().replace("  tool_policy: fixed-role-v1\n", "").replace("  model_projection: lean-v1\n", "").replace(
+            "  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n", "").replace(
             "request_format: structured-v3", "request_format: framed-v1")
         config = self.directory / f"{key}-system.yaml"
         config.write_text(source)
@@ -95,6 +96,7 @@ class AcceptanceCliSmoke(unittest.TestCase):
         self.assertEqual(frozen["request_format"], "framed-v1")
         self.assertNotIn("tool_policy", frozen)
         self.assertNotIn("model_projection", frozen)
+        self.assertNotIn("worker_history", frozen)
         self.assertEqual(frozen["prompt_policy"], "guided-v1")
         return request
 
