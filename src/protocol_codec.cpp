@@ -336,6 +336,46 @@ Object decoded_record(const DecodedResponsesResponse& decoded) {
         {"raw_body_sha256", decoded.raw_body_sha256}, {"evidence", decoded.evidence},
         {"record_integrity", "local_consistency_only"}};
 }
+
+std::string lean_read_output(const std::string& content) {
+    // Only the complete normal Workspace::read page shape is projected. Errors,
+    // arbitrary business JSON and legacy/non-JSON results retain their bytes.
+    Json page;
+    try { page = parse_json_strict(content); }
+    catch (const Error&) { return content; }
+    constexpr std::string_view keys[]{"path", "offset", "bytes_returned", "size_bytes", "sha256",
+        "content", "content_base64", "eof", "next_offset"};
+    if (!page.is_object() || page.as_object().size() != std::size(keys)) return content;
+    for (const auto key : keys) if (!page.as_object().contains(key)) return content;
+    const auto nonnegative = [](const Json& value) {
+        return value.is_uint64() || (value.is_int64() && value.as_int64() >= 0);
+    };
+    if (!page.at("path").is_string() || !page.at("sha256").is_string() ||
+        !page.at("content_base64").is_string() || !page.at("eof").is_bool() ||
+        !(page.at("content").is_string() || page.at("content").is_null())) return content;
+    for (const auto key : {"offset", "bytes_returned", "size_bytes"})
+        if (!nonnegative(page.at(key))) return content;
+    const auto offset = page.at("offset").to_number<std::uint64_t>();
+    const auto count = page.at("bytes_returned").to_number<std::uint64_t>();
+    const auto size = page.at("size_bytes").to_number<std::uint64_t>();
+    if (offset > size || count > size - offset || count > 65536 ||
+        page.at("eof").as_bool() != (offset + count == size)) return content;
+    if (page.at("eof").as_bool() ? !page.at("next_offset").is_null() :
+        (!nonnegative(page.at("next_offset")) || page.at("next_offset").to_number<std::uint64_t>() != offset + count)) return content;
+    const auto& hash = page.at("sha256").as_string();
+    if (hash.size() != 64 || !std::all_of(hash.begin(), hash.end(), [](char ch) {
+        return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f');
+    })) return content;
+    if (page.at("content").is_string() && page.at("content").as_string().size() != count) return content;
+    page.as_object().erase(page.at("content").is_string() ? "content_base64" : "content");
+    return canonical_json(page);
+}
+
+Json lean_state(Json state) {
+    state.as_object().erase("message_sources");
+    for (auto& window : state.at("history_windows").as_array()) window.as_object().erase("source");
+    return state;
+}
 } // namespace
 
 EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
@@ -344,6 +384,8 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     const auto& logical = request.context.logical_input;
     const auto& prefix = logical.at("prefix");
     const bool v3 = logical.at("format") == "wls-logical-input-v3";
+    const bool lean = logical.as_object().contains("model_projection") && logical.at("model_projection") == "lean-v1";
+    std::map<std::string, std::string> historical_tools;
     Array tools, tool_versions, sources;
     for (const auto& definition : array(prefix.at("tools"))) {
         const auto name = text(definition, "name");
@@ -355,14 +397,18 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     }
     std::size_t index = 0;
     for (const auto& message : array(logical.at("messages"))) {
-        if (!message.at("source").is_null())
+        if (lean) for (const auto& call : array(message.at("tool_calls")))
+            historical_tools.emplace(text(call, "call_id"), text(call, "name"));
+        if (!lean && !message.at("source").is_null())
             sources.push_back(Object{{"message_index", index}, {"source", message.at("source")}});
         ++index;
     }
-    Array input{Object{{"role", "user"}, {"content", canonical_json(Object{
+    Array input;
+    if (lean) input.push_back(Object{{"role", "user"}, {"content", canonical_json(logical.at("contract_anchor"))}});
+    else input.push_back(Object{{"role", "user"}, {"content", canonical_json(Object{
         {"format", "wls-responses-task-v1"}, {"task_contract", logical.at("task_contract")},
-        {"message_sources", sources}})}}};
-    if (v3) input.front().at("content") = canonical_json(Object{{"format", "wls-responses-contract-v3"},
+        {"message_sources", sources}})}});
+    if (v3 && !lean) input.front().at("content") = canonical_json(Object{{"format", "wls-responses-contract-v3"},
         {"task_contract", logical.at("contract_anchor")}});
     std::map<std::size_t, Array> updates;
     if (v3) for (const auto& update : array(logical.at("contract_updates"))) {
@@ -377,7 +423,9 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
                 if (const auto* id = identity.as_object().if_contains(key); id && *id == update.at("after_attempt_id"))
                     boundary = position;
         }
-        updates[boundary].push_back(Object{{"role", "user"}, {"content", canonical_json(Object{
+        auto contract = update.at("contract");
+        if (lean) contract.as_object()["semantic_versions"] = update.at("semantic_versions");
+        updates[boundary].push_back(Object{{"role", "user"}, {"content", lean ? canonical_json(contract) : canonical_json(Object{
             {"format", "wls-responses-contract-update-v3"}, {"task_contract", update.at("contract")},
             {"semantic_versions", update.at("semantic_versions")}})}});
     }
@@ -437,6 +485,10 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
             throw Error(ErrorCode::Unsupported,
                         "native reasoning continuation requires the original responses output");
         if (role == "tool") {
+            const auto output = [&] {
+                return lean && historical_tools.at(text(message, "tool_call_id")) == "fs_read"
+                    ? lean_read_output(content) : content;
+            };
             if (native_calls) {
                 // Tool results follow their native round in order; each one
                 // pairs positionally with its original provider call ID.
@@ -444,12 +496,12 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
                         message.at("tool_call_id") == native_calls->at(native_consumed).at("call_id"),
                         ErrorCode::InvalidInput, "native tool result does not pair with its original round");
                 input.push_back(Object{{"type", "function_call_output"},
-                    {"call_id", native_provider_call_ids.at(native_consumed)}, {"output", content}});
+                    {"call_id", native_provider_call_ids.at(native_consumed)}, {"output", output()}});
                 ++native_consumed;
                 continue;
             }
             input.push_back(Object{{"type", "function_call_output"},
-                {"call_id", message.at("tool_call_id")}, {"output", content}});
+                {"call_id", message.at("tool_call_id")}, {"output", output()}});
         } else {
             if (!content.empty() || array(message.at("tool_calls")).empty())
                 input.push_back(Object{{"role", role}, {"content", content}});
@@ -461,7 +513,7 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     }
     append_updates(index);
     if (v3) input.push_back(Object{{"role", "user"}, {"content", canonical_json(Object{
-        {"format", "wls-responses-current-state-v3"}, {"current_state", logical.at("current_state")}})}});
+        {"format", "wls-responses-current-state-v3"}, {"current_state", lean ? lean_state(logical.at("current_state")) : logical.at("current_state")}})}});
     std::string instructions = canonical_json(Object{{"format", "wls-responses-system-v1"},
         {"system", prefix.at("system")},
         {"dependencies", prefix.at("dependencies")}, {"tool_versions", tool_versions}});

@@ -69,6 +69,7 @@ std::string cache_hash(const CompiledContext& c) {
             ? "wls-context-cache-v3" : "wls-context-cache-v2"},
         {"selection", selection(c)}, {"prefix_sha256", c.prefix_sha256}};
     if (const auto* policy = object(c.logical_input).if_contains("tool_policy")) identity["tool_policy"] = *policy;
+    if (const auto* policy = object(c.logical_input).if_contains("model_projection")) identity["model_projection"] = *policy;
     return sha256_hex(canonical_json(identity));
 }
 void description(const Json& value) {
@@ -235,11 +236,15 @@ static CompiledContext compile_structured(const ContextInput& base,
     require(base.messages.empty(), "legacy messages must be explicitly converted, never discarded");
     // Reuse the established validation of model selection, required sections,
     // tool definitions and dependency hashes. No adapter parses legacy frames.
-    auto result = ContextCompiler(limits).compile(base);
+    auto validation_base = base;
+    validation_base.model_projection.clear();
+    auto result = ContextCompiler(limits).compile(validation_base);
     auto tools = base.tools;
     std::sort(tools.begin(), tools.end(), [](const auto& a, const auto& b) { return a.name < b.name; });
     Array definitions;
     const bool v3 = format == StructuredContextFormat::V3;
+    require(base.model_projection.empty() || (v3 && base.model_projection == "lean-v1"),
+        "model projection requires explicit v3 lean-v1");
     require(base.tool_policy.empty() ? base.allowed_tools.empty() : v3 && base.tool_policy == "fixed-role-v1",
         "tool policy requires structured-v3 fixed-role-v1");
     if (!base.tool_policy.empty()) {
@@ -312,6 +317,7 @@ static CompiledContext compile_structured(const ContextInput& base,
         result.logical_input.as_object()["contract_anchor"] = anchor;
         result.logical_input.as_object()["contract_updates"] = updates;
         result.logical_input.as_object()["current_state"] = state;
+        if (!base.model_projection.empty()) result.logical_input.as_object()["model_projection"] = base.model_projection;
         if (!base.tool_policy.empty()) {
             result.logical_input.as_object()["tool_policy"] = base.tool_policy;
             Array allowed;
@@ -378,6 +384,7 @@ CompiledContext structured_context_from_json(const Json& value) {
     const auto& input = field(value, "input");
     auto input_keys = std::set<std::string>{"format", "selection", "prefix", "task_contract", "messages"};
     if (v3) for (const auto* key : {"contract_anchor", "contract_updates", "current_state"}) input_keys.insert(key);
+    if (v3 && object(input).contains("model_projection")) input_keys.insert("model_projection");
     if (object(input).contains("tool_policy")) input_keys.insert("tool_policy");
     exact(input, input_keys);
     require(text(input, "format") == (v3 ? "wls-logical-input-v3" : "wls-logical-input-v1"), "unsupported logical input format");
@@ -402,6 +409,7 @@ CompiledContext structured_context_from_json(const Json& value) {
     base.function_prompt = text(system, "function_prompt"); base.environment_card = text(system, "environment_card");
     base.approved_rules = text(system, "approved_rules"); base.project_snapshot = text(system, "project_snapshot");
     base.task_contract = text(input, "task_contract");
+    if (object(input).contains("model_projection")) base.model_projection = text(input, "model_projection");
     if (v3) {
         if (object(input).contains("tool_policy")) {
             base.tool_policy = text(input, "tool_policy");
