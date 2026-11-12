@@ -184,7 +184,7 @@ void dispatcher_observes_original_bytes_and_response_replay_is_exact() {
     if (lean) { admission.config_snapshot.at("system").at("context").at("request_format") = "structured-v3";
         admission.config_snapshot.at("system").at("context").as_object()["model_projection"] = "lean-v1"; }
     Fixture f(admission); const auto original = f.candidate();
-    CHECK(original.at("artifact_snapshot").at("files").as_array().front().at("content_base64") == "YWxwaGEgY2FuZGlkYXRlIHZlcnNpb24gMQo=");
+    CHECK(original.at("artifact_snapshot").as_array().front().at("content_base64") == "YWxwaGEgY2FuZGlkYXRlIHZlcnNpb24gMQo=");
     write(f.directory.path / "alpha/result.txt", "mutated live workspace must not replace candidate evidence\n");
     const FakeModel fake({step(Role::Dispatcher, "accept_candidate", positive_acceptance())});
     const auto call = f.capture(Role::Dispatcher, fake);

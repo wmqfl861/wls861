@@ -158,7 +158,7 @@ struct Fixture {
         output.max_output_tokens = 100; output.timeout = std::chrono::seconds(3);
         return output;
     }
-    AttemptReservation reservation(const ModelRequest& request, bool fake = false) const {
+    static AttemptReservation reservation(const ModelRequest& request, bool fake = false) {
         AttemptReservation result;
         result.call_id = request.call_id; result.attempt_id = request.attempt_id;
         result.config_snapshot_sha256 = request.config_snapshot_id; result.model_ref = request.model.model;

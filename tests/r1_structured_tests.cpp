@@ -249,7 +249,7 @@ void v3_hash_roundtrip_and_wire() {
     CHECK(c.logical_input_sha256 == sha256_hex(c.prompt()));
     CHECK(to_json(compiled_context_from_json(document)) == document);
     const auto encoded = encode_responses_request(fixture::profile(), r);
-    // E baseline, independently measured before either F/G optional policy.
+    // Captured with the merged E binary, before the optional F policy existed.
     CHECK(sha256_hex(canonical_json(document)) == "a5468d6021eb86bd7cd72e72c800680d10c94b4c3f304fa198bdc71db37334ca");
     CHECK(sha256_hex(canonical_json(to_json(r))) == "97d680a0037304cedeecb686687e26bf37d454b38ead30c519b50efd1e51dd1c");
     CHECK(encoded.body_sha256 == "3dea3be602fce76cc5d0b2d664d15854ecdd0dea52d7aa40862036bfc5251cfc");
@@ -504,7 +504,7 @@ struct ConfigFixture {
         auto yaml = read_runtime_file(root / "config/examples/system.yaml");
         const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
         yaml.erase(yaml.find(tool_policy), tool_policy.size());
-    yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
+        yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
         const std::string marker = "  request_format: structured-v3\n";
         const auto pos = yaml.find(marker); CHECK(pos != std::string::npos);
         yaml.replace(pos, marker.size(), format.empty() ? "" : "  request_format: " + format + "\n");
@@ -521,6 +521,10 @@ void frozen_choice_and_legacy_default() {
     CHECK(next.runtime_support().at("history_window_integrated") == false);
     fails(ErrorCode::InvalidInput, [&] { (void)f.load("unknown-v99"); });
     CHECK(f.load("structured-v3").context_request_format() == "structured-v3");
+    CHECK(f.load("structured-v3").context_model_projection().empty());
+    for (const auto* format : {"", "framed-v1", "structured-v2"})
+        fails(ErrorCode::InvalidInput, [&] { (void)f.load(format, "lean-v1"); });
+    fails(ErrorCode::InvalidInput, [&] { (void)f.load("structured-v3", "lean-v99"); });
 }
 void store_rejects_format_policy_mismatch() {
     ConfigFixture f; const auto config = f.load("structured-v2");
@@ -616,16 +620,20 @@ void legacy_frozen_capture_keeps_complete_context_and_wire_bytes() {
     }
 }
 
+CompiledContext rehashed_context(Json document);
 void guided_capture_uses_real_adapter_and_stable_role_rules() {
     const wls::test::live::Assets assets(root); SchemaRegistry schemas(root / "schemas");
-    for (const bool fake : {true, false}) {
+    for (const bool lean : {false, true}) for (const bool fake : {true, false}) {
+        if (lean && fake) continue;
         ::test::TempDir directory; auto store = assets.open(directory.path / "guided.sqlite");
         auto admission = wls::test::live::admission(assets, wls::test::live::settings(), "guided", true, fake);
         admission.original_text = "保留原始需求；不要调用外部服务。";
         admission.constraint_catalog = Array{
             Object{{"constraint_id", "c1"}, {"text", "保留原始需求"}, {"source_revision", 1}},
             Object{{"constraint_id", "c2"}, {"text", "不要调用外部服务"}, {"source_revision", 1}}};
-        admission.config_snapshot.at("system").at("context").as_object()["request_format"] = "structured-v2";
+        auto& context = admission.config_snapshot.at("system").at("context").as_object();
+        context["request_format"] = lean ? "structured-v3" : "structured-v2";
+        if (lean) context["model_projection"] = "lean-v1";
         if (!fake)
             for (auto& role : admission.config_snapshot.at("function").at("roles").as_object())
                 role.value().as_object().erase("prompt_append");
@@ -638,6 +646,7 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
         const auto snapshot = canonical_json(admission.config_snapshot);
         const auto frozen = FrozenRequestConfig::restore(snapshot, sha256_hex(snapshot));
         CHECK(frozen.context_prompt_policy() == "guided-v1");
+        CHECK(frozen.context_model_projection() == (lean ? "lean-v1" : ""));
         CHECK(frozen.runtime_support().at("context_prompt_policy") == "guided-v1");
         auto invalid = admission.config_snapshot;
         invalid.at("system").at("context").at("prompt_policy") = "guided-v99";
@@ -645,7 +654,7 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
         fails(ErrorCode::InvalidInput, [&] { (void)FrozenRequestConfig::restore(invalid_bytes, sha256_hex(invalid_bytes)); });
         const auto id = str(store->admit(admission), "request_id");
         OfflineRuntime runtime(*store, schemas);
-        const auto first = runtime.capture_call(id, Role::Dispatcher).request;
+        const auto first = runtime.capture_call(id, Role::Dispatcher, {}, 1, {}, false, {.reserved_cost_micro_usd = 100}).request;
         const auto system = first.context.logical_input.at("prefix").at("system");
         const auto environment = parse_json_strict(str(system, "environment_card"));
         CHECK(environment.at("adapter") == frozen.model_profile(Role::Dispatcher).at("adapter"));
@@ -653,8 +662,20 @@ void guided_capture_uses_real_adapter_and_stable_role_rules() {
         CHECK(str(system, "approved_rules").find("decode base64") == std::string::npos);
         if (!fake) {
             const auto profile = live_model_settings_from_json(frozen.model_profile(Role::Dispatcher), frozen.resolve(Role::Dispatcher).model).provider;
-            const auto body = parse_json_strict(encode_responses_request(profile, first).body);
+            const auto wire = encode_responses_request(profile, first).body;
+            const auto body = parse_json_strict(wire);
             CHECK(str(body, "instructions").find("fake") == std::string::npos);
+            if (lean) {
+                const auto actor = store->host_actor(Role::Dispatcher, id);
+                auto document = to_json(first.context); document.at("input").as_object().erase("model_projection");
+                auto mismatch = first; mismatch.context = rehashed_context(document);
+                fails(ErrorCode::Unauthorized, [&] { (void)store->reserve_attempt(actor, first.binding, wls::test::live::Fixture::reservation(mismatch)); });
+                CHECK(store->budget(id).at("attempts") == 0);
+                (void)store->reserve_attempt(actor, first.binding, wls::test::live::Fixture::reservation(first));
+                store.reset(); store = assets.open(directory.path / "guided.sqlite");
+                const auto restored = model_request_from_json(store->attempt(first.attempt_id).at("request_envelope"));
+                CHECK(encode_responses_request(profile, restored).body == wire);
+            }
             continue;
         }
         const auto steps = fake_model_steps_from_json(parse_json_strict(read_runtime_file(root / "tests/fixtures/s1_fake_initial.json")));
@@ -830,7 +851,7 @@ struct V3Fixture {
         auto yaml = read_runtime_file(root / "config/examples/system.yaml");
         const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
         yaml.erase(yaml.find(tool_policy), tool_policy.size());
-    yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
+        yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
         const auto begin = yaml.find("  request_format: "); CHECK(begin != std::string::npos);
         yaml.replace(begin, yaml.find('\n', begin) - begin + 1, "  request_format: structured-v3\n");
         const auto position = yaml.find("  compaction_at_fraction:"); CHECK(position != std::string::npos);
@@ -986,49 +1007,6 @@ void v3_cross_version_and_projection_corruption_reject() {
     }
 }
 
-void lean_frozen_capture_reopen_and_policy_guards() {
-    ConfigFixture config;
-    for (const auto* format : {"", "framed-v1", "structured-v2"})
-        fails(ErrorCode::InvalidInput, [&] { (void)config.load(format, "lean-v1"); });
-    fails(ErrorCode::InvalidInput, [&] { (void)config.load("structured-v3", "lean-v99"); });
-    const auto frozen = config.load("structured-v3", "lean-v1");
-    CHECK(FrozenRequestConfig::restore(frozen.serialize(), frozen.sha256()).context_model_projection() == "lean-v1");
-    CHECK(config.load("structured-v3").context_model_projection().empty());
-    ::test::TempDir directory; wls::test::live::Assets assets(root); SchemaRegistry schemas(root / "schemas");
-    auto settings = wls::test::live::settings();
-    auto admission = wls::test::live::admission(assets, settings);
-    auto& context = admission.config_snapshot.at("system").at("context");
-    context.at("request_format") = "structured-v3"; context.as_object()["model_projection"] = "lean-v1";
-    const auto database = directory.path / "lean.sqlite";
-    auto store = assets.open(database); const auto id = str(store->admit(admission), "request_id");
-    CapturedCallLimits limits; limits.reserved_cost_micro_usd = 100;
-    const auto call = OfflineRuntime(*store, schemas).capture_call(id, Role::Dispatcher, {}, 1, {}, false, limits);
-    const auto& request = call.request;
-    CHECK(request.context.logical_input.at("model_projection") == "lean-v1");
-    const auto wire = encode_responses_request(settings.provider, request).body;
-    CHECK(!parse_json_strict(str(parse_json_strict(wire).at("input").as_array().front(), "content")).as_object().contains("task_contract"));
-    AttemptReservation reservation;
-    reservation.call_id = request.call_id; reservation.attempt_id = request.attempt_id;
-    reservation.config_snapshot_sha256 = request.config_snapshot_id; reservation.model_ref = request.model.model;
-    reservation.adapter_kind = "openai-responses"; reservation.max_output_tokens = request.max_output_tokens;
-    reservation.reserved_input_tokens = request.reserved_input_tokens; reservation.reserved_output_tokens = request.reserved_output_tokens;
-    reservation.reserved_cost_micro_usd = request.reserved_cost_micro_usd; reservation.request_envelope = to_json(request);
-    auto stripped = to_json(request.context); stripped.at("input").as_object().erase("model_projection");
-    stripped.at("logical_input_sha256") = sha256_hex(canonical_json(stripped.at("input")));
-    stripped.at("cache_identity") = sha256_hex(canonical_json(Object{{"format", "wls-context-cache-v3"},
-        {"selection", request.context.logical_input.at("selection")}, {"prefix_sha256", request.context.prefix_sha256}}));
-    auto mismatch = request; mismatch.context = compiled_context_from_json(stripped);
-    CHECK(mismatch.context.cache_identity != request.context.cache_identity);
-    auto denied = reservation; denied.request_envelope = to_json(mismatch);
-    fails(ErrorCode::Unauthorized, [&] { (void)store->reserve_attempt(call.actor, request.binding, denied); });
-    CHECK(store->budget(id).at("attempts") == 0);
-    (void)store->reserve_attempt(call.actor, request.binding, reservation); // Local reservation only; no send/transport.
-    store.reset(); store = assets.open(database);
-    const auto restored = model_request_from_json(store->attempt(request.attempt_id).at("request_envelope"));
-    CHECK(encode_responses_request(settings.provider, restored).body == wire);
-    CHECK(restore_request_config(store->request(id)).context_model_projection() == "lean-v1");
-}
-
 void lean_projection_preserves_errors_and_checks_originals() {
     auto input = described_fixture(); input.model_projection = "lean-v1";
     auto original = attempt();
@@ -1155,7 +1133,6 @@ int main() {
     return ::test::run({
         {"v3 encoded five round prefix preserves native originals", [] { v3_five_round_encoded_prefix_and_originals(); }},
         {"lean wire projection preserves originals and ordered prefix", [] { v3_five_round_encoded_prefix_and_originals(true); }},
-        {"lean frozen capture reopens identical wire and rejects policy mismatch", lean_frozen_capture_reopen_and_policy_guards},
         {"lean projection preserves errors and checks originals", lean_projection_preserves_errors_and_checks_originals},
         {"fixed role disallowed selection settles once and preserves original history", fixed_role_selection_settles_once_and_keeps_original_history},
         {"fixed role policy tampering and current revocation reject", fixed_role_policy_tampering_and_current_revocation_reject},
