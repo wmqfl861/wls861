@@ -3,9 +3,10 @@
 
 The endpoint, Ed25519 issuer, credentials, TLS CA, task responses and files are
 disposable synthetic fixtures. Every model invocation uses the real CLI,
-original Store, HTTPS transport and signed billing verifier. The billing issuer
-uses OpenSSL, independently of the production verifier. These tests establish
-engineering evidence, never provider identity or comparative model quality.
+original Store and HTTPS transport. Signed cases use an independent OpenSSL
+billing issuer; unsigned cases exercise frozen pricing and simulated prefix
+cache observations. These tests establish engineering evidence, never provider
+identity, vendor cache behavior or comparative model quality.
 """
 from __future__ import annotations
 
@@ -95,6 +96,92 @@ def snapshot(database):
             result[name] = {'rows': len(values),
                             'sha256': hashlib.sha256(repr(values).encode()).hexdigest()}
         return result
+
+
+def captured_json_values(raw):
+    """Return value slices from the captured JSON, without reserialization."""
+    source, decoder = raw.decode('utf-8'), json.JSONDecoder()
+    mapping = source[0] == '{'
+    result, offset = ({} if mapping else []), 1
+    while True:
+        while source[offset] in ' \r\n\t,':
+            offset += 1
+        if source[offset] in '}]':
+            return result
+        if mapping:
+            key, offset = decoder.raw_decode(source, offset)
+            while source[offset] in ' \r\n\t:':
+                offset += 1
+        start = offset
+        _, offset = decoder.raw_decode(source, offset)
+        value = source[start:offset].encode('utf-8')
+        if mapping:
+            result[key] = value
+        else:
+            result.append(value)
+
+
+class SimulatedPrefixCache:
+    """Synthetic cache, never vendor evidence: tools -> instructions -> items.
+
+    Count ceil(UTF-8 bytes / 4) input tokens, require a 1024-token matching
+    prefix, and round cached reads down to whole 64-token blocks. Compare the
+    longest byte prefix of every prior request in the same model/profile.
+    All input items, including the complete current_state, enter the denominator.
+    """
+    bytes_per_token, minimum_tokens, block_tokens = 4, 1024, 64
+
+    def __init__(self):
+        self.previous = {}
+
+    def observe(self, raw, profile_sha256):
+        fields = captured_json_values(raw)
+        items = captured_json_values(fields['input'])
+        material = fields['tools'] + fields['instructions'] + b''.join(items)
+        key = (json.loads(fields['model']), profile_sha256)
+        longest = 0
+        for previous in self.previous.get(key, []):
+            matched = 0
+            for left, right in zip(previous, material):
+                if left != right:
+                    break
+                matched += 1
+            longest = max(longest, matched)
+        self.previous.setdefault(key, []).append(material)
+        cached = longest // self.bytes_per_token
+        cached = cached // self.block_tokens * self.block_tokens if cached >= self.minimum_tokens else 0
+        tokens = (len(material) + self.bytes_per_token - 1) // self.bytes_per_token
+        return {'input_tokens': tokens, 'cache_read_tokens': cached,
+                'input_bytes': len(material), 'matched_prefix_bytes': longest,
+                'body_bytes': len(raw), 'ratio': cached / tokens,
+                'stable_material': fields['tools'] + fields['instructions'] + b''.join(items[:-1]),
+                'tools': fields['tools'], 'instructions': fields['instructions']}
+
+
+def v2_comparison_request(captured):
+    """Fixed v2 layout of the same original contract, tools and full messages.
+
+    Keep parameter schemas and semantic materials. Drop only v3 layout selectors
+    and the top-level tool descriptions absent from v2's frozen input shape.
+    No Store record, business operation or original captured request is changed.
+    """
+    legacy = copy.deepcopy(captured)
+    context = legacy['context']
+    logical = context['input']
+    prefix = copy.deepcopy(logical['prefix'])
+    prefix['format'] = 'wls-logical-prefix-v1'
+    for tool in prefix['tools']:
+        tool.pop('description')
+    original = {'format': 'wls-logical-input-v1', 'selection': logical['selection'],
+        'prefix': prefix, 'task_contract': logical['task_contract'], 'messages': logical['messages']}
+    context.update(format='wls-compiled-context-v2', input=original,
+        prefix_sha256=digest(prefix), logical_input_sha256=digest(original),
+        cache_identity=digest({'format': 'wls-context-cache-v2', 'selection': logical['selection'],
+                               'prefix_sha256': digest(prefix)}))
+    legacy['format'] = 'wls-model-request-v2'
+    legacy['logical_request_sha256'] = digest({key: value for key, value in legacy.items()
+        if key not in ('logical_request_sha256', 'wire_request_sha256')})
+    return legacy
 
 
 class SignedEndpoint:
@@ -202,11 +289,12 @@ class SignedEndpoint:
 class PricingFlowEndpoint:
     """Unsigned priced loopback peer for three independent tasks.
 
-    It never signs or emits a billing receipt; every response reports the fixed
-    11/7/3 usage shape without cache-write so the host estimate is exercised.
+    It never signs or emits a billing receipt. By default responses retain the
+    fixed 11/7/3 usage shape; G1 instead derives input/cache tokens from captured
+    outbound bytes. Neither mode reports cache-write or provider-reported cost.
     """
 
-    def __init__(self, correctable_read=False, initialize_seed=False):
+    def __init__(self, correctable_read=False, initialize_seed=False, simulate_cache=False):
         fixture = workflow.without_constraints(json.loads(
             (SOURCE / 'tests/fixtures/s15_fake_complete.json').read_text()))
         self.plan = fixture['default'][0]['tool_calls'][0]['arguments']
@@ -222,9 +310,19 @@ class PricingFlowEndpoint:
         self.steps, self.actions = {}, []
         self.correctable_read = correctable_read
         self.initialize_seed = initialize_seed
+        self.cache = SimulatedPrefixCache() if simulate_cache else None
+        self.records = []
+
+    @staticmethod
+    def contract(body):
+        content = body['input'][-1].get('content', '{}')
+        tail = json.loads(content) if content.startswith('{') else {}
+        if isinstance(tail, dict) and tail.get('format') == 'wls-responses-current-state-v3':
+            return tail['current_state']
+        return json.loads(json.loads(body['input'][0]['content'])['task_contract'])
 
     def choose(self, body):
-        contract = json.loads(json.loads(body['input'][0]['content'])['task_contract'])
+        contract = self.contract(body)
         action, binding = contract.get('workflow_action'), contract['binding']
         if action:
             kind = action['kind']
@@ -269,6 +367,13 @@ class PricingFlowEndpoint:
                                   arguments=json.dumps(arguments, ensure_ascii=False))
         value['usage'].update(input_tokens=11, output_tokens=7, total_tokens=18)
         value['usage']['input_tokens_details'] = {'cached_tokens': 3}
+        if self.cache is not None:
+            observation = self.cache.observe(observed['body'], self.profile_sha256)
+            value['usage'].update(input_tokens=observation['input_tokens'],
+                                  total_tokens=observation['input_tokens'] + 7)
+            value['usage']['input_tokens_details']['cached_tokens'] = observation['cache_read_tokens']
+            self.records.append({'request': observed['body'], 'cache': observation,
+                                 'contract': self.contract(body), 'usage': copy.deepcopy(value['usage'])})
         encoded = tls.encoded(value)
         connection.sendall(tls.headers(len(encoded)) + encoded)
 
@@ -678,6 +783,162 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertNotEqual(json.loads(other.stdout)['request_id'], summary['request_id'])
             self.assertEqual(len(list((case['data'] / 'requests').glob('*/control.sqlite'))), 2)
             self.assertEqual(len(peer.requests), 62)
+
+    def test_g1_exit_one_command_with_correction_and_simulated_prefix_cache(self):
+        endpoint = PricingFlowEndpoint(correctable_read=True, initialize_seed=True, simulate_cache=True)
+        with tls.Peer(self.contexts['server'], endpoint) as peer:
+            case = self.run_inputs('g1-exit', peer)
+            context = case['system']['context']
+            context.update(request_format='structured-v3', model_projection='lean-v1',
+                tool_policy='fixed-role-v1', worker_history={'mode': 'append-fold-v1',
+                    'read_max_bytes': 24576, 'read_token_budget': 196608})
+            write_json(case['configuration'], case['system'])
+            provider = case['system']['models'][MODEL_REF]['responses']['provider_profile']
+            endpoint.profile_sha256 = digest(provider)
+            result = self.invoke_run(case)
+            write_json(case['directory'] / 'command-result.json', {'returncode': result.returncode,
+                'stdout': result.stdout, 'stderr': result.stderr})
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(result.stderr.count('Authorize this bounded run?'), 1)
+            summary = json.loads(result.stdout)
+            self.assertEqual(summary['status'], 'DELIVERED')
+            self.assertEqual(summary['blockers'], [])
+            self.assertTrue(summary['technical_acknowledgement'])
+            self.assertEqual(summary['user_review'], 'not_recorded')
+            request = case['data'] / 'requests' / summary['request_id']
+            database = request / 'control.sqlite'
+            attempts = rows(database, 'SELECT * FROM call_attempts ORDER BY rowid')
+            count = len(attempts)
+            self.assertGreaterEqual(count, 30)
+            self.assertEqual(len(peer.requests), count)
+            self.assertEqual(len(endpoint.records), count)
+            self.assertEqual(len({item['attempt_id'] for item in attempts}), count)
+            claims = rows(database, 'SELECT attempt_id,claim_id FROM live_send_claims')
+            self.assertEqual({item['attempt_id'] for item in claims}, {item['attempt_id'] for item in attempts})
+            self.assertEqual(len({item['claim_id'] for item in claims}), count)
+            for table in ('live_transport_observations', 'model_tool_feedback', 'live_usage_projection'):
+                self.assertEqual(rows(database, f'SELECT count(*) n FROM {table}')[0]['n'], count, table)
+            executions = {item['attempt_id']: item for item in rows(database, 'SELECT * FROM live_attempt_execution')}
+            projections = {item['attempt_id']: item for item in rows(database, 'SELECT * FROM live_usage_projection')}
+            transports = {item['attempt_id']: item for item in rows(database, 'SELECT * FROM live_transport_observations')}
+            self.assertEqual(rows(database, 'SELECT * FROM usage_reconciliations'), [])
+            self.assertEqual([item['status'] for item in rows(database, 'SELECT status FROM tasks')], ['ACCEPTED'] * 3)
+            self.assertEqual([item['status'] for item in rows(database, 'SELECT status FROM experience_jobs')], ['DONE'] * 3)
+            artifacts = list(Path(summary['delivery_path']).glob('artifact-*.bin'))
+            self.assertEqual([item.read_bytes() for item in artifacts], [b'alpha\nbeta\n'] * 3)
+            feedback = rows(database, 'SELECT attempt_id,result FROM model_tool_feedback ORDER BY rowid')
+            corrections = [item for item in feedback if 'bounded_runtime_v1' in item['result']]
+            self.assertEqual(len(corrections), 1)
+            corrected = next(index for index, item in enumerate(attempts)
+                             if item['attempt_id'] == corrections[0]['attempt_id'])
+            self.assertEqual(endpoint.actions[corrected:corrected + 2], ['fs_read', 'fs_write'])
+            self.assertIn('missing-original.txt', endpoint.records[corrected + 1]['request'].decode())
+            self.assertIn('correction_feedback', endpoint.records[corrected + 1]['request'].decode())
+            self.assertEqual(json.loads(corrections[0]['result'])['correction_feedback']
+                ['bounded_runtime_v1']['same_error_repeats'], 1)
+            roles, workers, managers = {}, {}, {}
+            totals = dict(input_tokens=0, output_tokens=0, cache_read_tokens=0, cache_write_tokens=None)
+            expected_cost = 0
+            legacy_cache = SimulatedPrefixCache()
+            comparison = []
+            profile_path = write_json(case['directory'] / 'offline-profile.json', provider)
+            for index, (attempt, sent, observation) in enumerate(zip(attempts, peer.requests, endpoint.records)):
+                self.assertNotIn(b'x-wls-billing-challenge', sent['headers'])
+                self.assertEqual(sent['body'], observation['request'])
+                captured_path = case['directory'] / f'captured-wire-{index}.json'
+                captured_path.write_bytes(sent['body'])
+                captured_path.chmod(0o600)
+                self.assertEqual(executions[attempt['attempt_id']]['request_body_sha256'],
+                                 hashlib.sha256(sent['body']).hexdigest())
+                self.assertEqual(executions[attempt['attempt_id']]['profile_sha256'], endpoint.profile_sha256)
+                native_response = json.loads(bytes.fromhex(transports[attempt['attempt_id']]['raw_body_hex']))
+                self.assertEqual(native_response['usage'], observation['usage'])
+                captured = json.loads(attempt['request_envelope'])
+                logical = captured['context']['input']
+                self.assertEqual(captured['context']['format'], 'wls-compiled-context-v3')
+                self.assertEqual(logical['model_projection'], 'lean-v1')
+                self.assertEqual(logical['tool_policy'], 'fixed-role-v1')
+                self.assertEqual(logical['contract_updates'], [])
+                self.assertTrue(attempt['settlement_sha256'])
+                original_usage = json.loads(attempt['usage'])
+                expected_usage = {'input_tokens': observation['usage']['input_tokens'], 'output_tokens': 7,
+                    'cache_read_tokens': observation['usage']['input_tokens_details']['cached_tokens'],
+                    'cache_write_tokens': None, 'cost_micro_usd': None}
+                self.assertEqual(original_usage, expected_usage)
+                for key in expected_usage:
+                    self.assertEqual(attempt[key], expected_usage[key])
+                    self.assertEqual(projections[attempt['attempt_id']][key], expected_usage[key])
+                self.assertEqual(projections[attempt['attempt_id']]['disputed'], 0)
+                self.assertEqual(projections[attempt['attempt_id']]['over_reserved'], 0)
+                for key in ('input_tokens', 'output_tokens', 'cache_read_tokens'):
+                    totals[key] += original_usage[key]
+                expected_cost += ((original_usage['input_tokens'] - original_usage['cache_read_tokens']) * 1500000
+                    + original_usage['cache_read_tokens'] * 250000 + 7 * 4000000 + 999999) // 1000000
+                roles[attempt['role']] = roles.get(attempt['role'], 0) + 1
+                cache = observation['cache']
+                if attempt['role'] == 'worker':
+                    history = logical['worker_history']
+                    self.assertEqual(history['fold_generation'], 0)
+                    self.assertLess(captured['reserved_input_tokens'],
+                                    CONTEXT_WINDOW * context['compaction_at_fraction'])
+                    own = workers.setdefault(attempt['task_id'], [])
+                    if own:
+                        self.assertTrue(cache['stable_material'].startswith(own[-1]['stable_material']))
+                    own.append(cache)
+                    if len(own) >= 3:
+                        self.assertGreater(cache['ratio'], 0.70, (attempt['attempt_id'], cache['ratio']))
+                    self.assertIn(endpoint.actions[index], {'fs_read', 'fs_write', 'submit'})
+                else:
+                    stable = (cache['tools'], cache['instructions'])
+                    previous = managers.setdefault(attempt['role'], stable)
+                    self.assertEqual(stable, previous)
+                # Re-encode these exact original materials through the existing
+                # offline v2 codec. This creates no second business run or send.
+                original_path = write_json(case['directory'] / f'offline-v2-{index}.json', v2_comparison_request(captured))
+                offline = self.command('encode-model', '--profile', profile_path, '--request', original_path)
+                self.assertEqual((offline['network_requests'], offline['paid_attempts'], offline['tool_dispatches']), (0, 0, 0))
+                self.assertFalse(offline['store_opened'])
+                legacy_body = offline['encoded_request']['body'].encode('utf-8')
+                legacy_path = case['directory'] / f'offline-v2-wire-{index}.json'
+                legacy_path.write_bytes(legacy_body)
+                legacy_path.chmod(0o600)
+                legacy_observation = legacy_cache.observe(legacy_body, endpoint.profile_sha256)
+                comparison.append({'attempt_id': attempt['attempt_id'], 'role': attempt['role'],
+                    'v3_body_bytes': len(sent['body']), 'v2_body_bytes': len(legacy_body),
+                    'v3_cache_ratio': cache['ratio'], 'v2_cache_ratio': legacy_observation['ratio'],
+                    'v3_input_tokens': cache['input_tokens'], 'v2_input_tokens': legacy_observation['input_tokens'],
+                    'v3_cache_read_tokens': cache['cache_read_tokens'],
+                    'v2_cache_read_tokens': legacy_observation['cache_read_tokens']})
+            self.assertEqual(len(workers), 3)
+            self.assertTrue(all(len(own) >= 6 for own in workers.values()))
+            self.assertEqual(summary['role_calls'], roles)
+            self.assertEqual(summary['original_tokens'], totals)
+            self.assertAlmostEqual(summary['cache_read_ratio'], totals['cache_read_tokens'] / totals['input_tokens'])
+            budget = summary['budget']
+            self.assertEqual(budget['attempts'], count)
+            self.assertEqual(budget['spent_cost'], expected_cost)
+            self.assertEqual(budget['reserved_cost'], 0)
+            self.assertEqual(budget['unknown_cost'], 0)
+            self.assertEqual(budget['cost_breakdown']['estimated_micro_usd'], expected_cost)
+            self.assertEqual(budget['cost_breakdown']['reported_micro_usd'], 0)
+            self.assertEqual(len(peer.requests), count)
+            total_v2 = sum(item['v2_body_bytes'] for item in comparison)
+            total_v3 = sum(item['v3_body_bytes'] for item in comparison)
+            self.assertLess(total_v3, total_v2)
+            v2_ratio = sum(item['v2_cache_read_tokens'] for item in comparison) / sum(item['v2_input_tokens'] for item in comparison)
+            report = {'evidence': 'synthetic-local-tls-prefix-cache-not-vendor-cache',
+                'business_runs': 1, 'confirmations': 1, 'calls': count, 'role_calls': roles,
+                'cache_rules': {'bytes_per_token': SimulatedPrefixCache.bytes_per_token,
+                    'minimum_tokens': SimulatedPrefixCache.minimum_tokens, 'block_tokens': SimulatedPrefixCache.block_tokens,
+                    'ordered_components': ['tools', 'instructions', 'input_items_including_current_state']},
+                'v2_body_bytes': total_v2, 'v3_body_bytes': total_v3, 'body_ratio': total_v3 / total_v2,
+                'v2_cache_read_ratio': v2_ratio, 'v3_cache_read_ratio': summary['cache_read_ratio'],
+                'original_tokens': totals, 'estimated_micro_usd': expected_cost,
+                'worker_min_ratio_from_third': min(item['ratio'] for own in workers.values() for item in own[2:]),
+                'attempts': comparison}
+            write_json(case['directory'] / 'g1-exit-result.json', report)
+            print('G1_EXIT_SYNTHETIC_RESULT ' + json.dumps({key: value for key, value in report.items()
+                                                        if key != 'attempts'}, sort_keys=True))
 
     def test_07_run_refusal_config_budget_and_unsafe_paths_before_confirmation(self):
         endpoint = PricingFlowEndpoint(initialize_seed=True)
