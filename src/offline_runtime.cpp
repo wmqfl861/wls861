@@ -949,6 +949,12 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         }
         return result;
     }
+    const auto save_feedback = [&](Json result) {
+        if (!call.retry_of_attempt_id.empty()) result.as_object()["retry_of_attempt_id"] = call.retry_of_attempt_id;
+        if (durable_feedback)
+            static_cast<void>(store_.record_tool_feedback(captured.attempt_id, captured.binding, to_json(response), result));
+        return result;
+    };
     const auto runtime_config = restore_request_config(store_.request(captured.binding.request_id));
     const auto target_key = correction_detail::target_key(captured, call.workflow_action);
     const auto ordinary = [&](const char* reason, const std::string& observation = {}) {
@@ -1281,20 +1287,17 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
                 feedback["failure_layer"] = "model";
                 feedback["model_error_code"] = "model_refusal";
             }
-            static_cast<void>(store_.record_tool_feedback(captured.attempt_id, captured.binding, to_json(response),
-                feedback));
+            static_cast<void>(save_feedback(feedback));
         }
         throw;
     } catch (const std::exception& error) {
         if (store_.event_runtime_enabled())
-            static_cast<void>(store_.record_tool_feedback(captured.attempt_id, captured.binding, to_json(response),
+            static_cast<void>(save_feedback(
                 Object{{"status", "ERROR"}, {"runtime_error", true}, {"error_code", "unexpected"}, {"message", error.what()},
                     {"observation_complete", false}}));
         throw;
     }
-    if (store_.event_runtime_enabled())
-        static_cast<void>(store_.record_tool_feedback(captured.attempt_id, captured.binding, to_json(response), result));
-    return result;
+    return save_feedback(std::move(result));
 }
 
 Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>& steps, const std::string& disposition,

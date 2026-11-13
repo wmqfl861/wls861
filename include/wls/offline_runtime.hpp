@@ -25,6 +25,7 @@ struct CapturedModelCall {
     // choose an identity, CAS value, version, or a replacement target.
     Json workflow_action = nullptr;
     Json input_estimate = nullptr; // Host diagnostic; never replaces original usage.
+    std::string retry_of_attempt_id{}; // Host-only link persisted in this new attempt's feedback.
 };
 
 // Host-selected reservation bounds. Cost is a reservation, never observed
