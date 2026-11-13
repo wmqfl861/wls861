@@ -118,7 +118,7 @@ if(BUILD_TESTING)
         target_compile_definitions(${suite}_tests PRIVATE WLS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
         if(suite STREQUAL "single_agent")
             # Keep all original model-call and byte-integrity cases while
-            # preserving the 90-second per-suite deadline in bounded groups.
+            # preserving the 90-second base per-suite deadline in bounded groups.
             add_test(NAME single_agent COMMAND single_agent_tests --group history)
             add_test(NAME single_agent_runtime COMMAND single_agent_tests --group runtime)
             set_tests_properties(single_agent_runtime PROPERTIES TIMEOUT 90)
@@ -330,4 +330,13 @@ if(BUILD_TESTING)
         endif()
     endforeach()
     add_custom_target(wls_ci_selected DEPENDS ${wls_ci_executables})
+
+    # D-11: apply the sanitizer allowance once, after all base deadlines are set.
+    if(WLS_ENABLE_ASAN OR WLS_ENABLE_UBSAN)
+        foreach(suite IN LISTS wls_ci_tests)
+            get_test_property(${suite} TIMEOUT wls_test_timeout)
+            math(EXPR wls_test_timeout "${wls_test_timeout} * 2")
+            set_tests_properties(${suite} PROPERTIES TIMEOUT ${wls_test_timeout})
+        endforeach()
+    endif()
 endif()

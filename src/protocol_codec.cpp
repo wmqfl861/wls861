@@ -619,6 +619,8 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
     try {
         const auto source = parse_json_strict(raw_body, profile.limits.max_response_bytes, profile.limits.max_json_depth);
         (void)object(source);
+        if (profile.pricing && profile.billing_challenge.empty())
+            if (const auto* reported = object(source).if_contains("usage")) decoded.response.usage = usage(*reported, metadata.enabled);
         if (http_status != 200) {
             if (const auto* error = object(source).if_contains("error")) evidence["provider_error"] = *error;
             failure(decoded.response, ModelResultStatus::Error, "http_" + std::to_string(http_status),

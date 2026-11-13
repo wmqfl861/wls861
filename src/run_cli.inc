@@ -400,7 +400,8 @@ int run_request(Options& options, const RuntimeResources& resources) {
         kind = settings.execution_kind; models[model] = sha256_hex(canonical_json(profile));
         if (!settings.provider.pricing || !settings.provider.billing_challenge.empty())
             throw Error(ErrorCode::Unsupported, "run requires frozen token pricing without an external billing challenge");
-        const auto bound = minimum_cost_reservation(*settings.provider.pricing, settings.provider.context_window, settings.provider.max_output_tokens);
+        // Exact input bytes are captured after admission and checked before credentials/send.
+        const auto bound = minimum_cost_reservation(*settings.provider.pricing, 0, settings.provider.max_output_tokens);
         if (!bound.available) throw Error(ErrorCode::Quota, "frozen pricing bound exceeds capacity");
         reservation = std::max(reservation, bound.cost_micro_usd);
         duration = std::max(duration, settings.provider.limits.max_timeout_ms);
@@ -444,7 +445,8 @@ int run_request(Options& options, const RuntimeResources& resources) {
         {"budget_micro_usd", input.budget.cost_micro_usd}, {"max_attempts", input.budget.max_attempts},
         {"input_token_budget", input.budget.input_tokens}, {"output_token_budget", input.budget.output_tokens},
         {"max_total_calls", frozen.max_total_calls()}, {"command_deadline_ms", authorization.at("max_batch_duration_ms")},
-        {"reserved_micro_usd_per_attempt", reservation}, {"local_acknowledgement", "durable_local"}, {"completed", completed}}) << '\n';
+        {"minimum_output_reservation_micro_usd", reservation}, {"reservation_basis", "encoded_body_bytes_plus_max_output"},
+        {"local_acknowledgement", "durable_local"}, {"completed", completed}}) << '\n';
     if (!yes && !completed) {
         std::cerr << "Authorize this bounded run? [y/N] " << std::flush;
         std::string answer; std::getline(std::cin, answer);

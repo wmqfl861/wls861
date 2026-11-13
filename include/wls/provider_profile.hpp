@@ -108,7 +108,10 @@ Json to_json(const TokenPricing& pricing);
 std::string token_pricing_sha256(const TokenPricing& pricing);
 // Checked integer estimate: one final ceil after summing exact terms. Unknown
 // reported dimensions stay unknown (never zero); overflow returns unavailable.
-PricingEstimate estimate_token_cost(const TokenPricing& pricing, const ModelUsage& usage);
+// Unsigned accounting can opt into conservative cache bounds with a mismatch
+// warning; this does not synthesize any original usage count.
+PricingEstimate estimate_token_cost(const TokenPricing& pricing, const ModelUsage& usage,
+    bool conservative_cache = false);
 PricingEstimate minimum_cost_reservation(const TokenPricing& pricing,
     std::int64_t reserved_input_tokens, std::int64_t reserved_output_tokens);
 
