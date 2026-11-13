@@ -1,6 +1,7 @@
 #include "wls/https_transport.hpp"
 
 #include "wls/sse_replay.hpp"
+#include "wls/version.hpp"
 
 #include <curl/curl.h>
 
@@ -13,6 +14,7 @@
 #include <charconv>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <limits>
 #include <memory>
 #include <thread>
@@ -113,7 +115,7 @@ void fail(HttpsTransportResult& result, HttpsTransportStatus status,
             status == HttpsTransportStatus::DeadlineExceeded ?
             ModelResultStatus::Interrupted : ModelResultStatus::Error;
     result.response.error_code = reason;
-    result.response.error_message = "HTTPS result is not usable; no automatic retry or tool dispatch";
+    result.response.error_message = "HTTPS result is not usable; no tool dispatch";
     result.response.text.clear();
     result.response.tool_calls.clear();
     // An unusable transport outcome never keeps a replayable opaque original.
@@ -165,6 +167,7 @@ Object summary_record(const HttpsTransportResult& result) {
         {"provider_receipt_verified", false}, {"billing_verified", false},
         {"retry_attempts", 0}, {"tools_dispatched", 0}, {"business_accepted", false}
     };
+    if (result.retry_after_seconds) summary["retry_after_seconds"] = *result.retry_after_seconds;
     if (result.extended_policy) {
         summary["format"] = "wls-https-transport-summary-v2";
         summary["dns_started"] = result.dns_started;
@@ -187,6 +190,7 @@ struct HeaderBlock {
     bool transfer_encoding_seen{false};
     bool content_length_seen{false};
     std::string content_type;
+    std::optional<std::int64_t> retry_after_seconds;
 };
 
 struct Transfer {
@@ -298,7 +302,19 @@ bool parse_header(Transfer& transfer, std::string_view bytes) {
         return header.final && key != "content-length" && key != "transfer-encoding" &&
                key != "content-type" && key != "content-encoding" && key != "trailer";
     }
-    if (key == "content-type") {
+    if (key == "retry-after" && header.status == 429) {
+        std::uint64_t seconds{};
+        const auto parsed = std::from_chars(value.data(), value.data() + value.size(), seconds);
+        if (parsed.ec == std::errc{} && parsed.ptr == value.data() + value.size())
+            header.retry_after_seconds = static_cast<std::int64_t>(std::min<std::uint64_t>(seconds, 60));
+        else if (!value.empty() && std::all_of(value.begin(), value.end(), [](char c) { return c >= '0' && c <= '9'; }))
+            header.retry_after_seconds = 60; // An overflowing delta is still bounded.
+        else {
+            const auto date = curl_getdate(std::string(value).c_str(), nullptr);
+            if (date != -1) header.retry_after_seconds = static_cast<std::int64_t>(
+                std::clamp(std::difftime(date, std::time(nullptr)), 0.0, 60.0));
+        }
+    } else if (key == "content-type") {
         if (header.content_type_seen) return false;
         header.content_type_seen = true;
         header.content_type = lower(trim(value.substr(0, value.find(';'))));
@@ -782,6 +798,7 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     handles.header("Accept-Encoding: identity");
     handles.header("Expect:");
     handles.header("Connection: close");
+    handles.header(std::string("User-Agent: wls861/") + product_version);
     if (!encoded.billing_challenge.empty())
         handles.header("X-WLS-Billing-Challenge: " + encoded.billing_challenge);
     handles.header("Authorization: Bearer " + std::string(bearer_token));
@@ -900,6 +917,8 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     handles.close();
     result.transfer_complete = done && outcome == CURLE_OK && transfer.aborted == Abort::None &&
                                transfer.header.final && transfer.header.completed;
+    if (result.transfer_complete && result.http_status == 429)
+        result.retry_after_seconds = transfer.header.retry_after_seconds;
     decode_retained(transfer, request);
     if (transfer.interrupted() || !done || outcome != CURLE_OK) {
         classify_abort(result, transfer.aborted, outcome);

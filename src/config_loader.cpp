@@ -533,7 +533,7 @@ CapabilityRegistry validate_system(const Json& system) {
             if (entry.value().at("adapter").as_string() == "openai-responses") has_live_profile = true;
         if (!has_live_profile) unsupported("system.model_calls", "real calls require a complete explicit responses profile and independent host authorization");
     }
-    if (integer_value(required(calls, "max_paid_retries", "system.model_calls"), "system.model_calls.max_paid_retries", 0) != 0) unsupported("system.model_calls", "paid retries are not implemented; max_paid_retries must remain zero");
+    (void)integer_value(required(calls, "max_paid_retries", "system.model_calls"), "system.model_calls.max_paid_retries", 0, 2);
     flag(calls, "charge_all_attempts", true, "system.model_calls");
     flag(calls, "require_fresh_reservation_for_retry", true, "system.model_calls");
     literal(calls, "unknown_cost_policy", "hold_reservation", "system.model_calls");

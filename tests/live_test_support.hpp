@@ -92,7 +92,7 @@ inline Json model_profile(const LiveModelSettings& live) {
 }
 inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& live,
                                 std::string key = "fixture", bool enabled = true, bool fake = false,
-                                bool bounded = false) {
+                                bool bounded = false, std::int64_t paid_retries = 0) {
     ::test::TempDir directory;
     std::filesystem::copy(assets.source / "config/examples", directory.path / "config", std::filesystem::copy_options::recursive);
     std::filesystem::copy(assets.source / "prompts", directory.path / "prompts", std::filesystem::copy_options::recursive);
@@ -102,6 +102,7 @@ inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& l
         auto system = catalog.freeze("general").json().at("system");
         system.at("context").as_object().erase("tool_policy"); system.at("context").as_object().erase("model_projection");
         system.at("context").as_object().erase("worker_history");
+        system.at("model_calls").at("max_paid_retries") = paid_retries;
         if (fake) system.at("context").at("request_format") = "framed-v1";
         else {
             system.at("models").as_object()[live.provider.model_ref] = model_profile(live);

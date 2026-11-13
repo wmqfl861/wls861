@@ -118,7 +118,8 @@ int main(int argc, char** argv) {
             live.provider.pricing = pricing;
         }
         auto store = assets.open(text(config, "database"));
-        auto input = fixture::admission(assets, live, "workflow", !flag(config, "disabled"), false, flag(config, "bounded"));
+        auto input = fixture::admission(assets, live, "workflow", !flag(config, "disabled"), false,
+            flag(config, "bounded"), number_option(config, "paid_retries", 0));
         input.original_text = string_option(config, "material", "Complete a synthetic loopback workflow.");
         input.constraint_catalog = Array{};
         const auto frozen = FrozenRequestConfig::restore(canonical_json(input.config_snapshot), sha256_hex(canonical_json(input.config_snapshot)));

@@ -628,6 +628,9 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     };
     const auto invoke = [&](Role role, const std::string& node, const std::string& task,
                             WorkerTools* tools, const Json& claim) -> std::optional<Json> {
+        std::int64_t paid_retries = 0;
+        std::string retry_of;
+        Json retry_binding, retry_target;
         while (true) {
         if (!live_continue() || !accounting_ready()) return std::nullopt;
         const ActorKey key{role, node};
@@ -675,6 +678,10 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             bounds.timeout = std::min(remaining, std::chrono::milliseconds(settings->provider.limits.max_timeout_ms));
             captured = runtime.capture_call(id, role, task, index, {},
                 role == Role::Dispatcher && model_amendment, bounds);
+            captured.retry_of_attempt_id = retry_of;
+            require(retry_of.empty() || (to_json(captured.request.binding) == retry_binding &&
+                    captured.workflow_action == retry_target), ErrorCode::Stale,
+                    "retry target differs from the original captured target");
             // Check the captured claim before any reservation or credential
             // lookup. A live preflight cannot reuse the Fake zero-usage abort.
             require(captured.workflow_action.is_null() || action_in_claim(captured.workflow_action, claim),
@@ -726,6 +733,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         else invocation["workflow_action"] = captured.workflow_action;
         if (!captured.input_estimate.is_null()) invocation["input_estimate"] = captured.input_estimate;
         bool live_execution_started = false;
+        bool settled_for_retry = false;
         const auto preserve_observation_gap = [&] {
             if (!live || !live_execution_started || invocation.contains("network_started")) return;
             try {
@@ -840,6 +848,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                     // A batch stop is never permission for a late business
                     // effect. Original settlement/evidence remain durable.
                     require(live_continue(), ErrorCode::NotReady, "live batch stopped before response application");
+                    settled_for_retry = true;
                 };
                 result = runtime.accept_live_response(captured, response, after_settlement, role == Role::Dispatcher);
                 invocation["result"] = live_record_summary(result);
@@ -872,15 +881,52 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                     if (live && !live_halted) { live_halted = true; stop_reason = "correction_limit"; }
                     return std::nullopt;
                 }
+                paid_retries = 0; retry_of.clear();
                 continue; // Capture/reserve/send/settle a new independent attempt under the same uncompleted claim.
             }
             return result;
         } catch (const Error& error) {
             preserve_observation_gap();
-            const auto reason = runtime_diagnostic(std::string(error.what()) +
+            auto reason = runtime_diagnostic(std::string(error.what()) +
                 (model_failure.empty() ? "" : "; " + model_failure), credential.bytes);
             invocation["error"] = Object{{"code", error_name(error.code())},
                 {"message", live ? reason : error.what()}};
+            if (live && settled_for_retry && error.code() == ErrorCode::NotReady) {
+                const auto& transport = invocation.at("transport");
+                const auto status = text(transport, "status");
+                const auto http = number(transport, "http_status");
+                const bool unsent = !transport.at("upload_may_have_occurred").as_bool() &&
+                    number(transport, "header_bytes_observed") == 0 && number(transport, "body_bytes_observed") == 0 &&
+                    (status == "connection_error" || status == "certificate_error" ||
+                        (status == "transfer_error" && text(transport, "reason") == "transfer_error"));
+                const bool eligible = unsent || (status == "http_error" && transport.at("transfer_complete").as_bool() &&
+                    (http == 408 || http == 429 || http == 500 || http == 502 || http == 503 || http == 504));
+                const auto maximum = number(config.json().at("system").at("model_calls"), "max_paid_retries");
+                const auto feedback = store_.tool_feedback(captured.request.attempt_id);
+                if (eligible && maximum > 0 && !feedback.is_null() &&
+                        feedback.at("result").at("runtime_error").as_bool() && accounting_ready() && live_continue()) {
+                    if (paid_retries < maximum) {
+                        auto delay = std::chrono::seconds(paid_retries == 0 ? 2 : 8);
+                        if (http == 429 && transport.as_object().contains("retry_after_seconds"))
+                            delay = std::chrono::seconds(number(transport, "retry_after_seconds"));
+                        invocation["retry_delay_seconds"] = delay.count();
+                        calls.push_back(std::move(invocation));
+                        ++paid_retries; retry_of = captured.request.attempt_id;
+                        retry_binding = to_json(captured.request.binding); retry_target = captured.workflow_action;
+                        if (calls.size() >= static_cast<std::size_t>(options.max_calls)) continue;
+                        std::mutex mutex; std::unique_lock lock(mutex); std::condition_variable_any interrupted;
+                        interrupted.wait_until(lock, stop, std::min(deadline, std::chrono::steady_clock::now() + delay),
+                            [] { return false; });
+                        continue; // All admission, budget and unique-send guards run again.
+                    }
+                    stop_reason = "paid_retry_limit";
+                    reason = runtime_diagnostic(
+                        (http == 429 ? "HTTP 429 rate limited; retried " : "Transient transport failure; retried ") +
+                        std::to_string(paid_retries) + " times; retry limit reached.", credential.bytes);
+                    invocation.at("error").as_object()["message"] = reason;
+                    block(role, node, task, stop_reason, reason);
+                }
+            }
             calls.push_back(std::move(invocation)); stopped.insert(key);
             if (live) {
                 if (stop_reason == "quiescent") stop_reason = "error";
