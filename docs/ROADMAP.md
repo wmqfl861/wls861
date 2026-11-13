@@ -1,18 +1,18 @@
 # WLS861 实施路线
 
-目标蓝图 v0.4.1；本轮依据[Claude审核采纳记录](reviews/claude-disposition.md)调整优先级。
+当前蓝图 v0.4.1，owner 已采纳目标蓝图 v0.5；按[11-13 决定](reviews/claude-2026-11-13/02-decisions.md)在 G2 出口迁入规格目录。
 当前能力、实现版本及证据集中在[STATUS](STATUS.md)，历史阶段成果见 CHANGELOG 和 reports。
 第二份审核处置见[10-24记录](reviews/claude-2026-10-24-disposition.md)和[ADR-064–066](adr/064-audit24-recovery.md)。
 
-## 0. 当前执行路线（2026-11-11 owner 采纳）
+## 0. 当前执行路线（2026-11-13 owner 采纳）
 
-2026-11-11 审计与后续开发计划已由 owner 采纳，全文入库存档于 [claude-2026-11-11](reviews/claude-2026-11-11/README.md)（原始字节冻结于提交 [`7d1dadb`](https://github.com/wmqfl861/wls861/commit/7d1dadb17bd5d089c23d1dbb086c694991c1e6e2)，仅 05 的 §2 状态列与追加 §16 为执行更新）：要点入口[开发计划 05](reviews/claude-2026-11-11/05-development-plan.md)、[审计报告 01](reviews/claude-2026-11-11/01-audit-report.md)；当前事实以[STATUS](STATUS.md)为准。执行顺序：阶段 0 收敛 → G1 接入真实模型前的改造 → G2 首个真实闭环 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10。
+[11-13 审核与计划](reviews/claude-2026-11-13/README.md)已合入 main；[11-11 计划](reviews/claude-2026-11-11/05-development-plan.md)继续有效，冲突以新决定为准。阶段 0 与 G1 已完成，G1 获 owner 验收；当前推进 G2-P 真实模型就绪，随后是 G2 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10。
 
-覆盖要点：D-2/D-3 未给出，保持零真实/付费调用；D-4 元数据未知键宽容并记录、未知输出项类型拒绝（覆盖旧文档中"未知输出项跳过"的表述）；D-6 取消配对复现、独立硬审、资源采样、源码身份清单等合并前置，测试行数不超过产品行数 2 倍；清理默认值推迟到 G9（D-7）。蓝图仍为 v0.4.1；03 的 v0.5 提案未批准，仅存档，不迁入规格目录。
+G2-P 的接口、错误反馈、计费、重试与文件模板已合入，预演候选为 0.12.0 / Store 410，八个场景和最终检查见[阶段报告](reports/g2p-rehearsal.md)。早期异步、Store 411 和 DAG 分支不属于当前 main，也不是已交付的默认能力。
 
-2026-11-12进度：阶段0完成，G1-A–M已普通合入产品基线 main@`b09848e7`（#66，23:09:34 UTC）。M head `c2aa644` 的PR三核心各83/83 PASS、本机单次注册G1 1/1 PASS；23:28:39 UTC观察时新main full仍IN_PROGRESS、source SUCCESS；上一main b267完整矩阵已SUCCESS。完整架构、PR/SHA、验证、开放超时与接手步骤见[完整交接](reviews/g1-main-handoff-20261112.md)，简报见[G1结果与限制](reports/g1-exit.md)。阶段0历史保留在[原里程碑](reports/stage0-convergence.md)。
+D-2/D-3 已授权首个 OpenAI Responses / gpt-5-mini 闭环，每请求上限 1 美元、G2 合计 10 美元，合格重试最多两次；密钥和 owner 的“密钥已就绪”尚未到位，真实调用仍为零。G2-P 出口后若仍无密钥，按[计划 §4](reviews/claude-2026-11-13/04-plan.md#4-密钥没到时做什么)依次推进 G4-A/B/C、G5-A/B、G3-A、G6-B，密钥就绪后优先转回 G2。
 
-下一步登记剩余main自动full结果，对已知ASan单项/本机capture超时做有界诊断；已完成新G1无需为交接重复。本次特定合并不宣称G1正式通过，不扩大后续授权。G2真实闭环仍等待D-2/D-3；后续保持G4先于G3，不把旧Store013/411、异步/DAG分支当成当前main。
+新六种线上格式在 G2 出口冻结，旧 framed-v1 / structured-v2 继续保持。PR 三核心绿且符合行数/数据库/调用边界即可按 D-1a 合并；main 完整矩阵失败须在 24 小时内修复或回退。当前 ASan 验收套件超时正定向处理，原失败保留；D-11 的 sanitizer CTest 时限倍数不改变 Release 或业务期限。历史成果见 [G1 交接](reviews/g1-main-handoff-20261112.md)、[G1 报告](reports/g1-exit.md)、[阶段 0](reports/stage0-convergence.md)。
 
 ## 1. 近期关键路径：先验证真实任务价值
 
