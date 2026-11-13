@@ -7,6 +7,7 @@
 #include "wls/model.hpp"
 #include "wls/provider_profile.hpp"
 #include "wls/structured_context.hpp"
+#include "response_metadata.hpp"
 
 #include <algorithm>
 #include <set>
@@ -40,11 +41,15 @@ inline bool token(const std::string& value, std::size_t maximum = 128) {
 }
 
 inline void only(const boost::json::object& source, std::string_view kind,
-                 std::initializer_list<std::string_view> names, ErrorCode code) {
+                 std::initializer_list<std::string_view> names, ErrorCode code,
+                 bool ignore_metadata = false, response_metadata::Collector* metadata = nullptr) {
     for (const auto& entry : source) {
         const bool known = std::any_of(names.begin(), names.end(),
             [&](std::string_view name) { return entry.key() == name; });
-        if (!known) throw Error(code, std::string(kind) + " field is outside the compatibility subset");
+        if (!known) {
+            if (!ignore_metadata) throw Error(code, std::string(kind) + " field is outside the compatibility subset");
+            if (metadata) metadata->record(kind, entry.key());
+        }
     }
 }
 inline const Json* member(const boost::json::object& source, std::string_view key) {
@@ -56,7 +61,8 @@ inline std::string text_of(const Json& value) { return std::string(value.as_stri
 // restore-side shape checks. Throws Error.
 inline Projection validate_output(const Json& output, const ValidationBounds& bounds,
                                   const std::vector<std::string>* tool_allowlist,
-                                  bool parallel_tool_calls) {
+                                  bool parallel_tool_calls, bool ignore_metadata = false,
+                                  response_metadata::Collector* metadata = nullptr) {
     Projection result;
     if (!output.is_array()) throw Error(ErrorCode::InvalidInput, "compatibility output must be an array");
     const auto& items = output.as_array();
@@ -70,6 +76,7 @@ inline Projection validate_output(const Json& output, const ValidationBounds& bo
         text_bytes += size;
     };
     for (const auto& item : items) {
+        const auto path = "/output/" + std::to_string(&item - items.data());
         if (!item.is_object()) throw Error(ErrorCode::InvalidInput, "compatibility output item must be an object");
         const auto& source = item.as_object();
         const auto type = source.contains("type") && source.at("type").is_string() ?
@@ -78,8 +85,8 @@ inline Projection validate_output(const Json& output, const ValidationBounds& bo
         if (!id || !id->is_string() || !token(text_of(*id)) || !item_ids.insert(text_of(*id)).second)
             throw Error(ErrorCode::InvalidInput, "compatibility output IDs must be unique bounded tokens");
         if (type == "reasoning") {
-            only(source, "reasoning", {"id", "type", "summary", "encrypted_content", "status", "content"},
-                 ErrorCode::Unsupported);
+            only(source, path, {"id", "type", "summary", "encrypted_content", "status", "content"},
+                 ErrorCode::Unsupported, ignore_metadata, metadata);
             const auto* summary = member(source, "summary");
             if (!summary || !summary->is_array())
                 throw Error(ErrorCode::InvalidInput, "reasoning item requires its summary array");
@@ -88,7 +95,8 @@ inline Projection validate_output(const Json& output, const ValidationBounds& bo
             for (const auto& entry : summary->as_array()) {
                 if (!entry.is_object()) throw Error(ErrorCode::InvalidInput, "summary part must be an object");
                 const auto& fields = entry.as_object();
-                only(fields, "summary", {"type", "text"}, ErrorCode::Unsupported);
+                only(fields, path + "/summary/" + std::to_string(&entry - summary->as_array().data()),
+                     {"type", "text"}, ErrorCode::Unsupported, ignore_metadata, metadata);
                 const auto* part_type = member(fields, "type");
                 const auto* part_text = member(fields, "text");
                 if (!part_type || !part_type->is_string() || std::string_view(part_type->as_string()) != "summary_text")
@@ -112,7 +120,7 @@ inline Projection validate_output(const Json& output, const ValidationBounds& bo
                 content && (!content->is_array() || !content->as_array().empty()))
                 throw Error(ErrorCode::Unsupported, "reasoning text content is outside the compatibility subset");
         } else if (type == "message") {
-            only(source, "message", {"id", "type", "role", "status", "content"}, ErrorCode::Unsupported);
+            only(source, path, {"id", "type", "role", "status", "content"}, ErrorCode::Unsupported, ignore_metadata, metadata);
             const auto* role = member(source, "role");
             const auto* status = member(source, "status");
             const auto* content = member(source, "content");
@@ -127,10 +135,10 @@ inline Projection validate_output(const Json& output, const ValidationBounds& bo
                 const auto& fields = entry.as_object();
                 const auto part_type = member(fields, "type");
                 const bool is_refusal = part_type && *part_type == Json("refusal");
-                only(fields, is_refusal ? "refusal" : "message",
+                only(fields, path + "/content/" + std::to_string(&entry - content->as_array().data()),
                      is_refusal ? std::initializer_list<std::string_view>{"type", "refusal"}
                                 : std::initializer_list<std::string_view>{"type", "text", "annotations", "logprobs"},
-                     ErrorCode::Unsupported);
+                     ErrorCode::Unsupported, ignore_metadata, metadata);
                 if (is_refusal) {
                     const auto* refusal = member(fields, "refusal");
                     if (!refusal || !refusal->is_string())
@@ -154,7 +162,7 @@ inline Projection validate_output(const Json& output, const ValidationBounds& bo
                 result.text += text_of(*part_text);
             }
         } else if (type == "function_call") {
-            only(source, "function", {"id", "type", "call_id", "name", "arguments", "status"}, ErrorCode::Unsupported);
+            only(source, path, {"id", "type", "call_id", "name", "arguments", "status"}, ErrorCode::Unsupported, ignore_metadata, metadata);
             if (const auto* status = member(source, "status");
                 status && (!status->is_string() || status->as_string() != "completed"))
                 throw Error(ErrorCode::InvalidInput, "terminal function call must be completed");
@@ -194,15 +202,18 @@ inline Projection validate_output(const Json& output, const ValidationBounds& bo
 inline Projection validate_payload(const Json& payload) {
     if (!payload.is_object()) throw Error(ErrorCode::InvalidInput, "responses output must be an object");
     const auto& source = payload.as_object();
-    only(source, "responses output payload", {"format", "reference", "model", "output"}, ErrorCode::InvalidInput);
-    const bool envelope = source.size() == 4 && source.contains("format") && source.at("format").is_string() &&
+    only(source, "responses output payload", {"format", "reference", "model", "output", "response_metadata_policy"}, ErrorCode::InvalidInput);
+    const auto* policy = member(source, "response_metadata_policy");
+    const bool ignore_metadata = policy && *policy == Json("ignore-record-v1");
+    const bool envelope = source.size() == (ignore_metadata ? 5 : 4) && (!policy || ignore_metadata) &&
+        source.contains("format") && source.at("format").is_string() &&
         std::string_view(source.at("format").as_string()) == output_format &&
         source.contains("reference") && source.at("reference").is_string() &&
         std::string_view(source.at("reference").as_string()) == reference &&
         source.contains("model") && source.at("model").is_string() && token(text_of(source.at("model")));
     if (!envelope)
         throw Error(ErrorCode::InvalidInput, "unsupported responses output payload envelope");
-    return validate_output(source.at("output"), ValidationBounds{}, nullptr, true);
+    return validate_output(source.at("output"), ValidationBounds{}, nullptr, true, ignore_metadata);
 }
 
 // The public projection of a payload-carrying assistant message must equal the
