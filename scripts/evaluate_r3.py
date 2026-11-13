@@ -563,7 +563,7 @@ def validate_correction_retry(db, attempt, link, tables):
 def v3_host_arguments(envelope, contract, name, arguments):
     """Derive only the new minimal v3 contract from verified captured facts."""
     if envelope['context']['format'] != 'wls-compiled-context-v3' or name not in (
-            'submit_plan', 'submit_amendment_plan', 'issue_work_order', 'check_submission'):
+            'submit_plan', 'submit_amendment_plan', 'issue_work_order', 'check_submission', 'submit'):
         return arguments
     nested = {'submit_amendment_plan': 'plan', 'check_submission': 'work_order'}.get(name)
     if nested and nested not in arguments:
@@ -576,16 +576,20 @@ def v3_host_arguments(envelope, contract, name, arguments):
     if plan:
         properties = properties.get('nodes', {}).get('items', {}).get('properties', {})
     # Archived v3 declarations retain their original exact comparison too.
-    if set(properties) != ({'node_id', 'title', 'template', 'brief'} if plan else
+    if set(properties) != ({'summary', 'deliverables', 'verification', 'self_check', 'known_issues'} if name == 'submit' else
+                           {'node_id', 'title', 'template', 'brief'} if plan else
                            {'approach', 'steps', 'done_definition', 'pitfalls', 'notes'}):
         return arguments
     result = strict_json(original_canonical(arguments))
     body = result[nested] if nested else result
-    catalog = contract['request']['constraint_catalog']
-    refs, excerpts = [item['constraint_id'] for item in catalog], [item['text'] for item in catalog]
     def fill(target, key, value):
         require(key not in target or target[key] == value, 'model host field differs from captured contract: ' + key)
         target[key] = value
+    if name == 'submit':
+        fill(body, 'used_memories', [])
+        return result
+    catalog = contract['request']['constraint_catalog']
+    refs, excerpts = [item['constraint_id'] for item in catalog], [item['text'] for item in catalog]
     if plan:
         for node in body['nodes']:
             fill(node, 'kind', 'team_task'); fill(node, 'depends_on', [])

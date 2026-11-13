@@ -371,6 +371,10 @@ Json v3_schema(const Json& source, const Documents& documents, std::size_t& budg
     } else if (id.ends_with("/work_order.schema.json")) {
         omit_properties(result, {"constraint_refs", "constraints_verbatim"});
         omit_properties(object.at("properties").at("steps").at("items"), {"id"});
+    } else if (id.ends_with("/submission.schema.json")) {
+        omit_properties(result, {"used_memories"});
+    } else if (id.ends_with("/experience_report.schema.json")) {
+        omit_properties(result, {"memory_assessments"});
     }
     for (const auto* key : {"$schema", "$id", "title"}) object.erase(key);
     // Closed objects already forbid removed runtime names; omit redundant
