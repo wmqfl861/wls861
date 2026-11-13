@@ -36,6 +36,12 @@ void write(const std::filesystem::path& path, const Json& value) {
 
 void reject(const std::function<void()>& action) { test::throws<Error>(action); }
 
+std::string rejection_message(const std::function<void()>& action) {
+    try { action(); }
+    catch (const Error& error) { CHECK(error.code() == ErrorCode::InvalidInput); return error.what(); }
+    throw std::runtime_error("expected invalid input");
+}
+
 void remove_execution_fields(boost::json::object& object) {
     for (const auto* name : {"request_id", "task_id", "team_id", "requirements_revision",
              "plan_revision", "task_revision", "instruction_revision", "dispatcher_epoch",
@@ -185,7 +191,8 @@ void nested_briefs_and_draft7_conditionals() {
     registry->validate("plan", plan, true);
     auto broken = plan;
     broken.as_object().at("nodes").as_array()[0].as_object().at("brief").as_object().erase("constraint_refs");
-    reject([&] { registry->validate("plan", broken, true); });
+    CHECK(rejection_message([&] { registry->validate("plan", broken, true); })
+        .find("/nodes/0/brief/constraint_refs: required property is missing") != std::string::npos);
     broken = plan;
     broken.as_object().at("nodes").as_array()[0].as_object().erase("brief");
     reject([&] { registry->validate("plan", broken, true); });
@@ -217,6 +224,69 @@ void findings_capacity_and_unique_items() {
     auto brief = example("task_brief");
     brief.as_object()["constraint_refs"] = boost::json::array{"c1", "c1"};
     reject([&] { registry->validate("task_brief", brief); });
+}
+
+void diagnostics_identify_nested_brief_errors_without_values() {
+    for (const bool model_input : {false, true}) {
+        auto plan = example("plan");
+        if (model_input) {
+            plan.as_object().erase("plan_revision");
+            plan.as_object().erase("based_on_requirements_revision");
+        }
+        auto& nodes = plan.as_object().at("nodes").as_array();
+        const auto copy = nodes.front(); nodes.push_back(copy);
+        auto& brief = nodes[1].as_object().at("brief").as_object();
+        brief.erase("goal");
+        brief["objective"] = "private goal value";
+        brief["acceptance_criteria"] = boost::json::array{"private criterion value"};
+        const auto message = rejection_message([&] { registry->validate("plan", plan, model_input); });
+        CHECK(message.find("/nodes/1/brief/acceptance_criteria/0: type mismatch") != std::string::npos);
+        CHECK(message.find("/nodes/1/brief/objective: property is not allowed") != std::string::npos);
+        CHECK(message.find("/nodes/1/brief/goal: required property is missing") != std::string::npos);
+        CHECK(message.find("private") == std::string::npos && message.size() <= 600);
+    }
+}
+
+void diagnostics_escape_pointers_and_limit_errors_and_fragments() {
+    test::TempDir directory;
+    auto schema = basic_schema("diagnostics", parse_json_strict(R"({
+        "a~/b":{"type":"string","format":"date"},
+        "b":{"type":"string","pattern":"^allowed$"},
+        "c":{"type":"integer"},"d":{"type":"integer"}
+    })"));
+    write(directory.path / "diagnostics.schema.json", schema);
+    const SchemaRegistry local(directory.path);
+    const Json bad = boost::json::object{{"a~/b", "private date"}, {"b", "private pattern"},
+        {"c", "private type"}, {"d", "private fourth"}};
+    const auto message = rejection_message([&] { local.validate("diagnostics", bad); });
+    CHECK(message.find("/a~0~1b: format mismatch") != std::string::npos);
+    CHECK(message.find("/b: pattern mismatch") != std::string::npos);
+    CHECK(message.find("/c: type mismatch") != std::string::npos);
+    CHECK(message.find("/d:") == std::string::npos && message.find("private") == std::string::npos);
+    CHECK(message.size() <= 600);
+
+    const std::string long_key = std::string(36, 'k') + "界界界" + std::string(200, 'k');
+    Json shape = boost::json::object{{"type", "integer"}}, value = "private nested value";
+    for (int depth = 0; depth < 8; ++depth) {
+        shape = boost::json::object{{"type", "object"}, {"properties", boost::json::object{{long_key, shape}}}};
+        value = boost::json::object{{long_key, value}};
+    }
+    write(directory.path / "bounded.schema.json", basic_schema("bounded", shape.at("properties")));
+    const SchemaRegistry bounded(directory.path);
+    const auto nested = rejection_message([&] { bounded.validate("bounded", value); });
+    CHECK(nested.size() <= 600 && nested.find(std::string(36, 'k') + "...") != std::string::npos);
+    CHECK(nested.find(long_key) == std::string::npos && nested.find("private") == std::string::npos);
+    CHECK(parse_json_strict(canonical_json(Json(nested))).as_string() == nested);
+
+    const std::string extra = "unexpected~/\n" + std::string(80, 'x');
+    auto brief = example("task_brief"); brief.as_object()[extra] = "private extra value";
+    const auto unknown = rejection_message([&] { registry->validate("task_brief", brief); });
+    CHECK(unknown.find("/unexpected~0~1?") != std::string::npos);
+    CHECK(unknown.find(std::string(40, 'x')) == std::string::npos && unknown.find('\n') == std::string::npos);
+    CHECK(unknown.find("private") == std::string::npos && unknown.size() <= 600);
+    brief = example("task_brief"); brief.as_object()[std::string(80, '~')] = "private extra value";
+    const auto escaped = rejection_message([&] { registry->validate("task_brief", brief); });
+    CHECK(escaped.find("/~0~0") != std::string::npos && escaped.find("~...") == std::string::npos);
 }
 
 void closed_local_references_and_projection() {
@@ -343,6 +413,8 @@ int main(int argc, char** argv) {
         {"projection removes host conditions and preserves business conditions", runtime_conditions_are_projected_but_business_conditions_remain},
         {"projection scopes host names without weakening nested business fields", projection_keeps_same_named_fields_in_separate_instance_scopes},
         {"plan team briefs and draft-07 conditional requirements validate", nested_briefs_and_draft7_conditionals},
+        {"schema diagnostics locate nested brief errors without parameter values", diagnostics_identify_nested_brief_errors_without_values},
+        {"schema diagnostics escape pointers and bound errors and UTF-8 fragments", diagnostics_escape_pointers_and_limit_errors_and_fragments},
         {"100 findings remain legal and unique constraints are enforced", findings_capacity_and_unique_items},
         {"registered relative references preserve model projection and deny host fields", closed_local_references_and_projection},
         {"local JSON Pointers, boolean schemas and patterns are enforced", local_pointer_and_boolean_schema},
