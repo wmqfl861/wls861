@@ -835,6 +835,16 @@ CapturedModelCall OfflineRuntime::capture_call(
             {"hard_reservation_basis", "max_original_logical_bytes_and_complete_encoded_body_bytes"},
             {"reserved_input_tokens", request.reserved_input_tokens}};
     }
+    if (string_at(profile, "adapter") == "openai-responses") {
+        const auto settings = live_model_settings_from_json(profile, request.model.model);
+        if (settings.provider.pricing && settings.provider.billing_challenge.empty()) {
+            const auto bytes = encode_responses_request(settings.provider, request, settings.stream).body.size();
+            const auto bound = minimum_cost_reservation(*settings.provider.pricing,
+                static_cast<std::int64_t>(bytes), request.reserved_output_tokens);
+            require(bound.available, ErrorCode::Quota, "encoded request pricing bound exceeds capacity");
+            request.reserved_cost_micro_usd = std::max<std::int64_t>(1, bound.cost_micro_usd);
+        }
+    }
     return {std::move(request), actor, integer_at(task_id.empty() ? record : task, "state_version"), std::move(action), std::move(estimate)};
 }
 
