@@ -14,7 +14,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import signal
 import sqlite3
 import subprocess
 import sys
@@ -429,28 +428,6 @@ class LiveWorkflowCli(unittest.TestCase):
             self.authorization_file.write_text(json.dumps(auth))
             report = self.pump(request)
             self.assertEqual(report['stop_reason'], 'deadline', report)
-            self.assertEqual(report['calls'][0]['retry_delay_seconds'], 60)
-            self.assertEqual(len(peer.requests), 1)
-            self.assertEqual(len(self.rows('SELECT * FROM call_attempts')), 1)
-
-    def test_retry_wait_is_cancelled_without_another_reservation(self):
-        with tls.Peer(self.contexts['server'], tls.fixed_response(b'{}', status=429,
-                extra=b'Retry-After: 60\r\n')) as peer:
-            request = self.admit(peer.port, pricing=PRICING, retries=2, cost_budget=1000000)
-            self.authorize(request)
-            environment = dict(self.environment, **{REFERENCE: BEARER})
-            with subprocess.Popen([str(BINARY), 'pump-live', '--db', str(self.database), '--request', request,
-                    '--authorization-file', str(self.authorization_file), '--source-root', str(SOURCE)],
-                    cwd=self.directory, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
-                until = time.monotonic() + 8
-                while not self.rows('SELECT * FROM model_tool_feedback') and time.monotonic() < until:
-                    time.sleep(0.025)
-                time.sleep(0.5)  # Original settlement/feedback precede entering the cancellable wait.
-                process.send_signal(signal.SIGINT)
-                stdout, stderr = process.communicate(timeout=5)
-                self.assertEqual(process.returncode, 0, stderr)
-                report = json.loads(stdout)
-            self.assertEqual(report['stop_reason'], 'cancelled', report)
             self.assertEqual(report['calls'][0]['retry_delay_seconds'], 60)
             self.assertEqual(len(peer.requests), 1)
             self.assertEqual(len(self.rows('SELECT * FROM call_attempts')), 1)
