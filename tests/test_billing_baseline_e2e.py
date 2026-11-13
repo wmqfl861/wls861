@@ -1473,7 +1473,8 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(intent['sandbox'], {'manifest': {'schema_version': 1, 'cpu_quota_us': 50000},
                 'raw_sha256': fingerprint, 'run_key_format': 'run-key-sandbox-v1'})
             # Hash the original canonical bytes, including C++ numeric spellings.
-            frozen = rows(database, 'SELECT config_snapshot,config_snapshot_sha256 FROM requests')[0]
+            frozen = rows(database, 'SELECT config_snapshot,config_snapshot_sha256 '
+                'FROM requests JOIN request_runtime USING(request_id)')[0]
             self.assertEqual(json.loads(frozen['config_snapshot']), intent['config_snapshot'])
             snapshot_sha = hashlib.sha256(frozen['config_snapshot'].encode('utf-8')).hexdigest()
             self.assertEqual(snapshot_sha, frozen['config_snapshot_sha256'])
