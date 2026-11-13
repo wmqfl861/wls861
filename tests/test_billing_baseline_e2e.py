@@ -337,7 +337,11 @@ class PricingFlowEndpoint:
                 return 'report_experience', {'no_new_experience': True, 'entries': [], 'memory_assessments': []}
             raise AssertionError(f'unexpected priced workflow action {kind}')
         if not binding['task_id']:
-            return 'submit_plan', self.plan
+            plan = copy.deepcopy(self.plan)
+            if 'instructions' in body:  # New v3 script copy; frozen legacy fixture bytes stay intact.
+                for node in plan['nodes']:
+                    node['brief']['title'] = node['title']
+            return 'submit_plan', plan
         if 'issue_work_order' in {tool['name'] for tool in body['tools']}:
             return 'issue_work_order', self.order
         if self.correctable_read:

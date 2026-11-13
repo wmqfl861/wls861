@@ -37,7 +37,7 @@ void expect(ErrorCode code, const std::function<void()>& action) {
     }
     CHECK(caught);
 }
-AdmissionInput input(std::int64_t correction_limit = 2, std::int64_t stall_limit = 0) {
+AdmissionInput input(std::int64_t correction_limit = 2, std::int64_t stall_limit = 0, bool v3 = false) {
     test::TempDir configuration;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
     const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
@@ -46,7 +46,7 @@ AdmissionInput input(std::int64_t correction_limit = 2, std::int64_t stall_limit
     yaml.erase(yaml.find("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n"), sizeof("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n") - 1);
     const std::string format = "request_format: structured-v3";
     const auto format_at = yaml.find(format); CHECK(format_at != std::string::npos);
-    yaml.replace(format_at, format.size(), "request_format: framed-v1");
+    yaml.replace(format_at, format.size(), v3 ? format : "request_format: framed-v1");
     const std::string marker = "  schema_retry_max: 3";
     const auto position = yaml.find(marker); CHECK(position != std::string::npos);
     yaml.replace(position, marker.size(), "  schema_retry_max: " + std::to_string(correction_limit));
@@ -143,6 +143,113 @@ struct Fixture {
     Json ask(bool blocking = true) { return invoke(Role::Worker, "ask", question_body(blocking)); }
     Json submit() { return invoke(Role::Worker, "submit", submission_body()); }
 };
+
+Json minimal_plan() {
+    return parse_json_strict(R"({"summary":"One independent file","nodes":[{"node_id":"alpha","title":"Write requested file","brief":{"goal":"Produce the requested file","acceptance_criteria":[{"text":"Contains the requested text"}]}}]})");
+}
+Json minimal_order() {
+    return parse_json_strict(R"({"approach":"Write then verify","steps":[{"text":"Write result.txt","check":"Read it back"}],"done_definition":"Requested file verified"})");
+}
+void v3_minimal_calls_persist_full_contracts_and_original_responses() {
+    Fixture f(input(20, 0, true));
+    const FakeModel model({step(Role::Dispatcher, "submit_plan", minimal_plan())});
+    const auto captured = f.capture(Role::Dispatcher, model);
+    const auto original_request = to_json(captured.request);
+    const auto response = model.complete(captured.request);
+    const auto& parameters = captured.request.context.logical_input.at("prefix").at("tools").as_array().front().at("parameters");
+    CHECK(parameters.at("properties").at("nodes").at("items").at("properties").as_object().size() == 4);
+    (void)OfflineRuntime(*f.store, *schemas, f.alpha.get()).accept_independent_response(captured, response);
+    const auto plan = f.store->plan(f.id).at("body"); schemas->validate("plan", plan);
+    const auto& node = plan.at("nodes").as_array()[0];
+    CHECK(node.at("kind") == "team_task" && node.at("depends_on") == Array{} && node.at("required") == true);
+    const auto brief = f.task().at("brief");
+    CHECK(brief.at("title") == node.at("title") && brief.at("acceptance_criteria").as_array()[0].at("id") == "ac1");
+    CHECK(brief.at("constraint_refs") == Array({"c1", "c2"}));
+    const auto admission = input();
+    for (std::size_t i = 0; i < 2; ++i) CHECK(brief.at("constraints_verbatim").as_array()[i] == admission.constraint_catalog.as_array()[i].at("text"));
+    CHECK(f.store->attempt(captured.request.attempt_id).at("response") == to_json(response));
+    CHECK(f.store->attempt(captured.request.attempt_id).at("request_envelope") == original_request);
+    const auto issued = f.invoke(Role::TeamLead, "issue_work_order", minimal_order());
+    CHECK(!issued.as_object().contains("correction_feedback"));
+    const auto order = f.store->instruction(f.binding().task_id).at("body"); schemas->validate("work_order", order);
+    CHECK(order.at("steps").as_array()[0].at("id") == "s1");
+    CHECK(order.at("constraint_refs") == brief.at("constraint_refs") && order.at("constraints_verbatim") == brief.at("constraints_verbatim"));
+}
+void v3_compatibility_fields_are_checked_and_unknown_fields_rejected() {
+    const auto reject_plan = [](const Json& plan, const std::string& path) {
+        Fixture f(input(20, 0, true));
+        const auto result = f.invoke(Role::Dispatcher, "submit_plan", plan);
+        CHECK(result.at("correction_feedback").at("reason") == "model_arguments");
+        CHECK(text(result.at("correction_feedback").at("observation")).find(path) != std::string::npos);
+        CHECK(f.store->tasks(f.id).empty() && f.store->request(f.id).at("plan_revision") == 0);
+    };
+    for (const auto& entry : Object{{"kind", "capability_call"}, {"depends_on", Array{"other"}}, {"unexpected", true}}) {
+        auto plan = minimal_plan(); plan.at("nodes").as_array()[0].as_object()[entry.key()] = entry.value();
+        reject_plan(plan, std::string(entry.key()));
+    }
+    for (const auto& entry : Object{{"title", "different"}, {"constraint_refs", Array{}}, {"constraints_verbatim", Array{}}, {"inputs", Array{}}}) {
+        auto plan = minimal_plan(); plan.at("nodes").as_array()[0].at("brief").as_object()[entry.key()] = entry.value();
+        reject_plan(plan, std::string(entry.key()));
+    }
+    auto plan = minimal_plan(); plan.at("nodes").as_array()[0].at("brief").at("acceptance_criteria").as_array()[0].as_object()["id"] = "ac9";
+    reject_plan(plan, "/id");
+    Fixture f(input(20, 0, true));
+    plan = script().default_steps.front().tool_calls.front().arguments;
+    for (auto& node : plan.at("nodes").as_array()) node.at("brief").at("title") = node.at("title");
+    plan.at("nodes").as_array()[0].at("required") = false;
+    const FakeModel model({step(Role::Dispatcher, "submit_plan", plan)});
+    const auto call = f.capture(Role::Dispatcher, model);
+    const auto result = OfflineRuntime(*f.store, *schemas, f.alpha.get()).accept_independent_response(call, model.complete(call.request));
+    CHECK(!result.as_object().contains("correction_feedback"));
+    CHECK(f.store->plan(f.id).at("body").at("nodes").as_array()[0].at("required") == false);
+    CHECK(f.task().at("required") == 0);
+}
+void v3_rework_preserves_task_and_previous_instruction_excerpts() {
+    auto admission = input(20, 0, true);
+    admission.original_text += "\nExtra original instruction constraint.";
+    Fixture f(admission);
+    (void)f.invoke(Role::Dispatcher, "submit_plan", minimal_plan());
+    auto order = minimal_order();
+    order.as_object()["constraint_refs"] = f.task().at("brief").at("constraint_refs");
+    order.as_object()["constraints_verbatim"] = f.task().at("brief").at("constraints_verbatim");
+    order.at("constraints_verbatim").as_array().emplace_back("Extra original instruction constraint.");
+    order.at("steps").as_array()[0].as_object()["id"] = "s1";
+    const auto before = f.binding(); auto next = before; ++next.instruction_revision;
+    const auto envelope = to_json(next);
+    for (const auto& item : envelope.as_object()) order.as_object()[item.key()] = item.value();
+    (void)f.store->issue_instruction(f.store->host_actor(Role::TeamLead, f.id, before.team_id), before,
+        number(f.task().at("state_version")), order, "host-order-with-extra-excerpt");
+    const auto binding = f.binding();
+    (void)f.store->acknowledge(f.store->host_actor(Role::Worker, f.id, binding.team_id), binding,
+        number(f.task().at("state_version")), "ack-original-order");
+    write(f.directory.path / "alpha/result.txt", "alpha candidate version 1\n");
+    (void)f.submit();
+    const auto result = f.invoke(Role::TeamLead, "check_submission", Object{{"passed", false}, {"work_order", minimal_order()}});
+    CHECK(!result.as_object().contains("correction_feedback"));
+    const auto rework = f.store->instruction(f.binding().task_id).at("body");
+    CHECK(rework.at("constraints_verbatim") == order.at("constraints_verbatim"));
+    CHECK(rework.at("instruction_revision") == 2 && rework.at("steps").as_array()[0].at("id") == "s1");
+}
+void v3_amendment_plan_uses_the_captured_current_catalog() {
+    Fixture f(input(20, 0, true));
+    (void)f.invoke(Role::Dispatcher, "submit_plan", minimal_plan());
+    auto catalog = input().constraint_catalog;
+    catalog.as_array().push_back(Object{{"constraint_id", "c3"}, {"text", "Preserve the new amendment."}, {"source_revision", 2}});
+    (void)f.store->amend(f.store->host_actor(Role::Root, f.id), number(f.store->request(f.id).at("state_version")),
+        "Preserve the new amendment.", catalog, "minimal-v3-amendment");
+    const auto arguments = Object{{"plan", minimal_plan()}, {"dispositions", Object{{"alpha", Object{
+        {"disposition", "update"}, {"rationale", "Apply the captured amendment"}}}}}};
+    const FakeModel model({step(Role::Dispatcher, "submit_amendment_plan", arguments)});
+    OfflineRuntime runtime(*f.store, *schemas, f.alpha.get());
+    const auto call = runtime.reserve_call(model, f.id, Role::Dispatcher, {}, 1, {}, true);
+    CHECK(call.workflow_action.at("kind") == "amendment");
+    const auto response = model.complete(call.request);
+    const auto result = runtime.accept_independent_response(call, response);
+    CHECK(!result.as_object().contains("correction_feedback"));
+    CHECK(f.task().at("brief").at("constraint_refs") == Array({"c1", "c2", "c3"}));
+    CHECK(f.task().at("brief").at("constraints_verbatim").as_array().back() == "Preserve the new amendment.");
+    CHECK(f.store->attempt(call.request.attempt_id).at("response") == to_json(response));
+}
 
 void complete_bounded_rework_preserves_two_original_candidates() {
     Fixture f;
@@ -626,6 +733,10 @@ int main() {
         {"original no-mkdir and no-spawn failures correct while write permissions stay blocked", no_directory_or_process_effects_can_be_corrected},
         {"two output-limit responses stop across restart without losing accounting", output_limit_feedback_stops_after_two_and_keeps_original_accounting},
         {"cancelled late and timed-out failures remain stops", interrupted_and_late_failures_never_become_corrections},
+        {"v3 minimal plan and order retain complete stored contracts and original responses", v3_minimal_calls_persist_full_contracts_and_original_responses},
+        {"v3 compatibility fields require consistency and unknown fields remain rejected", v3_compatibility_fields_are_checked_and_unknown_fields_rejected},
+        {"v3 minimal rework retains task and previous instruction constraints", v3_rework_preserves_task_and_previous_instruction_excerpts},
+        {"v3 nested amendment plans use the captured current constraint catalog", v3_amendment_plan_uses_the_captured_current_catalog},
         {"bounded same-error stop persists independently of schema retries and resets on success or target change", bounded_same_error_count_survives_reopen_and_resets_on_success_or_target_change},
         {"text-only correction preserves independent attempts and actor history scope", correction_text_only_preserves_independent_attempts_and_actor_scope},
         {"pure argument and tool selection failures correct for management and Worker", correction_arguments_and_selection_recover_for_managers_and_workers},

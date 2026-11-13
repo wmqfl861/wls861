@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import sqlite3
 import unittest
+from fake_script_support import legacy_context
 
 spec = importlib.util.spec_from_file_location('amend_event_helpers', Path(__file__).with_name('s13_cli_smoke.py'))
 h = importlib.util.module_from_spec(spec)
@@ -32,6 +33,8 @@ class ModelAmendCli(unittest.TestCase):
     pending = h.EventCliSmoke.pending
 
     def admit(self, key='model-amend', structured=False, schema_retry_max=None):
+        if not structured and schema_retry_max is None:
+            return h.EventCliSmoke.submit(self, key=key)
         args = ['submit', '--db', self.database, '--key', key,
                 '--text-file', h.FIXTURES / 's13_request.txt',
                 '--constraints-file', h.FIXTURES / 's13_constraints.json']
@@ -40,6 +43,8 @@ class ModelAmendCli(unittest.TestCase):
             source = (h.SOURCE / 'config/examples/system.yaml').read_text()
             if structured:
                 source = source.replace('  tool_policy: fixed-role-v1\n', '').replace('  model_projection: lean-v1\n', '').replace('  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n', '').replace('request_format: structured-v3', 'request_format: structured-v2')
+            else:
+                source = legacy_context(source)
             if schema_retry_max is not None:
                 # Freeze the single-response negative fixture before admission.
                 self.assertEqual(source.count('schema_retry_max: 3'), 1)
@@ -213,7 +218,10 @@ class ModelAmendCli(unittest.TestCase):
         self.assertEqual(self.rows('SELECT * FROM amend_dispositions'), [])
 
     def test_exhausted_attempt_budget_retains_omitted_amend_subject(self):
+        config = self.directory / 'limited-amend.yaml'
+        config.write_text(legacy_context((h.SOURCE / 'config/examples/system.yaml').read_text()))
         request = self.invoke('submit', '--db', self.database, '--key', 'limited-amend',
+            '--config', config, '--functions-dir', h.SOURCE / 'config/examples/functions',
             '--text-file', h.FIXTURES / 's13_request.txt',
             '--constraints-file', h.FIXTURES / 's13_constraints.json',
             '--max-attempts', 6)['request']['request_id']

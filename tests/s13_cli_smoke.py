@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from fake_script_support import legacy_context
 
 
 if len(sys.argv) != 3:
@@ -534,7 +535,10 @@ class EventCliSmoke(unittest.TestCase):
                         "missing scripts lost prior pending event IDs")
 
     def test_legacy_single_task_runner_preserves_wait_until_exact_wake(self):
+        config = self.directory / "legacy-single.yaml"
+        config.write_text(legacy_context((SOURCE / "config/examples/system.yaml").read_text()))
         request = self.invoke("submit", "--db", self.database, "--key", "legacy-wait-request",
+                              "--config", config, "--functions-dir", SOURCE / "config/examples/functions",
                               "--text-file", FIXTURES / "s12_request.txt",
                               "--constraints-file", FIXTURES / "s12_constraints.json")["request"]["request_id"]
         workspace = self.workspaces["alpha"]
