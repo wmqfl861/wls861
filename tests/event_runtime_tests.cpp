@@ -1,6 +1,7 @@
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "test_support.hpp"
+#include "../src/runtime_diagnostic.hpp"
 
 #include <sqlite3.h>
 
@@ -478,6 +479,21 @@ void legacy_single_task_runner_cannot_supersede_a_durable_wait() {
     CHECK(f.store.task(binding.task_id).at("applied_instruction_revision") == 1);
     CHECK(read_runtime_file(f.directory.path / "alpha/after-wake.txt") == "explicit wake permits this new effect\n");
 }
+void public_diagnostics_redact_credentials_and_bound_utf8() {
+    const std::string secret = "synthetic-bearer-value";
+    const std::string original = "cannot open /work/" + secret + "/item; Authorization: Bearer hidden-value";
+    const auto safe = runtime_diagnostic(original, secret);
+    CHECK(safe.find("cannot open /work/[redacted]/item") != std::string::npos);
+    CHECK(safe.find(secret) == std::string::npos);
+    CHECK(safe.find("hidden-value") == std::string::npos);
+    CHECK(original.find(secret) != std::string::npos);
+    CHECK(runtime_diagnostic("aUtHoRiZaTiOn: credential") == "Authorization: [redacted]");
+    const auto bounded = runtime_diagnostic(std::string(599, 'x') + "中文" + secret, secret);
+    CHECK(bounded.size() <= 603);
+    CHECK(parse_json_strict(canonical_json(Json(bounded))) == Json(bounded));
+    CHECK(runtime_diagnostic("first\nsecond") == "first second");
+    CHECK(runtime_diagnostic(std::string(1, static_cast<char>(0xff))).find("non-UTF-8") != std::string::npos);
+}
 } // namespace
 
 int main() {
@@ -487,6 +503,7 @@ int main() {
     tools_sql = read_runtime_file(source / "db/migrations/005_worker_tools.sql");
     events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     return test::run({
+        {"public runtime diagnostics redact secrets without changing private facts", public_diagnostics_redact_credentials_and_bound_utf8},
         {"strict grouped scripts reject ambiguity and workspace host aliasing", strict_script_groups_and_host_mapping},
         {"independent tasks persist real files and scoped original feedback", independent_real_files_and_original_feedback},
         {"partial AMEND and later keep retain a single current plan", partial_amend_and_late_keep_reuse_current_plan},
