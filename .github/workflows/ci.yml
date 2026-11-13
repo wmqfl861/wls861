@@ -110,7 +110,7 @@ jobs:
                 case "$path" in
                   README.md|docs/STATUS.md|docs/ROADMAP.md|docs/REVISION-v0.4.1.md) continue ;;
                   docs/reviews/*.md|docs/reports/*.md|docs/adr/*.md|docs/implementation/*.md) continue ;;
-                  tests/test_billing_baseline_e2e.py) slow='billing_baseline_e2e;run_cli_e2e;g1_exit_e2e' ;;
+                  tests/test_billing_baseline_e2e.py) slow='billing_baseline_e2e;run_cli_e2e;g1_exit_e2e;g2_rehearsal_e2e' ;;
                   tests/live_workflow_driver.cpp) slow=live_workflow ;;
                   tests/audit24_capacity_repro_tests.cpp) slow=audit24_capacity_repro ;;
                   tests/https_transport_driver.cpp) slow=https_transport ;;
