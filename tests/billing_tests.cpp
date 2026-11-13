@@ -411,6 +411,18 @@ void estimate_math_and_minimum_reservation_vectors() {
     auto mismatch = priced_usage(); mismatch.cache_write_tokens = 1;  // frozen not-applicable
     const auto conflicted = estimate_token_cost(pricing, mismatch);
     CHECK(!conflicted.available && conflicted.policy_mismatch);
+    const auto conservative = estimate_token_cost(pricing, mismatch, true);
+    CHECK(conservative.available && conservative.policy_mismatch && conservative.cost_micro_usd == 41);
+    auto absent = priced_usage(); absent.cache_read_tokens.reset();
+    const auto no_read = estimate_token_cost(pricing, absent, true);
+    CHECK(no_read.available && no_read.policy_mismatch && no_read.cost_micro_usd == 45);
+    auto writes = pricing; writes.cache_write_applicable = true; writes.cache_write_micro_usd_per_million_tokens = 2000000;
+    const auto no_write = estimate_token_cost(writes, priced_usage(), true);
+    CHECK(no_write.available && no_write.policy_mismatch && no_write.cost_micro_usd == 45);
+    writes.cache_write_micro_usd_per_million_tokens = 1000000;
+    CHECK(estimate_token_cost(writes, priced_usage(), true).cost_micro_usd == 41);
+    CHECK(!estimate_token_cost(pricing, missing, true).available);  // output is still unknown
+    CHECK(!estimate_token_cost(pricing, subset, true).available);  // invalid counts stay invalid
     TokenPricing boundary = pricing; boundary.input_micro_usd_per_million_tokens = 1000000000000LL;
     auto huge = priced_usage(); huge.input_tokens = INT64_MAX;
     CHECK(!estimate_token_cost(boundary, huge).available);  // checked, never overflow UB

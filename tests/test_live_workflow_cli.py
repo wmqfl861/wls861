@@ -403,7 +403,7 @@ class LiveWorkflowCli(unittest.TestCase):
     def test_pricing_admission_reserves_the_frozen_minimum_before_send(self):
         with tls.Peer(self.contexts['server'], tls.fixed_response(priced(plan_response()))) as peer:
             request = self.admit(peer.port, key='pricing-minimum', pricing=PRICING)
-            self.authorize(request, reserved=1)  # below ceil(1.5*input + 4*output reservations)
+            self.authorize(request, reserved=1)  # positive authorization; actual priced input exceeds the request budget
             report = self.pump(request)
             self.assertEqual(report['stop_reason'], 'error', report)
             self.assertTrue(any(item['code'] == 'quota' for item in report['blocked']), report)
@@ -419,11 +419,12 @@ class LiveWorkflowCli(unittest.TestCase):
                                  cost_budget=100000)
             self.authorize(request, reserved=50000)
             report = self.pump(request)
-            self.assertEqual(report['stop_reason'], 'needs_accounting', report)
+            self.assertEqual(report['stop_reason'], 'error', report)
+            self.assertTrue(report['accounting']['ready'])
             self.assertEqual(report['network_started_calls'], 2)
             self.assertEqual(peer_model.actions, ['submit_plan'])
             attempts = self.rows('SELECT status,input_tokens,output_tokens,cache_read_tokens,'
-                                 'cache_write_tokens,cost_micro_usd FROM call_attempts ORDER BY rowid')
+                                 'cache_write_tokens,cost_micro_usd,reserved_cost FROM call_attempts ORDER BY rowid')
             self.assertEqual([row['status'] for row in attempts], ['COMPLETED', 'ERROR'])
             self.assertEqual((attempts[0]['input_tokens'], attempts[0]['output_tokens'],
                               attempts[0]['cache_read_tokens']), (11, 7, 3))
@@ -431,39 +432,57 @@ class LiveWorkflowCli(unittest.TestCase):
                                 for row in attempts))
             self.assertTrue(all(attempts[1][field] is None for field in
                                 ('input_tokens', 'output_tokens', 'cache_read_tokens')))
+            failed_body = peer.requests[1]['body']
+            charged = (len(failed_body) * 1500000 + json.loads(failed_body)['max_output_tokens'] * 4000000 + 999999) // 1000000
+            self.assertEqual(attempts[1]['reserved_cost'], charged)
             projections = self.rows('SELECT cost_micro_usd,cache_write_tokens,disputed,over_reserved '
                                     'FROM live_usage_projection ORDER BY rowid')
             self.assertTrue(all(row['cost_micro_usd'] is None and row['cache_write_tokens'] is None and
                                 not row['disputed'] and not row['over_reserved'] for row in projections))
             budget = self.invoke('budget', '--db', self.database, '--request', request)
-            self.assertEqual(budget['spent_cost'], PRICED_UNIT_MICRO_USD)
-            self.assertEqual(budget['reserved_cost'], 50000)
-            self.assertEqual(budget['unknown_cost'], 50000)
+            self.assertEqual(budget['spent_cost'], PRICED_UNIT_MICRO_USD + charged)
+            self.assertEqual(budget['reserved_cost'], 0)
+            self.assertEqual(budget['unknown_cost'], 0)
             self.assertEqual(budget['accounting_format'], 'wls-estimated-budget-v1')
             self.assertEqual(budget['cost_breakdown']['estimated_micro_usd'], PRICED_UNIT_MICRO_USD)
             self.assertEqual(budget['cost_breakdown']['reported_micro_usd'], 0)
-            self.assertEqual(budget['cost_breakdown']['unknown_reserved_micro_usd'], 50000)
+            self.assertEqual(budget['cost_breakdown']['unknown_reserved_micro_usd'], 0)
+            self.assertEqual(budget['cost_breakdown']['reservation_charged_micro_usd'], charged)
             self.assertEqual(len(budget['cost_breakdown']['pricing_sha256']), 1)
             status = self.invoke('live-status', '--db', self.database, '--request', request)
-            self.assertFalse(status['accounting']['ready'])
-            self.assertEqual(status['accounting']['blocked_attempts'][0]['unknown_cost'], 1)
+            self.assertTrue(status['accounting']['ready'])
+            self.assertEqual(status['accounting']['blocked_count'], 0)
+            self.assertEqual(status['accounting']['reservation_charged_micro_usd'], charged)
             self.assertEqual(status['accounting']['estimated_cost_micro_usd'], PRICED_UNIT_MICRO_USD)
             self.assertEqual(status['accounting']['reported_cost_micro_usd'], 0)
             self.assertNotIn('actual', json.dumps(budget['cost_breakdown']))
 
     def test_pricing_budget_exhaustion_blocks_second_reservation_before_send(self):
-        with tls.Peer(self.contexts['server'], tls.fixed_response(priced(plan_response()))) as peer:
+        def consume_reservation(peer, connection):
+            observed = peer.request(connection)
+            body = json.loads(observed['body'])
+            response = json.loads(priced(plan_response()))
+            response['usage'].update(input_tokens=len(observed['body']), output_tokens=body['max_output_tokens'],
+                                     total_tokens=len(observed['body']) + body['max_output_tokens'])
+            response['usage']['input_tokens_details']['cached_tokens'] = 0
+            encoded = tls.encoded(response)
+            connection.sendall(tls.headers(len(encoded)) + encoded)
+        with tls.Peer(self.contexts['server'], consume_reservation) as peer:
             request = self.admit(peer.port, key='pricing-budget', pricing=PRICING,
                                  cost_budget=50010)
             self.authorize(request, reserved=50000)
-            report = self.pump(request)  # 41 spent after the first estimate; 50000 no longer fits
+            report = self.pump(request)  # Original usage consumes the first encoded-body reservation.
             self.assertEqual(report['stop_reason'], 'error', report)
-            self.assertTrue(any(item['code'] == 'quota' for item in report['blocked']), report)
+            self.assertTrue(any(item['code'] == 'quota' and item['role'] == 'team_lead' for item in report['blocked']), report)
             self.assertEqual(len(peer.requests), 1)
             self.assertEqual(len(self.rows('SELECT * FROM call_attempts')), 1)
             self.assertEqual(len(self.rows('SELECT * FROM live_send_claims')), 1)
             budget = self.invoke('budget', '--db', self.database, '--request', request)
-            self.assertEqual(budget['spent_cost'], PRICED_UNIT_MICRO_USD)
+            body = peer.requests[0]['body']
+            spent = (len(body) * 1500000 + json.loads(body)['max_output_tokens'] * 4000000 + 999999) // 1000000
+            self.assertEqual(self.rows('SELECT reserved_cost FROM call_attempts')[0]['reserved_cost'], spent)
+            self.assertEqual(budget['spent_cost'], spent)
+            self.assertGreater(spent, budget['cost_limit'] - spent)
             self.assertEqual(budget['reserved_cost'], 0)
             self.assertEqual(budget['unknown_cost'], 0)
             self.assertTrue(self.invoke('live-status', '--db', self.database,

@@ -679,10 +679,12 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             require(captured.workflow_action.is_null() || action_in_claim(captured.workflow_action, claim),
                     ErrorCode::Stale, "live workflow target is outside its original captured event claim");
             // A frozen price table sets the minimum effective cost reservation;
-            // check it before encoding or resolving any credential.
+            // check the complete encoded body before resolving any credential.
             if (settings->provider.pricing) {
                 const auto minimum = minimum_cost_reservation(*settings->provider.pricing,
-                    captured.request.reserved_input_tokens, captured.request.reserved_output_tokens);
+                    settings->provider.billing_challenge.empty()
+                        ? static_cast<std::int64_t>(encode_responses_request(settings->provider, captured.request, settings->stream).body.size())
+                        : captured.request.reserved_input_tokens, captured.request.reserved_output_tokens);
                 require(minimum.available && captured.request.reserved_cost_micro_usd >= minimum.cost_micro_usd,
                         ErrorCode::Quota, "live cost reservation is below the frozen pricing minimum before credential lookup");
             }

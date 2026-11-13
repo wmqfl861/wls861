@@ -227,7 +227,7 @@ std::string token_pricing_sha256(const TokenPricing& pricing) {
     return sha256_hex(canonical_json(to_json(pricing)));
 }
 
-PricingEstimate estimate_token_cost(const TokenPricing& pricing, const ModelUsage& usage) {
+PricingEstimate estimate_token_cost(const TokenPricing& pricing, const ModelUsage& usage, bool conservative_cache) {
     PricingEstimate result;
     const auto unavailable = [&result](std::string_view reason) {
         result.reason = std::string(reason);
@@ -236,7 +236,7 @@ PricingEstimate estimate_token_cost(const TokenPricing& pricing, const ModelUsag
     if ((!pricing.cache_read_applicable && usage.cache_read_tokens.has_value()) ||
         (!pricing.cache_write_applicable && usage.cache_write_tokens.has_value())) {
         result.policy_mismatch = true;
-        return unavailable("policy_mismatch_not_applicable_cache_reported");
+        if (!conservative_cache) return unavailable("policy_mismatch_not_applicable_cache_reported");
     }
     if (!usage.input_tokens.has_value() || !usage.output_tokens.has_value())
         return unavailable("unknown_input_or_output_tokens");
@@ -245,21 +245,30 @@ PricingEstimate estimate_token_cost(const TokenPricing& pricing, const ModelUsag
     };
     std::int64_t cache_read = 0, cache_write = 0;
     if (pricing.cache_read_applicable) {
-        if (!valid(usage.cache_read_tokens)) return unavailable("unknown_cache_read_tokens");
-        cache_read = *usage.cache_read_tokens;
+        if (!valid(usage.cache_read_tokens)) {
+            if (!conservative_cache) return unavailable("unknown_cache_read_tokens");
+            result.policy_mismatch = true;
+        } else cache_read = *usage.cache_read_tokens;
     }
     if (pricing.cache_write_applicable) {
-        if (!valid(usage.cache_write_tokens)) return unavailable("unknown_cache_write_tokens");
-        cache_write = *usage.cache_write_tokens;
+        if (!valid(usage.cache_write_tokens)) {
+            if (!conservative_cache) return unavailable("unknown_cache_write_tokens");
+            result.policy_mismatch = true;
+        } else cache_write = *usage.cache_write_tokens;
     }
     if (!valid(usage.input_tokens) || !valid(usage.output_tokens) ||
         cache_read > *usage.input_tokens || cache_write > *usage.input_tokens - cache_read)
         return unavailable("invalid_original_usage");
+    auto write_rate = pricing.cache_write_micro_usd_per_million_tokens;
+    if (conservative_cache && pricing.cache_write_applicable && !usage.cache_write_tokens) {
+        cache_write = *usage.input_tokens - cache_read;
+        write_rate = std::max(write_rate, pricing.input_micro_usd_per_million_tokens);
+    }
     std::int64_t whole = 0, remainder = 0;
     if (!pricing_term(*usage.input_tokens - cache_read - cache_write, pricing.input_micro_usd_per_million_tokens,
                 &whole, &remainder) ||
         !pricing_term(cache_read, pricing.cache_read_micro_usd_per_million_tokens, &whole, &remainder) ||
-        !pricing_term(cache_write, pricing.cache_write_micro_usd_per_million_tokens, &whole, &remainder) ||
+        !pricing_term(cache_write, write_rate, &whole, &remainder) ||
         !pricing_term(*usage.output_tokens, pricing.output_micro_usd_per_million_tokens, &whole, &remainder) ||
         !pricing_total(whole, remainder, &result.cost_micro_usd))
         return unavailable("estimate_unavailable_overflow");

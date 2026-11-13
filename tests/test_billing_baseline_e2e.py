@@ -1077,7 +1077,10 @@ class BillingBaselineIntegration(unittest.TestCase):
 
     def test_09_run_unknown_send_stops_and_changed_configuration_cannot_resume(self):
         requested, release = threading.Event(), threading.Event()
+        endpoint = PricingFlowEndpoint(initialize_seed=True)
         def delayed(peer, connection):
+            if requested.is_set():
+                return endpoint(peer, connection)
             peer.request(connection)
             requested.set()
             release.wait(5)
@@ -1091,18 +1094,19 @@ class BillingBaselineIntegration(unittest.TestCase):
             stdout, stderr = process.communicate(timeout=30)
             self.assertEqual(process.returncode, 130, stderr + stdout)
             first = json.loads(stdout)
-            self.assertFalse(first['accounting']['ready'])
+            self.assertTrue(first['accounting']['ready'])
             database = next(case['data'].glob('requests/*/control.sqlite'))
             original = rows(database, 'SELECT attempt_id,status,settlement_sha256 FROM call_attempts')
             self.assertEqual(len(original), 1)
+            release.set()
             resumed = self.invoke_run(case, '--yes')
             self.assertEqual(resumed.returncode, 0, resumed.stderr)
             summary = json.loads(resumed.stdout)
-            self.assertEqual(summary['stop_reason'], 'needs_accounting')
-            self.assertFalse(summary['accounting']['ready'])
+            self.assertEqual(summary['status'], 'DELIVERED')
+            self.assertTrue(summary['accounting']['ready'])
             self.assertIsNone(summary['original_tokens']['input_tokens'])
-            self.assertEqual(rows(database, 'SELECT attempt_id,status,settlement_sha256 FROM call_attempts'), original)
-            self.assertEqual(len(peer.requests), 1)
+            self.assertEqual(rows(database, 'SELECT attempt_id,status,settlement_sha256 FROM call_attempts')[:1], original)
+            self.assertEqual(len(peer.requests), 32)
             system = copy.deepcopy(case['system'])
             system['budget_defaults']['warn_at_fraction'] = 0.75
             write_json(case['configuration'], system)
@@ -1110,8 +1114,103 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(rejected.returncode, 3)
             self.assertFalse(rejected.stdout)
             self.assertNotIn('wls-run-confirmation', rejected.stderr)
-            self.assertEqual(len(peer.requests), 1)
+            self.assertEqual(len(peer.requests), 32)
             release.set()
+
+    def test_09a_unsigned_failures_charge_original_usage_or_reservation_and_resume(self):
+        for variant in ('429', '503', 'http_usage', 'incomplete', 'disconnect', 'model_mismatch', 'decode_failure', 'cache_mismatch'):
+            with self.subTest(variant=variant):
+                endpoint = PricingFlowEndpoint(initialize_seed=True)
+                def fail_once(peer, connection):
+                    if peer.requests:
+                        return endpoint(peer, connection)
+                    peer.request(connection)
+                    if variant == 'disconnect':
+                        connection.sendall(tls.headers(1000) + b'{"id":')
+                        return
+                    value = json.loads(tls.response_body(tool=True))
+                    value['usage'].update(input_tokens=11, output_tokens=7, total_tokens=18)
+                    value['usage']['input_tokens_details'] = {'cached_tokens': 3}
+                    if variant in ('429', '503'):
+                        value = {'error': {'code': 'synthetic_failure'}}
+                    elif variant == 'incomplete':
+                        value.update(status='incomplete', incomplete_details={'reason': 'max_output_tokens'})
+                    elif variant == 'model_mismatch':
+                        value['model'] = 'different-model'
+                    elif variant == 'decode_failure':
+                        value['output'] = 'invalid-output-array'
+                    elif variant == 'http_usage':
+                        value['error'] = {'code': 'synthetic_failure'}
+                    else:
+                        value['usage']['input_tokens_details']['cache_write_tokens'] = 1
+                        value['output'][0].update(name='submit_plan', arguments=json.dumps(endpoint.plan))
+                    encoded = tls.encoded(value)
+                    status = int(variant) if variant.isdigit() else 503 if variant == 'http_usage' else 200
+                    connection.sendall(tls.headers(len(encoded), status=status) + encoded)
+                with tls.Peer(self.contexts['server'], fail_once) as peer:
+                    case = self.run_inputs('accounting-' + variant, peer)
+                    case['system']['model_calls']['max_total_calls'] = 1 if variant == 'cache_mismatch' else 2
+                    write_json(case['configuration'], case['system'])
+                    result = self.invoke_run(case, '--yes')
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    summary = json.loads(result.stdout)
+                    self.assertTrue(summary['accounting']['ready'], summary)
+                    self.assertNotEqual(summary['stop_reason'], 'needs_accounting')
+                    database = next(case['data'].glob('requests/*/control.sqlite'))
+                    original = rows(database, 'SELECT * FROM call_attempts')[0]
+                    sent = peer.requests[0]['body']
+                    bound = (len(sent) * 1500000 + json.loads(sent)['max_output_tokens'] * 4000000 + 999999) // 1000000
+                    self.assertEqual(original['reserved_cost'], bound)
+                    unknown = variant in ('429', '503', 'disconnect')
+                    self.assertEqual(summary['budget']['spent_cost'], bound if unknown else PRICED_UNIT_MICRO_USD)
+                    self.assertEqual(summary['budget']['reserved_cost'], 0)
+                    self.assertIsNone(original['cost_micro_usd'])
+                    self.assertEqual(original['input_tokens'], None if unknown else 11)
+                    self.assertEqual(original['output_tokens'], None if unknown else 7)
+                    self.assertEqual(summary['accounting']['reservation_charged_micro_usd'], bound if unknown else 0)
+                    if variant == 'cache_mismatch':
+                        self.assertEqual(summary['accounting']['pricing_warnings'][0]['reason'], 'pricing_cache_dimension_mismatch')
+                        continue
+                    resumed = self.invoke_run(case, '--yes')
+                    self.assertEqual(resumed.returncode, 0, resumed.stderr)
+                    after = json.loads(resumed.stdout)
+                    self.assertEqual(after['budget']['attempts'], 2)
+                    self.assertEqual(after['blockers'][0]['code'], 'quota')
+                    self.assertTrue(after['accounting']['ready'])
+                    self.assertEqual(len(peer.requests), 2)
+                    self.assertEqual(rows(database, 'SELECT * FROM call_attempts')[0], original)
+                    self.assertEqual(after['budget']['spent_cost'], (bound if unknown else PRICED_UNIT_MICRO_USD) + PRICED_UNIT_MICRO_USD)
+
+    def test_09c_one_dollar_uses_body_bound_and_rejects_output_alone_over_budget(self):
+        with tls.Peer(self.contexts['server'], PricingFlowEndpoint(initialize_seed=True)) as peer:
+            case = self.run_inputs('one-dollar', peer)
+            profile = case['system']['models'][MODEL_REF]
+            for limits in (profile['capabilities'], profile['responses']['provider_profile']['capabilities']):
+                limits.update(context_window=400000, max_output_tokens=128000)
+            price = profile['responses']['provider_profile']['pricing']
+            price.update(input_micro_usd_per_million_tokens=1250000, output_micro_usd_per_million_tokens=10000000)
+            case['system']['budget_defaults']['max_cost_usd'] = 1
+            case['system']['model_calls']['max_total_calls'] = 1
+            write_json(case['configuration'], case['system'])
+            refused = self.invoke_run(case, '--yes')
+            self.assertEqual(refused.returncode, 2)
+            self.assertEqual(len(peer.requests), 0)  # 128000 * $10/M = $1.28 before input
+            for limits in (profile['capabilities'], profile['responses']['provider_profile']['capabilities']):
+                limits['max_output_tokens'] = 32768
+            write_json(case['configuration'], case['system'])
+            too_small = self.invoke_run(case, '--yes', '--budget-usd', '0.33', '--data', case['directory'] / 'too-small')
+            self.assertEqual(too_small.returncode, 0, too_small.stderr)
+            stopped = json.loads(too_small.stdout)
+            self.assertEqual(stopped['budget']['attempts'], 0)
+            self.assertEqual(stopped['blockers'][0]['code'], 'quota')
+            self.assertEqual(len(peer.requests), 0)  # Output fits; complete request body does not.
+            started = self.invoke_run(case, '--yes')
+            self.assertEqual(started.returncode, 0, started.stderr)
+            self.assertEqual(json.loads(started.stdout)['stop_reason'], 'total_call_limit')
+            database = next(case['data'].glob('requests/*/control.sqlite'))
+            bound = (len(peer.requests[0]['body']) * 1250000 + 32768 * 10000000 + 999999) // 1000000
+            self.assertLess(bound, 1000000)
+            self.assertEqual(rows(database, 'SELECT reserved_cost FROM call_attempts')[0]['reserved_cost'], bound)
 
     def test_09b_run_resumes_exact_intent_after_empty_store_initialization(self):
         endpoint = PricingFlowEndpoint(initialize_seed=True)
@@ -1781,6 +1880,8 @@ RUN_TEST_METHODS = frozenset((
     'test_07_run_refusal_config_budget_and_unsafe_paths_before_confirmation',
     'test_08_run_ctrl_c_after_settlement_resumes_original_claims_and_effects',
     'test_09_run_unknown_send_stops_and_changed_configuration_cannot_resume',
+    'test_09a_unsigned_failures_charge_original_usage_or_reservation_and_resume',
+    'test_09c_one_dollar_uses_body_bound_and_rejects_output_alone_over_budget',
     'test_09b_run_resumes_exact_intent_after_empty_store_initialization',
 ))
 G1_TEST_METHODS = frozenset((

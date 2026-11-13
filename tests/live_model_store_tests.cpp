@@ -638,14 +638,16 @@ ModelRequest priced_request(fixture::Fixture& f, std::string id = "attempt-price
 }
 // Test-only completed observation inside this fixture's own disposable
 // database; the response tuple is the exact one admitted for this attempt.
-Json settle_completed(fixture::Fixture& f, const ModelRequest& request, const ModelUsage& usage) {
+Json settle_completed(fixture::Fixture& f, const ModelRequest& request, const ModelUsage& usage,
+                      ModelResultStatus status = ModelResultStatus::Completed) {
     (void)f.reserve(request);
     const auto claim = f.claim(request);
     ModelResponse response;
     response.call_id = request.call_id; response.attempt_id = request.attempt_id;
     response.role_call_index = request.role_call_index; response.role = request.role;
     response.binding = request.binding; response.config_snapshot_id = request.config_snapshot_id;
-    response.status = ModelResultStatus::Completed;
+    response.status = status;
+    if (status != ModelResultStatus::Completed) response.error_code = "synthetic_failure";
     response.text = "synthetic priced completion";
     response.usage = usage;
     const auto body = canonical_json(to_json(response));
@@ -653,7 +655,8 @@ Json settle_completed(fixture::Fixture& f, const ModelRequest& request, const Mo
         text(claim, "claim_id") + "','" + sha256_hex("synthetic-priced-observation") + "','{}','" + body +
         "','','', '{}','2026-01-01T00:00:00Z')");
     return f.store->settle_attempt(request.attempt_id, request.binding, request.config_snapshot_id,
-        "COMPLETED", to_json(usage), to_json(response));
+        status == ModelResultStatus::Completed ? "COMPLETED" : status == ModelResultStatus::Error ? "ERROR" : "INTERRUPTED",
+        to_json(usage), to_json(response));
 }
 
 void priced_status_observes_one_budget_snapshot_across_late_receipt() {
@@ -748,30 +751,69 @@ void estimated_budget_accounting_and_late_actual_evidence() {
         CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 16);
         CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
     }
-    {   // A cancelled response never gains an estimate; its reservation stays.
+    {   // Missing usage spends each original reservation without inventing counts.
         fixture::Fixture f(*assets, pricing_settings());
-        (void)f.interrupted(priced_request(f, "attempt-cancelled"));
-        CHECK(number(f.store->budget(f.request_id), "spent_cost") == 0);
-        CHECK(number(f.store->budget(f.request_id), "reserved_cost") == 2000);
-        CHECK(number(f.store->budget(f.request_id), "unknown_cost") == 2000);
-        CHECK(!f.store->live_accounting_status(f.request_id).at("ready").as_bool());
-        error(ErrorCode::UnknownOutcome, [&] { (void)f.reserve(priced_request(f, "cancel-blocked")); });
+        const auto request = priced_request(f, "attempt-cancelled");
+        const auto settled = f.interrupted(request);
+        CHECK(number(f.store->budget(f.request_id), "spent_cost") == 2000);
+        CHECK(number(f.store->budget(f.request_id), "reserved_cost") == 0);
+        CHECK(number(f.store->budget(f.request_id), "unknown_cost") == 0);
+        CHECK(settled.at("input_tokens").is_null() && settled.at("cost_micro_usd").is_null());
+        CHECK(f.store->live_accounting_status(f.request_id).at("ready").as_bool());
+        CHECK(f.store->usage_projection(request.attempt_id).at("effective_cost_basis") == "reservation");
         CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+        f.reopen();
+        auto actual = priced; actual.cost_micro_usd = 41;
+        const auto result = f.store->reconcile_usage(f.actor(Role::Root), fixture::evidence(settled, actual, "late"),
+            {"late", "late", 1});
+        CHECK(result.at("budget_delta").at("cost").at("spent") == -1959);
+        CHECK(result.at("budget_delta").at("input").at("spent") == 11 - request.reserved_input_tokens);
+        CHECK(number(f.store->budget(f.request_id), "spent_cost") == 41);
+        CHECK(f.store->attempt(request.attempt_id) == settled);
+        CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+        CHECK(!result.at("business_authority_restored").as_bool());
     }
     {   // A frozen not-applicable count the response reported is a mismatch.
         fixture::Fixture f(*assets, pricing_settings());
         auto mismatched = priced; mismatched.cache_write_tokens = 1;
         const auto settled = settle_completed(f, priced_request(f, "attempt-mismatch"), mismatched);
         CHECK(number(settled, "cache_write_tokens") == 1);  // original bytes stay
-        CHECK(number(f.store->budget(f.request_id), "spent_cost") == 0);
+        CHECK(number(f.store->budget(f.request_id), "spent_cost") == 41);
         const auto status = f.store->live_accounting_status(f.request_id);
-        CHECK(!status.at("ready").as_bool());
-        bool mismatch = false;
-        for (const auto& item : status.at("blocked_attempts").as_array())
-            mismatch = mismatch || (item.at("reason") == "policy_mismatch");
-        CHECK(mismatch);
-        error(ErrorCode::UnknownOutcome, [&] { (void)f.reserve(priced_request(f, "mismatch-blocked")); });
+        CHECK(status.at("ready").as_bool());
+        CHECK(status.at("pricing_warnings").as_array().size() == 1);
         CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+    }
+    for (const auto status : {ModelResultStatus::Error, ModelResultStatus::Interrupted}) {
+        fixture::Fixture f(*assets, pricing_settings());
+        const auto request = priced_request(f);
+        const auto settled = settle_completed(f, request, priced, status);
+        CHECK(settled.at("cost_micro_usd").is_null() && settled.at("accepted") == 0);
+        CHECK(number(f.store->budget(f.request_id), "spent_cost") == 41);
+        CHECK(f.store->live_accounting_status(f.request_id).at("ready").as_bool());
+        f.reopen();
+        CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+    }
+    {   // Recreate the original pre-P4a event shape and durable unknown ledger.
+        fixture::Fixture f(*assets, pricing_settings());
+        const auto request = priced_request(f);
+        const auto original = f.interrupted(request);
+        fixture::sql(f.path, "DROP TRIGGER events_immutable;"
+            "UPDATE events SET result=json_remove(result,'$.reservation_accounting') WHERE type='settle_attempt';"
+            "CREATE TRIGGER events_immutable BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'immutable event'); END;"
+            "UPDATE request_budgets SET reserved_input=spent_input,reserved_output=spent_output,reserved_cost=spent_cost,"
+            "unknown_input=spent_input,unknown_output=spent_output,unknown_cost=spent_cost,spent_input=0,spent_output=0,spent_cost=0,"
+            "state_version=state_version+1;");
+        f.reopen();
+        CHECK(!f.store->live_accounting_status(f.request_id).at("ready").as_bool());
+        CHECK(number(f.store->budget(f.request_id), "reserved_cost") == 2000);
+        CHECK(f.store->usage_projection(request.attempt_id).at("effective_cost_basis") == "unknown");
+        CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+        auto actual = priced; actual.cost_micro_usd = 41;
+        (void)f.store->reconcile_usage(f.actor(Role::Root), fixture::evidence(original, actual), {"old", "old", 1});
+        CHECK(number(f.store->budget(f.request_id), "spent_cost") == 41);
+        CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+        CHECK(f.store->attempt(request.attempt_id) == original);
     }
 }
 } // namespace
