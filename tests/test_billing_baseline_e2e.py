@@ -1197,7 +1197,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertNotEqual(first['status'], 'DELIVERED')
             self.assertEqual(first['stop_reason'], 'error')
             self.assertTrue(first['accounting']['ready'])
-            self.assertTrue(first['blockers'][0]['reason'])
+            self.assertRegex(first['blockers'][0]['reason'], '(?i)incomplete|interrupt|connection|transport|partial')
             self.assertNotEqual(first['blockers'][0]['reason'], 'inspect private Store evidence')
             self.assertTrue(first['blockers'][0]['next_step'])
             self.assertEqual(endpoint.records[-1]['tag'], 'disconnect')
@@ -1235,7 +1235,9 @@ class BillingBaselineIntegration(unittest.TestCase):
             def target(record):
                 contract = record['contract']
                 task = (contract.get('acceptance_task') or {}).get('task_id', contract['binding']['task_id'])
-                return record['role'], task, (contract.get('workflow_action') or {}).get('kind')
+                action = contract.get('workflow_action') or {}
+                identity = tuple(action.get('target', {}).get(key) for key in ('submission_id', 'experience_id', 'source_sha256'))
+                return record['role'], task, contract['binding']['instruction_revision'], action.get('kind'), identity
             def next_record(index):
                 return next(record for record in endpoint.records[index + 1:]
                             if target(record) == target(endpoint.records[index]))
@@ -1244,6 +1246,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             prefix_cache = SimulatedPrefixCache()
             for index, (attempt, record, sent) in enumerate(zip(attempts, endpoint.records, peer.requests)):
                 attempt_id = attempt['attempt_id']; role = attempt['role']; tag = record['tag']
+                body = json.loads(sent['body'])
                 self.assertEqual(record['request'], sent['body'])
                 self.assertEqual(originals['live_attempt_execution'][attempt_id]['request_body_sha256'], hashlib.sha256(sent['body']).hexdigest())
                 self.assertTrue(attempt['settlement_sha256'])
@@ -1261,9 +1264,14 @@ class BillingBaselineIntegration(unittest.TestCase):
                         original = next(item for item in history if item.get('attempt_id') == attempt_id)
                         self.assertEqual(original['feedback']['result'], outcome)
                     else:
-                        outputs = [json.loads(item['output']) for item in next_body['input']
-                                   if item.get('type') == 'function_call_output']
-                        self.assertIn(outcome, outputs)
+                        original_call = json.loads(attempt['response'])['tool_calls'][0]
+                        call_id = 'history_' + digest({'format': 'wls-history-tool-id-v1',
+                            'attempt_id': attempt_id, 'call_id': original_call['call_id']})
+                        pair = [item for item in next_body['input'] if item.get('call_id') == call_id]
+                        self.assertEqual([item['type'] for item in pair], ['function_call', 'function_call_output'])
+                        self.assertEqual(pair[0]['name'], original_call['name'])
+                        self.assertEqual(json.loads(pair[0]['arguments']), original_call['arguments'])
+                        self.assertEqual(json.loads(pair[1]['output']), outcome)
                     observation = outcome['correction_feedback'].get('observation', '')
                     if tag == 'plan_bad_criteria':
                         self.assertIn('/nodes/0/brief/acceptance_criteria/0', observation)
@@ -1291,7 +1299,11 @@ class BillingBaselineIntegration(unittest.TestCase):
                 self.assertEqual(attempt['input_tokens'], None if unknown else 11)
                 self.assertEqual(attempt['output_tokens'], None if unknown else 7)
                 self.assertIsNone(attempt['cost_micro_usd'])
-                charge = attempt['reserved_cost'] if unknown else PRICED_UNIT_MICRO_USD
+                # Independent integer bound from these original wire bytes and the frozen 1.5/4 rates.
+                reserved = (len(sent['body']) * 1500000 + body['max_output_tokens'] * 4000000 + 999999) // 1000000
+                self.assertEqual(attempt['reserved_cost'], reserved)
+                self.assertEqual(attempt['reserved_output'], body['max_output_tokens'])
+                charge = reserved if unknown else PRICED_UNIT_MICRO_USD
                 expected_cost += charge
                 charges = expected_charges.setdefault(role, {'estimated_micro_usd': 0, 'reservation_charged_micro_usd': 0})
                 charges['reservation_charged_micro_usd' if unknown else 'estimated_micro_usd'] += charge
@@ -1313,7 +1325,6 @@ class BillingBaselineIntegration(unittest.TestCase):
                     raw = json.loads(bytes.fromhex(transport['raw_body_hex']))
                     self.assertEqual(json.loads(raw['output'][0]['arguments']), endpoint.plan)
                     self.assertNotIn('correction_feedback', outcome)
-                body = json.loads(sent['body'])
                 self.assertEqual(body['tool_choice']['mode'], 'required')
                 logical = json.loads(attempt['request_envelope'])['context']['input']
                 self.assertEqual(logical['tool_policy'], 'fixed-role-v1')
