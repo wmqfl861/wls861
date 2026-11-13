@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 
 namespace wls::s1 {
@@ -1090,9 +1091,17 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     const bool declared = response.tool_calls.size() == 1 && std::find(allowed.begin(),
         allowed.end(), response.tool_calls.front().name) != allowed.end();
     if (durable_feedback && !declared) return ordinary("tool_selection", "offline wake requires exactly one declared tool call");
-    require_complete_response(captured, response);
+    // The durable path just checked the complete envelope after the host hook,
+    // completion, settlement eligibility and its single declared tool. Nothing
+    // can mutate either input between those checks and this dispatch gate.
+    if (!durable_feedback) require_complete_response(captured, response);
     require(response.tool_calls.size() == 1, ErrorCode::InvalidInput, "offline wake requires exactly one declared tool call");
     auto tool = response.tool_calls.front();
+    std::optional<Json> parsed_contract;
+    const auto current_contract = [&]() -> const Json& {
+        if (!parsed_contract) parsed_contract = captured_contract(captured);
+        return *parsed_contract;
+    }; // Only the two consumers below reuse this parse, before any Store call.
     if (runtime_config.context_request_format() == "structured-v3" &&
             (tool.name == "submit_plan" || tool.name == "submit_amendment_plan" ||
              tool.name == "issue_work_order" || tool.name == "check_submission" ||
@@ -1100,7 +1109,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         const auto schema = tool.name == "submit_plan" ? "plan" : tool.name == "issue_work_order" ? "work_order" :
             tool.name == "submit" ? "submission" : tool.name == "report_experience" ? "experience_report" : tool.name;
         model_rule([&] {
-            const auto contract = captured_contract(captured);
+            const auto& contract = current_contract();
             auto minimal = tool.arguments;
             v3_contract_fields(minimal, schema, contract, true);
             schemas_.validate_v3_input(schema, minimal);
@@ -1121,7 +1130,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     };
     bool work_paths = false;
     if (captured.role == Role::Worker && runtime_config.context_request_format() == "structured-v3") {
-        const auto contract = captured_contract(captured);
+        const auto& contract = current_contract();
         if (const auto* policy = contract.as_object().if_contains("file_path_policy")) {
             require(*policy == "work-relative-v1", ErrorCode::Unsupported, "unknown captured file path policy");
             work_paths = true;

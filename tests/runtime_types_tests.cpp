@@ -35,6 +35,14 @@ void canonical_and_digest() {
     CHECK(sha256_hex(std::string("a\0b", 3)) != sha256_hex("a"));
     test::throws<Error>([] { (void)canonical_json(Json(std::numeric_limits<double>::infinity())); });
     test::throws<Error>([] { (void)canonical_json(Json(std::string(1, static_cast<char>(0xff)))); });
+    for (const std::string bytes : {"\xc0\xaf", "\xed\xa0\x80", "\xe2\x82", "\xf4\x90\x80\x80"}) {
+        test::throws<Error>([&] { (void)canonical_json(Json(bytes)); });
+        Json object = boost::json::object{};
+        object.as_object().emplace(bytes, 1);
+        test::throws<Error>([&] { (void)canonical_json(object); });
+    }
+    test::throws<Error>([] { (void)canonical_json(Json(std::numeric_limits<double>::quiet_NaN())); });
+    test::throws<Error>([] { (void)canonical_json(Json(-std::numeric_limits<double>::infinity())); });
 }
 
 void canonical_long_keys_and_values_keep_original_bytes() {

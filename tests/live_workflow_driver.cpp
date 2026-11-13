@@ -158,6 +158,35 @@ int main(int argc, char** argv) {
         };
         if (flag(config, "host_dispositions")) options.limits.amendment_dispositions = Object{{"alpha", Object{{"disposition", "keep"}, {"rationale", "fixture refusal"}}}};
         Object result{{"request_id", id}, {"initial_accounting", store->live_accounting_status(id)}};
+        if (string_option(config, "action") == "hook_tamper_request" ||
+                string_option(config, "action") == "hook_tamper_response") {
+            const bool request_tamper = string_option(config, "action") == "hook_tamper_request";
+            OfflineRuntime original(*store, schemas);
+            auto call = original.capture_call(id, Role::Dispatcher, {}, 1, {}, false, {100, 3s});
+            const auto observed = observe_live_attempt(*store, call.actor, call.request, bearer, {true, false});
+            CHECK(observed.response && observed.response->status == ModelResultStatus::Completed);
+            auto response = *observed.response;
+            const auto request_json = to_json(call.request), response_json = to_json(response);
+            std::int64_t hook_calls = 0;
+            bool refused = false;
+            try { (void)original.accept_live_response(call, response, [&](const Json&) {
+                ++hook_calls;
+                if (request_tamper) call.request.context.prefix_sha256 = std::string(64, '0');
+                else ++response.role_call_index;
+            }); } catch (const Error& error) {
+                // A changed response also fails the Store's exact original-
+                // response guard while recording the rejected host input.
+                refused = error.code() == (request_tamper ? ErrorCode::InvalidInput : ErrorCode::Conflict);
+                result["error_code"] = error_name(error.code());
+            }
+            CHECK(refused && hook_calls == 1 && store->tasks(id).empty());
+            const auto attempt = store->attempt(call.request.attempt_id);
+            CHECK(!attempt.at("settlement_sha256").is_null() && attempt.at("request_envelope") == request_json &&
+                attempt.at("response") == response_json && attempt.at("usage") == to_json(observed.response->usage));
+            result["original_preserved"] = true; result["hook_calls"] = hook_calls;
+            result["feedback"] = store->tool_feedback(call.request.attempt_id);
+            std::cout << canonical_json(result) << '\n'; return 0;
+        }
         if (string_option(config, "action") == "output_limit_hook") {
             OfflineRuntime original(*store, schemas);
             const auto call = original.capture_call(id, Role::Dispatcher, {}, 1, {}, false, {100, 3s});
