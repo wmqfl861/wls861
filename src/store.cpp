@@ -34,6 +34,7 @@ namespace wls::s1 {
 namespace {
 using Row = boost::json::object;
 using Array = boost::json::array;
+struct AttemptPricing : TokenPricing { bool reserve_fallback{false}; };
 
 [[noreturn]] void fail(ErrorCode code, const std::string& message) {
     throw Error(code, message);
@@ -1760,10 +1761,9 @@ public:
     bool has_unsettled_model(const std::string& id, const std::string& team_id = {}) const;
     void live_accounting_ready(const std::string& request_id, const std::string& excluding = {}) const;
     void initialize_usage_projection(const Row& original);
-    std::optional<TokenPricing> attempt_pricing(const Row& original) const;
+    std::optional<AttemptPricing> attempt_pricing(const Row& original) const;
+    bool reservation_accounting(const Row& original) const;
     std::optional<bool> append_priced_accounting_ready(const Row& delta) const;
-    std::optional<std::int64_t> attempt_settlement_estimate(const Row& original,
-        const ModelUsage& usage, bool completed) const;
     Json pricing_accounting_scan(const std::string& id, const std::string& excluding = {},
         const std::string& team_id = {}) const;
     Json attempt_budget_view(const Row& original) const;
@@ -3833,15 +3833,16 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
                 reservation.reserved_cost_micro_usd > 0, ErrorCode::InvalidInput,
                 "live admission requires explicit positive token and cost reservations");
         live_settings = live_model_settings_from_json(profile, reservation.model_ref);
+        live_encoded = encode_responses_request(live_settings->provider, original_model_request, live_settings->stream);
         // A frozen price table defines the minimum effective reservation; the
         // host's explicit positive reservation must cover it before INSERT.
         if (live_settings->provider.pricing) {
             const auto minimum = minimum_cost_reservation(*live_settings->provider.pricing,
-                reservation.reserved_input_tokens, reservation.reserved_output_tokens);
+                live_settings->provider.billing_challenge.empty() ? static_cast<std::int64_t>(live_encoded->body.size())
+                    : reservation.reserved_input_tokens, reservation.reserved_output_tokens);
             require(minimum.available && reservation.reserved_cost_micro_usd >= minimum.cost_micro_usd,
                     ErrorCode::Quota, "live cost reservation is below the frozen pricing minimum");
         }
-        live_encoded = encode_responses_request(live_settings->provider, original_model_request, live_settings->stream);
         impl_->live_accounting_ready(actor.request_id);
     }
     require(reservation.max_output_tokens <= number(profile.at("capabilities").as_object(), "max_output_tokens"), ErrorCode::Quota, "attempt output exceeds frozen model capability");
@@ -4010,16 +4011,18 @@ Json Store::Impl::settle_model_attempt(const std::string& attempt_id, const Exec
         current = false;
     }
     const bool accepted = current && outcome == "COMPLETED";
-    // A completed priced response books its deterministic estimate as the
-    // effective budget cost while every original row keeps its nullable usage.
+    // Budget-only upper bounds never replace the nullable original usage.
+    const auto pricing = live ? attempt_pricing(record) : std::nullopt;
+    const bool fallback = pricing && pricing->reserve_fallback;
     std::optional<std::int64_t> effective_estimate;
-    if (live && outcome == "COMPLETED") {
+    if (pricing && (fallback || outcome == "COMPLETED")) {
         ModelUsage settled_usage;
         for (const auto& [value, name] : {std::pair<std::optional<std::int64_t>*, const char*>{&settled_usage.input_tokens, "input_tokens"},
                 {&settled_usage.output_tokens, "output_tokens"}, {&settled_usage.cache_read_tokens, "cache_read_tokens"},
                 {&settled_usage.cache_write_tokens, "cache_write_tokens"}})
             if (!usage_value(name).is_null()) *value = usage_value(name).as_int64();
-        effective_estimate = attempt_settlement_estimate(record, settled_usage, true);
+        const auto estimate = estimate_token_cost(*pricing, settled_usage, fallback);
+        if (estimate.available) effective_estimate = estimate.cost_micro_usd;
     }
     auto budget_row = one("SELECT * FROM request_budgets WHERE request_id=?", {request_id});
     for (const auto& dimension : {std::pair<std::string, std::string>{"input", "input_tokens"}, {"output", "output_tokens"}, {"cost", "cost_micro_usd"}}) {
@@ -4027,6 +4030,7 @@ Json Store::Impl::settle_model_attempt(const std::string& attempt_id, const Exec
         if (dimension.first == "cost" && value.is_null() && effective_estimate)
             value = Json(*effective_estimate);
         const auto reserved = number(record, "reserved_" + dimension.first);
+        if (value.is_null() && fallback) value = reserved;
         const auto was_unknown = number(record, "unknown_" + dimension.first) == 1;
         if (!value.is_null()) {
             budget_row["reserved_" + dimension.first] = number(budget_row, "reserved_" + dimension.first) - reserved;
@@ -4050,7 +4054,9 @@ Json Store::Impl::settle_model_attempt(const std::string& attempt_id, const Exec
     // New live responses can serialize beyond the legacy 1 MiB event payload
     // (for example escaped control characters). Keep the original 4 MiB
     // settlement fingerprint bound through its event; all old paths retain 1 MiB.
-    event(request_id, "settle:" + attempt_id, command, result, "runtime",
+    auto event_result = result;
+    if (fallback) event_result.as_object()["reservation_accounting"] = true;
+    event(request_id, "settle:" + attempt_id, command, event_result, "runtime",
           live ? 4U * 1024U * 1024U : 1024U * 1024U);
     if (tx) tx->commit();
     return result;
