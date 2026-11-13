@@ -177,7 +177,8 @@ struct Fixture {
     std::unique_ptr<Store> store;
     std::unique_ptr<WorkerTools> alpha, beta;
     std::string id;
-    explicit Fixture(Json logical = policy()) : input(admission(logical)), store(assets->open(database)) {
+    explicit Fixture(Json logical = policy(), std::int64_t attempts = 128) : input(admission(logical)), store(assets->open(database)) {
+        input.budget.max_attempts = attempts;
         id = text(store->admit(input), "request_id");
         std::filesystem::create_directory(directory.path / "alpha");
         std::filesystem::create_directory(directory.path / "beta");
@@ -202,6 +203,142 @@ struct Fixture {
         return original.capture_call(id, Role::Worker, text(task("beta"), "task_id"));
     }
 };
+
+Json plain_policy() { auto value = policy(); value.at("mode") = plain_single_agent_contract; return value; }
+EventFakeScript plain_script() {
+    EventFakeScript result;
+    const auto source_script = event_fake_script_from_json(fixture("s14_fake_submit.json"));
+    for (const auto& step : source_script.by_node.at("alpha"))
+        if (step.role == Role::Worker) result.by_node["plain"].push_back(step);
+    return result;
+}
+struct PlainFixture : Fixture {
+    explicit PlainFixture(std::int64_t attempts = 128) : Fixture(plain_policy(), attempts) {}
+    SingleAgentRuntime runtime() { return SingleAgentRuntime(*store, *schemas, {{"plain", alpha.get()}}); }
+    Json pump(const EventFakeScript& script = {}) {
+        EventPumpOptions options; options.max_worker_calls_per_task = 2;
+        return runtime().pump(id, script, options);
+    }
+    CapturedModelCall worker() {
+        return OfflineRuntime(*store, *schemas, alpha.get()).capture_call(id, Role::Worker, text(task("plain"), "task_id"));
+    }
+    void reopen() {
+        alpha.reset(); beta.reset(); store.reset();
+        store = assets->open(database, StoreRecoveryScope::request(id)); tools();
+    }
+};
+
+void plain_submission_preserves_originals_and_requires_acceptance() {
+    PlainFixture f; CHECK(f.pump().at("calls").as_array().empty());
+    const auto captured = f.worker();
+    for (const auto& grant : f.input.tool_allowlist)
+        CHECK(std::find(captured.request.context.tool_names.begin(), captured.request.context.tool_names.end(), grant) != captured.request.context.tool_names.end());
+    const auto report = f.pump(plain_script());
+    CHECK(report.at("execution_contract") == plain_single_agent_contract);
+    CHECK(report.at("model_loop_complete") == true && report.at("business_acceptance_pending") == true);
+    CHECK(report.at("business_delivered") == false && f.store->experience_jobs(f.id).empty());
+    const auto task_id = text(f.task("plain"), "task_id");
+    const auto submission = f.store->current_submission(task_id);
+    CHECK(f.task("plain").at("status") == "SUBMITTED" && submission.at("checks").as_array().empty());
+    CHECK(submission.at("artifact_snapshot").as_array().front().at("sha256") == sha256_hex("alpha candidate version 1\n"));
+    const auto history = f.history(); CHECK(history.size() == 2);
+    for (const auto& turn : history) {
+        CHECK(turn.at("role") == "worker" && turn.at("task_id") == task_id);
+        CHECK(turn.at("principal_id") == history.front().at("principal_id"));
+    }
+    const auto config = restore_request_config(f.store->request(f.id));
+    for (const auto* field : {"role", "principal_id"}) {
+        auto corrupt = history; corrupt.back().at(field) = "other";
+        expect(ErrorCode::Corrupt, [&] { (void)single_agent_transcript(f.id, config, corrupt); });
+    }
+    { std::ofstream output(f.directory.path / "alpha/result.txt"); output << "later workspace bytes\n"; CHECK(output.good()); }
+    f.reopen(); CHECK(f.pump(plain_script()).at("calls").as_array().empty());
+    CHECK(f.store->current_submission(task_id) == submission && f.history() == history);
+    const auto instruction = f.store->instruction(task_id);
+    (void)f.store->amend(f.store->host_actor(Role::Root, f.id), number(f.store->request(f.id), "state_version"),
+        "Changed original request", f.input.constraint_catalog, new_id("amend"));
+    const auto amended = f.pump(plain_script());
+    CHECK(amended.at("model_loop_complete") == false && amended.at("business_acceptance_pending") == false);
+    CHECK(f.history() == history && f.store->instruction(task_id) == instruction);
+}
+
+void plain_interrupted_setup_recovers_without_duplicate_allocation() {
+    for (const std::string table : {"tasks", "instructions"}) {
+        PlainFixture f;
+        support::sql(f.database, "CREATE TRIGGER fail_setup BEFORE INSERT ON " + table + " BEGIN SELECT RAISE(ABORT,'setup interrupted'); END;");
+        expect(ErrorCode::Conflict, [&] { (void)f.pump(); });
+        CHECK(number(f.store->budget(f.id), "attempts") == 0);
+        CHECK(f.store->tasks(f.id).size() == (table == "tasks" ? 0U : 1U));
+        CHECK(support::sql_text(f.database, "SELECT count(*) FROM plans") == (table == "tasks" ? "0" : "1"));
+        CHECK(support::sql_text(f.database, "SELECT count(*) FROM teams") == (table == "tasks" ? "0" : "1"));
+        CHECK(support::sql_text(f.database, "SELECT count(*) FROM instructions") == "0");
+        const auto allocated = f.store->tasks(f.id);
+        f.reopen(); support::sql(f.database, "DROP TRIGGER fail_setup"); (void)f.pump();
+        const auto task = f.task("plain");
+        if (!allocated.empty()) CHECK(task.at("task_id") == allocated.front().at("task_id"));
+        const auto plan = f.store->plan(f.id), instruction = f.store->instruction(text(task, "task_id"));
+        f.reopen(); (void)f.pump();
+        CHECK(f.store->plan(f.id) == plan && f.store->instruction(text(task, "task_id")) == instruction);
+        CHECK(f.store->tasks(f.id).size() == 1 && number(f.store->budget(f.id), "attempts") == 0);
+        CHECK(support::sql_text(f.database, "SELECT count(*) FROM instructions") == "1");
+    }
+}
+
+void plain_rejects_manager_and_multiple_worker_bypasses() {
+    PlainFixture f; (void)f.pump(); const auto captured = f.worker();
+    for (const auto role : {Role::Dispatcher, Role::TeamLead}) {
+        expect(ErrorCode::Unauthorized, [&] { (void)OfflineRuntime(*f.store, *schemas, f.alpha.get()).capture_call(
+            f.id, role, role == Role::Dispatcher ? "" : captured.actor.task_id); });
+        auto forged = captured.request; auto context = wls::test::protocol::context();
+        context.role = role; context.model = forged.model; context.adapter_version = forged.context.adapter_version;
+        context.protocol_version = forged.context.protocol_version;
+        forged.role = role; forged.context = compile_structured_context(context);
+        if (role == Role::Dispatcher) forged.binding = f.store->request_binding(f.id);
+        const auto actor = f.store->host_actor(role, f.id, forged.binding.team_id);
+        expect(ErrorCode::Unauthorized, [&] { (void)f.store->reserve_attempt(actor, forged.binding, reservation(forged)); });
+    }
+    const auto missing = SingleAgentRuntime(*f.store, *schemas).pump(f.id, plain_script());
+    CHECK(missing.at("calls").as_array().empty());
+    CHECK(std::any_of(missing.at("blocked").as_array().begin(), missing.at("blocked").as_array().end(),
+        [](const Json& item) { return item.at("code") == "workspace_missing"; }));
+    expect(ErrorCode::NotReady, [&] { (void)OfflineRuntime(*f.store, *schemas).capture_call(f.id, Role::Worker, captured.actor.task_id); });
+    const auto request = f.store->request(f.id);
+    (void)f.store->create_task(f.store->host_actor(Role::Dispatcher, f.id), number(request, "state_version"),
+        number(request, "requirements_revision"), number(request, "plan_revision"), "second", f.task("plain").at("brief"), new_id("second"));
+    expect(ErrorCode::Unauthorized, [&] { (void)f.store->reserve_attempt(captured.actor, captured.request.binding, reservation(captured.request)); });
+    CHECK(number(f.store->budget(f.id), "attempts") == 0);
+}
+
+void plain_keeps_wait_unknown_feedback_and_budget_guards() {
+    for (const std::string guard : {"wait", "unknown", "feedback", "budget"}) {
+        PlainFixture f(guard == "budget" ? 1 : 128); (void)f.pump();
+        const auto captured = f.worker(); Json original = nullptr;
+        if (guard == "wait")
+            original = f.store->wait_worker(captured.actor, captured.request.binding,
+                number(f.task("plain"), "state_version"), "explicit input required", new_id("wait"));
+        else if (guard == "unknown") {
+            auto op = f.store->prepare_operation(captured.actor, captured.request.binding, number(f.task("plain"), "state_version"),
+                new_id("effect"), "note", Object{{"text", "original effect"}}, "none", new_id("prepare"));
+            (void)f.store->start_operation(captured.actor, text(op, "op_id"), number(op, "state_version"), new_id("start"));
+            f.reopen(); original = f.store->operation(text(op, "op_id")); CHECK(original.at("status") == "UNKNOWN");
+        } else if (guard == "feedback") {
+            FakeModel model(plain_script().by_node.at("plain"));
+            (void)f.store->reserve_attempt(captured.actor, captured.request.binding, reservation(captured.request));
+            const auto response = model.complete(captured.request);
+            original = f.store->settle_attempt(captured.request.attempt_id, response.binding, response.config_snapshot_id,
+                "COMPLETED", to_json(response.usage), to_json(response));
+        } else (void)f.pump(plain_script());
+        const auto report = f.pump(plain_script());
+        CHECK(report.at("model_loop_complete") == false);
+        CHECK(number(f.store->budget(f.id), "attempts") == ((guard == "feedback" || guard == "budget") ? 1 : 0));
+        if (guard == "wait") CHECK(f.store->worker_wait(captured.actor.task_id) == original);
+        if (guard == "unknown") CHECK(f.store->operation(text(original, "op_id")) == original);
+        if (guard == "feedback") {
+            CHECK(f.store->attempt(captured.request.attempt_id) == original);
+            CHECK(f.store->tool_feedback(captured.request.attempt_id).is_null());
+        }
+    }
+}
 
 void shared_native_history_crosses_roles_and_tasks() {
     Fixture f; const auto report = f.run();
@@ -364,10 +501,12 @@ void explicit_policy_and_same_model_are_required() {
     Fixture old(nullptr);
     expect(ErrorCode::Unauthorized, [&] { (void)old.run(); });
     CHECK(number(old.store->budget(old.id), "attempts") == 0);
-    auto snapshot = admission().config_snapshot;
-    snapshot.at("role_resolutions").at("worker").as_object()["reasoning"] = Object{{"mode", "off"}};
-    const auto bytes = canonical_json(snapshot);
-    ::test::throws([&] { (void)FrozenRequestConfig::restore(bytes, sha256_hex(bytes)); });
+    for (const auto& logical : {policy(), plain_policy()}) {
+        auto snapshot = admission(logical).config_snapshot;
+        snapshot.at("role_resolutions").at("worker").as_object()["reasoning"] = Object{{"mode", "off"}};
+        const auto bytes = canonical_json(snapshot);
+        ::test::throws([&] { (void)FrozenRequestConfig::restore(bytes, sha256_hex(bytes)); });
+    }
     for (const auto& invalid : {policy(0), policy(129), policy(128, 4095), policy(128, 524289)})
         ::test::throws([&] { (void)admission(invalid); });
 }
@@ -390,6 +529,10 @@ int main(int argc, char** argv) {
     schemas = std::make_unique<SchemaRegistry>(source / "schemas");
     struct GroupedCase { std::string_view group; ::test::Case test; };
     const std::vector<GroupedCase> cases{
+        {"runtime", {"plain submission preserves originals pending acceptance", plain_submission_preserves_originals_and_requires_acceptance}},
+        {"runtime", {"plain setup recovers atomic allocation and independent instruction", plain_interrupted_setup_recovers_without_duplicate_allocation}},
+        {"runtime", {"plain rejects management and additional Worker model calls", plain_rejects_manager_and_multiple_worker_bypasses}},
+        {"runtime", {"plain preserves wait UNKNOWN feedback and budget gates", plain_keeps_wait_unknown_feedback_and_budget_guards}},
         {"history", {"transcript prefixes equal complete canonical arrays", transcript_prefix_matches_complete_canonical_oracle}},
         {"history", {"transcript keeps aggregate depth and JSON guards", transcript_keeps_aggregate_depth_and_json_guards}},
         {"history", {"transcript byte limit includes the complete array", transcript_byte_limit_counts_the_complete_array}},

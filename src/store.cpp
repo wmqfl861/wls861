@@ -3791,6 +3791,13 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
     impl_->matches(frozen);
     require(str(r, "config_snapshot_sha256") == reservation.config_snapshot_sha256, ErrorCode::Stale, "model attempt changed the frozen request configuration");
     const auto frozen_config = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256"));
+    if (plain_single_agent(frozen_config)) {
+        require(actor.role == Role::Worker, ErrorCode::Unauthorized, "plain single-Agent permits only Worker model calls");
+        const auto tasks = impl_->all("SELECT task_id,node_id FROM tasks WHERE request_id=?", {actor.request_id});
+        require(tasks.size() == 1 && str(tasks.front(), "task_id") == actor.task_id &&
+            str(tasks.front(), "node_id") == "plain", ErrorCode::Unauthorized,
+            "plain model attempt must use its sole host task");
+    }
     const auto format = frozen_config.context_request_format();
     const auto& context_input = original_model_request.context.logical_input;
     const auto* projection = context_input.is_object() ? context_input.as_object().if_contains("model_projection") : nullptr;
@@ -3834,6 +3841,11 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         ErrorCode::Unauthorized, "compiled model context differs from frozen role/profile settings");
     if (!frozen_config.logical_agent_policy().is_null()) {
         const auto history = single_agent_original_history(*impl_, actor.request_id, frozen_config);
+        if (plain_single_agent(frozen_config) && !history.empty())
+            require(str(history.front().as_object(), "task_id") == actor.task_id &&
+                str(history.front().as_object(), "team_id") == actor.team_id &&
+                str(history.front().as_object(), "principal_id") == actor.principal_id, ErrorCode::Unauthorized,
+                "plain attempt changed its original Worker identity");
         require(history.size() < static_cast<std::size_t>(number(frozen_config.logical_agent_policy().as_object(), "max_attempts")),
             ErrorCode::Quota, "single-Agent frozen attempt capacity exhausted");
         const auto transcript = single_agent_transcript(actor.request_id, frozen_config, history);

@@ -6,6 +6,7 @@
 namespace wls::s1 {
 
 inline constexpr std::string_view single_agent_contract = "single-agent-role-broker-v1";
+inline constexpr std::string_view plain_single_agent_contract = "single-agent-plain-v1";
 
 struct SingleAgentTranscript {
     // Safe host-generated identity and original-prefix fingerprints. The
@@ -15,6 +16,7 @@ struct SingleAgentTranscript {
 };
 
 void validate_single_agent_config(const FrozenRequestConfig& config);
+bool plain_single_agent(const FrozenRequestConfig& config);
 SingleAgentTranscript single_agent_transcript(const std::string& request_id,
     const FrozenRequestConfig& config, const std::vector<Json>& original_history);
 Json single_agent_messages_json(const std::vector<StructuredContextMessage>& messages);

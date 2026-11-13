@@ -1,6 +1,7 @@
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "wls/management_context.hpp"
+#include "wls/single_agent.hpp"
 #include "runtime_config_internal.hpp"
 #include "correction_detail.hpp"
 #include "runtime_diagnostic.hpp"
@@ -59,6 +60,54 @@ bool instruction_current(const Json& instruction, const ExecutionBinding& bindin
         number(instruction, "instruction_revision") == binding.instruction_revision;
     // Epoch-only recovery is a host rebind + Worker control ack, never a new
     // TeamLead interpretation. Store still fences every old actor and result.
+}
+void setup_plain_agent(Store& store, const SchemaRegistry& schemas, const std::string& id) {
+    auto request = store.request(id);
+    auto tasks = store.tasks(id);
+    const auto snapshot = store.request_snapshot(id);
+    Array refs, constraints;
+    for (const auto& constraint : snapshot.at("constraint_catalog").as_array()) {
+        refs.push_back(constraint.at("constraint_id")); constraints.push_back(constraint.at("text"));
+    }
+    // The complete original request remains in the Worker's native contract.
+    // These host instructions allocate work; they never certify its result.
+    const std::string goal = "Fulfil the complete frozen request and submit its artifacts with self-check evidence.";
+    if (number(request, "plan_revision") == 0) {
+        require(tasks.empty(), ErrorCode::Conflict, "plain setup cannot adopt pre-existing tasks");
+        const Json brief = Object{{"title", "Complete request"}, {"goal", goal},
+            {"acceptance_criteria", Array{Object{{"id", "ac1"}, {"text", goal}}}},
+            {"constraint_refs", refs}, {"constraints_verbatim", constraints}};
+        const Json plan = Object{{"summary", plain_single_agent_contract}, {"plan_revision", 1},
+            {"based_on_requirements_revision", request.at("requirements_revision")},
+            {"nodes", Array{Object{{"node_id", "plain"}, {"kind", "team_task"}, {"title", "Complete request"},
+                {"template", "default"}, {"required", true}, {"depends_on", Array{}}, {"brief", brief}}}}};
+        schemas.validate("plan", plan);
+        static_cast<void>(store.apply_independent_plan(store.host_actor(Role::Dispatcher, id),
+            number(request, "state_version"), number(request, "requirements_revision"), plan, Object{}, new_id("plain_plan")));
+        request = store.request(id); tasks = store.tasks(id);
+    }
+    require(tasks.size() == 1 && text(tasks.front(), "node_id") == "plain" &&
+        text(tasks.front(), "template_id") == "default" &&
+        text(store.plan(id).at("body"), "summary") == plain_single_agent_contract, ErrorCode::Conflict,
+        "plain execution requires its single host task");
+    const auto& task = tasks.front();
+    const auto task_id = text(task, "task_id");
+    if (!store.instruction(task_id).is_null()) return;
+    // A crash between atomic allocation and this command may finish setup.
+    // An AMEND/rework is never interpreted as permission for a fresh order.
+    require(number(task, "task_revision") == 1 && number(task, "plan_revision") == 1 &&
+        number(task, "based_on_requirements_revision") == number(request, "requirements_revision"),
+        ErrorCode::NotReady, "plain initial setup requires unchanged task and request bindings");
+    const auto binding = store.binding(task_id);
+    auto next = binding; ++next.instruction_revision;
+    auto order = to_json(next);
+    for (const auto& field : Object{{"approach", "Use the granted Worker tools to fulfil the complete original request."},
+            {"steps", Array{Object{{"id", "s1"}, {"text", goal}}}}, {"done_definition", goal},
+            {"constraint_refs", refs}, {"constraints_verbatim", constraints}})
+        order.as_object()[field.key()] = field.value();
+    schemas.validate("work_order", order);
+    static_cast<void>(store.issue_instruction(store.host_actor(Role::TeamLead, id, binding.team_id),
+        binding, number(task, "state_version"), order, new_id("plain_order")));
 }
 std::vector<std::int64_t> ids(const Json& claim) {
     std::vector<std::int64_t> result;
@@ -501,6 +550,12 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     }
     const auto config = restore_request_config(store_.request(id));
     if (live) validate_live_workflow_config(config, *live);
+    const bool plain = plain_single_agent(config);
+    if (plain) {
+        validate_single_agent_config(config);
+        require(options.amendment_dispositions.as_object().empty(), ErrorCode::Unauthorized,
+            "plain execution cannot interpret AMEND dispositions");
+    }
     const auto manager_cap = number(config.json().at("system").at("limits"), "manager_max_tool_calls_per_wake");
     require(manager_cap > 0, ErrorCode::Corrupt, "frozen manager wake limit must be positive");
     using ActorKey = std::pair<Role, std::string>;
@@ -949,6 +1004,9 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         }
     };
 
+    if (plain && live_continue() && accounting_ready() && !request_terminal())
+        setup_plain_agent(store_, schemas_, id);
+
     // A successful action may wake an earlier role. Revisit actors in bounded
     // rounds instead of discarding those events or waiting inside a transaction.
     // Ordinary errors and missing script steps stop only that actor for this
@@ -958,7 +1016,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         bool progress = false;
         const auto dispatcher = store_.host_actor(Role::Dispatcher, id);
         Json dispatcher_claim = nullptr;
-        if (!request_terminal() && !stopped.contains({Role::Dispatcher, {}})) try {
+        if (!plain && !request_terminal() && !stopped.contains({Role::Dispatcher, {}})) try {
             dispatcher_claim = store_.claim_events(dispatcher);
             auto current_tasks = store_.tasks(id);
             if (!dispositions_applied) for (const auto& decision : options.amendment_dispositions.as_object())
@@ -1051,7 +1109,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         for (const auto& assigned : store_.tasks(id)) {
             if (!live_continue()) break;
             const auto node = text(assigned, "node_id"), task_id = text(assigned, "task_id");
-            const auto queued_action = management_target(Role::TeamLead, task_id);
+            const auto queued_action = plain ? Json(nullptr) : management_target(Role::TeamLead, task_id);
             const bool experience_pending = !queued_action.is_null() && text(queued_action, "kind") == "experience";
             const bool finished_business = terminal(assigned) || request_terminal();
             // A report committed through a direct host call may still have an
@@ -1076,7 +1134,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 WorkerTools* tools = mapped == tools_by_node_.end() ? nullptr : mapped->second;
                 auto binding = store_.binding(task_id);
                 active_actor = store_.host_actor(Role::TeamLead, id, binding.team_id);
-                if (!stopped.contains({Role::TeamLead, node})) {
+                if (!plain && !stopped.contains({Role::TeamLead, node})) {
                     active_claim = store_.claim_events(active_actor);
                     if (!active_claim.at("items").as_array().empty()) {
                         const auto action = management_target(Role::TeamLead, task_id);
@@ -1134,7 +1192,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 const auto waiting = store_.worker_wait(task_id);
                 if ((status != "READY" && status != "RUNNING") ||
                         (!waiting.is_null() && text(waiting, "status") == "WAITING")) continue;
-                if (!tools_by_node_.empty() && !tools) {
+                if ((plain || !tools_by_node_.empty()) && !tools) {
                     resume_blocked = true;
                     block(Role::Worker, node, task_id, "workspace_missing", "this task has no explicitly mapped WorkerTools host");
                     stopped.insert({Role::Worker, node}); continue;
@@ -1217,6 +1275,9 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     }
     if (static_cast<std::int64_t>(calls.size()) >= options.max_calls && !pending.empty())
         block(Role::Dispatcher, {}, {}, "call_limit", "this explicit pump reached its total call limit; remaining events stay durable");
+    const bool plain_submitted = plain && tasks.size() == 1 && text(tasks.front(), "status") == "SUBMITTED" &&
+        number(tasks.front(), "based_on_requirements_revision") == number(final_request, "requirements_revision") &&
+        number(tasks.front(), "plan_revision") == number(final_request, "plan_revision");
     Object result{{"mode", live ? "event_live" : "event_fake"}, {"workflow_runtime", true}, {"request_id", id},
         {"config_snapshot_sha256", config.sha256()}, {"calls", std::move(calls)}, {"blocked", std::move(blocked)},
         {"pending", std::move(pending)}, {"tasks", std::move(tasks)}, {"questions", std::move(questions)},
@@ -1226,6 +1287,10 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         {"business_delivered", store_.acceptance_runtime_enabled() && text(final_request, "status") == "DELIVERED" &&
             text(final_request, "delivery_status") == "CONFIRMED"},
         {"environment_checks_executed", false}, {"real_model_calls", provider_calls}};
+    if (plain) {
+        result["model_loop_complete"] = plain_submitted;
+        result["business_acceptance_pending"] = plain_submitted;
+    }
     if (!config.management_history_policy().is_null())
         result["management_history"] = store_.management_view(store_.host_actor(Role::Dispatcher, id),
             store_.request_binding(id)).at("history_catalogs");
@@ -1236,7 +1301,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         result["experience_jobs"] = std::move(jobs);
     }
     if (live) {
-        result["resume_after_wake_limit"] = wake_limited && made_progress && !resume_blocked &&
+        result["resume_after_wake_limit"] = wake_limited && made_progress && !resume_blocked && !plain_submitted &&
             (stop_reason == "quiescent" || stop_reason == "call_limit");
         result["stop_reason"] = stop_reason;
         result["network_started_calls"] = network_started_calls;

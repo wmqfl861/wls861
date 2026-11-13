@@ -158,7 +158,7 @@ class LiveWorkflowCli(unittest.TestCase):
         return json.loads(result.stdout)
 
     def admit(self, port, key='request-one', pricing=None, cost_budget=10000, retries=0, timeout_ms=None,
-              total=None, challenge=False):
+              total=None, challenge=False, plain=False, text_file=None, constraints_file=None):
         system = copy.deepcopy(self.system)
         provider = json.loads((SOURCE / 'config/examples/providers/responses-offline.json').read_text())
         provider.update(base_url=f'https://localhost:{port}', api_key_env=REFERENCE,
@@ -192,10 +192,14 @@ class LiveWorkflowCli(unittest.TestCase):
         system['context']['request_format'] = 'structured-v3'
         system['context'].pop('model_projection', None); system['context'].pop('tool_policy', None)  # Keep the original priced fixture's frozen request size.
         system['context'].pop('worker_history', None)
+        if plain:
+            system['context']['logical_agent'] = {'mode': 'single-agent-plain-v1',
+                'max_attempts': 128, 'max_history_bytes': 524288}
         self.configuration.write_text(json.dumps(system))
         result = self.invoke('submit', '--db', self.database, '--key', key,
-            '--text-file', SOURCE / 'tests/fixtures/s1_request.txt', '--config', self.configuration,
-            '--functions-dir', self.functions, '--cost-budget-micro-usd', cost_budget)
+            '--text-file', text_file or SOURCE / 'tests/fixtures/s1_request.txt', '--config', self.configuration,
+            '--functions-dir', self.functions, '--cost-budget-micro-usd', cost_budget,
+            *(['--constraints-file', constraints_file] if constraints_file else []))
         return result['request']['request_id']
 
     def authorize(self, request, reserved=100):
@@ -548,6 +552,80 @@ class LiveWorkflowCli(unittest.TestCase):
             self.assertEqual(self.rows('SELECT * FROM call_attempts'), [])
             self.assertEqual(self.rows('SELECT * FROM live_send_claims'), [])
             self.assertEqual(peer.accepted, 0)
+
+    def test_plain_native_input_preserves_full_request_history_and_submission(self):
+        original = '原始中文请求的全文不能截断，后面的约束同样必须保留。\n' * 200
+        original += '创建 result.txt，内容为 alpha candidate version 1 加换行。只提交 result.txt；使用 UTF-8 编码。'
+        catalog = [{'constraint_id': 'c1', 'source_revision': 1, 'text': '只提交 result.txt'},
+                   {'constraint_id': 'c2', 'source_revision': 1, 'text': '使用 UTF-8 编码'}]
+        text_file, constraints_file = self.directory / 'request.txt', self.directory / 'constraints.json'
+        text_file.write_text(original, encoding='utf-8')
+        constraints_file.write_text(json.dumps(catalog), encoding='utf-8')
+        peer_model = ScriptedPeer()
+        fixture = json.loads((SOURCE / 'tests/fixtures/s14_fake_submit.json').read_text())
+        peer_model.calls = [step['tool_calls'][0] for step in fixture['nodes']['alpha'] if step['role'] == 'worker']
+        expected = peer_model.calls[0]['arguments']['content'].encode('utf-8')
+        workspace = self.directory / 'workspace'
+        workspace.mkdir(mode=0o700)
+        mapping = self.directory / 'workspaces.json'
+        mapping.write_text(json.dumps({'plain': str(workspace)}))
+        with tls.Peer(self.contexts['server'], peer_model) as peer:
+            request = self.admit(peer.port, pricing=PRICING, cost_budget=1000000, plain=True,
+                                 text_file=text_file, constraints_file=constraints_file)
+            self.authorize(request, reserved=200000)
+            command = ('pump-single-live', '--db', self.database, '--request', request,
+                       '--authorization-file', self.authorization_file, '--workspaces-file', mapping)
+            report = self.invoke(*command, credential=BEARER)
+            self.assertEqual(report['execution_contract'], 'single-agent-plain-v1')
+            self.assertEqual(report['manager_calls'], 0)
+            self.assertTrue(report['model_loop_complete'], report)
+            self.assertTrue(report['business_acceptance_pending'])
+            self.assertFalse(report['business_delivered'])
+            self.assertEqual(peer_model.actions, ['fs_write', 'submit'])
+            self.assertEqual(len(peer.requests), 2)
+            attempts = self.rows('SELECT * FROM call_attempts ORDER BY rowid')
+            self.assertEqual([row['role'] for row in attempts], ['worker', 'worker'])
+            self.assertEqual(len({(row['task_id'], row['team_id'], row['principal_id'], row['model_ref'])
+                                  for row in attempts}), 1)
+            self.assertTrue(all(row['status'] == 'COMPLETED' and row['settlement_sha256'] for row in attempts))
+            claims = self.rows('SELECT * FROM live_send_claims ORDER BY rowid')
+            self.assertEqual([row['attempt_id'] for row in claims], [row['attempt_id'] for row in attempts])
+            self.assertEqual(len({row['claim_id'] for row in claims}), 2)
+            executions = self.rows('SELECT attempt_id,request_body_sha256 FROM live_attempt_execution ORDER BY rowid')
+            self.assertEqual([row['attempt_id'] for row in executions], [row['attempt_id'] for row in attempts])
+            for execution, sent in zip(executions, peer.requests):
+                body = json.loads(sent['body'])
+                anchor = json.loads(body['input'][0]['content'])['task_contract']
+                self.assertEqual(anchor['request']['texts'][0]['text'], original)
+                self.assertEqual(anchor['request']['constraint_catalog'], catalog)
+                self.assertEqual({tool['name'] for tool in body['tools']},
+                    {'fs_list', 'fs_read', 'fs_search', 'fs_mkdir', 'fs_write', 'fs_patch', 'ask', 'submit'})
+                self.assertEqual(execution['request_body_sha256'], hashlib.sha256(sent['body']).hexdigest())
+            native = json.loads(peer.requests[1]['body'])['input']
+            replay = next(item for item in native if item.get('type') == 'function_call')
+            response = json.loads(attempts[0]['response'])['tool_calls'][0]
+            self.assertEqual((replay['name'], json.loads(replay['arguments'])), (response['name'], response['arguments']))
+            identity = {'format': 'wls-history-tool-id-v1', 'attempt_id': attempts[0]['attempt_id'], 'call_id': response['call_id']}
+            self.assertEqual(replay['call_id'], 'history_' + hashlib.sha256(
+                json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()).hexdigest())
+            feedback = self.rows('SELECT * FROM model_tool_feedback WHERE attempt_id=?', (attempts[0]['attempt_id'],))[0]
+            output = next(item for item in native if item.get('type') == 'function_call_output')
+            self.assertEqual(output['call_id'], replay['call_id'])
+            self.assertEqual(json.loads(output['output']), json.loads(feedback['result']))
+            self.assertEqual(json.loads(native[-1]['content'])['current_state']['logical_agent_execution']['history_count'], 1)
+            submissions = self.rows('SELECT * FROM workflow_submissions')
+            self.assertEqual([row['status'] for row in submissions], ['SUBMITTED'])
+            artifact = json.loads(submissions[0]['artifact_snapshot'])[0]
+            self.assertEqual(artifact['sha256'], hashlib.sha256(expected).hexdigest())
+            self.assertEqual((workspace / 'result.txt').read_bytes(), expected)
+            for table in ('team_lead_checks', 'experience_jobs'):
+                self.assertEqual(self.rows(f'SELECT * FROM {table}'), [])
+            (workspace / 'result.txt').write_text('later workspace bytes\n')
+            self.assertEqual(self.invoke(*command, credential=BEARER)['calls'], [])
+            self.assertEqual(self.rows('SELECT * FROM workflow_submissions'), submissions)
+            self.assertEqual(self.rows('SELECT * FROM call_attempts ORDER BY rowid'), attempts)
+            self.assertEqual(self.rows('SELECT * FROM live_send_claims ORDER BY rowid'), claims)
+            self.assertEqual(len(peer.requests), 2)
 
     def test_pricing_estimate_completes_budget_without_relabeling_actual(self):
         peer_model = ScriptedPeer()
