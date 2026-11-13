@@ -1,3 +1,70 @@
+#include "store_impl.hpp"
+
+#include <algorithm>
+#include <set>
+
+namespace wls::s1 {
+using namespace store_detail;
+
+Json Store::Impl::rejected_info(const std::string& task_id) const {
+    require_acceptance_schema();
+    const auto task = task_row(task_id);
+    const auto saved = optional("SELECT submission_id FROM workflow_submissions WHERE task_id=? AND status='BLOCKED'", {task_id});
+    if (str(task, "status") != "BLOCKED" || !saved) return nullptr;
+    auto result = submission_info(str(*saved, "submission_id"));
+    const auto id = str(result.as_object(), "submission_id");
+    const auto request = request_row(str(task, "request_id"));
+    const auto config = parse_json_strict(str(request, "config_snapshot"), 8 * 1024 * 1024);
+    const auto limit = number(config.at("system").at("limits").as_object(), "team_internal_rework_max");
+    const auto used = number(result.as_object(), "team_rework_count");
+    require(limit >= 0 && limit <= 10000 && used >= 0, ErrorCode::Corrupt, "invalid frozen shared rework allowance");
+    result.as_object()["rework_limit"] = limit;
+    result.as_object()["rework_remaining"] = std::max<std::int64_t>(0, limit - used);
+    Json cause = nullptr;
+    if (const auto rejected = optional("SELECT * FROM candidate_acceptances WHERE submission_id=? AND status='REJECTED' ORDER BY rowid DESC LIMIT 1", {id})) {
+        require(next(number(*rejected, "submission_version")) == number(result.as_object(), "state_version"),
+                ErrorCode::Corrupt, "rejection source does not match blocked candidate version");
+        cause = Row{{"kind", "business_rejection"}, {"record", acceptance_info(*rejected)}};
+    } else {
+        const auto& checks = result.at("checks").as_array();
+        require(!checks.empty() && checks.back().at("status") == "BLOCKED" &&
+            !checks.back().at("check_body").at("passed").as_bool() &&
+            checks.back().at("submission_version") == result.at("state_version"),
+            ErrorCode::Corrupt, "blocked submission lacks its original failed check");
+        cause = Row{{"kind", "team_rework_exhausted"}, {"record", checks.back()}};
+    }
+    result.as_object()["rejection_cause"] = std::move(cause);
+    result.as_object()["escalation"] = nullptr;
+    if (const auto prior = optional("SELECT result FROM events WHERE request_id=? AND type='escalate_task' AND json_extract(payload,'$.submission_id')=? ORDER BY seq DESC LIMIT 1", {str(request, "request_id"), id})) {
+        const auto fact = parse_json_strict(str(*prior, "result"));
+        auto question = question_info(str(fact.as_object(), "question_id"));
+        require(fact.at("submission_id") == result.at("submission_id") &&
+            fact.at("source_record_sha256") == result.at("record_sha256"), ErrorCode::Corrupt, "escalation source fingerprint changed");
+        require(question.at("task_id") == result.at("task_id") && question.at("team_id") == result.at("team_id"),
+                ErrorCode::Corrupt, "escalation source scope changed");
+        result.as_object()["escalation"] = std::move(question);
+    }
+    return result;
+}
+
+Json Store::Impl::rejection_subject(const StoreActor& actor, const ExecutionBinding& captured,
+                       std::int64_t task_version, const std::string& submission_id,
+                       std::int64_t submission_version) const {
+    const auto source = submission_row(submission_id);
+    workflow_subject(actor, captured, source, true);
+    const auto task_id = str(source, "task_id");
+    const auto task = task_row(task_id); const auto request = request_row(actor.request_id);
+    require(number(task, "state_version") == task_version && number(source, "state_version") == submission_version,
+            ErrorCode::Conflict, "rejected task or submission CAS changed");
+    require(str(task, "status") == "BLOCKED" && str(source, "status") == "BLOCKED" && str(task, "kind") == "team_task",
+            ErrorCode::NotReady, "only a current blocked team submission has a rejection successor");
+    require(number(task, "based_on_requirements_revision") == number(request, "requirements_revision") &&
+            number(task, "plan_revision") == number(request, "plan_revision"), ErrorCode::Stale, "rejection successor requires current AMEND disposition");
+    const auto team = team_row(str(source, "team_id"));
+    require(str(team, "status") == "ACTIVE", ErrorCode::NotReady, "a stopped producer cannot be revived by corrective rework");
+    return rejected_info(task_id);
+}
+
 // R2.1 corrective revisions and user escalation. Original submission/check/
 // acceptance bytes stay immutable. Reuse existing tables, no asset migration.
 Json Store::rejected_submission(const std::string& task_id) const {
@@ -107,3 +174,5 @@ Json Store::escalate_task(const StoreActor& actor, const ExecutionBinding& captu
     result.as_object()["rework_limit"] = rejected.at("rework_limit");
     impl_->event(actor.request_id, command_id, command, result, "dispatcher"); tx.commit(); return result;
 }
+
+} // namespace wls::s1
