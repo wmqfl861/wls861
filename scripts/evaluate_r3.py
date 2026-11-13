@@ -24,6 +24,8 @@ MAX_JSON = 8 * 1024 * 1024
 MAX_ROWS = 4096
 CONDITIONS = ('multi_agent', 'single_agent')
 LOGICAL_AGENT_CONTRACT = 'single-agent-role-broker-v1'
+PLAIN_AGENT_CONTRACT = 'single-agent-plain-v1'
+PLAIN_CONDITIONS = (*CONDITIONS, 'single_agent_plain')
 DEFAULT_LOGICAL_AGENT_POLICY = {'mode': LOGICAL_AGENT_CONTRACT, 'max_attempts': 128, 'max_history_bytes': 524288}
 DIMENSIONS = {'input': 'input_tokens', 'output': 'output_tokens', 'cost': 'cost_micro_usd'}
 TASKS = (
@@ -225,10 +227,10 @@ def common_lock(db, request_id, model_ref, reasoning, *, logical_agent_compariso
             'max_paid_retries': 0}
 
 
-def validate_logical_agent_policy(policy):
+def validate_logical_agent_policy(policy, contract=LOGICAL_AGENT_CONTRACT):
     require(isinstance(policy, dict) and set(policy) == {'mode', 'max_attempts', 'max_history_bytes'},
             'invalid logical Agent policy shape')
-    require(policy['mode'] == LOGICAL_AGENT_CONTRACT, 'unknown logical Agent policy')
+    require(policy['mode'] == contract, 'unknown logical Agent policy')
     require(type(policy['max_attempts']) is int and 1 <= policy['max_attempts'] <= 128,
             'logical Agent attempt capacity is invalid')
     require(type(policy['max_history_bytes']) is int and 4096 <= policy['max_history_bytes'] <= 524288,
@@ -236,9 +238,11 @@ def validate_logical_agent_policy(policy):
 
 
 def make_plan(db, request_id, model_ref='fake', reasoning=None, evidence_mode='synthetic',
-              decision_evidence=None, identity_contract=None):
+              decision_evidence=None, identity_contract=None, include_plain=False):
     require(evidence_mode in ('synthetic', 'provider'), 'unknown evidence mode')
     require(identity_contract in (None, LOGICAL_AGENT_CONTRACT), 'unknown logical identity contract')
+    if include_plain:
+        identity_contract = LOGICAL_AGENT_CONTRACT
     decision_evidence = decision_evidence or ('model-origin-v1' if evidence_mode == 'provider' or identity_contract else 'structural-v1')
     require(decision_evidence in ('structural-v1', 'model-origin-v1'), 'unknown decision evidence contract')
     require(evidence_mode != 'provider' or decision_evidence == 'model-origin-v1',
@@ -262,9 +266,16 @@ def make_plan(db, request_id, model_ref='fake', reasoning=None, evidence_mode='s
         require(context.get('request_format') in ('structured-v2', 'structured-v3'),
                 'logical Agent comparison requires a structured seed')
         policy = context.get('logical_agent', DEFAULT_LOGICAL_AGENT_POLICY)
+        if include_plain and policy.get('mode') == PLAIN_AGENT_CONTRACT:
+            policy = dict(policy, mode=LOGICAL_AGENT_CONTRACT)
         validate_logical_agent_policy(policy)
         plan.update(schema_version=3, benchmark_id='r3-small-tasks-v3', identity_contract=identity_contract,
                     single_agent_policy=policy)
+        if include_plain:
+            require(strict_json(request['config_snapshot'])['system']['models'][model_ref]['adapter'] in ('fake', 'openai-responses'),
+                    'plain comparison supports only Fake and Responses evidence')
+            plan.update(schema_version=4, benchmark_id='r3-small-tasks-v4', conditions=list(PLAIN_CONDITIONS),
+                        plain_agent_policy=dict(policy, mode=PLAIN_AGENT_CONTRACT))
     plan['plan_sha256'] = digest(plan)
     return plan
 
@@ -274,18 +285,24 @@ def validate_plan(plan):
               'conditions', 'repetitions', 'common', 'tasks', 'plan_sha256'}
     require(isinstance(plan, dict), 'plan must be an object')
     version = plan.get('schema_version')
-    if version in (2, 3):
+    if version in (2, 3, 4):
         fields.add('decision_evidence')
         require(plan.get('decision_evidence') == 'model-origin-v1', 'unknown decision evidence contract')
-    if version == 3:
+    if version in (3, 4):
         fields.update(('identity_contract', 'single_agent_policy'))
         require(plan.get('identity_contract') == LOGICAL_AGENT_CONTRACT, 'unknown logical identity contract')
         validate_logical_agent_policy(plan.get('single_agent_policy'))
+    if version == 4:
+        fields.add('plain_agent_policy')
+        validate_logical_agent_policy(plan.get('plain_agent_policy'), PLAIN_AGENT_CONTRACT)
+        require(plan['plain_agent_policy'] == dict(plan['single_agent_policy'], mode=PLAIN_AGENT_CONTRACT),
+                'logical comparison must freeze identical history capacities')
     require(set(plan) == fields, 'unexpected plan shape')
-    require(type(version) is int and version in (1, 2, 3) and
+    require(type(version) is int and version in (1, 2, 3, 4) and
             plan['benchmark_id'] == f'r3-small-tasks-v{version}', 'unknown evaluation contract')
     require(plan['plan_sha256'] == digest({key: value for key, value in plan.items() if key != 'plan_sha256'}), 'plan fingerprint mismatch')
-    require(plan['conditions'] == list(CONDITIONS) and plan['repetitions'] == 1, 'fixed paired conditions required')
+    require(plan['conditions'] == list(PLAIN_CONDITIONS if version == 4 else CONDITIONS) and
+            plan['repetitions'] == 1, 'fixed comparison conditions required')
     require(plan['evidence_mode'] in ('synthetic', 'provider'), 'unknown evidence mode')
     common = plan['common']
     require(set(common) == {'model_ref', 'profile_sha256', 'reasoning', 'environment_sha256', 'workflow_policy_sha256', 'constraints_sha256', 'tools',
@@ -350,8 +367,8 @@ def captured_contract(envelope):
     return strict_json(remaining[:size])
 
 
-def logical_agent_marker(logical_id, prefix, chain):
-    return {'contract': LOGICAL_AGENT_CONTRACT, 'logical_agent_id': logical_id,
+def logical_agent_marker(logical_id, prefix, chain, contract=LOGICAL_AGENT_CONTRACT):
+    return {'contract': contract, 'logical_agent_id': logical_id,
             'global_step': len(prefix) + 1, 'history_count': len(prefix),
             'history_sha256': original_digest(prefix), 'previous_chain_sha256': chain}
 
@@ -440,7 +457,7 @@ def logical_agent_evidence(db, request, attempts, condition, policy):
         return {'contract': 'role-isolated-v1', 'status': 'linked' if attempts else 'incomplete',
                 'shared_request_history': False}
     require(configured == policy, 'single-Agent frozen policy differs from the precommitted plan')
-    validate_logical_agent_policy(configured)
+    validate_logical_agent_policy(configured, PLAIN_AGENT_CONTRACT if condition == 'single_agent_plain' else LOGICAL_AGENT_CONTRACT)
     require(snapshot['system']['context'].get('request_format') in ('structured-v2', 'structured-v3'),
             'single-Agent input is not structured')
     require(len(attempts) <= policy['max_attempts'], 'single-Agent history exceeds its frozen attempt capacity')
@@ -463,7 +480,7 @@ def logical_agent_evidence(db, request, attempts, condition, policy):
                 snapshot['system']['context']['request_format'] == 'structured-v3' else 'wls-compiled-context-v2'),
                 'single-Agent original context differs from its frozen format')
         contract = captured_contract(envelope)
-        marker = logical_agent_marker(logical_id, history, chain)
+        marker = logical_agent_marker(logical_id, history, chain, policy['mode'])
         require(contract.get('logical_agent_execution') == marker, 'single-Agent execution chain is missing, reordered or forked')
         require(envelope['context']['input']['messages'] == logical_agent_messages(history),
                 'single-Agent actual model input omitted or changed the shared original history')
@@ -499,7 +516,7 @@ def logical_agent_evidence(db, request, attempts, condition, policy):
                 'single-Agent history crossed its request or configuration')
         chain = original_digest({'format': 'wls-single-agent-link-v1', 'previous_sha256': chain, 'fact': record})
         history.append(record)
-    return {'contract': LOGICAL_AGENT_CONTRACT, 'status': 'linked' if attempts else 'incomplete',
+    return {'contract': policy['mode'], 'status': 'linked' if attempts else 'incomplete',
             'logical_agent_id': logical_id, 'logical_agent_count': 1 if attempts else 0,
             'global_steps': len(history), 'final_chain_sha256': chain, 'shared_request_history': True,
             'authority_roles_are_separate_agents': False, 'private_history_in_report': False}
@@ -1177,6 +1194,88 @@ def original_execution_kind(db, snapshot, config_hash, attempt, envelope, tables
     return kind
 
 
+def plain_loop_complete(db, request, attempts, applications):
+    if not attempts:
+        return False
+    request_id = request['request_id']
+    task = one(db, 'SELECT * FROM tasks WHERE request_id=?', (request_id,))
+    team = one(db, 'SELECT * FROM teams WHERE request_id=?', (request_id,))
+    require(task['node_id'] == 'plain' and task['template_id'] == team['template_id'] == 'default' and
+            team['task_id'] == task['task_id'], 'plain execution changed its sole task or team')
+    plan = one(db, 'SELECT * FROM plans WHERE request_id=? AND plan_revision=1', (request_id,))
+    order = one(db, 'SELECT * FROM instructions WHERE request_id=? AND instruction_revision=1', (request_id,))
+    plan_body, order_body = strict_json(plan['body']), strict_json(order['body'])
+    require(plan_body['summary'] == PLAIN_AGENT_CONTRACT and len(plan_body['nodes']) == 1 and
+            plan_body['nodes'][0]['node_id'] == 'plain' and plan_body['nodes'][0]['template'] == 'default',
+            'plain execution lacks its original host allocation')
+    for kind, role, body, principal in (('independent_plan', 'dispatcher', plan_body, request['dispatcher_id']),
+                                        ('instruction', 'team_lead', order_body, team['lead_id'])):
+        event = one(db, "SELECT * FROM events WHERE request_id=? AND type=? AND json_extract(payload,'$.body')=?",
+                    (request_id, kind, original_canonical(body).decode()))
+        payload = strict_json(event['payload'])
+        require(event['command_id'].startswith('plainplan_' if kind == 'independent_plan' else 'plainorder_'),
+                'plain setup is not an original host command')
+        require(original_digest(payload) == event['command_sha256'] and payload['body'] == body and
+                event['actor'] == payload['actor']['role'] == role and payload['actor']['principal_id'] == principal and
+                payload['actor']['request_id'] == request_id, 'plain host setup event differs from its original authority')
+        result = strict_json(event['result'])
+        if kind == 'independent_plan':
+            require(len(result['tasks']) == 1 and result['tasks'][0]['task_id'] == task['task_id'] and
+                    result['tasks'][0]['team_id'] == team['team_id'], 'plain host allocation changed its original identities')
+        else:
+            require(result['binding'] == dict(payload['binding'], instruction_revision=1) and
+                    all(order_body[key] == value for key, value in result['binding'].items()) and
+                    all(payload['actor'][key] == order[key] for key in ('task_id', 'team_id', 'dispatcher_epoch', 'execution_epoch')),
+                    'plain host instruction changed its original binding')
+    epochs = ('dispatcher_epoch', 'execution_epoch')
+    projected = tuple(order[key] for key in epochs)
+    projections = {projected}
+    for recovery in rows(db, "SELECT * FROM events WHERE request_id=? AND type='recover' AND seq>? ORDER BY seq", (request_id, event['seq'])):
+        payload, result = strict_json(recovery['payload']), strict_json(recovery['result'])
+        entries = [entry for entry in result.get('rebound_instructions', []) if entry['task_id'] == task['task_id'] and entry['instruction_revision'] == 1]
+        if not entries:
+            continue
+        require(payload == {'type': 'recover'} and original_digest(payload) == recovery['command_sha256'] and len(entries) == 1,
+                'plain instruction recovery evidence is incomplete')
+        entry = entries[0]
+        require(entry['body_sha256'] == hashlib.sha256(order['body'].encode()).hexdigest() and
+                result['dispatcher_epoch'] == entry['dispatcher_epoch'] and
+                all(entry['previous_' + key] == order[key] and entry[key] == projected[index] + 1 for index, key in enumerate(epochs)),
+                'plain instruction recovery changed its original body or epochs')
+        projected = tuple(entry[key] for key in epochs)
+        projections.add(projected)
+    for attempt in attempts:
+        envelope = strict_json(attempt['request_envelope'])
+        contract, binding = captured_contract(envelope), strict_json(attempt['frozen_binding'])
+        require(attempt['role'] == 'worker' and attempt['principal_id'] == team['worker_id'] and
+                attempt['task_id'] == task['task_id'] and attempt['team_id'] == team['team_id'] and
+                all(binding[key] == order_body[key] for key in binding if key not in epochs) and
+                tuple(binding[key] for key in epochs) in projections, 'plain original Worker identity or instruction changed')
+        captured = contract['request']
+        require(captured['request_id'] == request_id and captured['requirements_revision'] == binding['requirements_revision'] and
+                contract['task']['brief'] == plan_body['nodes'][0]['brief'] and contract['instruction']['body'] == order_body,
+                'plain captured request, task or instruction differs from original host setup')
+        require(captured['texts'] == rows(db, 'SELECT requirements_revision,kind,text FROM request_texts WHERE request_id=? AND requirements_revision<=? ORDER BY requirements_revision', (request_id, binding['requirements_revision'])) and
+                captured['constraint_catalog'] == rows(db, 'SELECT constraint_id,text,source_revision FROM request_constraints WHERE request_id=? AND requirements_revision=? ORDER BY constraint_id', (request_id, binding['requirements_revision'])),
+                'plain original input omitted request text or constraints')
+        if envelope['context']['format'] == 'wls-compiled-context-v3':
+            require(envelope['context']['input']['contract_anchor']['request'] == {key: captured[key] for key in ('texts', 'constraint_catalog')},
+                    'plain native input differs from its complete original request')
+    complete = False
+    for app in (app for app in applications if app['tool_name'] == 'submit'):
+        submission = one(db, 'SELECT * FROM workflow_submissions WHERE request_id=? AND submission_id=?', (request_id, app['submission_id']))
+        fact = {key: strict_json(submission[key]) for key in ('body', 'original_binding', 'artifact_snapshot')}
+        binding = fact['original_binding']
+        require(binding == app['binding'] and original_digest(fact) == submission['record_sha256'] == app['result']['record_sha256'],
+                'plain immutable submission differs from the original model application')
+        artifact_matches(submission, {}, logical_paths=True)
+        complete |= (submission['status'] == task['status'] == 'SUBMITTED' and
+                     binding['requirements_revision'] == request['requirements_revision'] == task['based_on_requirements_revision'] and
+                     binding['plan_revision'] == request['plan_revision'] and
+                     all(binding[key] == task[key] for key in ('plan_revision', 'task_revision', 'instruction_revision')))
+    return complete
+
+
 def inspect_run(plan, task, condition, run, base_directory):
     require(set(run) == {'task_id', 'condition', 'database', 'request_id', 'elapsed_ms', 'plan_sha256'}, 'unexpected run fields')
     require(run['plan_sha256'] == plan['plan_sha256'], 'run references another plan')
@@ -1187,9 +1286,12 @@ def inspect_run(plan, task, condition, run, base_directory):
         require(original['text'] == task['material'], 'original task materials differ')
         common = plan['common']
         require(common_lock(db, run['request_id'], common['model_ref'], common['reasoning'],
-                            logical_agent_comparison=plan['schema_version'] == 3) == common,
+                            logical_agent_comparison=plan['schema_version'] in (3, 4)) == common,
                 'model/environment/tools/budget conditions differ')
         snapshot = strict_json(request['config_snapshot'])
+        if plan['schema_version'] == 4:
+            require(snapshot['system']['models'][common['model_ref']]['adapter'] in ('fake', 'openai-responses'),
+                    'plain comparison supports only Fake and Responses evidence')
         config_hash = hashlib.sha256(request['config_snapshot'].encode()).hexdigest()
         attempts = rows(db, 'SELECT * FROM call_attempts WHERE request_id=? ORDER BY rowid', (run['request_id'],))
         budget = one(db, 'SELECT * FROM request_budgets WHERE request_id=?', (run['request_id'],))
@@ -1248,22 +1350,24 @@ def inspect_run(plan, task, condition, run, base_directory):
         condition_valid = bool(attempts) and (set(roles) == {'worker'} and len(agent_identities) == 1
             if condition == 'single_agent' else len(roles) > 1)
         identity_evidence = None
-        if plan['schema_version'] == 3:
-            identity_evidence = logical_agent_evidence(db, request, attempts, condition, plan['single_agent_policy'])
+        if plan['schema_version'] in (3, 4):
+            policy = plan['plain_agent_policy' if condition == 'single_agent_plain' else 'single_agent_policy']
+            identity_evidence = logical_agent_evidence(db, request, attempts, condition, policy)
             condition_valid = bool(attempts) and identity_evidence['status'] == 'linked' and (
-                condition == 'single_agent' or len(roles) > 1)
+                condition != 'multi_agent' or len(roles) > 1)
         applications = None
         decision_evidence = {'contract': 'structural-v1', 'status': 'not_checked',
                              'model_decision_origin_established': False}
-        if plan['schema_version'] in (2, 3):
+        if plan['schema_version'] in (2, 3, 4):
             applications, decision_evidence = model_applications(db, run['request_id'], attempts)
         checks = evidence_checks(db, request, task, applications)
         if applications is not None:
             origin_checks = model_origin_checks(db, request, task, applications, decision_evidence,
-                                                allow_recovery_projection=plan['schema_version'] == 3)
+                                                allow_recovery_projection=plan['schema_version'] in (3, 4))
             checks.update(origin_checks)
             decision_evidence['status'] = 'linked' if all(origin_checks.values()) else 'incomplete'
             decision_evidence['model_decision_origin_established'] = all(origin_checks.values())
+        workflow_checks = dict(checks)
         checks['condition_roles'] = condition_valid
         checks['no_usage_dispute'] = not reconciliation_disputes
         checks['live_observations_present'] = len(transport_observations) == sum(count for kind, count in kinds.items() if kind != 'synthetic_fake')
@@ -1272,7 +1376,7 @@ def inspect_run(plan, task, condition, run, base_directory):
         checks['no_unknown_operation'] = not rows(db, "SELECT op_id FROM ops WHERE request_id=? AND status IN ('PREPARED','RUNNING','CANCEL_REQUESTED','UNKNOWN')", (run['request_id'],))
         for dimension in DIMENSIONS:
             checks['budget_' + dimension] = budget['spent_' + dimension] + budget['reserved_' + dimension] <= budget[dimension + '_limit']
-        return {'status': 'passed' if all(checks.values()) else 'failed', 'checks': checks,
+        result = {'status': 'passed' if all(checks.values()) else 'failed', 'checks': checks,
                 'request_id': run['request_id'], 'elapsed_ms': run['elapsed_ms'], 'elapsed_source': 'host_run_index',
                 'roles': dict(roles), 'agent_identity_count': len(agent_identities),
                 'source_kinds': dict(kinds), 'attempts': evidence,
@@ -1282,18 +1386,38 @@ def inspect_run(plan, task, condition, run, base_directory):
                 'pass_scope': 'model_application_and_structural_checks' if applications is not None else 'original_structural_checks_only',
                 'usage': totals, 'budget': {key: budget[key] for key in budget if key != 'request_id'},
                 'request_status': request['status'], 'evidence_sha256': digest({'attempts': attempts, 'budget': budget})}
+        if plan['schema_version'] == 4:
+            checks['known_usage'] = all(totals[key]['unknown_attempts'] == 0 for key in DIMENSIONS.values())
+            checks['original_feedback_complete'] = len(rows(db, 'SELECT attempt_id FROM model_tool_feedback JOIN call_attempts USING(attempt_id) WHERE request_id=?',
+                                                           (run['request_id'],))) == len(attempts)
+            safety = {key: value for key, value in checks.items() if key not in workflow_checks or key == 'model_application_records_complete'}
+            complete = condition == 'single_agent_plain' and plain_loop_complete(db, request, attempts, applications)
+            if request['status'] in ('CANCELLED', 'FAILED'):
+                outcome = request['status'].lower()
+            elif attempts and attempts[-1]['status'] != 'COMPLETED':
+                outcome = 'failed'
+            else:
+                outcome = 'complete' if complete or all(workflow_checks.values()) else 'incomplete'
+            complete = complete and outcome == 'complete'
+            result.update(status='observed' if all(safety.values()) else 'failed', safety_checks=safety,
+                          workflow_checks=workflow_checks, workflow_completion='complete' if all(workflow_checks.values()) and outcome == 'complete' else 'incomplete',
+                          plain_loop_completion=('complete' if complete else 'incomplete') if condition == 'single_agent_plain' else 'not_applicable',
+                          business_acceptance_pending=complete, execution_outcome=outcome,
+                          quality_assessment='not_assessed', pass_scope='evidence_and_safety_only')
+        return result
 
 
 def build_report(plan, run_index, base_directory=Path('.')):
     validate_plan(plan)
     base_directory = Path(base_directory)
-    require(isinstance(run_index, list) and len(run_index) <= len(TASKS) * 2, 'bounded run array required')
+    expected = len(TASKS) * len(plan['conditions'])
+    require(isinstance(run_index, list) and len(run_index) <= expected, 'bounded run array required')
     indexed = {}
     identities = set()
     for run in run_index:
         require(isinstance(run, dict), 'run must be an object')
         key = (run.get('task_id'), run.get('condition'))
-        require(key[0] in {x[0] for x in TASKS} and key[1] in CONDITIONS, 'unknown run cell')
+        require(key[0] in {x[0] for x in TASKS} and key[1] in plan['conditions'], 'unknown run cell')
         require(key not in indexed, 'duplicate run cell')
         try:
             path = regular_path(base_directory / run['database'])
@@ -1305,7 +1429,7 @@ def build_report(plan, run_index, base_directory=Path('.')):
         indexed[key] = run
     output = []
     for task in plan['tasks']:
-        for condition in CONDITIONS:
+        for condition in plan['conditions']:
             cell = {'task_id': task['task_id'], 'condition': condition}
             run = indexed.get((task['task_id'], condition))
             if run is None:
@@ -1318,8 +1442,8 @@ def build_report(plan, run_index, base_directory=Path('.')):
             output.append(cell)
     counts = Counter(x['status'] for x in output)
     report = {'schema_version': plan['schema_version'], 'plan_sha256': plan['plan_sha256'], 'evidence_mode': plan['evidence_mode'],
-              'rows': output, 'counts': dict(counts), 'expected_cells': len(TASKS) * 2,
-              'observed_cells': len(indexed), 'paired_cells_complete': len(indexed) == len(TASKS) * 2,
+              'rows': output, 'counts': dict(counts), 'expected_cells': expected,
+              'observed_cells': len(indexed), 'paired_cells_complete': len(indexed) == expected,
               'general_quality_or_cost_advantage_established': False,
               'decision_evidence_contract': plan.get('decision_evidence', 'structural-v1'),
               'provider_quality_acceptance_established': False,
@@ -1328,6 +1452,9 @@ def build_report(plan, run_index, base_directory=Path('.')):
     if plan['schema_version'] == 3:
         report['identity_contract'] = plan['identity_contract']
         report['comparison_scope'] = 'shared_request_history_vs_role_isolated_history_with_original_authority_brokers'
+    if plan['schema_version'] == 4:
+        report.update(identity_contract=plan['identity_contract'], comparison_scope='three_topologies_without_common_artifact_oracle',
+                      quality_assessment='not_assessed', quality_comparison_complete=False)
     report['report_sha256'] = digest(report)
     return report
 
@@ -1343,6 +1470,7 @@ def main():
     seed.add_argument('--evidence-mode', choices=('synthetic', 'provider'), default='synthetic')
     seed.add_argument('--decision-evidence', choices=('structural-v1', 'model-origin-v1'))
     seed.add_argument('--identity-contract', choices=(LOGICAL_AGENT_CONTRACT,))
+    seed.add_argument('--include-plain', action='store_true')
     report = sub.add_parser('report', help='read all supplied evidence; retain every missing or invalid cell')
     report.add_argument('--plan', required=True)
     report.add_argument('--runs', required=True)
@@ -1351,7 +1479,7 @@ def main():
         if args.command == 'plan':
             with database(args.db) as db:
                 result = make_plan(db, args.request, args.model_ref, strict_json(args.reasoning), args.evidence_mode,
-                                   args.decision_evidence, args.identity_contract)
+                                   args.decision_evidence, args.identity_contract, args.include_plain)
         else:
             result = build_report(read_json(args.plan), read_json(args.runs), Path(args.runs).absolute().parent)
         print(canonical(result).decode())
