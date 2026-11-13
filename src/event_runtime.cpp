@@ -83,7 +83,7 @@ void setup_plain_agent(Store& store, const SchemaRegistry& schemas, const std::s
                 {"template", "default"}, {"required", true}, {"depends_on", Array{}}, {"brief", brief}}}}};
         schemas.validate("plan", plan);
         static_cast<void>(store.apply_independent_plan(store.host_actor(Role::Dispatcher, id),
-            number(request, "state_version"), number(request, "requirements_revision"), plan, Object{}, new_id("plain_plan")));
+            number(request, "state_version"), number(request, "requirements_revision"), plan, Object{}, new_id("plainplan")));
         request = store.request(id); tasks = store.tasks(id);
     }
     require(tasks.size() == 1 && text(tasks.front(), "node_id") == "plain" &&
@@ -107,7 +107,7 @@ void setup_plain_agent(Store& store, const SchemaRegistry& schemas, const std::s
         order.as_object()[field.key()] = field.value();
     schemas.validate("work_order", order);
     static_cast<void>(store.issue_instruction(store.host_actor(Role::TeamLead, id, binding.team_id),
-        binding, number(task, "state_version"), order, new_id("plain_order")));
+        binding, number(task, "state_version"), order, new_id("plainorder")));
 }
 std::vector<std::int64_t> ids(const Json& claim) {
     std::vector<std::int64_t> result;
