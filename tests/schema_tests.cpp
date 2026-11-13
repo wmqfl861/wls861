@@ -223,7 +223,12 @@ void findings_capacity_and_unique_items() {
     reject([&] { registry->validate("review_verdict", verdict); });
     auto brief = example("task_brief");
     brief.as_object()["constraint_refs"] = boost::json::array{"c1", "c1"};
-    reject([&] { registry->validate("task_brief", brief); });
+    CHECK(rejection_message([&] { registry->validate("task_brief", brief); })
+        .find("/constraint_refs: array items must be unique") != std::string::npos);
+    for (int index = 2; index < 100; ++index) brief.at("constraint_refs").as_array().emplace_back("c1");
+    const auto limited = rejection_message([&] { registry->validate("task_brief", brief); });
+    CHECK(limited.find("schema constraint failed (diagnostics_limited)") != std::string::npos);
+    CHECK(limited.size() <= 600);
 }
 
 void diagnostics_identify_nested_brief_errors_without_values() {

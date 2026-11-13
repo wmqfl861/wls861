@@ -43,6 +43,19 @@ std::string diagnostic_fragment(std::string_view value, std::size_t limit = 40) 
     return result + (size < value.size() ? "..." : "");
 }
 
+bool diagnostic_input_bounded(const Json& value, std::size_t& remaining) {
+    if (!remaining) return false;
+    --remaining;
+    if (value.is_array()) {
+        const auto size = value.as_array().size();
+        if (size > remaining || size * size > remaining) return false;
+        remaining -= size * size; // Budget uniqueItems' pairwise error collection too.
+        for (const auto& child : value.as_array()) if (!diagnostic_input_bounded(child, remaining)) return false;
+    } else if (value.is_object())
+        for (const auto& item : value.as_object()) if (!diagnostic_input_bounded(item.value(), remaining)) return false;
+    return true;
+}
+
 std::string schema_diagnostics(valijson::ValidationResults& errors, const std::string& prefix) {
     std::string result;
     valijson::ValidationResults::Error error;
@@ -50,7 +63,7 @@ std::string schema_diagnostics(valijson::ValidationResults& errors, const std::s
         const auto& description = error.description;
         // Parent failures repeat leaf diagnostics; never forward arbitrary library text.
         if (description.starts_with("Failed to validate")) continue;
-        std::string path = prefix, reason = "schema constraint failed";
+        std::string path = prefix, reason = description == "diagnostics_limited" ? "schema constraint failed (diagnostics_limited)" : "schema constraint failed";
         const auto append = [&](std::string_view component) {
             std::string escaped;
             for (const auto c : diagnostic_fragment(component)) escaped += c == '~' ? "~0" : c == '/' ? "~1" : std::string(1, c);
@@ -362,8 +375,11 @@ public:
         const auto bounded = parse_json_strict(canonical_json(document), max_schema_bytes, 64);
         valijson::Validator validator(valijson::Validator::kStrongTypes);
         const valijson::adapters::BoostJsonAdapter target(bounded);
-        valijson::ValidationResults errors;
-        if (!validator.validate(*found->second, target, &errors)) {
+        if (!validator.validate(*found->second, target, nullptr)) {
+            valijson::ValidationResults errors;
+            std::size_t remaining = 1024;
+            if (diagnostic_input_bounded(bounded, remaining)) (void)validator.validate(*found->second, target, &errors);
+            else errors.pushError({}, "diagnostics_limited");
             throw Error(ErrorCode::InvalidInput, diagnostic_fragment("draft-07 validation failed for " + diagnostic_fragment(key) +
                         (model_input ? " model input" : " complete record") + schema_diagnostics(errors, prefix), 600));
         }
