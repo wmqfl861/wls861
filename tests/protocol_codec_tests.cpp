@@ -130,17 +130,18 @@ void response_metadata_does_not_relax_outputs_identity_or_known_types() {
         profile.response_metadata_policy = "ignore-record-v1";
         const auto base = profile.responses_compatibility ? fixture::compat_json("reasoning-tool-response.json") : fixture::tool_response();
         std::vector<Json> invalid;
-        auto value = base; value.at("output").as_array().back().as_object()["unknown"] = 1; invalid.push_back(value);
+        auto value = base; value.at("output").as_array().back().as_object()["unknown"] = 1;
+        if (!profile.responses_compatibility) invalid.push_back(value);
         value = base; value.at("output").as_array().push_back(Object{{"id", "future_item"}, {"type", "future_output"}}); invalid.push_back(value);
         value = base; auto message = fixture::text_response().at("output").as_array().front();
         message.at("content").as_array().front().as_object()["unknown"] = 1;
-        value.at("output").as_array().push_back(message); invalid.push_back(value);
+        value.at("output").as_array().push_back(message); if (!profile.responses_compatibility) invalid.push_back(value);
         value = base; value.at("usage").as_object()["total_tokens"] = 1; invalid.push_back(value);
         value = base; value.at("usage").as_object()["input_tokens"] = "11"; invalid.push_back(value);
         value = base; value.at("usage").as_object()["input_tokens_details"] = Array{}; invalid.push_back(value);
         value = base; value.as_object()["model"] = "unapproved-model"; invalid.push_back(value);
         if (profile.responses_compatibility) {
-            value = base; value.at("output").as_array().front().as_object()["unknown"] = 1; invalid.push_back(value);
+            value = base; value.at("output").as_array().front().as_object()["encrypted_content"] = 7; invalid.push_back(value);
         }
         for (const auto& broken : invalid) {
             const auto result = decode(broken, profile);
@@ -590,6 +591,73 @@ Json compat_history_record(const Json& response) {
         {"feedback", Object{{"original_binding", binding}, {"response", response},
             {"result", Object{{"ok", true}}}, {"record_sha256", sha256_hex("compat-fixture-feedback")}}}};
 }
+void compat_output_extensions_are_recorded_and_replayed_under_the_frozen_policy() {
+    auto profile = fixture::compat_profile(); profile.response_metadata_policy = "ignore-record-v1";
+    for (const auto* name : {"reasoning-tool-response.json", "reasoning-text-response.json", "refusal-response.json"}) {
+        auto value = fixture::compat_json(name);
+        const auto known = to_json(decode(value, profile).response);
+        Array paths;
+        auto& items = value.at("output").as_array();
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            const auto path = "/output/" + std::to_string(i);
+            items[i].as_object()["future~/"] = Object{{"private-value", Array{nullptr, true, 17}}};
+            paths.emplace_back(path + "/future~0~1");
+            for (const auto* part : {"summary", "content"}) {
+                auto* parts = items[i].as_object().if_contains(part);
+                if (!parts || parts->as_array().empty()) continue;
+                parts->as_array()[0].as_object()["future"] = "opaque-extension";
+                paths.emplace_back(path + "/" + part + "/0/future");
+            }
+        }
+        std::sort(paths.begin(), paths.end(), [](const Json& a, const Json& b) { return a.as_string() < b.as_string(); });
+        CHECK(compat_decode(value).response.error_code == "unsupported_response");
+        const std::string raw = " \n" + canonical_json(value) + "\n";
+        const auto decoded = decode_responses_response(profile, fixture::request(), 200, raw);
+        const auto response = to_json(decoded.response);
+        CHECK(decoded.raw_body == raw && decoded.raw_body_sha256 == sha256_hex(raw));
+        CHECK(response.at("status") == known.at("status") && response.at("text") == known.at("text"));
+        CHECK(response.at("tool_calls") == known.at("tool_calls") && response.at("usage") == known.at("usage"));
+        CHECK(decoded.evidence.at("unknown_fields") == Json(paths));
+        CHECK(decoded.evidence.at("unknown_fields_observed") == paths.size());
+        CHECK(canonical_json(decoded.evidence.at("unknown_fields")).find("private-value") == std::string::npos);
+        CHECK(response.at("responses_output").at("output") == value.at("output"));
+        CHECK(response.at("responses_output").at("response_metadata_policy") == "ignore-record-v1");
+        CHECK(to_json(model_response_from_json(parse_json_strict(canonical_json(response)))) == response);
+        auto missing = response; missing.at("responses_output").as_object().erase("response_metadata_policy");
+        fails(ErrorCode::Unsupported, [&] { (void)model_response_from_json(missing); });
+        for (const auto& invalid : {Json("ignore-v2"), Json(false), Json(nullptr)}) {
+            auto forged = response; forged.at("responses_output").as_object()["response_metadata_policy"] = invalid;
+            fails(ErrorCode::InvalidInput, [&] { (void)model_response_from_json(forged); });
+        }
+        if (decoded.response.status == ModelResultStatus::Completed) {
+            auto record = compat_history_record(response);
+            if (decoded.response.tool_calls.empty()) // A text-only round needs its original tool-selection feedback.
+                record.at("feedback").as_object()["result"] = Object{{"status", "FAILED"}, {"correction_feedback", Object{
+                    {"format", "wls-correction-feedback-v1"}, {"reason", "tool_selection"},
+                    {"target_sha256", sha256_hex("target")}, {"consecutive_failures", 1}}}};
+            const auto request = fixture::request(structured_attempt_history({record}));
+            const auto encoded = encode_responses_request(profile, request);
+            const auto input = parse_json_strict(encoded.body).at("input").as_array();
+            const auto first = std::find(input.begin(), input.end(), items.front());
+            CHECK(first != input.end() && static_cast<std::size_t>(input.end() - first) >= items.size());
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                CHECK(first[i] == items[i]);
+                CHECK(encoded.body.find(canonical_json(items[i])) != std::string::npos);
+            }
+            for (const auto& strict : {fixture::compat_profile(), fixture::profile()})
+                fails(ErrorCode::Unsupported, [&] { (void)encode_responses_request(strict, request); });
+        }
+        auto wrong = value; wrong.at("output").as_array().back().as_object()["status"] = false;
+        CHECK(decode(wrong, profile).response.error_code == "invalid_response");
+        wrong = value; wrong.at("output").as_array().back().as_object()["type"] = "future_type";
+        CHECK(decode(wrong, profile).response.error_code == "unsupported_response");
+        wrong = value;
+        if (items.back().at("type") == "function_call") wrong.at("output").as_array().back().as_object()["arguments"] = Object{};
+        else wrong.at("output").as_array().back().at("content").as_array()[0].as_object()[
+            items.back().at("content").as_array()[0].at("type") == "refusal" ? "refusal" : "text"] = false;
+        CHECK(decode(wrong, profile).response.error_code == "invalid_response");
+    }
+}
 void compat_rejected_selection_and_text_only_preserve_native_rounds() {
     for (const bool text_only : {false, true}) {
         auto wire = fixture::compat_json(text_only ? "reasoning-text-response.json" : "reasoning-tool-response.json");
@@ -908,6 +976,7 @@ int main() {
         {"response metadata paths preserve originals and known decoding", response_metadata_paths_keep_originals_and_known_results},
         {"response metadata count and byte overflow truncate paths without losing originals", response_metadata_lists_are_bounded_without_losing_raw_bytes},
         {"response metadata tolerance keeps output identity usage and strict JSON guards", response_metadata_does_not_relax_outputs_identity_or_known_types},
+        {"native output extensions retain exact originals under their frozen metadata policy", compat_output_extensions_are_recorded_and_replayed_under_the_frozen_policy},
         {"rejected selection and text-only feedback replay original native reasoning and call IDs", compat_rejected_selection_and_text_only_preserve_native_rounds},
         {"profile round trip binds effective capabilities and limits", profile_round_trip_and_effective_hash},
         {"profile rejects unknown fields versions credentials and paid execution", profile_fields_versions_and_paid_refusals},

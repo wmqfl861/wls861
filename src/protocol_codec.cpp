@@ -223,7 +223,7 @@ void empty_optional_array(const Json& value, std::string_view key) {
 }
 
 void parse_completed_output(const ProviderProfile& profile, const ModelRequest& request,
-                            const Json& value, ModelResponse& response) {
+                            const Json& value, ModelResponse& response, response_metadata::Collector& metadata) {
     (void)request; // Decode complete structure first; the host classifies tool selection after settlement.
     const auto& items = array(value);
     require(items.size() <= profile.limits.max_output_items, ErrorCode::Quota,
@@ -234,7 +234,7 @@ void parse_completed_output(const ProviderProfile& profile, const ModelRequest& 
         responses_compat::ValidationBounds codec_bounds{profile.limits.max_output_items,
             profile.limits.max_tool_calls, profile.limits.max_text_bytes, profile.limits.max_tool_argument_bytes};
         auto projection = responses_compat::validate_output(value, codec_bounds,
-                                                            nullptr, profile.parallel_tool_calls);
+            nullptr, profile.parallel_tool_calls, metadata.enabled, &metadata);
         response.text = std::move(projection.text);
         response.tool_calls = std::move(projection.tool_calls);
         if (projection.refusal) {
@@ -472,7 +472,12 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         if (v3 && kind && (*kind == "history_window" || *kind == "management_history_window")) continue;
         const auto role = text(message, "role");
         const auto content = text(message, "content");
-        const Json* payload = compat ? message.as_object().if_contains("responses_output") : nullptr;
+        const auto* original_output = message.as_object().if_contains("responses_output");
+        if (original_output && original_output->is_object())
+            if (const auto* policy = original_output->as_object().if_contains("response_metadata_policy"))
+                require(compat && *policy == Json(profile.response_metadata_policy), ErrorCode::Unsupported,
+                        "native output metadata policy differs from the frozen profile");
+        const Json* payload = compat ? original_output : nullptr;
         if (payload && !payload->is_null()) {
             require(role == "assistant", ErrorCode::InvalidInput,
                     "only an assistant message may carry opaque responses output");
@@ -662,13 +667,16 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
                 require(status == "completed", ErrorCode::Unsupported, "unsupported provider response status");
                 require(evidence.at("provider_error").is_null() && evidence.at("incomplete_details").is_null(),
                         ErrorCode::InvalidInput, "completed response carries an error or incomplete details");
-                parse_completed_output(profile, request, field(source, "output"), decoded.response);
+                const auto metadata_before_output = metadata.observed();
+                parse_completed_output(profile, request, field(source, "output"), decoded.response, metadata);
                 if (decoded.response.status == ModelResultStatus::Completed) {
                     decoded.response.error_code.clear(); decoded.response.error_message.clear();
                 }
                 if (profile.responses_compatibility && (decoded.response.status == ModelResultStatus::Completed ||
                         decoded.response.error_code == "model_refusal")) {
                     decoded.response.responses_output = payload_for(text(source, "model"), field(source, "output"));
+                    if (metadata.observed() != metadata_before_output)
+                        decoded.response.responses_output.as_object()["response_metadata_policy"] = profile.response_metadata_policy;
                     // Reject before interpretation: a payload this large could
                     // never persist, so it must not become a sendable original.
                     require(canonical_json(decoded.response.responses_output).size() <=
