@@ -301,10 +301,27 @@ PricingEstimate minimum_cost_reservation(const TokenPricing& pricing, std::int64
 
 void validate_provider_profile(const ProviderProfile& p) {
     require(identifier(p.profile_id) && identifier(p.model_ref), "invalid provider profile or model reference");
-    if (p.adapter_version != "1" || p.protocol != "openai-responses-v1")
+    const bool chat = p.protocol == "openai-chat-v1";
+    if (p.adapter_version != "1" || (!chat && p.protocol != "openai-responses-v1"))
         throw Error(ErrorCode::Unsupported, "unsupported Responses codec version or protocol");
-    require(base_url(p.base_url) && path(p.responses_path) && p.responses_path != "/" &&
-            p.responses_path.back() != '/', "provider endpoint must be an explicit HTTPS origin/path without credentials, query or fragment");
+    const auto& endpoint = chat ? p.chat_completions_path : p.responses_path;
+    require(base_url(p.base_url) && path(endpoint) && endpoint != "/" &&
+            endpoint.back() != '/', "provider endpoint must be an explicit HTTPS origin/path without credentials, query or fragment");
+    if (chat) {
+        if (p.streaming || !p.responses_path.empty() || p.responses_compatibility || !p.billing_challenge.empty() ||
+                p.response_metadata_policy != "ignore-record-v1")
+            throw Error(ErrorCode::Unsupported, "Chat requires nonstream metadata policy without Responses extensions");
+        if ((!p.chat_reasoning_policy.empty() && p.chat_reasoning_policy != "reasoning-effort-v1") ||
+                (p.chat_reasoning_policy.empty() && (p.reasoning_off || !p.reasoning_efforts.empty())))
+            throw Error(ErrorCode::Unsupported, "Chat off/effort requires an explicit reasoning-effort-v1 declaration");
+        require(p.chat_model_aliases.size() <= 8 && std::is_sorted(p.chat_model_aliases.begin(), p.chat_model_aliases.end()),
+                "Chat model aliases must be bounded and normalized");
+        std::set<std::string> seen;
+        for (const auto& alias : p.chat_model_aliases)
+            require(ascii_token(alias, 128) && seen.insert(alias).second, "Chat model aliases must be unique bounded tokens");
+    } else if (!p.chat_completions_path.empty() || !p.chat_reasoning_policy.empty() || !p.chat_model_aliases.empty()) {
+        throw Error(ErrorCode::Unsupported, "Chat-only declarations cannot alter a Responses profile");
+    }
     require(ascii_token(p.model, 128), "provider model alias must be a bounded ASCII token");
     require(environment_name(p.api_key_env), "authentication must be a valid environment reference name");
     require(p.billing_challenge.empty() || p.billing_challenge == "wls-billing-challenge-v1",
@@ -361,24 +378,42 @@ void validate_provider_profile(const ProviderProfile& p) {
 
 ProviderProfile provider_profile_from_json(const Json& value) {
     require(canonical_json(value).size() <= 65536, "provider profile byte limit exceeded");
+    const bool chat = text(value, "adapter") == "openai-chat";
     auto keys = std::set<std::string>{"format", "profile_id", "adapter", "adapter_version", "protocol", "base_url",
-        "responses_path", "model_ref", "model", "api_key_env", "real_calls_enabled", "max_paid_retries",
+        chat ? "chat_completions_path" : "responses_path", "model_ref", "model", "api_key_env", "real_calls_enabled", "max_paid_retries",
         "capabilities", "limits"};
+    if (chat) for (const auto* key : {"chat_reasoning_policy", "chat_model_aliases"})
+        if (object(value).contains(key)) keys.insert(key);
     if (object(value).contains("billing_challenge")) keys.insert("billing_challenge");
     if (object(value).contains("pricing")) keys.insert("pricing");
     if (object(value).contains("responses_compatibility")) keys.insert("responses_compatibility");
     if (object(value).contains("response_metadata_policy")) keys.insert("response_metadata_policy");
     if (object(value).contains("tool_choice_policy")) keys.insert("tool_choice_policy");
     exact(value, keys);
-    if (text(value, "format") != "wls-provider-profile-v1" || text(value, "adapter") != "openai-responses")
+    if (text(value, "format") != "wls-provider-profile-v1" || (!chat && text(value, "adapter") != "openai-responses") ||
+            (chat != (text(value, "protocol") == "openai-chat-v1")))
         throw Error(ErrorCode::Unsupported, "unsupported offline provider profile format or adapter");
     if (boolean(value, "real_calls_enabled") || integer(value, "max_paid_retries") != 0)
         throw Error(ErrorCode::Unsupported, "offline codec cannot enable real calls or paid retries");
     ProviderProfile p;
     p.profile_id = text(value, "profile_id"); p.adapter_version = text(value, "adapter_version");
     p.protocol = text(value, "protocol"); p.base_url = text(value, "base_url");
-    p.responses_path = text(value, "responses_path"); p.model_ref = text(value, "model_ref");
+    (chat ? p.chat_completions_path : p.responses_path) = text(value, chat ? "chat_completions_path" : "responses_path");
+    p.model_ref = text(value, "model_ref");
     p.model = text(value, "model"); p.api_key_env = text(value, "api_key_env");
+    if (chat && object(value).contains("chat_reasoning_policy")) {
+        p.chat_reasoning_policy = text(value, "chat_reasoning_policy");
+        require(!p.chat_reasoning_policy.empty(), "Chat reasoning policy cannot be empty");
+    }
+    if (chat && object(value).contains("chat_model_aliases")) {
+        const auto& aliases = field(value, "chat_model_aliases");
+        require(aliases.is_array() && !aliases.as_array().empty(), "Chat aliases must be a nonempty array");
+        for (const auto& alias : aliases.as_array()) {
+            require(alias.is_string(), "Chat alias must be text");
+            p.chat_model_aliases.emplace_back(alias.as_string());
+        }
+        std::sort(p.chat_model_aliases.begin(), p.chat_model_aliases.end());
+    }
     if (object(value).contains("tool_choice_policy")) {
         p.tool_choice_policy = text(value, "tool_choice_policy");
         require(p.tool_choice_policy == "allowed-tools-v1" || p.tool_choice_policy == "required-v1", "unsupported tool choice policy");
@@ -450,14 +485,15 @@ ProviderProfile provider_profile_from_json(const Json& value) {
 
 Json to_json(const ProviderProfile& p) {
     validate_provider_profile(p);
+    const bool chat = p.protocol == "openai-chat-v1";
     Array modes, efforts;
     if (p.reasoning_provider_default) modes.emplace_back("provider_default");
     if (p.reasoning_off) modes.emplace_back("off");
     if (!p.reasoning_efforts.empty()) modes.emplace_back("effort");
     for (const auto& effort : p.reasoning_efforts) efforts.emplace_back(effort);
     Object result{{"format", "wls-provider-profile-v1"}, {"profile_id", p.profile_id},
-        {"adapter", "openai-responses"}, {"adapter_version", p.adapter_version}, {"protocol", p.protocol},
-        {"base_url", p.base_url}, {"responses_path", p.responses_path}, {"model_ref", p.model_ref},
+        {"adapter", chat ? "openai-chat" : "openai-responses"}, {"adapter_version", p.adapter_version}, {"protocol", p.protocol},
+        {"base_url", p.base_url}, {chat ? "chat_completions_path" : "responses_path", chat ? p.chat_completions_path : p.responses_path}, {"model_ref", p.model_ref},
         {"model", p.model}, {"api_key_env", p.api_key_env}, {"real_calls_enabled", false}, {"max_paid_retries", 0},
         {"capabilities", Object{{"streaming", p.streaming}, {"tool_calling", p.tool_calling},
             {"parallel_tool_calls", p.parallel_tool_calls}, {"reasoning_modes", modes}, {"reasoning_efforts", efforts},
@@ -467,6 +503,11 @@ Json to_json(const ProviderProfile& p) {
     if (p.pricing) result["pricing"] = to_json(*p.pricing);
     if (!p.response_metadata_policy.empty()) result["response_metadata_policy"] = p.response_metadata_policy;
     if (!p.tool_choice_policy.empty()) result["tool_choice_policy"] = p.tool_choice_policy;
+    if (!p.chat_reasoning_policy.empty()) result["chat_reasoning_policy"] = p.chat_reasoning_policy;
+    if (!p.chat_model_aliases.empty()) {
+        Array aliases; for (const auto& alias : p.chat_model_aliases) aliases.emplace_back(alias);
+        result["chat_model_aliases"] = std::move(aliases);
+    }
     if (p.responses_compatibility) {
         Array snapshots;
         for (const auto& alias : p.responses_compatibility->model_aliases) snapshots.emplace_back(alias);

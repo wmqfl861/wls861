@@ -1,0 +1,28 @@
+{
+  "kind": "official-documentation-examples; not a live provider transcript",
+  "reference": {
+    "url": "https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create/index.md",
+    "retrieved_at": "2026-11-13T12:38:07.540890+00:00",
+    "sha256": "10ffc77eca532dacffd092d112b994e61006aca61b9e75ac20b39efb32c61e4c"
+  },
+  "sdk_reference": {
+    "repository": "https://github.com/openai/openai-python",
+    "commit": "59738a289ee82c7b86bf1e10230cceb6daa9716d",
+    "commit_timestamp": "2026-11-12T21:19:33Z"
+  },
+  "fixtures": {
+    "official-text-response.json": {
+      "sha256": "1fdff6a6985c07e75ce076a5724a99af0d0ce505a7a360211dc769581dc26e09",
+      "source_heading": "Response example",
+      "source_start_line": 2199,
+      "transformation": "None; fenced JSON content including its terminating newline."
+    },
+    "official-tool-response.json": {
+      "sha256": "660f8e4dded5106d7f8f44c8c425ea916e89f56aa549f86beec5e43421f43a4c",
+      "source_heading": "Response example",
+      "source_start_line": 2280,
+      "transformation": "None; fenced JSON content including its terminating newline."
+    }
+  },
+  "network_use": "Public documentation GET only; zero inference calls or credentials."
+}

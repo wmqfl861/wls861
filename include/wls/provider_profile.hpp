@@ -100,6 +100,10 @@ struct ProviderProfile {
     // Empty retains strict decoding and the original profile bytes/hash.
     std::string response_metadata_policy{};
     std::string tool_choice_policy{};
+    // Chat-only opt-ins; absent preserves every original Responses profile byte.
+    std::string chat_completions_path{};
+    std::string chat_reasoning_policy{};
+    std::vector<std::string> chat_model_aliases{};
 };
 
 // Strict parse/serialize; rates are integers in 0..10^12 micro USD.
