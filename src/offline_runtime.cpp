@@ -8,6 +8,7 @@
 #include "runtime_config_internal.hpp"
 #include "amendment_disposition.hpp"
 #include "correction_detail.hpp"
+#include "storage_error.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -1108,11 +1109,11 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     }
     const auto command = captured.attempt_id + ":" + tool.call_id;
     const auto read_history = [&](auto action) -> Json {
-        try { return action(); } catch (const Error& error) {
-            // SQLite BUSY/LOCKED are Conflict too; storage contention must stop.
+        try { return action(); }
+        catch (const StorageConflict&) { throw; }
+        catch (const Error& error) {
             if (!durable_feedback || error.code() == ErrorCode::Storage || error.code() == ErrorCode::Corrupt ||
-                error.code() == ErrorCode::UnknownOutcome || error.code() == ErrorCode::Quota ||
-                error.code() == ErrorCode::Conflict) throw;
+                error.code() == ErrorCode::UnknownOutcome || error.code() == ErrorCode::Quota) throw;
             if (is_management_history_control(tool.name)) store_.authorize_management_control(call.actor, captured.binding, tool.name);
             else store_.authorize_history_control(call.actor, captured.binding, tool.name);
             return ordinary("read_only", error.what());
