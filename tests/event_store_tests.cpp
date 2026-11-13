@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/store.hpp"
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
@@ -65,7 +66,7 @@ AdmissionInput admission() {
     const auto at = yaml.find(format); CHECK(at != std::string::npos);
     yaml.replace(at, format.size(), "request_format: framed-v1");
     { std::ofstream file(temp.path / "system.yaml"); file << yaml; CHECK(static_cast<bool>(file)); }
-    input.config_snapshot = load_config_catalog(temp.path / "system.yaml",
+    input.config_snapshot = ::test::legacy_shell_catalog(temp.path / "system.yaml",
         source_root / "config/examples/functions", source_root / "prompts").freeze("general").json();
     input.constraint_catalog = Array{Object{{"constraint_id", "c1"}, {"text", input.original_text}, {"source_revision", 1}}};
     input.tool_allowlist = {"note", "ack_change", "op_status", "op_cancel"};

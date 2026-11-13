@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/management_context.hpp"
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
@@ -102,7 +103,7 @@ struct Fixture {
         replace(yaml, "    open_questions: 32\n", "    open_questions: 64\n");
         replace(yaml, "  max_queries_per_minute: 60\n", "  max_queries_per_minute: " + std::to_string(query_limit) + "\n");
         { std::ofstream file(temporary.path / "system.yaml"); file << yaml; CHECK(file.good()); }
-        frozen = load_config_catalog(temporary.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general").json();
+        frozen = ::test::legacy_shell_catalog(temporary.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general").json();
         reopen(); request = admit();
         OfflineRuntime(*store, schemas).run(request, fake_model_steps_from_json(fixture("s1_fake_initial.json")));
         task = text(store->tasks(request).front(), "task_id"); drain();
@@ -464,7 +465,7 @@ void live_usage_projection_keeps_cache_unknown_without_rewriting_originals() {
     std::filesystem::copy(source / "config/examples", f.directory.path / "config", std::filesystem::copy_options::recursive);
     const auto path = f.directory.path / "config/system.yaml";
     { std::ofstream file(path); file << canonical_json(system); CHECK(file.good()); }
-    admission.config_snapshot = load_config_catalog(path, f.directory.path / "config/functions", source / "prompts").freeze("general").json();
+    admission.config_snapshot = ::test::legacy_shell_catalog(path, f.directory.path / "config/functions", source / "prompts").freeze("general").json();
     f.request_id = text(f.store->admit(admission), "request_id");
     auto request = f.request("management-live");
     ContextInput context;

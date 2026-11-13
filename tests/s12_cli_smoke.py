@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from legacy_shell_config import legacy_shell_arguments
 
 
 if len(sys.argv) != 3:
@@ -40,6 +41,7 @@ class WorkerCliSmoke(unittest.TestCase):
         self.database = self.directory / "runtime.sqlite"
 
     def invoke(self, *arguments, error=None):
+        arguments = legacy_shell_arguments(arguments, SOURCE, self.directory)
         completed = subprocess.run(
             [str(BINARY), *(str(arg) for arg in arguments), "--source-root", str(SOURCE)],
             cwd=self.directory, capture_output=True, text=True, encoding="utf-8",

@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/store.hpp"
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
@@ -73,7 +74,7 @@ AdmissionInput admission() {
     input.tenant_id = "tenant"; input.project_id = "project"; input.root_id = "root";
     input.function_id = "general"; input.idempotency_key = new_id("admission");
     input.original_text = "preserve fixture observations";
-    input.config_snapshot = load_config_catalog(source_root / "config/examples/system.yaml",
+    input.config_snapshot = ::test::legacy_shell_catalog(source_root / "config/examples/system.yaml",
         source_root / "config/examples/functions", source_root / "prompts").freeze("general").json();
     input.constraint_catalog = Array{Object{{"constraint_id", "c1"}, {"text", input.original_text}, {"source_revision", 1}}};
     input.tool_allowlist = {"note", "ask", "submit", "fs_read", "fs_write", "ack_change", "op_status", "op_cancel"};
@@ -448,7 +449,7 @@ void receipt_expiry_uses_frozen_policy_days() {
     test::TempDir temp; auto config_text = read(source_root/"config/examples/system.yaml");
     const auto at = config_text.find("receipt_ttl_days: 30"); CHECK(at != std::string::npos); config_text.replace(at,std::string("receipt_ttl_days: 30").size(),"receipt_ttl_days: 7");
     write(temp.path/"system.yaml",config_text);
-    auto input = admission(); input.config_snapshot = load_config_catalog(temp.path/"system.yaml",source_root/"config/examples/functions",source_root/"prompts").freeze("general").json();
+    auto input = admission(); input.config_snapshot = ::test::legacy_shell_catalog(temp.path/"system.yaml",source_root/"config/examples/functions",source_root/"prompts").freeze("general").json();
     Store store(temp.path/"state.sqlite",base_sql,store_sql,StoreOpenMode::Takeover,tools_sql,events_sql,workflow_sql,acceptance_sql);
     const auto admitted = store.admit(input); const auto id = s(admitted,"request_id");
     store.cancel_request(store.host_actor(Role::Root,id),n(store.request(id),"state_version"),"cancel-frozen-ttl");

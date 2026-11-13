@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/cleanup_runtime.hpp"
 #include "wls/delivery.hpp"
 #include "wls/event_runtime.hpp"
@@ -64,7 +65,7 @@ struct Fixture {
 
     explicit Fixture(Json selected = policy()) : capacity(std::move(selected)) {
         std::filesystem::create_directory(parent); std::filesystem::create_directory(temp.path / "delivery");
-        system = load_config_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts").freeze("general").json().at("system");
+        system = ::test::legacy_shell_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts").freeze("general").json().at("system");
         system.at("context").as_object().erase("worker_history");
         system.at("cleanup").as_object()["enabled"] = true;
         frozen = freeze(capacity);
@@ -83,7 +84,7 @@ struct Fixture {
         if (selected.is_null()) system.at("cleanup").as_object().erase("owned_workspace_capacity");
         else system.at("cleanup").as_object()["owned_workspace_capacity"] = selected;
         write_file(temp.path / "system.json", canonical_json(system));
-        return load_config_catalog(temp.path / "system.json", source / "config/examples/functions", source / "prompts").freeze("general").json();
+        return ::test::legacy_shell_catalog(temp.path / "system.json", source / "config/examples/functions", source / "prompts").freeze("general").json();
     }
     std::string admit(const Json& config, const std::string& key) {
         AdmissionInput input;

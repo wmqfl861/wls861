@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 // Host reconciliation and classified settlement contracts; throwaway databases only.
 #include "wls/store.hpp"
 #include "wls/config_loader.hpp"
@@ -60,7 +61,7 @@ struct Fixture {
     }
     Fixture() {
         store = open();
-        const auto config = load_config_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts");
+        const auto config = ::test::legacy_shell_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts");
         AdmissionInput in; in.tenant_id = "t"; in.project_id = "p"; in.root_id = "root"; in.function_id = "general";
         in.idempotency_key = "reopen"; in.original_text = "preserve original input";
         in.config_snapshot = config.freeze("general").json(); in.tool_allowlist = {"fs_write", "run", "ack_change"};

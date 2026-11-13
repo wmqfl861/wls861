@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/offline_runtime.hpp"
 #include "test_support.hpp"
 #include "../src/amendment_disposition.hpp"
@@ -38,7 +39,7 @@ FrozenRequestConfig config() {
     yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
     yaml.erase(yaml.find("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n"), sizeof("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n") - 1);
     { std::ofstream file(directory.path / "system.yaml"); file << yaml; CHECK(file.good()); }
-    return load_config_catalog(directory.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general");
+    return ::test::legacy_shell_catalog(directory.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general");
 }
 AdmissionInput input(const FrozenRequestConfig& frozen = config()) {
     AdmissionInput result;
@@ -89,7 +90,7 @@ void bounded_output_and_display_estimate_preserve_legacy_limits() {
             system.at("models").at(model).at("capabilities").at("max_output_tokens") = 1;
         }
         write(directory.path / "system.json", canonical_json(system));
-        auto admission = input(load_config_catalog(directory.path / "system.json", source / "config/examples/functions",
+        auto admission = input(::test::legacy_shell_catalog(directory.path / "system.json", source / "config/examples/functions",
             source / "prompts").freeze("general"));
         admission.original_text += " UTF-8 中文 \"quoted\" \\escaped\n";
         if (scenario == 2) admission.budget.output_tokens = 7;

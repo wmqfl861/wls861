@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/worker_tools.hpp"
 #include "wls/offline_runtime.hpp"
 #include "test_support.hpp"
@@ -619,7 +620,7 @@ void mkdir_consumes_existing_business_quota() {
     host_write(system_path, canonical_json(system));
     // Freeze the real fixture bytes so parsed limits, retained dependencies and
     // their hashes agree; production snapshot verification remains intact.
-    const auto limited = load_config_catalog(system_path,
+    const auto limited = ::test::legacy_shell_catalog(system_path,
         source / "config/examples/functions", source / "prompts").freeze("general");
     auto input = admission();
     input.config_snapshot = limited.json();
@@ -706,7 +707,7 @@ int main() {
     yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);
     yaml.erase(yaml.find("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n"), sizeof("  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n") - 1);
     host_write(directory.path / "system.yaml", yaml);
-    frozen = std::make_unique<FrozenRequestConfig>(load_config_catalog(directory.path / "system.yaml",
+    frozen = std::make_unique<FrozenRequestConfig>(::test::legacy_shell_catalog(directory.path / "system.yaml",
         source / "config/examples/functions", source / "prompts").freeze("general"));
     base_sql = read_runtime_file(source / "db/schema.sql");
     migration_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");

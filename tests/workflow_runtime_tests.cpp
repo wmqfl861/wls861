@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "test_support.hpp"
@@ -57,7 +58,7 @@ AdmissionInput input(std::int64_t correction_limit = 2, std::int64_t stall_limit
         yaml.replace(yaml.find(stall), stall.size(), "  stall_same_error_repeats: " + std::to_string(stall_limit));
     }
     write(configuration.path / "system.yaml", yaml);
-    const auto frozen = load_config_catalog(configuration.path / "system.yaml", source / "config/examples/functions",
+    const auto frozen = ::test::legacy_shell_catalog(configuration.path / "system.yaml", source / "config/examples/functions",
                                             source / "prompts").freeze("general");
     AdmissionInput result;
     result.tenant_id = "test-tenant"; result.project_id = "test-project"; result.root_id = "test-root";

@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from legacy_shell_config import legacy_shell_arguments
 from fake_script_support import legacy_context
 
 
@@ -46,6 +47,7 @@ class EventCliSmoke(unittest.TestCase):
             node: str(path) for node, path in self.workspaces.items()})
 
     def invoke(self, *arguments, error=None):
+        arguments = legacy_shell_arguments(arguments, SOURCE, self.directory)
         completed = subprocess.run(
             [str(BINARY), *(str(argument) for argument in arguments),
              "--source-root", str(SOURCE)], cwd=self.directory,

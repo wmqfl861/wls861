@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/cleanup.hpp"
 #include "wls/cleanup_runtime.hpp"
 #include "wls/config_loader.hpp"
@@ -138,7 +139,7 @@ struct Fixture {
                    {"constraints_verbatim", A{"retain exact allocation facts"}}};
     explicit Fixture(bool upgraded = true, bool small = false, bool legacy_capacity = false) : recovery(upgraded) {
         std::filesystem::create_directory(parent);
-        auto system = load_config_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts").freeze("general").json().at("system");
+        auto system = ::test::legacy_shell_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts").freeze("general").json().at("system");
         system.at("cleanup").as_object()["enabled"] = true;
         if (small || legacy_capacity) {
             auto& limits = system.at("limits").as_object();
@@ -156,7 +157,7 @@ struct Fixture {
         // Freeze matching dependency bytes; no edited parsed snapshot retains
         // a fingerprint for the old configuration file.
         write_file(dir.path / "system.json", canonical_json(system));
-        frozen = load_config_catalog(dir.path / "system.json", source / "config/examples/functions", source / "prompts").freeze("general").json();
+        frozen = ::test::legacy_shell_catalog(dir.path / "system.json", source / "config/examples/functions", source / "prompts").freeze("general").json();
         store = open(); node = create("request");
     }
     std::unique_ptr<Store> open(StoreRecoveryScope scope = {}, StoreOpenMode mode = StoreOpenMode::Takeover,

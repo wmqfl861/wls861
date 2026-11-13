@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "wls/structured_context.hpp"
@@ -56,7 +57,7 @@ AdmissionInput input(bool fixed = false, bool lean = false) {
         "  management_history: {mode: window-v1, recent_attempts: 2, inline_bytes: 32768, max_context_bytes: 1048576}" : lean ? "request_format: structured-v3" : "request_format: framed-v1");
     if (lean) yaml.insert(yaml.find("  compaction_at_fraction:"), "  model_projection: lean-v1\n");
     write(temp.path / "system.yaml", yaml);
-    const auto config = load_config_catalog(temp.path / "system.yaml", source / "config/examples/functions",
+    const auto config = ::test::legacy_shell_catalog(temp.path / "system.yaml", source / "config/examples/functions",
                                             source / "prompts").freeze("general");
     AdmissionInput value;
     value.tenant_id = "test-tenant"; value.project_id = "test-project"; value.root_id = "test-root";

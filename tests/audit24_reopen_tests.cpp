@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 // Regression conversion of Claude's reopen_repro.cpp. All data are throwaway.
 #include "wls/store.hpp"
 #include "wls/config_loader.hpp"
@@ -64,7 +65,7 @@ struct Fixture {
     }
     Fixture() {
         store = open();
-        const auto config = load_config_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts");
+        const auto config = ::test::legacy_shell_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts");
         AdmissionInput in; in.tenant_id = "t"; in.project_id = "p"; in.root_id = "root"; in.function_id = "general";
         in.idempotency_key = "reopen"; in.original_text = "preserve original input";
         in.config_snapshot = config.freeze("general").json(); in.tool_allowlist = {"fs_write", "ack_change"};
