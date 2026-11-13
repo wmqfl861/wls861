@@ -699,6 +699,18 @@ def model_applications(db, request_id, attempts):
             continue
         action = contract.get('workflow_action')
         name, arguments = tool['name'], tool['arguments']
+        if (attempt['role'] == 'worker' and envelope['context']['format'] == 'wls-compiled-context-v3' and
+                'file_path_policy' in contract):
+            require(contract['file_path_policy'] == 'work-relative-v1', 'unknown captured file path policy')
+            if name.startswith('fs_') and 'path' in arguments:
+                path = arguments['path']
+                require(isinstance(path, str), 'file path is not a string')
+                if path == '/work':
+                    path = '.'
+                elif path.startswith('/work/'):
+                    path = path[6:] or '.'
+                require(not path.startswith('/'), 'file path is outside the captured workspace policy')
+                arguments = dict(arguments, path=path)  # Verified original response above stays untouched.
         expected_arguments = v3_host_arguments(envelope, contract, name, arguments)
         application = {'attempt_id': attempt['attempt_id'], 'role': attempt['role'], 'tool_name': name,
                        'tool_call_id': tool['call_id'], 'ordinal': ordinal, 'binding': binding,

@@ -1108,6 +1108,61 @@ void reserve_original(V3Fixture& f, const CapturedModelCall& call) {
     reservation.request_envelope = to_json(r);
     (void)f.store->reserve_attempt(call.actor, r.binding, reservation);
 }
+void file_path_policy_preserves_originals_and_legacy_replay() {
+    for (const auto* policy : {"work-relative-v1", "", "future-v2"}) {
+        V3Fixture f("", 6, true);
+        const auto work = f.directory.path / "work"; std::filesystem::create_directory(work);
+        WorkerTools worker(*f.store, work); OfflineRuntime runtime(*f.store, f.schemas, &worker);
+        const auto invoke = [&](const std::string& name, const Json& args) {
+            auto call = runtime.capture_call(f.id, Role::Worker, f.task);
+            auto document = to_json(call.request.context);
+            auto contract = parse_json_strict(str(document.at("input"), "task_contract"));
+            CHECK(contract.at("file_path_policy") == "work-relative-v1");
+            if (*policy) {
+                contract.at("file_path_policy") = policy;
+                document.at("input").at("current_state").at("file_path_policy") = policy;
+            } else {
+                contract.as_object().erase("file_path_policy");
+                document.at("input").at("current_state").as_object().erase("file_path_policy");
+            }
+            document.at("input").at("task_contract") = canonical_json(contract);
+            call.request.context = rehashed_context(document); reserve_original(f, call);
+            auto response = f.note().complete(call.request);
+            response.tool_calls.front().name = name; response.tool_calls.front().arguments = args;
+            if (std::string_view(policy) == "future-v2") {
+                fails(ErrorCode::Unsupported, [&] { (void)runtime.accept_response(call, response); });
+                CHECK(f.store->operation_for_key(call.actor, call.request.binding, call.request.attempt_id, name, args).is_null());
+                CHECK(!std::filesystem::exists(work / "a.md")); return Json(nullptr);
+            }
+            const auto result = runtime.accept_response(call, response);
+            CHECK(f.store->attempt(call.request.attempt_id).at("response") == to_json(response));
+            CHECK(runtime.accept_response(call, response) == result);
+            return result;
+        };
+        const Json args = Object{{"path", "/work/a.md"}, {"content", "original bytes"}};
+        const auto result = invoke("fs_write", args); if (result.is_null()) continue;
+        const bool normalized = *policy; auto stored = args;
+        if (normalized) stored.at("path") = "a.md";
+        CHECK(str(result.at("operation"), "args_sha256") == sha256_hex(canonical_json(stored)));
+        CHECK(str(result.at("operation"), "status") == (normalized ? "SUCCEEDED" : "FAILED"));
+        const auto binding = f.store->binding(f.task); const auto actor = f.store->host_actor(Role::Worker, f.id, binding.team_id);
+        CHECK(worker.execute(actor, binding, f.store->task(f.task).at("state_version").as_int64(),
+            str(result.at("operation"), "business_idempotency_key"), "fs_write", stored, "replay").at("replayed") == true);
+        CHECK(std::filesystem::exists(work / "a.md") == normalized); if (!normalized) continue;
+        CHECK(read_runtime_file(work / "a.md") == "original bytes");
+        CHECK(invoke("fs_list", Object{{"path", "/work"}}).at("entries").as_array().size() == 1);
+        CHECK(invoke("fs_list", Object{{"path", "/work/"}}).at("entries").as_array().size() == 1);
+        const auto denied = invoke("fs_write", Object{{"path", "/elsewhere/a.md"}, {"content", "x"}});
+        CHECK(denied.at("correction_feedback").at("reason") == "model_arguments");
+        CHECK(str(denied.at("correction_feedback"), "observation").find("workspace root or start with /work/") != std::string::npos);
+        CHECK(invoke("fs_write", Object{{"path", "/work/成果.md"}, {"content", "ok"}}).at("operation").at("status") == "SUCCEEDED");
+        CHECK(read_runtime_file(work / "成果.md") == "ok");
+        std::filesystem::create_directory_symlink(f.directory.path, work / "link");
+        for (const auto* path : {"/work/../escaped", "/work/link/escaped"})
+            CHECK(invoke("fs_write", Object{{"path", path}, {"content", "x"}}).at("operation").at("status") == "FAILED");
+        CHECK(!std::filesystem::exists(f.directory.path / "escaped"));
+    }
+}
 void fixed_role_selection_settles_once_and_keeps_original_history() {
     V3Fixture f("single", 6, true); OfflineRuntime runtime(*f.store, f.schemas);
     auto fake = f.note(); const auto call = runtime.reserve_call(fake, f.id, Role::Worker, f.task);
@@ -1185,6 +1240,7 @@ using TestCase = ::test::Case;
 
 std::vector<TestCase> legacy_cases() {
     return {
+        {"captured path policy preserves original responses and legacy replay", file_path_policy_preserves_originals_and_legacy_replay},
         {"fixed role disallowed selection settles once and preserves original history", fixed_role_selection_settles_once_and_keeps_original_history},
         {"fixed role policy tampering and current revocation reject", fixed_role_policy_tampering_and_current_revocation_reject},
         {"v3 encoded five round prefix preserves native originals", [] { v3_five_round_encoded_prefix_and_originals(); }},
@@ -1232,6 +1288,7 @@ std::vector<TestCase> lean_cases() {
 
 std::vector<TestCase> all_cases() {
     return {
+        {"captured path policy preserves original responses and legacy replay", file_path_policy_preserves_originals_and_legacy_replay},
         {"v3 encoded five round prefix preserves native originals", [] { v3_five_round_encoded_prefix_and_originals(); }},
         {"lean wire projection preserves originals and ordered prefix", lean_wire_projection_preserves_originals_and_ordered_prefix},
         {"lean projection preserves errors and checks originals", lean_projection_preserves_errors_and_checks_originals},
@@ -1301,10 +1358,10 @@ int main(int argc, char** argv) {
             legacy_capture.push_back(test_case);
         else legacy_rest.push_back(test_case);
     }
-    if (legacy.size() != 32 || legacy_names.size() != legacy.size() ||
-        legacy_rest.size() != 31 || legacy_capture.size() != 1 ||
+    if (legacy.size() != 33 || legacy_names.size() != legacy.size() ||
+        legacy_rest.size() != 32 || legacy_capture.size() != 1 ||
         legacy_rest.size() + legacy_capture.size() != legacy.size()) {
-        std::cerr << "invalid legacy case partition: expected 31 rest and one unique capture case\n";
+        std::cerr << "invalid legacy case partition: expected 32 rest and one unique capture case\n";
         return 2;
     }
     std::vector<TestCase> selected;

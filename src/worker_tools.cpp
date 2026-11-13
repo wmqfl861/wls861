@@ -158,6 +158,19 @@ const ToolDefinition& worker_tool_definition(std::string_view name) {
     return *found;
 }
 
+Json normalize_worker_file_arguments(std::string_view name, Json arguments) {
+    if (!name.starts_with("fs_") || !arguments.is_object()) return arguments;
+    auto* path = arguments.as_object().if_contains("path");
+    if (!path || !path->is_string()) return arguments; // The ordinary validator owns shape errors.
+    auto value = std::string(path->as_string());
+    if (value == "/work" || value == "/work/") value = ".";
+    else if (value.starts_with("/work/")) value.erase(0, 6);
+    require(!value.starts_with('/'), ErrorCode::InvalidInput,
+            "path must be relative to the workspace root or start with /work/");
+    *path = std::move(value);
+    return arguments;
+}
+
 void validate_worker_tool_arguments(std::string_view name, const Json& args) {
     static_cast<void>(worker_tool_definition(name));
     require(args.is_object(), ErrorCode::InvalidInput, "tool arguments must be an object");
