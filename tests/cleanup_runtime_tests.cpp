@@ -4,6 +4,7 @@
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "test_support.hpp"
+#include "fake_script_support.hpp"
 #include <fstream>
 #include <sqlite3.h>
 #include <sys/wait.h>
@@ -47,7 +48,7 @@ struct Fixture {
         in.constraint_catalog=parse_json_strict(read_runtime_file(source/"tests/fixtures/s14_constraints.json"));
         const auto grants=config.worker_tools();in.tool_allowlist.assign(grants.begin(),grants.end());in.budget={64,20000000,1000000,0};
         id=text(store->admit(in),"request_id");
-        script=event_fake_script_from_json(parse_json_strict(read_runtime_file(source/"tests/fixtures/s15_fake_complete.json")));
+        script=event_fake_script_from_json(test::v3_fake_script(parse_json_strict(read_runtime_file(source/"tests/fixtures/s15_fake_complete.json"))));
         EventPumpOptions opts;opts.max_calls=1;opts.max_worker_calls_per_task=2;
         (void)EventRuntime(*store,*schemas,{}).pump(id,script,opts);
         task_id=text(store->tasks(id).at(0),"task_id");
@@ -196,7 +197,7 @@ void populated_406_migration(){Fixture f(false);const auto path=f.dir.path/"old.
 void nested_allocations_refused(){Fixture f;f.allocate();
     // A fresh independent request cannot put ownership inside the old work.
     auto in=f.admission;in.idempotency_key="other-request";const auto other=text(f.store->admit(in),"request_id");
-    const auto original=event_fake_script_from_json(parse_json_strict(read_runtime_file(source/"tests/fixtures/s15_fake_complete.json")));
+    const auto original=event_fake_script_from_json(test::v3_fake_script(parse_json_strict(read_runtime_file(source/"tests/fixtures/s15_fake_complete.json"))));
     EventPumpOptions opts;opts.max_calls=1;(void)EventRuntime(*f.store,*schemas,{}).pump(other,original,opts);
     expect(ErrorCode::Unauthorized,[&]{(void)allocate_owned_workspace(*f.store,other,text(f.store->tasks(other).at(0),"task_id"),f.work,"nested");});
     CHECK(f.store->owned_workspaces(other).empty());}

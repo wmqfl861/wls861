@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from fake_script_support import frozen_script
 
 if len(sys.argv) != 3:
     raise SystemExit("usage: s15_cli_smoke.py WLS_BINARY SOURCE_ROOT")
@@ -105,7 +106,7 @@ class AcceptanceCliSmoke(unittest.TestCase):
 
     def pump(self, request, script=None, *, workspace=True, max_calls=12):
         arguments = ["pump-fake", "--db", self.database, "--request", request,
-                     "--script", script or FIXTURES / "s15_fake_complete.json",
+                     "--script", script or frozen_script(self.database, request, FIXTURES / "s15_fake_complete.json", self.directory),
                      "--worker-calls", 2, "--max-calls", max_calls]
         if workspace:
             arguments.extend(["--workspaces-file", self.mapping])

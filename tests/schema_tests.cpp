@@ -111,6 +111,52 @@ void model_input_cannot_forge_host_or_approval() {
     CHECK(registry->full_schema("submission").as_object().at("properties").as_object().contains("requirements_revision"));
 }
 
+void v3_minimal_contracts_are_closed_and_legacy_schemas_unchanged() {
+    const auto old_plan = registry->project_model_input("plan");
+    const auto full_plan = registry->full_schema("plan");
+    const auto projected = registry->project_v3_input(old_plan);
+    const auto& node = projected.at("properties").at("nodes").at("items");
+    CHECK(node.at("properties").as_object().size() == 4);
+    CHECK(node.at("properties").at("brief").at("properties").as_object().size() == 6);
+    for (const auto* name : {"plan", "work_order", "submit_amendment_plan", "check_submission"}) {
+        const auto schema = registry->project_v3_input(registry->project_model_input(name));
+        const auto bytes = canonical_json(schema);
+        CHECK(bytes.find("\"$ref\"") == std::string::npos);
+        CHECK(bytes.find("\"$id\"") == std::string::npos);
+        CHECK(bytes.find("\"$schema\"") == std::string::npos);
+        CHECK(bytes.find("\"x-runtime-field\"") == std::string::npos);
+        CHECK(bytes.find("\"request_id\"") == std::string::npos && !schema.as_object().contains("title"));
+    }
+    const auto plan = parse_json_strict(R"({"summary":"One file","nodes":[{"node_id":"alpha","title":"File","brief":{"goal":"Write a file","acceptance_criteria":[{"text":"Contains the requested text"}]}}]})");
+    registry->validate_v3_input("plan", plan);
+    reject([&] { registry->validate("plan", plan, true); });
+    auto invalid = plan;
+    invalid.at("nodes").as_array()[0].at("brief").as_object().erase("goal");
+    CHECK(rejection_message([&] { registry->validate_v3_input("plan", invalid); }).find("/nodes/0/brief/goal") != std::string::npos);
+    invalid = plan;
+    invalid.at("nodes").as_array()[0].at("brief").at("acceptance_criteria").as_array()[0] = "not an object";
+    CHECK(rejection_message([&] { registry->validate_v3_input("plan", invalid); }).find("/acceptance_criteria/0") != std::string::npos);
+    for (const auto* field : {"kind", "review", "capability", "input", "unexpected"}) {
+        invalid = plan; invalid.at("nodes").as_array()[0].as_object()[field] = "forged";
+        reject([&] { registry->validate_v3_input("plan", invalid); });
+    }
+    invalid = plan; invalid.at("nodes").as_array()[0].at("brief").as_object()["inputs"] = boost::json::array{};
+    reject([&] { registry->validate_v3_input("plan", invalid); });
+    const auto order = parse_json_strict(R"({"approach":"Write","steps":[{"text":"Write and check"}],"done_definition":"File exists"})");
+    registry->validate_v3_input("work_order", order);
+    registry->validate_v3_input("check_submission", boost::json::object{{"passed", false}, {"work_order", order}});
+    reject([&] { registry->validate_v3_input("check_submission", boost::json::object{{"passed", true}, {"work_order", order}}); });
+    reject([&] { registry->validate_v3_input("check_submission", boost::json::object{{"passed", false}}); });
+    registry->validate_v3_input("submit_amendment_plan", boost::json::object{{"plan", plan},
+        {"dispositions", boost::json::object{{"alpha", boost::json::object{{"disposition", "update"}, {"rationale", "Apply change"}}}}}});
+    CHECK(registry->project_model_input("plan") == old_plan && registry->full_schema("plan") == full_plan);
+    const Json literal = boost::json::object{{"const", boost::json::object{{"$ref", "literal-instance-data"}, {"title", "keep"}}}};
+    CHECK(registry->project_v3_input(literal) == literal);
+    boost::json::array repeated;
+    for (int i = 0; i < 256; ++i) repeated.push_back(boost::json::object{{"$ref", full_plan.at("$id")}});
+    reject([&] { (void)registry->project_v3_input(boost::json::object{{"allOf", repeated}}); });
+}
+
 void runtime_conditions_are_projected_but_business_conditions_remain() {
     auto change = example("change_order.team_lead");
     change.as_object().erase("parent_change_id");
@@ -312,10 +358,12 @@ void closed_local_references_and_projection() {
     reject([&] { local.validate("parent", complete, true); });
     complete.as_object().at("result").as_object().erase("host_epoch");
     local.validate("parent", complete, true);
+    local.validate_v3_input("parent", complete);
     reject([&] { local.validate("parent", complete); });
     // additionalProperties=true in child must not permit forged host metadata.
     complete.as_object().at("result").as_object()["host_epoch"] = 99;
     reject([&] { local.validate("parent", complete, true); });
+    reject([&] { local.validate_v3_input("parent", complete); });
 }
 
 void local_pointer_and_boolean_schema() {
@@ -327,6 +375,9 @@ void local_pointer_and_boolean_schema() {
     write(directory.path / "pointer.schema.json", schema);
     const SchemaRegistry local(directory.path);
     local.validate("pointer", boost::json::object{{"result", "ok-12"}});
+    const auto projected = local.project_v3_input(local.project_model_input("pointer"));
+    CHECK(projected.at("properties").at("result").at("pattern") == "^ok-[0-9]+$");
+    CHECK(projected.at("properties").at("forbidden") == false);
     reject([&] { local.validate("pointer", boost::json::object{{"result", "bad"}}); });
     reject([&] { local.validate("pointer", boost::json::object{{"result", "ok-12"}, {"forbidden", true}}); });
 }
@@ -415,6 +466,7 @@ int main(int argc, char** argv) {
         {"all 13 complete examples validate with the 17-schema closed registry", full_examples_and_registry},
         {"complete records enforce binding, usage and strong types", complete_record_requires_trusted_tuple},
         {"model input cannot forge host metadata or self-approval", model_input_cannot_forge_host_or_approval},
+        {"v3 minimal contracts inline references and retain closed legacy schemas", v3_minimal_contracts_are_closed_and_legacy_schemas_unchanged},
         {"projection removes host conditions and preserves business conditions", runtime_conditions_are_projected_but_business_conditions_remain},
         {"projection scopes host names without weakening nested business fields", projection_keeps_same_named_fields_in_separate_instance_scopes},
         {"plan team briefs and draft-07 conditional requirements validate", nested_briefs_and_draft7_conditionals},

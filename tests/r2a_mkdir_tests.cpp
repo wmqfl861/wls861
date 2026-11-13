@@ -1,6 +1,7 @@
 #include "wls/worker_tools.hpp"
 #include "wls/offline_runtime.hpp"
 #include "test_support.hpp"
+#include "fake_script_support.hpp"
 
 #include <sqlite3.h>
 #include <fcntl.h>
@@ -710,7 +711,7 @@ int main() {
     base_sql = read_runtime_file(source / "db/schema.sql");
     migration_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");
     tools_sql = read_runtime_file(source / "db/migrations/005_worker_tools.sql");
-    initial_script = parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_fake_initial.json"));
+    initial_script = test::v3_fake_script(parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_fake_initial.json")));
     constraints = parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_constraints.json"));
     return test::run({
         {"mkdir is private under ordinary umasks and supports following file tools", private_directory_and_following_write},

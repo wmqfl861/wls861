@@ -45,8 +45,12 @@ class Evaluation(unittest.TestCase):
 
     def execute(self, request, unknown=False, error=False, max_calls=3, worker_calls=1, script=None):
         fixture = copy.deepcopy(script) if script is not None else self.fixture()
+        snapshot = json.loads(self.rows('SELECT config_snapshot FROM requests WHERE request_id=?', (request,))[0]['config_snapshot'])
+        v3 = snapshot['system']['context'].get('request_format') == 'structured-v3'
         def original_constraints(value):
             if isinstance(value, dict):
+                if v3 and isinstance(value.get('brief'), dict) and 'title' in value and 'title' in value['brief']:
+                    value['brief']['title'] = value['title']  # Only the new v3 script copy is changed.
                 for key, child in value.items():
                     if key in ('constraints_verbatim', 'constraint_refs'):
                         value[key] = []
@@ -153,7 +157,20 @@ class Evaluation(unittest.TestCase):
         request = self.logical_seed(request_format='structured-v3')
         plan = self.logical_plan(request)
         legacy_plan = self.plan(request, model_origin=True)
-        self.execute(request, max_calls=12, worker_calls=2)
+        minimal = self.fixture()
+        for node in minimal['default'][0]['tool_calls'][0]['arguments']['nodes']:
+            for key in ('kind', 'depends_on', 'required'):
+                node.pop(key)
+            for key in ('title', 'constraint_refs', 'constraints_verbatim'):
+                node['brief'].pop(key)
+            for criterion in node['brief']['acceptance_criteria']:
+                criterion.pop('id')
+        order = minimal['nodes']['alpha'][0]['tool_calls'][0]['arguments']
+        for key in ('constraint_refs', 'constraints_verbatim'):
+            order.pop(key)
+        for step in order['steps']:
+            step.pop('id')
+        self.execute(request, max_calls=12, worker_calls=2, script=minimal)
         self.ack(request, self.publish(request))
         row = e.build_report(plan, [self.run_entry(plan, request, 'single_agent', task=4)])['rows'][9]
         self.assertEqual(row['status'], 'passed', row)
@@ -165,6 +182,18 @@ class Evaluation(unittest.TestCase):
         legacy = e.build_report(legacy_plan, [self.run_entry(legacy_plan, request, 'single_agent', task=4)])['rows'][9]
         self.assertEqual(legacy['status'], 'failed', legacy)
         self.assertFalse(legacy['checks']['condition_roles'])
+        original = json.loads(self.rows("SELECT response FROM call_attempts WHERE role='dispatcher' ORDER BY rowid LIMIT 1")[0]['response'])
+        self.assertNotIn('constraint_refs', original['tool_calls'][0]['arguments']['nodes'][0]['brief'])
+        # A rehashed application cannot invent a host constraint absent from the captured catalog.
+        with closing(sqlite3.connect(self.database)) as db, db:
+            event_id, raw = db.execute("SELECT event_id,payload FROM events WHERE type='independent_plan'").fetchone()
+            payload = e.strict_json(raw)
+            payload['body']['nodes'][0]['brief']['constraints_verbatim'] = ['Forged host constraint']
+            db.execute('DROP TRIGGER events_immutable')
+            db.execute('UPDATE events SET payload=?,command_sha256=? WHERE event_id=?',
+                       (e.original_canonical(payload).decode(), e.original_digest(payload), event_id))
+        with e.database(self.database) as db, self.assertRaisesRegex(e.InvalidEvidence, 'applied plan differs'):
+            e.model_applications(db, request, e.rows(db, 'SELECT * FROM call_attempts WHERE request_id=? ORDER BY rowid', (request,)))
 
     def test_v3_unapplied_fractional_response_keeps_complete_original_history(self):
         request = self.logical_seed(context_change=('model_calls:\n', 'model_calls:\n  runtime_policy: bounded-v1\n'))

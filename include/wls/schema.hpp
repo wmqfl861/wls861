@@ -31,6 +31,9 @@ public:
     // declarations, also within registered references. Input cannot provide
     // those fields; only the captured host call may fill the full record.
     Json project_model_input(std::string_view schema_name) const;
+    // V3 display/ingress only; legacy projection and stored records stay intact.
+    Json project_v3_input(const Json& definition) const;
+    void validate_v3_input(std::string_view schema_name, const Json& document) const;
     Json full_schema(std::string_view schema_name) const;
 private:
     class Impl;

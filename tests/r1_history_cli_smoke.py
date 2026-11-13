@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from fake_script_support import v3_fake_script
 
 BINARY = Path(sys.argv[1]).resolve()
 SOURCE = Path(sys.argv[2]).resolve()
@@ -67,7 +68,7 @@ class HistoryCli(unittest.TestCase):
             for r in self.rows("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
 
     def start(self):
-        script = json.loads((FIXTURES / "s13_fake_initial.json").read_text())
+        script = v3_fake_script(json.loads((FIXTURES / "s13_fake_initial.json").read_text()))
         for steps in script["nodes"].values():
             for step in steps:
                 if step["role"] == "worker":

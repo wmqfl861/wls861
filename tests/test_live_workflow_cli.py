@@ -65,6 +65,8 @@ def without_constraints(value):
 def plan_response():
     fixture = without_constraints(json.loads((SOURCE / 'tests/fixtures/s15_fake_complete.json').read_text()))
     call = fixture['default'][0]['tool_calls'][0]
+    for node in call['arguments']['nodes']:  # Derived v3 response; keep the frozen legacy fixture untouched.
+        node['brief']['title'] = node['title']
     response = json.loads(tls.response_body(tool=True))
     response['output'][0].update(name=call['name'], arguments=json.dumps(call['arguments']))
     return tls.encoded(response)
@@ -76,6 +78,8 @@ class ScriptedPeer:
     def __init__(self):
         fixture = without_constraints(json.loads((SOURCE / 'tests/fixtures/s15_fake_complete.json').read_text()))
         self.calls = [fixture['default'][0]['tool_calls'][0]]
+        for node in self.calls[0]['arguments']['nodes']:
+            node['brief']['title'] = node['title']
         self.actions = []
 
     def __call__(self, peer, connection):
