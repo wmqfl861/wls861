@@ -9,6 +9,7 @@
 #include "wls/worker_history.hpp"
 #include "amendment_disposition.hpp"
 #include "storage_error.hpp"
+#include "operation_output_detail.hpp"
 
 #include <sqlite3.h>
 
@@ -1228,9 +1229,8 @@ public:
                     const FrozenRequestConfig* reservation_config = nullptr) const {
         std::optional<FrozenRequestConfig> restored;
         if (reservation_config) {
-            // Only reserve_attempt supplies its already validated local
-            // snapshot from this transaction. Match the authorized row
-            // exactly; nothing is cached across Store calls.
+            // Callers may supply an already validated local snapshot.
+            // Match the authorized row exactly; nothing is cached across Store calls.
             require(reservation_config->sha256() == str(r, "config_snapshot_sha256") &&
                     reservation_config->serialize() == str(r, "config_snapshot"),
                     ErrorCode::Corrupt, "validated reservation configuration differs from the authorized request");
@@ -1250,8 +1250,9 @@ public:
                 ErrorCode::Unauthorized, "tool is not registered for this control branch");
         const auto r = authorize(actor, {Role::Worker});
         actor_binding(actor, b); matches(b);
-        tool_grant(r, team_row(actor.team_id), tool_id);
+        const auto team = team_row(actor.team_id);
         const auto frozen = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256"));
+        tool_grant(r, team, tool_id, &frozen);
         const auto& control = frozen.json().at("system").at("control").as_object();
         if (diagnostic) require(contains(control.at("diagnostic_tools"), tool_id), ErrorCode::Unauthorized, "diagnostic tool absent from frozen control policy");
         const auto limit = number(control, "max_queries_per_minute");
@@ -2346,7 +2347,8 @@ Json Store::submit_work(const StoreActor& actor, const ExecutionBinding& binding
     Impl::Transaction tx(*impl_);
     const auto owner = impl_->authorize(actor, {Role::Worker}, false); impl_->actor_binding(actor, binding);
     const auto team = impl_->team_row(actor.team_id);
-    impl_->tool_grant(owner, team, "submit"); impl_->tool_grant(owner, team, "fs_read");
+    const auto frozen = FrozenRequestConfig::restore(str(owner, "config_snapshot"), str(owner, "config_snapshot_sha256"));
+    impl_->tool_grant(owner, team, "submit", &frozen); impl_->tool_grant(owner, team, "fs_read", &frozen);
     if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
     impl_->ready(actor, binding, "submit");
     (void)impl_->control_authorization(actor, binding, "fs_read", true);
@@ -3678,6 +3680,23 @@ Json Store::operation_output(const StoreActor& actor, const ExecutionBinding& cu
     require(!record.is_null(), ErrorCode::NotReady, "operation output is not durably recorded yet");
     const auto total = number(record.as_object(), stream + "_bytes");
     require(offset <= total, ErrorCode::InvalidInput, "output offset exceeds retained bytes");
+    const auto request = impl_->request_row(actor.request_id);
+    const auto config = FrozenRequestConfig::restore(str(request, "config_snapshot"), str(request, "config_snapshot_sha256"));
+    if (config.context_request_format() == "structured-v3") {
+        require(total >= 0 && total <= 1048576, ErrorCode::Corrupt, "invalid retained output size");
+        // Bound even a damaged BLOB before reading it, then verify the original
+        // full stream before selecting UTF-8 boundaries or displaying bytes.
+        const auto row = impl_->one("SELECT hex(substr(bytes,1,1048577)) AS data FROM operation_output_bytes WHERE op_id=? AND stream=?", {id, stream});
+        const auto bytes = unhex(str(row, "data"));
+        require(bytes.size() == static_cast<std::uint64_t>(total) &&
+            sha256_hex(bytes) == str(record.as_object(), stream + "_sha256"), ErrorCode::Corrupt, "retained output differs from original byte hash");
+        auto page = operation_output_detail::page(bytes, static_cast<std::size_t>(offset), static_cast<std::size_t>(limit),
+            number(record.as_object(), stream + "_truncated") == 1);
+        page.as_object()["op_id"] = id; page.as_object()["stream"] = stream;
+        page.as_object()["record_sha256"] = record.at("record_sha256");
+        (void)json_text(page, 262144); // Escaped text must fit the existing result cap; retry a smaller page.
+        return page;
+    }
     const auto row = impl_->one("SELECT hex(substr(bytes,?,?)) AS data FROM operation_output_bytes WHERE op_id=? AND stream=?", {offset + 1, limit, id, stream});
     const auto bytes = unhex(str(row, "data"));
     const auto next_offset = offset + static_cast<std::int64_t>(bytes.size());

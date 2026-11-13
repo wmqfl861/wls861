@@ -23,13 +23,16 @@
 
 namespace {
 void worker_tool_test_phase(std::string_view key, const wls::s1::Json& prepared);
+void worker_tool_test_output(wls::s1::ProcessResult& process);
 }
 
 // Compile the actual implementation in this TU to observe a single private
 // phase. The static linker uses these definitions instead of pulling the
 // library's worker_tools.o; production builds have no observer at all.
 #define WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE(key, prepared) ::worker_tool_test_phase(key, prepared)
+#define WLS_WORKER_TOOLS_PRIVATE_TEST_OUTPUT(process) ::worker_tool_test_output(process)
 #include "../src/worker_tools.cpp"
+#undef WLS_WORKER_TOOLS_PRIVATE_TEST_OUTPUT
 #undef WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE
 
 #ifndef WLS_SOURCE_DIR
@@ -52,6 +55,8 @@ Json constraints;
 constexpr std::string_view original_text = "请在自有临时 workspace 测试文件工具，保留原始需求；不要调用外部服务。";
 
 std::function<void(std::string_view, const Json&)> prepared_phase_observer;
+std::function<void(ProcessResult&)> output_observer;
+void worker_tool_test_output(ProcessResult& process) { if (output_observer) output_observer(process); }
 void worker_tool_test_phase(std::string_view key, const Json& prepared) {
     if (prepared_phase_observer) prepared_phase_observer(key, prepared);
 }
@@ -72,7 +77,7 @@ std::string host_read(const std::filesystem::path& path) {
     std::ifstream stream(path, std::ios::binary);
     return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
 }
-void fixture_sql(const std::filesystem::path& database, const std::string& sql) {
+int fixture_sql(const std::filesystem::path& database, const std::string& sql) {
     sqlite3* raw = nullptr;
     CHECK(sqlite3_open(database.c_str(), &raw) == SQLITE_OK);
     const std::unique_ptr<sqlite3, int(*)(sqlite3*)> connection(raw, sqlite3_close);
@@ -82,6 +87,7 @@ void fixture_sql(const std::filesystem::path& database, const std::string& sql) 
     const std::string message = error ? error : "";
     sqlite3_free(error);
     if (status != SQLITE_OK) throw std::runtime_error("fixture SQL failed: " + message);
+    return sqlite3_changes(raw);
 }
 AdmissionInput admission() {
     AdmissionInput result;
@@ -128,13 +134,21 @@ struct Session {
     std::unique_ptr<OfflineRuntime> runtime;
     std::string request_id;
 
-    explicit Session(bool initialize = true, std::optional<AdmissionInput> input = std::nullopt) {
+    explicit Session(bool initialize = true, std::optional<AdmissionInput> input = std::nullopt, bool feedback = false) {
         std::filesystem::create_directory(work);
-        store = std::make_unique<Store>(database, base_sql, migration_sql, StoreOpenMode::Takeover, tools_sql);
+        store = std::make_unique<Store>(database, base_sql, migration_sql, StoreOpenMode::Takeover, tools_sql,
+            feedback ? read_runtime_file(source / "db/migrations/006_event_runtime.sql") : "");
         request_id = text(store->admit(input ? *input : admission()).at("request_id"));
         tools = std::make_unique<WorkerTools>(*store, work);
         runtime = std::make_unique<OfflineRuntime>(*store, *schemas, tools.get());
-        if (initialize) static_cast<void>(runtime->run(request_id, steps()));
+        if (initialize) {
+            auto initial = steps();
+            if (input && input->config_snapshot.at("system").at("context").at("request_format") == "structured-v3") {
+                auto& node = initial.front().tool_calls.front().arguments.at("nodes").as_array().front();
+                node.at("brief").at("title") = node.at("title"); // v3 host-derived title, as in v3_fake_script.
+            }
+            static_cast<void>(runtime->run(request_id, initial));
+        }
     }
     std::string task_id() const { return text(store->tasks(request_id).front().at("task_id")); }
     ExecutionBinding binding() const { return store->binding(task_id()); }
@@ -165,6 +179,163 @@ struct Session {
 const Json& operation(const Json& result) { return result.at("operation"); }
 const Json& execution(const Json& result) { return result.at("execution_result"); }
 std::string op_id(const Json& result) { return text(operation(result).at("op_id")); }
+
+AdmissionInput output_admission(const std::string& format) {
+    auto input = admission();
+    input.config_snapshot.at("system").at("context").at("request_format") = format;
+    const auto bytes = canonical_json(input.config_snapshot.at("system"));
+    for (auto& dependency : input.config_snapshot.at("dependencies").as_array())
+        if (dependency.at("kind") == "system_config") {
+            dependency.at("content") = bytes; dependency.at("sha256") = sha256_hex(bytes);
+        }
+    return input;
+}
+std::string output_page_bytes(const Json& page) {
+    const auto data = text(page.at("data"));
+    if (page.at("encoding") == "utf-8" || data.empty()) return data;
+    std::string bytes(data.size(), '\0');
+    const auto count = EVP_DecodeBlock(reinterpret_cast<unsigned char*>(bytes.data()),
+        reinterpret_cast<const unsigned char*>(data.data()), static_cast<int>(data.size()));
+    CHECK(count >= 0);
+    bytes.resize(static_cast<std::size_t>(count) - (data.ends_with("==") ? 2U : data.ends_with("=") ? 1U : 0U));
+    return bytes;
+}
+void output_display_preserves_frozen_formats_and_original_bytes() {
+    struct Reset { ~Reset() { output_observer = {}; } } reset;
+    const std::vector<std::string> cases{"", std::string(8191, 'a'), std::string(8192, 'a'),
+        std::string(8193, 'a'), std::string(8190, 'a') + "😀中文", std::string("A\0B", 3),
+        std::string("A\xFF", 2), std::string(8192, '\x01'), std::string("\xE4\xB8", 2), std::string(65536, '\x01')};
+    for (const std::string format : {"framed-v1", "structured-v2", "structured-v3"}) {
+        Session session(true, output_admission(format));
+        for (std::size_t index = 0; index < cases.size(); ++index) {
+            const auto& bytes = cases[index]; const std::string err = index == 0 || index == 9 ? "" : index == 4 ? "诊断" : "err\n";
+            const bool truncated = index == 3; int observations = 0;
+            // Only synthetic bytes are injected; actual no-spawn/cancellation
+            // facts, strong-isolation flags and outcome classification survive.
+            output_observer = [&](ProcessResult& process) {
+                CHECK(!process.spawned && !process.strong_isolation);
+                process.stdout_text = bytes; process.stderr_text = err; process.output_truncated = truncated;
+                process.evidence.as_object()["synthetic_output_fixture"] = true; ++observations;
+            };
+            std::stop_source stop; stop.request_stop();
+            const Json args = Object{{"argv", Array{"/bin/true"}}}; const auto key = new_id("key");
+            const auto result = session.tools->execute(session.actor(), session.binding(), session.version(),
+                key, "run", args, new_id("cmd"), stop.get_token());
+            const auto record = execution(result); const auto& run = record.at("result");
+            CHECK(record == session.store->operation_result(op_id(result)) && observations == 1);
+            CHECK(text(record.at("stdout_sha256")) == sha256_hex(bytes) && text(record.at("stderr_sha256")) == sha256_hex(err));
+            CHECK(run.at("status") == "CANCELLED" && !run.at("spawned").as_bool());
+            CHECK(run.at("output_truncated") == truncated && canonical_json(run).size() <= 262144);
+            const bool escaped_page = format == "structured-v3" && index == 9;
+            if (escaped_page) expect(ErrorCode::Quota, [&] {
+                (void)session.diagnostic("op_output", Object{{"op_id", op_id(result)}, {"stream", "stdout"}});
+            });
+            const std::int64_t limit = escaped_page ? 32768 : 65536;
+            const auto page = session.diagnostic("op_output", Object{{"op_id", op_id(result)}, {"stream", "stdout"}, {"limit", limit}});
+            const auto page_bytes = bytes.substr(0, static_cast<std::size_t>(limit));
+            CHECK(output_page_bytes(page) == page_bytes && page.at("eof") == !escaped_page && page.at("truncated") == truncated);
+            CHECK(canonical_json(page).size() <= 262144);
+            if (format != "structured-v3") {
+                CHECK(!run.as_object().contains("output_preview") && page.at("encoding") == "base64");
+                CHECK(page.as_object().size() == 9);
+            } else {
+                CHECK(page.at("encoding") == (index == 5 || index == 6 || index == 8 ? "base64" : "utf-8"));
+                CHECK(text(page.at("stream_sha256")) == sha256_hex(bytes) && text(page.at("page_sha256")) == sha256_hex(page_bytes));
+                CHECK(page.at("record_sha256") == record.at("record_sha256"));
+                const auto& preview = run.at("output_preview"); const auto& out = preview.at("stdout");
+                const auto count = index == 4 ? 8190U : std::min<std::size_t>(bytes.size(), 8192);
+                const auto shown_err = index == 4 ? "" : err.substr(0, 8192 - count);
+                CHECK(output_page_bytes(out) == bytes.substr(0, count));
+                CHECK(output_page_bytes(preview.at("stderr")) == shown_err);
+                CHECK(number(out.at("offset")) == 0 && number(out.at("next_offset")) == static_cast<std::int64_t>(count));
+                CHECK(text(out.at("stream_sha256")) == sha256_hex(bytes) && text(out.at("page_sha256")) == sha256_hex(bytes.substr(0, count)));
+                CHECK(preview.at("preview_truncated") == (count < bytes.size() || shown_err.size() < err.size()));
+                CHECK(number(out.at("bytes_returned")) + number(preview.at("stderr").at("bytes_returned")) <= 8192);
+            }
+            CHECK(execution(session.execute("run", args, key)) == record && observations == 1);
+            Store reader(session.database, base_sql, migration_sql, StoreOpenMode::ReadOnly, tools_sql);
+            CHECK(reader.operation_result(op_id(result)) == record);
+            CHECK(reader.operation_output(session.actor(), session.binding(), op_id(result), "stdout", 0, limit) == page);
+        }
+    }
+}
+
+void output_pages_keep_byte_boundaries_authority_and_old_records() {
+    Session session(true, output_admission("structured-v3"));
+    const auto binding = session.binding(); const Json args = Object{{"argv", Array{"/bin/true"}}};
+    const auto prepared = session.store->prepare_tool_operation(session.actor(), binding, session.version(),
+        "old-run", "run", args, new_id("cmd")); const auto id = text(prepared.at("op_id"));
+    (void)session.store->start_tool_operation(session.actor(), id, number(prepared.at("state_version")), new_id("cmd"));
+    const auto original = session.store->record_operation_result(id, binding, "FAILED",
+        Object{{"status", "REFUSED"}, {"spawned", false}}, Object{{"synthetic_old_record", true}}, "A😀中Z", "", true);
+    const auto read_page = [&](std::int64_t offset, std::int64_t limit) {
+        return session.diagnostic("op_output", Object{{"op_id", id}, {"stream", "stdout"}, {"offset", offset}, {"limit", limit}});
+    };
+    CHECK(read_page(0, 4).at("data") == "A" && read_page(1, 4).at("data") == "😀");
+    const auto emoji = read_page(1, 4);
+    CHECK(number(emoji.at("next_offset")) == 5 && number(emoji.at("bytes_returned")) == 4 && text(emoji.at("page_sha256")) == sha256_hex("😀"));
+    CHECK(read_page(5, 3).at("data") == "中" && read_page(8, 1).at("data") == "Z");
+    CHECK(read_page(9, 1).at("data") == "" && read_page(9, 1).at("eof") == true);
+    expect(ErrorCode::InvalidInput, [&] { (void)read_page(2, 4); });
+    expect(ErrorCode::InvalidInput, [&] { (void)read_page(1, 3); });
+    expect(ErrorCode::InvalidInput, [&] { (void)read_page(10, 4); });
+    expect(ErrorCode::InvalidInput, [&] { (void)read_page(0, 65537); });
+    const auto prior_events = session.store->events(session.request_id);
+    CHECK(execution(session.execute("run", args, "old-run")) == original);
+    CHECK(!original.at("result").as_object().contains("output_preview"));
+    CHECK(session.store->events(session.request_id) == prior_events);
+    const auto other_id = text(session.store->admit(admission()).at("request_id"));
+    (void)OfflineRuntime(*session.store, *schemas).run(other_id, steps());
+    const auto other_task = text(session.store->tasks(other_id).front().at("task_id"));
+    const auto other_binding = session.store->binding(other_task);
+    const auto other_actor = session.store->host_actor(Role::Worker, other_id, other_binding.team_id);
+    expect(ErrorCode::Unauthorized, [&] { (void)session.store->operation_output(other_actor, other_binding, id, "stdout"); });
+    // Damage only this disposable BLOB, restoring its immutable guard before reading.
+    sqlite3* raw = nullptr;
+    CHECK(sqlite3_open_v2(session.database.c_str(), &raw, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+    const std::unique_ptr<sqlite3, int(*)(sqlite3*)> connection(raw, sqlite3_close);
+    sqlite3_stmt* query = nullptr;
+    CHECK(sqlite3_prepare_v2(raw, "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='operation_output_immutable'", -1, &query, nullptr) == SQLITE_OK);
+    const std::unique_ptr<sqlite3_stmt, int(*)(sqlite3_stmt*)> statement(query, sqlite3_finalize);
+    CHECK(sqlite3_step(query) == SQLITE_ROW && sqlite3_column_type(query, 0) == SQLITE_TEXT);
+    const std::string trigger_sql(reinterpret_cast<const char*>(sqlite3_column_text(query, 0)));
+    CHECK(sqlite3_step(query) == SQLITE_DONE);
+    CHECK(fixture_sql(session.database, "BEGIN IMMEDIATE; DROP TRIGGER operation_output_immutable; "
+        "UPDATE operation_output_bytes SET bytes=CAST('B😀中Z' AS BLOB) WHERE op_id='" + id + "' AND stream='stdout' "
+        "AND length(bytes)=length(CAST('B😀中Z' AS BLOB)); " + trigger_sql + "; COMMIT;") == 1);
+    expect(ErrorCode::Corrupt, [&] { (void)read_page(0, 4); });
+    CHECK(session.store->operation_result(id) == original);
+    const auto old_actor = session.actor(); session.amend();
+    expect(ErrorCode::Stale, [&] { (void)session.store->operation_output(old_actor, binding, id, "stdout"); });
+}
+
+void output_feedback_keeps_persisted_preview_and_exact_replay() {
+    struct Reset { ~Reset() { output_observer = {}; } } reset;
+    for (const std::string format : {"framed-v1", "structured-v2", "structured-v3"}) {
+        Session session(true, output_admission(format), true); int observations = 0;
+        output_observer = [&](ProcessResult& process) {
+            CHECK(!process.spawned && !process.strong_isolation);
+            process.stdout_text = "synthetic-preview-marker";
+            process.evidence.as_object()["synthetic_output_fixture"] = true; ++observations;
+        };
+        auto script = steps({{"preview-feedback", "run", Object{{"argv", Array{"/bin/true"}}}}});
+        script.back().role_call_index = 2; const FakeModel fake(script);
+        const auto call = session.runtime->reserve_call(fake, session.request_id, Role::Worker, session.task_id(), 2);
+        const auto response = fake.complete(call.request);
+        const auto result = session.runtime->accept_response(call, response);
+        const auto original = session.store->tool_feedback(call.request.attempt_id);
+        CHECK(original.at("result") == result && execution(result) == session.store->operation_result(op_id(result)));
+        CHECK(execution(result).at("result").as_object().contains("output_preview") == (format == "structured-v3"));
+        CHECK(session.runtime->accept_response(call, response) == result && observations == 1);
+        CHECK(session.store->tool_feedback(call.request.attempt_id) == original);
+        if (format == "structured-v3") {
+            const Json frame = Object{{"role_call_index", 2}, {"attempt_id", call.request.attempt_id},
+                {"response", to_json(response)}, {"result", result}};
+            const auto next = session.runtime->capture_call(session.request_id, Role::Worker, session.task_id(), 3, {frame});
+            CHECK(canonical_json(next.request.context.logical_input).find("synthetic-preview-marker") != std::string::npos);
+        }
+    }
+}
 void succeeded(const Json& result) {
     CHECK(operation(result).at("status") == "SUCCEEDED");
     CHECK(execution(result).at("observed_outcome") == "SUCCEEDED");
@@ -728,6 +899,9 @@ int main() {
     constraints = parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_constraints.json"));
     return test::run({
         {"static registration and frozen request tool grants", registry_and_request_permissions},
+        {"v3 previews and text pages retain original bytes and legacy output formats", output_display_preserves_frozen_formats_and_original_bytes},
+        {"output paging preserves UTF-8 boundaries, current authority and old records", output_pages_keep_byte_boundaries_authority_and_old_records},
+        {"model feedback retains the persisted output preview and exact replay", output_feedback_keeps_persisted_preview_and_exact_replay},
         {"durable real file write/read/patch and side-effect-free business replay", durable_write_patch_and_business_replay},
         {"AMEND rejects old model file effects while retaining usage", late_model_response_after_amend_cannot_write},
         {"old business key only reads its fact during a pending new instruction", old_key_is_only_a_read_during_new_instruction},

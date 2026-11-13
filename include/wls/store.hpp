@@ -569,8 +569,9 @@ public:
                                  bool stdout_truncated = false,
                                  bool stderr_truncated = false);
     Json operation_result(const std::string& op_id) const;
-    // Returns base64-encoded bytes, offset/next_offset, retained byte count and
-    // truncation metadata. The caller must enforce the diagnostic rate limit.
+    // Frozen v3 returns NUL-free UTF-8 text at codepoint boundaries, otherwise
+    // lossless base64; older requests retain their original base64 page shape.
+    // Offsets/counts/hashes describe raw bytes. Caller enforces diagnostic rate.
     Json operation_output(const StoreActor& actor,
                           const ExecutionBinding& current_binding,
                           const std::string& op_id, const std::string& stream,
