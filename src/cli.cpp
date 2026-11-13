@@ -11,6 +11,7 @@
 #include "wls/billing.hpp"
 #include "wls/single_agent.hpp"
 #include "amendment_disposition.hpp"
+#include "runtime_diagnostic.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -31,6 +32,7 @@
 #include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <openssl/evp.h>
 
 namespace {
 using namespace wls;

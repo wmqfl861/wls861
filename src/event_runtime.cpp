@@ -3,6 +3,7 @@
 #include "wls/management_context.hpp"
 #include "runtime_config_internal.hpp"
 #include "correction_detail.hpp"
+#include "runtime_diagnostic.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -524,7 +525,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         const auto key = std::string(role_name(role)) + ":" + node + ":" + std::string(code);
         if (block_keys.insert(key).second)
             blocked.push_back(Object{{"role", role_name(role)}, {"node_id", node}, {"task_id", task},
-                {"code", code}, {"reason", live && code != "paid_retry_limit" ? "Live workflow stopped at an original runtime guard; inspect private Store evidence." : reason}});
+                {"code", code}, {"reason", live ? (code == "waiting" ? "Waiting for the pending question to be answered." : runtime_diagnostic(reason)) : reason}});
     };
     const auto live_continue = [&] {
         if (!live) return true;
@@ -757,6 +758,8 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 network_count_complete = false;
             }
         };
+        EphemeralCredential credential;
+        std::string model_failure;
         try {
             if (!live && !captured.workflow_action.is_null() && !action_in_claim(captured.workflow_action, claim)) {
                 ModelResponse aborted;
@@ -782,7 +785,6 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             ModelResponse response;
             if (live) {
                 if (!live_continue()) return std::nullopt;
-                EphemeralCredential credential;
                 try { credential.bytes = live->credentials(settings->provider.api_key_env); }
                 catch (...) { throw Error(ErrorCode::InvalidInput, "trusted credential resolver failed"); }
                 if (!live_continue()) return std::nullopt;
@@ -812,6 +814,8 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 require(observed.response.has_value(), ErrorCode::NotReady,
                         "original live send claim cannot be executed or applied again");
                 response = std::move(*observed.response);
+                if (response.status != ModelResultStatus::Completed)
+                    model_failure = response.error_code + ": " + response.error_message;
                 const auto original_response = to_json(response);
                 invocation["response_summary"] = Object{{"status", original_response.at("status")},
                     {"tool_call_count", response.tool_calls.size()}, {"usage", to_json(response.usage)},
@@ -883,8 +887,10 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             return result;
         } catch (const Error& error) {
             preserve_observation_gap();
+            auto reason = runtime_diagnostic(std::string(error.what()) +
+                (model_failure.empty() ? "" : "; " + model_failure), credential.bytes);
             invocation["error"] = Object{{"code", error_name(error.code())},
-                {"message", live ? "Live invocation stopped; inspect the original private Store evidence." : error.what()}};
+                {"message", live ? reason : error.what()}};
             if (live && settled_for_retry && error.code() == ErrorCode::NotReady) {
                 const auto& transport = invocation.at("transport");
                 const auto status = text(transport, "status");
@@ -907,15 +913,18 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                         calls.push_back(std::move(invocation));
                         ++paid_retries; retry_of = captured.request.attempt_id;
                         retry_binding = to_json(captured.request.binding); retry_target = captured.workflow_action;
+                        if (calls.size() >= static_cast<std::size_t>(options.max_calls)) continue;
                         std::mutex mutex; std::unique_lock lock(mutex); std::condition_variable_any interrupted;
                         interrupted.wait_until(lock, stop, std::min(deadline, std::chrono::steady_clock::now() + delay),
                             [] { return false; });
                         continue; // All admission, budget and unique-send guards run again.
                     }
                     stop_reason = "paid_retry_limit";
-                    block(role, node, task, stop_reason,
+                    reason = runtime_diagnostic(
                         (http == 429 ? "HTTP 429 rate limited; retried " : "Transient transport failure; retried ") +
-                        std::to_string(paid_retries) + " times; retry limit reached.");
+                        std::to_string(paid_retries) + " times; retry limit reached.", credential.bytes);
+                    invocation.at("error").as_object()["message"] = reason;
+                    block(role, node, task, stop_reason, reason);
                 }
             }
             calls.push_back(std::move(invocation)); stopped.insert(key);
@@ -925,13 +934,16 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                     static_cast<void>(accounting_ready());
                 live_halted = true;
             }
+            if (live) throw Error(error.code(), reason);
             throw;
         } catch (const std::exception& error) {
             preserve_observation_gap();
+            const auto reason = runtime_diagnostic(error.what(), credential.bytes);
             invocation["error"] = Object{{"code", "unexpected"},
-                {"message", live ? "Live invocation stopped; inspect the original private Store evidence." : error.what()}};
+                {"message", live ? reason : error.what()}};
             calls.push_back(std::move(invocation)); stopped.insert(key);
             if (live) { live_halted = true; stop_reason = "error"; }
+            if (live) throw std::runtime_error(reason);
             throw;
         }
         }
