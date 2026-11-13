@@ -158,7 +158,7 @@ void v3_minimal_calls_persist_full_contracts_and_original_responses() {
     const auto response = model.complete(captured.request);
     const auto& parameters = captured.request.context.logical_input.at("prefix").at("tools").as_array().front().at("parameters");
     CHECK(parameters.at("properties").at("nodes").at("items").at("properties").as_object().size() == 4);
-    (void)OfflineRuntime(*f.store, *schemas, f.alpha.get()).accept_response(captured, response);
+    (void)OfflineRuntime(*f.store, *schemas, f.alpha.get()).accept_independent_response(captured, response);
     const auto plan = f.store->plan(f.id).at("body"); schemas->validate("plan", plan);
     const auto& node = plan.at("nodes").as_array()[0];
     CHECK(node.at("kind") == "team_task" && node.at("depends_on") == Array{} && node.at("required") == true);
@@ -197,9 +197,12 @@ void v3_compatibility_fields_are_checked_and_unknown_fields_rejected() {
     plan = script().default_steps.front().tool_calls.front().arguments;
     for (auto& node : plan.at("nodes").as_array()) node.at("brief").at("title") = node.at("title");
     plan.at("nodes").as_array()[0].at("required") = false;
-    const auto result = f.invoke(Role::Dispatcher, "submit_plan", plan);
+    const FakeModel model({step(Role::Dispatcher, "submit_plan", plan)});
+    const auto call = f.capture(Role::Dispatcher, model);
+    const auto result = OfflineRuntime(*f.store, *schemas, f.alpha.get()).accept_independent_response(call, model.complete(call.request));
     CHECK(!result.as_object().contains("correction_feedback"));
     CHECK(f.store->plan(f.id).at("body").at("nodes").as_array()[0].at("required") == false);
+    CHECK(f.task().at("required") == 0);
 }
 void v3_rework_preserves_task_and_previous_instruction_excerpts() {
     auto admission = input(20, 0, true);
