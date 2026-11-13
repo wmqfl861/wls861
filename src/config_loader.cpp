@@ -789,14 +789,18 @@ void validate_function(const Json& function, const Json& system, const Capabilit
         if (!safe_identifier(name)) invalid("function.team_templates", "invalid template identifier");
         const auto where = child("function.team_templates", name);
         const auto& item = entry.value();
-        fields(item, where, {{"worker_tools", 'a'}, {"network", 's'}, {"workspace", 's'}, {"env", 's'}, {"isolation", 's'}});
+        fields(item, where, {{"worker_tools", 'a'}, {"network", 's'}, {"workspace", 's'}, {"env", 's'}, {"isolation", 's'}}, {"network"});
         for (const auto& tool : strings(required(item, "worker_tools", where), child(where, "worker_tools"))) if (!tools.contains(tool)) invalid(child(where, "worker_tools"), "unregistered worker tool name");
-        const auto network = string_value(required(item, "network", where), child(where, "network"));
+        const auto isolation = string_value(required(item, "isolation", where), child(where, "isolation"));
+        const auto* configured_network = optional(item, "network");
+        if (!configured_network && isolation != "standard" && isolation != "strict")
+            invalid(child(where, "network"), "legacy isolation requires an explicit network policy");
+        const auto network = configured_network ? string_value(*configured_network, child(where, "network")) : "none";
         if (network != "none" && network != "host") invalid(child(where, "network"), "expected none or host network");
         literal(item, "workspace", "plain", where);
         (void)relative_path(required(item, "env", where), child(where, "env"));
-        const auto isolation = string_value(required(item, "isolation", where), child(where, "isolation"));
-        if (isolation != "strong" && isolation != "weak") invalid(child(where, "isolation"), "expected strong or weak isolation");
+        if (isolation != "strong" && isolation != "weak" && isolation != "strict" && isolation != "standard")
+            invalid(child(where, "isolation"), "expected standard, strict, strong or weak isolation");
         if (isolation == "weak" && !required(required(system, "sandbox", "system"), "allow_weak_isolation", "system.sandbox").as_bool()) invalid(child(where, "isolation"), "weak isolation must be explicitly allowed by system policy");
     }
     const auto& capabilities = required(function, "capabilities", "function");

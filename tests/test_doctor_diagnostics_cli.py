@@ -106,6 +106,25 @@ class DoctorCli(unittest.TestCase):
             self.assertEqual(config[name]["origin"], "supplied")
         self.assertEqual(report["config_snapshot_sha256"], checked["snapshot_sha256"])
 
+    def test_both_isolation_modes_report_readonly_refusal_reasons(self):
+        manifest = self.manifest({"schema_version": 1, "bwrap_path": str(self.directory / "missing-bwrap")})
+        before = self.state()
+        for selected in ("default", "shell"):
+            report = self.invoke("doctor", "--template", selected, "--sandbox-manifest", manifest)
+            self.assertEqual(report["selected_isolation"], "strict" if selected == "default" else "standard-cgroup-v1")
+            self.assertFalse(report["selected_prerequisites"])
+            self.assertEqual(set(report["isolation_modes"]), {"strict", "standard"})
+            for mode in report["isolation_modes"].values():
+                self.assertFalse(mode["prerequisites"])
+                self.assertFalse(mode["execution_verified"])
+                self.assertFalse(mode["host_network_supported"])
+                self.assertFalse(mode["rlimit_fallback_supported"])
+                self.assertEqual(mode["resource_enforcement"], "cgroup-v2")
+                self.assertIn("path_missing", {reason["code"] for reason in mode["reasons"]})
+                self.assertIn("cgroup_not_configured", {reason["code"] for reason in mode["reasons"]})
+            self.assertEqual(report["evidence"]["programs_executed"], 0)
+        self.assertEqual(before, self.state())
+
     def test_executable_relative_source_is_reported_without_cwd_dependency(self):
         report = self.invoke("doctor", cwd=self.directory, source=False)
         source = report["inputs"]["config"]["source_root"]
