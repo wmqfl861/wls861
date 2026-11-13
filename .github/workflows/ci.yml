@@ -52,8 +52,8 @@ jobs:
           set -euo pipefail
           # The pull-request compile matrix keeps exactly the three existing
           # core configurations; main pushes, the nightly UTC schedule and
-          # full manual dispatches keep six configurations across eight jobs
-          # below: six CMake jobs and two Make jobs.
+          # full manual dispatches keep six configurations across nine jobs
+          # below: seven CMake jobs and two Make jobs.
           pr_matrix='{"include":[
           {"name":"strict","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0022"},
           {"name":"strict-umask-0002","compiler":"g++","build_type":"Release","ubsan":"OFF","asan":"OFF","test_umask":"0002"},
@@ -86,8 +86,8 @@ jobs:
           import json, sys
           matrix = json.load(sys.stdin)
           matrix["include"] = [
-              dict(row, name=f"ASan-{shard}/2", cmake_shard=str(shard)) if row["name"] == "ASan" else row
-              for row in matrix["include"] for shard in ([1, 2] if row["name"] == "ASan" else [0])
+              dict(row, name="{}-{}/2".format(row["name"], shard), cmake_shard=str(shard)) if row["name"] in ("ASan", "UBSan") else row
+              for row in matrix["include"] for shard in ([1, 2] if row["name"] in ("ASan", "UBSan") else [0])
           ]
           print(json.dumps(matrix))')"
           else
@@ -171,7 +171,7 @@ jobs:
     name: Linux C++20 (${{ matrix.name }})
     needs: classify
     runs-on: ubuntu-24.04
-    # Keep the existing 55-minute ASan budget for each CMake and Make shard.
+    # Keep 55-minute ASan and 40-minute UBSan budgets for each shard.
     # CMake runners cover odd/even registrations; Make keeps its two parts.
     # CTest doubles base per-test deadlines for ASan/UBSan; Make has no outer
     # per-test timeout. Keep assertions, leak/user checks and Make CPPFLAGS.
@@ -244,7 +244,7 @@ jobs:
           even = names("-I", "2,,2")
           assert odd == complete[::2] and even == complete[1::2], "CTest shard order differs"
           assert set(odd).isdisjoint(even) and set(odd) | set(even) == set(complete), "CTest shard coverage differs"
-          print(f"CMake ASan registrations: {len(complete)} total = {len(odd)} odd + {len(even)} even")
+          print(f"CMake sanitizer registrations: {len(complete)} total = {len(odd)} odd + {len(even)} even")
           PY
             ctest --test-dir build -I "${{ matrix.cmake_shard }},,2" --output-on-failure
           else
