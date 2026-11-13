@@ -481,6 +481,11 @@ void correction_arguments_and_selection_recover_for_managers_and_workers() {
         CHECK(!calls.front().at("result").as_object().contains("operation"));
         const auto attempt = f.store->attempt(text(calls.back().at("attempt_id")));
         CHECK(canonical_json(attempt.at("request_envelope")).find(kind == 0 ? "model_arguments" : "tool_selection") != std::string::npos);
+        if (role == Role::TeamLead && kind == 0) {
+            const auto observation = text(calls.front().at("result").at("correction_feedback").at("observation"));
+            CHECK(observation.find("/text: type mismatch") != std::string::npos && observation.size() <= 600);
+            CHECK(canonical_json(attempt.at("request_envelope")).find("/text: type mismatch") != std::string::npos);
+        }
         if (role == Role::TeamLead) CHECK(calls.back().at("result").at("status") == "ANSWERED");
         else CHECK(calls.back().at("result").at("operation").at("status") == "SUCCEEDED");
     }
