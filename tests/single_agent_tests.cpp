@@ -231,19 +231,21 @@ struct PlainFixture : Fixture {
 void plain_submission_preserves_originals_and_requires_acceptance() {
     PlainFixture f; CHECK(f.pump().at("calls").as_array().empty());
     const auto captured = f.worker();
-    for (const auto& grant : f.input.tool_allowlist)
-        CHECK(std::find(captured.request.context.tool_names.begin(), captured.request.context.tool_names.end(), grant) != captured.request.context.tool_names.end());
+    auto declared = captured.request.context.tool_names; std::sort(declared.begin(), declared.end());
+    const std::vector<std::string> expected{"ack_change", "ask", "fs_list", "fs_mkdir", "fs_patch", "fs_read", "fs_search",
+        "fs_write", "note", "op_cancel", "op_output", "op_status", "run", "submit"};
+    CHECK(declared == expected);
     const auto report = f.pump(plain_script());
-    CHECK(report.at("execution_contract") == plain_single_agent_contract);
+    CHECK(text(report, "execution_contract") == plain_single_agent_contract);
     CHECK(report.at("model_loop_complete") == true && report.at("business_acceptance_pending") == true);
     CHECK(report.at("business_delivered") == false && f.store->experience_jobs(f.id).empty());
     const auto task_id = text(f.task("plain"), "task_id");
     const auto submission = f.store->current_submission(task_id);
     CHECK(f.task("plain").at("status") == "SUBMITTED" && submission.at("checks").as_array().empty());
-    CHECK(submission.at("artifact_snapshot").as_array().front().at("sha256") == sha256_hex("alpha candidate version 1\n"));
+    CHECK(text(submission.at("artifact_snapshot").as_array().front(), "sha256") == sha256_hex("alpha candidate version 1\n"));
     const auto history = f.history(); CHECK(history.size() == 2);
     for (const auto& turn : history) {
-        CHECK(turn.at("role") == "worker" && turn.at("task_id") == task_id);
+        CHECK(turn.at("role") == "worker" && text(turn, "task_id") == task_id);
         CHECK(turn.at("principal_id") == history.front().at("principal_id"));
     }
     const auto config = restore_request_config(f.store->request(f.id));
@@ -292,7 +294,7 @@ void plain_rejects_manager_and_multiple_worker_bypasses() {
         auto forged = captured.request; auto context = wls::test::protocol::context();
         context.role = role; context.model = forged.model; context.adapter_version = forged.context.adapter_version;
         context.protocol_version = forged.context.protocol_version;
-        forged.role = role; forged.context = compile_structured_context(context);
+        forged.role = role; forged.context = compile_structured_context(context, {});
         if (role == Role::Dispatcher) forged.binding = f.store->request_binding(f.id);
         const auto actor = f.store->host_actor(role, f.id, forged.binding.team_id);
         expect(ErrorCode::Unauthorized, [&] { (void)f.store->reserve_attempt(actor, forged.binding, reservation(forged)); });
