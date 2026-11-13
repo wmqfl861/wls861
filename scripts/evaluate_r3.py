@@ -514,6 +514,53 @@ def correction_semantic_target(value):
     return value
 
 
+def v3_host_arguments(envelope, contract, name, arguments):
+    """Derive only the new minimal v3 contract from verified captured facts."""
+    if envelope['context']['format'] != 'wls-compiled-context-v3' or name not in (
+            'submit_plan', 'submit_amendment_plan', 'issue_work_order', 'check_submission'):
+        return arguments
+    nested = {'submit_amendment_plan': 'plan', 'check_submission': 'work_order'}.get(name)
+    if nested and nested not in arguments:
+        return arguments
+    declared = next((tool['parameters'] for tool in envelope['context']['input']['prefix']['tools'] if tool['name'] == name), {})
+    if nested:
+        declared = declared.get('properties', {}).get(nested, {})
+    plan = name in ('submit_plan', 'submit_amendment_plan')
+    properties = declared.get('properties', {})
+    if plan:
+        properties = properties.get('nodes', {}).get('items', {}).get('properties', {})
+    # Archived v3 declarations retain their original exact comparison too.
+    if set(properties) != ({'node_id', 'title', 'template', 'brief'} if plan else
+                           {'approach', 'steps', 'done_definition', 'pitfalls', 'notes'}):
+        return arguments
+    result = strict_json(original_canonical(arguments))
+    body = result[nested] if nested else result
+    catalog = contract['request']['constraint_catalog']
+    refs, excerpts = [item['constraint_id'] for item in catalog], [item['text'] for item in catalog]
+    def fill(target, key, value):
+        require(key not in target or target[key] == value, 'model host field differs from captured contract: ' + key)
+        target[key] = value
+    if plan:
+        for node in body['nodes']:
+            fill(node, 'kind', 'team_task'); fill(node, 'depends_on', [])
+            node.setdefault('required', True)
+            brief = node['brief']
+            fill(brief, 'title', node['title'])
+            fill(brief, 'constraint_refs', refs); fill(brief, 'constraints_verbatim', excerpts)
+            for index, criterion in enumerate(brief['acceptance_criteria'], 1):
+                fill(criterion, 'id', f'ac{index}')
+    else:
+        for record, key in ((contract.get('task'), 'brief'), (contract.get('instruction'), 'body')):
+            if record:
+                for text in record[key]['constraints_verbatim']:
+                    if text not in excerpts:
+                        excerpts.append(text)
+        fill(body, 'constraint_refs', refs); fill(body, 'constraints_verbatim', excerpts)
+        for index, step in enumerate(body['steps'], 1):
+            fill(step, 'id', f's{index}')
+    return result
+
+
 def model_applications(db, request_id, attempts):
     """Check original response -> captured target -> feedback -> business event.
 
@@ -615,9 +662,10 @@ def model_applications(db, request_id, attempts):
                     path = path[6:] or '.'
                 require(not path.startswith('/'), 'file path is outside the captured workspace policy')
                 arguments = dict(arguments, path=path)  # Verified original response above stays untouched.
+        expected_arguments = v3_host_arguments(envelope, contract, name, arguments)
         application = {'attempt_id': attempt['attempt_id'], 'role': attempt['role'], 'tool_name': name,
                        'tool_call_id': tool['call_id'], 'ordinal': ordinal, 'binding': binding,
-                       'arguments': arguments, 'result': result, 'action': action,
+                       'arguments': arguments, 'expected_arguments': expected_arguments, 'result': result, 'action': action,
                        'feedback_sha256': feedback['record_sha256'], 'event_id': None,
                        'target_sha256': digest(action), **transport_identity}
         command_id = attempt['attempt_id'] + ':' + tool['call_id']
@@ -684,7 +732,7 @@ def model_applications(db, request_id, attempts):
             decisions = {} if name == 'submit_plan' else arguments['dispositions']
             require(payload['dispositions'] == decisions, 'host dispositions are not original model decisions')
             if name != 'resolve_amendment':
-                expected = dict(arguments if name == 'submit_plan' else arguments['plan'],
+                expected = dict(expected_arguments if name == 'submit_plan' else expected_arguments['plan'],
                                 plan_revision=binding['plan_revision'] + 1,
                                 based_on_requirements_revision=binding['requirements_revision'])
                 require(payload['body'] == expected, 'applied plan differs from original model plan')
@@ -704,7 +752,7 @@ def model_applications(db, request_id, attempts):
                         'model application changed captured task version')
                 require(attempt['role'] == ('team_lead' if name == 'issue_work_order' else 'worker'),
                         'model application belongs to another role')
-                expected = dict(arguments)
+                expected = dict(expected_arguments)
                 if name == 'issue_work_order':
                     expected.update(binding, instruction_revision=binding['instruction_revision'] + 1)
                 require(payload['body'] == expected, 'business body differs from original model arguments')
@@ -725,7 +773,7 @@ def model_applications(db, request_id, attempts):
                 expected = {key: value for key, value in arguments.items() if name != 'check_submission' or key != 'work_order'}
                 require(payload[body_key] == expected, 'applied decision differs from original model arguments')
                 if name == 'check_submission':
-                    require(payload['rework_order'] == arguments.get('work_order'), 'applied rework order differs from model decision')
+                    require(payload['rework_order'] == expected_arguments.get('work_order'), 'applied rework order differs from model decision')
                 application['submission_id'] = target['submission_id']
         if name == 'submit':
             application['submission_id'] = result['submission_id']
@@ -788,7 +836,7 @@ def model_origin_checks(db, request, task, applications, evidence, *, allow_reco
                     'instruction_revision', 'dispatcher_epoch', 'execution_epoch')
         require(all(instruction[name] == original[name] for name in semantic) and
                 instruction['based_on_requirements_revision'] == original['requirements_revision'] and
-                strict_json(instruction['body']) == dict(order['arguments'], **original),
+                strict_json(instruction['body']) == dict(order['expected_arguments'], **original),
                 'recovered instruction differs from its original model work order')
         interval = (order['event_seq'], app['event_seq'])
         if interval not in prior_recoveries:

@@ -32,6 +32,7 @@ std::vector<FakeModelStep> amended_steps() { return fake_model_steps_from_json(f
 FrozenRequestConfig config() {
     test::TempDir directory;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
+    yaml.replace(yaml.find("request_format: structured-v3"), sizeof("request_format: structured-v3") - 1, "request_format: framed-v1");
     const std::string policy = "  tool_policy: fixed-role-v1\n";
     yaml.erase(yaml.find(policy), policy.size());
     yaml.erase(yaml.find("  model_projection: lean-v1\n"), sizeof("  model_projection: lean-v1\n") - 1);

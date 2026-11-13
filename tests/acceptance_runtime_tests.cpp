@@ -3,6 +3,7 @@
 #include "wls/structured_context.hpp"
 #include "protocol_test_support.hpp"
 #include "test_support.hpp"
+#include "fake_script_support.hpp"
 #include "capacity_test_support.hpp"
 
 #include <sqlite3.h>
@@ -83,8 +84,9 @@ FakeModelStep step(Role role, const std::string& tool, const Json& arguments, st
     value.tool_calls.push_back({"acceptance-action", tool, arguments}); value.usage = {100, 20, 0, 0, 0};
     return value;
 }
-EventFakeScript full_script() {
-    auto script = event_fake_script_from_json(fixture("s14_fake_submit.json"));
+EventFakeScript full_script(bool v3 = false) {
+    auto original = fixture("s14_fake_submit.json");
+    auto script = event_fake_script_from_json(v3 ? ::test::v3_fake_script(original) : original);
     script.default_steps.push_back(step(Role::Dispatcher, "accept_candidate", positive_acceptance(), 2));
     script.by_node.at("alpha").push_back(step(Role::TeamLead, "check_submission", positive_check(), 2));
     script.by_node.at("alpha").push_back(step(Role::TeamLead, "report_experience", no_experience(), 3));
@@ -139,7 +141,7 @@ struct Fixture {
     }
     Json pump_to(std::int64_t max_calls) {
         EventPumpOptions options; options.max_calls = max_calls; options.max_worker_calls_per_task = 2;
-        return runtime().pump(id, full_script(), options);
+        return runtime().pump(id, full_script(restore_request_config(store->request(id)).context_request_format() == "structured-v3"), options);
     }
     Json candidate() {
         const auto result = pump_to(5); CHECK(result.at("calls").as_array().size() == 5);
