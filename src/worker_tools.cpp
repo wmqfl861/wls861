@@ -117,7 +117,9 @@ SandboxPolicy policy_from_config(Store& store, const StoreActor& actor,
         const Json& manifest, const FrozenRequestConfig& config) {
     const auto record = store.request(actor.request_id);
     runtime_detail::require_matching_config(record, config);
-    return worker_sandbox_policy(config, field(store.task(actor.task_id), "template_id"), manifest);
+    const auto policy = worker_sandbox_policy(config, field(store.task(actor.task_id), "template_id"), manifest);
+    if (policy.isolation == SandboxIsolation::StandardCgroupV1) store.validate_process_runtime_root("/usr");
+    return policy;
 }
 // All WorkerTools instances sharing a writer use the same cancellation source.
 // A Store's process-wide writer lease prevents a second Store for this database.
@@ -301,7 +303,7 @@ void WorkerTools::check_actor(const StoreActor& actor) const {
 
 SandboxPolicy WorkerTools::policy_for(const StoreActor& actor) const {
     const auto config = restore_request_config(store_.request(actor.request_id));
-    return worker_sandbox_policy(config, field(store_.task(actor.task_id), "template_id"), manifest_);
+    return policy_from_config(store_, actor, manifest_, config);
 }
 
 void WorkerTools::bind(const StoreActor& actor) {

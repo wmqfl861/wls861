@@ -294,7 +294,10 @@ void workspace_and_execution_manifest_are_immutable() {
     Session session;
     const auto stored = session.store->workspace(session.binding().team_id);
     WorkerTools same(*session.store, session.work);
+    CHECK(frozen->context_request_format() == "framed-v1");
+    std::filesystem::create_hard_link(session.database, session.directory.path / "legacy-control-alias");
     same.bind(session.actor());
+    std::filesystem::remove(session.directory.path / "legacy-control-alias");
     CHECK(session.store->workspace(session.binding().team_id) == stored);
     WorkerTools changed(*session.store, session.work, Object{{"schema_version", 1}, {"cpu_quota_us", 50000}});
     expect(ErrorCode::Conflict, [&] { changed.bind(session.actor()); });
@@ -347,11 +350,21 @@ void standard_policy_binding_does_not_expand_file_template_grants() {
         static_cast<void>(session.runtime->run(session.request_id, script));
         const auto stored = session.store->workspace(session.binding().team_id);
         const Json args = Object{{"argv", Array{"/usr/bin/python3", "-c", "print(1)"}}};
+        const auto alias = session.directory.path / "control-hardlink";
+        std::filesystem::create_hard_link(session.database, alias);
         if (std::string_view(selected) == "files") {
+            session.tools->bind(session.actor()); // Original strong mode adds no new guard.
             CHECK(!declared(session.tools->declarations(session.actor())).contains("run"));
             expect(ErrorCode::Unauthorized, [&] { (void)session.execute("run", args); });
+            std::filesystem::remove(alias);
             continue;
         }
+        const auto before = session.store->events(session.request_id);
+        expect(ErrorCode::Unauthorized, [&] { session.tools->bind(session.actor()); });
+        expect(ErrorCode::Unauthorized, [&] { (void)session.tools->declarations(session.actor()); });
+        expect(ErrorCode::Unauthorized, [&] { (void)session.execute("run", args); });
+        CHECK(session.store->events(session.request_id) == before);
+        std::filesystem::remove(alias);
         CHECK(stored.at("execution_policy").at("version") == "wls-worker-execution-standard-cgroup-v1");
         CHECK(stored.at("execution_policy").at("process_isolation") == "standard-cgroup-v1");
         CHECK(session.tools->environment_card(session.actor()).at("process_isolation_verified") == false);

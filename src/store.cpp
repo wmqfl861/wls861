@@ -1812,6 +1812,40 @@ Json Store::diagnostics() const {
         {"journal_mode", str(impl_->one("PRAGMA journal_mode"), "journal_mode")}, {"synchronous", number(impl_->one("PRAGMA synchronous"), "synchronous")},
         {"foreign_keys", number(impl_->one("PRAGMA foreign_keys"), "foreign_keys")}, {"read_only", impl_->mode == StoreOpenMode::ReadOnly}};
 }
+void Store::validate_process_runtime_root(const std::filesystem::path& runtime_root) const {
+    const std::lock_guard lock(impl_->mutex);
+    std::error_code error;
+    const auto root = std::filesystem::canonical(runtime_root, error);
+    require(!error && root == runtime_root && root != "/" && std::filesystem::is_directory(root, error), ErrorCode::Unauthorized,
+            "process runtime root must be an existing canonical directory");
+    int moved = 1;
+    require(sqlite3_file_control(impl_->db, "main", SQLITE_FCNTL_HAS_MOVED, &moved) == SQLITE_OK && moved == 0,
+            ErrorCode::Unauthorized, "process runtime cannot verify the original control database identity");
+    for (const auto* suffix : {"", ".writer-lock", "-wal", "-shm"}) {
+        const auto control = impl_->database_file_path + suffix;
+        require(!overlap(root.string(), control), ErrorCode::Unauthorized,
+                "process runtime root would expose Store control files");
+        struct stat current{};
+        if (::lstat(control.c_str(), &current) != 0) {
+            require(errno == ENOENT && *suffix != '\0' &&
+                    (impl_->lease_fd < 0 || std::string_view(suffix) != ".writer-lock"), ErrorCode::Unauthorized,
+                    "process runtime cannot inspect Store control files");
+            continue;
+        }
+        require(S_ISREG(current.st_mode) && current.st_nlink == 1 && current.st_uid == ::geteuid() &&
+                (current.st_mode & 07777) == 0600,
+                ErrorCode::Unauthorized, "process runtime requires single-link owned control files");
+        const auto resolved = std::filesystem::canonical(control, error);
+        require(!error && !overlap(root.string(), resolved.string()), ErrorCode::Unauthorized,
+                "process runtime root aliases Store control files");
+        if (std::string_view(suffix) == ".writer-lock" && impl_->lease_fd >= 0) {
+            struct stat pinned{};
+            require(::fstat(impl_->lease_fd, &pinned) == 0 && pinned.st_nlink == 1 &&
+                    pinned.st_dev == current.st_dev && pinned.st_ino == current.st_ino, ErrorCode::Unauthorized,
+                    "process runtime cannot verify the original Store writer lease");
+        }
+    }
+}
 Json Store::request(const std::string& id) const {
     const std::lock_guard lock(impl_->mutex); return exposed(impl_->request_row(id));
 }
