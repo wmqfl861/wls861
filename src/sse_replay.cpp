@@ -870,7 +870,7 @@ ResponsesSseReplay replay_responses_sse(const ProviderProfile& profile,
         // verified usage for this recovery path.
         if (decoded.response.status == ModelResultStatus::Completed ||
             (events.terminal_type == "response.failed" && decoded.response.error_code == "provider_failed") ||
-            (events.terminal_type == "response.incomplete" && decoded.response.error_code == "response_incomplete") ||
+            (events.terminal_type == "response.incomplete" && (decoded.response.error_code == "response_incomplete" || decoded.response.error_code == "response_max_output_tokens")) ||
             decoded.response.error_code == "model_refusal" ||
             decoded.response.error_code == "reasoning_replay_unavailable")
             terminal_usage = decoded.response.usage;

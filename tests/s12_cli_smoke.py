@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from legacy_shell_config import legacy_shell_arguments
 
 
 if len(sys.argv) != 3:
@@ -40,6 +41,7 @@ class WorkerCliSmoke(unittest.TestCase):
         self.database = self.directory / "runtime.sqlite"
 
     def invoke(self, *arguments, error=None):
+        arguments = legacy_shell_arguments(arguments, SOURCE, self.directory)
         completed = subprocess.run(
             [str(BINARY), *(str(arg) for arg in arguments), "--source-root", str(SOURCE)],
             cwd=self.directory, capture_output=True, text=True, encoding="utf-8",
@@ -173,8 +175,11 @@ class WorkerCliSmoke(unittest.TestCase):
         script = json.loads((FIXTURES / "s12_fake_workspace.json").read_text())[:3]
         script[2]["tool_calls"] = [{"call_id": "run-refused", "name": "run",
                                    "arguments": {"argv": ["/bin/sh", "-c", "echo bad > refused.txt"]}}]
-        run = self.run_files(request_id, self.json_file("refused.json", script), calls=1)
-        result = run["calls"][-1]["result"]
+        failure = self.run_files(request_id, self.json_file("refused.json", script), calls=1, error="quota")
+        self.assertEqual(failure["message"], "explicit offline call limit reached")
+        result = json.loads(self.rows("SELECT result FROM model_tool_feedback f JOIN call_attempts a "
+                                     "USING(attempt_id) WHERE a.role='worker'")[0]["result"])
+        self.assertEqual(result["correction_feedback"]["reason"], "tool_result")
         self.assertEqual(result["operation"]["status"], "FAILED")
         fact = result["execution_result"]
         self.assertEqual(fact["observed_outcome"], "FAILED")
@@ -184,6 +189,9 @@ class WorkerCliSmoke(unittest.TestCase):
         self.assertFalse((self.workspace / "refused.txt").exists())
         self.assertEqual(fact["stdout_bytes"], 0)
         self.assertNotIn("stdout_base64", fact["result"])
+        self.assertEqual(self.rows("SELECT status FROM ops"), [{"status": "FAILED"}])
+        self.assertEqual(self.rows("SELECT attempts,spent_input,spent_output FROM request_budgets"),
+                         [{"attempts": 3, "spent_input": 300, "spent_output": 60}])
 
     def test_workspace_identity_and_policy_drift_are_rejected(self):
         request_id = self.submit()

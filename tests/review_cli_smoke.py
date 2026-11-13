@@ -23,6 +23,8 @@ SOURCE, FIXTURES = helpers.SOURCE, helpers.FIXTURES
 
 class ReviewCLI(helpers.AcceptanceCliSmoke):
     def raw_error(self, *arguments):
+        if "--source-root" not in arguments:
+            arguments += ("--source-root", SOURCE)
         # A crash is the regression under test; never leave core dumps behind.
         def disable_core():
             _, hard = resource.getrlimit(resource.RLIMIT_CORE)

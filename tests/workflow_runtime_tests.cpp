@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "test_support.hpp"
@@ -47,7 +48,7 @@ AdmissionInput input(std::int64_t correction_limit = 2, std::int64_t stall_limit
     const std::string format = "request_format: structured-v3";
     const auto format_at = yaml.find(format); CHECK(format_at != std::string::npos);
     yaml.replace(format_at, format.size(), v3 ? format : "request_format: framed-v1");
-    const std::string marker = "  schema_retry_max: 2";
+    const std::string marker = "  schema_retry_max: 3";
     const auto position = yaml.find(marker); CHECK(position != std::string::npos);
     yaml.replace(position, marker.size(), "  schema_retry_max: " + std::to_string(correction_limit));
     if (stall_limit > 0) {
@@ -57,7 +58,7 @@ AdmissionInput input(std::int64_t correction_limit = 2, std::int64_t stall_limit
         yaml.replace(yaml.find(stall), stall.size(), "  stall_same_error_repeats: " + std::to_string(stall_limit));
     }
     write(configuration.path / "system.yaml", yaml);
-    const auto frozen = load_config_catalog(configuration.path / "system.yaml", source / "config/examples/functions",
+    const auto frozen = ::test::legacy_shell_catalog(configuration.path / "system.yaml", source / "config/examples/functions",
                                             source / "prompts").freeze("general");
     AdmissionInput result;
     result.tenant_id = "test-tenant"; result.project_id = "test-project"; result.root_id = "test-root";
@@ -421,11 +422,8 @@ void snapshot_requires_complete_authorized_bounded_files() {
             body.at("deliverables") = Array{};
             for (int i = 0; i < 9; ++i) body.at("deliverables").as_array().push_back(Object{{"path", "/work/file" + std::to_string(i)}, {"description", "file"}});
         }
-        const auto code = std::string(mode) == "oversized" || std::string(mode) == "too_many" ? ErrorCode::Quota :
-            (std::string(mode) == "traversal" ? ErrorCode::Unauthorized : ErrorCode::InvalidInput);
-        if (std::string(mode) == "missing")
-            CHECK(f.invoke(Role::Worker, "submit", body).at("status") == "FAILED");
-        else expect(code, [&] { (void)f.invoke(Role::Worker, "submit", body); });
+        const auto failure = f.invoke(Role::Worker, "submit", body);
+        CHECK(failure.at("status") == "FAILED" && failure.as_object().contains("correction_feedback"));
         CHECK(f.store->current_submission(f.binding().task_id).is_null());
         CHECK(f.task().at("status") != "SUBMITTED");
         CHECK(f.store->submissions(f.binding().task_id).empty());
@@ -657,6 +655,72 @@ void bounded_same_error_count_survives_reopen_and_resets_on_success_or_target_ch
     CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 1);
 }
 
+void no_directory_or_process_effects_can_be_corrected() {
+    Fixture f(input(10)); f.ready();
+    const auto mkdir = f.invoke(Role::Worker, "fs_mkdir", Object{{"path", "parent/child"}});
+    CHECK(mkdir.at("correction_feedback").at("reason") == "tool_result");
+    CHECK(mkdir.at("execution_result").at("evidence").at("mkdir_attempted") == false);
+    CHECK(mkdir.at("execution_result").at("evidence").at("created") == false);
+    (void)f.invoke(Role::Worker, "fs_mkdir", Object{{"path", "parent"}});
+    CHECK(f.invoke(Role::Worker, "fs_mkdir", Object{{"path", "parent/child"}}).at("operation").at("status") == "SUCCEEDED");
+    const auto refused = f.invoke(Role::Worker, "run", Object{{"argv", Array{"/bin/sh", "-c", "touch forbidden"}}});
+    CHECK(refused.at("correction_feedback").at("reason") == "tool_result");
+    CHECK(refused.at("execution_result").at("result").at("spawned") == false);
+    CHECK(!std::filesystem::exists(f.directory.path / "alpha/forbidden"));
+    const auto denied = f.invoke(Role::Worker, "fs_write", Object{{"path", "../outside"}, {"content", "never"}});
+    CHECK(denied.at("operation").at("status") == "FAILED" && !denied.as_object().contains("correction_feedback"));
+    CHECK(!std::filesystem::exists(f.directory.path / "outside"));
+}
+
+void output_limit_feedback_stops_after_two_and_keeps_original_accounting() {
+    auto truncated = step(Role::Dispatcher, "submit_plan", Object{});
+    truncated.status = ModelResultStatus::Interrupted; truncated.tool_calls.clear();
+    truncated.error_code = "response_max_output_tokens";
+    Fixture f(input(10));
+    for (int index = 0; index != 2; ++index) {
+        f.reopen(); const FakeModel fake({truncated}); const auto call = f.capture(Role::Dispatcher, fake);
+        if (index) CHECK(canonical_json(call.request.context.logical_input).find("max_output_tokens") != std::string::npos ||
+            call.request.context.dynamic_suffix.find("max_output_tokens") != std::string::npos);
+        const auto result = OfflineRuntime(*f.store, *schemas).accept_response(call, fake.complete(call.request));
+        CHECK(result.at("correction_feedback").at("reason") == "max_output_tokens");
+        CHECK(f.store->attempt(call.request.attempt_id).at("status") == "INTERRUPTED");
+        CHECK(f.store->attempt(call.request.attempt_id).at("accepted") == 0);
+        CHECK(f.store->tasks(f.id).empty());
+    }
+    f.reopen(); const auto before = f.store->budget(f.id);
+    const FakeModel fake({truncated}); expect(ErrorCode::NotReady, [&] { (void)f.capture(Role::Dispatcher, fake); });
+    CHECK(f.store->budget(f.id) == before && before.at("spent_input") == 200 && before.at("spent_output") == 40);
+    (void)f.store->amend(f.store->host_actor(Role::Root, f.id), number(f.store->request(f.id).at("state_version")),
+        read_runtime_file(source / "tests/fixtures/s13_amendment.txt"), fixture("s13_amended_constraints.json"), "new-output-target");
+    f.reopen(); CHECK(f.capture(Role::Dispatcher, fake).request.binding.requirements_revision == 2);
+    Fixture reset(input(10));
+    auto first = reset.capture(Role::Dispatcher, fake);
+    (void)OfflineRuntime(*reset.store, *schemas).accept_response(first, fake.complete(first.request));
+    auto selection = truncated; selection.status = ModelResultStatus::Completed; selection.error_code.clear(); selection.text = "Choose one tool.";
+    const FakeModel text_only({selection}); auto middle = reset.capture(Role::Dispatcher, text_only);
+    (void)OfflineRuntime(*reset.store, *schemas).accept_response(middle, text_only.complete(middle.request));
+    auto last = reset.capture(Role::Dispatcher, fake);
+    (void)OfflineRuntime(*reset.store, *schemas).accept_response(last, fake.complete(last.request));
+    CHECK(!reset.capture(Role::Dispatcher, fake).request.attempt_id.empty());
+}
+
+void interrupted_and_late_failures_never_become_corrections() {
+    for (int mode = 0; mode != 3; ++mode) {
+        Fixture f(input(10)); auto interrupted = step(Role::Dispatcher, "submit_plan", Object{});
+        interrupted.status = ModelResultStatus::Interrupted; interrupted.tool_calls.clear();
+        interrupted.error_code = mode == 0 ? "response_cancelled" : mode == 1 ? "deadline" : "response_max_output_tokens";
+        const FakeModel fake({interrupted}); const auto call = f.capture(Role::Dispatcher, fake);
+        if (mode == 2) f.store->cancel_request(f.store->host_actor(Role::Root, f.id),
+            number(f.store->request(f.id).at("state_version")), "cancel-before-response");
+        expect(mode == 2 ? ErrorCode::Stale : ErrorCode::NotReady, [&] {
+            (void)OfflineRuntime(*f.store, *schemas).accept_response(call, fake.complete(call.request));
+        });
+        const auto result = f.store->tool_feedback(call.request.attempt_id).at("result");
+        CHECK(result.at("runtime_error") == true && !result.as_object().contains("correction_feedback"));
+        CHECK(f.store->tasks(f.id).empty() && f.store->budget(f.id).at("spent_input") == 100);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -667,6 +731,9 @@ int main() {
     events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     workflow_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
     return test::run({
+        {"original no-mkdir and no-spawn failures correct while write permissions stay blocked", no_directory_or_process_effects_can_be_corrected},
+        {"two output-limit responses stop across restart without losing accounting", output_limit_feedback_stops_after_two_and_keeps_original_accounting},
+        {"cancelled late and timed-out failures remain stops", interrupted_and_late_failures_never_become_corrections},
         {"v3 minimal plan and order retain complete stored contracts and original responses", v3_minimal_calls_persist_full_contracts_and_original_responses},
         {"v3 compatibility fields require consistency and unknown fields remain rejected", v3_compatibility_fields_are_checked_and_unknown_fields_rejected},
         {"v3 minimal rework retains task and previous instruction constraints", v3_rework_preserves_task_and_previous_instruction_excerpts},

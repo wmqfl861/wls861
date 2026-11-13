@@ -47,7 +47,8 @@ class ModelAmendCli(unittest.TestCase):
                 source = legacy_context(source)
             if schema_retry_max is not None:
                 # Freeze the single-response negative fixture before admission.
-                source = source.replace('schema_retry_max: 2', f'schema_retry_max: {schema_retry_max}')
+                self.assertEqual(source.count('schema_retry_max: 3'), 1)
+                source = source.replace('schema_retry_max: 3', f'schema_retry_max: {schema_retry_max}')
             config.write_text(source)
             args += ['--config', config, '--functions-dir', h.SOURCE / 'config/examples/functions']
         return self.invoke(*args)['request']['request_id']

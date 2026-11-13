@@ -7,10 +7,13 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from legacy_shell_config import legacy_shell_arguments
+from fake_script_support import v3_fake_script
 
 BINARY, SOURCE = (Path(p).resolve() for p in sys.argv[1:3])
 FIXTURES = SOURCE / 'tests/fixtures'
@@ -55,6 +58,7 @@ class StructuredCli(unittest.TestCase):
         return path
 
     def call(self, *args, error=None):
+        args = legacy_shell_arguments(args, SOURCE, self.root)
         result = subprocess.run([str(BINARY), *map(str, args), '--source-root', str(SOURCE)],
                                 cwd=self.root, text=True, capture_output=True, timeout=50)
         if error:
@@ -122,6 +126,24 @@ class StructuredCli(unittest.TestCase):
         self.assertEqual(messages[0]['tool_calls'][0]['call_id'], messages[1]['tool_call_id'])
         self.assertEqual(messages[0]['source']['original_tool_call_id'], 'same-provider-id')
         self.assertEqual(json.loads(messages[1]['content'])['content'], '原始观察😀\n')
+
+    def test_example_default_exposes_only_file_tools_and_matching_environment(self):
+        functions = shutil.copytree(SOURCE / 'config/examples/functions', self.root / 'default-functions')
+        self.work_file('default files fixture')
+        request = self.call('submit', '--db', self.db, '--key', 'default-files',
+            '--text-file', FIXTURES / 's13_request.txt', '--constraints-file', FIXTURES / 's13_constraints.json',
+            '--config', SOURCE / 'config/examples/system.yaml', '--functions-dir', functions)['request']['request_id']
+        result = self.pump(request, v3_fake_script(self.read_script(1)), workers=1)
+        self.assertEqual(len(result['calls']), 3, result)
+        prefix = self.envelopes('worker')[0]['context']['input']['prefix']
+        self.assertEqual({tool['name'] for tool in prefix['tools']},
+            {'fs_list', 'fs_read', 'fs_search', 'fs_mkdir', 'fs_write', 'fs_patch', 'ask', 'submit',
+             'history_page', 'history_read'})
+        system = json.dumps(prefix['system'], ensure_ascii=False)
+        for absent in ('bash', 'python3', 'git', '/work/out', '/work/tmp'):
+            self.assertNotIn(absent, system)
+        self.assertIn('不能运行命令', system)
+        self.assertIn('workspace root unless the task specifies a directory', system)
 
     def test_reopen_keeps_original_bytes_binding_and_frozen_choice(self):
         self.work_file('old bytes')

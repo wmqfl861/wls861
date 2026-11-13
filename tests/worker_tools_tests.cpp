@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/worker_tools.hpp"
 #include "wls/offline_runtime.hpp"
 #include "test_support.hpp"
@@ -718,7 +719,7 @@ int main() {
     const auto at = yaml.find(format); CHECK(at != std::string::npos);
     yaml.replace(at, format.size(), "request_format: framed-v1");
     host_write(temp.path / "system.yaml", yaml);
-    frozen = std::make_unique<FrozenRequestConfig>(load_config_catalog(temp.path / "system.yaml",
+    frozen = std::make_unique<FrozenRequestConfig>(::test::legacy_shell_catalog(temp.path / "system.yaml",
         source / "config/examples/functions", source / "prompts").freeze("general"));
     base_sql = read_runtime_file(source / "db/schema.sql");
     migration_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");

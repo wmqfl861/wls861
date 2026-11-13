@@ -107,7 +107,7 @@ context:
   prompt_policy: guided-v1  # Explicit new-request guidance; absent snapshots retain legacy bytes.
   compaction_at_fraction: 0.6
   snapshot_decision_log_entries: 20
-  schema_retry_max: 2  # 上限，不授权付费纠错；每次仍受 model_calls/预算检查。
+  schema_retry_max: 3  # 上限，不授权付费纠错；每次仍受 model_calls/预算检查。
   cache_dependencies:
     - adapter_version
     - effective_model_and_reasoning

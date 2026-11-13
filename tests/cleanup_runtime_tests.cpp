@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/cleanup_runtime.hpp"
 #include "wls/cleanup.hpp"
 #include "wls/delivery.hpp"
@@ -42,7 +43,7 @@ struct Fixture {
         const auto at=bytes.find("cleanup:\n  enabled: false");CHECK(at!=std::string::npos);
         if(enabled)bytes.replace(at,std::string("cleanup:\n  enabled: false").size(),"cleanup:\n  enabled: true");
         write(dir.path/"system.yaml",bytes);
-        const auto config=load_config_catalog(dir.path/"system.yaml",source/"config/examples/functions",source/"prompts").freeze("general");
+        const auto config=::test::legacy_shell_catalog(dir.path/"system.yaml",source/"config/examples/functions",source/"prompts").freeze("general");
         open();AdmissionInput& in=admission;in.tenant_id="fixture";in.project_id="project";in.root_id="root";in.function_id="general";in.idempotency_key="request";
         in.original_text=read_runtime_file(source/"tests/fixtures/s14_request.txt");in.config_snapshot=config.json();
         in.constraint_catalog=parse_json_strict(read_runtime_file(source/"tests/fixtures/s14_constraints.json"));

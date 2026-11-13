@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "test_support.hpp"
@@ -53,7 +54,7 @@ AdmissionInput input() {
     const auto at = yaml.find(format); CHECK(at != std::string::npos);
     yaml.replace(at, format.size(), "request_format: framed-v1");
     write(temp.path / "system.yaml", yaml);
-    const auto config = load_config_catalog(temp.path / "system.yaml", source / "config/examples/functions",
+    const auto config = ::test::legacy_shell_catalog(temp.path / "system.yaml", source / "config/examples/functions",
                                             source / "prompts").freeze("general");
     AdmissionInput value;
     value.tenant_id = "test-tenant"; value.project_id = "test-project"; value.root_id = "test-root";
@@ -174,7 +175,7 @@ AdmissionInput limited_input(std::int64_t maximum) {
     const auto at = yaml.find("team_internal_rework_max: 3"); CHECK(at != std::string::npos);
     yaml.replace(at, std::string("team_internal_rework_max: 3").size(), "team_internal_rework_max: " + std::to_string(maximum));
     write(temp.path / "system.yaml", yaml);
-    auto value = input(); value.config_snapshot = load_config_catalog(temp.path / "system.yaml",
+    auto value = input(); value.config_snapshot = ::test::legacy_shell_catalog(temp.path / "system.yaml",
         source / "config/examples/functions", source / "prompts").freeze("general").json();
     return value;
 }
@@ -441,7 +442,11 @@ void corrective_order_cannot_drop_previous_extra_constraint() {
     (void)f.invoke(Role::Dispatcher,"accept_candidate",Object{{"passed",false},{"notes","Correction needed."}});
     (void)revise(f);
     const auto dropping=full_script().by_node.at("alpha").front().tool_calls.front().arguments;
-    expect(ErrorCode::InvalidInput,[&] { (void)f.invoke(Role::TeamLead,"issue_work_order",dropping); });
+    const auto task=f.task(), instruction=f.store->instruction(f.binding().task_id);
+    const auto failed=f.invoke(Role::TeamLead,"issue_work_order",dropping);
+    CHECK(failed.at("status")=="FAILED" && failed.at("correction_feedback").at("reason")=="model_arguments");
+    CHECK(failed.at("correction_feedback").at("observation")=="corrective instruction drops an existing task or instruction constraint");
+    CHECK(f.task()==task && f.store->instruction(f.binding().task_id)==instruction);
     CHECK(f.task().at("instruction_revision")==1);
     (void)f.invoke(Role::TeamLead,"issue_work_order",script.by_node.at("alpha").front().tool_calls.front().arguments);
     CHECK(f.task().at("instruction_revision")==2);

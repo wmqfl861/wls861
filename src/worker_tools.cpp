@@ -3,6 +3,7 @@
 #include "wls/offline_runtime.hpp"
 #include "wls/owned_capacity.hpp"
 #include "runtime_config_internal.hpp"
+#include "correction_detail.hpp"
 
 #include <unistd.h>
 
@@ -394,6 +395,7 @@ Json WorkerTools::diagnostic(const StoreActor& actor, const ExecutionBinding& bi
     require(worker_tool_definition(name).category == ToolClass::Diagnostic, ErrorCode::Unauthorized, "only registered read-only diagnostics use this branch");
     const auto allowance = store_.authorize_diagnostic(actor, binding, name);
     rate_limit(actor, allowance); verify_workspace(actor);
+    try {
     if (name == "fs_list") return workspace_.list(optional_text(args, "path", "."), optional_text(args, "after_name", ""), static_cast<std::size_t>(optional_number(args, "limit", 100)));
     if (name == "fs_read") return workspace_.read(field(args, "path"), optional_number(args, "offset", 0), static_cast<std::size_t>(optional_number(args, "max_bytes", 65536)));
     if (name == "fs_search") return workspace_.search(field(args, "path"), field(args, "literal"), static_cast<std::size_t>(optional_number(args, "max_matches", 100)));
@@ -404,6 +406,15 @@ Json WorkerTools::diagnostic(const StoreActor& actor, const ExecutionBinding& bi
     require(field(operation, "request_id") == actor.request_id && field(operation, "task_id") == actor.task_id && field(operation, "team_id") == actor.team_id,
             ErrorCode::Unauthorized, "operation belongs to another team");
     return Object{{"operation", operation}, {"execution_result", store_.operation_result(id)}};
+    } catch (const correction_detail::MissingWorkspaceLeaf&) {
+        (void)store_.authorize_diagnostic(actor, binding, name); verify_workspace(actor); throw;
+    } catch (const Error& error) {
+        if (error.code() != ErrorCode::InvalidInput && error.code() != ErrorCode::Unauthorized &&
+            error.code() != ErrorCode::Quota && error.code() != ErrorCode::Unsupported &&
+            !(name == "op_output" && error.code() == ErrorCode::NotReady)) throw;
+        (void)store_.authorize_diagnostic(actor, binding, name); verify_workspace(actor);
+        throw correction_detail::RejectedRead(error);
+    }
 }
 
 Json WorkerTools::control(const StoreActor& actor, const ExecutionBinding& binding, std::int64_t expected,

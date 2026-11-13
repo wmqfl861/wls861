@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from legacy_shell_config import legacy_shell_arguments, select_legacy_shell
 
 
 if len(sys.argv) != 3:
@@ -42,6 +43,7 @@ class MkdirCliSmoke(unittest.TestCase):
         self.database = self.directory / "runtime.sqlite"
 
     def invoke(self, *arguments, error=None):
+        arguments = legacy_shell_arguments(arguments, SOURCE, self.directory)
         completed = subprocess.run(
             [str(BINARY), *(str(arg) for arg in arguments), "--source-root", str(SOURCE)],
             cwd=self.directory, capture_output=True, text=True, encoding="utf-8",
@@ -176,12 +178,18 @@ class MkdirCliSmoke(unittest.TestCase):
 
     def test_missing_parent_does_not_create_intermediate_directories(self):
         request = self.submit()
-        run = self.run_calls(request, [("fs_mkdir", {"path": "absent/child"})])
-        result = run["calls"][-1]["result"]
+        failure = self.run_calls(request, [("fs_mkdir", {"path": "absent/child"})], error="quota")
+        self.assertEqual(failure["message"], "explicit offline call limit reached")
+        result = json.loads(self.rows("SELECT result FROM model_tool_feedback f JOIN call_attempts a "
+                                     "USING(attempt_id) WHERE a.role='worker'")[0]["result"])
+        self.assertEqual(result["correction_feedback"]["reason"], "tool_result")
         self.assertEqual(result["operation"]["status"], "FAILED")
         self.assertFalse(result["execution_result"]["evidence"]["mkdir_attempted"])
+        self.assertFalse(result["execution_result"]["evidence"]["created"])
         self.assertFalse((self.workspace / "absent").exists())
         self.assertEqual(self.rows("SELECT status FROM ops"), [{"status": "FAILED"}])
+        self.assertEqual(self.rows("SELECT attempts,spent_input,spent_output FROM request_budgets"),
+                         [{"attempts": 3, "spent_input": 300, "spent_output": 60}])
 
     def test_diagnostic_entry_refuses_mkdir_without_any_database_mutation(self):
         request = self.submit()
@@ -215,6 +223,7 @@ class MkdirCliSmoke(unittest.TestCase):
     def test_upgrading_template_does_not_grant_mkdir_to_existing_frozen_request(self):
         functions = self.directory / "functions"
         shutil.copytree(SOURCE / "config/examples/functions", functions)
+        select_legacy_shell(functions)
         template = functions / "general/function.yaml"
         current_template = template.read_text(encoding="utf-8")
         template.write_text(re.sub(r"\bfs_mkdir,\s*", "", current_template), encoding="utf-8")

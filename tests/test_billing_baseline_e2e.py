@@ -27,6 +27,7 @@ import tempfile
 import threading
 import time
 import unittest
+from legacy_shell_config import select_legacy_shell
 
 if len(sys.argv) < 3:
     raise SystemExit('usage: test_billing_baseline_e2e.py WLS SOURCE [--group all|billing|run|g1|g2|legacy] [unittest options]')
@@ -974,6 +975,8 @@ class BillingBaselineIntegration(unittest.TestCase):
         endpoint = PricingFlowEndpoint(correctable_read=True, initialize_seed=True, simulate_cache=True)
         with tls.Peer(self.contexts['server'], endpoint) as peer:
             case = self.run_inputs('g1-exit', peer)
+            # Preserve G1's historical tool-prefix benchmark; run/P7 use the files default.
+            select_legacy_shell(case['directory'] / 'functions')
             context = case['system']['context']
             context.update(request_format='structured-v3', model_projection='lean-v1',
                 tool_policy='fixed-role-v1', worker_history={'mode': 'append-fold-v1',
@@ -1602,7 +1605,12 @@ class BillingBaselineIntegration(unittest.TestCase):
                     bound = (len(sent) * 1500000 + json.loads(sent)['max_output_tokens'] * 4000000 + 999999) // 1000000
                     self.assertEqual(original['reserved_cost'], bound)
                     unknown = variant in ('429', '503', 'disconnect')
-                    self.assertEqual(summary['budget']['spent_cost'], bound if unknown else PRICED_UNIT_MICRO_USD)
+                    self.assertEqual(summary['budget']['spent_cost'], bound if unknown else
+                                     PRICED_UNIT_MICRO_USD * (2 if variant == 'incomplete' else 1))
+                    if variant == 'incomplete':
+                        self.assertEqual(len(peer.requests), 2)
+                        self.assertIn('max_output_tokens', json.dumps(json.loads(peer.requests[1]['body'])['input']))
+                        self.assertEqual(len(rows(database, 'SELECT * FROM tasks')), 3)
                     self.assertEqual(summary['budget']['reserved_cost'], 0)
                     self.assertIsNone(original['cost_micro_usd'])
                     self.assertEqual(original['input_tokens'], None if unknown else 11)
@@ -1620,6 +1628,38 @@ class BillingBaselineIntegration(unittest.TestCase):
                     self.assertEqual(len(peer.requests), 2)
                     self.assertEqual(rows(database, 'SELECT * FROM call_attempts')[0], original)
                     self.assertEqual(after['budget']['spent_cost'], (bound if unknown else PRICED_UNIT_MICRO_USD) + PRICED_UNIT_MICRO_USD)
+
+    def test_09b_output_limit_feedback_is_sent_and_two_originals_stop_across_runs(self):
+        def truncated(peer, connection):
+            peer.request(connection)
+            value = json.loads(tls.response_body(tool=True))
+            value.update(status='incomplete', incomplete_details={'reason': 'max_output_tokens'})
+            value['output'][0]['arguments'] = '{'
+            value['usage'].update(input_tokens=11, output_tokens=7, total_tokens=18)
+            value['usage']['input_tokens_details'] = {'cached_tokens': 3}
+            body = tls.encoded(value)
+            connection.sendall(tls.headers(len(body)) + body)
+        with tls.Peer(self.contexts['server'], truncated) as peer:
+            case = self.run_inputs('output-limit-corrections', peer)
+            case['system']['context']['schema_retry_max'] = 10
+            write_json(case['configuration'], case['system'])
+            first = self.invoke_run(case, '--yes')
+            self.assertEqual(first.returncode, 0, first.stderr)
+            summary = json.loads(first.stdout)
+            self.assertEqual(len(peer.requests), 2, summary)
+            self.assertEqual(summary['budget']['spent_cost'], 2 * PRICED_UNIT_MICRO_USD)
+            self.assertTrue(summary['accounting']['ready'])
+            self.assertIn('max_output_tokens', json.dumps(json.loads(peer.requests[1]['body'])['input']))
+            database = next(case['data'].glob('requests/*/control.sqlite'))
+            originals = rows(database, 'SELECT * FROM call_attempts')
+            self.assertEqual([item['status'] for item in originals], ['INTERRUPTED', 'INTERRUPTED'])
+            self.assertTrue(all(item['accepted'] == 0 for item in originals))
+            self.assertEqual(rows(database, 'SELECT * FROM tasks'), [])
+            again = self.invoke_run(case, '--yes')
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertEqual(len(peer.requests), 2)
+            self.assertEqual(rows(database, 'SELECT * FROM call_attempts'), originals)
+            self.assertEqual(json.loads(again.stdout)['budget']['spent_cost'], 2 * PRICED_UNIT_MICRO_USD)
 
     def test_09c_one_dollar_uses_body_bound_and_rejects_output_alone_over_budget(self):
         with tls.Peer(self.contexts['server'], PricingFlowEndpoint(initialize_seed=True)) as peer:
@@ -2321,6 +2361,7 @@ RUN_TEST_METHODS = frozenset((
     'test_08_run_ctrl_c_after_settlement_resumes_original_claims_and_effects',
     'test_09_run_unknown_send_stops_and_changed_configuration_cannot_resume',
     'test_09a_unsigned_failures_charge_original_usage_or_reservation_and_resume',
+    'test_09b_output_limit_feedback_is_sent_and_two_originals_stop_across_runs',
     'test_09c_one_dollar_uses_body_bound_and_rejects_output_alone_over_budget',
     'test_09b_run_resumes_exact_intent_after_empty_store_initialization',
 ))

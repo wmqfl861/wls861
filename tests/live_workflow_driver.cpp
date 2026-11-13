@@ -158,6 +158,20 @@ int main(int argc, char** argv) {
         };
         if (flag(config, "host_dispositions")) options.limits.amendment_dispositions = Object{{"alpha", Object{{"disposition", "keep"}, {"rationale", "fixture refusal"}}}};
         Object result{{"request_id", id}, {"initial_accounting", store->live_accounting_status(id)}};
+        if (string_option(config, "action") == "output_limit_hook") {
+            OfflineRuntime original(*store, schemas);
+            const auto call = original.capture_call(id, Role::Dispatcher, {}, 1, {}, false, {100, 3s});
+            const auto observed = observe_live_attempt(*store, call.actor, call.request, bearer, {true, false});
+            CHECK(observed.response && observed.response->error_code == "response_max_output_tokens");
+            bool stopped = false;
+            try { (void)original.accept_live_response(call, *observed.response, [](const Json&) {
+                throw Error(ErrorCode::Storage, "synthetic host settlement failure"); }); }
+            catch (const Error& error) { stopped = error.code() == ErrorCode::Storage; }
+            CHECK(stopped && store->tasks(id).empty());
+            result["feedback"] = store->tool_feedback(call.request.attempt_id);
+            result["attempt"] = store->attempt(call.request.attempt_id);
+            std::cout << canonical_json(result) << '\n'; return 0;
+        }
         if (string_option(config, "action") == "refusal") {
             // Model-layer refusal e2e: transport may classify Completed while
             // the response stays Error; no dispatch, retry or business effect.

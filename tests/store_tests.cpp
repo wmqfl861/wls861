@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/store.hpp"
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
@@ -79,13 +80,13 @@ AdmissionInput input(std::string key = "first", std::int64_t teams = 4, std::int
     const auto at = yaml.find(format); CHECK(at != std::string::npos);
     yaml.replace(at, format.size(), "request_format: framed-v1");
     { std::ofstream file(system_path); file << yaml; CHECK(static_cast<bool>(file)); }
-    auto catalog = load_config_catalog(system_path, config.path / "config/functions", config.path / "prompts");
+    auto catalog = ::test::legacy_shell_catalog(system_path, config.path / "config/functions", config.path / "prompts");
     if (teams != 4 || tools != 200) {
         auto system = catalog.freeze("general").json().at("system");
         system.at("limits").at("max_teams_per_request") = teams;
         system.at("limits").at("worker_max_tool_calls_per_order") = tools;
         { std::ofstream file(system_path); file << canonical_json(system); }
-        catalog = load_config_catalog(system_path, config.path / "config/functions", config.path / "prompts");
+        catalog = ::test::legacy_shell_catalog(system_path, config.path / "config/functions", config.path / "prompts");
     }
     result.config_snapshot = catalog.freeze("general").json();
     result.tool_allowlist = {"fs_read", "fs_write"};

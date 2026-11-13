@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/worker_history.hpp"
 #include "wls/offline_runtime.hpp"
 #include "test_support.hpp"
@@ -42,7 +43,7 @@ struct Fixture {
         yaml.replace(yaml.find(old), old.size(), "  request_format: structured-v2\n"
             "  worker_history: {mode: window-v1, recent_attempts: 4, inline_bytes: 32768}\n");
         { std::ofstream f(temp.path / "system.yaml"); f << yaml; CHECK(f.good()); }
-        const auto config = load_config_catalog(temp.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general");
+        const auto config = ::test::legacy_shell_catalog(temp.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general");
         store = std::make_unique<Store>(db, read_runtime_file(source / "db/schema.sql"),
             read_runtime_file(source / "db/migrations/004_s1_store.sql"), StoreOpenMode::Takeover,
             read_runtime_file(source / "db/migrations/005_worker_tools.sql"),
@@ -149,7 +150,7 @@ void empty_policy_defaults() {
     const std::string example_history = "  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n";
     yaml.erase(yaml.find(example_history), example_history.size());
     test::TempDir temp; { std::ofstream file(temp.path / "system.yaml"); file << yaml; CHECK(file.good()); }
-    const auto c=load_config_catalog(temp.path/"system.yaml",source/"config/examples/functions",source/"prompts").freeze("general");
+    const auto c=::test::legacy_shell_catalog(temp.path/"system.yaml",source/"config/examples/functions",source/"prompts").freeze("general");
     CHECK(c.worker_history_policy().is_null()); CHECK(c.runtime_support().at("history_window_integrated")==false);
 }
 void tail_is_original_and_small_turn_is_paired() {

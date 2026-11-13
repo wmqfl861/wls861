@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "test_support.hpp"
@@ -68,7 +69,7 @@ AdmissionInput input(bool structured = false) {
         yaml.replace(at, old.size(), structured ? "request_format: structured-v2" : "request_format: framed-v1");
     }
     { std::ofstream output(directory.path / "system.yaml"); output << yaml; CHECK(static_cast<bool>(output)); }
-    const auto frozen = load_config_catalog(directory.path / "system.yaml", source / "config/examples/functions",
+    const auto frozen = ::test::legacy_shell_catalog(directory.path / "system.yaml", source / "config/examples/functions",
         source / "prompts").freeze("general");
     AdmissionInput result;
     result.tenant_id = "test-tenant"; result.project_id = "test-project"; result.root_id = "test-root";
@@ -324,9 +325,10 @@ void forbidden_model_fields_and_unknown_nodes_never_change_business_state() {
         const auto before = f.store->tasks(f.id), old_events = f.store->events(f.id);
         const FakeModel fake({step(Role::Dispatcher, "submit_amendment_plan", args)});
         const auto call = f.capture(fake);
-        if (variant <= 3 || variant == 5)
-            CHECK(f.offline().accept_independent_response(call, fake.complete(call.request)).at("status") == "FAILED");
-        else expect({ErrorCode::InvalidInput, ErrorCode::Unsupported, ErrorCode::Unauthorized}, [&] {
+        if (variant != 4) {
+            const auto failed = f.offline().accept_independent_response(call, fake.complete(call.request));
+            CHECK(failed.at("status") == "FAILED" && failed.at("correction_feedback").at("reason") == "model_arguments");
+        } else expect({ErrorCode::Unauthorized}, [&] {
             (void)f.offline().accept_independent_response(call, fake.complete(call.request));
         });
         CHECK(f.store->tasks(f.id) == before);

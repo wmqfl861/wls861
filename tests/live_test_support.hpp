@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #pragma once
 
 #include "wls/config_loader.hpp"
@@ -97,7 +98,7 @@ inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& l
     std::filesystem::copy(assets.source / "config/examples", directory.path / "config", std::filesystem::copy_options::recursive);
     std::filesystem::copy(assets.source / "prompts", directory.path / "prompts", std::filesystem::copy_options::recursive);
     const auto system_path = directory.path / "config/system.yaml";
-    auto catalog = load_config_catalog(system_path, directory.path / "config/functions", directory.path / "prompts");
+    auto catalog = ::test::legacy_shell_catalog(system_path, directory.path / "config/functions", directory.path / "prompts");
     {
         auto system = catalog.freeze("general").json().at("system");
         system.at("context").as_object().erase("tool_policy"); system.at("context").as_object().erase("model_projection");
@@ -115,7 +116,7 @@ inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& l
             system.at("budget_defaults").at("max_wall_minutes") = 1;
         }
         { std::ofstream output(system_path); output << canonical_json(system); }
-        catalog = load_config_catalog(system_path, directory.path / "config/functions", directory.path / "prompts");
+        catalog = ::test::legacy_shell_catalog(system_path, directory.path / "config/functions", directory.path / "prompts");
     }
     AdmissionInput input;
     input.tenant_id = "local-tenant"; input.project_id = "local-project"; input.root_id = "root-fixture";
