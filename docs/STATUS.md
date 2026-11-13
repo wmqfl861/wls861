@@ -1,5 +1,5 @@
-现在能做什么：0.12.0 已通过 G2-P；Responses 与 Chat Completions 非流式工作流的合成预演均完成交付。
-还不能做什么：真实 WLS 调用仍为 0；强沙箱部署与 `/input` 尚未完成，环境卡片的实际执行检查未接通，Windows 11 为 NOT_RUN。
+现在能做什么：0.12.0 已通过 G2-P；Responses 与 Chat 非流式工作流完成合成交付；普通单 Agent 可提交原始成果，评估工具已支持三条件、15 个固定样本位。
+还不能做什么：真实 WLS 调用仍为 0，三条件质量对照未做；普通单 Agent 的提交仍待业务验收。强沙箱部署、`/input` 与环境卡片执行检查未完成，Windows 11 为 NOT_RUN。
 需要 owner 做什么：在运行 agent 的 shell 中导出 `WLS_G2_API_KEY`，然后明确告知“密钥已就绪”；两项满足前不发任何真实请求。
 
 # 当前状态
@@ -14,7 +14,13 @@ G2-P：最小自包含工具参数与宿主补全、具体字段错误、受限�
 
 [纯 Chat 编解码 #87](https://github.com/wmqfl861/wls861/pull/87) 与 [Chat 运行时 #88](https://github.com/wmqfl861/wls861/pull/88) 已合入。非流式 Chat 接入原预留、唯一发送、观察与结算流程；本地 Release 12/12 个 CTest 首轮通过，同一预演的 Responses 和 Chat 各完成 35 次合成调用、8 个场景，均在断开后以同一命令恢复到 DELIVERED。R3 评估尚未接入 Chat。
 
-当前 CI：main `170619b`（#88 合并）的[新完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43440391641)待完成，source CI 已成功；此前 `5599d44` 与 `82ae41e` 均在 `acceptance_runtime` 约 180 秒 TIMEOUT，该问题仍 OPEN（[最新失败](https://github.com/wmqfl861/wls861/actions/runs/43434154232/job/131918252007)）。`23965af` 的九作业全 PASS 绑定旧输入。原失败记录保留；D-11 的 sanitizer CTest 时限倍数仍为 2，Release 和业务期限不变。
+[测试 UAF 修复 #90](https://github.com/wmqfl861/wls861/pull/90) 已合入，修复 Chat 测试在同一 JSON 对象插入时持有失效引用的问题；定向 Make-ASan 25/25 通过。main `5b58af7` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43453777579)九作业全 SUCCESS，其中 `acceptance_runtime` 146.75 秒通过。此前 `3355b1e` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43444614448)为 6 PASS/3 FAIL：两个 UAF 和一次 acceptance 180.18 秒 TIMEOUT。原失败记录保留，acceptance 性能问题仍 OPEN；一次通过不构成超时根因修复。D-11 的 sanitizer CTest 时限倍数仍为 2，Release 和业务期限不变。
+
+[G3-A1 #91](https://github.com/wmqfl861/wls861/pull/91) 与 [A2 #92](https://github.com/wmqfl861/wls861/pull/92) 已在各自 PR 核心及 source 检查通过后合并。`single-agent-plain-v1` 由宿主创建单任务和初始指令，唯一 Worker 沿完整原历史执行，原字节提交后停在不可变 `SUBMITTED`，业务接受仍待处理。v4 评估保持五任务、三条件和 15 格分母，分别给出证据/安全、工作流、plain 循环与执行结果，质量固定为 `not_assessed`；用法见[单 Agent 基线](implementation/R3-single-agent-baseline.md#5-普通单-agent-与-v4-三条件用法)。A2 在数据盘私有临时目录下完整 49/49 通过（42.340 秒）；首轮临时目录和程序构建来源记录的更正在 PR #92 中保留。G3-B 真实对照与共同质量 oracle 未做，R3 评估仍拒绝 Chat。
+
+当前 CI：G6-B1 合入后的 main `c06f8c9`，[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43470220408)为 PENDING，[source 检查](https://github.com/wmqfl861/wls861/actions/runs/43470221985)为 SUCCESS。A2 main `93f4b3f` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43462515827)仍为 IN_PROGRESS。A1 main `fd452c75` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43456731499)已结束，8 PASS/1 FAIL；唯一失败是 ASan1 的 `acceptance_runtime` 180.12 秒 TIMEOUT，无 UAF。acceptance 性能问题仍 OPEN，不用旧输入的通过结果替代新 main 验证。
+
+G6-B1 Store 返工域单独编译（[#93](https://github.com/wmqfl861/wls861/pull/93)）已在 PR 三核心各 84/84 和 source 检查通过后合入。候选 `d27b224` 的本地 Release CTest 首轮 83 PASS/1 FAIL，doctor 因程序目录布局失败；使用字节和权限相同、复制到源码目录下一层的程序后，完整 doctor 12/12 在原 90 秒限时内通过，未修改源码。Make 独立构建通过（254.793 秒），相关 15/15 套件通过（190.855 秒，8 套 C++、7 套 CLI）；沿用原期限、umask 077 和数据盘专属三 TMP 目录（0700）。一次同条件测量的全量构建为基线 475.960 秒、候选 474.932 秒，增量为 65.434 秒、18.188 秒；不据单样本宣称整个 G6-B 完成或稳定提速，语句缓存、PCH、ccache 等未开展。
 
 ## 尚缺的真实能力（当前边界）
 
@@ -46,7 +52,7 @@ G2-P：最小自包含工具参数与宿主补全、具体字段错误、受限�
 | HTTPS / live工作流 | libcurl multi、显式CA/host验证、有界deadline/取消、原HTTP/SSE解码；原角色event pump与精确授权CLI | 自建loopback TLS；G1-I加入冻结DNS/显式代理策略，旧配置保留原解释；冻结 bounded-v1 可对明确未发送连接失败或完整的指定 HTTP 状态最多重试两次，每次单独预留/结算。原 nullable 用量保留；冻结 pricing 下完整用量估算，缺值将原预留转为已花费；签名 v2 为独立可选路径，选用后不得回退估算。实际供应商、外部DNS/代理验收未执行 |
 | 估算与签名计费 / 迟到核账 | #49 增加冻结 token 单价估算、最低费用预留、原响应与结算用量投影及可信迟到实际费用差额调整；签名路径仍独立，原五维 nullable 账目不覆写 | 原31次合成计费验证保留；G1-J/L已接通有界续批与wls run，M的32次合成场景按各精确head单独登记；实际供应商/模型验收和付费调用仍未执行，自定义中转契约待实际服务接入。签名收据错绑、重放、缺值、超预留和错误响应依原账本限制 |
 | 运行资源 / 迁移 | 编译认可清单、35项固定资源、版本注册表及CMake安装 | 从无关cwd与删除安装来源后运行；prefix/DESTDIR、资源篡改/缺失/特殊文件拒绝、旧API/迁移兼容；配置和凭据外置 |
-| 单 Agent / 评测证据 | 显式冻结共享原生对话与原权限代理；v1结构验收、v2原模型来源、v3独立验证单逻辑Agent连续性 | 五任务双条件合成工程链、跨重启与错标/缺反馈反例；R3 评估尚未接入 Chat；真实供应商质量、成本及长对话语义效果未验收 |
+| 单 Agent / 评测证据 | 保留原 role-broker 与 v1–v3；新增 plain 单 Worker/宿主 setup，v4 固定五任务三条件、15 格 | 原生全文、完整历史、恢复与不可变提交证据；安全与工作流/提交闭环分别报告，SUBMITTED 仍待业务验收，质量未评估；R3 拒绝 Chat，真实质量与成本对照未做 |
 | 事件/并发 | 持久inbox、逐任务AMEND、串行pump；冻结准入窗口/独立计数/Root检查点 | 旧快照不改写；到限可核对后续进；不清审计/不重置预算。CLI 已按请求恢复；默认全库维护仍保留。并发租约、只在确有在途时提升选中请求代次仍未实现 |
 | 配置执行状态 | check/explain按冻结配置披露runtime_support；G1-J的bounded-v1已接通请求墙钟期限、预算预警、输出上限/输入估算、同错停滞限制与有界续批 | 本地合成回归覆盖已接通路径；真实供应商未验收。未选bounded-v1时墙钟/预警/同错限制仍validated_only；全局并发/审核槽位、stall_minutes、snapshot_decision_log_entries及周期vacuum仍未执行；compaction_at_fraction仅append-fold-v1接通 |
 | 记忆、MCP、跨功能审核 | 规格/参考契约 | 完整C++闭环及真实互通未实现 |
@@ -61,7 +67,7 @@ R2a.2已按[ADR-075](adr/075-owned-allocation-recovery.md)实现迁移、创建�
 R2a.3、R3.1、R3.2 的上述限定接口已实施；真实强沙箱部署正向验收保持独立。
 R3.3a/b、两项长任务前置及受控event pump/CLI已按限定范围实施。迁移注册表与可安装资源
 已补齐服务化之前置，但daemon/API继续后置。签名计费适配和单Agent逻辑身份执行器已并入。
-下一步按 owner 2026-11-13 采纳的[当前计划](reviews/claude-2026-11-13/04-plan.md)推进：阶段 0 收敛 → G1 → G2-P → G2 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10。阶段 0、G1 和 G2-P 已完成；等待密钥期间已合入 G4-C 输出切片与 G5-A/B，G4-A1 native 仍 BLOCKED，G4-B 候选尚未纳入、`/input` 未做、环境卡片的实际执行检查未接通。standard 的部署和无 cgroup 的启动与全树回收保持独立验收。密钥与明确就绪通知均到位后优先转回 G2；真实运行保留全部失败和未知样本。
+下一步按 owner 2026-11-13 采纳的[当前计划](reviews/claude-2026-11-13/04-plan.md)推进：阶段 0 收敛 → G1 → G2-P → G2 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10。阶段 0、G1 和 G2-P 已完成；等待密钥期间已合入 G4-C 输出切片、G5-A/B、G3-A 工具与 G6-B1 返工域拆分。G3-B 真实对照与整个 G6 仍未完成。G4-A1 native 仍 BLOCKED，G4-B 候选尚未纳入、`/input` 未做、环境卡片的实际执行检查未接通。standard 的部署和无 cgroup 的启动与全树回收保持独立验收。密钥与明确就绪通知均到位后优先转回 G2；真实运行保留全部失败和未知样本。
 离线codec profile继续固定real_calls_enabled=false；外层宿主live配置另有显式开关和独立执行授权，
 默认关闭，max_paid_retries=0；CLI只有完整宿主授权后的受控入口，本次未使用真实供应商。
 并发租约和选中请求按需提升代次继续开放，不因模型 AMEND 接入而视为完成。
