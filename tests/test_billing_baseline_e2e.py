@@ -27,6 +27,7 @@ import tempfile
 import threading
 import time
 import unittest
+from legacy_shell_config import select_legacy_shell
 
 if len(sys.argv) < 3:
     raise SystemExit('usage: test_billing_baseline_e2e.py WLS SOURCE [--group all|billing|run|g1|legacy] [unittest options]')
@@ -856,6 +857,8 @@ class BillingBaselineIntegration(unittest.TestCase):
         endpoint = PricingFlowEndpoint(correctable_read=True, initialize_seed=True, simulate_cache=True)
         with tls.Peer(self.contexts['server'], endpoint) as peer:
             case = self.run_inputs('g1-exit', peer)
+            # Preserve G1's historical tool-prefix benchmark; run/P7 use the files default.
+            select_legacy_shell(case['directory'] / 'functions')
             context = case['system']['context']
             context.update(request_format='structured-v3', model_projection='lean-v1',
                 tool_policy='fixed-role-v1', worker_history={'mode': 'append-fold-v1',
