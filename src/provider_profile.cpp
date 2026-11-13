@@ -335,7 +335,7 @@ void validate_provider_profile(const ProviderProfile& p) {
     }
     require(p.response_metadata_policy.empty() || p.response_metadata_policy == "ignore-record-v1",
             "unsupported response metadata policy");
-    require(p.tool_choice_policy.empty() || p.tool_choice_policy == "allowed-tools-v1", "unsupported tool choice policy");
+    require(p.tool_choice_policy.empty() || p.tool_choice_policy == "allowed-tools-v1" || p.tool_choice_policy == "required-v1", "unsupported tool choice policy");
     require(!p.parallel_tool_calls || p.tool_calling, "parallel tool calls require tool calling capability");
     require(p.reasoning_provider_default || p.reasoning_off || !p.reasoning_efforts.empty(),
             "provider must explicitly declare a reasoning mode");
@@ -381,7 +381,7 @@ ProviderProfile provider_profile_from_json(const Json& value) {
     p.model = text(value, "model"); p.api_key_env = text(value, "api_key_env");
     if (object(value).contains("tool_choice_policy")) {
         p.tool_choice_policy = text(value, "tool_choice_policy");
-        require(p.tool_choice_policy == "allowed-tools-v1", "unsupported tool choice policy");
+        require(p.tool_choice_policy == "allowed-tools-v1" || p.tool_choice_policy == "required-v1", "unsupported tool choice policy");
     }
     if (object(value).contains("response_metadata_policy")) {
         p.response_metadata_policy = text(value, "response_metadata_policy");

@@ -401,6 +401,7 @@ void failed_and_incomplete_terminal_keep_known_usage_but_no_tools() {
         else terminal.as_object()["incomplete_details"] = Object{{"reason", "max_output_tokens"}};
         add(events, "response." + std::string(status), {{"response", terminal}});
         const auto result = replay(events);
+        CHECK(result.response.error_code == (std::string_view(status) == "failed" ? "provider_failed" : "response_max_output_tokens"));
         CHECK(result.response.status != ModelResultStatus::Completed);
         CHECK(result.response.tool_calls.empty());
         CHECK(result.response.usage.input_tokens == 9);

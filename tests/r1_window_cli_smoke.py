@@ -104,7 +104,9 @@ class WindowCli(unittest.TestCase):
 
     def test_invalid_or_foreign_reads_are_recorded_not_authorized(self):
         # Each malformed read is a single-response fixture, not a recovery script.
-        self.config.write_text(self.config.read_text().replace('schema_retry_max: 2', 'schema_retry_max: 0'))
+        source = self.config.read_text()
+        self.assertEqual(source.count('schema_retry_max: 3'), 1)
+        self.config.write_text(source.replace('schema_retry_max: 3', 'schema_retry_max: 0'))
         self.work_file('small'); request=self.admit(); self.pump(request,self.read_script(1),1)
         # TeamLead evidence belongs to a different scope despite sharing request/task.
         foreign=self.rows("SELECT f.* FROM model_tool_feedback f JOIN call_attempts a USING(attempt_id) WHERE a.role='team_lead'")[0]

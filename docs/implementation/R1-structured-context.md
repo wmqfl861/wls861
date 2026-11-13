@@ -95,7 +95,8 @@ experience 本轮仅允许 report_experience，即使完整目录包含 history 
 
 ProviderProfile 可独立显式选择 `tool_choice_policy: allowed-tools-v1`。仅配合新
 固定目录策略时，Responses encoder 输出官方 allowed_tools 的 type/mode/tools
-对象；未选择能力的端点保持完整 tools 和末尾允许列表，由宿主强制执行。
+对象，mode 固定为 required；不支持允许列表的端点可选择 `required-v1`，发送
+`"tool_choice":"required"`。未选择能力的端点保持完整 tools 和末尾允许列表，由宿主强制执行。
 tool_choice 是动态控制字段；稳定性比较仅覆盖 tools/instructions 与有序历史项，
 不把整个 HTTP JSON 声称为严格前缀。此改动不实现折叠、模型投影或真实缓存验收。
 

@@ -908,15 +908,14 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     } else if (result.http_status != 200) {
         fail(result, HttpsTransportStatus::HttpError, "http_error");
     } else if (result.response.status != ModelResultStatus::Completed) {
-        // Narrow classification only: a fully framed HTTP 200 refusal validated
-        // by the shared decoder under the compatibility profile. The response
-        // stays Error; no downstream may treat it as usable or dispatchable.
-        if (result.response.error_code == "model_refusal" &&
-            transfer.profile.responses_compatibility.has_value() &&
+        // Only shared-decoder classifications from a fully framed HTTP 200
+        // survive. Refused/interrupted responses remain unusable for dispatch.
+        if (((result.response.error_code == "model_refusal" && transfer.profile.responses_compatibility.has_value()) ||
+             (result.response.status == ModelResultStatus::Interrupted && result.response.error_code == "response_max_output_tokens")) &&
             result.protocol_evidence.is_object() &&
             result.protocol_evidence.as_object().contains("decoder")) {
             result.status = HttpsTransportStatus::Completed;
-            result.reason = "model_refusal";
+            result.reason = result.response.error_code;
         } else {
             fail(result, HttpsTransportStatus::ProtocolError, "protocol_error");
         }

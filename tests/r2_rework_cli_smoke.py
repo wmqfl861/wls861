@@ -32,7 +32,8 @@ class ReworkCli(unittest.TestCase):
         config=(h.SOURCE/'config/examples/system.yaml').read_text().replace(
             '  team_internal_rework_max: 3', f'  team_internal_rework_max: {maximum}')
         # A caller may freeze zero for a single-response safety rejection fixture.
-        config=config.replace('schema_retry_max: 2', f'schema_retry_max: {schema_retry_max}')
+        self.assertEqual(config.count('schema_retry_max: 3'), 1)
+        config=config.replace('schema_retry_max: 3', f'schema_retry_max: {schema_retry_max}')
         if structured:
             config=config.replace('  tool_policy: fixed-role-v1\n', '').replace('  model_projection: lean-v1\n', '').replace('  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n', '').replace('request_format: structured-v3','request_format: structured-v2')
         config_path=self.directory/'system.yaml'; config_path.write_text(config)

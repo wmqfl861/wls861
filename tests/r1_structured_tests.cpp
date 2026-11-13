@@ -788,8 +788,12 @@ void v3_five_round_encoded_prefix_and_originals(bool lean = false) {
             auto opted = profile; opted.tool_choice_policy = "allowed-tools-v1";
             const auto controlled = parse_json_strict(encode_responses_request(opted, request).body);
             CHECK(controlled.at("tools") == body.at("tools"));
-            CHECK(controlled.at("tool_choice") == Json(Object{{"type", "allowed_tools"}, {"mode", "auto"},
+            CHECK(controlled.at("tool_choice") == Json(Object{{"type", "allowed_tools"}, {"mode", "required"},
                 {"tools", Array{Object{{"type", "function"}, {"name", input.allowed_tools.front()}}}}}));
+            CHECK(to_json(provider_profile_from_json(to_json(opted))) == to_json(opted));
+            opted.tool_choice_policy = "required-v1";
+            const auto required = parse_json_strict(encode_responses_request(opted, request).body);
+            CHECK(required.at("tool_choice") == "required" && required.at("tools") == body.at("tools"));
             CHECK(to_json(provider_profile_from_json(to_json(opted))) == to_json(opted));
         }
         auto ordered = body.at("input").as_array();

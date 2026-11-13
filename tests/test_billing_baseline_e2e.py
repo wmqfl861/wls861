@@ -1217,7 +1217,7 @@ class BillingBaselineIntegration(unittest.TestCase):
                     if variant in ('429', '503'):
                         value = {'error': {'code': 'synthetic_failure'}}
                     elif variant == 'incomplete':
-                        value.update(status='incomplete', incomplete_details={'reason': 'max_output_tokens'})
+                        value.update(status='incomplete', incomplete_details={'reason': 'content_filter'})
                     elif variant == 'model_mismatch':
                         value['model'] = 'different-model'
                     elif variant == 'decode_failure':
@@ -1267,6 +1267,38 @@ class BillingBaselineIntegration(unittest.TestCase):
                     self.assertEqual(len(peer.requests), 2)
                     self.assertEqual(rows(database, 'SELECT * FROM call_attempts')[0], original)
                     self.assertEqual(after['budget']['spent_cost'], (bound if unknown else PRICED_UNIT_MICRO_USD) + PRICED_UNIT_MICRO_USD)
+
+    def test_09b_output_limit_feedback_is_sent_and_two_originals_stop_across_runs(self):
+        def truncated(peer, connection):
+            peer.request(connection)
+            value = json.loads(tls.response_body(tool=True))
+            value.update(status='incomplete', incomplete_details={'reason': 'max_output_tokens'})
+            value['output'][0]['arguments'] = '{'
+            value['usage'].update(input_tokens=11, output_tokens=7, total_tokens=18)
+            value['usage']['input_tokens_details'] = {'cached_tokens': 3}
+            body = tls.encoded(value)
+            connection.sendall(tls.headers(len(body)) + body)
+        with tls.Peer(self.contexts['server'], truncated) as peer:
+            case = self.run_inputs('output-limit-corrections', peer)
+            case['system']['limits']['schema_retry_max'] = 10
+            write_json(case['configuration'], case['system'])
+            first = self.invoke_run(case, '--yes')
+            self.assertEqual(first.returncode, 0, first.stderr)
+            summary = json.loads(first.stdout)
+            self.assertEqual(len(peer.requests), 2, summary)
+            self.assertEqual(summary['budget']['spent_cost'], 2 * PRICED_UNIT_MICRO_USD)
+            self.assertTrue(summary['accounting']['ready'])
+            self.assertIn('max_output_tokens', json.dumps(json.loads(peer.requests[1]['body'])['input']))
+            database = next(case['data'].glob('requests/*/control.sqlite'))
+            originals = rows(database, 'SELECT * FROM call_attempts')
+            self.assertEqual([item['status'] for item in originals], ['INTERRUPTED', 'INTERRUPTED'])
+            self.assertTrue(all(item['accepted'] == 0 for item in originals))
+            self.assertEqual(rows(database, 'SELECT * FROM tasks'), [])
+            again = self.invoke_run(case, '--yes')
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertEqual(len(peer.requests), 2)
+            self.assertEqual(rows(database, 'SELECT * FROM call_attempts'), originals)
+            self.assertEqual(json.loads(again.stdout)['budget']['spent_cost'], 2 * PRICED_UNIT_MICRO_USD)
 
     def test_09c_one_dollar_uses_body_bound_and_rejects_output_alone_over_budget(self):
         with tls.Peer(self.contexts['server'], PricingFlowEndpoint(initialize_seed=True)) as peer:

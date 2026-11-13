@@ -231,6 +231,21 @@ class LiveWorkflow(unittest.TestCase):
         self.assertEqual(self.rows('SELECT status FROM tasks')[0]['status'], 'ACCEPTED')
         self.assert_private_safe(result)
 
+    def test_output_limit_cannot_hide_a_host_settlement_failure(self):
+        value = json.loads(tls.response_body(tool=True))
+        value.update(status='incomplete', incomplete_details={'reason': 'max_output_tokens'})
+        body = tls.encoded(value)
+        def serve(peer, connection):
+            peer.request(connection)
+            connection.sendall(tls.headers(len(body)) + body)
+        with tls.Peer(self.contexts['server'], serve) as peer:
+            result = self.invoke(peer, action='output_limit_hook')
+            self.assertEqual(len(peer.requests), 1)
+        self.assertTrue(result['feedback']['result']['runtime_error'])
+        self.assertEqual(result['feedback']['result']['error_code'], 'storage')
+        self.assertNotIn('correction_feedback', result['feedback']['result'])
+        self.assertEqual(result['attempt']['status'], 'INTERRUPTED')
+
     def test_model_refusal_records_model_layer_feedback_without_dispatch(self):
         compat = self.directory / 'compat-profile.json'
         compat.write_text(json.dumps({

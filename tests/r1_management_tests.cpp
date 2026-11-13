@@ -332,11 +332,15 @@ void failed_queries_count_toward_a_persistent_limit_after_restart() {
     Fixture f(true, 2); f.host_answer(f.ask());
     const auto page = f.invoke(Role::TeamLead, "management_history_page", page_args());
     auto invalid = read_args(page.at("items").as_array().front()); invalid.as_object()["record_id"] = "absent-original";
-    expect(ErrorCode::Unauthorized, [&] { f.invoke(Role::TeamLead, "management_history_read", invalid); });
+    CHECK(f.invoke(Role::TeamLead, "management_history_read", invalid).at("correction_feedback").at("reason") == "read_only");
     f.reopen();
+    auto model = fake(Role::TeamLead, "management_history_page", page_args());
+    const auto next = f.capture(Role::TeamLead, model);
+    CHECK(canonical_json(next.request.context.logical_input).find("last_correction") != std::string::npos);
+    CHECK(canonical_json(next.request.context.logical_input).find("absent-original") != std::string::npos);
     const auto before = num(f.store->budget(f.request), "attempts");
-    expect(ErrorCode::Quota, [&] { f.invoke(Role::TeamLead, "management_history_page", page_args()); });
-    CHECK(num(f.store->budget(f.request), "attempts") == before + 1);
+    expect(ErrorCode::Quota, [&] { OfflineRuntime(*f.store, f.schemas).accept_response(next, model.complete(next.request)); });
+    CHECK(num(f.store->budget(f.request), "attempts") == before);
 }
 
 struct DuringRead {

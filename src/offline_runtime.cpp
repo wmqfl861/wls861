@@ -123,8 +123,8 @@ Json submission_snapshot(WorkerTools& tools, Store& store, const StoreActor& act
             std::find(grants.begin(), grants.end(), "fs_read") != grants.end(), ErrorCode::Unauthorized,
             "submission needs current submit and fs_read grants");
     const auto& deliverables = body.at("deliverables").as_array();
-    require(!deliverables.empty() && deliverables.size() <= 8, ErrorCode::Quota,
-            "a captured submission needs 1 to 8 files");
+    if (deliverables.empty() || deliverables.size() > 8)
+        throw correction_detail::RejectedArguments("a captured submission needs 1 to 8 files");
     std::set<std::string> paths;
     for (const auto& file : deliverables) {
         const auto path = string_at(file, "path");
@@ -138,10 +138,10 @@ Json submission_snapshot(WorkerTools& tools, Store& store, const StoreActor& act
         const auto page = tools.diagnostic(actor, binding, "fs_read",
             Object{{"path", path.substr(6)}, {"offset", 0}, {"max_bytes", 65536}});
         const auto size = integer_at(page, "size_bytes");
-        require(page.at("eof") == true && page.at("next_offset").is_null() &&
-                integer_at(page, "offset") == 0 && size == integer_at(page, "bytes_returned") &&
-                size >= 0 && size <= 65536 && total <= 262144 - size, ErrorCode::Quota,
-                "submission requires complete files of at most 64 KiB each and 256 KiB total");
+        require(integer_at(page, "offset") == 0 && size >= 0, ErrorCode::Corrupt, "invalid captured file observation");
+        if (page.at("eof") != true || !page.at("next_offset").is_null() ||
+            size != integer_at(page, "bytes_returned") || size > 65536 || total > 262144 - size)
+            throw correction_detail::RejectedArguments("submission requires complete files of at most 64 KiB each and 256 KiB total");
         total += size;
         snapshot.push_back(Object{{"path", path}, {"sha256", page.at("sha256")},
             {"size_bytes", size}, {"content_base64", page.at("content_base64")}});
@@ -604,13 +604,21 @@ CapturedModelCall OfflineRuntime::capture_call(
     }
     Json correction_tail = nullptr;
     if (store_.event_runtime_enabled()) {
-        correction_tail = store_.attempt_history_tail(actor, 1);
+        correction_tail = store_.attempt_history_tail(actor, 2);
+        require(!correction_detail::output_limit_repeated(correction_tail), ErrorCode::NotReady,
+            "max_output_tokens: two consecutive incomplete responses");
         const auto count = correction_detail::failures(correction_tail, correction_detail::target_key(request, action));
         require(config.schema_retry_max() == 0 || count < config.schema_retry_max(),
             ErrorCode::NotReady, correction_detail::limit_reason);
         if (config.bounded_runtime()) require(correction_detail::same_errors(correction_tail,
             correction_detail::target_key(request, action)) < integer_at(config.json().at("system").at("limits"),
                 "stall_same_error_repeats"), ErrorCode::NotReady, "stall_same_error_repeats");
+    }
+    if (role != Role::Worker && !correction_tail.is_null() && !correction_tail.at("items").as_array().empty()) {
+        const auto& last = correction_tail.at("items").as_array().back();
+        if (last.at("feedback").is_object() && correction_detail::correction(last.at("feedback").at("result")))
+            contract.as_object()["last_correction"] = Object{{"attempt_id", last.at("attempt_id")},
+                {"original_binding", last.at("frozen_binding")}, {"result", last.at("feedback").at("result")}};
     }
     const auto history_policy = role == Role::Worker ? config.worker_history_policy() : Json(nullptr);
     const bool append = append_fold_policy(history_policy);
@@ -964,6 +972,13 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         }
         return result;
     };
+    // Only audited preflight or single-transaction actions use this boundary.
+    const auto model_rule = [&](auto action) -> decltype(action()) {
+        try { return action(); } catch (const Error& error) {
+            if (!durable_feedback || error.code() != ErrorCode::InvalidInput) throw;
+            throw correction_detail::RejectedArguments(error.what());
+        }
+    };
     const auto validate_arguments = [&](const std::string& name, const Json& arguments) {
         try { schemas_.validate(name, arguments, true); }
         catch (const Error& error) {
@@ -978,6 +993,10 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     if (after_settlement) after_settlement(settlement);
     try {
         validate_response_envelope(captured, response);
+        if (durable_feedback && response.status == ModelResultStatus::Interrupted && response.error_code == "response_max_output_tokens") {
+            require(settlement.at("status") == "INTERRUPTED", ErrorCode::Stale, "output-limit response has an obsolete captured binding");
+            return ordinary("max_output_tokens", "上一次应答因输出上限被截断，请缩短输出，大文件分多次写入");
+        }
         require(response.status == ModelResultStatus::Completed, ErrorCode::NotReady,
             "incomplete model responses cannot dispatch tools or commit decisions");
     } catch (const Error& error) {
@@ -995,6 +1014,15 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     require(response.tool_calls.size() == 1, ErrorCode::InvalidInput, "offline wake requires exactly one declared tool call");
     const auto& tool = response.tool_calls.front();
     const auto command = captured.attempt_id + ":" + tool.call_id;
+    const auto read_history = [&](auto action) -> Json {
+        try { return action(); } catch (const Error& error) {
+            if (!durable_feedback || (error.code() != ErrorCode::InvalidInput && error.code() != ErrorCode::Unauthorized &&
+                error.code() != ErrorCode::Conflict && error.code() != ErrorCode::Unsupported)) throw;
+            if (is_management_history_control(tool.name)) store_.authorize_management_control(call.actor, captured.binding, tool.name);
+            else store_.authorize_history_control(call.actor, captured.binding, tool.name);
+            return ordinary("read_only", error.what());
+        }
+    };
     if (durable_feedback && captured.role == Role::Worker &&
         std::any_of(worker_tool_registry().begin(), worker_tool_registry().end(),
             [&](const auto& definition) { return definition.name == tool.name; })) {
@@ -1023,7 +1051,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
             is_management_history_control(tool.name)) {
         require(call.workflow_action.is_null() || string_at(call.workflow_action, "kind") != "experience",
                 ErrorCode::Unauthorized, "an experience-only call cannot open general management history");
-        return execute_management_history_control(store_, call.actor, captured.binding, tool.name, tool.arguments);
+        return read_history([&] { return execute_management_history_control(store_, call.actor, captured.binding, tool.name, tool.arguments); });
     }
     if (!call.workflow_action.is_null()) {
         const auto& target = call.workflow_action.at("target");
@@ -1049,53 +1077,53 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
                     {"execution_epoch", task.at("execution_epoch")}});
             }
             if (!publish)
-                return store_.apply_independent_dispositions(call.actor, call.expected_state_version,
+                return model_rule([&] { return store_.apply_independent_dispositions(call.actor, call.expected_state_version,
                     captured.binding.requirements_revision, captured.binding.plan_revision,
-                    decisions, command + ":amendment", guards);
+                    decisions, command + ":amendment", guards); });
             Json plan = tool.arguments.at("plan");
             validate_arguments("plan", plan);
             const auto config = restore_request_config(store_.request(captured.binding.request_id));
-            check_independent_plan_supported(plan, config, worker_tools_ != nullptr, true);
+            model_rule([&] { check_independent_plan_supported(plan, config, worker_tools_ != nullptr, true); });
             plan.as_object()["plan_revision"] = increment(captured.binding.plan_revision);
             plan.as_object()["based_on_requirements_revision"] = captured.binding.requirements_revision;
-            schemas_.validate("plan", plan);
+            model_rule([&] { schemas_.validate("plan", plan); });
             for (const auto& node : plan.at("nodes").as_array()) {
-                schemas_.validate("task_brief", node.at("brief"));
-                store_.validate_brief(captured.binding.request_id, node.at("brief"));
+                model_rule([&] { schemas_.validate("task_brief", node.at("brief")); });
+                model_rule([&] { store_.validate_brief(captured.binding.request_id, node.at("brief")); });
             }
-            return store_.apply_independent_plan(call.actor, call.expected_state_version,
-                captured.binding.requirements_revision, plan, decisions, command + ":amendment-plan", guards);
+            return model_rule([&] { return store_.apply_independent_plan(call.actor, call.expected_state_version,
+                captured.binding.requirements_revision, plan, decisions, command + ":amendment-plan", guards); });
         }
         if (string_at(call.workflow_action, "kind") == "question") {
             require(tool.name == "answer_question" || tool.name == "forward_question", ErrorCode::Unauthorized,
                     "captured question only permits its answer or forward action");
             validate_arguments(tool.name, tool.arguments);
             if (tool.name == "answer_question")
-                return store_.answer_question(call.actor, captured.binding, string_at(target, "question_id"),
-                    integer_at(target, "state_version"), tool.arguments, command);
-            return store_.forward_question(call.actor, captured.binding, string_at(target, "question_id"),
-                integer_at(target, "state_version"), string_at(tool.arguments, "note"), command);
+                return model_rule([&] { return store_.answer_question(call.actor, captured.binding, string_at(target, "question_id"),
+                    integer_at(target, "state_version"), tool.arguments, command); });
+            return model_rule([&] { return store_.forward_question(call.actor, captured.binding, string_at(target, "question_id"),
+                integer_at(target, "state_version"), string_at(tool.arguments, "note"), command); });
         }
         if (string_at(call.workflow_action, "kind") == "acceptance") {
             require(store_.acceptance_runtime_enabled() && captured.role == Role::Dispatcher &&
                     tool.name == "accept_candidate", ErrorCode::Unauthorized,
                     "captured candidate only permits its Dispatcher acceptance decision");
             validate_arguments("accept_candidate", tool.arguments);
-            return store_.accept_candidate(call.actor, captured.binding,
+            return model_rule([&] { return store_.accept_candidate(call.actor, captured.binding,
                 integer_at(call.workflow_action, "expected_task_version"), string_at(target, "submission_id"),
-                integer_at(target, "state_version"), tool.arguments, command);
+                integer_at(target, "state_version"), tool.arguments, command); });
         }
         if (string_at(call.workflow_action, "kind") == "rejection") {
             require(captured.role == Role::Dispatcher && (tool.name == "change_task" || tool.name == "escalate_task"),
                     ErrorCode::Unauthorized, "captured rejection only permits its bounded correction or user escalation");
             validate_arguments(tool.name, tool.arguments);
             if (tool.name == "change_task")
-                return store_.change_task(call.actor, captured.binding,
+                return model_rule([&] { return store_.change_task(call.actor, captured.binding,
                     integer_at(call.workflow_action, "expected_task_version"), string_at(target, "submission_id"),
-                    integer_at(target, "state_version"), tool.arguments, command);
-            return store_.escalate_task(call.actor, captured.binding,
+                    integer_at(target, "state_version"), tool.arguments, command); });
+            return model_rule([&] { return store_.escalate_task(call.actor, captured.binding,
                 integer_at(call.workflow_action, "expected_task_version"), string_at(target, "submission_id"),
-                integer_at(target, "state_version"), tool.arguments, command);
+                integer_at(target, "state_version"), tool.arguments, command); });
         }
         if (string_at(call.workflow_action, "kind") == "experience") {
             require(store_.acceptance_runtime_enabled() && captured.role == Role::TeamLead &&
@@ -1108,9 +1136,9 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
             report.as_object()["report_id"] = new_id("rep");
             for (const auto* field : {"request_id", "task_id", "team_id"})
                 report.as_object()[field] = target.at(field);
-            schemas_.validate("experience_report", report);
-            return store_.report_experience(call.actor, captured.binding, string_at(target, "experience_id"),
-                integer_at(target, "state_version"), string_at(target, "source_sha256"), report, command);
+            model_rule([&] { schemas_.validate("experience_report", report); });
+            return model_rule([&] { return store_.report_experience(call.actor, captured.binding, string_at(target, "experience_id"),
+                integer_at(target, "state_version"), string_at(target, "source_sha256"), report, command); });
         }
         require(string_at(call.workflow_action, "kind") == "submission", ErrorCode::Corrupt,
                 "captured workflow action has an unsupported kind");
@@ -1131,12 +1159,12 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
             schemas_.validate("work_order", full_order);
             check.as_object().erase("work_order");
         }
-        return store_.check_submission(call.actor, captured.binding, call.expected_state_version,
-            string_at(target, "submission_id"), integer_at(target, "state_version"), check, order, command);
+        return model_rule([&] { return store_.check_submission(call.actor, captured.binding, call.expected_state_version,
+            string_at(target, "submission_id"), integer_at(target, "state_version"), check, order, command); });
     }
     if (captured.role == Role::Worker && store_.workflow_runtime_enabled() && tool.name == "ask") {
         validate_arguments("question", tool.arguments);
-        return store_.ask_question(call.actor, captured.binding, call.expected_state_version, tool.arguments, command);
+        return model_rule([&] { return store_.ask_question(call.actor, captured.binding, call.expected_state_version, tool.arguments, command); });
     }
     if (captured.role == Role::Worker && store_.workflow_runtime_enabled() && tool.name == "submit") {
         validate_arguments("submission", tool.arguments);
@@ -1144,27 +1172,27 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         if (const auto* memories = tool.arguments.as_object().if_contains("used_memories"))
             require(memories->as_array().empty(), ErrorCode::Unsupported,
                     "memory usage requires an implemented immutable load receipt");
-        const auto snapshot = submission_snapshot(*worker_tools_, store_, call.actor, captured.binding, tool.arguments);
-        return store_.submit_work(call.actor, captured.binding, call.expected_state_version, tool.arguments, snapshot, command);
+        const auto snapshot = model_rule([&] { return submission_snapshot(*worker_tools_, store_, call.actor, captured.binding, tool.arguments); });
+        return model_rule([&] { return store_.submit_work(call.actor, captured.binding, call.expected_state_version, tool.arguments, snapshot, command); });
     }
     if (captured.role == Role::Dispatcher) {
         require(tool.name == "submit_plan", ErrorCode::Unauthorized, "Dispatcher needs its declared planning action");
         validate_arguments("plan", tool.arguments);
         const auto config = restore_request_config(store_.request(captured.binding.request_id));
         if (independent_plan) {
-            check_independent_plan_supported(tool.arguments, config, worker_tools_ != nullptr, store_.workflow_runtime_enabled());
+            model_rule([&] { check_independent_plan_supported(tool.arguments, config, worker_tools_ != nullptr, store_.workflow_runtime_enabled()); });
             Json plan = tool.arguments;
             plan.as_object()["plan_revision"] = increment(captured.binding.plan_revision);
             plan.as_object()["based_on_requirements_revision"] = captured.binding.requirements_revision;
-            schemas_.validate("plan", plan);
+            model_rule([&] { schemas_.validate("plan", plan); });
             for (const auto& node : plan.at("nodes").as_array()) {
-                schemas_.validate("task_brief", node.at("brief"));
-                store_.validate_brief(captured.binding.request_id, node.at("brief"));
+                model_rule([&] { schemas_.validate("task_brief", node.at("brief")); });
+                model_rule([&] { store_.validate_brief(captured.binding.request_id, node.at("brief")); });
             }
-            return store_.apply_independent_plan(call.actor, call.expected_state_version,
-                captured.binding.requirements_revision, plan, dispositions, command + ":independent-plan");
+            return model_rule([&] { return store_.apply_independent_plan(call.actor, call.expected_state_version,
+                captured.binding.requirements_revision, plan, dispositions, command + ":independent-plan"); });
         }
-        check_plan_supported(tool.arguments, config, worker_tools_ != nullptr, store_.workflow_runtime_enabled());
+        model_rule([&] { check_plan_supported(tool.arguments, config, worker_tools_ != nullptr, store_.workflow_runtime_enabled()); });
         const auto existing = store_.tasks(captured.binding.request_id);
         require(existing.size() <= 1, ErrorCode::Unsupported, "offline runner cannot replace an existing multi-task plan");
         if (!existing.empty()) require(is_amendment_disposition(disposition),
@@ -1172,11 +1200,11 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         Json plan = tool.arguments;
         plan.as_object()["plan_revision"] = increment(captured.binding.plan_revision);
         plan.as_object()["based_on_requirements_revision"] = captured.binding.requirements_revision;
-        schemas_.validate("plan", plan);
+        model_rule([&] { schemas_.validate("plan", plan); });
         const auto& node = plan.at("nodes").as_array().front();
         // Validate the independent brief before committing the new plan.
-        schemas_.validate("task_brief", node.at("brief"));
-        store_.validate_brief(captured.binding.request_id, node.at("brief"));
+        model_rule([&] { schemas_.validate("task_brief", node.at("brief")); });
+        model_rule([&] { store_.validate_brief(captured.binding.request_id, node.at("brief")); });
         if (!existing.empty()) require(string_at(existing.front(), "node_id") == string_at(node, "node_id"),
             ErrorCode::Unsupported, "offline AMEND retains the independent node identity");
         if (!existing.empty()) {
@@ -1184,8 +1212,8 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
             require(selected == string_at(existing.front(), "template_id"), ErrorCode::Unsupported,
                     "offline AMEND cannot change an allocated team template");
         }
-        const auto result = store_.publish_plan(call.actor, call.expected_state_version,
-            captured.binding.requirements_revision, plan, command + ":plan");
+        const auto result = model_rule([&] { return store_.publish_plan(call.actor, call.expected_state_version,
+            captured.binding.requirements_revision, plan, command + ":plan"); });
         if (existing.empty()) {
             const auto template_id = node.as_object().contains("template") ? string_at(node, "template") : "default";
             return store_.create_task(call.actor, integer_at(result, "state_version"), captured.binding.requirements_revision,
@@ -1204,11 +1232,11 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         Json order = tool.arguments;
         const auto envelope = to_json(next);
         for (const auto& field : envelope.as_object()) order.as_object()[field.key()] = field.value();
-        schemas_.validate("work_order", order);
-        return store_.issue_instruction(call.actor, captured.binding, call.expected_state_version, order, command);
+        model_rule([&] { schemas_.validate("work_order", order); });
+        return model_rule([&] { return store_.issue_instruction(call.actor, captured.binding, call.expected_state_version, order, command); });
     }
     if (captured.role == Role::Worker && is_history_control(tool.name))
-        return execute_history_control(store_, call.actor, captured.binding, tool.name, tool.arguments);
+        return read_history([&] { return execute_history_control(store_, call.actor, captured.binding, tool.name, tool.arguments); });
     if (captured.role == Role::Worker && worker_tools_)
         return worker_tools_->execute(call.actor, captured.binding, call.expected_state_version,
             captured.attempt_id, tool.name, tool.arguments, command);
@@ -1234,7 +1262,11 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
             result.as_object()["correction_feedback"] = ordinary("tool_result").at("correction_feedback");
         }
     } catch (const correction_detail::RejectedArguments& error) {
+        if (!durable_feedback) throw;
         result = ordinary("model_arguments", error.what());
+    } catch (const correction_detail::RejectedRead& error) {
+        if (!durable_feedback) throw;
+        result = ordinary("read_only", error.what());
     } catch (const correction_detail::MissingWorkspaceLeaf& error) {
         if (!durable_feedback) throw;
         result = ordinary("missing_leaf", error.what());

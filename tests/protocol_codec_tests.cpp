@@ -411,6 +411,8 @@ void incomplete_cancelled_and_nonterminal_never_return_partial_tools() {
         if (std::string(status) == "incomplete") value.as_object()["incomplete_details"] = Object{{"reason", "max_output_tokens"}};
         const auto d = decode(value);
         CHECK(d.response.status == ModelResultStatus::Interrupted && d.response.tool_calls.empty());
+        CHECK(d.response.error_code == (std::string(status) == "incomplete" ? "response_max_output_tokens" :
+            std::string(status) == "cancelled" ? "response_cancelled" : "response_not_terminal"));
         CHECK(d.response.text.empty() && d.response.usage.input_tokens == 9);
         CHECK(d.raw_body == canonical_json(value));
     }
@@ -419,6 +421,17 @@ void incomplete_cancelled_and_nonterminal_never_return_partial_tools() {
     const auto d = decode(value); CHECK(d.response.error_code == "provider_failed");
     CHECK(d.response.status == ModelResultStatus::Error && d.response.tool_calls.empty());
     CHECK(d.response.usage.output_tokens == 3);
+    for (const Json details : {Json("max_output_tokens"), Json(Object{{"reason", 7}}),
+            Json(Object{{"reason", "max_output_tokens"}, {"unvalidated", true}})}) {
+        value = fixture::tool_response(); value.as_object()["status"] = "incomplete";
+        value.as_object()["incomplete_details"] = details;
+        CHECK(decode(value).response.error_code == "invalid_response");
+    }
+    for (const auto* reason : {"content_filter", "max_messages", "steered"}) {
+        value = fixture::tool_response(); value.as_object()["status"] = "incomplete";
+        value.as_object()["incomplete_details"] = Object{{"reason", reason}};
+        CHECK(decode(value).response.error_code == "response_incomplete");
+    }
 }
 void wrong_response_model_and_host_identity_fields_refuse() {
     auto value = fixture::tool_response(); value.as_object()["model"] = "another-alias";
