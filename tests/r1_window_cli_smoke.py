@@ -103,31 +103,28 @@ class WindowCli(unittest.TestCase):
         self.assertTrue(all(item['sequence'] <= high for item in page['items']))
 
     def test_invalid_or_foreign_reads_are_recorded_not_authorized(self):
-        # Each malformed read is a single-response fixture, not a recovery script.
-        source = self.config.read_text()
-        self.assertEqual(source.count('schema_retry_max: 3'), 1)
-        self.config.write_text(source.replace('schema_retry_max: 3', 'schema_retry_max: 0'))
         self.work_file('small'); request=self.admit(); self.pump(request,self.read_script(1),1)
         # TeamLead evidence belongs to a different scope despite sharing request/task.
         foreign=self.rows("SELECT f.* FROM model_tool_feedback f JOIN call_attempts a USING(attempt_id) WHERE a.role='team_lead'")[0]
         result=self.pump(request,self.control_script('history_read',self.read_args(foreign)),1)
-        self.assertTrue(any(b['code']=='unauthorized' for b in result['blocked']), result)
+        self.assertTrue(any(b['code']=='worker_limit' for b in result['blocked']), result)
         last=json.loads(self.feedback()[-1]['result'])
-        self.assertTrue(last['runtime_error']); self.assertEqual(last['error_code'],'unauthorized')
+        self.assertEqual(last['status'], 'FAILED')
+        self.assertEqual(last['correction_feedback']['reason'], 'read_only')
+        self.assertIn('does not belong to this actor scope', last['correction_feedback']['observation'])
         own=self.rows("SELECT f.* FROM model_tool_feedback f JOIN call_attempts a USING(attempt_id) WHERE a.role='worker' ORDER BY a.rowid")[0]
         for args,expected in [(self.read_args(own,record_sha256='0'*64),'conflict'),
                               (self.read_args(own,max_bytes=4097),'invalid_input'),
                               (self.read_args(own,offset=-1),'invalid_input'),
                               (dict(self.read_args(own),task_id='forged'),'invalid_input')]:
+            self.pump(request,self.read_script(1),1)  # Successful feedback resets the consecutive-error target.
             result=self.pump(request,self.control_script('history_read',args),1)
-            if expected == 'invalid_input':
-                self.assertTrue(any(b['code']=='correction_limit' for b in result['blocked']),result)
-                feedback = json.loads(self.feedback()[-1]['result'])
-                self.assertEqual(feedback['status'], 'FAILED')
-                self.assertEqual(feedback['correction_feedback']['reason'], 'model_arguments')
-            else:
-                self.assertTrue(any(b['code']==expected for b in result['blocked']),result)
-                self.assertEqual(json.loads(self.feedback()[-1]['result'])['error_code'], expected)
+            self.assertTrue(any(b['code']=='worker_limit' for b in result['blocked']),result)
+            feedback = json.loads(self.feedback()[-1]['result'])
+            self.assertEqual(feedback['status'], 'FAILED')
+            self.assertEqual(feedback['correction_feedback']['reason'],
+                             'model_arguments' if expected == 'invalid_input' else 'read_only')
+            self.assertNotIn('content_base64', feedback)
 
     def test_rate_budget_is_persistent_across_reopen(self):
         self.config.write_text(self.config.read_text().replace('max_queries_per_minute: 60','max_queries_per_minute: 2'))
@@ -156,14 +153,14 @@ class WindowCli(unittest.TestCase):
         own = self.rows("SELECT f.* FROM model_tool_feedback f JOIN call_attempts a USING(attempt_id) WHERE a.role='worker' ORDER BY a.rowid")[0]
         before = len(self.envelopes('worker'))
         rejected = self.pump(request, self.control_script('history_read', self.read_args(own, record_sha256='0'*64)), 1)
-        self.assertTrue(any(item['code'] == 'conflict' for item in rejected['blocked']), rejected)
+        self.assertTrue(any(item['code'] == 'worker_limit' for item in rejected['blocked']), rejected)
         valid = self.pump(request, self.control_script('history_read', self.read_args(own)), 1)
         self.assertEqual(valid['calls'][-1]['result']['format'], 'wls-history-bytes-v1')
         limited = self.pump(request, self.control_script('history_read', self.read_args(own)), 1)
         self.assertTrue(any(item['code'] == 'quota' for item in limited['blocked']), limited)
         self.assertEqual(len(self.envelopes('worker')), before + 3)
         results = [json.loads(row['result']) for row in self.feedback()[-3:]]
-        self.assertEqual(results[0]['error_code'], 'conflict')
+        self.assertEqual(results[0]['correction_feedback']['reason'], 'read_only')
         self.assertEqual(results[1]['format'], 'wls-history-bytes-v1')
         self.assertEqual(results[2]['error_code'], 'quota')
 

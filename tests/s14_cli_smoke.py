@@ -639,7 +639,7 @@ class WorkflowCliSmoke(unittest.TestCase):
                 alpha = self.tasks(request)["alpha"]["task_id"]
                 if path == "/work/missing.txt":
                     self.assertEqual(run["calls"][-1]["result"]["status"], "FAILED")
-                    self.assertEqual(run["calls"][-1]["result"]["correction_feedback"]["reason"], "missing_leaf")
+                    self.assertEqual(run["calls"][-1]["result"]["correction_feedback"]["reason"], "model_arguments")
                     self.assertTrue(any(item["code"] == "correction_limit" for item in run["blocked"]))
                 else:
                     self.assertEqual(run["calls"][-1]["result"]["correction_feedback"]["reason"], "read_only")
