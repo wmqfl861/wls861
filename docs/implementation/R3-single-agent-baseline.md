@@ -75,3 +75,56 @@ Store 的 `previous_*` 指向不可变原工单 epoch，不是上一投影；评
 
 实际 provider 运行仍需外部端点/能力/凭据、正数费用预留和独立宿主授权。费用未知
 保持 null；连续 live 工作还须独立受信账目核验。合成测试不构成真实质量或成本结论。
+
+## 5. 普通单 Agent 与 v4 三条件用法
+
+[#91](https://github.com/wmqfl861/wls861/pull/91) 新增 `single-agent-plain-v1`。
+沿用上文完整外部配置及三个角色相同的 model/reasoning，只把
+`context.logical_agent.mode` 从 `single-agent-role-broker-v1` 改为
+`single-agent-plain-v1`，容量和 structured-v2/v3 选择保持不变。复制现行默认配置时，
+须先移除 `worker_history: {mode: append-fold-v1, ...}`：它与两种单 Agent 策略均不兼容。
+单 Agent 使用完整原历史，不能用折叠或窗口替换；三条件的其余配置必须一致。
+冻结后不可改标已有请求。
+
+plain 的宿主 setup 以原 Dispatcher/TeamLead 权限创建唯一 `plain` 节点、`default`
+模板任务和初始指令；这些不是模型管理响应。模型只走原 Worker 工具路径，完整原请求
+和约束仍进入实际原生输入。当前版本的不可变提交使运行器报告 `model_loop_complete=true`
+及 `business_acceptance_pending=true`，实际状态仍为 SUBMITTED；不会自动检查、接受、
+生成经验或交付。AMEND、等待、未知操作、预算与缺反馈守卫保留。
+普通 `wls run` 未接入此模式。
+
+下面仅示意 Fake/offline 用法，假定已通过原配置/提交入口准备好数据盘上的数据库和
+**尚无模型调用**的种子请求。`R3_DB`、`R3_SEED`、`PLAIN_REQUEST` 是实际路径/请求号；
+`PLAIN_REQUEST` 须已按 plain 策略和计划中的任务原文提交。
+模型引用为 `fake`，`R3_PLAN` 是新计划输出文件。`PLAIN_SCRIPT` 的 `nodes.plain` 放置
+原格式的四步 Worker Fake 剧本，按 read→write→read→submit 排列；
+`PLAIN_WORKSPACES` 是完整映射 JSON，例如
+`{"plain":"/absolute/existing/private/workspace"}`，其中路径须替换为已存在的工作区，
+数据库放在工作区之外。首项任务还需事先放入其要求的 `seed.txt` 原文。
+原始剧本/证据格式可对照 [R3 实测夹具](../../tests/r3_evaluation_tests.py) 的 `plain_run`。
+先冻结计划，再执行；计划输出应使用新文件：
+
+```sh
+set -C
+python3 scripts/evaluate_r3.py plan --db "$R3_DB" --request "$R3_SEED" \
+  --model-ref fake --include-plain > "$R3_PLAN"
+wls pump-single-fake --db "$R3_DB" --request "$PLAIN_REQUEST" \
+  --script "$PLAIN_SCRIPT" --workspaces-file "$PLAIN_WORKSPACES" \
+  --max-calls 4 --worker-calls 4
+python3 scripts/evaluate_r3.py report --plan "$R3_PLAN" --runs "$R3_RUNS"
+```
+
+`R3_RUNS` 是原 run-index JSON 数组；每条包含 `task_id`、`condition`、`database`、
+`request_id`、实际 `elapsed_ms` 和原 `plan_sha256`。每格使用独立请求；任务原文须与计划
+五项材料逐字一致，不能用完成的请求回填计划。v4 的条件为 `multi_agent`（无 logical_agent）、
+`single_agent`（原 role broker）、`single_agent_plain`（新 plain）；只允许这一拓扑政策差异。
+两种单 Agent 的历史容量也须相同。缺格、失败、取消、未知用量和损坏证据都保留在 15 格内。
+
+[#92](https://github.com/wmqfl861/wls861/pull/92) 的 v4 行只有原始证据有效且硬安全检查
+通过才标 `observed`。分别读取 `safety_checks`、`workflow_checks`/`workflow_completion`、
+`plain_loop_completion`、`business_acceptance_pending` 与 `execution_outcome`；
+`SUBMITTED` 不是 DELIVERED。`quality_assessment=not_assessed`、
+`quality_comparison_complete=false` 固定保留，不能据此排名模型或宣布质量对照完成。
+本评估入口支持 Fake 和 Responses 证据，明确拒绝 Chat；未指定 `--include-plain`
+时仍沿用原 v1–v3 规则。真实端点仍须 owner 明确“密钥已就绪”、外部密钥和原宿主授权，
+本节不运行真实模型。

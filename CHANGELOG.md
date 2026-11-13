@@ -17,8 +17,8 @@
   Store stays 410; real calls remain zero while waiting for the owner's key.
   The six new format values remain editable until the G2 exit.
 - Apply the authorized sanitizer CTest timeout multiplier and split UBSan's
-  complete test set into two disjoint jobs. A new main ASan acceptance timeout
-  is being repaired without changing cases, assertions or its 180-second limit.
+  complete test set into two disjoint jobs. The main ASan acceptance timeout
+  remains open without changing cases, assertions or its 180-second limit.
   Older reports and failed runs retain their original scope.
 
 - Reuse owned canonical bytes and adjacent frozen configuration in
@@ -37,6 +37,43 @@
   complete 35 synthetic calls and all eight rehearsal scenarios, including
   disconnect/resume to DELIVERED. R3 evaluation has not integrated Chat.
   Store stays 410, Windows 11 remains NOT_RUN, and real WLS calls remain zero.
+- Fix the Chat test's JSON insertion use-after-free in
+  [#90](https://github.com/wmqfl861/wls861/pull/90); the targeted Make-ASan run
+  passes 25/25. Main `5b58af7` passes all nine jobs in
+  [run 43453777579](https://github.com/wmqfl861/wls861/actions/runs/43453777579),
+  including acceptance in 146.75 seconds. Preserve the earlier `3355b1e`
+  [6 PASS/3 FAIL run](https://github.com/wmqfl861/wls861/actions/runs/43444614448)
+  with two UAF failures and acceptance at its 180.18-second timeout.
+  The later A1 main `fd452c75`
+  [full run](https://github.com/wmqfl861/wls861/actions/runs/43456731499)
+  ends at 8 PASS/1 FAIL: ASan acceptance times out at 180.12 seconds,
+  with no UAF. Acceptance performance remains open.
+- Add the opt-in `single-agent-plain-v1` loop in
+  [#91](https://github.com/wmqfl861/wls861/pull/91): host allocation and one
+  Worker use the complete original history and immutable submission bytes.
+  Stop at SUBMITTED with business acceptance pending; ordinary `run`
+  delivery semantics are unchanged.
+- Add explicit `evaluate_r3.py plan --include-plain` v4 evaluation in
+  [#92](https://github.com/wmqfl861/wls861/pull/92), retaining the five tasks,
+  three conditions and 15-cell denominator. Report evidence/safety, workflow,
+  plain completion and execution outcome separately; preserve v1–v3 and
+  reject Chat evidence. The complete local evaluation suite passes 49/49
+  in 42.340 seconds using private data-disk temporary directories; the first
+  run's temporary-directory and binary-source corrections remain in the PR.
+  Quality is not assessed: no common artifact oracle or real G3-B comparison
+  has run. See [the usage note](docs/implementation/R3-single-agent-baseline.md#5-普通单-agent-与-v4-三条件用法).
+- Compile the Store rework domain separately in G6-B1
+  [#93](https://github.com/wmqfl861/wls861/pull/93), merged after all three
+  PR core jobs pass 84/84 and source checks pass. Local Release first passes
+  83/84; the doctor layout failure passes all 12 cases with the same binary
+  bytes and permissions in the expected source-relative location, without
+  source changes or a longer deadline. Independent Make builds and 15/15
+  related suites pass. One GCC 13.3 Release/parallel-2 sample measures full
+  builds at 475.960/474.932 seconds and incremental builds at 65.434/18.188
+  seconds for baseline/candidate. This is one sample, not completion of all
+  G6-B work or a general performance result; statement caching, PCH and
+  ccache remain unimplemented. New main `c06f8c9` has source checks passing
+  and its [full matrix pending](https://github.com/wmqfl861/wls861/actions/runs/43470220408).
 
 ## Unreleased — G0 closeout and G1 integration (2026-11-07 through 2026-11-12, in progress; no version cut)
 
