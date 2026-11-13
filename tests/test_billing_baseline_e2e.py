@@ -1472,10 +1472,15 @@ class BillingBaselineIntegration(unittest.TestCase):
             fingerprint = hashlib.sha256(manifest.read_bytes()).hexdigest()
             self.assertEqual(intent['sandbox'], {'manifest': {'schema_version': 1, 'cpu_quota_us': 50000},
                 'raw_sha256': fingerprint, 'run_key_format': 'run-key-sandbox-v1'})
+            # Hash the original canonical bytes, including C++ numeric spellings.
+            frozen = rows(database, 'SELECT config_snapshot,config_snapshot_sha256 FROM requests')[0]
+            self.assertEqual(json.loads(frozen['config_snapshot']), intent['config_snapshot'])
+            snapshot_sha = hashlib.sha256(frozen['config_snapshot'].encode('utf-8')).hexdigest()
+            self.assertEqual(snapshot_sha, frozen['config_snapshot_sha256'])
             self.assertEqual(intent['run_key_sha256'], digest({'format': 'run-key-sandbox-v1',
                 'text': limited['material'].read_text(), 'constraints': [],
                 'config_locator': str(limited['configuration'].absolute()),
-                'config_snapshot_sha256': digest(intent['config_snapshot']), 'sandbox_manifest_sha256': fingerprint}))
+                'config_snapshot_sha256': snapshot_sha, 'sandbox_manifest_sha256': fingerprint}))
             bindings = rows(database, 'SELECT execution_policy FROM workspace_bindings')
             self.assertTrue(bindings)
             self.assertTrue(all(json.loads(row['execution_policy'])['cpu_quota_us'] == 50000 for row in bindings))

@@ -315,7 +315,11 @@ void workspace_and_execution_manifest_are_immutable() {
 }
 
 void standard_policy_binding_does_not_expand_file_template_grants() {
-    const auto current = load_config_catalog(source / "config/examples/system.yaml",
+    // Session uses migration 005: retain its legacy context while exercising
+    // the current templates' standard execution policy and control-file guard.
+    test::TempDir config;
+    host_write(config.path / "system.json", canonical_json(frozen->json().at("system")));
+    const auto current = load_config_catalog(config.path / "system.json",
         source / "config/examples/functions", source / "prompts").freeze("general");
     const auto standard = worker_sandbox_policy(current, "shell");
     CHECK(standard.isolation == SandboxIsolation::StandardCgroupV1);
@@ -324,7 +328,6 @@ void standard_policy_binding_does_not_expand_file_template_grants() {
     CHECK(worker_execution_policy(*frozen, "default", legacy).at("version") == "wls-worker-execution-v1");
     CHECK(worker_execution_policy(*frozen, "default", legacy).at("process_isolation") == "strong");
     CHECK(!worker_execution_policy(*frozen, "default", legacy).as_object().contains("resource_enforcement"));
-    test::TempDir config;
     std::filesystem::copy(source / "config/examples/functions", config.path / "functions", std::filesystem::copy_options::recursive);
     auto function = current.json().at("function"), system = current.json().at("system");
     auto& shell = function.at("team_templates").at("shell").as_object();
