@@ -549,6 +549,10 @@ CapturedModelCall OfflineRuntime::capture_call(
         ((role == Role::TeamLead || role == Role::Worker) && !task_id.empty()), ErrorCode::InvalidInput, "role and task scope disagree");
     const auto record = store_.request(request_id);
     const auto config = restore_request_config(record);
+    require(!plain_single_agent(config) || role == Role::Worker, ErrorCode::Unauthorized,
+        "plain single-Agent permits only Worker model calls");
+    require(!plain_single_agent(config) || worker_tools_, ErrorCode::NotReady,
+        "plain single-Agent requires the complete registered Worker tool host");
     if (config.bounded_runtime())
         require(store_.observe_runtime_controls(request_id) > 0, ErrorCode::NotReady, "wall_clock_exceeded");
     const auto task = task_id.empty() ? Json(nullptr) : store_.task(task_id);
@@ -740,7 +744,7 @@ CapturedModelCall OfflineRuntime::capture_call(
     context.model_projection = config.context_model_projection();
     context.tool_policy = config.context_tool_policy(); context.allowed_tools = std::move(allowed_tools);
     if (shared_transcript)
-        context.dependencies.push_back({"logical_agent_policy", std::string(single_agent_contract), sha256_hex(canonical_json(logical_policy))});
+        context.dependencies.push_back({"logical_agent_policy", string_at(logical_policy, "mode"), sha256_hex(canonical_json(logical_policy))});
     if (!history_policy.is_null())
         context.dependencies.push_back({"worker_history_policy", string_at(history_policy, "mode"), sha256_hex(canonical_json(history_policy))});
     if (!management_policy.is_null())

@@ -458,7 +458,7 @@ frozen challenge adapter, external public-key policy and v2 authorization bindin
 the exact captured policy bytes. No arbitrary JSON value can verify billing.
 reconcile-billing authenticates a late receipt against an original settled attempt;
 it performs no network call, model call or business response application.
-pump-single-live/fake require the original frozen single-agent-role-broker-v1 policy
+pump-single-live/fake require a frozen single-agent-role-broker-v1 or single-agent-plain-v1 policy
 and continue one request-wide model history through the original role permissions.
 pump-live never automatically retries a paid attempt or publishes delivery.
 No command starts a daemon.

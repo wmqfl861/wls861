@@ -666,7 +666,9 @@ CapabilityRegistry validate_system(const Json& system) {
                 string_value(*format, "system.context.request_format") != "structured-v3"))
             invalid("system.context.logical_agent", "single-agent execution requires explicit structured-v2 or structured-v3");
         fields(*logical, "system.context.logical_agent", {{"mode", 's'}, {"max_attempts", 'i'}, {"max_history_bytes", 'i'}});
-        literal(*logical, "mode", "single-agent-role-broker-v1", "system.context.logical_agent");
+        const auto mode = string_value(required(*logical, "mode", "logical_agent"), "logical_agent.mode");
+        if (mode != "single-agent-role-broker-v1" && mode != "single-agent-plain-v1")
+            invalid("system.context.logical_agent.mode", "unsupported single-agent policy");
         (void)integer_value(required(*logical, "max_attempts", "logical_agent"), "logical_agent.max_attempts", 1, 128);
         (void)integer_value(required(*logical, "max_history_bytes", "logical_agent"),
             "logical_agent.max_history_bytes", 4096, 524288);
