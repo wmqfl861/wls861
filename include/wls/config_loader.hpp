@@ -66,7 +66,8 @@ public:
 
 private:
     friend class ConfigCatalog;
-    FrozenRequestConfig(Json document, const ConfigLoadOptions& options);
+    FrozenRequestConfig(Json document, const ConfigLoadOptions& options,
+                        std::string canonical_bytes = {});
     Json document_;
     std::string serialized_;
     std::string sha256_;

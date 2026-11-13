@@ -342,8 +342,12 @@ void submission_requires_grants_workspace_applied_and_settled_ops() {
     error(ErrorCode::NotReady, [&] { f.submit(); });
     f.store->cancel_operation(f.actor(Role::Worker), s(prepared, "op_id"), 1, "cancel-prepared");
     f.issue(); error(ErrorCode::NotReady, [&] { f.submit(); }); f.ack();
+    const auto before = f.task(); const auto events = f.store->events(f.request_id);
     raw_exec(f.path, "UPDATE runtime_policy SET denied_tools='[\"submit\"]',policy_epoch=policy_epoch+1,state_version=state_version+1 WHERE singleton=1;");
     error(ErrorCode::Unauthorized, [&] { f.submit(); });
+    raw_exec(f.path, "UPDATE runtime_policy SET denied_tools='[\"fs_read\"]',policy_epoch=policy_epoch+1,state_version=state_version+1 WHERE singleton=1;");
+    error(ErrorCode::Unauthorized, [&] { f.submit(); });
+    CHECK(f.task() == before && f.store->events(f.request_id) == events && f.store->submissions(f.tid()).empty());
 }
 
 void submitted_state_prevents_replacement_or_direct_execution() {

@@ -650,6 +650,7 @@ void fixed_role_catalog_stays_stable_across_actions_and_experience() {
 } // namespace
 
 int main() {
+    std::cout << std::unitbuf;
     schemas = std::make_unique<SchemaRegistry>(source / "schemas");
     base_sql = read_runtime_file(source / "db/schema.sql");
     store_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");

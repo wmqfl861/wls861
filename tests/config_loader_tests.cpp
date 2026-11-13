@@ -178,6 +178,11 @@ void same_configuration_in_another_checkout_has_same_hash() {
 void snapshot_integrity_and_derived_resolutions_are_verified() {
     Fixture fixture;
     const auto frozen = fixture.freeze();
+    auto supplied = frozen.serialize();
+    const auto restored = FrozenRequestConfig::restore(supplied, frozen.sha256());
+    supplied.assign("changed caller-owned bytes");
+    CHECK(restored.serialize() == frozen.serialize() && restored.sha256() == frozen.sha256());
+    CHECK(restored.json() == frozen.json() && restored.resolve(Role::Worker) == frozen.resolve(Role::Worker));
     expect_error(ErrorCode::Corrupt, [&] { (void)FrozenRequestConfig::restore(frozen.serialize() + " ", frozen.sha256()); });
     const auto spaced = frozen.serialize() + " ";
     expect_error(ErrorCode::Corrupt, [&] { (void)FrozenRequestConfig::restore(spaced, sha256_hex(spaced)); });
@@ -186,6 +191,8 @@ void snapshot_integrity_and_derived_resolutions_are_verified() {
     field(field(field(forged, "role_resolutions"), "worker"), "model_ref") = "alternate";
     auto bytes = canonical_json(forged);
     expect_error(ErrorCode::InvalidInput, [&] { (void)FrozenRequestConfig::restore(bytes, sha256_hex(bytes)); });
+    const auto noncanonical_forgery = bytes + " ";
+    expect_error(ErrorCode::Corrupt, [&] { (void)FrozenRequestConfig::restore(noncanonical_forgery, sha256_hex(noncanonical_forgery)); });
 
     forged = frozen.json();
     field(forged, "dependencies").as_array().front().as_object()["content"] = "altered dependency";

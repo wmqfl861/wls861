@@ -741,10 +741,14 @@ void diagnostic_and_control_guards_are_current_bounded_and_readonly() {
     auto forged = actor; forged.principal_id = "not-the-worker";
     error(ErrorCode::Unauthorized, [&] { reader.authorize_diagnostic(forged, current, "fs_read"); });
     CHECK(f.store->request(f.request_id) == before_request && f.store->events(f.request_id) == before_events);
-    raw_exec(f.path, "UPDATE runtime_policy SET policy_epoch=policy_epoch+1,denied_tools='[\"fs_read\"]',state_version=state_version+1 WHERE singleton=1;");
+    raw_exec(f.path, "UPDATE runtime_policy SET policy_epoch=policy_epoch+1,denied_tools='[\"fs_read\",\"ack_change\",\"op_output\"]',state_version=state_version+1 WHERE singleton=1;");
     error(ErrorCode::Stale, [&] { reader.authorize_diagnostic(actor, current, "fs_read"); });
+    error(ErrorCode::Stale, [&] { reader.authorize_control(actor, current, "ack_change"); });
+    error(ErrorCode::Stale, [&] { reader.operation_output(actor, current, id, "stdout"); });
     const auto policy_current = f.store->binding(f.task_id);
     error(ErrorCode::Unauthorized, [&] { reader.authorize_diagnostic(actor, policy_current, "fs_read"); });
+    error(ErrorCode::Unauthorized, [&] { reader.authorize_control(actor, policy_current, "ack_change"); });
+    error(ErrorCode::Unauthorized, [&] { reader.operation_output(actor, policy_current, id, "invalid-stream"); });
     CHECK(reader.authorize_diagnostic(actor, policy_current, "op_status").is_object());
 }
 void revoked_tool_preserves_other_model_declarations_and_business_grants() {
