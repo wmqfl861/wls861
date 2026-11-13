@@ -410,6 +410,7 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         {"message_sources", sources}})}});
     if (v3 && !lean) input.front().at("content") = canonical_json(Object{{"format", "wls-responses-contract-v3"},
         {"task_contract", logical.at("contract_anchor")}});
+    std::size_t contract_bytes = canonical_json(input.front()).size();
     std::map<std::size_t, Array> updates;
     std::map<std::int64_t, Array> folded_updates;
     if (v3) for (const auto& update : array(logical.at("contract_updates"))) {
@@ -429,6 +430,7 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         const Json encoded_update = Object{{"role", "user"}, {"content", lean ? canonical_json(contract) : canonical_json(Object{
             {"format", "wls-responses-contract-update-v3"}, {"task_contract", update.at("contract")},
             {"semantic_versions", update.at("semantic_versions")}})}};
+        contract_bytes += canonical_json(encoded_update).size();
         bool folded = false;
         if (const auto* history = logical.as_object().if_contains("worker_history"))
             for (const auto& entry : history->at("folded_entries").as_array()) if (entry.at("attempt_id") == update.at("after_attempt_id")) {
@@ -560,6 +562,13 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     EncodedResponsesRequest encoded;
     encoded.url = profile.base_url + profile.responses_path;
     encoded.body = canonical_json(body);
+    std::size_t input_bytes = 0;
+    for (const auto& item : input) input_bytes += canonical_json(item).size();
+    const auto state_bytes = v3 ? canonical_json(input.back()).size() : 0;
+    const auto tools_bytes = canonical_json(tools).size(), system_bytes = canonical_json(Json(instructions)).size();
+    encoded.body_segments = Object{{"tools", tools_bytes}, {"system", system_bytes}, {"contract", contract_bytes},
+        {"history", input_bytes - contract_bytes - state_bytes}, {"current_state", state_bytes},
+        {"other", encoded.body.size() - tools_bytes - system_bytes - input_bytes}, {"total", encoded.body.size()}};
     require(encoded.body.size() <= profile.limits.max_request_bytes, ErrorCode::Quota,
             "encoded protocol body exceeds declared request byte limit");
     encoded.body_sha256 = sha256_hex(encoded.body);

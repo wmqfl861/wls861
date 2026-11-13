@@ -191,6 +191,69 @@ Json run_delivery(Store& store, const std::string& id, const std::filesystem::pa
     return publication;
 }
 
+Json run_export(Store& store, const Json& publication, Workspace& request) {
+    const auto delivery = store.delivery(text(publication.at("delivery_id")));
+    const auto& plan = delivery.at("frozen_plan");
+    DeliveryDirectory package(text(plan.at("root_identity").at("path")));
+    static_cast<void>(package.inspect(plan));
+    const auto retain = [](Workspace& directory, const char* name, const Json& value) {
+        const auto bytes = canonical_json(value);
+        if (run_private_file(directory, name)) {
+            const auto old = directory.read(name, 0, 65536);
+            if (!old.at("eof").as_bool() || old.at("content") != Json(bytes))
+                throw Error(ErrorCode::Conflict, "output intent or pinned root changed");
+        } else if (directory.write_atomic(name, bytes).status != WorkspaceMutationStatus::Succeeded)
+            throw Error(ErrorCode::UnknownOutcome, "output intent publication incomplete");
+    };
+    retain(request, "output-intent.json", Object{{"request_root", request.root_identity()},
+        {"manifest_sha256", plan.at("manifest_sha256")}, {"destination", "output"}});
+    bool made = false;
+    auto root = run_child(request, "output", true, &made);
+    if (root->root_identity().at("device") != request.root_identity().at("device"))
+        throw Error(ErrorCode::Unauthorized, "output directory must remain on its request filesystem");
+    if (!made && !run_private_file(request, "output-root.json"))
+        throw Error(ErrorCode::Conflict, "output directory has no original root receipt");
+    retain(request, "output-root.json", root->root_identity());
+    std::map<std::string, std::string> nodes;
+    for (const auto& task : store.tasks(text(delivery.at("request_id")))) nodes[text(task.at("task_id"))] = text(task.at("node_id"));
+    for (const auto& entry : plan.at("manifest").at("artifacts").as_array()) {
+        const auto source = text(entry.at("source_path"));
+        if (!source.starts_with("/work/")) throw Error(ErrorCode::Corrupt, "output artifact has no /work/ source path");
+        const auto relative = std::filesystem::path(nodes.at(text(entry.at("task_id")))) / source.substr(6);
+        for (const auto& part : relative) if (part.empty() || part == "." || part == ".." || part == "/")
+            throw Error(ErrorCode::Unauthorized, "unsafe output artifact path");
+        const auto& files = plan.at("files").as_array();
+        const auto found = std::find_if(files.begin(), files.end(), [&](const auto& file) { return file.at("name") == entry.at("name"); });
+        if (found == files.end()) throw Error(ErrorCode::Corrupt, "output artifact is absent from the immutable package");
+        const auto encoded = text(found->at("content_base64"));
+        std::string bytes(encoded.size() / 4 * 3, '\0');
+        const auto decoded = EVP_DecodeBlock(reinterpret_cast<unsigned char*>(bytes.data()),
+            reinterpret_cast<const unsigned char*>(encoded.data()), static_cast<int>(encoded.size()));
+        if (decoded < 0) throw Error(ErrorCode::Corrupt, "output artifact encoding changed");
+        bytes.resize(static_cast<std::size_t>(decoded) - (encoded.ends_with("==") ? 2 : encoded.ends_with('=') ? 1 : 0));
+        if (sha256_hex(bytes) != text(entry.at("sha256")) || bytes.size() != static_cast<std::size_t>(integer(entry.at("size_bytes"))))
+            throw Error(ErrorCode::Corrupt, "output artifact hash or size changed");
+        std::vector<std::unique_ptr<Workspace>> parents;
+        Workspace* destination = root.get();
+        for (const auto& part : relative.parent_path()) {
+            parents.push_back(run_child(*destination, part.c_str(), true));
+            if (parents.back()->root_identity().at("device") != destination->root_identity().at("device"))
+                throw Error(ErrorCode::Unauthorized, "output path crosses a filesystem boundary");
+            destination = parents.back().get();
+        }
+        const auto leaf = relative.filename().string();
+        if (run_private_file(*destination, leaf.c_str())) {
+            const auto old = destination->read(leaf, 0, 16U * 1024U * 1024U);
+            if (!old.at("eof").as_bool() || old.at("sha256") != entry.at("sha256") || old.at("size_bytes") != entry.at("size_bytes"))
+                throw Error(ErrorCode::Conflict, "output file differs from the immutable package; keep it and choose another location");
+        } else if (destination->write_atomic(leaf, bytes).status != WorkspaceMutationStatus::Succeeded)
+            throw Error(ErrorCode::UnknownOutcome, "output copy incomplete; inspect retained files before continuing");
+        for (const auto& parent : parents) static_cast<void>(parent->root_identity());
+        static_cast<void>(root->root_identity()); static_cast<void>(request.root_identity());
+    }
+    return root->root_identity().at("path");
+}
+
 Json run_summary(Store& store, const std::string& id, const Json& report, const Json& delivery,
                  std::chrono::steady_clock::time_point started) {
     std::set<std::string> attempts;
@@ -207,15 +270,61 @@ Json run_summary(Store& store, const std::string& id, const Json& report, const 
     }
     Object roles{{"dispatcher", 0}, {"team_lead", 0}, {"worker", 0}};
     Object tokens{{"input_tokens", 0}, {"output_tokens", 0}, {"cache_read_tokens", 0}, {"cache_write_tokens", 0}};
+    Object statistics;
+    const auto config = restore_request_config(store.request(id));
+    const auto sum = [](Json& total, const Json& value) {
+        total = total.is_null() || value.is_null() ? Json(nullptr) : Json(integer(total) + integer(value));
+    };
+    for (const auto& role : roles) statistics[role.key()] = Object{{"calls", 0}, {"corrections_by_reason", Object{}},
+        {"retries", 0}, {"original_tokens", tokens}, {"estimated_micro_usd", 0}, {"reported_micro_usd", 0}, {"reservation_charged_micro_usd", 0},
+        {"body_segment_samples", 0}, {"mean_body_segment_bytes", Object{{"tools", 0}, {"system", 0}, {"contract", 0},
+            {"history", 0}, {"current_state", 0}, {"other", 0}, {"total", 0}}}};
     for (const auto& attempt : attempts) {
         const auto original = store.attempt(attempt);
         const auto role = text(original.at("role"));
         roles[role] = integer(roles.at(role)) + 1;
+        auto& detail = statistics.at(role).as_object(); detail["calls"] = roles.at(role);
         for (auto& dimension : tokens) {
             const auto& value = original.at(dimension.key());
             if (value.is_null()) dimension.value() = nullptr;
             else if (!dimension.value().is_null()) dimension.value() = integer(dimension.value()) + integer(value);
+            sum(detail.at("original_tokens").at(dimension.key()), value);
         }
+        const auto feedback = store.tool_feedback(attempt);
+        if (!feedback.is_null() && feedback.at("result").is_object()) {
+            const auto& result = feedback.at("result");
+            if (const auto* correction = result.as_object().if_contains("correction_feedback")) {
+                auto& counts = detail.at("corrections_by_reason").as_object();
+                auto reason = text(correction->at("reason"));
+                if (reason != "tool_selection" && reason != "tool_result" && reason != "model_arguments" && reason != "missing_leaf")
+                    reason = "other";
+                counts[reason] = counts.contains(reason) ? integer(counts.at(reason)) + 1 : 1;
+            }
+            if (const auto* retry = result.as_object().if_contains("retry_of_attempt_id"); retry && retry->is_string() && !retry->as_string().empty())
+                detail["retries"] = integer(detail.at("retries")) + 1;
+        }
+        const auto accounting = store.usage_projection(attempt);
+        const auto& estimate = accounting.at("estimated_cost");
+        if (!estimate.is_null()) sum(detail.at("estimated_micro_usd"), estimate.at("amount_micro_usd"));
+        else if (accounting.at("effective_cost_basis") == "unknown") detail["estimated_micro_usd"] = nullptr;
+        if (accounting.at("effective_cost_basis") == "reservation")
+            sum(detail.at("reservation_charged_micro_usd"), accounting.at("effective_cost_micro_usd"));
+        if (accounting.at("effective_cost_basis") == "reported")
+            sum(detail.at("reported_micro_usd"), accounting.at("projection").at("cost_micro_usd"));
+        const auto request = model_request_from_json(original.at("request_envelope"));
+        const auto settings = live_model_settings_from_json(config.model_profile(request.role), request.model.model);
+        const auto encoded = encode_responses_request(settings.provider, request, settings.stream);
+        if (encoded.body_sha256 == text(store.live_attempt(attempt).at("execution").at("request_body_sha256"))) {
+            for (const auto& segment : encoded.body_segments.as_object())
+                sum(detail.at("mean_body_segment_bytes").at(segment.key()), segment.value());
+            detail["body_segment_samples"] = integer(detail.at("body_segment_samples")) + 1;
+        }
+    }
+    for (auto& role : statistics) {
+        auto& detail = role.value(); const auto count = integer(detail.at("body_segment_samples"));
+        for (auto& segment : detail.at("mean_body_segment_bytes").as_object())
+            segment.value() = count == 0 ? Json(nullptr) : Json(static_cast<double>(integer(segment.value())) / static_cast<double>(count));
+        if (detail.at("calls") == 0) for (auto& dimension : detail.at("original_tokens").as_object()) dimension.value() = nullptr;
     }
     if (attempts.empty()) for (auto& dimension : tokens) dimension.value() = nullptr;
     Json ratio = nullptr;
@@ -226,13 +335,26 @@ Json run_summary(Store& store, const std::string& id, const Json& report, const 
     for (const auto& blocked : report.at("blocked").as_array()) {
         Object safe;
         for (const auto* key : {"code", "role", "node_id", "task_id"}) if (blocked.as_object().contains(key)) safe[key] = blocked.at(key);
+        const auto code = text(safe.at("code"));
+        safe["reason"] = blocked.as_object().contains("reason") ? runtime_diagnostic(text(blocked.at("reason"))) : code;
+        safe["next_step"] = code == "waiting" || code == "rework_blocked" ? "Answer the pending question." :
+            code == "unknown_outcome" || code == "operation_incomplete" ? "Reconcile file effects before continuing." :
+            code == "needs_accounting" ? "Reconcile the original model accounting before continuing." :
+            code == "invalid_input" || code == "unauthorized" || code == "quota" ? "Check the configuration and original request limits." :
+            code == "corrupt" || code == "storage" || code == "conflict" ? "Inspect the retained evidence and resolve the conflict before continuing." :
+            "Run the same command again after resolving this cause.";
+        safe["summary"] = (safe.contains("role") ? text(safe.at("role")) : "root") + "/" +
+            (safe.contains("node_id") && safe.at("node_id") != "" ? text(safe.at("node_id")) : id) + " [" + code + "]: " +
+            text(safe.at("reason")) + " Next: " + text(safe.at("next_step"));
         blockers.push_back(safe);
     }
     return Object{{"kind", "wls-run-summary-v1"}, {"request_id", id}, {"status", record.at("status")},
         {"stop_reason", report.at("stop_reason")}, {"role_calls", roles}, {"original_tokens", tokens}, {"cache_read_ratio", ratio},
+        {"role_statistics", statistics}, {"body_segment_units", "mean serialized JSON value bytes; other includes envelope and separators"},
         {"budget", budget}, {"elapsed_ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count()},
         {"created_at", record.at("created_at")}, {"accounting", store.live_accounting_status(id)}, {"blockers", blockers},
         {"delivery_path", delivery.is_null() ? Json(nullptr) : delivery.at("path")},
+        {"output_path", report.as_object().contains("output_path") ? report.at("output_path") : Json(nullptr)},
         {"technical_acknowledgement", record.at("delivery_status") == "CONFIRMED"}, {"user_review", "not_recorded"}};
 }
 
@@ -363,8 +485,10 @@ int run_request(Options& options, const RuntimeResources& resources) {
         try {
             static_cast<void>(layout.identities());
             delivery = run_delivery(store, input.request_id, database, data / "requests" / input.request_id / "delivery");
+            report.as_object()["output_path"] = run_export(store, delivery, *layout.roots[2]);
         } catch (const Error& error) {
-            report.at("blocked").as_array().push_back(Object{{"code", error_name(error.code())}});
+            report.at("blocked").as_array().push_back(Object{{"role", "root"}, {"code", error_name(error.code())},
+                {"reason", runtime_diagnostic(error.what())}});
             report.at("stop_reason") = "delivery_blocked";
         }
     }

@@ -16,6 +16,15 @@
 预算拒绝复用。已完成重复只核原包。宿主在计划提交后分配 owned workspace，交付复用
 原授权/无覆盖发布/`durable_local` 技术确认；这不记录用户阅读或审阅，也不执行清理。
 
+`run` 摘要保留错误的角色、任务、代码、经脱敏的原因及下一步；原始私有观察不改写。
+`role_statistics` 按角色累计调用、纠错原因、重试和原始 token（未知仍为 NULL），
+费用读取原 Store 计费投影。`mean_body_segment_bytes` 用原调用和冻结 profile 重建请求，
+仅统计与原发送身份哈希一致的样本：tools、system、contract（含更新）、history、
+current_state 是序列化 JSON 值的字节数；other 为外层字段与分隔符，合计等于 total。
+交付包核验后另导出 `output/<节点>/<原相对路径>`，输出目录意图和根身份在请求目录留存。
+副本逐个核对原清单的哈希及大小；重跑只接受原根和相同文件，冲突、符号链接和不明残留拒绝，
+不覆盖用户改动。原 `.bin` 交付包及回执保持原字节；副本失败以 `output_path: null` 和 blocker 报告。
+
 `OfflineRuntime::capture_call` 返回原 `CapturedModelCall`，包括编译上下文、原身份、
 捕获的状态版本和单个工作流目标。此阶段不创建 attempt。
 `CapturedCallLimits` 只选择宿主费用预留和调用 timeout；不改模型、端点、工具或输出能力。
