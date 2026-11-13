@@ -1,25 +1,14 @@
 # WLS861 development contract
 
-Current implementation: **0.11.1-r3.3c-audit**, blueprint **v0.4.1**, Store **410**.
+Current implementation: **0.12.0**, blueprint **v0.4.1**, Store **410**.
 
-Entry point only: the complete, still-binding contract is preserved
-verbatim in `docs/implementation/development-contract.md` — current,
-normative, not archived history; read it before changing runtime behavior.
+Entry point only: the complete, still-binding contract is preserved verbatim in `docs/implementation/development-contract.md` — current, normative, not archived history; read it before changing runtime behavior.
 
-The owner adopted all decisions in
-[`docs/reviews/claude-2026-11-13/02-decisions.md`](docs/reviews/claude-2026-11-13/02-decisions.md)
-on 2026-11-13. For process, defaults, priorities and authorization, those
-decisions supersede conflicting earlier text; the complete contract's safety
-invariants remain binding. Start with that review directory's `README.md` and
-read `01` through `04` in order.
+The owner adopted all decisions in [`docs/reviews/claude-2026-11-13/02-decisions.md`](docs/reviews/claude-2026-11-13/02-decisions.md) on 2026-11-13. For process, defaults, priorities and authorization, those decisions supersede conflicting earlier text; the complete contract's safety invariants remain binding. Start with that review directory's `README.md` and read `01` through `04` in order.
 
 ## Authority and permissions
 
-- The owner approved review corrections and GitHub push on 2026-10-17,
-  then requested development under the current plan. Routine development,
-  corrections and fixes in that scope need no new approval per task card;
-  record decisions and changes. Never infer model spending or deployment
-  credentials from this; explicit user instructions take precedence.
+- The owner approved review corrections and GitHub push on 2026-10-17, then requested development under the current plan. Routine development, corrections and fixes in that scope need no new approval per task card; record decisions and changes. Never infer model spending or deployment credentials from this; explicit user instructions take precedence.
 - Keep the core in C++20 and isolate Linux platform code; provider
   endpoints, credentials, model aliases and budgets stay in external
   configuration. Tests use FakeModel and self-created temporary fixtures,
@@ -106,7 +95,4 @@ cmake --build build-cmake --parallel 2
 ctest --test-dir build-cmake --output-on-failure
 ```
 
-M1's kernel stays third-party-free; the S1 library needs Boost 1.83+,
-SQLite 3.37+, OpenSSL 3+, libcurl 7.88+ and LibYAML 0.2.5. Contract tests
-use `jsonschema`; dev venv `.local/test-venv/bin/python`. Report synthetic,
-contract-reference and real integration results separately.
+M1's kernel stays third-party-free; the S1 library needs Boost 1.83+, SQLite 3.37+, OpenSSL 3+, libcurl 7.88+ and LibYAML 0.2.5. Contract tests use `jsonschema`; dev venv `.local/test-venv/bin/python`. Report synthetic, contract-reference and real integration results separately.

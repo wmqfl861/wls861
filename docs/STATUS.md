@@ -1,16 +1,16 @@
-现在能做什么：G1 合成门禁已通过并获 owner 验收；可以用一条 `wls run` 完成合成端点上的三个文件任务，继续推进 G2-P。
-还不能做什么：真实模型闭环尚未验收，真实调用为 0 次；G2-P 尚未实施，Windows 11 为 NOT_RUN。
+现在能做什么：G2-P 的工具契约、纠错、失败记账、有界重试和文件模板已合入；八场景预演和原 G1 本地首跑通过，PR 门禁待完成。
+还不能做什么：真实模型闭环尚未验收，真实调用为 0 次；Windows 11 实机、完整进程部署和后续并行阶段尚未验收。
 需要 owner 做什么：在运行 agent 的 shell 中导出 `WLS_G2_API_KEY`，然后明确告知“密钥已就绪”；两项满足前不发任何真实请求。
 
 # 当前状态
 
-当前实现 **0.11.1-r3.3c-audit**，目标蓝图 **v0.4.1**，Store **410**（无 013 迁移、异步协调器或持久事件扩展）。
+当前候选 **0.12.0**，当前蓝图 **v0.4.1**、已采纳目标蓝图 **v0.5**，Store **410**（无 013 迁移、异步协调器或持久事件扩展）。
 
-更新：2026-11-13。owner 已采纳[本轮审核与决定](reviews/claude-2026-11-13/README.md)，G1 按 D-10 验收通过，下一步为 G2-P，再进入 G2。G1-A–M 已普通合并，产品基线见 [#66](https://github.com/wmqfl861/wls861/pull/66)。[完整交接](reviews/g1-main-handoff-20261112.md)和[G1简报](reports/g1-exit.md)保留原报告时点的证据；当前处置以本页和[决定记录](reviews/claude-2026-11-13/02-decisions.md)为准。
+更新：2026-11-13。G1 已按 owner 的 D-10 验收通过；G2-P 的完整实现与八场景结果见[预演报告](reports/g2p-rehearsal.md)，执行顺序见[当前计划](reviews/claude-2026-11-13/04-plan.md)。版本 0.12.0 不改变 Store 410，六个新格式在 G2 出口之前允许原地调整，旧 framed-v1 / structured-v2 回归保持。
 
-M head `c2aa6440dec010b9161527c1c80d6b75ccf2081a` 的 [core 43324561502](https://github.com/wmqfl861/wls861/actions/runs/43324561502) 三路各83/83 PASS、[source 43324561578](https://github.com/wmqfl861/wls861/actions/runs/43324561578) SUCCESS。本机新Release构建后，注册 `g1_exit_e2e` 单次1/1 PASS（19.80秒，原300秒期限）；83项注册、Make59+24及CMake ASan42+41的静态核对不等于本机全部执行。
+G2-P：最小自包含工具参数与宿主补全、具体字段错误、受限纠错、失败调用记账、按次预留和至多两次合格重试、files 默认模板、可读摘要和原名导出、已知输出项未知元数据兼容均已合入。原模型响应、未知值、精确授权、预算预约、业务版本及事务守卫保持。独立 `g2_rehearsal_e2e` 与原 G1 本地首跑通过（22.32 秒、22.88 秒）；新注册项加入后总计 84 项。P7 三核心 CI 尚待完成。
 
-`b09848e` 的 [full 43326432461](https://github.com/wmqfl861/wls861/actions/runs/43326432461) 和 `83fcb9f` 的 [full 43331867644](https://github.com/wmqfl861/wls861/actions/runs/43331867644) 均为 9 个 job 全部成功，结果来自[本轮审核的 CI 核对](reviews/claude-2026-11-13/01-audit-report.md)。D-11 关闭两个旧 CI ASan 单项超时；本机 capture 超时降为已知本机现象，除非在 CI 复现，不再诊断。原失败、超时和取消证据保留。
+当前 CI：PR 三核心通过才合并；main 六配置完整矩阵独立运行，含 ASan/UBSan/Make-ASan 各两片。P1b 合并后的 main 在 `acceptance_runtime` ASan 原 180 秒时限超时，其余八个构建测试作业成功；一次有界诊断复现，正在处理重复 Schema 工作。原失败记录保留。D-11 规定的 sanitizer CTest 时限倍数为 2，Release 和业务期限不变。
 
 ## 尚缺的真实能力（当前边界）
 
@@ -37,14 +37,14 @@ M head `c2aa6440dec010b9161527c1c80d6b75ccf2081a` 的 [core 43324561502](https:/
 | 交付/清理 | 不可变包、精确回执、经验作业、固定清单受控 work 删除 | 实际发布/删除/恢复；私有行、owner收据保留；全局cleanup仍PENDING；PREPARED有原收据恢复/显式弃置；弃置残留保留、不可重用。部署 doctor 不扫描或采用分配残留 |
 | 上下文/模型 | 冻结选择v1/v2/v3、Worker window-v1、固定角色工具/允许列表、lean-v1与追加折叠；原文回读与持久频率限制 | FakeModel大文件多轮/重开继续、模型回读原字节；旧请求不迁移。已接管理角色冻结窗口和原Store网络attempt；LLM语义压缩/真实模型质量待验收，完整当前契约超限在预约前拒绝 |
 | Responses 离线协议 | 显式 provider profile、HTTP 文本/function_call 编解码、有界 SSE 回放；独立 encode-model/replay-model；#48 起 opt-in 扩展保留加密 reasoning、refusal 不派发、显式别名映射，原生历史按回合配对 call/result 身份并跨 Store 重开保持 | 两个CLI仍零网络、零凭据解析、零工具派发。Schema/Completed 不授予权限；原wire字段不改标；旧 profile 与 Store 410 兼容保持 |
-| HTTPS / live工作流 | libcurl multi、显式CA/host验证、有界deadline/取消、原HTTP/SSE解码；原角色event pump与精确授权CLI | 自建loopback TLS；G1-I加入冻结DNS/显式代理策略，旧配置保留原解释；零付费自动重试。原 nullable 用量保留；显式冻结 pricing 可形成有效估算账目，未能有效结算仍停止新业务；签名 v2 为独立可选路径，选用后不得回退估算。实际供应商、外部DNS/代理验收未执行 |
+| HTTPS / live工作流 | libcurl multi、显式CA/host验证、有界deadline/取消、原HTTP/SSE解码；原角色event pump与精确授权CLI | 自建loopback TLS；G1-I加入冻结DNS/显式代理策略，旧配置保留原解释；冻结 bounded-v1 可对明确未发送连接失败或完整的指定 HTTP 状态最多重试两次，每次单独预留/结算。原 nullable 用量保留；冻结 pricing 下完整用量估算，缺值将原预留转为已花费；签名 v2 为独立可选路径，选用后不得回退估算。实际供应商、外部DNS/代理验收未执行 |
 | 估算与签名计费 / 迟到核账 | #49 增加冻结 token 单价估算、最低费用预留、原响应与结算用量投影及可信迟到实际费用差额调整；签名路径仍独立，原五维 nullable 账目不覆写 | 原31次合成计费验证保留；G1-J/L已接通有界续批与wls run，M的32次合成场景按各精确head单独登记；实际供应商/模型验收和付费调用仍未执行，自定义中转契约待实际服务接入。签名收据错绑、重放、缺值、超预留和错误响应依原账本限制 |
 | 运行资源 / 迁移 | 编译认可清单、35项固定资源、版本注册表及CMake安装 | 从无关cwd与删除安装来源后运行；prefix/DESTDIR、资源篡改/缺失/特殊文件拒绝、旧API/迁移兼容；配置和凭据外置 |
 | 单 Agent / 评测证据 | 显式冻结共享原生对话与原权限代理；v1结构验收、v2原模型来源、v3独立验证单逻辑Agent连续性 | 五任务双条件合成工程链、跨重启与错标/缺反馈反例；真实供应商质量、成本及长对话语义效果未验收 |
 | 事件/并发 | 持久inbox、逐任务AMEND、串行pump；冻结准入窗口/独立计数/Root检查点 | 旧快照不改写；到限可核对后续进；不清审计/不重置预算。CLI 已按请求恢复；默认全库维护仍保留。并发租约、只在确有在途时提升选中请求代次仍未实现 |
 | 配置执行状态 | check/explain按冻结配置披露runtime_support；G1-J的bounded-v1已接通请求墙钟期限、预算预警、输出上限/输入估算、同错停滞限制与有界续批 | 本地合成回归覆盖已接通路径；真实供应商未验收。未选bounded-v1时墙钟/预警/同错限制仍validated_only；全局并发/审核槽位、stall_minutes、snapshot_decision_log_entries及周期vacuum仍未执行；compaction_at_fraction仅append-fold-v1接通 |
 | 记忆、MCP、跨功能审核 | 规格/参考契约 | 完整C++闭环及真实互通未实现 |
-| 测试工具链 | 严格、UBSan、ASan、Clang、普通用户及umask矩阵 | PR按改动分层，核心含strict/umask 0002/Clang18；main push/nightly/手动完整矩阵为六配置、八个构建测试jobs（CMake与Make ASan各两片）；Make ASan默认-O0，原期限/flags保留；静态注册、定向子集与完整运行分别记录 |
+| 测试工具链 | 严格、UBSan、ASan、Clang、普通用户及umask矩阵 | PR按改动分层，核心含strict/umask 0002/Clang18；main push/nightly/手动完整矩阵为六配置、九个构建测试作业（UBSan、CMake ASan与Make ASan各两片）；Make ASan默认-O0；Release原期限不变，ASan/UBSan CTest期限按D-11乘2；静态注册、定向子集与完整运行分别记录 |
 
 ## 阶段
 

@@ -1,10 +1,12 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.11.1-r3.3c-audit；当前蓝图：v0.4.1。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化工作流、受控 Worker 工具和独立离线协议回放。
+C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.12.0；当前蓝图：v0.4.1，目标蓝图 v0.5 已采纳。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化工作流、受控 Worker 工具和独立离线协议回放。
 
-当前主线与接手步骤见[完整交接（2026-11-12）](docs/reviews/g1-main-handoff-20261112.md)：包含 G1-A–M 合并账目、架构、构建入口、按 SHA 区分的验证结果及开放超时；[G1 简报](docs/reports/g1-exit.md)保留阶段限制。
+当前能力与下一步见[当前状态](docs/STATUS.md)、[G2-P 预演](docs/reports/g2p-rehearsal.md)及[11-13 计划](docs/reviews/claude-2026-11-13/04-plan.md)。[G1 交接](docs/reviews/g1-main-handoff-20261112.md)和[G1 简报](docs/reports/g1-exit.md)保留原阶段记录。
 
-本补丁按全代码审核修复写锁继承、并发账本快照、已核账容量、文件完整读取、启动前取消证据、
+0.12.0 为真实模型闭环准备：新请求默认只授予文件工具；模型只填写最小工具参数，宿主补全其余字段。可纠正错误带具体反馈，输出截断和明确无效果的文件失败可继续，UNKNOWN 与存储错误仍停止。冻结单价后按次预留并为失败调用记账，符合条件的连接/HTTP 失败最多重试两次；交付后按原文件名导出成果。真实运行仍等待 owner 提供密钥，预算与授权边界见[决定记录](docs/reviews/claude-2026-11-13/02-decisions.md)。
+
+0.11.1 补丁按全代码审核修复写锁继承、并发账本快照、已核账容量、文件完整读取、启动前取消证据、
 调用路由预检、评测来源/原输入绑定与小数历史指纹兼容。范围和复现见[审核报告](docs/reviews/code-audit-20261027.md)，
 执行结果见[本轮验证](docs/reports/code-audit-20261027-validation.md)。Store 保持410。
 同时优化完整上下文与单 Agent 历史的重复处理；仅复用同次调用内已校验的原字节，
@@ -47,7 +49,7 @@ R1.3 在此基础上接通显式冻结的Worker窗口与模型回读；旧请求
 ### 受控工作流入口
 
 先用显式外部配置创建请求，再通过 `live-status` 查看原冻结 profile 哈希、预算和账目。
-配置需选择 `structured-v2`、受支持的 Responses profile、明确 CA/路由与凭据环境变量引用；
+新请求配置使用 `structured-v3`、受支持的 Responses profile、明确 CA/路由与凭据环境变量引用；旧 `structured-v2` 请求保持原格式。
 请求外层 `model_calls.real_calls_enabled` 和宿主执行授权是两个独立条件。
 
 ```sh
@@ -59,10 +61,9 @@ R1.3 在此基础上接通显式冻结的Worker窗口与模型回读；旧请求
 
 `live-status` 的模板默认不授权网络，费用预留为0。宿主须显式填写调用数、每任务调用数、
 批次期限和正数费用预留，并精确绑定请求、配置快照及全部已选模型。文件必须位于业务工作区外。
-凭据只从原冻结的环境变量引用读取，不写入授权文件或公开摘要。CLI 不自动重试、发布或签收交付。
+凭据只从原冻结的环境变量引用读取，不写入授权文件或公开摘要。显式 `bounded-v1` 和重试上限才启用符合条件的有界重试。上述低层泵入口不自动发布或签收；`wls run` 负责受控文件工作流与交付导出。
 
-当前 Responses 子集不能从模型响应确认实际费用，原费用保持 `null`。未配置可信计费适配时，
-CLI 在首个可应用响应后报告 `needs_accounting`；重复运行不能重发旧 attempt。
+Responses 的供应商原费用保持 `null`。未选择签名收据且冻结了 token 单价时，宿主以完整用量估算；失败调用缺少完整用量时，将原预留转为已花费，保留原未知用量。未配置可用计费路径时仍报告 `needs_accounting`；重复运行不能重发旧 attempt。
 0.11.0 增加[签名计费契约](docs/implementation/R3-signed-billing.md)：原 profile 显式启用
 `billing_challenge: wls-billing-challenge-v1`，宿主信任政策绑定请求、冻结 profile、签发方、
 账户及公钥。`live-status --billing-policy-file FILE` 生成仍默认禁用的 v2 授权模板，
@@ -533,7 +534,7 @@ PYMAP
   --task tsk_YOUR_RETURNED_ID
 ```
 
-任务 ID 取实际输出。提交路径使用 `/work/...`；文件工具参数仍使用相对路径。每次最多 8 个文件、每个 64 KiB、合计 256 KiB，必须完整捕获，超限拒绝。旧提交字节和哈希不会随工作目录之后的修改而变化；TeamLead 通过只产生 `CANDIDATE_READY`，不表示业务已经验收或交付。
+任务 ID 取实际输出。提交路径使用 `/work/...`；新 v3 文件工具接受相对路径或 `/work/...`，宿主将后者规范化为相对路径，旧请求继续按捕获契约解释。每次最多 8 个文件、每个 64 KiB、合计 256 KiB，必须完整捕获，超限拒绝。旧提交字节和哈希不会随工作目录之后的修改而变化；TeamLead 通过只产生 `CANDIDATE_READY`，不表示业务已经验收或交付。
 
 下面用另一个数据库和 alpha/beta 两个独立目录演示提问。alpha 的 Worker 等待答案时，beta 仍可写文件；脚本随后将 alpha 的原问题从 TeamLead 转给 Dispatcher，再转给用户：
 

@@ -30,10 +30,10 @@ import unittest
 from legacy_shell_config import select_legacy_shell
 
 if len(sys.argv) < 3:
-    raise SystemExit('usage: test_billing_baseline_e2e.py WLS SOURCE [--group all|billing|run|g1|legacy] [unittest options]')
+    raise SystemExit('usage: test_billing_baseline_e2e.py WLS SOURCE [--group all|billing|run|g1|g2|legacy] [unittest options]')
 BINARY, SOURCE = (Path(value).resolve() for value in sys.argv[1:3])
 group_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
-group_parser.add_argument('--group', choices=('all', 'billing', 'run', 'g1', 'legacy'), default='all')
+group_parser.add_argument('--group', choices=('all', 'billing', 'run', 'g1', 'g2', 'legacy'), default='all')
 GROUP_OPTIONS, TEST_ARGUMENTS = group_parser.parse_known_args(sys.argv[3:])
 sys.argv = [sys.argv[0], str(BINARY), str(SOURCE)]
 spec = importlib.util.spec_from_file_location('independent_workflow_fixture',
@@ -384,6 +384,124 @@ class PricingFlowEndpoint:
                                  'contract': self.contract(body), 'usage': copy.deepcopy(value['usage'])})
         encoded = tls.encoded(value)
         connection.sendall(tls.headers(len(encoded)) + encoded)
+
+
+class RehearsalEndpoint(PricingFlowEndpoint):
+    """Naive choices and one-shot faults, keyed by captured task/order state."""
+
+    def __init__(self):
+        super().__init__()
+        self.faults = set()
+        self.plan = {'summary': 'Three independent verified files', 'nodes': [
+            {'node_id': node, 'title': f'Write {node} file', 'brief': {
+                'goal': 'Write and verify alpha and beta lines',
+                'acceptance_criteria': [{'text': 'The file contains alpha and beta on separate lines'}]}}
+            for node in ('alpha', 'beta', 'gamma')]}
+        self.order = {'approach': 'Write then read the requested file',
+            'steps': [{'text': 'Write the file, then read it to verify both lines'}],
+            'done_definition': 'The complete file has both requested lines'}
+
+    @staticmethod
+    def actor(body, contract):
+        action = contract.get('workflow_action')
+        if action:
+            return 'dispatcher' if action['kind'] == 'acceptance' else 'team_lead'
+        if not contract['binding']['task_id']:
+            return 'dispatcher'
+        return 'team_lead' if any(tool['name'] == 'issue_work_order' for tool in body['tools']) else 'worker'
+
+    def choose(self, body):
+        contract = self.contract(body)
+        action, binding = contract.get('workflow_action'), contract['binding']
+        if action:
+            if action['kind'] == 'submission':
+                if contract['submission']['body']['self_check'][0]['met'] == 'partial':
+                    if 'bad_check' not in self.faults:
+                        self.faults.add('bad_check')
+                        return 'check_submission', self.check, 'check_mistaken'
+                    return 'check_submission', {'passed': False, 'notes': 'Worker must finish ac1',
+                        'criteria_results': [{'criterion_id': 'ac1', 'met': 'partial'}],
+                        'work_order': self.order}, 'check_rework'
+                return 'check_submission', self.check, 'check_complete'
+            if action['kind'] == 'acceptance':
+                return 'accept_candidate', self.acceptance, 'accept'
+            if action['kind'] == 'experience':
+                return 'report_experience', {'no_new_experience': True, 'entries': []}, 'experience'
+            raise AssertionError(f'unexpected rehearsal action {action["kind"]}')
+        if not binding['task_id']:
+            if 'bad_plan' not in self.faults:
+                self.faults.add('bad_plan')
+                plan = copy.deepcopy(self.plan)
+                plan['nodes'][0]['brief']['acceptance_criteria'] = ['The file contains both lines']
+                return 'submit_plan', plan, 'plan_bad_criteria'
+            return 'submit_plan', self.plan, 'plan_minimal'
+        if self.actor(body, contract) == 'team_lead':
+            return 'issue_work_order', self.order, 'order'
+        node, revision = contract['task']['node_id'], binding['instruction_revision']
+        key = (binding['task_id'], revision)
+        index = self.steps.get(key, 0)
+        path = '/work/notes/a.md' if node == 'alpha' else '/work/result.txt'
+        write = {'path': path, 'content': 'alpha\nbeta\n'}
+        if revision > 1:
+            write['expected_sha256'] = hashlib.sha256(b'alpha\nbeta\n').hexdigest()
+        if node == 'alpha' and revision == 1 and index == 0:
+            if 'missing_parent' not in self.faults:
+                self.faults.add('missing_parent')
+                return 'fs_write', write, 'write_missing_parent'
+            if 'mkdir_parent' not in self.faults:
+                self.faults.add('mkdir_parent')
+                return 'fs_mkdir', {'path': '/work/notes'}, 'mkdir_parent'
+        if node == 'alpha' and revision == 1 and index == 1:
+            if 'missing_list' not in self.faults:
+                self.faults.add('missing_list')
+                return 'fs_list', {'path': '/work/absent'}, 'list_missing'
+            if 'fixed_list' not in self.faults:
+                self.faults.add('fixed_list')
+                return 'fs_list', {'path': '/work/notes'}, 'list_fixed'
+        submission = copy.deepcopy(self.submission)
+        submission.pop('used_memories')
+        submission['deliverables'][0]['path'] = path
+        partial = node == 'alpha' and revision == 1
+        submission['self_check'][0]['met'] = 'partial' if partial else 'yes'
+        sequence = [('fs_write', write, 'write'), ('fs_read', {'path': path}, 'read'),
+                    ('submit', submission, 'submit_partial' if partial else 'submit_complete')]
+        self.steps[key] = index + 1
+        return sequence[index]
+
+    def __call__(self, peer, connection):
+        observed = peer.request(connection)
+        body = json.loads(observed['body']); contract = self.contract(body)
+        role = self.actor(body, contract)
+        action = contract.get('workflow_action')
+        tag, status = None, 200
+        value = json.loads(tls.response_body(tool=True))
+        value['usage'].update(input_tokens=11, output_tokens=7, total_tokens=18)
+        value['usage']['input_tokens_details'] = {'cached_tokens': 3}
+        if role == 'worker' and contract['task']['node_id'] == 'beta' and 'retry_429' not in self.faults:
+            tag, status = 'retry_429', 429
+            value = {'error': {'code': 'synthetic_rate_limit'}}
+        elif role == 'team_lead' and action is None and 'truncated' not in self.faults:
+            tag = 'truncated'
+            value.update(status='incomplete', incomplete_details={'reason': 'max_output_tokens'})
+            value['output'][0]['arguments'] = '{'
+        elif action and action['kind'] == 'acceptance' and contract['acceptance_task']['node_id'] == 'alpha' and 'disconnect' not in self.faults:
+            tag = 'disconnect'
+        if tag:
+            self.faults.add(tag)  # Never consume a business step for a transport/output fault.
+        else:
+            name, arguments, tag = self.choose(body)
+            if name not in {tool['name'] for tool in body['tools']}:
+                raise AssertionError(f'{name} was not declared')
+            value['id'] = f'resp_rehearsal_{len(self.records)}'
+            value['output'][0].update(call_id=f'rehearsal-{len(self.records)}', name=name,
+                                      arguments=json.dumps(arguments, ensure_ascii=False))
+        self.records.append({'tag': tag, 'request': observed['body'], 'contract': contract, 'role': role})
+        if tag == 'disconnect':
+            connection.sendall(tls.headers(1000) + b'{"id":')
+            return
+        encoded = tls.encoded(value)
+        connection.sendall(tls.headers(len(encoded), status=status,
+            extra=b'Retry-After: 0\r\n' if status == 429 else b'') + encoded)
 
 
 class BillingBaselineIntegration(unittest.TestCase):
@@ -1060,6 +1178,237 @@ class BillingBaselineIntegration(unittest.TestCase):
             write_json(case['directory'] / 'g1-exit-result.json', report)
             print('G1_EXIT_SYNTHETIC_RESULT ' + json.dumps({key: value for key, value in report.items()
                                                         if key != 'attempts'}, sort_keys=True))
+
+    def test_g2_rehearsal_naive_choices_correct_then_resume_one_disconnect(self):
+        endpoint = RehearsalEndpoint()
+        with tls.Peer(self.contexts['server'], endpoint) as peer:
+            case = self.run_inputs('g2-rehearsal', peer)
+            case['system']['context'].update(request_format='structured-v3', model_projection='lean-v1',
+                tool_policy='fixed-role-v1', schema_retry_max=3, worker_history={
+                    'mode': 'append-fold-v1', 'read_max_bytes': 24576, 'read_token_budget': 196608})
+            case['system']['model_calls'].update(max_total_calls=80, max_paid_retries=2)
+            case['system']['budget_defaults'].update(max_input_tokens=8000000, max_output_tokens=2000000)
+            provider = case['system']['models'][MODEL_REF]['responses']['provider_profile']
+            provider['tool_choice_policy'] = 'allowed-tools-v1'
+            write_json(case['configuration'], case['system'])
+            frozen_bytes = case['configuration'].read_bytes()
+            first_result = self.invoke_run(case, '--yes')
+            write_json(case['directory'] / 'first-command-result.json', {'returncode': first_result.returncode,
+                'stdout': first_result.stdout, 'stderr': first_result.stderr})
+            self.assertEqual(first_result.returncode, 0, first_result.stderr + first_result.stdout)
+            first = json.loads(first_result.stdout)
+            self.assertNotEqual(first['status'], 'DELIVERED')
+            self.assertEqual(first['stop_reason'], 'error')
+            self.assertTrue(first['accounting']['ready'])
+            self.assertRegex(first['blockers'][0]['reason'], '(?i)incomplete|interrupt|connection|transport|partial')
+            self.assertNotEqual(first['blockers'][0]['reason'], 'inspect private Store evidence')
+            self.assertTrue(first['blockers'][0]['next_step'])
+            self.assertEqual(endpoint.records[-1]['tag'], 'disconnect')
+            database = case['data'] / 'requests' / first['request_id'] / 'control.sqlite'
+            frozen_request = rows(database, 'SELECT created_at,config_snapshot,budget FROM requests')
+            original_attempts = rows(database, 'SELECT * FROM call_attempts ORDER BY rowid')
+            original_claims = rows(database, 'SELECT * FROM live_send_claims ORDER BY rowid')
+            final_result = self.invoke_run(case, '--yes')  # Identical command/configuration, the only restart.
+            write_json(case['directory'] / 'final-command-result.json', {'returncode': final_result.returncode,
+                'stdout': final_result.stdout, 'stderr': final_result.stderr})
+            self.assertEqual(final_result.returncode, 0, final_result.stderr + final_result.stdout)
+            summary = json.loads(final_result.stdout)
+            self.assertEqual(summary['request_id'], first['request_id'])
+            self.assertEqual(summary['status'], 'DELIVERED')
+            self.assertEqual(summary['blockers'], [])
+            self.assertTrue(summary['accounting']['ready'] and summary['technical_acknowledgement'])
+            self.assertEqual(case['configuration'].read_bytes(), frozen_bytes)
+            self.assertEqual(rows(database, 'SELECT created_at,config_snapshot,budget FROM requests'), frozen_request)
+            attempts = rows(database, 'SELECT * FROM call_attempts ORDER BY rowid')
+            self.assertEqual(attempts[:len(original_attempts)], original_attempts)
+            claims = rows(database, 'SELECT * FROM live_send_claims ORDER BY rowid')
+            self.assertEqual(claims[:len(original_claims)], original_claims)
+            count = len(attempts)
+            self.assertEqual(count, len(peer.requests))
+            self.assertEqual(count, len(endpoint.records))
+            ids = {item['attempt_id'] for item in attempts}
+            self.assertEqual(len(ids), count)
+            self.assertEqual({item['attempt_id'] for item in claims}, ids)
+            self.assertEqual(len({item['claim_id'] for item in claims}), count)
+            originals = {table: {row['attempt_id']: row for row in rows(database, 'SELECT * FROM ' + table)}
+                for table in ('live_attempt_execution', 'live_transport_observations', 'model_tool_feedback', 'live_usage_projection')}
+            for table, records in originals.items():
+                self.assertEqual(set(records), ids, table)
+            self.assertEqual(rows(database, 'SELECT * FROM usage_reconciliations'), [])
+            def target(record):
+                contract = record['contract']
+                task = (contract.get('acceptance_task') or {}).get('task_id', contract['binding']['task_id'])
+                action = contract.get('workflow_action') or {}
+                identity = tuple(action.get('target', {}).get(key) for key in ('submission_id', 'experience_id', 'source_sha256'))
+                return record['role'], task, contract['binding']['instruction_revision'], action.get('kind'), identity
+            def next_record(index):
+                return next(record for record in endpoint.records[index + 1:]
+                            if target(record) == target(endpoint.records[index]))
+            corrections, retry_links, expected_cost = {}, [], 0
+            role_calls, segment_totals, expected_charges, worker_cache_ratios = {}, {}, {}, {}
+            prefix_cache = SimulatedPrefixCache()
+            for index, (attempt, record, sent) in enumerate(zip(attempts, endpoint.records, peer.requests)):
+                attempt_id = attempt['attempt_id']; role = attempt['role']; tag = record['tag']
+                body = json.loads(sent['body'])
+                self.assertEqual(record['request'], sent['body'])
+                self.assertEqual(originals['live_attempt_execution'][attempt_id]['request_body_sha256'], hashlib.sha256(sent['body']).hexdigest())
+                self.assertTrue(attempt['settlement_sha256'])
+                feedback = originals['model_tool_feedback'][attempt_id]
+                self.assertEqual(json.loads(feedback['response']), json.loads(attempt['response']))
+                outcome = json.loads(feedback['result'])
+                if 'correction_feedback' in outcome:
+                    reason = outcome['correction_feedback']['reason']
+                    corrections[reason] = corrections.get(reason, 0) + 1
+                    following = next_record(index)
+                    next_body = json.loads(following['request'])
+                    if tag == 'truncated':
+                        history = [json.loads(item['content']) for item in next_body['input']
+                            if item.get('role') == 'user' and item.get('content', '').startswith('{')]
+                        original = next(item for item in history if item.get('attempt_id') == attempt_id)
+                        self.assertEqual(original['feedback']['result'], outcome)
+                    else:
+                        original_call = json.loads(attempt['response'])['tool_calls'][0]
+                        call_id = 'history_' + digest({'format': 'wls-history-tool-id-v1',
+                            'attempt_id': attempt_id, 'call_id': original_call['call_id']})
+                        pair = [item for item in next_body['input'] if item.get('call_id') == call_id]
+                        self.assertEqual([item['type'] for item in pair], ['function_call', 'function_call_output'])
+                        self.assertEqual(pair[0]['name'], original_call['name'])
+                        self.assertEqual(json.loads(pair[0]['arguments']), original_call['arguments'])
+                        self.assertEqual(json.loads(pair[1]['output']), outcome)
+                    observation = outcome['correction_feedback'].get('observation', '')
+                    if tag == 'plan_bad_criteria':
+                        self.assertIn('/nodes/0/brief/acceptance_criteria/0', observation)
+                        self.assertIn('type mismatch', observation)
+                        self.assertEqual(following['tag'], 'plan_minimal')
+                    if tag == 'check_mistaken':
+                        self.assertIn('unmet criterion', observation)
+                        self.assertEqual(following['tag'], 'check_rework')
+                    if tag == 'write_missing_parent':
+                        failure = outcome['execution_result']['evidence']
+                        self.assertEqual(failure['path'], 'notes/a.md')
+                        self.assertIn('No such file or directory', failure['error'])
+                        self.assertFalse(failure['rename_attempted'])
+                        self.assertEqual(following['tag'], 'mkdir_parent')
+                    if tag == 'list_missing':
+                        self.assertIn('No such file or directory', observation)
+                        self.assertEqual(following['tag'], 'list_fixed')
+                    if tag == 'truncated':
+                        self.assertIn('输出上限被截断', observation)
+                        self.assertIn('请缩短输出', observation)
+                        self.assertEqual(following['tag'], 'order')
+                if outcome.get('retry_of_attempt_id'):
+                    retry_links.append((outcome['retry_of_attempt_id'], attempt_id))
+                unknown = tag in ('retry_429', 'disconnect')
+                self.assertEqual(attempt['input_tokens'], None if unknown else 11)
+                self.assertEqual(attempt['output_tokens'], None if unknown else 7)
+                self.assertIsNone(attempt['cost_micro_usd'])
+                # Independent integer bound from these original wire bytes and the frozen 1.5/4 rates.
+                reserved = (len(sent['body']) * 1500000 + body['max_output_tokens'] * 4000000 + 999999) // 1000000
+                self.assertEqual(attempt['reserved_cost'], reserved)
+                self.assertEqual(attempt['reserved_output'], body['max_output_tokens'])
+                charge = reserved if unknown else PRICED_UNIT_MICRO_USD
+                expected_cost += charge
+                charges = expected_charges.setdefault(role, {'estimated_micro_usd': 0, 'reservation_charged_micro_usd': 0})
+                charges['reservation_charged_micro_usd' if unknown else 'estimated_micro_usd'] += charge
+                projection = originals['live_usage_projection'][attempt_id]
+                usage = json.loads(attempt['usage'])
+                for key, value in dict(input_tokens=None if unknown else 11, output_tokens=None if unknown else 7,
+                        cache_read_tokens=None if unknown else 3, cache_write_tokens=None, cost_micro_usd=None).items():
+                    self.assertEqual(usage[key], value)
+                    self.assertEqual(attempt[key], value)
+                    self.assertEqual(projection[key], value)
+                self.assertEqual((projection['disputed'], projection['over_reserved']), (0, 0))
+                transport = originals['live_transport_observations'][attempt_id]
+                safe = json.loads(transport['safe_summary'])
+                self.assertEqual(safe['transfer_complete'], tag != 'disconnect')
+                if tag == 'truncated':
+                    raw = json.loads(bytes.fromhex(transport['raw_body_hex']))
+                    self.assertEqual(raw['incomplete_details']['reason'], 'max_output_tokens')
+                if tag == 'plan_minimal':
+                    raw = json.loads(bytes.fromhex(transport['raw_body_hex']))
+                    self.assertEqual(json.loads(raw['output'][0]['arguments']), endpoint.plan)
+                    self.assertNotIn('correction_feedback', outcome)
+                self.assertEqual(body['tool_choice']['mode'], 'required')
+                logical = json.loads(attempt['request_envelope'])['context']['input']
+                self.assertEqual(logical['tool_policy'], 'fixed-role-v1')
+                cache = prefix_cache.observe(sent['body'], digest(provider))
+                if role == 'worker':
+                    declared = {tool['name'] for tool in body['tools']}
+                    self.assertFalse(declared & {'run', 'op_status', 'op_output', 'op_cancel', 'note', 'ack_change'})
+                    self.assertTrue({'fs_list', 'fs_read', 'fs_search', 'fs_mkdir', 'fs_write', 'fs_patch', 'ask', 'submit'} <= declared)
+                    worker_cache_ratios.setdefault(record['contract']['task']['node_id'], []).append(cache['ratio'])
+                role_calls[role] = role_calls.get(role, 0) + 1
+                contracts, history = [body['input'][0]], []
+                for item in body['input'][1:-1]:
+                    content = item.get('content', '')
+                    value = json.loads(content) if item.get('role') == 'user' and content.startswith('{') else {}
+                    (contracts if 'semantic_versions' in value else history).append(item)
+                segments = dict(tools=len(canonical(body['tools'])), system=len(canonical(body['instructions'])),
+                    contract=sum(len(canonical(item)) for item in contracts), current_state=len(canonical(body['input'][-1])),
+                    history=sum(len(canonical(item)) for item in history), total=len(sent['body']))
+                segments['other'] = segments['total'] - sum(segments[key] for key in ('tools', 'system', 'contract', 'history', 'current_state'))
+                totals = segment_totals.setdefault(role, dict.fromkeys(segments, 0))
+                for key, value in segments.items():
+                    totals[key] += value
+            self.assertEqual(corrections, {'model_arguments': 2, 'tool_result': 1, 'read_only': 1, 'max_output_tokens': 1})
+            rate_index = next(i for i, record in enumerate(endpoint.records) if record['tag'] == 'retry_429')
+            retry_index = endpoint.records.index(next_record(rate_index))
+            self.assertEqual(retry_links, [(attempts[rate_index]['attempt_id'], attempts[retry_index]['attempt_id'])])
+            self.assertEqual(endpoint.records[retry_index]['tag'], 'write')
+            self.assertEqual(sum(detail['retries'] for detail in summary['role_statistics'].values()), 1)
+            summary_corrections = {}
+            for role, detail in summary['role_statistics'].items():
+                self.assertEqual(detail['body_segment_samples'], role_calls[role])
+                for key, amount in expected_charges[role].items():
+                    self.assertEqual(detail[key], amount)
+                self.assertEqual(detail['reported_micro_usd'], 0)
+                for reason, total in detail['corrections_by_reason'].items():
+                    summary_corrections[reason] = summary_corrections.get(reason, 0) + total
+                for key, total in segment_totals[role].items():
+                    self.assertAlmostEqual(detail['mean_body_segment_bytes'][key], total / role_calls[role])
+            self.assertEqual(summary_corrections, corrections)
+            self.assertEqual(summary['role_calls'], role_calls)
+            self.assertEqual(summary['budget']['spent_cost'], expected_cost)
+            self.assertEqual(summary['budget']['reserved_cost'], 0)
+            self.assertEqual(summary['budget']['unknown_cost'], 0)
+            tasks = rows(database, 'SELECT node_id,status,instruction_revision FROM tasks ORDER BY node_id')
+            self.assertEqual([task['status'] for task in tasks], ['ACCEPTED'] * 3)
+            self.assertEqual([task['instruction_revision'] for task in tasks], [2, 1, 1])
+            submissions = rows(database, 'SELECT submission_id,task_id,original_binding,body,status FROM workflow_submissions ORDER BY rowid')
+            self.assertEqual(len(submissions), 4)
+            bodies = [json.loads(item['body']) for item in submissions]
+            self.assertEqual(sum(body['self_check'][0]['met'] == 'partial' for body in bodies), 1)
+            self.assertTrue(all(body['used_memories'] == [] for body in bodies))
+            partial = next(item for item in submissions if json.loads(item['body'])['self_check'][0]['met'] == 'partial')
+            reworked = [item for item in submissions if item['task_id'] == partial['task_id']]
+            self.assertEqual(len({item['submission_id'] for item in reworked}), 2)
+            self.assertEqual([json.loads(item['original_binding'])['instruction_revision'] for item in reworked], [1, 2])
+            self.assertEqual(partial['status'], 'RETURNED_FOR_REWORK')
+            self.assertEqual(json.loads(reworked[-1]['body'])['self_check'][0]['met'], 'yes')
+            checks = rows(database, "SELECT rework_order FROM team_lead_checks WHERE status='RETURNED_FOR_REWORK'")
+            self.assertEqual(len(checks), 1)
+            rework_order = json.loads(checks[0]['rework_order'])
+            required_order = json.loads((SOURCE / 'schemas/work_order.schema.json').read_text())['required']
+            self.assertTrue(set(required_order) <= set(rework_order))
+            self.assertEqual(rework_order['instruction_revision'], 2)
+            self.assertEqual([row['status'] for row in rows(database, 'SELECT status FROM experience_jobs')], ['DONE'] * 3)
+            for node, relative in (('alpha', 'notes/a.md'), ('beta', 'result.txt'), ('gamma', 'result.txt')):
+                self.assertEqual((Path(summary['output_path']) / node / relative).read_bytes(), b'alpha\nbeta\n')
+            self.assertEqual([path.read_bytes() for path in Path(summary['delivery_path']).glob('artifact-*.bin')], [b'alpha\nbeta\n'] * 3)
+            tags = [record['tag'] for record in endpoint.records]
+            for fault in ('retry_429', 'truncated', 'disconnect', 'plan_bad_criteria', 'plan_minimal', 'write_missing_parent', 'list_missing', 'check_mistaken'):
+                self.assertEqual(tags.count(fault), 1, fault)
+            self.assertEqual(next_record(tags.index('mkdir_parent'))['tag'], 'write')
+            self.assertEqual(next_record(tags.index('disconnect'))['tag'], 'accept')
+            self.assertTrue(all(set(node['brief']) == {'goal', 'acceptance_criteria'} for node in endpoint.plan['nodes']))
+            metrics = {'scenario_results': dict.fromkeys(('minimal_plan', 'criteria_shape', 'missing_parent',
+                'missing_list', 'partial_rework', 'http_429', 'output_limit', 'disconnect_resume'), 'passed'),
+                'final_status': summary['status'], 'commands': 2, 'calls': count, 'corrections_by_reason': corrections,
+                'retries': 1, 'role_statistics': summary['role_statistics'],
+                'simulated_worker_cache_ratios': worker_cache_ratios, 'budget': summary['budget'],
+                'elapsed_ms': first['elapsed_ms'] + summary['elapsed_ms']}
+            write_json(case['directory'] / 'g2-rehearsal-result.json', metrics)
+            print('G2_REHEARSAL_METRICS ' + json.dumps(metrics, sort_keys=True))
 
     def test_07_run_refusal_config_budget_and_unsafe_paths_before_confirmation(self):
         endpoint = PricingFlowEndpoint(initialize_seed=True)
@@ -2019,13 +2368,16 @@ RUN_TEST_METHODS = frozenset((
 G1_TEST_METHODS = frozenset((
     'test_g1_exit_one_command_with_correction_and_simulated_prefix_cache',
 ))
+G2_TEST_METHODS = frozenset((
+    'test_g2_rehearsal_naive_choices_correct_then_resume_one_disconnect',
+))
 
 
 def in_selected_group(name):
-    actual = ('g1' if name in G1_TEST_METHODS else
+    actual = ('g2' if name in G2_TEST_METHODS else 'g1' if name in G1_TEST_METHODS else
               'run' if name in RUN_TEST_METHODS else 'billing')
     group = GROUP_OPTIONS.group
-    return group == actual or (group == 'legacy' and actual != 'g1')
+    return group == actual or (group == 'legacy' and actual not in ('g1', 'g2'))
 
 
 class BillingGroupLoader(unittest.TestLoader):
@@ -2039,6 +2391,8 @@ class BillingGroupLoader(unittest.TestLoader):
                 raise ValueError('run group does not match the complete G1-L methods')
             if not G1_TEST_METHODS.isdisjoint(RUN_TEST_METHODS):
                 raise ValueError('g1 and run groups must be disjoint')
+            if not G2_TEST_METHODS.issubset(all_names) or not G2_TEST_METHODS.isdisjoint(G1_TEST_METHODS | RUN_TEST_METHODS):
+                raise ValueError('g2 must identify its complete independent rehearsal method')
             names = [name for name in names if in_selected_group(name)]
             if not names:
                 raise ValueError('no tests match the requested group and unittest options')

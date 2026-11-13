@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.12.0 — G2-P model readiness (2026-11-13)
+
+- Make v3 tool definitions self-contained and minimal; fill host-owned fields
+  from captured contracts, retain original responses, and return bounded field
+  diagnostics. Extend safe correction, incomplete-output feedback, explicit
+  required tool choice, priced failed-call settlement, per-attempt reservations
+  and at most two eligible retries. Default to file tools, normalize captured
+  `/work` paths, show role/segment summaries and export original filenames.
+- Add the eight-scenario `g2_rehearsal_e2e` and exact G2 task fixtures. Fresh
+  local Release runs pass P7 and the original G1 gate; 84 tests are registered.
+  See [the one-page rehearsal report](docs/reports/g2p-rehearsal.md) for the
+  final checks, counters, preserved failures and the unchanged G1 cache baseline.
+  Store stays 410; real calls remain zero while waiting for the owner's key.
+  The six new format values remain editable until the G2 exit.
+- Apply the authorized sanitizer CTest timeout multiplier and split UBSan's
+  complete test set into two disjoint jobs. A new main ASan acceptance timeout
+  is being repaired without changing cases, assertions or its 180-second limit.
+  Older reports and failed runs retain their original scope.
+
 ## Unreleased — G0 closeout and G1 integration (2026-11-07 through 2026-11-12, in progress; no version cut)
 
 - Merge G1-A–M through #66 on 2026-11-12, product baseline

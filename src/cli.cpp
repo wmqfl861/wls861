@@ -325,7 +325,7 @@ Json request_view(Store& store, const std::string& id) {
 #include "run_cli.inc"
 
 void help() {
-    std::cout << R"(wls 0.11.1-r3.3c-audit — signed billing and a continuous single Agent
+    std::cout << "wls " << product_version << R"( — bounded file workflows and model correction
 
 Resources are discovered relative to the executable, never the current directory.
 Use --resource-root PATH for an installed bundle or --source-root PATH for a checkout.

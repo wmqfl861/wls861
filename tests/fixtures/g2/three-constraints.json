@@ -1,0 +1,4 @@
+[
+  {"constraint_id": "c1", "source_revision": 1, "text": "所有文件用 UTF-8 编码，正文用中文"},
+  {"constraint_id": "c2", "source_revision": 1, "text": "只交付上面点名的文件，不要创建别的文件"}
+]
