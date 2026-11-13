@@ -324,9 +324,10 @@ void forbidden_model_fields_and_unknown_nodes_never_change_business_state() {
         const auto before = f.store->tasks(f.id), old_events = f.store->events(f.id);
         const FakeModel fake({step(Role::Dispatcher, "submit_amendment_plan", args)});
         const auto call = f.capture(fake);
-        if (variant <= 3 || variant == 5)
-            CHECK(f.offline().accept_independent_response(call, fake.complete(call.request)).at("status") == "FAILED");
-        else expect({ErrorCode::InvalidInput, ErrorCode::Unsupported, ErrorCode::Unauthorized}, [&] {
+        if (variant != 4) {
+            const auto failed = f.offline().accept_independent_response(call, fake.complete(call.request));
+            CHECK(failed.at("status") == "FAILED" && failed.at("correction_feedback").at("reason") == "model_arguments");
+        } else expect({ErrorCode::Unauthorized}, [&] {
             (void)f.offline().accept_independent_response(call, fake.complete(call.request));
         });
         CHECK(f.store->tasks(f.id) == before);

@@ -441,7 +441,11 @@ void corrective_order_cannot_drop_previous_extra_constraint() {
     (void)f.invoke(Role::Dispatcher,"accept_candidate",Object{{"passed",false},{"notes","Correction needed."}});
     (void)revise(f);
     const auto dropping=full_script().by_node.at("alpha").front().tool_calls.front().arguments;
-    expect(ErrorCode::InvalidInput,[&] { (void)f.invoke(Role::TeamLead,"issue_work_order",dropping); });
+    const auto task=f.task(), instruction=f.store->instruction(f.binding().task_id);
+    const auto failed=f.invoke(Role::TeamLead,"issue_work_order",dropping);
+    CHECK(failed.at("status")=="FAILED" && failed.at("correction_feedback").at("reason")=="model_arguments");
+    CHECK(failed.at("correction_feedback").at("observation")=="corrective instruction drops an existing task or instruction constraint");
+    CHECK(f.task()==task && f.store->instruction(f.binding().task_id)==instruction);
     CHECK(f.task().at("instruction_revision")==1);
     (void)f.invoke(Role::TeamLead,"issue_work_order",script.by_node.at("alpha").front().tool_calls.front().arguments);
     CHECK(f.task().at("instruction_revision")==2);
