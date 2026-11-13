@@ -695,7 +695,7 @@ void output_limit_feedback_stops_after_two_and_keeps_original_accounting() {
     Fixture reset(input(10));
     auto first = reset.capture(Role::Dispatcher, fake);
     (void)OfflineRuntime(*reset.store, *schemas).accept_response(first, fake.complete(first.request));
-    auto selection = truncated; selection.status = ModelResultStatus::Completed; selection.error_code.clear();
+    auto selection = truncated; selection.status = ModelResultStatus::Completed; selection.error_code.clear(); selection.text = "Choose one tool.";
     const FakeModel text_only({selection}); auto middle = reset.capture(Role::Dispatcher, text_only);
     (void)OfflineRuntime(*reset.store, *schemas).accept_response(middle, text_only.complete(middle.request));
     auto last = reset.capture(Role::Dispatcher, fake);
