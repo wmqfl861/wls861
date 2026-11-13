@@ -557,6 +557,8 @@ CapturedModelCall OfflineRuntime::capture_call(
         require(config.worker_tools(template_id).contains("note"), ErrorCode::Unauthorized, "frozen Worker template does not grant note");
     Json contract = Object{{"request", store_.request_snapshot(request_id)}, {"task", task},
                            {"binding", to_json(binding)}, {"budget", store_.budget(request_id)}};
+    if (role == Role::Worker && config.context_request_format() == "structured-v3")
+        contract.as_object()["file_path_policy"] = "work-relative-v1";
     Json action = nullptr;
     if (!task_id.empty()) contract.as_object()["instruction"] = store_.instruction(task_id);
     if (store_.workflow_runtime_enabled()) {
@@ -1081,12 +1083,24 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         }
     }
     const auto command = captured.attempt_id + ":" + tool.call_id;
-    if (durable_feedback && captured.role == Role::Worker &&
+    bool work_paths = false;
+    if (captured.role == Role::Worker && runtime_config.context_request_format() == "structured-v3") {
+        const auto contract = captured_contract(captured);
+        if (const auto* policy = contract.as_object().if_contains("file_path_policy")) {
+            require(*policy == "work-relative-v1", ErrorCode::Unsupported, "unknown captured file path policy");
+            work_paths = true;
+        }
+    }
+    Json worker_arguments = tool.arguments;
+    if (captured.role == Role::Worker &&
         std::any_of(worker_tool_registry().begin(), worker_tool_registry().end(),
             [&](const auto& definition) { return definition.name == tool.name; })) {
-        try { validate_worker_tool_arguments(tool.name, tool.arguments); }
+        try {
+            if (work_paths) worker_arguments = normalize_worker_file_arguments(tool.name, tool.arguments);
+            validate_worker_tool_arguments(tool.name, worker_arguments);
+        }
         catch (const Error& error) {
-            if (error.code() != ErrorCode::InvalidInput) throw;
+            if (!durable_feedback || error.code() != ErrorCode::InvalidInput) throw;
             throw correction_detail::RejectedArguments(error.what());
         }
     }
@@ -1297,7 +1311,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         return execute_history_control(store_, call.actor, captured.binding, tool.name, tool.arguments);
     if (captured.role == Role::Worker && worker_tools_)
         return worker_tools_->execute(call.actor, captured.binding, call.expected_state_version,
-            captured.attempt_id, tool.name, tool.arguments, command);
+            captured.attempt_id, tool.name, worker_arguments, command);
     require(captured.role == Role::Worker && tool.name == "note", ErrorCode::Unauthorized, "unsupported Worker tool");
     require(tool.arguments.is_object() && tool.arguments.as_object().size() == 1, ErrorCode::InvalidInput, "note accepts only text");
     const auto text = string_at(tool.arguments, "text");

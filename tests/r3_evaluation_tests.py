@@ -170,7 +170,14 @@ class Evaluation(unittest.TestCase):
             order.pop(key)
         for step in order['steps']:
             step.pop('id')
+        write = next(step['tool_calls'][0] for step in minimal['nodes']['alpha']
+                     if step['tool_calls'][0]['name'] == 'fs_write')
+        write['arguments']['path'] = '/work/result.txt'
         self.execute(request, max_calls=12, worker_calls=2, script=minimal)
+        intent = self.rows('SELECT arguments FROM operation_intents JOIN ops USING(op_id) WHERE request_id=?', (request,))
+        self.assertEqual(json.loads(intent[0]['arguments'])['path'], 'result.txt')
+        original = self.rows("SELECT response FROM call_attempts WHERE request_id=? AND role='worker' ORDER BY rowid", (request,))
+        self.assertEqual(json.loads(original[0]['response'])['tool_calls'][0]['arguments']['path'], '/work/result.txt')
         self.ack(request, self.publish(request))
         row = e.build_report(plan, [self.run_entry(plan, request, 'single_agent', task=4)])['rows'][9]
         self.assertEqual(row['status'], 'passed', row)
