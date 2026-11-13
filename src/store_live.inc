@@ -251,7 +251,8 @@ FrozenPricing frozen_request_pricing(const Row& request) {
         if (!provider) continue;
         auto parsed = provider_profile_from_json(*provider);
         const auto name = std::string(role_name(role));
-        result.providers[name] = canonical_json(*provider);
+        // Chat alias sets use the same normalization as the admitted settings.
+        result.providers[name] = canonical_json(adapter == "openai-chat" ? to_json(parsed) : *provider);
         if (parsed.pricing) result.by_role[name] = AttemptPricing{*parsed.pricing, parsed.billing_challenge.empty()};
     }
     return result;

@@ -823,6 +823,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             profile.update(adapter='openai-chat', protocol='openai-chat-v1')
             profile['chat_completions'] = profile.pop('responses')
             provider.update(adapter='openai-chat', protocol='openai-chat-v1', response_metadata_policy='ignore-record-v1',
+                chat_model_aliases=['fixture-z', 'fixture-a'],
                 chat_reasoning_policy='reasoning-effort-v1', chat_completions_path='/v1/chat/completions')
             provider.pop('responses_path')
             provider['capabilities']['streaming'] = False
