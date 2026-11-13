@@ -170,6 +170,7 @@ class Evaluation(unittest.TestCase):
             order.pop(key)
         for step in order['steps']:
             step.pop('id')
+        minimal['nodes']['alpha'][2]['tool_calls'][0]['arguments'].pop('used_memories')
         self.execute(request, max_calls=12, worker_calls=2, script=minimal)
         self.ack(request, self.publish(request))
         row = e.build_report(plan, [self.run_entry(plan, request, 'single_agent', task=4)])['rows'][9]
@@ -184,6 +185,12 @@ class Evaluation(unittest.TestCase):
         self.assertFalse(legacy['checks']['condition_roles'])
         original = json.loads(self.rows("SELECT response FROM call_attempts WHERE role='dispatcher' ORDER BY rowid LIMIT 1")[0]['response'])
         self.assertNotIn('constraint_refs', original['tool_calls'][0]['arguments']['nodes'][0]['brief'])
+        applications = []
+        with e.database(self.database) as db:
+            applications, _ = e.model_applications(db, request, e.rows(db, 'SELECT * FROM call_attempts WHERE request_id=? ORDER BY rowid', (request,)))
+        submission = next(app for app in applications if app['tool_name'] == 'submit')
+        self.assertNotIn('used_memories', submission['arguments'])
+        self.assertEqual(submission['expected_arguments']['used_memories'], [])
         # A rehashed application cannot invent a host constraint absent from the captured catalog.
         with closing(sqlite3.connect(self.database)) as db, db:
             event_id, raw = db.execute("SELECT event_id,payload FROM events WHERE type='independent_plan'").fetchone()
@@ -194,6 +201,24 @@ class Evaluation(unittest.TestCase):
                        (e.original_canonical(payload).decode(), e.original_digest(payload), event_id))
         with e.database(self.database) as db, self.assertRaisesRegex(e.InvalidEvidence, 'applied plan differs'):
             e.model_applications(db, request, e.rows(db, 'SELECT * FROM call_attempts WHERE request_id=? ORDER BY rowid', (request,)))
+
+    def test_submission_completion_requires_the_captured_new_v3_declaration(self):
+        properties = dict.fromkeys(('summary', 'deliverables', 'verification', 'self_check', 'known_issues'), {})
+        envelope = {'context': {'format': 'wls-compiled-context-v3', 'input': {'prefix': {'tools': [
+            {'name': 'submit', 'parameters': {'properties': properties}}]}}}}
+        arguments = {'summary': 'original'}
+        self.assertEqual(e.v3_host_arguments(envelope, {}, 'submit', arguments), dict(arguments, used_memories=[]))
+        self.assertNotIn('used_memories', arguments)
+        self.assertEqual(e.v3_host_arguments(envelope, {}, 'submit', dict(arguments, used_memories=[])), dict(arguments, used_memories=[]))
+        with self.assertRaisesRegex(e.InvalidEvidence, 'host field differs'):
+            e.v3_host_arguments(envelope, {}, 'submit', dict(arguments, used_memories=[{'memory_id': 'invented'}]))
+        for format_name, old_declaration in (('wls-compiled-context-v1', False), ('wls-compiled-context-v2', False), ('wls-compiled-context-v3', True)):
+            envelope['context']['format'] = format_name
+            if old_declaration:
+                properties['used_memories'] = {}
+            self.assertEqual(e.v3_host_arguments(envelope, {}, 'submit', arguments), arguments)
+            explicit = dict(arguments, used_memories=[{'memory_id': 'original'}])
+            self.assertEqual(e.v3_host_arguments(envelope, {}, 'submit', explicit), explicit)
 
     def test_v3_unapplied_fractional_response_keeps_complete_original_history(self):
         request = self.logical_seed(context_change=('model_calls:\n', 'model_calls:\n  runtime_policy: bounded-v1\n'))
