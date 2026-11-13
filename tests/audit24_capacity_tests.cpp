@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 // Frozen capacity, durable admission holds and retained command replay. All data are throwaway.
 #include "wls/capacity.hpp"
 #include "wls/store.hpp"
@@ -65,7 +66,7 @@ struct Fixture {
     }
     explicit Fixture(bool legacy = false, std::int64_t revision_limit = 100) {
         store = open();
-        const auto config = load_config_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts");
+        const auto config = ::test::legacy_shell_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts");
         AdmissionInput in; in.tenant_id = "t"; in.project_id = "p"; in.root_id = "root"; in.function_id = "general";
         in.idempotency_key = "reopen"; in.original_text = "preserve original input";
         in.config_snapshot = config.freeze("general").json(); in.tool_allowlist = {"fs_write", "ack_change"};
@@ -83,7 +84,7 @@ struct Fixture {
         // parsed snapshot while retaining its original dependency fingerprint.
         const auto config_path = dir.path / "system.json";
         { std::ofstream file(config_path); file << canonical_json(in.config_snapshot.at("system")); }
-        in.config_snapshot = load_config_catalog(config_path, source / "config/examples/functions", source / "prompts").freeze("general").json();
+        in.config_snapshot = ::test::legacy_shell_catalog(config_path, source / "config/examples/functions", source / "prompts").freeze("general").json();
         in.constraint_catalog = Array{Object{{"constraint_id", "c1"}, {"text", "preserve original input"}, {"source_revision", 1}}};
         request = text(store->admit(in), "request_id");
         (void)store->publish_plan(actor(Role::Dispatcher), num(store->request(request), "state_version"), 1, Object{{"goal", "p"}}, "plan");
@@ -195,7 +196,7 @@ void old_snapshot_limits_remain_frozen() {
 }
 void inconsistent_admission_is_rejected_without_rows() {
     test::TempDir dir;
-    const auto config=load_config_catalog(source/"config/examples/system.yaml", source/"config/examples/functions", source/"prompts");
+    const auto config=::test::legacy_shell_catalog(source/"config/examples/system.yaml", source/"config/examples/functions", source/"prompts");
     auto system=config.freeze("general").json().at("system");
     validate_store_capacity_admission(system);
     system.at("limits").at("store_capacity").as_object()["operations"]=1024;

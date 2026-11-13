@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/structured_context.hpp"
 #include "wls/offline_runtime.hpp"
 #include "wls/worker_history.hpp"
@@ -539,7 +540,7 @@ struct ConfigFixture {
         yaml.replace(pos, marker.size(), format.empty() ? "" : "  request_format: " + format + "\n");
         if (!projection.empty()) yaml.insert(yaml.find("  compaction_at_fraction:"), "  model_projection: " + projection + "\n");
         { std::ofstream out(tmp.path / "system.yaml"); out << yaml; CHECK(out.good()); }
-        return load_config_catalog(tmp.path / "system.yaml", root / "config/examples/functions", root / "prompts").freeze("general");
+        return ::test::legacy_shell_catalog(tmp.path / "system.yaml", root / "config/examples/functions", root / "prompts").freeze("general");
     }
 };
 void frozen_choice_and_legacy_default() {
@@ -674,7 +675,7 @@ void guided_capture_uses_real_adapter_and_stable_role_rules(bool lean = false) {
         std::filesystem::copy(root / "config/examples/functions", functions, std::filesystem::copy_options::recursive);
         std::ofstream(system_path) << canonical_json(admission.config_snapshot.at("system"));
         std::ofstream(functions / "general/function.yaml") << canonical_json(admission.config_snapshot.at("function"));
-        admission.config_snapshot = load_config_catalog(system_path, functions, root / "prompts").freeze("general").json();
+        admission.config_snapshot = ::test::legacy_shell_catalog(system_path, functions, root / "prompts").freeze("general").json();
         const auto snapshot = canonical_json(admission.config_snapshot);
         const auto frozen = FrozenRequestConfig::restore(snapshot, sha256_hex(snapshot));
         CHECK(frozen.context_prompt_policy() == "guided-v1");
@@ -912,7 +913,7 @@ struct V3Fixture {
         if (mode == "single" || mode == "all") policies += "  logical_agent: {mode: single-agent-role-broker-v1, max_attempts: 64, max_history_bytes: 524288}\n";
         yaml.insert(position, policies);
         { std::ofstream file(directory.path / "system.yaml"); file << yaml; CHECK(file.good()); }
-        const auto frozen = load_config_catalog(directory.path / "system.yaml", root / "config/examples/functions", root / "prompts").freeze("general");
+        const auto frozen = ::test::legacy_shell_catalog(directory.path / "system.yaml", root / "config/examples/functions", root / "prompts").freeze("general");
         AdmissionInput admission;
         admission.tenant_id = "test"; admission.project_id = "test"; admission.root_id = "root";
         admission.function_id = frozen.function_id(); admission.idempotency_key = "v3";

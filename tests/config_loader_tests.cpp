@@ -84,11 +84,18 @@ void sample_loads_with_provenance_and_no_environment_expansion() {
     CHECK(frozen.capability_id() == "run");
     CHECK(frozen.sha256().size() == 64);
     CHECK(frozen.sha256() == sha256_hex(frozen.serialize()));
-    CHECK(frozen.dependencies().size() == 10);
+    CHECK(frozen.dependencies().size() == 11);
     CHECK(frozen.resolve(Role::Worker).model == "fake");
     CHECK(frozen.resolve(Role::Worker).reasoning.mode == ReasoningMode::ProviderDefault);
     CHECK(frozen.resolve(Role::Worker) == frozen.resolve(Role::Root));
-    CHECK(frozen.worker_tools().contains("fs_read"));
+    CHECK((frozen.worker_tools() == ToolSet{"fs_list", "fs_read", "fs_search", "fs_mkdir", "fs_write", "fs_patch", "ask", "submit"}));
+    CHECK(frozen.worker_tools() == frozen.worker_tools("files"));
+    for (const auto& item : frozen.json().at("function").at("team_templates").as_object()) {
+        const auto path = "functions/general/" + std::string(item.value().at("env").as_string());
+        for (const auto& dependency : frozen.dependencies()) if (dependency.path == path)
+            CHECK(frozen.worker_tools(std::string(item.key())).contains("run") ||
+                dependency.content.find("  - name:") == std::string::npos);
+    }
     const auto explanation = frozen.explain(Role::Worker);
     CHECK(explanation.at("resolution").at("model_source").as_string() == "system.defaults.model_ref");
     CHECK(explanation.at("resolution").at("inheritance").as_string() == "direct_frozen_root");
@@ -420,7 +427,7 @@ void template_dispatch_requires_registered_deterministic_acceptance() {
     options.acceptance_validators.insert("current_review_evidence_v1");
     const auto frozen = fixture.load(options).freeze("general", "review");
     CHECK(frozen.capability_id() == "review");
-    CHECK(frozen.dependencies().size() == 11);
+    CHECK(frozen.dependencies().size() == 12);
     const auto restored = FrozenRequestConfig::restore(frozen.serialize(), frozen.sha256(), options);
     CHECK(restored.sha256() == frozen.sha256());
     expect_error(ErrorCode::Unsupported, [&] { (void)FrozenRequestConfig::restore(frozen.serialize(), frozen.sha256()); });
@@ -435,6 +442,7 @@ void environment_checks_are_frozen_as_data_and_never_executed() {
     const Json environment = Object{{"schema_version", 1}, {"tools", Array{Object{{"name", "fixture"},
         {"check", "touch " + sentinel.string()}, {"usage", "read-only configuration loading must not run this"}}}}, {"notes", "fixture"}};
     write(fixture.general / "env.yaml", canonical_json(environment));
+    write(fixture.general / "shell-env.yaml", canonical_json(environment));
     const auto frozen = fixture.freeze();
     CHECK(!std::filesystem::exists(sentinel));
     bool found_environment = false;

@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/single_agent.hpp"
 #include "wls/worker_tools.hpp"
 #include "live_test_support.hpp"
@@ -33,7 +34,7 @@ Json policy(std::int64_t calls = 128, std::int64_t bytes = 524288) {
 AdmissionInput admission(const Json& logical = policy()) {
     ::test::TempDir directory;
     std::filesystem::copy(source / "config/examples", directory.path / "config", std::filesystem::copy_options::recursive);
-    auto catalog = load_config_catalog(directory.path / "config/system.yaml", directory.path / "config/functions", source / "prompts");
+    auto catalog = ::test::legacy_shell_catalog(directory.path / "config/system.yaml", directory.path / "config/functions", source / "prompts");
     auto system = catalog.freeze("general").json().at("system");
     system.at("context").as_object().erase("tool_policy"); system.at("context").as_object().erase("model_projection");
     system.at("context").as_object().erase("worker_history");
@@ -41,7 +42,7 @@ AdmissionInput admission(const Json& logical = policy()) {
     if (!logical.is_null()) system.at("context").as_object()["logical_agent"] = logical;
     else system.at("context").as_object().erase("logical_agent");
     { std::ofstream output(directory.path / "config/system.yaml"); output << canonical_json(system); CHECK(output.good()); }
-    catalog = load_config_catalog(directory.path / "config/system.yaml", directory.path / "config/functions", source / "prompts");
+    catalog = ::test::legacy_shell_catalog(directory.path / "config/system.yaml", directory.path / "config/functions", source / "prompts");
     const auto frozen = catalog.freeze("general");
     AdmissionInput input;
     input.tenant_id = "single-test"; input.project_id = "single-project"; input.root_id = "single-root";

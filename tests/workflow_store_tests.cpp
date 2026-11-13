@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/store.hpp"
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
@@ -73,7 +74,7 @@ AdmissionInput admission() {
     input.tenant_id = "tenant"; input.project_id = "project"; input.root_id = "root";
     input.function_id = "general"; input.idempotency_key = new_id("admission");
     input.original_text = "preserve fixture observations";
-    input.config_snapshot = load_config_catalog(source_root / "config/examples/system.yaml",
+    input.config_snapshot = ::test::legacy_shell_catalog(source_root / "config/examples/system.yaml",
         source_root / "config/examples/functions", source_root / "prompts").freeze("general").json();
     input.constraint_catalog = Array{Object{{"constraint_id", "c1"}, {"text", input.original_text}, {"source_revision", 1}}};
     input.tool_allowlist = {"note", "ask", "submit", "fs_read", "fs_write", "ack_change", "op_status", "op_cancel"};

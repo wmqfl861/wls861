@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from legacy_shell_config import legacy_shell_arguments, select_legacy_shell
 from fake_script_support import frozen_script
 
 
@@ -38,6 +39,7 @@ class OfflineCliSmoke(unittest.TestCase):
         self.database = self.directory / "runtime.sqlite"
 
     def invoke(self, *arguments, error=None):
+        arguments = legacy_shell_arguments(arguments, SOURCE, self.directory)
         command = [str(BINARY), *(str(argument) for argument in arguments),
                    "--source-root", str(SOURCE)]
         completed = subprocess.run(command, cwd=self.directory, capture_output=True,
@@ -224,6 +226,7 @@ class OfflineCliSmoke(unittest.TestCase):
         copied_config = self.directory / "configuration"
         copied_prompts = self.directory / "role-prompts"
         shutil.copytree(SOURCE / "config" / "examples", copied_config)
+        select_legacy_shell(copied_config / "functions")
         shutil.copytree(SOURCE / "prompts", copied_prompts)
         admission = self.submit(config=copied_config / "system.yaml",
                                 functions_dir=copied_config / "functions", prompts_dir=copied_prompts)

@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "test_support.hpp"
@@ -68,7 +69,7 @@ AdmissionInput input(bool structured = false) {
         yaml.replace(at, old.size(), structured ? "request_format: structured-v2" : "request_format: framed-v1");
     }
     { std::ofstream output(directory.path / "system.yaml"); output << yaml; CHECK(static_cast<bool>(output)); }
-    const auto frozen = load_config_catalog(directory.path / "system.yaml", source / "config/examples/functions",
+    const auto frozen = ::test::legacy_shell_catalog(directory.path / "system.yaml", source / "config/examples/functions",
         source / "prompts").freeze("general");
     AdmissionInput result;
     result.tenant_id = "test-tenant"; result.project_id = "test-project"; result.root_id = "test-root";

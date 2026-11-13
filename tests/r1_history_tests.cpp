@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 #include "wls/store.hpp"
 #include "wls/config_loader.hpp"
 #include "wls/model.hpp"
@@ -56,7 +57,7 @@ FrozenRequestConfig framed_config() {
     const auto at = yaml.find(format); CHECK(at != std::string::npos);
     yaml.replace(at, format.size(), "request_format: framed-v1");
     { std::ofstream file(temp.path / "system.yaml"); file << yaml; CHECK(static_cast<bool>(file)); }
-    return load_config_catalog(temp.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general");
+    return ::test::legacy_shell_catalog(temp.path / "system.yaml", source / "config/examples/functions", source / "prompts").freeze("general");
 }
 struct Fixture {
     test::TempDir temp;

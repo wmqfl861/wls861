@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from legacy_shell_config import legacy_shell_arguments
 from fake_script_support import v3_fake_script
 
 BINARY = Path(sys.argv[1]).resolve()
@@ -47,6 +48,7 @@ class HistoryCli(unittest.TestCase):
         return path
 
     def call(self, *args, error=None):
+        args = legacy_shell_arguments(args, SOURCE, self.root)
         result = subprocess.run([str(BINARY), *map(str, args), "--source-root", str(SOURCE)],
             cwd=self.root, capture_output=True, text=True, timeout=45, check=False)
         if error:

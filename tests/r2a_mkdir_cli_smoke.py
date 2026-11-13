@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from legacy_shell_config import legacy_shell_arguments, select_legacy_shell
 
 
 if len(sys.argv) != 3:
@@ -42,6 +43,7 @@ class MkdirCliSmoke(unittest.TestCase):
         self.database = self.directory / "runtime.sqlite"
 
     def invoke(self, *arguments, error=None):
+        arguments = legacy_shell_arguments(arguments, SOURCE, self.directory)
         completed = subprocess.run(
             [str(BINARY), *(str(arg) for arg in arguments), "--source-root", str(SOURCE)],
             cwd=self.directory, capture_output=True, text=True, encoding="utf-8",
@@ -221,6 +223,7 @@ class MkdirCliSmoke(unittest.TestCase):
     def test_upgrading_template_does_not_grant_mkdir_to_existing_frozen_request(self):
         functions = self.directory / "functions"
         shutil.copytree(SOURCE / "config/examples/functions", functions)
+        select_legacy_shell(functions)
         template = functions / "general/function.yaml"
         current_template = template.read_text(encoding="utf-8")
         template.write_text(re.sub(r"\bfs_mkdir,\s*", "", current_template), encoding="utf-8")

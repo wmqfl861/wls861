@@ -1,3 +1,4 @@
+#include "legacy_shell_config.hpp"
 // Reproduction: hard-coded per-request event capacity (4096) blocks
 // non-control progress long before configured limits are exhausted.
 #include "wls/store.hpp"
@@ -15,7 +16,7 @@ void sustained_calls_and_control_traffic() {
     const std::filesystem::path src = WLS_SOURCE_DIR;
     test::TempDir dir;
     Store store(dir.path / "state.sqlite", read(src / "db/schema.sql"), read(src / "db/migrations/004_s1_store.sql"), StoreOpenMode::Takeover, read(src / "db/migrations/005_worker_tools.sql"), read(src / "db/migrations/006_event_runtime.sql"), read(src / "db/migrations/007_workflow_runtime.sql"), read(src / "db/migrations/008_acceptance_runtime.sql"), read(src / "db/migrations/009_owned_cleanup.sql"));
-    auto catalog = load_config_catalog(src / "config/examples/system.yaml", src / "config/examples/functions", src / "prompts");
+    auto catalog = ::test::legacy_shell_catalog(src / "config/examples/system.yaml", src / "config/examples/functions", src / "prompts");
     AdmissionInput in; in.tenant_id = "t"; in.project_id = "p"; in.root_id = "root"; in.function_id = "general";
     in.idempotency_key = "cap"; in.original_text = "preserve original input";
     in.config_snapshot = catalog.freeze("general").json(); in.tool_allowlist = {"fs_write"};
