@@ -346,6 +346,29 @@ void budgets_durability_and_isolation_values_are_checked() {
     CHECK(!frozen.explain(Role::Worker).at("environment_checks_executed").as_bool());
 }
 
+void standard_and_strict_are_frozen_without_changing_legacy_defaults() {
+    Fixture fixture;
+    const auto original = fixture.function_json();
+    CHECK(original.at("team_templates").at("shell").at("isolation") == "standard");
+    CHECK(original.at("team_templates").at("default").at("isolation") == "strong");
+    for (const auto* mode : {"standard", "strict"}) {
+        auto function = original;
+        auto& selected = field(field(function, "team_templates"), "shell").as_object();
+        selected["isolation"] = mode;
+        selected.erase("network");
+        fixture.function(function);
+        const auto frozen = fixture.freeze();
+        const auto restored = FrozenRequestConfig::restore(frozen.serialize(), frozen.sha256());
+        CHECK(restored.serialize() == frozen.serialize());
+        CHECK(restored.json().at("function").at("team_templates").at("shell").at("isolation") == mode);
+        CHECK(!restored.json().at("function").at("team_templates").at("shell").as_object().contains("network"));
+    }
+    auto legacy = original;
+    field(field(legacy, "team_templates"), "default").as_object().erase("network");
+    fixture.function(legacy);
+    expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.freeze(); });
+}
+
 void template_paths_and_symbolic_links_cannot_escape_config_roots() {
     for (const auto& path : {"../outside.md", "/tmp/outside.md", "prompts/../worker.md", "prompts\\worker.md"}) {
         Fixture fixture;
@@ -603,6 +626,7 @@ int main() {
         {"cleanup opt-in is frozen and requires separate execution guards", cleanup_opt_in_is_frozen_but_not_an_execution_authorization},
         {"unimplemented features reject and paid retries remain bounded", unsupported_runtime_features_never_silently_enable},
         {"budget durability and explicit weak isolation policies validate", budgets_durability_and_isolation_values_are_checked},
+        {"standard and strict selection preserve frozen and legacy semantics", standard_and_strict_are_frozen_without_changing_legacy_defaults},
         {"template references reject traversal and file or directory symlinks", template_paths_and_symbolic_links_cannot_escape_config_roots},
         {"configuration parsing and frozen payload have explicit capacity bounds", parser_and_snapshot_capacity_are_bounded},
         {"template dispatch requires a host registered deterministic validator", template_dispatch_requires_registered_deterministic_acceptance},

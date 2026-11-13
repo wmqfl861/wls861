@@ -1458,12 +1458,39 @@ class BillingBaselineIntegration(unittest.TestCase):
             limited = self.run_inputs('run-total-cap', peer)
             limited['system']['model_calls']['max_total_calls'] = 30
             write_json(limited['configuration'], limited['system'])
-            result = self.invoke_run(limited, '--yes')
+            manifest = write_json(limited['directory'] / 'sandbox.json', {'schema_version': 1, 'cpu_quota_us': 50000})
+            result = self.invoke_run(limited, '--yes', '--sandbox-manifest', manifest)
             self.assertEqual(result.returncode, 0, result.stderr)
             summary = json.loads(result.stdout)
             self.assertEqual(summary['status'], 'RUNNING')
             self.assertEqual(summary['stop_reason'], 'total_call_limit')
             self.assertIsNone(summary['delivery_path'])
+            self.assertEqual(len(peer.requests), 30)
+            request = limited['data'] / 'requests' / summary['request_id']
+            database = request / 'control.sqlite'
+            intent = json.loads((request / 'intent.json').read_text())['admission']
+            fingerprint = hashlib.sha256(manifest.read_bytes()).hexdigest()
+            self.assertEqual(intent['sandbox'], {'manifest': {'schema_version': 1, 'cpu_quota_us': 50000},
+                'raw_sha256': fingerprint, 'run_key_format': 'run-key-sandbox-v1'})
+            self.assertEqual(intent['run_key_sha256'], digest({'format': 'run-key-sandbox-v1',
+                'text': limited['material'].read_text(), 'constraints': [],
+                'config_locator': str(limited['configuration'].absolute()),
+                'config_snapshot_sha256': digest(intent['config_snapshot']), 'sandbox_manifest_sha256': fingerprint}))
+            bindings = rows(database, 'SELECT execution_policy FROM workspace_bindings')
+            self.assertTrue(bindings)
+            self.assertTrue(all(json.loads(row['execution_policy'])['cpu_quota_us'] == 50000 for row in bindings))
+            self.assertIn('run', json.loads(rows(database, 'SELECT tool_allowlist FROM request_runtime')[0]['tool_allowlist']))
+            original = rows(database, 'SELECT seq,type,payload,result FROM events ORDER BY seq')
+            manifest.write_bytes(manifest.read_bytes() + b'\n')
+            changed = self.invoke_run(limited, '--sandbox-manifest', manifest, answer='no\n')
+            self.assertEqual(changed.returncode, 2, changed.stderr)
+            self.assertNotEqual(json.loads(changed.stderr.splitlines()[0])['request_id'], summary['request_id'])
+            self.assertEqual(rows(database, 'SELECT seq,type,payload,result FROM events ORDER BY seq'), original)
+            for content in ('[]', '{"schema_version":1,"unknown":true}'):
+                manifest.write_text(content)
+                rejected = self.invoke_run(limited, '--yes', '--sandbox-manifest', manifest)
+                self.assertEqual(rejected.returncode, 2, rejected.stderr)
+                self.assertNotIn('wls-run-confirmation', rejected.stderr)
             self.assertEqual(len(peer.requests), 30)
 
     def test_08_run_ctrl_c_after_settlement_resumes_original_claims_and_effects(self):

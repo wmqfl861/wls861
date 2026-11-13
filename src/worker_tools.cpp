@@ -117,7 +117,9 @@ SandboxPolicy policy_from_config(Store& store, const StoreActor& actor,
         const Json& manifest, const FrozenRequestConfig& config) {
     const auto record = store.request(actor.request_id);
     runtime_detail::require_matching_config(record, config);
-    return worker_sandbox_policy(config, field(store.task(actor.task_id), "template_id"), manifest);
+    const auto policy = worker_sandbox_policy(config, field(store.task(actor.task_id), "template_id"), manifest);
+    if (policy.isolation == SandboxIsolation::StandardCgroupV1) store.validate_process_runtime_root("/usr");
+    return policy;
 }
 // All WorkerTools instances sharing a writer use the same cancellation source.
 // A Store's process-wide writer lease prevents a second Store for this database.
@@ -224,9 +226,11 @@ SandboxPolicy worker_sandbox_policy(const FrozenRequestConfig& config, std::stri
     const auto& templates = config.json().at("function").at("team_templates");
     require(templates.is_object() && templates.as_object().contains(template_id), ErrorCode::InvalidInput, "unknown team template");
     const auto& selected = templates.at(template_id);
-    require(field(selected, "network") == "none" && field(frozen, "network_default") == "none", ErrorCode::Unsupported, "this executor only implements network none");
-    require(field(selected, "isolation") == "strong", ErrorCode::Unsupported, "this executor has no weak process mode");
+    require(optional_text(selected, "network", "none") == "none" && field(frozen, "network_default") == "none", ErrorCode::Unsupported, "this executor only implements network none; host network is unsupported");
+    const auto isolation = field(selected, "isolation");
+    require(isolation == "strong" || isolation == "strict" || isolation == "standard", ErrorCode::Unsupported, "this executor has no weak process mode");
     SandboxPolicy policy;
+    if (isolation == "standard") policy.isolation = SandboxIsolation::StandardCgroupV1;
     policy.bwrap_path = optional_text(manifest, "bwrap_path", "/usr/bin/bwrap");
     if (manifest.as_object().contains("bwrap_sha256")) {
         hash_argument(manifest, "bwrap_sha256"); policy.expected_bwrap_sha256 = field(manifest, "bwrap_sha256");
@@ -272,6 +276,11 @@ Json worker_execution_policy(const FrozenRequestConfig& config, std::string_view
         {"memory_max_bytes", policy.memory_max_bytes}, {"pids_max", policy.pids_max}, {"cpu_quota_us", policy.cpu_quota_us},
         {"cpu_period_us", policy.cpu_period_us}, {"max_timeout_ms", policy.max_timeout.count()},
         {"cleanup_timeout_ms", policy.cleanup_timeout.count()}, {"max_output_bytes", policy.max_output_bytes}};
+    if (policy.isolation == SandboxIsolation::StandardCgroupV1) {
+        result["version"] = "wls-worker-execution-standard-cgroup-v1";
+        result["process_isolation"] = "standard-cgroup-v1";
+        result["resource_enforcement"] = "cgroup-v2";
+    }
     if (!capacity.is_null()) {
         result["owned_workspace_capacity"] = capacity;
         result["business_effect_scope"] = "file-tools-only";
@@ -294,7 +303,7 @@ void WorkerTools::check_actor(const StoreActor& actor) const {
 
 SandboxPolicy WorkerTools::policy_for(const StoreActor& actor) const {
     const auto config = restore_request_config(store_.request(actor.request_id));
-    return worker_sandbox_policy(config, field(store_.task(actor.task_id), "template_id"), manifest_);
+    return policy_from_config(store_, actor, manifest_, config);
 }
 
 void WorkerTools::bind(const StoreActor& actor) {
@@ -364,6 +373,11 @@ Json WorkerTools::environment_card(const StoreActor& actor) const {
     Object result{{"file_executor", "dirfd-openat2"}, {"process_executor", "bwrap-cgroup-v2"}, {"logical_workspace", "/work"},
         {"environment_checks_executed", false}, {"process_isolation_verified", false},
         {"execution_policy_sha256", binding.at("execution_policy_sha256")}, {"note_is_business_delivery", false}};
+    if (binding.at("execution_policy").at("version") == "wls-worker-execution-standard-cgroup-v1") {
+        result["process_isolation"] = "standard-cgroup-v1";
+        result["network"] = "none";
+        result["resource_enforcement"] = "cgroup-v2";
+    }
     if (binding.at("execution_policy").as_object().contains("owned_workspace_capacity")) {
         result["process_executor"] = "disabled-by-owned-capacity-v1";
         result["business_effect_scope"] = "file-tools-only";

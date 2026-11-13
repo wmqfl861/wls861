@@ -345,7 +345,7 @@ init is explicit all-request recovery and migration maintenance.
   wls replay-model --profile FILE --request FILE --replay FILE
   wls init --db FILE
   wls run --config FILE --text-file FILE [--constraints-file FILE]
-          [--budget-usd N] [--data DIRECTORY] [--yes]
+          [--budget-usd N] [--data DIRECTORY] [--sandbox-manifest FILE] [--yes]
   wls submit --db FILE --key KEY --text-file FILE [--constraints-file FILE]
              [--tenant local] [--project local] [--root local-root]
              [--function general] [--config FILE] [--max-attempts 64]
@@ -442,12 +442,13 @@ capacity is read-only. capacity-checkpoint requires Root, --expected-window,
 It advances a storage admission window without deleting audit or resetting budgets.
 wait/wake are local host controls;
 a wake leaves instruction, AMEND and UNKNOWN gates in force. An explicit
-workspace enables bounded file tools and process execution with verified strong
-isolation. A process requires a pinned host manifest and delegated cgroup v2;
+workspace enables bounded file tools and verified strict or standard isolation.
+A process requires a pinned host manifest and delegated cgroup v2;
 missing prerequisites refuse execution. Worker tools do not establish delivery.
 tool-query accepts only registered diagnostics. Read commands do not fence a writer.
 Opening a writer fences interrupted executions and keeps their unknown budgets.
 doctor observes prerequisites without changing host policy or running template checks.
+It reports strict and standard separately; host network and rlimit fallback remain unsupported.
 encode-model and replay-model only read local fixtures, never resolve credentials,
 open Store or send requests. Replay returns 4 with JSON for Error/Interrupted results.
 live-status reads frozen identities and accounting without resolving credentials.
@@ -547,6 +548,25 @@ int run_cli(int argc, char** argv) {
         const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(manifest_bytes, 262144);
         const auto policy = worker_sandbox_policy(frozen, template_id, manifest);
         auto result = to_json(sandbox_doctor(policy));
+        Object isolation_modes;
+        for (const auto mode : {SandboxIsolation::Strict, SandboxIsolation::StandardCgroupV1}) {
+            auto candidate = policy; candidate.isolation = mode;
+            const auto observation = mode == policy.isolation ? result : to_json(sandbox_doctor(candidate));
+            Array reasons; std::size_t omitted = 0;
+            for (const auto& check : observation.at("checks").as_array()) {
+                if (!check.at("required_for_prerequisites").as_bool() && check.at("kind") != "kernel_auxiliary") continue;
+                for (const auto& reason : check.at("reasons").as_array()) {
+                    if (reasons.size() == 64) { ++omitted; continue; }
+                    reasons.push_back(Object{{"check", check.at("id")}, {"code", reason.at("code")}});
+                }
+            }
+            isolation_modes[mode == SandboxIsolation::Strict ? "strict" : "standard"] = Object{
+                {"policy", observation.at("selected_isolation")}, {"prerequisites", observation.at("selected_prerequisites")},
+                {"execution_verified", false}, {"resource_enforcement", "cgroup-v2"},
+                {"host_network_supported", false}, {"rlimit_fallback_supported", false},
+                {"reasons", std::move(reasons)}, {"omitted_reasons", omitted}};
+        }
+        result.as_object()["isolation_modes"] = std::move(isolation_modes);
         result.as_object()["config_snapshot_sha256"] = frozen.sha256();
         result.as_object()["template_id"] = template_id;
         result.as_object()["environment_checks_executed"] = false;
@@ -576,6 +596,8 @@ int run_cli(int argc, char** argv) {
             }
         }
         bound_sandbox_doctor_report(result);
+        if (result.at("report_truncated").as_bool())
+            for (auto& mode : result.at("isolation_modes").as_object()) mode.value().as_object()["prerequisites"] = false;
         output(result); return 0;
     }
     const std::set<std::string> commands{"init", "submit", "show", "events", "budget", "config-snapshot", "run-fake", "pump-fake", "pump-live", "pump-single-fake", "pump-single-live", "live-status", "reconcile-billing", "inbox", "history", "history-page", "history-read", "questions", "submissions", "answer", "wait", "wake", "tool-query", "amend", "cancel", "pending", "deliveries", "experience", "closeout", "publish-delivery", "verify-delivery", "ack-delivery", "allocate-workspace", "abandon-workspace", "owned-workspaces", "cleanup-workspaces", "reconcile-op", "capacity", "capacity-checkpoint"};

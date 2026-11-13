@@ -578,6 +578,41 @@ void workspace_cannot_enclose_its_store_control_files() {
     CHECK(s(safe, "canonical_path") == (parent / "workspace").string());
     CHECK(f.store->request(f.request_id) == request);
 }
+void runtime_tree_rejects_control_containment_links_and_replacement() {
+    Fixture f(tools_input()); upgrade_tools(f);
+    const auto parent = std::filesystem::canonical(f.temp.path), runtime = parent / "runtime";
+    std::filesystem::create_directory(runtime);
+    const auto request = f.store->request(f.request_id);
+    const auto events = f.store->events(f.request_id);
+    f.store->validate_process_runtime_root(runtime);
+    error(ErrorCode::Unauthorized, [&] { f.store->validate_process_runtime_root(parent); });
+    const auto alias = parent / "control-alias";
+    std::filesystem::create_directory_symlink(parent, alias);
+    error(ErrorCode::Unauthorized, [&] { f.store->validate_process_runtime_root(alias); });
+    {
+        Store alternate(alias / f.path.filename(), base_sql, migration_sql, StoreOpenMode::ReadOnly, tools_migration_sql);
+        error(ErrorCode::Unauthorized, [&] { alternate.validate_process_runtime_root(parent); });
+    }
+    for (const auto* suffix : {"", ".writer-lock", "-wal", "-shm"}) {
+        const auto control = f.path.string() + suffix;
+        CHECK(std::filesystem::is_regular_file(control));
+        std::filesystem::create_hard_link(control, runtime / "exposed-control");
+        error(ErrorCode::Unauthorized, [&] { f.store->validate_process_runtime_root(runtime); });
+        std::filesystem::remove(runtime / "exposed-control");
+        f.store->validate_process_runtime_root(runtime);
+    }
+    for (const auto* suffix : {".writer-lock", ""}) {
+        const auto control = f.path.string() + suffix;
+        std::filesystem::rename(control, runtime / "original-control");
+        { std::ofstream replacement(control); replacement << "replacement"; CHECK(replacement.good()); }
+        CHECK(::chmod(control.c_str(), 0600) == 0);
+        error(ErrorCode::Unauthorized, [&] { f.store->validate_process_runtime_root(runtime); });
+        std::filesystem::remove(control);
+        std::filesystem::rename(runtime / "original-control", control);
+        f.store->validate_process_runtime_root(runtime);
+    }
+    CHECK(f.store->request(f.request_id) == request && f.store->events(f.request_id) == events);
+}
 void registered_business_tools_preserve_quota_and_exact_intents() {
     Fixture f(tools_input(1)); upgrade_tools(f); bind_tools(f); f.ready();
     const auto actor = f.actor(Role::Worker); const auto binding = f.store->binding(f.task_id);
@@ -911,6 +946,7 @@ int main(int argc, char** argv) {
         {"failed 403 migration leaves data, schema version and events intact", tools_migration_failure_rolls_back_all_schema_changes},
         {"workspace identities and execution policies are immutable across teams and recovery", workspace_identity_policy_and_team_aliases_are_immutable},
         {"workspace cannot enclose this Store database, writer lease or SQLite side files", workspace_cannot_enclose_its_store_control_files},
+        {"runtime tree rejects control containment hardlinks and replaced identities", runtime_tree_rejects_control_containment_links_and_replacement},
         {"static business registry preserves quota and exact durable intents", registered_business_tools_preserve_quota_and_exact_intents},
         {"concurrent same-key intent and command have one durable dispatch claim", concurrent_registered_intent_has_one_dispatch_claim},
         {"original execution facts and bounded binary output commit atomically", execution_results_and_binary_output_commit_atomically},
