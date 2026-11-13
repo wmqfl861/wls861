@@ -18,6 +18,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 if len(sys.argv) != 3:
@@ -156,7 +157,8 @@ class LiveWorkflowCli(unittest.TestCase):
         self.assertEqual(result.stderr, '')
         return json.loads(result.stdout)
 
-    def admit(self, port, key='request-one', pricing=None, cost_budget=10000):
+    def admit(self, port, key='request-one', pricing=None, cost_budget=10000, retries=0, timeout_ms=None,
+              total=None, challenge=False):
         system = copy.deepcopy(self.system)
         provider = json.loads((SOURCE / 'config/examples/providers/responses-offline.json').read_text())
         provider.update(base_url=f'https://localhost:{port}', api_key_env=REFERENCE,
@@ -165,6 +167,10 @@ class LiveWorkflowCli(unittest.TestCase):
         provider['capabilities']['reasoning_modes'] = ['provider_default', 'off']
         if pricing is not None:
             provider['pricing'] = copy.deepcopy(pricing)
+        if timeout_ms is not None:
+            provider['limits']['max_timeout_ms'] = timeout_ms
+        if challenge:
+            provider['billing_challenge'] = 'wls-billing-challenge-v1'
         system['models']['cli-loopback'] = {
             'adapter': 'openai-responses', 'adapter_version': '1', 'protocol': 'openai-responses-v1',
             'model': provider['model'], 'capabilities': {'streaming': 'supported',
@@ -180,6 +186,9 @@ class LiveWorkflowCli(unittest.TestCase):
                 'capability_evidence_sha256': hashlib.sha256(b'synthetic CLI capabilities only').hexdigest()}}
         system['defaults']['model_ref'] = 'cli-loopback'
         system['model_calls']['real_calls_enabled'] = True
+        system['model_calls']['max_paid_retries'] = retries
+        if total is not None:
+            system['model_calls'].update(runtime_policy='bounded-v1', max_total_calls=total)
         system['context']['request_format'] = 'structured-v3'
         system['context'].pop('model_projection', None); system['context'].pop('tool_policy', None)  # Keep the original priced fixture's frozen request size.
         system['context'].pop('worker_history', None)
@@ -322,7 +331,7 @@ class LiveWorkflowCli(unittest.TestCase):
         body = json.dumps({'error': {'message': PRIVATE}}).encode()
         with tls.Peer(self.contexts['server'], tls.fixed_response(body, status=429,
                       extra=b'Retry-After: 0\r\nX-Private: ' + PRIVATE.encode() + b'\r\n')) as peer:
-            request = self.admit(peer.port)
+            request = self.admit(peer.port, retries=2)  # Unresolved accounting still forbids retry.
             self.authorize(request)
             report = self.pump(request)
             self.assertEqual(report['network_started_calls'], 1)
@@ -343,6 +352,134 @@ class LiveWorkflowCli(unittest.TestCase):
             self.assertEqual(report['network_started_calls'], 1)
             self.assertEqual(len(original.requests), 1)
             self.assertEqual(replacement.accepted, 0)
+
+    def test_bounded_paid_retries_preserve_independent_attempts_and_feedback(self):
+        for status, failures, expected in ((429, 1, 2), (429, 3, 3),
+                                          *((code, 1, 2) for code in (408, 500, 502, 503, 504)),
+                                          *((code, 1, 1) for code in (400, 401, 403, 404, 422))):
+            with self.subTest(status=status, failures=failures):
+                self.database = self.directory / f'retry-{status}-{failures}.sqlite'
+                observed = []
+                def respond(peer, connection):
+                    peer.request(connection); observed.append(time.monotonic())
+                    failed = len(observed) <= failures
+                    body = b'{}' if failed else priced(plan_response())
+                    extra = b'Retry-After: 0\r\n' if status == 429 and failures == 1 else b''
+                    connection.sendall(tls.headers(len(body), status=status if failed else 200, extra=extra) + body)
+                with tls.Peer(self.contexts['server'], respond) as peer:
+                    request = self.admit(peer.port, pricing=PRICING, retries=2, cost_budget=1000000)
+                    auth = self.authorize(request)
+                    auth.update(max_calls=4 if failures == 3 else 2, max_batch_duration_ms=25000)
+                    self.authorization_file.write_text(json.dumps(auth))
+                    report = self.pump(request)
+                    self.assertEqual(len(peer.requests), expected, report)
+                    version = json.loads(subprocess.check_output([str(BINARY), '--version']))['version']
+                    self.assertEqual(peer.requests[0]['headers'][b'user-agent'], f'wls861/{version}'.encode())
+                attempts = self.rows('SELECT * FROM call_attempts ORDER BY rowid')
+                feedback = self.rows('SELECT * FROM model_tool_feedback ORDER BY rowid')
+                self.assertEqual(len(attempts), expected)
+                self.assertEqual(len(self.rows('SELECT * FROM live_send_claims')), expected)
+                self.assertEqual(len(feedback), expected)
+                self.assertTrue(report['accounting']['ready'])
+                self.assertTrue(all(row['settlement_sha256'] for row in attempts))
+                budget = self.invoke('budget', '--db', self.database, '--request', request)
+                self.assertEqual(budget['attempts'], expected)
+                self.assertEqual(budget['spent_cost'], sum(row['reserved_cost'] for row in attempts[:failures]) +
+                                 (PRICED_UNIT_MICRO_USD if expected > failures else 0))
+                self.assertEqual(budget['reserved_cost'], 0)
+                for i, row in enumerate(feedback):
+                    result = json.loads(row['result'])
+                    self.assertEqual(result.get('retry_of_attempt_id'), attempts[i - 1]['attempt_id'] if i else None)
+                    if i < failures:
+                        self.assertTrue(result['runtime_error'])
+                        self.assertIsNone(attempts[i]['input_tokens'])
+                        self.assertIsNone(attempts[i]['cost_micro_usd'])
+                if failures == 3:
+                    self.assertEqual(report['stop_reason'], 'paid_retry_limit')
+                    self.assertTrue(any('HTTP 429 rate limited; retried 2 times' in x['reason'] for x in report['blocked']))
+                    self.assertGreaterEqual(observed[1] - observed[0], 2)
+                    self.assertGreaterEqual(observed[2] - observed[1], 8)
+                self.assertEqual(len(self.rows('SELECT * FROM tasks')), int(expected > failures))
+
+    def test_client_timeout_is_not_retried_and_next_invocation_continues(self):
+        def respond(peer, connection):
+            peer.request(connection)
+            if len(peer.requests) == 1:
+                peer.stop.wait(2)
+            else:
+                body = priced(plan_response())
+                connection.sendall(tls.headers(len(body)) + body)
+        with tls.Peer(self.contexts['server'], respond) as peer:
+            request = self.admit(peer.port, pricing=PRICING, retries=2, timeout_ms=300, cost_budget=1000000)
+            auth = self.authorize(request); auth['max_calls'] = 1
+            self.authorization_file.write_text(json.dumps(auth))
+            first = self.pump(request)
+            self.assertEqual(len(peer.requests), 1, first)
+            self.assertEqual(first['calls'][0]['transport']['status'], 'deadline_exceeded')
+            original = self.rows('SELECT * FROM call_attempts')[0]
+            original_feedback = self.rows('SELECT * FROM model_tool_feedback')[0]
+            second = self.pump(request)
+            self.assertEqual(len(peer.requests), 2, second)
+            self.assertEqual(self.rows('SELECT * FROM call_attempts ORDER BY rowid')[0], original)
+            self.assertEqual(self.rows('SELECT * FROM model_tool_feedback ORDER BY rowid')[0], original_feedback)
+            self.assertEqual(len(self.rows('SELECT * FROM tasks')), 1)
+
+    def test_retry_after_wait_obeys_original_batch_deadline(self):
+        with tls.Peer(self.contexts['server'], tls.fixed_response(b'{}', status=429,
+                extra=b'Retry-After: 999999999999999999999999\r\n')) as peer:
+            request = self.admit(peer.port, pricing=PRICING, retries=2, cost_budget=1000000)
+            auth = self.authorize(request); auth['max_batch_duration_ms'] = 1500
+            self.authorization_file.write_text(json.dumps(auth))
+            report = self.pump(request)
+            self.assertEqual(report['stop_reason'], 'deadline', report)
+            self.assertEqual(report['calls'][0]['retry_delay_seconds'], 60)
+            self.assertEqual(len(peer.requests), 1)
+            self.assertEqual(len(self.rows('SELECT * FROM call_attempts')), 1)
+
+    def test_no_upload_connection_failure_retries_but_partial_response_does_not(self):
+        for partial in (False, True):
+            with self.subTest(partial=partial):
+                self.database = self.directory / f'connection-{partial}.sqlite'
+                def respond(peer, connection):
+                    peer.request(connection)
+                    connection.sendall(tls.headers(1000, status=429) + b'{}')
+                with tls.Peer(self.contexts['server'], respond) as peer:
+                    request = self.admit(peer.port, pricing=PRICING, retries=1, cost_budget=1000000)
+                    self.authorize(request)
+                    if not partial:
+                        peer.close()
+                    report = self.pump(request)
+                self.assertEqual(len(report['calls']), 1 if partial else 2, report)
+                for call in report['calls']:
+                    self.assertFalse(call['transport']['transfer_complete'])
+                    self.assertEqual(call['transport']['upload_may_have_occurred'], partial)
+
+    def test_retries_respect_total_calls_budget_and_signed_accounting(self):
+        for guard in ('total_calls', 'budget', 'signed'):
+            with self.subTest(guard=guard):
+                self.database = self.directory / f'guard-{guard}.sqlite'
+                pricing = copy.deepcopy(PRICING)
+                if guard == 'budget':
+                    pricing.update(input_micro_usd_per_million_tokens=0, output_micro_usd_per_million_tokens=1000000)
+                    pricing['cache_read']['micro_usd_per_million_tokens'] = 0
+                with tls.Peer(self.contexts['server'], tls.fixed_response(b'{}', status=429,
+                        extra=b'Retry-After: 0\r\n')) as peer:
+                    request = self.admit(peer.port, pricing=pricing, retries=2,
+                                         cost_budget=4096 if guard == 'budget' else 1000000,
+                                         total=1 if guard == 'total_calls' else None, challenge=guard == 'signed')
+                    self.authorize(request, reserved=1000000 if guard == 'signed' else 100)
+                    report = self.pump(request)
+                    self.assertEqual(len(peer.requests), 1, report)
+                    self.assertEqual(len(self.rows('SELECT * FROM call_attempts')), 1)
+                    self.assertEqual(len(self.rows('SELECT * FROM live_send_claims')), 1)
+                    self.assertEqual(report['accounting']['ready'], guard != 'signed')
+                    if guard == 'signed':
+                        self.assertEqual(report['stop_reason'], 'needs_accounting')
+                    if guard == 'total_calls':
+                        self.assertEqual(report['max_total_calls'], 1)
+                        self.assertIn(report['stop_reason'], ('call_limit', 'total_call_limit'))
+                    if guard == 'budget':
+                        self.assertTrue(any(x['code'] == 'quota' for x in report['blocked']), report)
 
     def test_authorization_inside_business_workspace_is_rejected_before_takeover(self):
         with tls.Peer(self.contexts['server'], tls.fixed_response(plan_response())) as peer:

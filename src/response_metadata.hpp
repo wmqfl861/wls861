@@ -18,6 +18,7 @@ class Collector {
 public:
     explicit Collector(const ProviderProfile& profile) : enabled(!profile.response_metadata_policy.empty()) {}
     const bool enabled;
+    std::size_t observed() const { return observed_; }
     void record(std::string_view parent, std::string_view key) {
         if (!enabled) return;
         ++observed_;

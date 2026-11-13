@@ -622,8 +622,16 @@ response/binding，重复回放同一错误），本阶段不做纠错重调。�
 旧 profile 不补字段，保留原序列化、哈希及各自原有检查（包括 SSE start response 原有
 检查）；该选择独立于 `responses_compatibility`，随内嵌 profile 冻结和恢复。已知字段的
 类型、模型身份、usage、sequence、生命周期、obfuscation 和输出内部校验不变；未知
-事件、输出类型以及 item/content/reasoning/function 内部未知字段仍拒绝，失败不返回
+事件、输出类型仍拒绝，失败不返回
 可派发的部分 text/tools，不授予重试或工具权限。
+
+同时启用 `responses_compatibility` 时，HTTP 原生输出的 message、function_call、reasoning
+及其已支持的内容片段允许额外键，路径记入同一 `unknown_fields`；已知字段和内容类型仍严格校验。
+原始 output 值完整保留并回传；仅实际忽略输出额外键时，现有 `responses_output` 增加
+`response_metadata_policy:"ignore-record-v1"`，恢复时校验此值，编码时再次核对冻结 profile。
+未带策略的旧载荷仍严格验证。SSE 的独立 item/content 生命周期白名单继续严格检查。
+原项回传依据：[reasoning](https://developers.openai.com/api/docs/guides/reasoning) 与
+[function calling](https://developers.openai.com/api/docs/guides/function-calling) 官方指南。
 
 仅新策略证据增加排序去重 JSON Pointer `unknown_fields`，转义 `~`/`/`；HTTP 路径如
 `/usage/input_tokens_details/new_key`，SSE 事件如 `/events/3/new_key`，response 路径

@@ -721,6 +721,16 @@ class BillingBaselineIntegration(unittest.TestCase):
 
     def test_06_run_once_delivers_three_tasks_and_two_requests_share_data(self):
         endpoint = PricingFlowEndpoint(initialize_seed=True)
+        choose = endpoint.choose
+        endpoint.submission['deliverables'][0]['path'] = '/work/notes/result.txt'
+        def nested_output(body):
+            name, arguments = choose(body)
+            if name == 'fs_write' and arguments['path'] == 'seed.txt':
+                return 'fs_mkdir', {'path': 'notes'}
+            if name in ('fs_read', 'fs_write') and arguments['path'] == 'result.txt':
+                arguments = dict(arguments, path='notes/result.txt')
+            return name, arguments
+        endpoint.choose = nested_output
         with tls.Peer(self.contexts['server'], endpoint) as peer:
             case = self.run_inputs('run-complete', peer)
             result = self.invoke_run(case, '--data', case['data'])
@@ -764,6 +774,26 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertTrue(all(json.loads(row['intent'])['parent_identity']['path'] == str(request / 'workspaces') for row in resources))
             files = list(Path(summary['delivery_path']).glob('artifact-*.bin'))
             self.assertEqual([path.read_bytes() for path in files], [b'alpha\nbeta\n'] * 3)
+            manifest = json.loads((Path(summary['delivery_path']) / 'manifest.json').read_text())
+            output = Path(summary['output_path'])
+            self.assertEqual(output, request / 'output')
+            for node in ('alpha', 'beta', 'gamma'):
+                copy_path = output / node / 'notes' / 'result.txt'
+                self.assertEqual(copy_path.read_bytes(), b'alpha\nbeta\n')
+                self.assertEqual(copy_path.stat().st_mode & 0o777, 0o600)
+            for role, count in summary['role_calls'].items():
+                detail = summary['role_statistics'][role]
+                self.assertEqual(detail['calls'], count)
+                self.assertEqual(detail['retries'], 0)
+                self.assertEqual(detail['corrections_by_reason'], {})
+                self.assertEqual(detail['original_tokens'], {'input_tokens': count * 11,
+                    'output_tokens': count * 7, 'cache_read_tokens': count * 3, 'cache_write_tokens': None})
+                self.assertEqual(detail['estimated_micro_usd'], count * PRICED_UNIT_MICRO_USD)
+                self.assertEqual(detail['reservation_charged_micro_usd'], 0)
+            package_hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                              for path in Path(summary['delivery_path']).iterdir()}
+            self.assertEqual({entry['sha256'] for entry in manifest['artifacts']},
+                             {hashlib.sha256(b'alpha\nbeta\n').hexdigest()})
             original = rows(database, 'SELECT created_at,config_snapshot,budget FROM requests')
             original_database = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
                                  for path in request.glob('control.sqlite*') if not path.name.endswith('-shm')}
@@ -779,6 +809,37 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(rows(database, 'SELECT seq,type,payload,result FROM events ORDER BY seq'), original_events)
             self.assertEqual({path.name: hashlib.sha256(path.read_bytes()).hexdigest()
                               for path in request.glob('control.sqlite*') if not path.name.endswith('-shm')}, original_database)
+            # A completed replay never overwrites edits or follows an output symlink.
+            victim = output / 'alpha' / 'notes' / 'result.txt'
+            victim.write_bytes(b'owner changed this copy')
+            conflict = json.loads(self.invoke_run(case, '--yes').stdout)
+            self.assertIsNone(conflict['output_path'])
+            self.assertEqual((conflict['status'], conflict['stop_reason']), ('DELIVERED', 'output_blocked'))
+            self.assertEqual(conflict['blockers'][0]['code'], 'conflict')
+            self.assertIn('immutable package', conflict['blockers'][0]['reason'])
+            self.assertEqual(victim.read_bytes(), b'owner changed this copy')
+            victim.unlink()
+            outside = case['directory'] / 'outside.txt'
+            outside.write_bytes(b'outside must remain unchanged')
+            victim.symlink_to(outside)
+            unsafe = json.loads(self.invoke_run(case, '--yes').stdout)
+            self.assertIsNone(unsafe['output_path'])
+            self.assertEqual(unsafe['blockers'][0]['code'], 'unauthorized')
+            self.assertEqual(outside.read_bytes(), b'outside must remain unchanged')
+            victim.unlink()
+            victim.write_bytes(b'alpha\nbeta\n')
+            retained_output = request / 'retained-output'
+            output.rename(retained_output)
+            output.mkdir(mode=0o700)
+            replaced = json.loads(self.invoke_run(case, '--yes').stdout)
+            self.assertEqual(replaced['blockers'][0]['code'], 'conflict')
+            self.assertIn('pinned root changed', replaced['blockers'][0]['reason'])
+            self.assertEqual(list(output.iterdir()), [])
+            output.rmdir()
+            retained_output.rename(output)
+            self.assertEqual({path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                              for path in Path(summary['delivery_path']).iterdir()}, package_hashes)
+            self.assertEqual(len(peer.requests), 31)
             changed = self.invoke_run(case, '--yes', '--budget-usd', 4)
             self.assertEqual(changed.returncode, 3, changed.stderr)
             self.assertFalse(changed.stdout)
@@ -855,6 +916,32 @@ class BillingBaselineIntegration(unittest.TestCase):
             roles, workers, managers, worker_attempts = {}, {}, {}, {}
             totals = dict(input_tokens=0, output_tokens=0, cache_read_tokens=0, cache_write_tokens=None)
             expected_cost = 0
+            segment_totals = {role: dict.fromkeys(('tools', 'system', 'contract', 'history',
+                'current_state', 'other', 'total'), 0) for role in ('dispatcher', 'team_lead', 'worker')}
+            for attempt, wire in zip(attempts, peer.requests):
+                body = json.loads(wire['body'])
+                contracts, history = [body['input'][0]], []
+                for item in body['input'][1:-1]:
+                    content = item.get('content', '')
+                    value = json.loads(content) if item.get('role') == 'user' and content.startswith('{') else {}
+                    (contracts if 'semantic_versions' in value else history).append(item)
+                segments = dict(tools=len(canonical(body['tools'])), system=len(canonical(body['instructions'])),
+                    contract=sum(len(canonical(item)) for item in contracts), current_state=len(canonical(body['input'][-1])),
+                    history=sum(len(canonical(item)) for item in history), total=len(wire['body']))
+                segments['other'] = segments['total'] - sum(segments[key]
+                    for key in ('tools', 'system', 'contract', 'history', 'current_state'))
+                for key, value in segments.items():
+                    segment_totals[attempt['role']][key] += value
+            for role, detail in summary['role_statistics'].items():
+                self.assertEqual(detail['body_segment_samples'], summary['role_calls'][role])
+                self.assertEqual(detail['retries'], 0)
+                for key, total in segment_totals[role].items():
+                    self.assertAlmostEqual(detail['mean_body_segment_bytes'][key], total / detail['calls'], msg=f'{role}: {key}')
+                means = detail['mean_body_segment_bytes']
+                self.assertAlmostEqual(sum(means[key] for key in means if key != 'total'), means['total'])
+            self.assertEqual(summary['role_statistics']['worker']['corrections_by_reason'], {'missing_leaf': 1})
+            self.assertTrue(all((Path(summary['output_path']) / node / 'result.txt').read_bytes() == b'alpha\nbeta\n'
+                                for node in ('alpha', 'beta', 'gamma')))
             legacy_cache = SimulatedPrefixCache()
             comparison = []
             profile_path = write_json(case['directory'] / 'offline-profile.json', provider)
@@ -1156,6 +1243,10 @@ class BillingBaselineIntegration(unittest.TestCase):
                     summary = json.loads(result.stdout)
                     self.assertTrue(summary['accounting']['ready'], summary)
                     self.assertNotEqual(summary['stop_reason'], 'needs_accounting')
+                    if variant in ('429', '503'):
+                        self.assertIn('http_error: HTTPS result is not usable', summary['blockers'][0]['reason'])
+                        self.assertIn('Run the same command again', summary['blockers'][0]['next_step'])
+                        self.assertIn('dispatcher/', summary['blockers'][0]['summary'])
                     database = next(case['data'].glob('requests/*/control.sqlite'))
                     original = rows(database, 'SELECT * FROM call_attempts')[0]
                     sent = peer.requests[0]['body']

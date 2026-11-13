@@ -64,6 +64,7 @@ struct HttpsTransportResult {
     std::string ca_bundle_sha256;
     std::string transport_options_sha256;
     int http_status{};
+    std::optional<std::int64_t> retry_after_seconds; // Complete final 429 only; bounded to 0..60.
     bool network_started{false};
     bool extended_policy{false};
     bool dns_started{false};

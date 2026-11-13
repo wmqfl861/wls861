@@ -22,6 +22,8 @@ struct EncodedResponsesRequest {
     // Appended fixed opt-in HTTP challenge, bound into the encoded record.
     // Never an arbitrary header, idempotency guarantee or billing receipt.
     std::string billing_challenge{};
+    // Derived serialized-value byte counts; excluded from wire and evidence identity.
+    Json body_segments = nullptr;
 };
 
 struct DecodedResponsesResponse {

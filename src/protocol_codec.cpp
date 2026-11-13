@@ -223,7 +223,7 @@ void empty_optional_array(const Json& value, std::string_view key) {
 }
 
 void parse_completed_output(const ProviderProfile& profile, const ModelRequest& request,
-                            const Json& value, ModelResponse& response) {
+                            const Json& value, ModelResponse& response, response_metadata::Collector& metadata) {
     (void)request; // Decode complete structure first; the host classifies tool selection after settlement.
     const auto& items = array(value);
     require(items.size() <= profile.limits.max_output_items, ErrorCode::Quota,
@@ -234,7 +234,7 @@ void parse_completed_output(const ProviderProfile& profile, const ModelRequest& 
         responses_compat::ValidationBounds codec_bounds{profile.limits.max_output_items,
             profile.limits.max_tool_calls, profile.limits.max_text_bytes, profile.limits.max_tool_argument_bytes};
         auto projection = responses_compat::validate_output(value, codec_bounds,
-                                                            nullptr, profile.parallel_tool_calls);
+            nullptr, profile.parallel_tool_calls, metadata.enabled, &metadata);
         response.text = std::move(projection.text);
         response.tool_calls = std::move(projection.tool_calls);
         if (projection.refusal) {
@@ -410,6 +410,7 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         {"message_sources", sources}})}});
     if (v3 && !lean) input.front().at("content") = canonical_json(Object{{"format", "wls-responses-contract-v3"},
         {"task_contract", logical.at("contract_anchor")}});
+    std::size_t contract_bytes = canonical_json(input.front()).size();
     std::map<std::size_t, Array> updates;
     std::map<std::int64_t, Array> folded_updates;
     if (v3) for (const auto& update : array(logical.at("contract_updates"))) {
@@ -429,6 +430,7 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         const Json encoded_update = Object{{"role", "user"}, {"content", lean ? canonical_json(contract) : canonical_json(Object{
             {"format", "wls-responses-contract-update-v3"}, {"task_contract", update.at("contract")},
             {"semantic_versions", update.at("semantic_versions")}})}};
+        contract_bytes += canonical_json(encoded_update).size();
         bool folded = false;
         if (const auto* history = logical.as_object().if_contains("worker_history"))
             for (const auto& entry : history->at("folded_entries").as_array()) if (entry.at("attempt_id") == update.at("after_attempt_id")) {
@@ -470,7 +472,12 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         if (v3 && kind && (*kind == "history_window" || *kind == "management_history_window")) continue;
         const auto role = text(message, "role");
         const auto content = text(message, "content");
-        const Json* payload = compat ? message.as_object().if_contains("responses_output") : nullptr;
+        const auto* original_output = message.as_object().if_contains("responses_output");
+        if (original_output && original_output->is_object())
+            if (const auto* policy = original_output->as_object().if_contains("response_metadata_policy"))
+                require(compat && *policy == Json(profile.response_metadata_policy), ErrorCode::Unsupported,
+                        "native output metadata policy differs from the frozen profile");
+        const Json* payload = compat ? original_output : nullptr;
         if (payload && !payload->is_null()) {
             require(role == "assistant", ErrorCode::InvalidInput,
                     "only an assistant message may carry opaque responses output");
@@ -560,6 +567,13 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     EncodedResponsesRequest encoded;
     encoded.url = profile.base_url + profile.responses_path;
     encoded.body = canonical_json(body);
+    std::size_t input_bytes = 0;
+    for (const auto& item : input) input_bytes += canonical_json(item).size();
+    const auto state_bytes = v3 ? canonical_json(input.back()).size() : 0;
+    const auto tools_bytes = canonical_json(tools).size(), system_bytes = canonical_json(Json(instructions)).size();
+    encoded.body_segments = Object{{"tools", tools_bytes}, {"system", system_bytes}, {"contract", contract_bytes},
+        {"history", input_bytes - contract_bytes - state_bytes}, {"current_state", state_bytes},
+        {"other", encoded.body.size() - tools_bytes - system_bytes - input_bytes}, {"total", encoded.body.size()}};
     require(encoded.body.size() <= profile.limits.max_request_bytes, ErrorCode::Quota,
             "encoded protocol body exceeds declared request byte limit");
     encoded.body_sha256 = sha256_hex(encoded.body);
@@ -653,13 +667,16 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
                 require(status == "completed", ErrorCode::Unsupported, "unsupported provider response status");
                 require(evidence.at("provider_error").is_null() && evidence.at("incomplete_details").is_null(),
                         ErrorCode::InvalidInput, "completed response carries an error or incomplete details");
-                parse_completed_output(profile, request, field(source, "output"), decoded.response);
+                const auto metadata_before_output = metadata.observed();
+                parse_completed_output(profile, request, field(source, "output"), decoded.response, metadata);
                 if (decoded.response.status == ModelResultStatus::Completed) {
                     decoded.response.error_code.clear(); decoded.response.error_message.clear();
                 }
                 if (profile.responses_compatibility && (decoded.response.status == ModelResultStatus::Completed ||
                         decoded.response.error_code == "model_refusal")) {
                     decoded.response.responses_output = payload_for(text(source, "model"), field(source, "output"));
+                    if (metadata.observed() != metadata_before_output)
+                        decoded.response.responses_output.as_object()["response_metadata_policy"] = profile.response_metadata_policy;
                     // Reject before interpretation: a payload this large could
                     // never persist, so it must not become a sendable original.
                     require(canonical_json(decoded.response.responses_output).size() <=

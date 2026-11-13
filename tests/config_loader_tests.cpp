@@ -276,11 +276,10 @@ void control_amendment_and_review_reservations_cannot_be_disabled() {
 void unsupported_runtime_features_never_silently_enable() {
     Fixture fixture;
     const auto original = fixture.system_json();
-    for (const auto change : {0, 1, 2, 4, 5, 6}) {
+    for (const auto change : {0, 2, 4, 5, 6}) {
         auto system = original;
         switch (change) {
         case 0: field(field(system, "model_calls"), "real_calls_enabled") = true; break;
-        case 1: field(field(system, "model_calls"), "max_paid_retries") = 1; break;
         case 2: field(field(system, "memory"), "enabled") = true; break;
         case 3: field(field(system, "cleanup"), "enabled") = true; break;
         case 4: field(field(field(system, "models"), "fake"), "adapter") = "https"; break;
@@ -290,6 +289,13 @@ void unsupported_runtime_features_never_silently_enable() {
         }
         fixture.system(system);
         expect_error(ErrorCode::Unsupported, [&] { (void)fixture.load(); });
+    }
+    for (const auto retries : {-1, 0, 1, 2, 3}) {
+        auto system = original;
+        field(field(system, "model_calls"), "max_paid_retries") = retries;
+        fixture.system(system);
+        if (retries < 0 || retries > 2) expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
+        else CHECK(fixture.freeze().json().at("system").at("model_calls").at("max_paid_retries") == retries);
     }
 }
 
@@ -587,7 +593,7 @@ int main() {
         {"scalar types unknown models and unsupported reasoning reject", scalar_types_and_reasoning_capabilities_fail_explicitly},
         {"control amendment and review capacity policies remain mandatory", control_amendment_and_review_reservations_cannot_be_disabled},
         {"cleanup opt-in is frozen and requires separate execution guards", cleanup_opt_in_is_frozen_but_not_an_execution_authorization},
-        {"unimplemented real calls memory and paid retries reject", unsupported_runtime_features_never_silently_enable},
+        {"unimplemented features reject and paid retries remain bounded", unsupported_runtime_features_never_silently_enable},
         {"budget durability and explicit weak isolation policies validate", budgets_durability_and_isolation_values_are_checked},
         {"template references reject traversal and file or directory symlinks", template_paths_and_symbolic_links_cannot_escape_config_roots},
         {"configuration parsing and frozen payload have explicit capacity bounds", parser_and_snapshot_capacity_are_bounded},

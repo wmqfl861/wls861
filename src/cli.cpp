@@ -1,4 +1,5 @@
 #include "wls/offline_runtime.hpp"
+#include "wls/version.hpp"
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "wls/delivery.hpp"
@@ -10,6 +11,7 @@
 #include "wls/billing.hpp"
 #include "wls/single_agent.hpp"
 #include "amendment_disposition.hpp"
+#include "runtime_diagnostic.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -30,6 +32,7 @@
 #include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <openssl/evp.h>
 
 namespace {
 using namespace wls;
@@ -471,7 +474,7 @@ int run_cli(int argc, char** argv) {
     const std::string command(argv[1]);
     if (command == "--version" || command == "version") {
         if (argc != 2) throw Error(ErrorCode::InvalidInput, "version takes no options");
-        output(Object{{"version", "0.11.1-r3.3c-audit"}, {"blueprint", "0.4.1"},
+        output(Object{{"version", product_version}, {"blueprint", "0.4.1"},
             {"mode", "offline_fake_and_controlled_live"}, {"default_network_authorized", false}}); return 0;
     }
     int start = 2;

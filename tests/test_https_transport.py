@@ -504,6 +504,15 @@ class HttpsTransport(unittest.TestCase):
                 self.assertEqual(peer.accepted, 1)
                 self.assertEqual(len(peer.requests), 1)
 
+    def test_retry_after_metadata_is_bounded_and_only_from_complete_429(self):
+        for value, expected in ((b'120', 60), (b'9' * 100, 60), (b'0', 0),
+                                (b'Fri, 31 Dec 9999 23:59:59 GMT', 60), (b'invalid', None)):
+            with self.subTest(value=value), self.peer(fixed_response(b'{}', status=429,
+                    extra=b'Retry-After: ' + value + b'\r\n')) as peer:
+                result = self.invoke(peer)
+                self.assertEqual(result['summary'].get('retry_after_seconds'), expected)
+                self.assertEqual(len(peer.requests), 1)
+
     def test_connect_preserves_target_tls_identity_and_has_no_direct_fallback(self):
         policy = {"host": "localhost", "route_kind": "none", "policy": "host-dns-connect-v1",
                   "resolver_failure": True}

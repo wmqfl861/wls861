@@ -19,6 +19,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 if len(sys.argv) != 3:
@@ -565,6 +566,27 @@ class LiveWorkflow(unittest.TestCase):
                     self.assertIsNone(response['usage']['cost_micro_usd'])
                     observed = json.loads(self.rows('SELECT safe_summary FROM live_transport_observations')[0]['safe_summary'])
                     self.assertTrue(observed['network_started'])
+
+    def test_retry_wait_cancels_without_another_reservation(self):
+        marker = self.directory / 'settled-retry'
+        def rate_limited(peer, connection):
+            peer.request(connection)
+            connection.sendall(tls.headers(2, status=429, extra=b'Retry-After: 60\r\n') + b'{}')
+            until = time.monotonic() + 10
+            while not self.rows('SELECT * FROM model_tool_feedback') and time.monotonic() < until:
+                time.sleep(0.025)
+            peer.stop.wait(0.5)  # Signal after the original failure feedback has committed.
+            marker.write_text('cancel the pending retry\n')
+        with tls.Peer(self.contexts['server'], rate_limited) as peer:
+            result = self.invoke(peer, synthetic_provider=True, paid_retries=2, cancel_marker=str(marker))
+            report = result['reports'][0]
+            self.assertEqual(report['stop_reason'], 'cancelled', result)
+            self.assertEqual(report['calls'][0]['transport']['status'], 'http_error')
+            self.assertEqual(report['calls'][0]['retry_delay_seconds'], 60)
+            self.assertTrue(result['cancellation_marker_observed'])
+            self.assertEqual(result['budget']['attempts'], 1)
+            self.assertEqual(len(peer.requests), 1)
+            self.assertEqual(len(self.rows('SELECT * FROM live_send_claims')), 1)
 
     def test_live_accounting_status_preserves_all_unknown_and_disputed_boundaries(self):
         result = self.invoke(action='accounting')
