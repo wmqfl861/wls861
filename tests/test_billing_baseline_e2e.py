@@ -1240,7 +1240,7 @@ class BillingBaselineIntegration(unittest.TestCase):
                     self.assertTrue(summary['accounting']['ready'], summary)
                     self.assertNotEqual(summary['stop_reason'], 'needs_accounting')
                     if variant in ('429', '503'):
-                        self.assertIn('http_' + variant, summary['blockers'][0]['reason'])
+                        self.assertIn('http_error: HTTPS result is not usable', summary['blockers'][0]['reason'])
                         self.assertIn('Run the same command again', summary['blockers'][0]['next_step'])
                         self.assertIn('dispatcher/', summary['blockers'][0]['summary'])
                     database = next(case['data'].glob('requests/*/control.sqlite'))
