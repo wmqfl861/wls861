@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Evaluation framework tests against disposable real CLI/SQLite evidence."""
 from contextlib import closing
+import base64
 import copy
 import hashlib
 import importlib.util
@@ -8,6 +9,8 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 import unittest
 
 spec = importlib.util.spec_from_file_location('acceptance_helpers', Path(__file__).with_name('s15_cli_smoke.py'))
@@ -71,13 +74,14 @@ class Evaluation(unittest.TestCase):
             '--script', self.json_file('script.json', fixture), '--workspaces-file', self.mapping,
             '--worker-calls', worker_calls, '--max-calls', max_calls)
 
-    def logical_seed(self, task=4, *, logical=True, key='logical-seed', context_change=None, request_format='structured-v2'):
+    def logical_seed(self, task=4, *, logical=True, key='logical-seed', context_change=None, request_format='structured-v2', plain=False):
         system = (h.SOURCE / 'config/examples/system.yaml').read_text()
         self.assertIn('request_format: structured-v3', system)
         system = system.replace('  tool_policy: fixed-role-v1\n', '').replace('  model_projection: lean-v1\n', '').replace('  worker_history: {mode: append-fold-v1, read_max_bytes: 24576, read_token_budget: 196608}\n', '').replace('request_format: structured-v3', f'request_format: {request_format}')
         if logical:
+            mode = 'single-agent-plain-v1' if plain else 'single-agent-role-broker-v1'
             system = system.replace('context:\n', 'context:\n  logical_agent:\n'
-                                    '    mode: single-agent-role-broker-v1\n'
+                                    f'    mode: {mode}\n'
                                     '    max_attempts: 128\n    max_history_bytes: 524288\n', 1)
         if context_change:
             before, after = context_change
@@ -95,6 +99,25 @@ class Evaluation(unittest.TestCase):
     def logical_plan(self, request):
         with e.database(self.database) as db:
             return e.make_plan(db, request, identity_contract=e.LOGICAL_AGENT_CONTRACT)
+
+    def plain_run(self, task=0, *, key='plain', change=None, calls=4):
+        request = self.logical_seed(task=task, key=key, plain=True, request_format='structured-v3')
+        with e.database(self.database) as db:
+            plan = e.make_plan(db, request, include_plain=True)
+        self.workspace = self.directory / (key + '-workspace')
+        self.workspace.mkdir(mode=0o700)
+        self.mapping = self.json_file(key + '-workspaces.json', {'plain': str(self.workspace)})
+        (self.workspace / 'seed.txt').write_bytes(b'alpha\nbeta\n')
+        worker = [self.step('worker', 'fs_read', {'path': 'seed.txt'}, 1),
+                  self.step('worker', 'fs_write', {'path': 'result.txt', 'content': 'alpha\nbeta\n'}, 2),
+                  self.step('worker', 'fs_read', {'path': 'result.txt'}, 3),
+                  self.fixture('s14_fake_submit.json')['nodes']['alpha'][2]]
+        worker[-1]['role_call_index'] = 4
+        if change:
+            change(worker)
+        result = self.execute(request, script={'default': [], 'nodes': {'plain': worker}},
+                              max_calls=calls, worker_calls=4)
+        return request, plan, result
 
     def tamper_last_logical_input(self, edit):
         # Disposable fixture only. Rehash the modified logical envelope so
@@ -152,6 +175,193 @@ class Evaluation(unittest.TestCase):
         report = e.build_report(plan, [])
         self.assertEqual(report['counts'], {'not_executed': 10})
         self.assertFalse(report['provider_quality_acceptance_established'])
+
+    def test_v4_explicit_plan_keeps_legacy_contracts_and_fifteen_fixed_cells(self):
+        requests = [self.logical_seed(task=0, logical=logical, plain=plain, key=key, request_format='structured-v3')
+                    for logical, plain, key in ((False, False, 'multi'), (True, False, 'broker'), (True, True, 'plain'))]
+        with e.database(self.database) as db:
+            locks = [e.common_lock(db, request, 'fake', {'mode': 'provider_default'}, logical_agent_comparison=True)
+                     for request in requests]
+            self.assertEqual(locks, [locks[0]] * 3)
+            for version, options in enumerate(({}, {'decision_evidence': 'model-origin-v1'},
+                    {'identity_contract': e.LOGICAL_AGENT_CONTRACT}), 1):
+                legacy = e.make_plan(db, requests[1], **options)
+                self.assertEqual(legacy, e.make_plan(db, requests[1], include_plain=False, **options))
+                self.assertEqual(legacy['schema_version'], version)
+                self.assertEqual(e.build_report(legacy, [])['counts'], {'not_executed': 10})
+                self.assertNotIn('plain_agent_policy', legacy)
+            plan = e.make_plan(db, requests[1], include_plain=True)
+            self.assertEqual(plan, e.make_plan(db, requests[2], include_plain=True))
+            with self.assertRaises(e.InvalidEvidence):
+                e.make_plan(db, requests[1], include_plain=True, decision_evidence='structural-v1')
+        self.assertEqual((plan['schema_version'], plan['benchmark_id']), (4, 'r3-small-tasks-v4'))
+        self.assertEqual(plan['conditions'], ['multi_agent', 'single_agent', 'single_agent_plain'])
+        self.assertEqual(plan['tasks'], legacy['tasks'])
+        self.assertEqual(plan['plain_agent_policy'], dict(plan['single_agent_policy'], mode='single-agent-plain-v1'))
+        result = subprocess.run([sys.executable, str(h.SOURCE / 'scripts/evaluate_r3.py'), 'plan',
+            '--db', str(self.database), '--request', requests[1], '--include-plain'],
+            cwd=self.directory, capture_output=True, text=True, timeout=35, check=False)
+        self.assertEqual((result.returncode, result.stderr), (0, ''), result.stdout)
+        self.assertEqual(json.loads(result.stdout), plan)
+        report = e.build_report(plan, [])
+        self.assertEqual(report['counts'], {'not_executed': 15})
+        self.assertEqual([(row['task_id'], row['condition']) for row in report['rows']],
+                         [(task[0], condition) for task in e.TASKS for condition in plan['conditions']])
+        self.assertEqual(report['expected_cells'], 15)
+        self.assertFalse(report['paired_cells_complete'])
+        self.assertFalse(report['quality_comparison_complete'])
+        for mutation in ('condition', 'task', 'rubric', 'capacity'):
+            with self.subTest(mutation=mutation):
+                changed = copy.deepcopy(plan)
+                if mutation == 'condition':
+                    changed['conditions'].pop()
+                elif mutation == 'task':
+                    changed['tasks'].pop()
+                elif mutation == 'rubric':
+                    changed['tasks'][0]['checks'] = {}
+                else:
+                    changed['plain_agent_policy']['max_attempts'] -= 1
+                changed['plan_sha256'] = e.digest({key: value for key, value in changed.items() if key != 'plan_sha256'})
+                with self.assertRaises(e.InvalidEvidence):
+                    e.build_report(changed, [])
+        run = self.run_entry(plan, requests[2], 'single_agent_plain')
+        for entries in ([run, run], [run, dict(run, condition='single_agent')]):
+            with self.assertRaises(e.InvalidEvidence):
+                e.build_report(plan, entries)
+
+    def test_v4_chat_adapter_cannot_be_relabelled_as_supported_evidence(self):
+        request = self.logical_seed()
+        # A forged adapter label is a rejection fixture, never a Chat run.
+        with closing(sqlite3.connect(self.database)) as db, db:
+            snapshot = json.loads(db.execute('SELECT config_snapshot FROM requests WHERE request_id=?', (request,)).fetchone()[0])
+            snapshot['system']['models']['fake']['adapter'] = 'openai-chat-completions'
+            encoded = e.canonical(snapshot).decode()
+            db.execute('UPDATE requests SET config_snapshot=?,state_version=state_version+1 WHERE request_id=?', (encoded, request))
+            db.execute('DROP TRIGGER snapshots_immutable')
+            db.execute('UPDATE request_runtime SET config_snapshot_sha256=? WHERE request_id=?',
+                       (hashlib.sha256(encoded.encode()).hexdigest(), request))
+        with e.database(self.database) as db, self.assertRaisesRegex(e.InvalidEvidence, 'only Fake and Responses'):
+            e.make_plan(db, request, include_plain=True)
+
+    def test_v4_plain_original_history_and_submission_are_observed_without_workflow_acceptance(self):
+        request, plan, pump = self.plain_run()
+        self.assertEqual(pump['manager_calls'], 0)
+        self.assertTrue(pump['model_loop_complete'], pump)
+        self.assertTrue(pump['business_acceptance_pending'])
+        self.assertFalse(pump['business_delivered'])
+        attempts = self.rows('SELECT * FROM call_attempts ORDER BY rowid')
+        self.assertEqual([attempt['role'] for attempt in attempts], ['worker'] * 4)
+        self.assertEqual(len({(item['principal_id'], item['team_id'], item['task_id']) for item in attempts}), 1)
+        last = json.loads(attempts[-1]['request_envelope'])
+        contract = e.captured_contract(e.strict_json(attempts[-1]['request_envelope']))
+        self.assertEqual(contract['request']['texts'][0]['text'], e.TASKS[0][1])
+        self.assertEqual(contract['logical_agent_execution']['history_count'], 3)
+        messages = last['context']['input']['messages']
+        self.assertEqual(len(messages), 6)
+        for original, assistant, tool in zip(attempts[:-1], messages[::2], messages[1::2]):
+            response = json.loads(original['response'])['tool_calls'][0]
+            replay = assistant['tool_calls'][0]
+            self.assertEqual((replay['name'], replay['arguments']), (response['name'], response['arguments']))
+            self.assertEqual(tool['tool_call_id'], replay['call_id'])
+            self.assertEqual(assistant['source']['attempt_id'], original['attempt_id'])
+            feedback = self.rows('SELECT result FROM model_tool_feedback WHERE attempt_id=?', (original['attempt_id'],))[0]
+            self.assertEqual(json.loads(tool['content']), json.loads(feedback['result']))
+        submission = self.rows('SELECT * FROM workflow_submissions')[0]
+        self.assertEqual(submission['status'], 'SUBMITTED')
+        self.assertEqual(base64.b64decode(json.loads(submission['artifact_snapshot'])[0]['content_base64']), b'alpha\nbeta\n')
+        before = self.snapshot()
+        report = e.build_report(plan, [self.run_entry(plan, request, 'single_agent_plain')])
+        row = report['rows'][2]
+        self.assertEqual(row['status'], 'observed', row)
+        self.assertTrue(all(row['safety_checks'].values()), row)
+        self.assertTrue(row['workflow_checks']['model_tool_roundtrip'])
+        self.assertFalse(row['workflow_checks']['artifact_sha256'])
+        self.assertFalse(row['workflow_checks']['model_submission_source'])
+        self.assertEqual(row['workflow_completion'], 'incomplete')
+        self.assertEqual(row['plain_loop_completion'], 'complete')
+        self.assertEqual(row['execution_outcome'], 'complete')
+        self.assertTrue(row['business_acceptance_pending'])
+        self.assertEqual(row['quality_assessment'], 'not_assessed')
+        self.assertEqual(row['roles'], {'worker': 4})
+        self.assertEqual(row['identity_evidence']['contract'], 'single-agent-plain-v1')
+        self.assertEqual(row['identity_evidence']['global_steps'], 4)
+        self.assertEqual(report['counts'], {'not_executed': 14, 'observed': 1})
+        self.assertFalse(report['quality_comparison_complete'])
+        for table in ('team_lead_checks', 'candidate_acceptances', 'experience_jobs', 'delivery_receipts'):
+            self.assertEqual(self.rows(f'SELECT * FROM {table}'), [])
+        (self.workspace / 'result.txt').write_text('Later workspace bytes must not replace the submitted original.')
+        self.assertEqual(e.build_report(plan, [self.run_entry(plan, request, 'single_agent_plain')]), report)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_v4_rehashed_history_role_cost_and_submission_corruption_refuse(self):
+        request, plan, _ = self.plain_run()
+        original_database = self.database
+        for mutation in ('history', 'marker', 'role', 'cost', 'artifact', 'feedback'):
+            with self.subTest(mutation=mutation):
+                self.database = self.directory / (mutation + '.sqlite')
+                with closing(sqlite3.connect(original_database.as_uri() + '?mode=ro', uri=True)) as original, \
+                        closing(sqlite3.connect(self.database)) as changed:
+                    original.backup(changed)
+                if mutation in ('history', 'marker'):
+                    def corrupt(logical):
+                        if mutation == 'history':
+                            logical['messages'] = logical['messages'][2:]
+                        else:
+                            contract = json.loads(logical['task_contract'])
+                            contract['logical_agent_execution']['global_step'] = 1
+                            logical['task_contract'] = e.canonical(contract).decode()
+                            logical['current_state']['logical_agent_execution'] = contract['logical_agent_execution']
+                    self.tamper_last_logical_input(corrupt)
+                else:
+                    with closing(sqlite3.connect(self.database)) as db, db:
+                        if mutation == 'role':
+                            db.execute("UPDATE call_attempts SET role='team_lead',state_version=state_version+1 WHERE rowid=1")
+                        elif mutation == 'cost':
+                            db.execute('UPDATE request_budgets SET spent_cost=spent_cost+1,state_version=state_version+1')
+                        elif mutation == 'feedback':
+                            db.execute('DELETE FROM model_tool_feedback WHERE rowid=(SELECT max(rowid) FROM model_tool_feedback)')
+                        else:
+                            artifact = json.loads(db.execute('SELECT artifact_snapshot FROM workflow_submissions').fetchone()[0])
+                            artifact[0]['content_base64'] = base64.b64encode(b'forged bytes').decode()
+                            db.execute('DROP TRIGGER workflow_submission_immutable')
+                            db.execute('UPDATE workflow_submissions SET artifact_snapshot=?,state_version=state_version+1',
+                                       (json.dumps(artifact),))
+                report = e.build_report(plan, [self.run_entry(plan, request, 'single_agent_plain')])
+                self.assertEqual(report['rows'][2]['status'], 'invalid_evidence', report['rows'][2])
+                self.assertEqual(report['counts'], {'not_executed': 14, 'invalid_evidence': 1})
+                self.assertEqual(report['expected_cells'], 15)
+        self.database = original_database
+
+    def test_v4_failed_cancelled_unknown_and_unexecuted_cells_keep_the_denominator(self):
+        entries, common_plan = [], None
+        for task, outcome in enumerate(('failed', 'cancelled', 'unknown')):
+            def change(worker):
+                if outcome == 'failed':
+                    worker[0].update(status='error', tool_calls=[], error_code='synthetic_failure', error_message='synthetic only')
+                if outcome == 'unknown':
+                    worker[0]['usage']['cost_micro_usd'] = None
+            request, plan, _ = self.plain_run(task, key=outcome, change=change, calls=1)
+            if common_plan is not None:
+                self.assertEqual(plan, common_plan)
+            common_plan = plan
+            if outcome == 'cancelled':
+                self.invoke('cancel', '--db', self.database, '--request', request)
+            entries.append(self.run_entry(plan, request, 'single_agent_plain', task=task))
+        report = e.build_report(common_plan, entries)
+        self.assertEqual(report['counts'], {'not_executed': 12, 'observed': 2, 'failed': 1})
+        self.assertEqual((report['expected_cells'], len(report['rows']), report['observed_cells']), (15, 15, 3))
+        self.assertEqual(report['rows'][2]['attempts'][0]['status'], 'ERROR')
+        self.assertEqual(report['rows'][2]['execution_outcome'], 'failed')
+        self.assertEqual(report['rows'][5]['request_status'], 'CANCELLED')
+        self.assertEqual(report['rows'][5]['execution_outcome'], 'cancelled')
+        self.assertEqual(report['rows'][8]['usage']['cost_micro_usd'], {'known_total': 0, 'unknown_attempts': 1})
+        self.assertFalse(report['rows'][8]['safety_checks']['known_usage'])
+        for index in (2, 5, 8):
+            self.assertEqual(report['rows'][index]['workflow_completion'], 'incomplete')
+            self.assertEqual(report['rows'][index]['plain_loop_completion'], 'incomplete')
+            self.assertFalse(report['rows'][index]['business_acceptance_pending'])
+        self.assertFalse(report['paired_cells_complete'])
+        self.assertFalse(report['quality_comparison_complete'])
 
     def test_v3_one_logical_agent_reaches_original_confirmed_delivery(self):
         request = self.logical_seed(request_format='structured-v3')
@@ -353,11 +563,18 @@ class Evaluation(unittest.TestCase):
                     context_change=('context:\n', 'context:\n  model_projection: lean-v1\n'))
                 plan = self.logical_plan(request)
                 legacy_plan = self.plan(request, model_origin=True)
+                with e.database(self.database) as db:
+                    plain_plan = e.make_plan(db, request, include_plain=True)
                 self.execute_across_two_recoveries(request)
                 self.ack(request, self.publish(request), key='restart-receipt-' + str(logical))
                 condition = 'single_agent' if logical else 'multi_agent'
                 row = e.build_report(plan, [self.run_entry(plan, request, condition, task=4)])['rows'][8 + logical]
                 self.assertEqual(row['status'], 'passed', row)
+                current = e.build_report(plain_plan, [self.run_entry(plain_plan, request, condition, task=4)])['rows'][12 + logical]
+                self.assertEqual(current['status'], 'observed', current)
+                self.assertEqual(current['workflow_completion'], 'complete')
+                self.assertEqual(current['plain_loop_completion'], 'not_applicable')
+                self.assertEqual(current['quality_assessment'], 'not_assessed')
                 recovery = row['decision_evidence']['recovery_projections']
                 self.assertEqual(recovery['contract'], 'original-instruction-epoch-rebind-v1')
                 self.assertEqual(len(recovery['witnesses']), 2)
