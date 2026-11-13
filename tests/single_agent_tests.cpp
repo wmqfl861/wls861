@@ -226,6 +226,10 @@ struct PlainFixture : Fixture {
         alpha.reset(); beta.reset(); store.reset();
         store = assets->open(database, StoreRecoveryScope::request(id)); tools();
     }
+    std::string instruction_rows() const {
+        return support::sql_text(database, "SELECT json_group_array(json_array(request_id,task_id,team_id,instruction_revision,"
+            "based_on_requirements_revision,plan_revision,task_revision,dispatcher_epoch,execution_epoch,body,created_at)) FROM instructions");
+    }
 };
 
 void plain_submission_preserves_originals_and_requires_acceptance() {
@@ -256,12 +260,12 @@ void plain_submission_preserves_originals_and_requires_acceptance() {
     { std::ofstream output(f.directory.path / "alpha/result.txt"); output << "later workspace bytes\n"; CHECK(output.good()); }
     f.reopen(); CHECK(f.pump(plain_script()).at("calls").as_array().empty());
     CHECK(f.store->current_submission(task_id) == submission && f.history() == history);
-    const auto instruction = f.store->instruction(task_id);
+    const auto instruction = f.instruction_rows();
     (void)f.store->amend(f.store->host_actor(Role::Root, f.id), number(f.store->request(f.id), "state_version"),
         "Changed original request", f.input.constraint_catalog, new_id("amend"));
     const auto amended = f.pump(plain_script());
     CHECK(amended.at("model_loop_complete") == false && amended.at("business_acceptance_pending") == false);
-    CHECK(f.history() == history && f.store->instruction(task_id) == instruction);
+    CHECK(f.history() == history && f.instruction_rows() == instruction);
 }
 
 void plain_interrupted_setup_recovers_without_duplicate_allocation() {
@@ -278,9 +282,15 @@ void plain_interrupted_setup_recovers_without_duplicate_allocation() {
         f.reopen(); support::sql(f.database, "DROP TRIGGER fail_setup"); (void)f.pump();
         const auto task = f.task("plain");
         if (!allocated.empty()) CHECK(task.at("task_id") == allocated.front().at("task_id"));
-        const auto plan = f.store->plan(f.id), instruction = f.store->instruction(text(task, "task_id"));
+        const auto plan = f.store->plan(f.id); const auto instruction = f.instruction_rows();
+        const auto old = f.worker();
         f.reopen(); (void)f.pump();
-        CHECK(f.store->plan(f.id) == plan && f.store->instruction(text(task, "task_id")) == instruction);
+        CHECK(f.store->plan(f.id) == plan && f.instruction_rows() == instruction);
+        const auto binding = f.store->binding(old.actor.task_id); const auto projected = f.store->instruction(old.actor.task_id);
+        CHECK(number(projected, "execution_epoch") == binding.execution_epoch && binding.execution_epoch > old.actor.execution_epoch);
+        CHECK(number(projected, "dispatcher_epoch") == binding.dispatcher_epoch);
+        expect(ErrorCode::Stale, [&] { (void)f.store->acknowledge(old.actor, old.request.binding,
+            number(f.store->task(old.actor.task_id), "state_version"), new_id("ack")); });
         CHECK(f.store->tasks(f.id).size() == 1 && number(f.store->budget(f.id), "attempts") == 0);
         CHECK(support::sql_text(f.database, "SELECT count(*) FROM instructions") == "1");
     }
