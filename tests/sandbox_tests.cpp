@@ -8,8 +8,10 @@
 #include "../src/sandbox_posix.cpp"
 
 #include <cstdlib>
+#include <arpa/inet.h>
 #include <fstream>
 #include <iostream>
+#include <sys/socket.h>
 #include <thread>
 
 namespace {
@@ -308,6 +310,62 @@ void workspace_mountinfo_rejects_escape_mounts() {
     test::throws<Error>([&] { verify_workspace_mounts(std::string(262145, 'x')); });
 }
 
+void standard_runtime_mounts_require_read_only_private_identity() {
+    // Fixed mountinfo observations exercise refusal; this is not mount execution.
+    const std::string runtime = "20 10 8:1 /usr /usr ro,nosuid,nodev - ext4 /dev/test rw\n";
+    verify_private_mount(runtime, "/usr", true);
+    for (const auto* flags : {"rw,nosuid,nodev", "ro,nodev", "ro,nosuid", "ro,rw,nosuid,nodev"}) {
+        const auto record = std::string("20 10 8:1 /usr /usr ") + flags + " - ext4 /dev/test rw\n";
+        test::throws<Error>([&] { verify_private_mount(record, "/usr", true); });
+    }
+    for (const auto* propagation : {"shared:5", "master:5", "propagate_from:5"}) {
+        const auto record = std::string("20 10 8:1 /usr /usr ro,nosuid,nodev ") + propagation + " - ext4 /dev/test rw\n";
+        test::throws<Error>([&] { verify_private_mount(record, "/usr", true); });
+    }
+    test::throws<Error>([&] { verify_private_mount(runtime + runtime, "/usr", true); });
+    test::throws<Error>([&] { verify_private_mount(runtime + "21 20 8:1 /private /usr/local ro,nosuid,nodev - ext4 /dev/test rw\n", "/usr", true); });
+    const auto observed = pin_standard_runtime();
+    CHECK(observed.identity.st_uid == 0 && (observed.identity.st_mode & 0022) == 0);
+    CHECK(std::find(observed.links.begin(), observed.links.end(), "bin") != observed.links.end());
+    CHECK(std::find(observed.links.begin(), observed.links.end(), "lib") != observed.links.end());
+}
+
+void standard_policy_requires_cgroup_and_scoped_etc_files() {
+    Temp temp;
+    SandboxPolicy policy;
+    CHECK(policy.isolation == SandboxIsolation::Strict);
+    policy.isolation = SandboxIsolation::StandardCgroupV1;
+    policy.bwrap_path = temp.root / "missing-launcher";
+    ProcessRunner runner(temp.root, policy);
+    ProcessRequest request;
+    request.argv = {"/usr/bin/python3", "-c", "print('not executed')"};
+    const auto refused = runner.run(request);
+    CHECK(!refused.spawned && !refused.strong_isolation && refused.status == ProcessStatus::Refused);
+    CHECK(refused.error.find("no rlimit fallback") != std::string::npos);
+    const auto doctor = sandbox_doctor(policy);
+    CHECK(doctor.runtime_files_ready && !doctor.strong_prerequisites && !doctor.selected_prerequisites);
+    CHECK(doctor.selected_isolation == "standard-cgroup-v1");
+    CHECK(doctor.evidence.at("programs_executed") == 0 && doctor.evidence.at("execution_verified") == false);
+    bool runtime_checked = false;
+    for (const auto& check : doctor.checks.as_array())
+        if (check.at("id") == "runtime.tree") runtime_checked = check.at("status") == "observed_ok";
+    CHECK(runtime_checked);
+    policy.cgroup_root = temp.root;
+    const auto forged = sandbox_doctor(policy);
+    CHECK(!forged.cgroup_v2 && !forged.selected_prerequisites);
+    for (const auto* path : {"/usr/bin/replaced", "/lib/runtime", "/etc/shadow", "/etc/ssl/certs", "/work/file"}) {
+        policy.runtime_files = {{temp.root / "file", path, ""}};
+        test::throws<Error>([&] { ProcessRunner invalid(temp.root, policy); });
+    }
+    for (const auto* path : {"/etc/ld.so.cache", "/etc/nsswitch.conf", "/etc/passwd", "/etc/group"})
+        validate_destination(path, SandboxIsolation::StandardCgroupV1);
+    auto report = to_json(doctor);
+    report.as_object()["selected_prerequisites"] = true;
+    report.as_object()["report_truncated"] = true;
+    bound_sandbox_doctor_report(report);
+    CHECK(report.at("selected_prerequisites") == false && report.at("strong_prerequisites") == false);
+}
+
 void workspace_tree_rejects_unsafe_inodes() {
     Temp temp;
     const auto workspace = temp.root / "work";
@@ -567,10 +625,128 @@ void doctor_real_environment_is_observation_only() {
     std::cout << "[OBSERVED] " << canonical_json(to_json(doctor)) << '\n';
 }
 
+// Explicit opt-in only. Default CTest never treats synthetic/refusal fixtures
+// as native acceptance. Exit 77 is BLOCKED and must not be converted to green.
+int standard_native(int argc, char** argv) {
+    if (argc != 6 || ::geteuid() == 0) {
+        std::cerr << "FAIL: --standard-native BWRAP SHA256 CGROUP_ROOT NEW_OUTPUT_DIR requires a non-root user\n";
+        return 1;
+    }
+    const std::filesystem::path output(argv[5]);
+    try {
+        CHECK(output.is_absolute() && ::mkdir(output.c_str(), 0700) == 0);
+        const auto work = output / "work";
+        CHECK(::mkdir(work.c_str(), 0700) == 0);
+        CHECK(::mkdir((work / "subdir").c_str(), 0700) == 0);
+        put(output / "host-private-canary", "must remain outside the sandbox");
+        CHECK(::setenv("WLS_NATIVE_HOST_CANARY", "fixed-private-fixture", 1) == 0);
+        Fd listener(::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0));
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        socklen_t size = sizeof(address);
+        CHECK(listener && ::bind(listener.get(), reinterpret_cast<sockaddr*>(&address), size) == 0);
+        CHECK(::getsockname(listener.get(), reinterpret_cast<sockaddr*>(&address), &size) == 0);
+        CHECK(::listen(listener.get(), 4) == 0);
+        Fd reachable(::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0));
+        CHECK(reachable && ::connect(reachable.get(), reinterpret_cast<sockaddr*>(&address), size) == 0);
+        SandboxPolicy policy;
+        policy.isolation = SandboxIsolation::StandardCgroupV1;
+        policy.bwrap_path = argv[2];
+        policy.expected_bwrap_sha256 = argv[3];
+        policy.cgroup_root = argv[4];
+        ProcessRunner runner(work, policy);
+        const auto execute = [&](const char* name, const std::string& code, Milliseconds timeout,
+                                 std::stop_token stop = {}) {
+            ProcessRequest request;
+            request.argv = {"/usr/bin/python3", "-c", code, (output / "host-private-canary").string(),
+                std::to_string(ntohs(address.sin_port))};
+            request.cwd = "subdir";
+            request.env = {{"WLS_NATIVE_EXPLICIT", "present"}};
+            request.timeout = timeout;
+            const auto result = runner.run(request, stop);
+            put(output / (std::string(name) + ".json"), canonical_json(to_json(result)));
+            put(output / (std::string(name) + ".stdout"), result.stdout_text);
+            put(output / (std::string(name) + ".stderr"), result.stderr_text);
+            return result;
+        };
+        const auto proof = [&](const ProcessResult& result) {
+            CHECK(result.spawned && result.launcher_exec_confirmed && result.all_descendants_exited && !result.strong_isolation);
+            CHECK(result.evidence.at("proof_format") == "wls-process-proof-standard-cgroup-v1");
+            CHECK(result.evidence.at("isolation_verified") == true);
+            CHECK(result.evidence.at("resource_enforcement") == "cgroup-v2");
+            CHECK(result.evidence.at("descendants_proof") == "cgroup.events populated=0");
+            CHECK(result.evidence.at("workspace_observation").at("complete") == true);
+            CHECK(!std::filesystem::exists(policy.cgroup_root / result.cgroup_name));
+        };
+        const auto ordinary = execute("ordinary", R"PY(
+import os, pathlib, socket, sys
+assert os.getcwd() == '/work/subdir'
+assert os.environ['HOME'] == '/tmp/home' and os.environ['TMPDIR'] == '/tmp'
+assert os.environ['WLS_NATIVE_EXPLICIT'] == 'present'
+assert 'WLS_NATIVE_HOST_CANARY' not in os.environ
+assert not pathlib.Path(sys.argv[1]).exists()
+assert not pathlib.Path('/home').exists() and not pathlib.Path('/etc/shadow').exists()
+try:
+    socket.create_connection(('127.0.0.1', int(sys.argv[2])), timeout=0.25)
+except OSError:
+    pass
+else:
+    raise AssertionError('host listener was reachable')
+pathlib.Path('result').write_text('native-workspace-effect')
+pathlib.Path('/tmp/private').write_text('ephemeral')
+print('native-python-workdir-environment-network-ok')
+)PY", Milliseconds(5000));
+        const auto* verified = ordinary.evidence.as_object().if_contains("isolation_verified");
+        if (verified == nullptr || !verified->is_bool() || !verified->as_bool()) {
+            put(output / "summary.json", "{\"status\":\"BLOCKED\",\"native_acceptance\":false}");
+            std::cerr << "BLOCKED: native standard isolation was not established; see ordinary.json/stderr\n";
+            return 77;
+        }
+        proof(ordinary);
+        CHECK(process_operation_outcome(ordinary) == "SUCCEEDED");
+        CHECK(std::filesystem::is_regular_file(work / "subdir/result"));
+        const auto background = execute("background", R"PY(
+import os, time, pathlib
+if os.fork() == 0:
+    os.setsid()
+    os.close(1); os.close(2)
+    time.sleep(10)
+    pathlib.Path('late-write').write_text('must not escape lifecycle')
+    os._exit(0)
+)PY", Milliseconds(5000));
+        proof(background);
+        CHECK(background.status == ProcessStatus::Exited || background.status == ProcessStatus::CleanupUnknown);
+        CHECK(!std::filesystem::exists(work / "subdir/late-write"));
+        const auto timeout = execute("timeout", "import time; time.sleep(10)", Milliseconds(1000));
+        proof(timeout);
+        CHECK(process_operation_outcome(timeout) == "TIMED_OUT");
+        std::stop_source stop;
+        std::jthread canceller([&](std::stop_token done) {
+            while (!done.stop_requested() && !std::filesystem::exists(work / "subdir/cancel-ready"))
+                std::this_thread::sleep_for(Milliseconds(10));
+            if (!done.stop_requested()) stop.request_stop();
+        });
+        const auto cancelled = execute("cancel", "import pathlib,time; pathlib.Path('cancel-ready').write_text('ready'); time.sleep(10)",
+            Milliseconds(5000), stop.get_token());
+        canceller.request_stop();
+        canceller.join();
+        proof(cancelled);
+        CHECK(process_operation_outcome(cancelled) == "CANCELLED");
+        put(output / "summary.json", "{\"status\":\"PASS\",\"native_acceptance\":true,\"operations\":4}");
+        std::cout << "PASS native standard cgroup isolation: 4 actual operations\n";
+        return 0;
+    } catch (const std::exception& error) {
+        std::cerr << "FAIL native standard cgroup isolation: " << error.what() << '\n';
+        return 1;
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     if (argc > 1 && std::string_view(argv[1]) == "--process-fixture") return fixture(argc, argv);
+    if (argc > 1 && std::string_view(argv[1]) == "--standard-native") return standard_native(argc, argv);
     return test::run({
         {"trusted fixture preserves literal argv, explicit env and both output streams", explicit_argv_env_and_dual_output},
         {"child umask is private even when host mask is 0002", child_creation_ignores_permissive_parent_umask},
@@ -583,6 +759,8 @@ int main(int argc, char** argv) {
         {"setsid descendant escape stays UNKNOWN in supervisor-only fixture", escaped_descendant_remains_unknown},
         {"failed descendant query cannot reuse an earlier empty observation", stale_descendant_query_cannot_confirm_cleanup},
         {"mountinfo rejects nested and propagating workspace mounts", workspace_mountinfo_rejects_escape_mounts},
+        {"standard runtime rejects writable nested and propagating mounts", standard_runtime_mounts_require_read_only_private_identity},
+        {"standard has no cgroup fallback and imports only fixed etc files", standard_policy_requires_cgroup_and_scoped_etc_files},
         {"workspace audit rejects unsafe inodes, modes and traversal overflow", workspace_tree_rejects_unsafe_inodes},
         {"binary output retains exact bytes and valid JSON", binary_output_is_lossless_json},
         {"production policy, arguments and cwd reject unsafe boundaries", policy_and_paths_are_bounded},

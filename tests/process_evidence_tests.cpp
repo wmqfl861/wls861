@@ -104,6 +104,64 @@ void missing_or_contradictory_proofs_stay_unknown() {
         CHECK(process_operation_outcome(p) == "UNKNOWN");
     }
 }
+void standard_requires_its_complete_versioned_proof() {
+    Fixture f;
+    const auto before = f.snapshot();
+    f.write("result", "standard effect");
+    auto valid = strong_fixture(before, f.snapshot());
+    // Synthetic classifier input, not a real standard sandbox execution.
+    valid.strong_isolation = false;
+    auto& evidence = valid.evidence.as_object();
+    evidence["proof_format"] = "wls-process-proof-standard-cgroup-v1";
+    evidence["isolation_policy"] = "standard-cgroup-v1";
+    evidence["isolation_verified"] = true;
+    evidence["resource_enforcement"] = "cgroup-v2";
+    evidence["runtime_mounts"] = boost::json::array{Object{{"source", "/usr"}, {"destination", "/usr"},
+        {"device", 1}, {"inode", 2}, {"read_only", true}, {"nosuid", true}, {"nodev", true},
+        {"private", true}, {"no_submounts", true}, {"verified", true}}};
+    CHECK(process_operation_outcome(valid) == "SUCCEEDED");
+    auto nonzero = valid;
+    nonzero.exit_code = 7;
+    CHECK(process_operation_outcome(nonzero) == "FAILED");
+    nonzero.status = ProcessStatus::TimedOut;
+    CHECK(process_operation_outcome(nonzero) == "TIMED_OUT");
+    nonzero.status = ProcessStatus::Cancelled;
+    CHECK(process_operation_outcome(nonzero) == "CANCELLED");
+    for (const auto* key : {"proof_format", "isolation_policy", "isolation_verified", "resource_enforcement", "runtime_mounts",
+                           "network", "supervision", "descendants_proof", "workspace_mount_verified", "namespaces_verified",
+                           "command_start_released", "workspace_observation"}) {
+        auto missing = valid;
+        missing.evidence.as_object().erase(key);
+        CHECK(process_operation_outcome(missing) == "UNKNOWN");
+    }
+    for (const auto* key : {"source", "destination", "device", "inode", "read_only", "nosuid", "nodev", "private", "no_submounts", "verified"}) {
+        auto missing = valid;
+        missing.evidence.at("runtime_mounts").as_array().front().as_object().erase(key);
+        CHECK(process_operation_outcome(missing) == "UNKNOWN");
+    }
+    for (int mode = 0; mode < 11; ++mode) {
+        auto invalid = valid;
+        auto& e = invalid.evidence.as_object();
+        auto& mount = e.at("runtime_mounts").as_array().front().as_object();
+        if (mode == 0) invalid.strong_isolation = true;
+        if (mode == 1) invalid.all_descendants_exited = false;
+        if (mode == 2) e["proof_format"] = "wls-process-proof-standard-cgroup-v2";
+        if (mode == 3) e["isolation_policy"] = "strict";
+        if (mode == 4) e["resource_enforcement"] = "rlimit";
+        if (mode == 5) e["network"] = "host";
+        if (mode == 6) mount["destination"] = "/";
+        if (mode == 7) mount["read_only"] = false;
+        if (mode == 8) mount["inode"] = 0;
+        if (mode == 9) e["runtime_mounts"] = boost::json::array{};
+        if (mode == 10) e["runtime_mounts"].as_array().push_back(Object{});
+        CHECK(process_operation_outcome(invalid) == "UNKNOWN");
+    }
+    for (const auto* key : {"proof_format", "isolation_policy", "isolation_verified", "resource_enforcement", "runtime_mounts"}) {
+        auto legacy = strong_fixture(before, before);
+        legacy.evidence.as_object()[key] = evidence.at(key);
+        CHECK(process_operation_outcome(legacy) == "UNKNOWN");
+    }
+}
 void refused_before_fork_has_no_ambiguous_effect() {
     ProcessResult p; CHECK(process_operation_outcome(p) == "FAILED");
     p.status = ProcessStatus::Cancelled; CHECK(process_operation_outcome(p) == "CANCELLED");
@@ -188,6 +246,7 @@ int main() { return test::run({
     {"bounded full workspace snapshots retain byte hashes and exact changes", complete_binary_changes_are_captured},
     {"known exit/failure/timeout/output/cancel semantics require complete proof", statuses_require_complete_proof},
     {"every missing or contradictory proof remains UNKNOWN", missing_or_contradictory_proofs_stay_unknown},
+    {"standard cgroup proof is complete versioned and distinct from legacy strict", standard_requires_its_complete_versioned_proof},
     {"pre-fork refusal and pre-effect cancellation are definite", refused_before_fork_has_no_ambiguous_effect},
     {"links writable modes special files and byte overflow never become partial snapshots", unsafe_or_partial_trees_are_rejected},
     {"special workspace entries are rejected before opening a data channel", special_entries_are_rejected_before_data_open},
