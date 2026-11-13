@@ -630,11 +630,18 @@ void compat_output_extensions_are_recorded_and_replayed_under_the_frozen_policy(
             fails(ErrorCode::InvalidInput, [&] { (void)model_response_from_json(forged); });
         }
         if (decoded.response.status == ModelResultStatus::Completed) {
-            const auto request = fixture::request(structured_attempt_history({compat_history_record(response)}));
+            auto record = compat_history_record(response);
+            if (decoded.response.tool_calls.empty()) // A text-only round needs its original tool-selection feedback.
+                record.at("feedback").as_object()["result"] = Object{{"status", "FAILED"}, {"correction_feedback", Object{
+                    {"format", "wls-correction-feedback-v1"}, {"reason", "tool_selection"},
+                    {"target_sha256", sha256_hex("target")}, {"consecutive_failures", 1}}}};
+            const auto request = fixture::request(structured_attempt_history({record}));
             const auto encoded = encode_responses_request(profile, request);
             const auto input = parse_json_strict(encoded.body).at("input").as_array();
+            const auto first = std::find(input.begin(), input.end(), items.front());
+            CHECK(first != input.end() && static_cast<std::size_t>(input.end() - first) >= items.size());
             for (std::size_t i = 0; i < items.size(); ++i) {
-                CHECK(input[i + 1] == items[i]);
+                CHECK(first[i] == items[i]);
                 CHECK(encoded.body.find(canonical_json(items[i])) != std::string::npos);
             }
             for (const auto& strict : {fixture::compat_profile(), fixture::profile()})
