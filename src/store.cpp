@@ -9,6 +9,7 @@
 #include "wls/worker_history.hpp"
 #include "amendment_disposition.hpp"
 #include "storage_error.hpp"
+#include "operation_output_detail.hpp"
 
 #include <sqlite3.h>
 
@@ -3678,6 +3679,23 @@ Json Store::operation_output(const StoreActor& actor, const ExecutionBinding& cu
     require(!record.is_null(), ErrorCode::NotReady, "operation output is not durably recorded yet");
     const auto total = number(record.as_object(), stream + "_bytes");
     require(offset <= total, ErrorCode::InvalidInput, "output offset exceeds retained bytes");
+    const auto request = impl_->request_row(actor.request_id);
+    const auto config = FrozenRequestConfig::restore(str(request, "config_snapshot"), str(request, "config_snapshot_sha256"));
+    if (config.context_request_format() == "structured-v3") {
+        require(total >= 0 && total <= 1048576, ErrorCode::Corrupt, "invalid retained output size");
+        // Bound even a damaged BLOB before reading it, then verify the original
+        // full stream before selecting UTF-8 boundaries or displaying bytes.
+        const auto row = impl_->one("SELECT hex(substr(bytes,1,1048577)) AS data FROM operation_output_bytes WHERE op_id=? AND stream=?", {id, stream});
+        const auto bytes = unhex(str(row, "data"));
+        require(bytes.size() == static_cast<std::uint64_t>(total) &&
+            sha256_hex(bytes) == str(record.as_object(), stream + "_sha256"), ErrorCode::Corrupt, "retained output differs from original byte hash");
+        auto page = operation_output_detail::page(bytes, static_cast<std::size_t>(offset), static_cast<std::size_t>(limit),
+            number(record.as_object(), stream + "_truncated") == 1);
+        page.as_object()["op_id"] = id; page.as_object()["stream"] = stream;
+        page.as_object()["record_sha256"] = record.at("record_sha256");
+        (void)json_text(page, 262144); // Escaped text must fit the existing result cap; retry a smaller page.
+        return page;
+    }
     const auto row = impl_->one("SELECT hex(substr(bytes,?,?)) AS data FROM operation_output_bytes WHERE op_id=? AND stream=?", {offset + 1, limit, id, stream});
     const auto bytes = unhex(str(row, "data"));
     const auto next_offset = offset + static_cast<std::int64_t>(bytes.size());

@@ -4,6 +4,7 @@
 #include "wls/owned_capacity.hpp"
 #include "runtime_config_internal.hpp"
 #include "correction_detail.hpp"
+#include "operation_output_detail.hpp"
 
 #include <unistd.h>
 
@@ -458,6 +459,7 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
     }
     std::optional<ProcessRequest> process_request;
     std::optional<ProcessRunner> process_runner;
+    bool text_output = false;
     if (name == "run") {
         require(owned_workspace_capacity_policy(restore_request_config(store_.request(actor.request_id)).json()).is_null(),
             ErrorCode::Unauthorized, "owned-capacity-v1 permits file tools only; run cannot enforce the frozen workspace capacity");
@@ -467,6 +469,7 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
         request.cwd = optional_text(args, "cwd", ".");
         request.env = {{"PATH", "/usr/bin:/bin"}, {"LANG", "C.UTF-8"}};
         const auto config = restore_request_config(store_.request(actor.request_id));
+        text_output = config.context_request_format() == "structured-v3";
         const auto timeout = optional_number(args, "timeout_s", unsigned_number(config.json().at("system").at("sandbox").at("run_default_timeout_s")));
         request.timeout = std::chrono::seconds(timeout);
         request.output_limit_bytes = static_cast<std::size_t>(optional_number(args, "max_output_bytes", policy.max_output_bytes));
@@ -539,7 +542,10 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
             // no-process/exit facts. A generic cancelled_before_effect record
             // cannot satisfy the independent owned-cleanup process gate.
             process_request->operation_id = id;
-            const auto process = process_runner->run(*process_request, cancel.get_token());
+            auto process = process_runner->run(*process_request, cancel.get_token());
+#ifdef WLS_WORKER_TOOLS_PRIVATE_TEST_OUTPUT
+            WLS_WORKER_TOOLS_PRIVATE_TEST_OUTPUT(process);
+#endif
             stdout_bytes = process.stdout_text; stderr_bytes = process.stderr_text; output_truncated = process.output_truncated;
             result = to_json(process); evidence = process.evidence;
             // Raw bytes have their own BLOB storage and bounded paging. JSON
@@ -548,6 +554,8 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
             result.as_object()["stdout_bytes"] = stdout_bytes.size();
             result.as_object()["stderr_bytes"] = stderr_bytes.size();
             result.as_object()["output_location"] = "op_output";
+            if (text_output) result.as_object()["output_preview"] =
+                operation_output_detail::preview(stdout_bytes, stderr_bytes, output_truncated);
             // Failed commands may have known partial /work effects. Only a
             // complete strong/exit/inventory proof permits definite settlement.
             outcome = process_operation_outcome(process);
