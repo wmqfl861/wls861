@@ -924,11 +924,14 @@ void validate_document(const Json& document, const ConfigLoadOptions& options) {
 
 } // namespace
 
-FrozenRequestConfig::FrozenRequestConfig(Json document, const ConfigLoadOptions& options)
+FrozenRequestConfig::FrozenRequestConfig(Json document, const ConfigLoadOptions& options,
+                                       std::string canonical_bytes)
     : document_(std::move(document)) {
     validate_options(options);
     validate_document(document_, options);
-    serialized_ = canonical_json(document_);
+    // restore supplies bytes canonicalized from this same owned document;
+    // full document validation above still runs before retaining them.
+    serialized_ = canonical_bytes.empty() ? canonical_json(document_) : std::move(canonical_bytes);
     if (serialized_.size() > options.max_total_bytes) invalid("snapshot", "serialized snapshot byte limit exceeded");
     sha256_ = sha256_hex(serialized_);
     function_id_ = string_value(required(document_, "function_id", "snapshot"), "snapshot.function_id");
@@ -959,8 +962,9 @@ FrozenRequestConfig FrozenRequestConfig::restore(std::string_view serialized,
     if (serialized.size() > options.max_total_bytes) invalid("snapshot", "serialized snapshot byte limit exceeded");
     if (expected_sha256.size() != 64 || sha256_hex(serialized) != expected_sha256) throw Error(ErrorCode::Corrupt, "request configuration snapshot hash mismatch");
     auto parsed = parse_json_strict(serialized, options.max_total_bytes, options.max_yaml_depth);
-    if (canonical_json(parsed) != serialized) throw Error(ErrorCode::Corrupt, "request configuration snapshot is not canonical JSON");
-    return FrozenRequestConfig(std::move(parsed), options);
+    auto canonical_bytes = canonical_json(parsed);
+    if (canonical_bytes != serialized) throw Error(ErrorCode::Corrupt, "request configuration snapshot is not canonical JSON");
+    return FrozenRequestConfig(std::move(parsed), options, std::move(canonical_bytes));
 }
 
 ModelSelection FrozenRequestConfig::resolve(Role role) const {

@@ -1228,9 +1228,8 @@ public:
                     const FrozenRequestConfig* reservation_config = nullptr) const {
         std::optional<FrozenRequestConfig> restored;
         if (reservation_config) {
-            // Only reserve_attempt supplies its already validated local
-            // snapshot from this transaction. Match the authorized row
-            // exactly; nothing is cached across Store calls.
+            // Callers may supply an already validated local snapshot.
+            // Match the authorized row exactly; nothing is cached across Store calls.
             require(reservation_config->sha256() == str(r, "config_snapshot_sha256") &&
                     reservation_config->serialize() == str(r, "config_snapshot"),
                     ErrorCode::Corrupt, "validated reservation configuration differs from the authorized request");
@@ -1250,8 +1249,9 @@ public:
                 ErrorCode::Unauthorized, "tool is not registered for this control branch");
         const auto r = authorize(actor, {Role::Worker});
         actor_binding(actor, b); matches(b);
-        tool_grant(r, team_row(actor.team_id), tool_id);
+        const auto team = team_row(actor.team_id);
         const auto frozen = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256"));
+        tool_grant(r, team, tool_id, &frozen);
         const auto& control = frozen.json().at("system").at("control").as_object();
         if (diagnostic) require(contains(control.at("diagnostic_tools"), tool_id), ErrorCode::Unauthorized, "diagnostic tool absent from frozen control policy");
         const auto limit = number(control, "max_queries_per_minute");
@@ -2346,7 +2346,8 @@ Json Store::submit_work(const StoreActor& actor, const ExecutionBinding& binding
     Impl::Transaction tx(*impl_);
     const auto owner = impl_->authorize(actor, {Role::Worker}, false); impl_->actor_binding(actor, binding);
     const auto team = impl_->team_row(actor.team_id);
-    impl_->tool_grant(owner, team, "submit"); impl_->tool_grant(owner, team, "fs_read");
+    const auto frozen = FrozenRequestConfig::restore(str(owner, "config_snapshot"), str(owner, "config_snapshot_sha256"));
+    impl_->tool_grant(owner, team, "submit", &frozen); impl_->tool_grant(owner, team, "fs_read", &frozen);
     if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
     impl_->ready(actor, binding, "submit");
     (void)impl_->control_authorization(actor, binding, "fs_read", true);
