@@ -1,23 +1,27 @@
+现在能做什么：G1 合成门禁已通过并获 owner 验收；可以用一条 `wls run` 完成合成端点上的三个文件任务，继续推进 G2-P。
+还不能做什么：真实模型闭环尚未验收，真实调用为 0 次；G2-P 尚未实施，Windows 11 为 NOT_RUN。
+需要 owner 做什么：在运行 agent 的 shell 中导出 `WLS_G2_API_KEY`，然后明确告知“密钥已就绪”；两项满足前不发任何真实请求。
+
 # 当前状态
 
 当前实现 **0.11.1-r3.3c-audit**，目标蓝图 **v0.4.1**，Store **410**（无 013 迁移、异步协调器或持久事件扩展）。
 
-更新：2026-11-12（UTC；CI快照23:28:39）。**G1-A–M已普通合并，产品合并基线 main@[`b09848e787e307a002ab97282c1b3d95901a397f`](https://github.com/wmqfl861/wls861/commit/b09848e787e307a002ab97282c1b3d95901a397f)**（[#66](https://github.com/wmqfl861/wls861/pull/66)，23:09:34 UTC）；本页属于随后文档提交。完整架构、模块/PR/merge SHA、构建步骤、证据及接手清单集中在[完整交接](reviews/g1-main-handoff-20261112.md)；[G1简报](reports/g1-exit.md)汇总结果与限制。
+更新：2026-11-13。owner 已采纳[本轮审核与决定](reviews/claude-2026-11-13/README.md)，G1 按 D-10 验收通过，下一步为 G2-P，再进入 G2。G1-A–M 已普通合并，产品基线见 [#66](https://github.com/wmqfl861/wls861/pull/66)。[完整交接](reviews/g1-main-handoff-20261112.md)和[G1简报](reports/g1-exit.md)保留原报告时点的证据；当前处置以本页和[决定记录](reviews/claude-2026-11-13/02-decisions.md)为准。
 
 M head `c2aa6440dec010b9161527c1c80d6b75ccf2081a` 的 [core 43324561502](https://github.com/wmqfl861/wls861/actions/runs/43324561502) 三路各83/83 PASS、[source 43324561578](https://github.com/wmqfl861/wls861/actions/runs/43324561578) SUCCESS。本机新Release构建后，注册 `g1_exit_e2e` 单次1/1 PASS（19.80秒，原300秒期限）；83项注册、Make59+24及CMake ASan42+41的静态核对不等于本机全部执行。
 
-产品合并基线 `b09848e7` 的 [full 43326432461](https://github.com/wmqfl861/wls861/actions/runs/43326432461) IN_PROGRESS、[source 43326432580](https://github.com/wmqfl861/wls861/actions/runs/43326432580) SUCCESS；上一main `b267ae5b` 的 [full 43323428497](https://github.com/wmqfl861/wls861/actions/runs/43323428497) 已于23:26:26 UTC完整SUCCESS（四配置各82/82，CMake ASan两片各41/41，Make59+23条命令含2完整性脚本成功）。先前 `fba19b5` 完整ASan两个单项超时、job中断及本机capture 90.17秒超时仍OPEN。**owner本次特定合并要求不代表全矩阵通过、正式PR评审或G1正式验收，也不扩大未来合并权限。** D-2/D-3未给出，真实供应商/付费调用为0。
+`b09848e` 的 [full 43326432461](https://github.com/wmqfl861/wls861/actions/runs/43326432461) 和 `83fcb9f` 的 [full 43331867644](https://github.com/wmqfl861/wls861/actions/runs/43331867644) 均为 9 个 job 全部成功，结果来自[本轮审核的 CI 核对](reviews/claude-2026-11-13/01-audit-report.md)。D-11 关闭两个旧 CI ASan 单项超时；本机 capture 超时降为已知本机现象，除非在 CI 复现，不再诊断。原失败、超时和取消证据保留。
 
 ## 尚缺的真实能力（当前边界）
 
-- 真实 WLS 供应商模型调用与验收：0 次 / NOT_RUN；付费调用默认关闭，端点、能力与预算未配置。
-- Windows 11 原生运行时：NOT_RUN（G2 前冻结）；私有 CI 原始证据托管：BLOCKED，完整原件先保留本机。此托管状态不表述产品私有部署能力。
+- 真实 WLS 供应商模型调用与验收：0 次 / NOT_RUN。D-2/D-3 已授权 G2 仅用 OpenAI Responses / `gpt-5-mini`，每请求上限 1 美元、G2 合计上限 10 美元，符合决定 §3.3 的重试最多 2 次；当前仍等待密钥和 owner 明确“密钥已就绪”。配置外置，密钥不写入文件、日志、PR 或文档。合成结果不代表真实模型验收。
+- Windows 11 原生运行时：NOT_RUN。D-12 已取消私有 CI 原始证据托管要求，公开 CI 日志和仓库报告足够；本机原始证据保留 30 天后才可清理。
 - daemon/API、私有行清理 runner、完整记忆与独立审核闭环、获准真实小任务与同条件对照仍未实现。
 - 0.11.1 全代码审核（ADR-090）已修复项、未采纳疑点与限制见[审核报告](reviews/code-audit-20261027.md)与[验证报告](reports/code-audit-20261027-validation.md)。
 
 ## 当前 G1 与历史阶段入口
 
-- G1-A–M的产品与CI增量已合并，D/J在制、E待D的旧进度已被取代。M包含合成验收及H的两项实际产品修复，完整差异与当前精确结果见[交接 §3、§6](reviews/g1-main-handoff-20261112.md)。`structured-v3` 在 G1 总门禁正式通过前仍视为未发布。
+- G1-A–M 的产品与 CI 增量已合并并获 owner 验收。M 包含合成验收及 H 的两项实际产品修复，原始差异与结果见[交接 §3、§6](reviews/g1-main-handoff-20261112.md)。D-10 将 `structured-v3`、`lean-v1`、`fixed-role-v1`、`append-fold-v1`、`guided-v1`、`bounded-v1` 的冻结推迟到 G2 出口；此前可原地调整，`framed-v1`、`structured-v2` 的旧请求回归保留。
 - M 新 head `c2aa644` 的本机合成场景独立实测完成一条 `wls run`、一次确认、三个文件任务与 32 次合成调用；Worker 每任务第三次调用起最低模拟缓存读取 72.0093408%，估算 $0.234326，原 cache-write/provider-cost 保持 NULL。整体模拟缓存62.1915%与逐任务最低值分开；不作真实供应商费用或缓存证据。
 - 阶段 0 已于 F-26 [#51](https://github.com/wmqfl861/wls861/pull/51) 合并为 `ff2c899` 时完成，原计数、取消与失败保留在[阶段 0 里程碑](reports/stage0-convergence.md)。旧 A/B/C/I 组合 `951c95d` 的六配置成功也仅绑定当时提交，不替代当前 main。
 
@@ -51,7 +55,7 @@ R2a.2已按[ADR-075](adr/075-owned-allocation-recovery.md)实现迁移、创建�
 R2a.3、R3.1、R3.2 的上述限定接口已实施；真实强沙箱部署正向验收保持独立。
 R3.3a/b、两项长任务前置及受控event pump/CLI已按限定范围实施。迁移注册表与可安装资源
 已补齐服务化之前置，但daemon/API继续后置。签名计费适配和单Agent逻辑身份执行器已并入。
-下一步按 owner 2026-11-11 采纳的开发路线（见[ROADMAP](ROADMAP.md)「当前执行路线」：阶段 0 收敛 → G1 → G2 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10）推进：阶段0完成、G1-A–M已合，当前main完整矩阵仍在途；新G1单次验证已完成，优先登记剩余CI结果并有界诊断已知超时，不为交接重复已完成测试。G2须等待D-2/D-3及明确真实执行授权，保留全部失败和未知样本。
+下一步按 owner 2026-11-13 采纳的[当前计划](reviews/claude-2026-11-13/04-plan.md)推进：阶段 0 收敛 → G1 → G2-P → G2 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10。阶段 0 和 G1 已完成，先实施 G2-P；密钥与明确就绪通知均到位后可做 G2-0 探针，不等 G2-P。G2-P 完成而密钥未到时按计划 §4 继续离线工作；真实运行保留全部失败和未知样本。
 离线codec profile继续固定real_calls_enabled=false；外层宿主live配置另有显式开关和独立执行授权，
 默认关闭，max_paid_retries=0；CLI只有完整宿主授权后的受控入口，本次未使用真实供应商。
 并发租约和选中请求按需提升代次继续开放，不因模型 AMEND 接入而视为完成。
