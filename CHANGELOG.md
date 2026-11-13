@@ -10,6 +10,8 @@
   `/work` paths, show role/segment summaries and export original filenames.
 - Add the eight-scenario `g2_rehearsal_e2e` and exact G2 task fixtures. Fresh
   local Release runs pass P7 and the original G1 gate; 84 tests are registered.
+  PR #81 is merged after all three core configurations pass 84/84 tests;
+  the complete PR gate took 12 minutes 12 seconds.
   See [the one-page rehearsal report](docs/reports/g2p-rehearsal.md) for the
   final checks, counters, preserved failures and the unchanged G1 cache baseline.
   Store stays 410; real calls remain zero while waiting for the owner's key.

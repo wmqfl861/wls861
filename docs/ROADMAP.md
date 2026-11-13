@@ -6,9 +6,9 @@
 
 ## 0. 当前执行路线（2026-11-13 owner 采纳）
 
-[11-13 审核与计划](reviews/claude-2026-11-13/README.md)已合入 main；[11-11 计划](reviews/claude-2026-11-11/05-development-plan.md)继续有效，冲突以新决定为准。阶段 0 与 G1 已完成，G1 获 owner 验收；当前推进 G2-P 真实模型就绪，随后是 G2 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10。
+[11-13 审核与计划](reviews/claude-2026-11-13/README.md)已合入 main；[11-11 计划](reviews/claude-2026-11-11/05-development-plan.md)继续有效，冲突以新决定为准。阶段 0、G1 与 G2-P 已完成，G1 获 owner 验收；随后是 G2 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10。
 
-G2-P 的接口、错误反馈、计费、重试与文件模板已合入，预演候选为 0.12.0 / Store 410，八个场景和最终检查见[阶段报告](reports/g2p-rehearsal.md)。早期异步、Store 411 和 DAG 分支不属于当前 main，也不是已交付的默认能力。
+G2-P 的接口、错误反馈、计费、重试与文件模板已合入，当前为 0.12.0 / Store 410，八个场景和三个核心配置的最终检查见[阶段报告](reports/g2p-rehearsal.md)。早期异步、Store 411 和 DAG 分支不属于当前 main，也不是已交付的默认能力。
 
 D-2/D-3 已授权首个 OpenAI Responses / gpt-5-mini 闭环，每请求上限 1 美元、G2 合计 10 美元，合格重试最多两次；密钥和 owner 的“密钥已就绪”尚未到位，真实调用仍为零。G2-P 出口后若仍无密钥，按[计划 §4](reviews/claude-2026-11-13/04-plan.md#4-密钥没到时做什么)依次推进 G4-A/B/C、G5-A/B、G3-A、G6-B，密钥就绪后优先转回 G2。
 
