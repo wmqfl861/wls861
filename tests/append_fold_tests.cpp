@@ -87,9 +87,11 @@ struct Fixture {
         task_id = text(store->tasks(request_id).front(), "task_id");
     }
 
-    static std::vector<FakeModelStep> initial_steps() {
-        return fake_model_steps_from_json(parse_json_strict(
-            read_runtime_file(root / "tests/fixtures/s1_fake_initial.json")));
+    static std::vector<FakeModelStep> initial_steps(const std::string& name = "s1_fake_initial.json") {
+        auto steps = fake_model_steps_from_json(parse_json_strict(read_runtime_file(root / "tests/fixtures" / name)));
+        for (auto& step : steps) for (auto& tool : step.tool_calls) if (tool.name == "submit_plan")
+            for (auto& node : tool.arguments.at("nodes").as_array()) node.at("brief").at("title") = node.at("title");
+        return steps; // V3-only derived copy; preserve the archived fixture bytes.
     }
     void open_runtime() {
         tools = std::make_unique<WorkerTools>(*store, workspace);
@@ -205,7 +207,7 @@ void append_fold_reopen_prefix_and_amend() {
         number(fixture.store->request(fixture.request_id), "state_version"),
         read_runtime_file(root / "tests/fixtures/s1_amendment.txt"),
         parse_json_strict(read_runtime_file(root / "tests/fixtures/s1_amended_constraints.json")), new_id("amend"));
-    const auto amended = fake_model_steps_from_json(parse_json_strict(read_runtime_file(root / "tests/fixtures/s1_fake_amended.json")));
+    const auto amended = Fixture::initial_steps("s1_fake_amended.json");
     (void)fixture.runtime->run(fixture.request_id, amended, "update", 1);
     CHECK(number(fixture.store->request(fixture.request_id), "requirements_revision") == before_revision + 1);
     const auto updated = fixture.runtime->capture_call(fixture.request_id, Role::Worker, fixture.task_id, 31);

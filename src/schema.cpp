@@ -327,6 +327,74 @@ Json project_schema(const Json& value, const std::set<std::string>& inherited_na
     return projected;
 }
 
+void omit_properties(Json& schema, std::initializer_list<const char*> names) {
+    auto& object = schema.as_object();
+    for (const auto* name : names) object.at("properties").as_object().erase(name);
+    if (auto* required = object.if_contains("required")) {
+        auto& values = required->as_array();
+        values.erase(std::remove_if(values.begin(), values.end(), [&](const Json& value) {
+            return std::any_of(names.begin(), names.end(), [&](const char* name) { return value.as_string() == name; });
+        }), values.end());
+    }
+}
+
+Json v3_schema(const Json& source, const Documents& documents, std::size_t& budget,
+               std::set<std::string>& active, std::size_t depth = 0) {
+    const auto size = canonical_json(source).size();
+    require(depth < 64 && size <= budget, "v3 schema expansion exceeds its depth or byte limit");
+    budget -= size;
+    if (!source.is_object()) return source;
+    if (const auto* reference = source.as_object().if_contains("$ref")) {
+        const auto ref = std::string(reference->as_string());
+        require(active.insert(ref).second, "v3 schema cannot inline a recursive reference");
+        const auto split = ref.find('#');
+        const auto found = documents.find(ref.substr(0, split));
+        require(found != documents.end(), "v3 schema reference is outside the closed registry");
+        const auto& target = split == std::string::npos ? found->second : found->second.at_pointer(ref.substr(split + 1));
+        auto result = v3_schema(target, documents, budget, active, depth + 1);
+        active.erase(ref);
+        return result;
+    }
+    auto result = source;
+    auto& object = result.as_object();
+    const auto* identity = object.if_contains("$id");
+    const auto id = identity ? std::string(identity->as_string()) : std::string{};
+    if (id.ends_with("/plan.schema.json")) {
+        auto& node = object.at("properties").at("nodes").at("items");
+        omit_properties(node, {"kind", "depends_on", "required", "capability", "input", "review"});
+        node.as_object().erase("allOf");
+        node.at("required").as_array().emplace_back("brief");
+        node.at("properties").at("brief") = documents.at(id.substr(0, id.rfind('/') + 1) + "task_brief.schema.json");
+    } else if (id.ends_with("/task_brief.schema.json")) {
+        omit_properties(result, {"title", "constraint_refs", "constraints_verbatim", "inputs"});
+        omit_properties(object.at("properties").at("acceptance_criteria").at("items"), {"id"});
+    } else if (id.ends_with("/work_order.schema.json")) {
+        omit_properties(result, {"constraint_refs", "constraints_verbatim"});
+        omit_properties(object.at("properties").at("steps").at("items"), {"id"});
+    }
+    for (const auto* key : {"$schema", "$id", "title"}) object.erase(key);
+    // Closed objects already forbid removed runtime names; omit redundant
+    // projection clauses so those host identifiers do not appear in v3 tools.
+    if (const auto* extra = object.if_contains("additionalProperties"); extra && *extra == false && !object.contains("patternProperties")) {
+        if (auto* clauses = object.if_contains("allOf")) {
+            auto& values = clauses->as_array();
+            values.erase(std::remove_if(values.begin(), values.end(), [&](const Json& clause) {
+                if (!clause.is_object() || clause.as_object().size() != 1 || !clause.as_object().contains("propertyNames")) return false;
+                const auto& names = clause.at("propertyNames");
+                if (!names.is_object() || names.as_object().size() != 1 || !names.as_object().contains("not")) return false;
+                const auto& denied = names.at("not");
+                const auto* declared = object.if_contains("properties");
+                return denied.is_object() && denied.as_object().size() == 1 && denied.as_object().contains("enum") &&
+                    std::all_of(denied.at("enum").as_array().begin(), denied.at("enum").as_array().end(),
+                        [&](const Json& name) { return !name.is_string() || !declared || !declared->as_object().contains(name.as_string()); });
+            }), values.end());
+            if (values.empty()) object.erase("allOf");
+        }
+    }
+    for_each_subschema(result, [&](Json& child, bool) { child = v3_schema(child, documents, budget, active, depth + 1); });
+    return result;
+}
+
 } // namespace
 
 class SchemaRegistry::Impl {
@@ -365,25 +433,32 @@ public:
         compile_all(projected_, model_compiled_);
     }
 
-    void validate(std::string_view name, const Json& document, bool model_input, const std::string& prefix = {}) const {
+    void validate(std::string_view name, const Json& document, bool model_input, const std::string& prefix = {}, bool v3 = false) const {
         const auto key = std::string(name);
         const auto& registry = model_input ? model_compiled_ : compiled_;
         const auto found = registry.find(key);
         require(found != registry.end(), "unregistered schema name: " + key);
+        valijson::Schema minimal;
+        if (v3) {
+            const auto definition = project_v3(schema(name, true));
+            valijson::SchemaParser parser(valijson::SchemaParser::kDraft7);
+            parser.populateSchema(valijson::adapters::BoostJsonAdapter(definition), minimal);
+        }
+        const auto& selected = v3 ? minimal : *found->second;
         // Keep strong C++ integer/string typing, finite values, UTF-8 and depth
         // limits consistent with all other runtime JSON ingress.
         const auto bounded = parse_json_strict(canonical_json(document), max_schema_bytes, 64);
         valijson::Validator validator(valijson::Validator::kStrongTypes);
         const valijson::adapters::BoostJsonAdapter target(bounded);
-        if (!validator.validate(*found->second, target, nullptr)) {
+        if (!validator.validate(selected, target, nullptr)) {
             valijson::ValidationResults errors;
             std::size_t remaining = 1024;
-            if (diagnostic_input_bounded(bounded, remaining)) (void)validator.validate(*found->second, target, &errors);
+            if (diagnostic_input_bounded(bounded, remaining)) (void)validator.validate(selected, target, &errors);
             else errors.pushError({}, "diagnostics_limited");
             throw Error(ErrorCode::InvalidInput, diagnostic_fragment("draft-07 validation failed for " + diagnostic_fragment(key) +
                         (model_input ? " model input" : " complete record") + schema_diagnostics(errors, prefix), 600));
         }
-        if (key == "plan") {
+        if (key == "plan" && !v3) {
             // Capability inputs intentionally have dynamic schemas. Team-task
             // briefs have a known contract and cannot hide inside opaque JSON.
             const auto& nodes = bounded.as_object().at("nodes").as_array();
@@ -394,6 +469,12 @@ public:
                 }
             }
         }
+    }
+
+    Json project_v3(const Json& definition) const {
+        std::size_t budget = max_schema_bytes;
+        std::set<std::string> active;
+        return v3_schema(definition, projected_, budget, active);
     }
 
     Json schema(std::string_view name, bool model_input) const {
@@ -452,6 +533,8 @@ void SchemaRegistry::validate(std::string_view name, const Json& document, bool 
     impl_->validate(name, document, model_input);
 }
 Json SchemaRegistry::project_model_input(std::string_view name) const { return impl_->schema(name, true); }
+Json SchemaRegistry::project_v3_input(const Json& definition) const { return impl_->project_v3(definition); }
+void SchemaRegistry::validate_v3_input(std::string_view name, const Json& document) const { impl_->validate(name, document, true, {}, true); }
 Json SchemaRegistry::full_schema(std::string_view name) const { return impl_->schema(name, false); }
 
 } // namespace wls::s1

@@ -116,6 +116,68 @@ Json captured_contract(const ModelRequest& request) {
     return parse_json_strict(compiled_task_contract(request.context), 1024U * 1024U);
 }
 
+// Strip only the documented compatibility fields for the minimal-input gate,
+// then fill/check those same fields on a copy using the original captured facts.
+void v3_contract_fields(Json& arguments, const std::string& schema, const Json& contract, bool strip, const std::string& prefix = {}) {
+    if (!arguments.is_object()) return;
+    const auto nested = [&](const char* key, const char* name) {
+        if (auto* value = arguments.as_object().if_contains(key)) v3_contract_fields(*value, name, contract, strip, prefix + "/" + key);
+    };
+    if (schema == "submit_amendment_plan") { nested("plan", "plan"); return; }
+    if (schema == "check_submission") { nested("work_order", "work_order"); return; }
+    Array refs, excerpts;
+    if (!strip) {
+        for (const auto& item : contract.at("request").at("constraint_catalog").as_array()) {
+            refs.push_back(item.at("constraint_id")); excerpts.push_back(item.at("text"));
+        }
+        if (schema == "work_order") {
+            for (const auto* key : {"task", "instruction"}) {
+                const auto* record = contract.as_object().if_contains(key);
+                if (!record || record->is_null()) continue;
+                for (const auto& text : record->at(std::string_view(key) == "task" ? "brief" : "body").at("constraints_verbatim").as_array())
+                    if (std::find(excerpts.begin(), excerpts.end(), text) == excerpts.end()) excerpts.push_back(text);
+            }
+        }
+    }
+    std::string path = prefix;
+    const auto field = [&](Json& body, const char* key, const Json& value, bool optional = false) {
+        if (!body.is_object()) return;
+        auto& object = body.as_object();
+        if (strip) { object.erase(key); return; }
+        const auto* supplied = object.if_contains(key);
+        require(!supplied || optional || *supplied == value, ErrorCode::InvalidInput,
+                path + "/" + key + ": supplied host field disagrees with captured contract");
+        if (!supplied) object[key] = value;
+    };
+    const auto each = [](Json& body, const char* key, const auto& visit) {
+        if (body.is_object()) if (auto* values = body.as_object().if_contains(key); values && values->is_array())
+            for (std::size_t i = 0; i < values->as_array().size(); ++i) visit(values->as_array()[i], i);
+    };
+    const auto constraints = [&](Json& body) {
+        field(body, "constraint_refs", refs); field(body, "constraints_verbatim", excerpts);
+    };
+    if (schema == "plan") each(arguments, "nodes", [&](Json& node, std::size_t index) {
+        path = prefix + "/nodes/" + std::to_string(index);
+        field(node, "kind", "team_task"); field(node, "depends_on", Array{}); field(node, "required", true, true);
+        if (!node.is_object()) return;
+        if (auto* brief = node.as_object().if_contains("brief")) {
+            path += "/brief";
+            field(*brief, "title", strip ? Json(nullptr) : node.at("title")); constraints(*brief);
+            const auto brief_path = path;
+            each(*brief, "acceptance_criteria", [&](Json& criterion, std::size_t i) {
+                path = brief_path + "/acceptance_criteria/" + std::to_string(i);
+                field(criterion, "id", Json("ac" + std::to_string(i + 1)));
+            });
+        }
+    });
+    if (schema == "work_order") {
+        constraints(arguments);
+        each(arguments, "steps", [&](Json& step, std::size_t i) {
+            path = prefix + "/steps/" + std::to_string(i); field(step, "id", Json("s" + std::to_string(i + 1)));
+        });
+    }
+}
+
 Json submission_snapshot(WorkerTools& tools, Store& store, const StoreActor& actor,
                          const ExecutionBinding& binding, const Json& body) {
     const auto grants = store.authorized_worker_tools(actor, binding);
@@ -651,9 +713,13 @@ CapturedModelCall OfflineRuntime::capture_call(
         shared_transcript = single_agent_transcript(request_id, config, history);
         contract.as_object()["logical_agent_execution"] = shared_transcript->execution;
     }
-    for (auto& tool : declared_tools) tool.description = tool.version == "wls-history-text-v1"
-        ? "Read scoped immutable history as UTF-8 text, or base64 for binary result_data; the host verifies originals before paging."
-        : builtin_tool_description(tool.name);
+    const bool v3 = config.context_request_format() == "structured-v3";
+    for (auto& tool : declared_tools) {
+        tool.description = tool.version == "wls-history-text-v1"
+            ? "Read scoped immutable history as UTF-8 text, or base64 for binary result_data; the host verifies originals before paging."
+            : builtin_tool_description(tool.name);
+        if (v3) tool.definition = schemas_.project_v3_input(tool.definition);
+    }
     auto context = make_context(config, role, template_id, declared_tools, contract);
     context.model_projection = config.context_model_projection();
     context.tool_policy = config.context_tool_policy(); context.allowed_tools = std::move(allowed_tools);
@@ -713,7 +779,6 @@ CapturedModelCall OfflineRuntime::capture_call(
                 "memory_assessments must be empty until versioned memory-load receipts are implemented.";
     }
     require(role == Role::Worker || tool_feedback.empty(), ErrorCode::InvalidInput, "tool feedback belongs to the Worker context");
-    const bool v3 = config.context_request_format() == "structured-v3";
     const bool structured = v3 || config.context_request_format() == "structured-v2";
     std::vector<StructuredContextMessage> native_messages;
     if (shared_transcript) {
@@ -983,7 +1048,22 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     if (durable_feedback && !declared) return ordinary("tool_selection", "offline wake requires exactly one declared tool call");
     require_complete_response(captured, response);
     require(response.tool_calls.size() == 1, ErrorCode::InvalidInput, "offline wake requires exactly one declared tool call");
-    const auto& tool = response.tool_calls.front();
+    auto tool = response.tool_calls.front();
+    if (runtime_config.context_request_format() == "structured-v3" &&
+            (tool.name == "submit_plan" || tool.name == "submit_amendment_plan" ||
+             tool.name == "issue_work_order" || tool.name == "check_submission")) {
+        const auto schema = tool.name == "submit_plan" ? "plan" : tool.name == "issue_work_order" ? "work_order" : tool.name;
+        try {
+            const auto contract = captured_contract(captured);
+            auto minimal = tool.arguments;
+            v3_contract_fields(minimal, schema, contract, true);
+            schemas_.validate_v3_input(schema, minimal);
+            v3_contract_fields(tool.arguments, schema, contract, false);
+        } catch (const Error& error) {
+            if (!durable_feedback || error.code() != ErrorCode::InvalidInput) throw;
+            throw correction_detail::RejectedArguments(error.what());
+        }
+    }
     const auto command = captured.attempt_id + ":" + tool.call_id;
     if (durable_feedback && captured.role == Role::Worker &&
         std::any_of(worker_tool_registry().begin(), worker_tool_registry().end(),

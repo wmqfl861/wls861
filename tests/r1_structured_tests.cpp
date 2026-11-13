@@ -203,10 +203,13 @@ void all_builtin_v3_descriptions_preserve_registry() {
     const auto original = input.tools;
     const auto v1 = ContextCompiler{}.compile(input);
     const auto v2 = compile_structured_context(input, {});
-    const auto v3 = compile_structured_context(input, {}, {}, StructuredContextFormat::V3);
+    auto minimal = input;
+    for (auto& tool : minimal.tools) tool.definition = schemas.project_v3_input(tool.definition);
+    const auto v3 = compile_structured_context(minimal, {}, {}, StructuredContextFormat::V3);
     for (const auto& tool : v3.logical_input.at("prefix").at("tools").as_array()) {
         CHECK(!tool.at("description").as_string().empty());
         check_parameter_descriptions(tool.at("parameters"));
+        CHECK(canonical_json(tool.at("parameters")).find("\"$ref\"") == std::string::npos);
     }
     for (std::size_t index = 0; index < input.tools.size(); ++index) {
         CHECK(input.tools[index].definition == original[index].definition);
@@ -918,7 +921,11 @@ struct V3Fixture {
         task = str(store->tasks(id).front(), "task_id");
     }
     static std::vector<FakeModelStep> script(const std::string& name) {
-        return fake_model_steps_from_json(parse_json_strict(read_runtime_file(root / "tests/fixtures" / name)));
+        auto steps = fake_model_steps_from_json(parse_json_strict(read_runtime_file(root / "tests/fixtures" / name)));
+        // Frozen legacy scripts have distinct brief/node titles; derive only this v3 copy.
+        for (auto& step : steps) for (auto& tool : step.tool_calls) if (tool.name == "submit_plan")
+            for (auto& node : tool.arguments.at("nodes").as_array()) node.at("brief").at("title") = node.at("title");
+        return steps;
     }
     void reopen() {
         store.reset(); store = assets.open(database);

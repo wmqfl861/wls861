@@ -7,6 +7,9 @@ namespace wls::s1::description_detail {
 inline std::string lookup(std::string key, const Json* original = nullptr) {
     // Only these equivalent declarations share semantics; unknown keys fail.
     if (key.starts_with("escalate_task.")) key.replace(0, 13, "ask");
+    if (key.starts_with("submit_amendment_plan.plan.")) key.replace(0, 27, "submit_plan.");
+    if (key.starts_with("submit_amendment_plan.dispositions{}")) key.replace(0, 21, "resolve_amendment");
+    if (key.starts_with("check_submission.work_order.")) key.replace(0, 28, "issue_work_order.");
     static const std::map<std::string, std::string> entries{
         {"note", "Record a short task observation in durable operation history; this does not submit work."},
         {"fs_list", "List one workspace directory in bounded name order; use after_name to continue a page."},
@@ -71,6 +74,14 @@ inline std::string lookup(std::string key, const Json* original = nullptr) {
         {"submit_plan.nodes[].node_id", "Stable local node key used by dependencies and amendment dispositions."},
         {"submit_plan.nodes[].kind", "Must be team_task; capability_call nodes are not implemented and are refused."},
         {"submit_plan.nodes[].title", "Short human-readable purpose of this node, up to 120 characters."},
+        {"submit_plan.nodes[].brief", "Task goal and criteria the team must satisfy."},
+        {"submit_plan.nodes[].brief.goal", "Concrete outcome this task must achieve, up to 2000 characters."},
+        {"submit_plan.nodes[].brief.acceptance_criteria", "At least one individually checkable acceptance criterion; the host assigns ac1, ac2 and so on."},
+        {"submit_plan.nodes[].brief.acceptance_criteria[].text", "Observable condition required for this task to pass, up to 500 characters."},
+        {"submit_plan.nodes[].brief.expected_outputs", "Optional expected files and their purpose."},
+        {"submit_plan.nodes[].brief.expected_outputs[].path", "Expected output path beginning with /work/."},
+        {"submit_plan.nodes[].brief.expected_outputs[].description", "Purpose of this expected file, up to 500 characters."},
+        {"submit_plan.nodes[].brief.notes", "Additional task context, up to 2000 characters; omit when unnecessary."},
         {"submit_plan.nodes[].depends_on", "Must be an empty array; this runner currently refuses dependencies between tasks."},
         {"submit_plan.nodes[].required", "Whether successful completion of this node is required for the request."},
         {"submit_plan.nodes[].review", "Omit this field; automatic independent review is not implemented and its presence is refused."},
