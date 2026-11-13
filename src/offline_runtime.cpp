@@ -125,6 +125,20 @@ void v3_contract_fields(Json& arguments, const std::string& schema, const Json& 
     };
     if (schema == "submit_amendment_plan") { nested("plan", "plan"); return; }
     if (schema == "check_submission") { nested("work_order", "work_order"); return; }
+    std::string path = prefix;
+    const auto field = [&](Json& body, const char* key, const Json& value, bool optional = false) {
+        if (!body.is_object()) return;
+        auto& object = body.as_object();
+        if (strip) { object.erase(key); return; }
+        const auto* supplied = object.if_contains(key);
+        require(!supplied || optional || *supplied == value, ErrorCode::InvalidInput,
+                path + "/" + key + ": supplied host field disagrees with captured contract");
+        if (!supplied) object[key] = value;
+    };
+    if (schema == "submission" || schema == "experience_report") {
+        field(arguments, schema == "submission" ? "used_memories" : "memory_assessments", Array{});
+        return;
+    }
     Array refs, excerpts;
     if (!strip) {
         for (const auto& item : contract.at("request").at("constraint_catalog").as_array()) {
@@ -139,16 +153,6 @@ void v3_contract_fields(Json& arguments, const std::string& schema, const Json& 
             }
         }
     }
-    std::string path = prefix;
-    const auto field = [&](Json& body, const char* key, const Json& value, bool optional = false) {
-        if (!body.is_object()) return;
-        auto& object = body.as_object();
-        if (strip) { object.erase(key); return; }
-        const auto* supplied = object.if_contains(key);
-        require(!supplied || optional || *supplied == value, ErrorCode::InvalidInput,
-                path + "/" + key + ": supplied host field disagrees with captured contract");
-        if (!supplied) object[key] = value;
-    };
     const auto each = [](Json& body, const char* key, const auto& visit) {
         if (body.is_object()) if (auto* values = body.as_object().if_contains(key); values && values->is_array())
             for (std::size_t i = 0; i < values->as_array().size(); ++i) visit(values->as_array()[i], i);
@@ -772,13 +776,14 @@ CapturedModelCall OfflineRuntime::capture_call(
                 "A keep still needs a new TeamLead order and Worker acknowledgment. Cancel does not undo prior effects. "
                 "Do not provide runtime identities, revisions, epochs or CAS values; the host uses the original captured guards. "
                 "AMEND never resets the shared rework budget or reconciles UNKNOWN operations.";
-        if (store_.acceptance_runtime_enabled())
+        if (store_.acceptance_runtime_enabled()) {
             context.approved_rules += " Dispatcher acceptance is an explicit business judgment about the captured candidate, "
                 "current original requirements, task criteria and preserved evidence. A local TeamLead check or valid JSON is not that judgment. "
                 "Required independent review cannot be invented or waived by this runner. "
                 "An experience call may only report on its immutable source snapshot, even after business termination. "
-                "Report no_new_experience explicitly when applicable; no report or Memory publication is inferred from success. "
-                "memory_assessments must be empty until versioned memory-load receipts are implemented.";
+                "Report no_new_experience explicitly when applicable; no report or Memory publication is inferred from success.";
+            if (!v3) context.approved_rules += " memory_assessments must be empty until versioned memory-load receipts are implemented.";
+        }
     }
     require(role == Role::Worker || tool_feedback.empty(), ErrorCode::InvalidInput, "tool feedback belongs to the Worker context");
     const bool structured = v3 || config.context_request_format() == "structured-v2";
@@ -1069,8 +1074,10 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     auto tool = response.tool_calls.front();
     if (runtime_config.context_request_format() == "structured-v3" &&
             (tool.name == "submit_plan" || tool.name == "submit_amendment_plan" ||
-             tool.name == "issue_work_order" || tool.name == "check_submission")) {
-        const auto schema = tool.name == "submit_plan" ? "plan" : tool.name == "issue_work_order" ? "work_order" : tool.name;
+             tool.name == "issue_work_order" || tool.name == "check_submission" ||
+             tool.name == "submit" || tool.name == "report_experience")) {
+        const auto schema = tool.name == "submit_plan" ? "plan" : tool.name == "issue_work_order" ? "work_order" :
+            tool.name == "submit" ? "submission" : tool.name == "report_experience" ? "experience_report" : tool.name;
         try {
             const auto contract = captured_contract(captured);
             auto minimal = tool.arguments;

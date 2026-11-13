@@ -118,7 +118,7 @@ void v3_minimal_contracts_are_closed_and_legacy_schemas_unchanged() {
     const auto& node = projected.at("properties").at("nodes").at("items");
     CHECK(node.at("properties").as_object().size() == 4);
     CHECK(node.at("properties").at("brief").at("properties").as_object().size() == 6);
-    for (const auto* name : {"plan", "work_order", "submit_amendment_plan", "check_submission"}) {
+    for (const auto* name : {"plan", "work_order", "submit_amendment_plan", "check_submission", "submission", "experience_report"}) {
         const auto schema = registry->project_v3_input(registry->project_model_input(name));
         const auto bytes = canonical_json(schema);
         CHECK(bytes.find("\"$ref\"") == std::string::npos);
@@ -126,6 +126,13 @@ void v3_minimal_contracts_are_closed_and_legacy_schemas_unchanged() {
         CHECK(bytes.find("\"$schema\"") == std::string::npos);
         CHECK(bytes.find("\"x-runtime-field\"") == std::string::npos);
         CHECK(bytes.find("\"request_id\"") == std::string::npos && !schema.as_object().contains("title"));
+    }
+    for (const auto& [name, field] : std::vector<std::pair<std::string, std::string>>{
+            {"submission", "used_memories"}, {"experience_report", "memory_assessments"}}) {
+        const auto legacy = registry->project_model_input(name);
+        CHECK(legacy.at("properties").as_object().contains(field));
+        CHECK(canonical_json(registry->project_v3_input(legacy)).find(field) == std::string::npos);
+        CHECK(registry->project_model_input(name) == legacy);
     }
     const auto plan = parse_json_strict(R"({"summary":"One file","nodes":[{"node_id":"alpha","title":"File","brief":{"goal":"Write a file","acceptance_criteria":[{"text":"Contains the requested text"}]}}]})");
     registry->validate_v3_input("plan", plan);

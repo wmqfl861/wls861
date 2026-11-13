@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <memory>
 
 #ifndef WLS_SOURCE_DIR
@@ -181,6 +182,103 @@ void explicit_acceptance_and_experience_complete_without_implied_delivery() {
     const auto budget = f.store->budget(f.id);
     const auto again = f.runtime().pump(f.id, EventFakeScript{});
     CHECK(again.at("calls").as_array().empty() && f.store->budget(f.id) == budget);
+}
+
+void v3_memory_fields_are_host_owned_and_responses_stay_original() {
+    for (const bool experience : {false, true}) for (const int mode : {0, 1, 2, 3}) {
+        Fixture f(input(true)); (void)f.pump_to(experience ? 6 : 3);
+        const auto name = experience ? "report_experience" : "submit";
+        const auto field = experience ? "memory_assessments" : "used_memories";
+        auto body = experience ? no_experience() : full_script().by_node.at("alpha").at(2).tool_calls.front().arguments;
+        if (mode == 0) body.as_object().erase(field);
+        if (mode == 2) body.as_object()[field] = Array{Object{{"memory_id", "exp-20261020-abcd"}}};
+        if (mode == 3) body.as_object()[field] = nullptr;
+        const FakeModel fake({step(experience ? Role::TeamLead : Role::Worker, name, body)});
+        const auto call = f.capture(experience ? Role::TeamLead : Role::Worker, fake);
+        for (const auto& tool : call.request.context.logical_input.at("prefix").at("tools").as_array())
+            if (tool.at("name") == name) CHECK(canonical_json(tool.at("parameters")).find(field) == std::string::npos);
+        const auto response = fake.complete(call.request);
+        OfflineRuntime runtime(*f.store, *schemas, f.alpha.get());
+        const auto result = runtime.accept_response(call, response);
+        const auto attempt = f.store->attempt(call.request.attempt_id);
+        CHECK(attempt.at("response") == to_json(response) && attempt.at("request_envelope") == to_json(call.request));
+        CHECK(f.store->tool_feedback(call.request.attempt_id).at("response") == to_json(response));
+        CHECK(runtime.accept_response(call, response) == result);
+        CHECK(f.store->attempt(call.request.attempt_id).at("settlement_sha256") == attempt.at("settlement_sha256"));
+        if (mode < 2) CHECK((experience ? result.at("report") : result).at("body").at(field) == Array{});
+        else {
+            CHECK(result.at("status") == "FAILED" && text(result.at("correction_feedback").at("observation")).find(field) != std::string::npos);
+            CHECK(experience ? f.store->experience_jobs(f.id).front().at("status") != "DONE" : f.store->current_submission(f.binding().task_id).is_null());
+        }
+    }
+}
+
+void v3_tool_guidance_matches_existing_host_rejections() {
+    const auto rejected = [&](Fixture& f, Role role, const std::string& name, const Json& body,
+                              const std::string& reason, const std::string& guidance) {
+        const FakeModel fake({step(role, name, body)}); const auto call = f.capture(role, fake);
+        const auto& tools = call.request.context.logical_input.at("prefix").at("tools").as_array();
+        const auto declared = std::find_if(tools.begin(), tools.end(), [&](const auto& tool) { return text(tool.at("name")) == name; });
+        CHECK(declared != tools.end() && text(declared->at("description")).find(guidance) != std::string::npos);
+        std::string observation;
+        try {
+            const auto result = OfflineRuntime(*f.store, *schemas, f.alpha.get()).accept_response(call, fake.complete(call.request));
+            CHECK((result.as_object().contains("status") && result.at("status") == "FAILED") ||
+                (result.as_object().contains("operation") && result.at("operation").at("status") == "FAILED"));
+            observation = canonical_json(result);
+        } catch (const Error& error) { observation = error.what(); }
+        if (observation.find(reason) == std::string::npos) throw std::runtime_error(name + " expected " + reason + ": " + observation);
+    };
+    Fixture planned(input(true));
+    auto plan = full_script(true).default_steps.front().tool_calls.front().arguments;
+    plan.at("nodes").as_array().front().as_object()["depends_on"] = Array{"other"};
+    rejected(planned, Role::Dispatcher, "submit_plan", plan, "depends_on", "no dependencies");
+    Fixture ordered(input(true)); (void)ordered.pump_to(1);
+    auto order = full_script(true).by_node.at("alpha").front().tool_calls.front().arguments; order.at("steps") = Array{};
+    rejected(ordered, Role::TeamLead, "issue_work_order", order, "/steps", "executable Worker actions");
+    const std::map<std::string, std::pair<std::string, std::string>> check_rules{
+        {"partial", {"unmet criterion", "self_check is not yes"}},
+        {"fail", {"verification", "verification is fail or not_run"}},
+        {"not_run", {"verification", "verification is fail or not_run"}},
+        {"known_issues", {"known issues", "known_issues is nonempty"}},
+        {"work_order", {"schema constraint failed", "omit work_order"}},
+        {"missing_order", {"work_order", "complete replacement work_order is required"}},
+        {"check_criteria", {"unmet criterion", "met yes"}},
+        {"missing_criteria", {"cover every current criterion", "cover every criterion exactly once"}}};
+    for (const auto* mode : {"path", "criteria", "partial", "fail", "not_run", "known_issues", "work_order", "missing_order", "check_criteria", "missing_criteria"}) {
+        Fixture f(input(true)); (void)f.pump_to(3);
+        auto body = full_script().by_node.at("alpha").at(2).tool_calls.front().arguments;
+        const std::string kind(mode);
+        if (kind == "path") body.at("deliverables").as_array().front().at("path") = "result.txt";
+        if (kind == "criteria") body.at("self_check").as_array().front().at("criterion_id") = "ac9";
+        if (kind == "path" || kind == "criteria") {
+            rejected(f, Role::Worker, "submit", body, kind == "path" ? "/path" : "criteria", kind == "path" ? "/work/" : "every criterion"); continue;
+        }
+        if (kind == "partial") body.at("self_check").as_array().front().at("met") = "partial";
+        if (kind == "fail" || kind == "not_run") body.at("verification").as_array().front().at("result") = kind;
+        if (kind == "known_issues") body.at("known_issues") = Array{"Unresolved original requirement"};
+        CHECK(f.invoke(Role::Worker, "submit", body).at("status") == "SUBMITTED");
+        auto check = positive_check();
+        if (kind == "work_order") check.as_object()["work_order"] = full_script(true).by_node.at("alpha").front().tool_calls.front().arguments;
+        if (kind == "missing_order") check.at("passed") = false;
+        if (kind == "check_criteria") check.at("criteria_results").as_array().front().at("met") = "no";
+        if (kind == "missing_criteria") check.as_object().erase("criteria_results");
+        rejected(f, Role::TeamLead, "check_submission", check, check_rules.at(kind).first, check_rules.at(kind).second);
+    }
+    for (const auto* field : {"criterion_id", "met", "evidence"}) {
+        Fixture f(input(true)); (void)f.candidate(); auto body = positive_acceptance();
+        body.at("criteria_results").as_array().front().at(field) = std::string(field) == "criterion_id" ? "ac9" : std::string(field) == "met" ? "no" : "";
+        rejected(f, Role::Dispatcher, "accept_candidate", body, std::string(field) == "evidence" ? "evidence" : "criteri", std::string(field) == "evidence" ? "every result needs evidence" : "cover every criterion exactly once");
+    }
+    Fixture experienced(input(true)); (void)experienced.accepted(); auto report = no_experience(); report.at("no_new_experience") = false;
+    rejected(experienced, Role::TeamLead, "report_experience", report, "entries", "no_new_experience to true and entries to []");
+    for (const auto* tool : {"fs_write", "fs_patch"}) for (const bool missing_parent : {true, false}) {
+        Fixture f(input(true)); (void)f.pump_to(3);
+        Json body = Object{{"path", missing_parent ? "missing/result.txt" : "result.txt"}, {"expected_sha256", std::string(64, '0')}};
+        if (std::string(tool) == "fs_write") body.as_object()["content"] = "replacement";
+        else { body.as_object()["offset"] = 0; body.as_object()["expected"] = "alpha"; body.as_object()["replacement"] = "beta"; }
+        rejected(f, Role::Worker, tool, body, missing_parent ? "No such file" : "precondition", missing_parent ? "parent directory must exist" : "expected_sha256 from fs_read");
+    }
 }
 
 void dispatcher_observes_original_bytes_and_response_replay_is_exact() {
@@ -570,6 +668,8 @@ int main() {
         {"recovery accepts original candidate without reissuing business work", restart_accepts_original_candidate_without_new_business_order},
         {"negative business judgment blocks without inventing experience", rejected_acceptance_is_blocked_without_automatic_experience},
         {"experience uses frozen source and host-owned report identity", experience_uses_frozen_source_and_report_ids_are_host_owned},
+        {"v3 memory fields are host-owned while responses and replay stay original", v3_memory_fields_are_host_owned_and_responses_stay_original},
+        {"v3 tool guidance matches existing host rejection rules", v3_tool_guidance_matches_existing_host_rejections},
         {"experience rejects forged identities and unbound memory claims", reports_cannot_forge_identity_or_invent_memory_use},
         {"experience proposals remain reports with memory disabled", experience_proposals_are_reports_not_automatic_memory_publication},
         {"captured experience source cannot be relabelled or become business work", experience_capture_cannot_change_source_or_become_business_order},
