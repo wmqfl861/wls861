@@ -1,5 +1,6 @@
 #include "protocol_test_support.hpp"
 #include "test_support.hpp"
+#include "chat_codec_cases.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -992,6 +993,16 @@ void compat_two_native_rounds_pair_results_with_their_own_provider_calls() {
 
 int main() {
     return ::test::run({
+        {"Chat profiles stay pure and old Responses runtime refuses them", wls::test::chat::profile_and_runtime_boundaries},
+        {"Chat reasoning requires explicit policy and frozen capabilities", wls::test::chat::reasoning_requires_explicit_frozen_declarations},
+        {"Chat request mapping and records preserve original identity", wls::test::chat::request_mapping_and_record_identity},
+        {"Chat rounds retain IDs results and reject opaque Responses history", wls::test::chat::native_rounds_keep_original_ids_and_results},
+        {"Chat v3 contract updates retain lean state and permitted tools", wls::test::chat::v3_contract_updates_lean_and_grants},
+        {"Chat folded history splits at the original contract update boundary", wls::test::chat::folded_contract_boundary_keeps_chronology},
+        {"Chat official examples replay without inferring unknown usage", wls::test::chat::official_examples_and_unknown_usage},
+        {"Chat metadata tolerance retains originals and strict known fields", wls::test::chat::metadata_tolerance_keeps_known_fields_strict},
+        {"Chat terminal errors retain usage without partial tools", wls::test::chat::terminal_results_preserve_usage_without_partial_tools},
+        {"Chat malformed identity usage arguments and bounds refuse", wls::test::chat::malformed_identity_usage_and_call_limits},
         {"response metadata policy freezes explicit selection and preserves legacy profile bytes", response_metadata_policy_is_explicit_and_preserves_legacy_bytes},
         {"response metadata paths preserve originals and known decoding", response_metadata_paths_keep_originals_and_known_results},
         {"response metadata count and byte overflow truncate paths without losing originals", response_metadata_lists_are_bounded_without_losing_raw_bytes},

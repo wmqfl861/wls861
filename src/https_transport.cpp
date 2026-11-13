@@ -704,6 +704,8 @@ Json https_transport_options_descriptor(const HttpsTransportOptions& options) {
 void validate_responses_https_target(const ProviderProfile& profile,
                                      const HttpsTransportOptions& options) {
     validate_provider_profile(profile);
+    require(profile.protocol == "openai-responses-v1", ErrorCode::Unsupported,
+            "Chat runtime requires separate send, admission and booking support");
     (void)endpoint_of(profile.base_url, options);
 }
 

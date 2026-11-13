@@ -61,6 +61,7 @@ add_library(wls_s1 STATIC
     src/model.cpp
     src/provider_profile.cpp
     src/protocol_codec.cpp
+    src/chat_codec.cpp
     src/sse_replay.cpp
     src/https_transport.cpp
     src/live_model.cpp

@@ -1,4 +1,5 @@
 #include "wls/protocol_codec.hpp"
+#include "protocol_codec_detail.hpp"
 
 #include "responses_compat.hpp"
 #include "response_metadata.hpp"
@@ -11,7 +12,7 @@
 #include <string_view>
 
 namespace wls::s1 {
-namespace {
+namespace protocol_detail {
 using Object = boost::json::object;
 using Array = boost::json::array;
 
@@ -94,8 +95,10 @@ Json payload_for(const std::string& model, const Json& output) {
         {"reference", responses_compat::reference}, {"model", model}, {"output", output}});
 }
 
-Json validate_request(const ProviderProfile& profile, const ModelRequest& request, bool stream) {
+Json validate_request(const ProviderProfile& profile, const ModelRequest& request, bool stream,
+                      std::string_view expected) {
     validate_provider_profile(profile);
+    require(profile.protocol == expected, ErrorCode::Unsupported, "codec does not support this protocol");
     require(token(request.call_id) && token(request.attempt_id), ErrorCode::InvalidInput,
             "protocol host call and attempt IDs must be bounded ASCII tokens");
     require(request.context.structured(), ErrorCode::Unsupported,
@@ -319,7 +322,8 @@ std::string hexadecimal(std::string_view bytes) {
 }
 
 Object encoded_record(const EncodedResponsesRequest& encoded) {
-    Object result{{"format", encoded.billing_challenge.empty() ? "wls-encoded-responses-request-v1" :
+    require(encoded.codec.empty() || encoded.codec == "openai-chat-v1", ErrorCode::Corrupt, "unknown encoded codec");
+    Object result{{"format", !encoded.codec.empty() ? "wls-encoded-chat-request-v1" : encoded.billing_challenge.empty() ? "wls-encoded-responses-request-v1" :
                       "wls-encoded-responses-request-v2-billing"}, {"method", encoded.method},
         {"url", encoded.url}, {"content_type", "application/json"}, {"body", encoded.body},
         {"body_sha256", encoded.body_sha256}, {"profile_sha256", encoded.profile_sha256},
@@ -330,7 +334,8 @@ Object encoded_record(const EncodedResponsesRequest& encoded) {
 }
 
 Object decoded_record(const DecodedResponsesResponse& decoded) {
-    return Object{{"format", "wls-decoded-responses-response-v1"}, {"response", to_json(decoded.response)},
+    require(decoded.codec.empty() || decoded.codec == "openai-chat-v1", ErrorCode::Corrupt, "unknown decoded codec");
+    return Object{{"format", decoded.codec.empty() ? "wls-decoded-responses-response-v1" : "wls-decoded-chat-response-v1"}, {"response", to_json(decoded.response)},
         {"provider_response_id", decoded.provider_response_id.empty() ? Json(nullptr) : Json(decoded.provider_response_id)},
         {"raw_body_encoding", "hex"}, {"raw_body_hex", hexadecimal(decoded.raw_body)},
         {"raw_body_sha256", decoded.raw_body_sha256}, {"evidence", decoded.evidence},
@@ -376,7 +381,10 @@ Json lean_state(Json state) {
     for (auto& window : state.at("history_windows").as_array()) window.as_object().erase("source");
     return state;
 }
+void seal(EncodedResponsesRequest& value) { value.record_sha256 = sha256_hex(canonical_json(encoded_record(value))); }
+void seal(DecodedResponsesResponse& value) { value.record_sha256 = sha256_hex(canonical_json(decoded_record(value))); }
 } // namespace
+using namespace protocol_detail;
 
 EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         const ModelRequest& request, bool stream) {

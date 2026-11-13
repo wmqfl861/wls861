@@ -24,6 +24,8 @@ struct EncodedResponsesRequest {
     std::string billing_challenge{};
     // Derived serialized-value byte counts; excluded from wire and evidence identity.
     Json body_segments = nullptr;
+    // Empty is the original Responses record; Chat never masquerades as it.
+    std::string codec{};
 };
 
 struct DecodedResponsesResponse {
@@ -33,6 +35,7 @@ struct DecodedResponsesResponse {
     std::string raw_body_sha256;
     Json evidence;
     std::string record_sha256;
+    std::string codec{};
 };
 
 // Pure encoding. Requires a validated structured-v2 request explicitly bound
@@ -51,5 +54,14 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
 
 Json to_json(const EncodedResponsesRequest& encoded);
 Json to_json(const DecodedResponsesResponse& decoded);
+
+// Pure bounded dispatch only. These aliases retain all original public APIs;
+// selecting Chat here does not enable Store admission, HTTPS or live settings.
+using EncodedProtocolRequest = EncodedResponsesRequest;
+using DecodedProtocolResponse = DecodedResponsesResponse;
+EncodedProtocolRequest encode_protocol_request(const ProviderProfile& profile,
+        const ModelRequest& request, bool stream = false);
+DecodedProtocolResponse decode_protocol_response(const ProviderProfile& profile,
+        const ModelRequest& request, int http_status, std::string_view raw_body);
 
 } // namespace wls::s1
