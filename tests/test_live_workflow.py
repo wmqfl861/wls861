@@ -512,6 +512,29 @@ class LiveWorkflow(unittest.TestCase):
         self.assertEqual(result['task_count'], 0)
         self.assertEqual(self.rows('SELECT count(*) AS n FROM model_tool_feedback')[0]['n'], 0)
 
+    def test_settlement_hook_cannot_bypass_captured_context_validation(self):
+        model = ModelPeer(self.directory)
+        with tls.Peer(self.contexts['server'], model) as peer:
+            result = self.invoke(peer, model, action='hook_tamper_request')
+            self.assertEqual(len(peer.requests), 1)
+        self.assertTrue(result['original_preserved'])
+        self.assertEqual(result['hook_calls'], 1)
+        self.assertEqual(result['error_code'], 'invalid_input')
+        self.assertTrue(result['feedback']['result']['runtime_error'])
+        self.assertNotIn('correction_feedback', result['feedback']['result'])
+        self.assertEqual(self.rows('SELECT count(*) AS n FROM tasks')[0]['n'], 0)
+
+    def test_settlement_hook_cannot_bypass_response_identity_validation(self):
+        model = ModelPeer(self.directory)
+        with tls.Peer(self.contexts['server'], model) as peer:
+            result = self.invoke(peer, model, action='hook_tamper_response')
+            self.assertEqual(len(peer.requests), 1)
+        self.assertTrue(result['original_preserved'])
+        self.assertEqual(result['hook_calls'], 1)
+        self.assertEqual(result['error_code'], 'conflict')
+        self.assertIsNone(result['feedback'])
+        self.assertEqual(self.rows('SELECT count(*) AS n FROM tasks')[0]['n'], 0)
+
     def test_independent_receipt_must_match_observed_request_bytes(self):
         model = ModelPeer(self.directory, bad_receipt=True)
         with tls.Peer(self.contexts['server'], model) as peer:

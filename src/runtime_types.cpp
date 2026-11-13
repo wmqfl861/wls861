@@ -1,7 +1,6 @@
 #include "wls/runtime_types.hpp"
 
 #include <boost/json/basic_parser_impl.hpp>
-#include <boost/json/monotonic_resource.hpp>
 #include <boost/json/serializer.hpp>
 #include <openssl/evp.h>
 #include <sys/random.h>
@@ -65,6 +64,19 @@ struct UniqueKeys {
     bool on_null(ParseError&) { return true; }
     bool on_comment_part(View, ParseError&) { return true; }
     bool on_comment(View, ParseError&) { return true; }
+};
+
+// Canonical objects already own unique keys. Keep the DOM parser's size
+// limits and the same UTF-8-aware decoder without constructing a second tree.
+struct CanonicalCheck : UniqueKeys {
+    static constexpr std::size_t max_array_size = boost::json::array::max_size();
+    static constexpr std::size_t max_object_size = boost::json::object::max_size();
+    static constexpr std::size_t max_string_size = boost::json::string::max_size();
+    static constexpr std::size_t max_key_size = boost::json::string::max_size();
+    bool on_object_begin(ParseError&) { return true; }
+    bool on_object_end(std::size_t, ParseError&) { return true; }
+    bool on_key_part(View, std::size_t, ParseError&) { return true; }
+    bool on_key(View, std::size_t, ParseError&) { return true; }
 };
 
 struct CanonicalSerializer {
@@ -201,10 +213,10 @@ std::string canonical_json(const Json& value) {
     boost::json::parse_options options;
     options.max_depth = 128;
     ParseError ec;
-    unsigned char validation_buffer[4096];
-    boost::json::monotonic_resource validation_resource(validation_buffer);
-    static_cast<void>(boost::json::parse(result, ec, &validation_resource, options));
-    if (ec) throw Error(ErrorCode::InvalidInput, "canonical JSON contains invalid UTF-8 or structure");
+    boost::json::basic_parser<CanonicalCheck> validation(options);
+    const auto consumed = validation.write_some(false, result.data(), result.size(), ec);
+    if (ec || consumed != result.size() || !validation.done())
+        throw Error(ErrorCode::InvalidInput, "canonical JSON contains invalid UTF-8 or structure");
     return result;
 }
 
