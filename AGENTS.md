@@ -6,6 +6,13 @@ Entry point only: the complete, still-binding contract is preserved
 verbatim in `docs/implementation/development-contract.md` — current,
 normative, not archived history; read it before changing runtime behavior.
 
+The owner adopted all decisions in
+[`docs/reviews/claude-2026-11-13/02-decisions.md`](docs/reviews/claude-2026-11-13/02-decisions.md)
+on 2026-11-13. For process, defaults, priorities and authorization, those
+decisions supersede conflicting earlier text; the complete contract's safety
+invariants remain binding. Start with that review directory's `README.md` and
+read `01` through `04` in order.
+
 ## Authority and permissions
 
 - The owner approved review corrections and GitHub push on 2026-10-17,
@@ -16,10 +23,15 @@ normative, not archived history; read it before changing runtime behavior.
 - Keep the core in C++20 and isolate Linux platform code; provider
   endpoints, credentials, model aliases and budgets stay in external
   configuration. Tests use FakeModel and self-created temporary fixtures,
-  including real file effects; never call real models or operate
-  production data/services. Paid calls stay disabled until the endpoint,
-  capabilities and budget are configured; Windows 11 remains NOT_RUN.
-  Private CI evidence hosting remains BLOCKED; raw originals stay local.
+  including real file effects; tests never call real models. Do not operate
+  production data/services. G2 paid runs are separately authorized only for
+  OpenAI Responses / `gpt-5-mini`, at most USD 1 per request and USD 10 total,
+  with at most two eligible retries under decisions §3.3. Before any real
+  request, require both the owner's explicit “密钥已就绪” and the shell
+  environment variable `WLS_G2_API_KEY`; never echo or persist its value.
+  Windows 11 remains NOT_RUN. D-12 cancels private CI evidence hosting:
+  public CI logs and repository reports suffice; local raw originals are
+  retained for 30 days before optional cleanup.
 - No secrets, user datasets, generated builds, journals or local
   databases in Git; never rewrite shared history or force-push over an
   unseen remote head. Record actual test results and limitations under
