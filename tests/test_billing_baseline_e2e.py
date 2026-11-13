@@ -810,6 +810,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             victim.write_bytes(b'owner changed this copy')
             conflict = json.loads(self.invoke_run(case, '--yes').stdout)
             self.assertIsNone(conflict['output_path'])
+            self.assertEqual((conflict['status'], conflict['stop_reason']), ('DELIVERED', 'output_blocked'))
             self.assertEqual(conflict['blockers'][0]['code'], 'conflict')
             self.assertIn('immutable package', conflict['blockers'][0]['reason'])
             self.assertEqual(victim.read_bytes(), b'owner changed this copy')

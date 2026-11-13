@@ -489,7 +489,7 @@ int run_request(Options& options, const RuntimeResources& resources) {
         } catch (const Error& error) {
             report.at("blocked").as_array().push_back(Object{{"role", "root"}, {"code", error_name(error.code())},
                 {"reason", runtime_diagnostic(error.what())}});
-            report.at("stop_reason") = "delivery_blocked";
+            report.at("stop_reason") = delivery.is_null() ? "delivery_blocked" : "output_blocked";
         }
     }
     output(run_summary(store, input.request_id, report, delivery, started));
