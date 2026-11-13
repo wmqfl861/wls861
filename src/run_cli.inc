@@ -296,7 +296,7 @@ Json run_summary(Store& store, const std::string& id, const Json& report, const 
             if (const auto* correction = result.as_object().if_contains("correction_feedback")) {
                 auto& counts = detail.at("corrections_by_reason").as_object();
                 auto reason = text(correction->at("reason"));
-                if (reason != "tool_selection" && reason != "tool_result" && reason != "model_arguments" && reason != "missing_leaf")
+                if (reason != "tool_selection" && reason != "tool_result" && reason != "model_arguments" && reason != "missing_leaf" && reason != "read_only" && reason != "max_output_tokens")
                     reason = "other";
                 counts[reason] = counts.contains(reason) ? integer(counts.at(reason)) + 1 : 1;
             }

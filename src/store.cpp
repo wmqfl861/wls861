@@ -8,6 +8,7 @@
 #include "wls/owned_capacity.hpp"
 #include "wls/worker_history.hpp"
 #include "amendment_disposition.hpp"
+#include "storage_error.hpp"
 
 #include <sqlite3.h>
 
@@ -390,7 +391,9 @@ void sqlite_failure(sqlite3* db, int result, std::string_view operation) {
     const auto code = primary == SQLITE_CONSTRAINT ? ErrorCode::Conflict :
         primary == SQLITE_BUSY || primary == SQLITE_LOCKED ? ErrorCode::Conflict :
         primary == SQLITE_CORRUPT || primary == SQLITE_NOTADB ? ErrorCode::Corrupt : ErrorCode::Storage;
-    fail(code, std::string(operation) + ": " + (db ? sqlite3_errmsg(db) : sqlite3_errstr(result)));
+    const auto message = std::string(operation) + ": " + (db ? sqlite3_errmsg(db) : sqlite3_errstr(result));
+    if (code == ErrorCode::Conflict) throw StorageConflict(message);
+    fail(code, message);
 }
 Row reconciliation_command(const StoreActor& root, const std::string& id, std::int64_t expected,
                            const std::string& outcome, const std::string& evidence, const std::string& command_id) {

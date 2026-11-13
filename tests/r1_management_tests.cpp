@@ -332,11 +332,24 @@ void failed_queries_count_toward_a_persistent_limit_after_restart() {
     Fixture f(true, 2); f.host_answer(f.ask());
     const auto page = f.invoke(Role::TeamLead, "management_history_page", page_args());
     auto invalid = read_args(page.at("items").as_array().front()); invalid.as_object()["record_id"] = "absent-original";
-    expect(ErrorCode::Unauthorized, [&] { f.invoke(Role::TeamLead, "management_history_read", invalid); });
+    CHECK(f.invoke(Role::TeamLead, "management_history_read", invalid).at("correction_feedback").at("reason") == "read_only");
     f.reopen();
+    auto model = fake(Role::TeamLead, "management_history_page", page_args());
+    const auto next = f.capture(Role::TeamLead, model);
+    CHECK(canonical_json(next.request.context.logical_input).find("last_correction") != std::string::npos);
+    CHECK(canonical_json(next.request.context.logical_input).find("absent-original") != std::string::npos);
     const auto before = num(f.store->budget(f.request), "attempts");
-    expect(ErrorCode::Quota, [&] { f.invoke(Role::TeamLead, "management_history_page", page_args()); });
-    CHECK(num(f.store->budget(f.request), "attempts") == before + 1);
+    expect(ErrorCode::Quota, [&] { OfflineRuntime(*f.store, f.schemas).accept_response(next, model.complete(next.request)); });
+    CHECK(num(f.store->budget(f.request), "attempts") == before);
+}
+
+void wrong_read_version_is_corrected_without_refreshing_the_original_reference() {
+    Fixture f; f.host_answer(f.ask());
+    const auto original = f.page().at("items").as_array().front();
+    auto arguments = read_args(original); arguments.as_object()["record_version"] = 999;
+    CHECK(f.invoke(Role::TeamLead, "management_history_read", arguments).at("correction_feedback").at("reason") == "read_only");
+    CHECK(f.page().at("items").as_array().front() == original);
+    CHECK(f.invoke(Role::TeamLead, "management_history_read", read_args(original)).at("offset") == 0);
 }
 
 struct DuringRead {
@@ -546,6 +559,7 @@ void live_usage_projection_keeps_cache_unknown_without_rewriting_originals() {
 } // namespace
 
 int main() { return test::run({
+    {"read version errors preserve original references and can be corrected", wrong_read_version_is_corrected_without_refreshing_the_original_reference},
     {"management policy is explicit frozen and legacy-compatible", legacy_policy_is_unchanged_and_frozen_selection_is_explicit},
     {"130 management turns cross restart with exact original readback", long_management_workflows_cross_restart_and_keep_original_readback},
     {"legacy full management history still stops explicitly", old_complete_history_still_stops_without_a_frozen_window},

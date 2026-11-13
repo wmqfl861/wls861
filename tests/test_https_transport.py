@@ -376,6 +376,31 @@ class HttpsTransport(unittest.TestCase):
         self.assertEqual(calls[0]["arguments"], {"message": "fixture"})
         self.assertEqual(set(p.name for p in self.directory.iterdir()), {"call-1.json"})
 
+    def test_output_limit_classification_requires_complete_http_and_valid_reason(self):
+        for mode in ('complete', 'truncated', 'other_reason', 'malformed', 'cancelled'):
+            with self.subTest(mode=mode):
+                value = json.loads(response_body(tool=True))
+                value.update(status='cancelled' if mode == 'cancelled' else 'incomplete',
+                             incomplete_details={'reason': 'content_filter' if mode == 'other_reason' else 'max_output_tokens'})
+                if mode == 'malformed':
+                    value['incomplete_details'] = 'max_output_tokens'
+                value['output'][0]['arguments'] = '{'
+                body = encoded(value)
+                def serve(peer, connection):
+                    peer.request(connection)
+                    connection.sendall(headers(len(body) + (1 if mode == 'truncated' else 0)) + body)
+                with self.peer(serve) as peer:
+                    result = self.invoke(peer)
+                self.assertEqual(result['response']['tool_calls'], [])
+                self.assertNotEqual(result['response']['status'], 'completed')
+                self.assertEqual(result['raw_body_hex'], body.hex())
+                if mode == 'complete':
+                    self.assertEqual(result['status'], 'completed')
+                    self.assertEqual(result['response']['error_code'], 'response_max_output_tokens')
+                    self.assertEqual(result['response']['usage']['input_tokens'], value['usage']['input_tokens'])
+                else:
+                    self.assertNotEqual(result['response']['error_code'], 'response_max_output_tokens')
+
     def test_sse_chunked_utf8_boundaries_keep_exact_entity_bytes(self):
         body = (FIXTURES / "text.sse").read_bytes()
         split = body.index("离".encode()) + 1

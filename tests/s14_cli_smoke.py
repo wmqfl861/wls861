@@ -90,7 +90,8 @@ class WorkflowCliSmoke(unittest.TestCase):
             "request_format: structured-v3", "request_format: framed-v1")
         if schema_retry_max is not None:
             # Single-response safety fixtures disable continuation before freezing.
-            source = source.replace("schema_retry_max: 2", f"schema_retry_max: {schema_retry_max}")
+            self.assertEqual(source.count('schema_retry_max: 3'), 1)
+            source = source.replace("schema_retry_max: 3", f"schema_retry_max: {schema_retry_max}")
         config = self.directory / f"{key}-system.yaml"
         config.write_text(source)
         args += ["--config", config, "--functions-dir", SOURCE / "config/examples/functions"]
@@ -638,16 +639,48 @@ class WorkflowCliSmoke(unittest.TestCase):
                 alpha = self.tasks(request)["alpha"]["task_id"]
                 if path == "/work/missing.txt":
                     self.assertEqual(run["calls"][-1]["result"]["status"], "FAILED")
-                    self.assertEqual(run["calls"][-1]["result"]["correction_feedback"]["reason"], "missing_leaf")
+                    self.assertEqual(run["calls"][-1]["result"]["correction_feedback"]["reason"], "model_arguments")
                     self.assertTrue(any(item["code"] == "correction_limit" for item in run["blocked"]))
                 else:
-                    self.assertTrue(any(call.get("error", {}).get("code") == "unauthorized"
-                                        for call in run["calls"]), run)
+                    self.assertEqual(run["calls"][-1]["result"]["correction_feedback"]["reason"], "read_only")
+                    self.assertTrue(any(item["code"] == "correction_limit" for item in run["blocked"]))
                 self.assertEqual(self.submissions(request, alpha), [])
                 self.assertNotEqual(self.tasks(request)["alpha"]["status"], "SUBMITTED")
                 self.assertEqual(self.rows("SELECT * FROM ops WHERE task_id=?", (alpha,)), [])
                 self.assertTrue(self.pending_ids(alpha, "worker"))
                 self.assertEqual(outside.read_bytes(), b"self-created outside sentinel\n")
+
+
+    def test_one_command_corrects_missing_parent_read_path_and_false_pass(self):
+        request = self.admit()
+        script = self.fixture('s14_fake_rework.json')
+        steps = script['nodes']['alpha']
+        steps[1]['tool_calls'][0]['arguments']['path'] = 'out/result.txt'
+        steps[2]['tool_calls'][0]['arguments']['deliverables'][0]['path'] = '/work/out/result.txt'
+        steps[2]['tool_calls'][0]['arguments']['self_check'][0]['met'] = 'no'
+        first_write = copy.deepcopy(steps[1])
+        steps[1]['role_call_index'] = 5
+        steps[2]['role_call_index'] = 6
+        steps[3]['role_call_index'] = 3
+        steps[4]['role_call_index'] = 7
+        steps[5]['role_call_index'] = 8
+        steps[6]['role_call_index'] = 4
+        script['nodes']['alpha'] = [steps[0], first_write,
+            self.step('worker', 'fs_mkdir', {'path': 'out'}, 2),
+            self.step('worker', 'fs_list', {'path': 'missing-directory'}, 3),
+            self.step('worker', 'fs_list', {'path': 'out'}, 4),
+            steps[1], steps[2], self.step('team_lead', 'check_submission', self.check(), 2), *steps[3:]]
+        report = self.pump(request, self.json_file('safe-corrections.json', script), workers=8, max_calls=16)
+        corrections = [call['result']['correction_feedback'] for call in report['calls']
+                       if 'correction_feedback' in call.get('result', {})]
+        self.assertEqual([item['reason'] for item in corrections], ['tool_result', 'read_only', 'model_arguments'])
+        self.assertEqual(corrections[-1]['observation'], 'passed check contradicts an unmet criterion')
+        task = self.tasks(request)['alpha']
+        self.assertEqual(self.submissions(request, task['task_id'])[-1]['status'], 'CANDIDATE_READY')
+        self.assertTrue((self.workspaces['alpha'] / 'out/result.txt').is_file())
+        attempts = self.attempts(task['task_id'], 'team_lead')
+        self.assertIn(corrections[-1]['observation'], attempts[-2]['request_envelope'])
+        self.assertEqual(len(self.rows("SELECT * FROM team_lead_checks")), 2)
 
 
 if __name__ == "__main__":

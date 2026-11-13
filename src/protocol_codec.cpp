@@ -558,8 +558,9 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         Array allowed;
         for (const auto& name : model_allowed_tools(request.context))
             allowed.push_back(Object{{"type", "function"}, {"name", name}});
-        body["tool_choice"] = Object{{"type", "allowed_tools"}, {"mode", "auto"}, {"tools", allowed}};
+        body["tool_choice"] = Object{{"type", "allowed_tools"}, {"mode", "required"}, {"tools", allowed}};
     }
+    if (profile.tool_choice_policy == "required-v1") body["tool_choice"] = "required";
     if (request.model.reasoning.mode == ReasoningMode::Disabled)
         body["reasoning"] = Object{{"effort", "none"}};
     else if (request.model.reasoning.mode == ReasoningMode::Explicit)
@@ -658,7 +659,19 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
                         ErrorCode::InvalidInput, "failed response has no provider error object");
                 failure(decoded.response, ModelResultStatus::Error, "provider_failed", "provider reported a failed response");
             } else if (status == "incomplete" || status == "cancelled") {
-                failure(decoded.response, ModelResultStatus::Interrupted, "response_" + status,
+                const auto& details = evidence.at("incomplete_details");
+                require(details.is_null() || details.is_object(), ErrorCode::InvalidInput, "invalid incomplete details");
+                std::string reason;
+                if (details.is_object()) {
+                    metadata.inspect(object(details), {"reason"}, "/incomplete_details");
+                    only_fields(details, {"reason"}, metadata.enabled);
+                    if (object(details).contains("reason")) reason = text(details, "reason");
+                    require(!object(details).contains("reason") || reason == "max_output_tokens" || reason == "max_messages" ||
+                        reason == "content_filter" || reason == "steered", ErrorCode::Unsupported, "unsupported incomplete reason");
+                }
+                const bool output_limit = status == "incomplete" && reason == "max_output_tokens" &&
+                    evidence.at("provider_error").is_null();
+                failure(decoded.response, ModelResultStatus::Interrupted, output_limit ? "response_max_output_tokens" : "response_" + status,
                         "provider response is incomplete or cancelled; partial output cannot dispatch tools");
             } else if (status == "queued" || status == "in_progress") {
                 failure(decoded.response, ModelResultStatus::Interrupted, "response_not_terminal",
