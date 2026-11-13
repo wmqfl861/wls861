@@ -215,7 +215,7 @@ void live_profile_capacity_is_rejected_before_admission() {
     CHECK(to_json(live_model_settings_from_json(source, chat.provider.model_ref).provider) == to_json(chat.provider));
     for (int variant = 0; variant != 7; ++variant) {
         auto invalid = source; auto expected = ErrorCode::Unsupported;
-        if (variant == 0) { invalid.as_object()["responses"] = invalid.at("chat_completions"); expected = ErrorCode::InvalidInput; }
+        if (variant == 0) { invalid.as_object()["responses"] = source.at("chat_completions"); expected = ErrorCode::InvalidInput; }
         if (variant == 1) invalid.at("protocol") = "openai-responses-v1";
         if (variant == 2) invalid.at("chat_completions").at("provider_profile") = to_json(accepted.provider);
         if (variant == 3) invalid.at("chat_completions").at("stream") = true;
