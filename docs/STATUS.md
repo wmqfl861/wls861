@@ -14,7 +14,7 @@ G2-P：最小自包含工具参数与宿主补全、具体字段错误、受限�
 
 [纯 Chat 编解码 #87](https://github.com/wmqfl861/wls861/pull/87) 与 [Chat 运行时 #88](https://github.com/wmqfl861/wls861/pull/88) 已合入。非流式 Chat 接入原预留、唯一发送、观察与结算流程；本地 Release 12/12 个 CTest 首轮通过，同一预演的 Responses 和 Chat 各完成 35 次合成调用、8 个场景，均在断开后以同一命令恢复到 DELIVERED。R3 评估尚未接入 Chat。
 
-当前 CI：main `170619b`（#88 合并）的[新完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43440391641)待执行，source CI 已成功；此前 `5599d44` 与 `82ae41e` 均在 `acceptance_runtime` 约 180 秒 TIMEOUT，该问题仍 OPEN（[最新失败](https://github.com/wmqfl861/wls861/actions/runs/43434154232/job/131918252007)）。`23965af` 的九作业全 PASS 绑定旧输入。原失败记录保留；D-11 的 sanitizer CTest 时限倍数仍为 2，Release 和业务期限不变。
+当前 CI：main `170619b`（#88 合并）的[新完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43440391641)待完成，source CI 已成功；此前 `5599d44` 与 `82ae41e` 均在 `acceptance_runtime` 约 180 秒 TIMEOUT，该问题仍 OPEN（[最新失败](https://github.com/wmqfl861/wls861/actions/runs/43434154232/job/131918252007)）。`23965af` 的九作业全 PASS 绑定旧输入。原失败记录保留；D-11 的 sanitizer CTest 时限倍数仍为 2，Release 和业务期限不变。
 
 ## 尚缺的真实能力（当前边界）
 
