@@ -7,6 +7,7 @@
 #include "protocol_test_support.hpp"
 #include "live_test_support.hpp"
 #include "test_support.hpp"
+#include "fake_script_support.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -921,11 +922,7 @@ struct V3Fixture {
         task = str(store->tasks(id).front(), "task_id");
     }
     static std::vector<FakeModelStep> script(const std::string& name) {
-        auto steps = fake_model_steps_from_json(parse_json_strict(read_runtime_file(root / "tests/fixtures" / name)));
-        // Frozen legacy scripts have distinct brief/node titles; derive only this v3 copy.
-        for (auto& step : steps) for (auto& tool : step.tool_calls) if (tool.name == "submit_plan")
-            for (auto& node : tool.arguments.at("nodes").as_array()) node.at("brief").at("title") = node.at("title");
-        return steps;
+        return fake_model_steps_from_json(::test::v3_fake_script(parse_json_strict(read_runtime_file(root / "tests/fixtures" / name))));
     }
     void reopen() {
         store.reset(); store = assets.open(database);

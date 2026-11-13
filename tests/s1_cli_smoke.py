@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from fake_script_support import frozen_script
 
 
 if len(sys.argv) != 3:
@@ -75,8 +76,9 @@ class OfflineCliSmoke(unittest.TestCase):
         return self.invoke("budget", "--db", self.database, "--request", request_id)
 
     def run_fake(self, request_id, *, amended=False, disposition=None, error=None):
+        fixture = FIXTURES / ("s1_fake_amended.json" if amended else "s1_fake_initial.json")
         arguments = ["run-fake", "--db", self.database, "--request", request_id,
-                     "--script", FIXTURES / ("s1_fake_amended.json" if amended else "s1_fake_initial.json")]
+                     "--script", frozen_script(self.database, request_id, fixture, self.directory)]
         if disposition is not None:
             arguments.extend(["--disposition", disposition])
         return self.invoke(*arguments, error=error)

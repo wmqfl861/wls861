@@ -4,6 +4,7 @@
 #include "wls/owned_capacity.hpp"
 #include "wls/worker_tools.hpp"
 #include "test_support.hpp"
+#include "fake_script_support.hpp"
 
 #include <algorithm>
 #include <csignal>
@@ -76,7 +77,7 @@ struct Fixture {
         for (auto& step : script.default_steps) if (step.role == Role::Dispatcher) --step.role_call_index;
     }
     static EventFakeScript original_script() {
-        return event_fake_script_from_json(parse_json_strict(read_runtime_file(source / "tests/fixtures/s15_fake_complete.json")));
+        return event_fake_script_from_json(test::v3_fake_script(parse_json_strict(read_runtime_file(source / "tests/fixtures/s15_fake_complete.json"))));
     }
     Json freeze(const Json& selected) {
         if (selected.is_null()) system.at("cleanup").as_object().erase("owned_workspace_capacity");

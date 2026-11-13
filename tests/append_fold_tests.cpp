@@ -3,6 +3,7 @@
 #include "wls/worker_tools.hpp"
 #include "live_test_support.hpp"
 #include "test_support.hpp"
+#include "fake_script_support.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -88,10 +89,7 @@ struct Fixture {
     }
 
     static std::vector<FakeModelStep> initial_steps(const std::string& name = "s1_fake_initial.json") {
-        auto steps = fake_model_steps_from_json(parse_json_strict(read_runtime_file(root / "tests/fixtures" / name)));
-        for (auto& step : steps) for (auto& tool : step.tool_calls) if (tool.name == "submit_plan")
-            for (auto& node : tool.arguments.at("nodes").as_array()) node.at("brief").at("title") = node.at("title");
-        return steps; // V3-only derived copy; preserve the archived fixture bytes.
+        return fake_model_steps_from_json(test::v3_fake_script(parse_json_strict(read_runtime_file(root / "tests/fixtures" / name))));
     }
     void open_runtime() {
         tools = std::make_unique<WorkerTools>(*store, workspace);

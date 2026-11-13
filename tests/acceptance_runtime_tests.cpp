@@ -3,6 +3,7 @@
 #include "wls/structured_context.hpp"
 #include "protocol_test_support.hpp"
 #include "test_support.hpp"
+#include "fake_script_support.hpp"
 #include "capacity_test_support.hpp"
 
 #include <sqlite3.h>
@@ -84,9 +85,8 @@ FakeModelStep step(Role role, const std::string& tool, const Json& arguments, st
     return value;
 }
 EventFakeScript full_script(bool v3 = false) {
-    auto script = event_fake_script_from_json(fixture("s14_fake_submit.json"));
-    if (v3) for (auto& node : script.default_steps.front().tool_calls.front().arguments.at("nodes").as_array())
-        node.at("brief").at("title") = node.at("title");
+    auto original = fixture("s14_fake_submit.json");
+    auto script = event_fake_script_from_json(v3 ? ::test::v3_fake_script(original) : original);
     script.default_steps.push_back(step(Role::Dispatcher, "accept_candidate", positive_acceptance(), 2));
     script.by_node.at("alpha").push_back(step(Role::TeamLead, "check_submission", positive_check(), 2));
     script.by_node.at("alpha").push_back(step(Role::TeamLead, "report_experience", no_experience(), 3));

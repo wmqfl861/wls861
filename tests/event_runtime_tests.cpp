@@ -1,6 +1,7 @@
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
 #include "test_support.hpp"
+#include "fake_script_support.hpp"
 
 #include <sqlite3.h>
 
@@ -409,10 +410,11 @@ void frozen_manager_capacity_and_budget_keep_unprocessed_work() {
     admission.config_snapshot = load_config_catalog(configuration.path / "system.yaml",
         source / "config/examples/functions", source / "prompts").freeze("general").json();
     Fixture f(admission);
-    const auto first = f.runtime().pump(f.id, initial_script());
+    const auto v3_script = event_fake_script_from_json(test::v3_fake_script(fixture("s13_fake_initial.json")));
+    const auto first = f.runtime().pump(f.id, v3_script);
     CHECK(first.at("calls").as_array().size() == 1 && first.at("manager_calls") == 1);
     CHECK(blocked(first, "manager_limit", "alpha") && blocked(first, "manager_limit", "beta"));
-    const auto second = f.runtime().pump(f.id, initial_script());
+    const auto second = f.runtime().pump(f.id, v3_script);
     CHECK(second.at("manager_calls") == 1 && second.at("calls").as_array().size() == 2);
     CHECK(task(f.store, f.id, "alpha").at("instruction_revision") == 1);
     CHECK(task(f.store, f.id, "beta").at("instruction_revision") == 0);
