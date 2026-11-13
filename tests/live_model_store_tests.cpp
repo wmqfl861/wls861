@@ -210,6 +210,20 @@ void live_profile_capacity_is_rejected_before_admission() {
     error(ErrorCode::InvalidInput, [&] { (void)live_model_settings_from_json(fixture::model_profile(too_wide), too_wide.provider.model_ref); });
     too_wide = accepted; ++too_wide.provider.limits.max_text_bytes;
     error(ErrorCode::InvalidInput, [&] { (void)live_model_settings_from_json(fixture::model_profile(too_wide), too_wide.provider.model_ref); });
+    const auto chat = fixture::settings("synthetic trust", 443, true);
+    const auto source = fixture::model_profile(chat);
+    CHECK(to_json(live_model_settings_from_json(source, chat.provider.model_ref).provider) == to_json(chat.provider));
+    for (int variant = 0; variant != 7; ++variant) {
+        auto invalid = source; auto expected = ErrorCode::Unsupported;
+        if (variant == 0) { invalid.as_object()["responses"] = invalid.at("chat_completions"); expected = ErrorCode::InvalidInput; }
+        if (variant == 1) invalid.at("protocol") = "openai-responses-v1";
+        if (variant == 2) invalid.at("chat_completions").at("provider_profile") = to_json(accepted.provider);
+        if (variant == 3) invalid.at("chat_completions").at("stream") = true;
+        if (variant == 4) invalid.at("chat_completions").at("provider_profile").as_object()["billing_challenge"] = "wls-billing-challenge-v1";
+        if (variant == 5) { invalid.at("capabilities").at("streaming") = "supported"; expected = ErrorCode::Conflict; }
+        if (variant == 6) invalid.at("chat_completions").at("provider_profile").as_object().erase("chat_reasoning_policy");
+        error(expected, [&] { (void)live_model_settings_from_json(invalid, chat.provider.model_ref); });
+    }
 }
 void response_metadata_policy_survives_original_snapshot_restore() {
     for (const bool selected : {false, true}) {
@@ -341,14 +355,18 @@ void versioned_transport_routes_are_frozen() {
     error(ErrorCode::InvalidInput, [&] { (void)live_transport_options_sha256(legacy.transport); });
 }
 
-void frozen_identity_and_one_claim() {
-    fixture::Fixture f(*assets); const auto request = f.request();
+void frozen_identity_and_one_claim_for(bool chat) {
+    fixture::Fixture f(*assets, fixture::settings("synthetic trust", 443, chat)); const auto request = f.request();
     const auto reservation = f.reserve(request); CHECK(f.reserve(request) == reservation);
     const auto original = f.store->live_attempt(request.attempt_id);
     CHECK(original.at("execution").at("execution_kind") == "local_tls");
-    auto changed = encode_responses_request(f.live.provider, request, false); changed.body += " ";
+    auto changed = encode_protocol_request(f.live.provider, request, false); changed.body += " ";
     error(ErrorCode::Corrupt, [&] { (void)f.store->claim_live_send(f.actor(), request.attempt_id, 1, changed, f.live.transport, "bad"); });
-    changed = encode_responses_request(f.live.provider, request, false);
+    changed = encode_protocol_request(f.live.provider, request, false);
+    auto current = f.live.provider;
+    if (chat) current.chat_model_aliases = {"different-frozen-alias"}; else current.response_metadata_policy = "ignore-record-v1";
+    error(ErrorCode::Conflict, [&] { (void)f.store->claim_live_send(f.actor(), request.attempt_id, 1,
+        encode_protocol_request(current, request), f.live.transport, "different-profile"); });
     auto altered_options = f.live.transport; altered_options.max_header_bytes += 1;
     error(ErrorCode::Conflict, [&] { (void)f.store->claim_live_send(f.actor(), request.attempt_id, 1, changed, altered_options, "bad"); });
     error(ErrorCode::Conflict, [&] { (void)f.store->claim_live_send(f.actor(), request.attempt_id, 2, changed, f.live.transport, "bad"); });
@@ -361,6 +379,9 @@ void frozen_identity_and_one_claim() {
     CHECK(a.at("new_send_authority").as_bool() != b.at("new_send_authority").as_bool());
     CHECK(!f.claim(request).at("new_send_authority").as_bool());
     CHECK(number(f.store->budget(f.request_id), "attempts") == 1);
+}
+void frozen_identity_and_one_claim() {
+    for (const bool chat : {false, true}) frozen_identity_and_one_claim_for(chat);
 }
 
 void reservation_and_claim_rollback() {
@@ -376,8 +397,9 @@ void reservation_and_claim_rollback() {
     fixture::sql(f.path, "DROP TRIGGER fixture_fail_claim;"); CHECK(f.claim(request).at("new_send_authority").as_bool());
 }
 
-void observation_and_original_settlement_rollback() {
-    fixture::Fixture f(*assets); const auto request = f.request(); (void)f.reserve(request); const auto claim = f.claim(request);
+void observation_and_original_settlement_rollback_for(bool chat) {
+    fixture::Fixture f(*assets, fixture::settings("synthetic trust", 443, chat));
+    const auto request = f.request(); (void)f.reserve(request); const auto claim = f.claim(request);
     const auto transport = f.cancelled(request); CHECK(!transport.network_started);
     CHECK(transport.transport_options_sha256 == live_transport_options_sha256(f.live.transport));
     error(ErrorCode::UnknownOutcome, [&] { (void)f.settle(request, transport); });
@@ -394,12 +416,16 @@ void observation_and_original_settlement_rollback() {
     test::throws<Error>([&] { (void)f.settle(request, transport); });
     CHECK(f.store->attempt(request.attempt_id).at("settlement_sha256").is_null());
     CHECK(f.store->budget(f.request_id) == original_budget);
+    error(ErrorCode::UnknownOutcome, [&] { (void)f.reserve(f.request("blocked-unsettled")); });
     fixture::sql(f.path, "DROP TRIGGER fixture_settle_fault;"); const auto settled = f.settle(request, transport);
     CHECK(f.settle(request, transport) == settled);
     CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
     auto invented_usage = to_json(transport.response.usage); invented_usage.at("cost_micro_usd") = 0;
     error(ErrorCode::Conflict, [&] { (void)f.store->settle_attempt(request.attempt_id, request.binding, request.config_snapshot_id,
         "INTERRUPTED", invented_usage, to_json(transport.response)); });
+}
+void observation_and_original_settlement_rollback() {
+    for (const bool chat : {false, true}) observation_and_original_settlement_rollback_for(chat);
 }
 
 void partial_usage_exact_replay_and_completion() {
@@ -430,8 +456,9 @@ void partial_usage_exact_replay_and_completion() {
     CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
 }
 
-void known_zero_does_not_clear_unknown_cache() {
-    fixture::Fixture f(*assets); const auto request = f.request(); const auto settled = f.interrupted(request);
+void known_zero_does_not_clear_unknown_cache_for(bool chat) {
+    fixture::Fixture f(*assets, fixture::settings("synthetic trust", 443, chat));
+    const auto request = f.request(); const auto settled = f.interrupted(request);
     ModelUsage zeros; zeros.input_tokens = 0; zeros.output_tokens = 0; zeros.cost_micro_usd = 0;
     (void)f.store->reconcile_usage(f.actor(Role::Root), fixture::evidence(settled, zeros), {"zeros", "zeros", 1});
     const auto budget = f.store->budget(f.request_id);
@@ -441,6 +468,9 @@ void known_zero_does_not_clear_unknown_cache() {
     CHECK(!projection.at("accounting_complete").as_bool());
     CHECK(f.store->verify_usage_ledger(f.request_id).at("unsettled_accounting").as_bool());
     error(ErrorCode::UnknownOutcome, [&] { (void)f.reserve(f.request("unknown-cache-block")); });
+}
+void known_zero_does_not_clear_unknown_cache() {
+    for (const bool chat : {false, true}) known_zero_does_not_clear_unknown_cache_for(chat);
 }
 
 void contradictory_evidence_and_over_reservation() {

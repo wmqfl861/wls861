@@ -86,7 +86,7 @@ int run_protocol_command(const std::string& command, Options& options) {
     const auto profile = provider_profile_from_json(parse_json_strict(profile_bytes, 65536));
     const auto request_bytes = read_runtime_file(request_path, 4U * 1024U * 1024U);
     const auto request = model_request_from_json(parse_json_strict(request_bytes, 4U * 1024U * 1024U));
-    const auto encoded = encode_responses_request(profile, request, stream);
+    const auto encoded = encode_protocol_request(profile, request, stream);
     Object inputs{{"profile", protocol_input_details(profile_path, profile_bytes)},
                   {"request", protocol_input_details(request_path, request_bytes)}};
     Object report{{"format", "wls-offline-protocol-report-v1"},
@@ -104,7 +104,7 @@ int run_protocol_command(const std::string& command, Options& options) {
         const auto raw = read_runtime_file(http_path, profile.limits.max_response_bytes);
         inputs["http_body"] = protocol_input_details(http_path, raw);
         inputs["http_status"] = Object{{"origin", "local_fixture_parameter"}, {"value", http_status}};
-        const auto decoded = decode_responses_response(profile, request, static_cast<int>(http_status), raw);
+        const auto decoded = decode_protocol_response(profile, request, static_cast<int>(http_status), raw);
         status = decoded.response.status;
         report["result"] = to_json(decoded);
     } else {

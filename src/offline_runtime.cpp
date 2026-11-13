@@ -857,6 +857,8 @@ CapturedModelCall OfflineRuntime::capture_call(
         ? compile_management_context(context, native_messages, management_policy, format)
         : (structured ? compile_structured_context(context, native_messages, {}, format) : ContextCompiler().compile(context)); };
     const auto profile = config.model_profile(role);
+    const bool live_profile = string_at(profile, "adapter") == "openai-responses" ||
+                              string_at(profile, "adapter") == "openai-chat";
     require(string_at(profile.at("capabilities"), "tool_calling") == "supported",
             ErrorCode::Unsupported, "frozen model profile does not support required tool calls");
     request.max_output_tokens = std::min<std::int64_t>(8192, integer_at(profile.at("capabilities"), "max_output_tokens"));
@@ -866,13 +868,13 @@ CapturedModelCall OfflineRuntime::capture_call(
             config.json().at("system").at("context").at("compaction_at_fraction").to_number<double>());
         const auto input_bytes = [&] {
             auto bytes = request.context.prompt().size();
-            if (string_at(profile, "adapter") == "openai-responses") {
+            if (live_profile) {
                 auto measurement = request;
                 require(bytes < static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max()),
                         ErrorCode::Quota, "input reservation overflow");
                 measurement.reserved_input_tokens = static_cast<std::int64_t>(bytes);
                 const auto settings = live_model_settings_from_json(profile, request.model.model);
-                bytes = std::max(bytes, encode_responses_request(settings.provider, measurement, settings.stream).body.size());
+                bytes = std::max(bytes, encode_protocol_request(settings.provider, measurement, settings.stream).body.size());
             }
             return bytes;
         };
@@ -904,9 +906,9 @@ CapturedModelCall OfflineRuntime::capture_call(
             available, window - request.reserved_input_tokens});
         require(request.max_output_tokens > 0, ErrorCode::Quota, "bounded output or context budget exhausted");
         request.reserved_output_tokens = request.max_output_tokens;
-        if (string_at(profile, "adapter") == "openai-responses") {
+        if (live_profile) {
             const auto settings = live_model_settings_from_json(profile, request.model.model);
-            const auto wire_bytes = encode_responses_request(settings.provider, request, settings.stream).body.size();
+            const auto wire_bytes = encode_protocol_request(settings.provider, request, settings.stream).body.size();
             require(wire_bytes <= static_cast<std::size_t>(INT64_MAX), ErrorCode::Quota, "encoded input reservation overflow");
             request.reserved_input_tokens = std::max(request.reserved_input_tokens, static_cast<std::int64_t>(wire_bytes));
         }
@@ -917,10 +919,10 @@ CapturedModelCall OfflineRuntime::capture_call(
             {"hard_reservation_basis", "max_original_logical_bytes_and_complete_encoded_body_bytes"},
             {"reserved_input_tokens", request.reserved_input_tokens}};
     }
-    if (string_at(profile, "adapter") == "openai-responses") {
+    if (live_profile) {
         const auto settings = live_model_settings_from_json(profile, request.model.model);
         if (settings.provider.pricing && settings.provider.billing_challenge.empty()) {
-            const auto bytes = encode_responses_request(settings.provider, request, settings.stream).body.size();
+            const auto bytes = encode_protocol_request(settings.provider, request, settings.stream).body.size();
             const auto bound = minimum_cost_reservation(*settings.provider.pricing,
                 static_cast<std::int64_t>(bytes), request.reserved_output_tokens);
             require(bound.available, ErrorCode::Quota, "encoded request pricing bound exceeds capacity");

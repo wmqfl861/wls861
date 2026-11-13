@@ -111,15 +111,21 @@ Json live_model_settings_json(const LiveModelSettings& settings) {
 }
 
 LiveModelSettings live_model_settings_from_json(const Json& profile, std::string_view model_ref) {
-    exact(profile, {"adapter", "adapter_version", "protocol", "model", "capabilities", "responses"});
-    require(text(profile, "adapter") == "openai-responses" && text(profile, "adapter_version") == "1" &&
-            text(profile, "protocol") == "openai-responses-v1", ErrorCode::Unsupported,
+    const auto adapter = text(profile, "adapter");
+    const bool chat = adapter == "openai-chat";
+    require((chat || adapter == "openai-responses") && text(profile, "adapter_version") == "1" &&
+            text(profile, "protocol") == (chat ? "openai-chat-v1" : "openai-responses-v1"), ErrorCode::Unsupported,
             "unsupported live model adapter or protocol");
-    const auto& source = field(profile, "responses");
+    const auto settings_key = chat ? "chat_completions" : "responses";
+    exact(profile, {"adapter", "adapter_version", "protocol", "model", "capabilities", settings_key});
+    const auto& source = field(profile, settings_key);
     exact(source, {"provider_profile", "transport", "stream", "execution_kind",
                    "capability_evidence_source", "capability_evidence_sha256"});
     LiveModelSettings settings;
     settings.provider = provider_profile_from_json(field(source, "provider_profile"));
+    require(settings.provider.protocol == text(profile, "protocol") &&
+            settings.provider.adapter_version == text(profile, "adapter_version"), ErrorCode::Unsupported,
+            "live model registration differs from its embedded provider protocol");
     require(settings.provider.model_ref == model_ref && settings.provider.model == text(profile, "model"),
             ErrorCode::Conflict, "live model registration differs from its embedded provider profile");
     const auto& transport = field(source, "transport");
@@ -152,7 +158,7 @@ LiveModelSettings live_model_settings_from_json(const Json& profile, std::string
     settings.transport.max_total_response_bytes = size("max_total_response_bytes");
     settings.transport.poll_interval = std::chrono::milliseconds(number(transport, "poll_interval_ms"));
     validate_transport(settings.transport);
-    validate_responses_https_target(settings.provider, settings.transport);
+    validate_protocol_https_target(settings.provider, settings.transport);
     // This Store integration has a narrower envelope than the independent
     // offline/transport components. Reserve durable space before any send:
     // at most 6 MiB of raw hex, bounded decoded output and bounded SSE/HTTP
@@ -239,11 +245,12 @@ ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
     const auto settings = live_model_settings_from_json(config.model_profile(request.role), request.model.model);
     require(settings.execution_kind == "local_tls" || authorization.provider_enabled,
             ErrorCode::Unauthorized, "provider network execution has no explicit host authorization");
-    const auto encoded = encode_responses_request(settings.provider, request, settings.stream);
+    const auto encoded = encode_protocol_request(settings.provider, request, settings.stream);
     AttemptReservation reservation;
     reservation.call_id = request.call_id; reservation.attempt_id = request.attempt_id;
     reservation.config_snapshot_sha256 = request.config_snapshot_id;
-    reservation.model_ref = request.model.model; reservation.adapter_kind = "openai-responses";
+    reservation.model_ref = request.model.model;
+    reservation.adapter_kind = text(config.model_profile(request.role), "adapter");
     reservation.reserved_input_tokens = request.reserved_input_tokens;
     reservation.reserved_output_tokens = request.reserved_output_tokens;
     reservation.reserved_cost_micro_usd = request.reserved_cost_micro_usd;
@@ -258,8 +265,8 @@ ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
         result.reservation.at("state_version").as_int64(), encoded, settings.transport,
         "send:" + request.attempt_id);
     if (!result.send_claim.at("new_send_authority").as_bool()) return result;
-    const auto transport = perform_responses_https(settings.provider, request, encoded,
-                                                   settings.transport, bearer_token, stop);
+    const auto transport = perform_protocol_https(settings.provider, request, encoded,
+                                                 settings.transport, bearer_token, stop);
     result.sent = transport.network_started;
     result.transport_summary = https_transport_summary(transport);
     (void)store.record_live_transport(request.attempt_id,

@@ -3736,9 +3736,10 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
     const std::lock_guard lock(impl_->mutex);
     text_field(reservation.call_id, "call_id"); text_field(reservation.attempt_id, "attempt_id");
     text_field(reservation.model_ref, "model_ref");
-    require(reservation.adapter_kind == "fake" || reservation.adapter_kind == "openai-responses",
+    require(reservation.adapter_kind == "fake" || reservation.adapter_kind == "openai-responses" ||
+            reservation.adapter_kind == "openai-chat",
             ErrorCode::Unsupported, "unsupported Store model adapter");
-    const bool live = reservation.adapter_kind == "openai-responses";
+    const bool live = reservation.adapter_kind != "fake";
     if (live) require(impl_->live_schema && impl_->reconciliation_schema, ErrorCode::Unsupported,
                       "live admission requires the complete 410 accounting schema");
     require(reservation.reserved_input_tokens >= 0 && reservation.reserved_output_tokens >= 0 &&
@@ -3855,7 +3856,7 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
                 reservation.reserved_cost_micro_usd > 0, ErrorCode::InvalidInput,
                 "live admission requires explicit positive token and cost reservations");
         live_settings = live_model_settings_from_json(profile, reservation.model_ref);
-        live_encoded = encode_responses_request(live_settings->provider, original_model_request, live_settings->stream);
+        live_encoded = encode_protocol_request(live_settings->provider, original_model_request, live_settings->stream);
         // A frozen price table defines the minimum effective reservation; the
         // host's explicit positive reservation must cover it before INSERT.
         if (live_settings->provider.pricing) {
