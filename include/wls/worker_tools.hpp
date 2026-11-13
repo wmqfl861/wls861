@@ -28,6 +28,8 @@ struct ToolDefinition {
 const std::vector<ToolDefinition>& worker_tool_registry();
 const ToolDefinition& worker_tool_definition(std::string_view name);
 void validate_worker_tool_arguments(std::string_view name, const Json& arguments);
+// Only opt in from an immutable captured path policy; original model arguments stay intact.
+Json normalize_worker_file_arguments(std::string_view name, Json arguments);
 
 // The optional manifest is trusted deployment input, not model output. Its
 // runtime paths/hashes are frozen by bind_workspace alongside request policy.
