@@ -1217,7 +1217,7 @@ class BillingBaselineIntegration(unittest.TestCase):
                     if variant in ('429', '503'):
                         value = {'error': {'code': 'synthetic_failure'}}
                     elif variant == 'incomplete':
-                        value.update(status='incomplete', incomplete_details={'reason': 'content_filter'})
+                        value.update(status='incomplete', incomplete_details={'reason': 'max_output_tokens'})
                     elif variant == 'model_mismatch':
                         value['model'] = 'different-model'
                     elif variant == 'decode_failure':
@@ -1249,7 +1249,12 @@ class BillingBaselineIntegration(unittest.TestCase):
                     bound = (len(sent) * 1500000 + json.loads(sent)['max_output_tokens'] * 4000000 + 999999) // 1000000
                     self.assertEqual(original['reserved_cost'], bound)
                     unknown = variant in ('429', '503', 'disconnect')
-                    self.assertEqual(summary['budget']['spent_cost'], bound if unknown else PRICED_UNIT_MICRO_USD)
+                    self.assertEqual(summary['budget']['spent_cost'], bound if unknown else
+                                     PRICED_UNIT_MICRO_USD * (2 if variant == 'incomplete' else 1))
+                    if variant == 'incomplete':
+                        self.assertEqual(len(peer.requests), 2)
+                        self.assertIn('max_output_tokens', json.dumps(json.loads(peer.requests[1]['body'])['input']))
+                        self.assertEqual(len(rows(database, 'SELECT * FROM tasks')), 3)
                     self.assertEqual(summary['budget']['reserved_cost'], 0)
                     self.assertIsNone(original['cost_micro_usd'])
                     self.assertEqual(original['input_tokens'], None if unknown else 11)
@@ -1280,7 +1285,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             connection.sendall(tls.headers(len(body)) + body)
         with tls.Peer(self.contexts['server'], truncated) as peer:
             case = self.run_inputs('output-limit-corrections', peer)
-            case['system']['limits']['schema_retry_max'] = 10
+            case['system']['context']['schema_retry_max'] = 10
             write_json(case['configuration'], case['system'])
             first = self.invoke_run(case, '--yes')
             self.assertEqual(first.returncode, 0, first.stderr)
@@ -2000,6 +2005,7 @@ RUN_TEST_METHODS = frozenset((
     'test_08_run_ctrl_c_after_settlement_resumes_original_claims_and_effects',
     'test_09_run_unknown_send_stops_and_changed_configuration_cannot_resume',
     'test_09a_unsigned_failures_charge_original_usage_or_reservation_and_resume',
+    'test_09b_output_limit_feedback_is_sent_and_two_originals_stop_across_runs',
     'test_09c_one_dollar_uses_body_bound_and_rejects_output_alone_over_budget',
     'test_09b_run_resumes_exact_intent_after_empty_store_initialization',
 ))

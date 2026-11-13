@@ -547,6 +547,23 @@ void bounded_same_error_count_survives_reopen_and_resets_on_success_or_target_ch
     CHECK(count(f.invoke(Role::Worker, "fs_read", Object{{"path", "absent.txt"}})) == 1);
 }
 
+void no_directory_or_process_effects_can_be_corrected() {
+    Fixture f(input(10)); f.ready();
+    const auto mkdir = f.invoke(Role::Worker, "fs_mkdir", Object{{"path", "parent/child"}});
+    CHECK(mkdir.at("correction_feedback").at("reason") == "tool_result");
+    CHECK(mkdir.at("execution_result").at("evidence").at("mkdir_attempted") == false);
+    CHECK(mkdir.at("execution_result").at("evidence").at("created") == false);
+    (void)f.invoke(Role::Worker, "fs_mkdir", Object{{"path", "parent"}});
+    CHECK(f.invoke(Role::Worker, "fs_mkdir", Object{{"path", "parent/child"}}).at("operation").at("status") == "SUCCEEDED");
+    const auto refused = f.invoke(Role::Worker, "run", Object{{"argv", Array{"/bin/sh", "-c", "touch forbidden"}}});
+    CHECK(refused.at("correction_feedback").at("reason") == "tool_result");
+    CHECK(refused.at("execution_result").at("result").at("spawned") == false);
+    CHECK(!std::filesystem::exists(f.directory.path / "alpha/forbidden"));
+    const auto denied = f.invoke(Role::Worker, "fs_write", Object{{"path", "../outside"}, {"content", "never"}});
+    CHECK(denied.at("operation").at("status") == "FAILED" && !denied.as_object().contains("correction_feedback"));
+    CHECK(!std::filesystem::exists(f.directory.path / "outside"));
+}
+
 void output_limit_feedback_stops_after_two_and_keeps_original_accounting() {
     auto truncated = step(Role::Dispatcher, "submit_plan", Object{});
     truncated.status = ModelResultStatus::Interrupted; truncated.tool_calls.clear();
@@ -565,6 +582,9 @@ void output_limit_feedback_stops_after_two_and_keeps_original_accounting() {
     f.reopen(); const auto before = f.store->budget(f.id);
     const FakeModel fake({truncated}); expect(ErrorCode::NotReady, [&] { (void)f.capture(Role::Dispatcher, fake); });
     CHECK(f.store->budget(f.id) == before && before.at("spent_input") == 200 && before.at("spent_output") == 40);
+    (void)f.store->amend(f.store->host_actor(Role::Root, f.id), number(f.store->request(f.id).at("state_version")),
+        read_runtime_file(source / "tests/fixtures/s13_amendment.txt"), fixture("s13_amended_constraints.json"), "new-output-target");
+    f.reopen(); CHECK(f.capture(Role::Dispatcher, fake).request.binding.requirements_revision == 2);
     Fixture reset(input(10));
     auto first = reset.capture(Role::Dispatcher, fake);
     (void)OfflineRuntime(*reset.store, *schemas).accept_response(first, fake.complete(first.request));
@@ -603,6 +623,7 @@ int main() {
     events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     workflow_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
     return test::run({
+        {"original no-mkdir and no-spawn failures correct while write permissions stay blocked", no_directory_or_process_effects_can_be_corrected},
         {"two output-limit responses stop across restart without losing accounting", output_limit_feedback_stops_after_two_and_keeps_original_accounting},
         {"cancelled late and timed-out failures remain stops", interrupted_and_late_failures_never_become_corrections},
         {"bounded same-error stop persists independently of schema retries and resets on success or target change", bounded_same_error_count_survives_reopen_and_resets_on_success_or_target_change},

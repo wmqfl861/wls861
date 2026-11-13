@@ -605,7 +605,7 @@ CapturedModelCall OfflineRuntime::capture_call(
     Json correction_tail = nullptr;
     if (store_.event_runtime_enabled()) {
         correction_tail = store_.attempt_history_tail(actor, 2);
-        require(!correction_detail::output_limit_repeated(correction_tail), ErrorCode::NotReady,
+        require(!correction_detail::output_limit_repeated(correction_tail, correction_detail::target_key(request, action)), ErrorCode::NotReady,
             "max_output_tokens: two consecutive incomplete responses");
         const auto count = correction_detail::failures(correction_tail, correction_detail::target_key(request, action));
         require(config.schema_retry_max() == 0 || count < config.schema_retry_max(),
@@ -996,7 +996,8 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     // so a host hook error can never be relabelled as a model-layer refusal.
     bool refusal_gate = false;
     const auto apply = [&]() -> Json {
-    if (after_settlement) after_settlement(settlement);
+    if (after_settlement) try { after_settlement(settlement); }
+        catch (const Error& error) { throw Error(error.code(), error.what()); } // Host errors cannot become typed model corrections.
     try {
         validate_response_envelope(captured, response);
         if (durable_feedback && response.status == ModelResultStatus::Interrupted && response.error_code == "response_max_output_tokens") {
@@ -1022,8 +1023,8 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     const auto command = captured.attempt_id + ":" + tool.call_id;
     const auto read_history = [&](auto action) -> Json {
         try { return action(); } catch (const Error& error) {
-            if (!durable_feedback || (error.code() != ErrorCode::InvalidInput && error.code() != ErrorCode::Unauthorized &&
-                error.code() != ErrorCode::Conflict && error.code() != ErrorCode::Unsupported)) throw;
+            if (!durable_feedback || error.code() == ErrorCode::Storage || error.code() == ErrorCode::Corrupt ||
+                error.code() == ErrorCode::UnknownOutcome || error.code() == ErrorCode::Quota) throw;
             if (is_management_history_control(tool.name)) store_.authorize_management_control(call.actor, captured.binding, tool.name);
             else store_.authorize_history_control(call.actor, captured.binding, tool.name);
             return ordinary("read_only", error.what());

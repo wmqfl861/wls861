@@ -421,7 +421,7 @@ void incomplete_cancelled_and_nonterminal_never_return_partial_tools() {
     const auto d = decode(value); CHECK(d.response.error_code == "provider_failed");
     CHECK(d.response.status == ModelResultStatus::Error && d.response.tool_calls.empty());
     CHECK(d.response.usage.output_tokens == 3);
-    for (const Json details : {Json("max_output_tokens"), Json(Object{{"reason", 7}}),
+    for (const auto& details : {Json("max_output_tokens"), Json(Object{{"reason", 7}}),
             Json(Object{{"reason", "max_output_tokens"}, {"unvalidated", true}})}) {
         value = fixture::tool_response(); value.as_object()["status"] = "incomplete";
         value.as_object()["incomplete_details"] = details;
@@ -432,6 +432,14 @@ void incomplete_cancelled_and_nonterminal_never_return_partial_tools() {
         value.as_object()["incomplete_details"] = Object{{"reason", reason}};
         CHECK(decode(value).response.error_code == "response_incomplete");
     }
+    auto tolerant = fixture::profile(); tolerant.response_metadata_policy = "ignore-record-v1";
+    value.as_object()["incomplete_details"] = Object{{"reason", "max_output_tokens"}, {"future_note", true}};
+    CHECK(decode(value).response.error_code == "invalid_response");
+    const auto accepted = decode_responses_response(tolerant, fixture::request(), 200, canonical_json(value));
+    CHECK(accepted.response.error_code == "response_max_output_tokens");
+    CHECK(accepted.evidence.at("unknown_fields") == Json(Array{"/incomplete_details/future_note"}));
+    value.as_object()["incomplete_details"] = Object{{"future_reason", "max_output_tokens"}};
+    CHECK(decode_responses_response(tolerant, fixture::request(), 200, canonical_json(value)).response.error_code == "response_incomplete");
 }
 void wrong_response_model_and_host_identity_fields_refuse() {
     auto value = fixture::tool_response(); value.as_object()["model"] = "another-alias";

@@ -61,13 +61,13 @@ inline Json failure(const char* reason, const std::string& key, std::int64_t cou
         {"target_sha256", key}, {"consecutive_failures", count},
         {"message", "Correct the rejected output using its original response and feedback; do not replay the old operation."}}}};
 }
-inline bool output_limit_repeated(const Json& tail) {
+inline bool output_limit_repeated(const Json& tail, const std::string& key) {
     const auto& items = tail.at("items").as_array();
     if (items.size() < 2) return false;
     for (auto it = items.rbegin(); it != items.rbegin() + 2; ++it) {
         const auto& feedback = it->at("feedback");
         const auto* value = feedback.is_object() ? correction(feedback.at("result")) : nullptr;
-        if (!value || value->at("reason") != "max_output_tokens") return false;
+        if (!value || value->at("reason") != "max_output_tokens" || value->at("target_sha256") != Json(key)) return false;
     }
     return true;
 }

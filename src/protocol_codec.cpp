@@ -663,7 +663,8 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
                 require(details.is_null() || details.is_object(), ErrorCode::InvalidInput, "invalid incomplete details");
                 std::string reason;
                 if (details.is_object()) {
-                    only_fields(details, {"reason"}, false);
+                    metadata.inspect(object(details), {"reason"}, "/incomplete_details");
+                    only_fields(details, {"reason"}, metadata.enabled);
                     if (object(details).contains("reason")) reason = text(details, "reason");
                     require(!object(details).contains("reason") || reason == "max_output_tokens" || reason == "max_messages" ||
                         reason == "content_filter" || reason == "steered", ErrorCode::Unsupported, "unsupported incomplete reason");

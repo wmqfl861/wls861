@@ -393,7 +393,8 @@ Json WorkerTools::diagnostic(const StoreActor& actor, const ExecutionBinding& bi
     require(field(operation, "request_id") == actor.request_id && field(operation, "task_id") == actor.task_id && field(operation, "team_id") == actor.team_id,
             ErrorCode::Unauthorized, "operation belongs to another team");
     return Object{{"operation", operation}, {"execution_result", store_.operation_result(id)}};
-    } catch (const correction_detail::MissingWorkspaceLeaf&) { throw;
+    } catch (const correction_detail::MissingWorkspaceLeaf&) {
+        (void)store_.authorize_diagnostic(actor, binding, name); verify_workspace(actor); throw;
     } catch (const Error& error) {
         if (error.code() != ErrorCode::InvalidInput && error.code() != ErrorCode::Unauthorized &&
             error.code() != ErrorCode::Quota && error.code() != ErrorCode::Unsupported &&

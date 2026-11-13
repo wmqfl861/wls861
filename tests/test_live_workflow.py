@@ -232,6 +232,56 @@ class LiveWorkflow(unittest.TestCase):
         self.assertEqual(self.rows('SELECT status FROM tasks')[0]['status'], 'ACCEPTED')
         self.assert_private_safe(result)
 
+    def test_evaluator_verifies_correction_retry_and_read_only_originals(self):
+        model = ModelPeer(self.directory)
+        choose = model.choose
+        rejected_read = False
+        def correct(body):
+            nonlocal rejected_read
+            if not model.actions:
+                return 'submit_plan', dict(model.plan, summary=7)
+            if not rejected_read and any(tool['name'] == 'fs_write' for tool in body['tools']):
+                rejected_read = True
+                return 'fs_read', {'path': '../outside'}
+            return choose(body)
+        model.choose = correct
+        def serve(peer, connection):
+            if not peer.requests:
+                peer.request(connection)
+                connection.sendall(tls.headers(2, status=503) + b'{}')
+            else:
+                model(peer, connection)
+        with tls.Peer(self.contexts['server'], serve) as peer:
+            result = self.invoke(peer, model, synthetic_provider=True, paid_retries=2)
+            self.assertEqual(len(peer.requests), 10, result)
+        self.origin(result['request_id'], 4)
+        feedback = self.rows("SELECT * FROM model_tool_feedback WHERE json_type(result,'$.retry_of_attempt_id')='text'")[0]
+        original = json.loads(feedback['result'])
+        self.assertEqual(original['correction_feedback']['reason'], 'model_arguments')
+        self.assertTrue(self.rows("SELECT * FROM model_tool_feedback WHERE json_extract(result,'$.correction_feedback.reason')='read_only'"))
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute('DROP TRIGGER model_tool_feedback_immutable')
+            for link in (feedback['attempt_id'], 'absent-original'):
+                changed = dict(original, retry_of_attempt_id=link)
+                fact = dict(attempt_id=feedback['attempt_id'], original_binding=json.loads(feedback['original_binding']),
+                            response=json.loads(feedback['response']), result=changed)
+                db.execute('UPDATE model_tool_feedback SET result=?,record_sha256=? WHERE attempt_id=?',
+                           (e.original_canonical(changed).decode(), e.original_digest(fact), feedback['attempt_id']))
+                db.commit()
+                with self.assertRaisesRegex(e.InvalidEvidence, 'not an earlier original attempt'):
+                    self.origin(result['request_id'], 4)
+            fact['result'] = original
+            db.execute('UPDATE model_tool_feedback SET result=?,record_sha256=? WHERE attempt_id=?',
+                       (e.original_canonical(original).decode(), e.original_digest(fact), feedback['attempt_id']))
+            observed = self.rows('SELECT * FROM live_transport_observations WHERE attempt_id=?', (original['retry_of_attempt_id'],))[0]
+            summary = json.loads(observed['safe_summary']); summary['http_status'] = 400
+            summary['record_sha256'] = e.original_digest({key: value for key, value in summary.items() if key != 'record_sha256'})
+            db.execute('DROP TRIGGER live_observation_no_update')
+            db.execute('UPDATE live_transport_observations SET safe_summary=?,record_sha256=? WHERE attempt_id=?',
+                       (e.original_canonical(summary).decode(), summary['record_sha256'], original['retry_of_attempt_id']))
+        with self.assertRaisesRegex(e.InvalidEvidence, 'source was not eligible'):
+            self.origin(result['request_id'], 4)
+
     def test_output_limit_cannot_hide_a_host_settlement_failure(self):
         value = json.loads(tls.response_body(tool=True))
         value.update(status='incomplete', incomplete_details={'reason': 'max_output_tokens'})

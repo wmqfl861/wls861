@@ -514,6 +514,52 @@ def correction_semantic_target(value):
     return value
 
 
+def validate_correction_retry(db, attempt, link, tables):
+    """Verify a historical retry link; this read never authorizes another send."""
+    require(isinstance(link, str) and link and {'live_attempt_execution', 'live_send_claims',
+            'live_transport_observations'}.issubset(tables), 'invalid correction retry source')
+    previous = rows(db, 'SELECT p.* FROM call_attempts p JOIN call_attempts n ON n.attempt_id=? '
+                    'WHERE p.attempt_id=? AND p.rowid<n.rowid', (attempt['attempt_id'], link))
+    require(len(previous) == 1, 'correction retry source is not an earlier original attempt')
+    previous = previous[0]
+    require(all(previous[key] == attempt[key] for key in ('request_id', 'role', 'principal_id',
+            'task_id', 'team_id', 'config_snapshot_sha256')) and previous['status'] == 'ERROR' and
+            previous['accepted'] == 0 and previous['settlement_sha256'], 'correction retry source changed scope or outcome')
+    binding, response = strict_json(previous['frozen_binding']), strict_json(previous['response'])
+    require(binding == strict_json(attempt['frozen_binding']) and
+            captured_contract(strict_json(previous['request_envelope'])).get('workflow_action') ==
+            captured_contract(strict_json(attempt['request_envelope'])).get('workflow_action'),
+            'correction retry source changed captured target')
+    feedback = one(db, 'SELECT * FROM model_tool_feedback WHERE attempt_id=?', (link,))
+    fact = {key: strict_json(feedback[key]) for key in ('original_binding', 'response', 'result')}
+    require(fact['original_binding'] == binding and fact['response'] == response and
+            fact['result'].get('runtime_error') is True and fact['result'].get('error_code') == 'not_ready' and
+            original_digest(dict(fact, attempt_id=link)) == feedback['record_sha256'], 'invalid correction retry feedback')
+    one(db, 'SELECT attempt_id FROM live_attempt_execution WHERE attempt_id=?', (attempt['attempt_id'],))
+    live = one(db, 'SELECT * FROM live_attempt_execution WHERE attempt_id=?', (link,))
+    claim = one(db, 'SELECT * FROM live_send_claims WHERE attempt_id=?', (link,))
+    observed = one(db, 'SELECT * FROM live_transport_observations WHERE attempt_id=?', (link,))
+    summary = strict_json(observed['safe_summary'])
+    require(observed['claim_id'] == claim['claim_id'] and strict_json(claim['frozen_binding']) == binding and
+            strict_json(observed['response']) == response and summary['decoded_response_sha256'] == original_digest(response),
+            'correction retry changed original transport response')
+    require(summary['record_sha256'] == observed['record_sha256'] and
+            original_digest({key: value for key, value in summary.items() if key != 'record_sha256'}) == observed['record_sha256'],
+            'correction retry transport fingerprint mismatch')
+    for key in ('encoded_record_sha256', 'request_body_sha256', 'profile_sha256', 'logical_request_sha256', 'transport_options_sha256'):
+        require(summary[key] == live[key], 'correction retry changed admitted request')
+    for key in ('headers', 'body'):
+        require(hashlib.sha256(bytes.fromhex(observed['raw_' + key + '_hex'])).hexdigest() == summary['raw_' + key + '_sha256'],
+                'correction retry changed raw transport bytes')
+    require(original_digest(strict_json(observed['protocol_evidence'])) == summary['protocol_evidence_sha256'],
+            'correction retry changed protocol evidence')
+    unsent = (summary['upload_may_have_occurred'] is False and summary['header_bytes_observed'] == 0 and
+              summary['body_bytes_observed'] == 0 and (summary['status'] in ('connection_error', 'certificate_error') or
+              (summary['status'] == 'transfer_error' and summary['reason'] == 'transfer_error')))
+    require(unsent or (summary['status'] == 'http_error' and summary['transfer_complete'] is True and
+            summary['http_status'] in (408, 429, 500, 502, 503, 504)), 'correction retry source was not eligible')
+
+
 def model_applications(db, request_id, attempts):
     """Check original response -> captured target -> feedback -> business event.
 
@@ -587,10 +633,13 @@ def model_applications(db, request_id, attempts):
         correction = result.get('correction_feedback')
         if (result.get('status') == 'FAILED' and isinstance(correction, dict) and
                 correction.get('format') == 'wls-correction-feedback-v1' and
-                correction.get('reason') in ('model_arguments', 'tool_selection', 'missing_leaf')):
+                correction.get('reason') in ('model_arguments', 'tool_selection', 'missing_leaf', 'read_only')):
             count = correction.get('consecutive_failures')
-            require(set(result) == {'status', 'correction_feedback'} and type(count) is int and 0 < count <= 10**12,
+            require(set(result) in ({'status', 'correction_feedback'}, {'status', 'correction_feedback', 'retry_of_attempt_id'}) and
+                    type(count) is int and 0 < count <= 10**12,
                     'invalid original correction rejection')
+            if 'retry_of_attempt_id' in result:
+                validate_correction_retry(db, attempt, result['retry_of_attempt_id'], tables)
             target = {'role': attempt['role'], 'binding': correction_semantic_target(binding),
                       'config': response['config_snapshot_id'], 'action': correction_semantic_target(contract.get('workflow_action'))}
             require(correction.get('target_sha256') == original_digest(target), 'correction rejection changed captured target')
