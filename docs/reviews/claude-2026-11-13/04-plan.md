@@ -10,9 +10,9 @@
 | --- | --- | --- | --- | --- |
 | 1 | G2-P 真实模型就绪 | `03-fix-list.md` 的 P1 至 P8 | 预演门禁 `g2_rehearsal_e2e` 通过；版本升 0.12.0 | 已完成：#81 三核心各 84/84，通过后合入 main；整体门禁 12:12 |
 | 2 | G2 首个真实闭环 | 探针、冒烟、三交付物请求、报告、最多 3 个修复 | U1、U2；新格式冻结；蓝图迁入 `docs/spec/v0.5/`；版本升 0.13.0 | 等密钥。探针不等 G2-P，密钥一到就做 |
-| 3 | G4 能跑命令 | 原计划，加 `03-fix-list.md` 第三部分的 G4 两项 | U3、U4 | 按 §4 开始 A/B；standard 先交 cgroup 切片，无 cgroup 路径单独处理 |
+| 3 | G4 能跑命令 | 原计划，加 `03-fix-list.md` 第三部分的 G4 两项 | U3、U4 | 输出切片 [#86](https://github.com/wmqfl861/wls861/pull/86) 已合并；A1 [#84](https://github.com/wmqfl861/wls861/pull/84) native BLOCKED，B 候选未纳入，`/input` 未做，环境卡片的实际执行检查未接通 |
 | 4 | G3 对照评测 | 原计划 | 一页对照报告 | — |
-| 5 起 | G5、G6、G7、G8、G9、G10 | 原计划 | 原计划 | — |
+| 5 起 | G5、G6、G7、G8、G9、G10 | 原计划 | 原计划 | G5-A [#87](https://github.com/wmqfl861/wls861/pull/87) 与 G5-B [#88](https://github.com/wmqfl861/wls861/pull/88) 已合并；两协议各 8 场景通过，真实冒烟待密钥 |
 
 ## 2. G2-P 的安排
 
@@ -191,3 +191,6 @@ owner 的端点只支持 Chat Completions 时：G2-P 之后先做 G5-A、G5-B，
 - 已记录的调整：P5 拆为路径和纯配置两个顺序模块，配置/提示词 112 行、测试 219 行按两倍约束；G1 历史模拟缓存基准显式固定原 shell 模板，新 files 默认单独记录实际比例；P4a 的 $1/128k/$10M 算术矛盾按预约上界拒绝。ASan/UBSan 的 CTest 期限按 D-11 乘 2；UBSan 采用原集合奇偶分片，原 job 期限不变。
 - D-14：两条已处置且超过 7 天的旧分支先核实归档标签再移除远端分支：`fix/audit-product-20261105-adp35vg4`（#40）、`fix/audit-validation-20261105-adp35vg4`（#41）；提交由同名 `archive/` 标签保留。没有清理未满 30 天的本机证据。
 - 等待：密钥。已按 §4 开始 G4-A/B/C；没有开展真实调用。根据 bwrap 启动屏障和退出源码，standard 先复用 cgroup 保护；无 cgroup 的身份捕获、早期取消及全树退出见证另交完整切片，未完成时拒绝。main ASan 超时仍在定向处理，不以 G2-P 核心门禁代替。
+- 后续增量：相邻配置复用 [#85](https://github.com/wmqfl861/wls861/pull/85)、新 `structured-v3` 的 UTF-8 `op_output` 与 `run` 前 8 KiB 预览（旧格式与旧记录不回填）[#86](https://github.com/wmqfl861/wls861/pull/86)、纯 Chat codec [#87](https://github.com/wmqfl861/wls861/pull/87) 和 Chat 运行时 [#88](https://github.com/wmqfl861/wls861/pull/88) 已合并。G5-B 本地首轮 12/12 个 CTest 通过；Responses 与 Chat 各 35 次合成调用、8 场景通过，断开后同命令恢复交付。R3 评估尚未接入 Chat。
+- #85 本地 acceptance 仍 TIMEOUT，未宣称根因修复。main `82ae41e` 的[完整矩阵 43428028557](https://github.com/wmqfl861/wls861/actions/runs/43428028557) 九个构建测试作业为 8 PASS、ASan 1/2 FAIL：`acceptance_runtime` 前 14 个内部用例 PASS 后于 180.18 秒 TIMEOUT；`23965af` 的九作业全 PASS 为旧输入，上一 main `5599d44` 的[矩阵 43434154232](https://github.com/wmqfl861/wls861/actions/runs/43434154232) 已有 7 个构建测试作业成功，ASan 1/2 与 Make-ASan 2/2 待完成；当前 main `170619b`（#88 合并）的新完整矩阵待完成。
+- G4-A1 [#84](https://github.com/wmqfl861/wls861/pull/84) native BLOCKED，G4-B 候选尚未纳入；`/input` 尚未实现，环境卡片的实际执行检查未接通。Windows 11 NOT_RUN；等待密钥，真实 WLS 调用 0 次。

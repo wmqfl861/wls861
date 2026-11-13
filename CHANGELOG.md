@@ -21,6 +21,23 @@
   is being repaired without changing cases, assertions or its 180-second limit.
   Older reports and failed runs retain their original scope.
 
+- Reuse owned canonical bytes and adjacent frozen configuration in
+  [#85](https://github.com/wmqfl861/wls861/pull/85). Local acceptance still
+  times out; this change does not establish an ASan timeout root-cause fix.
+- Add UTF-8 `op_output` and the first 8 KiB of `run` output for new
+  `structured-v3` requests in [#86](https://github.com/wmqfl861/wls861/pull/86);
+  older formats and records are not backfilled. Native standard sandbox
+  validation remains BLOCKED; `/input` and environment-card execution checks
+  remain pending.
+- Add pure nonstream Chat Completions encoding/decoding in
+  [#87](https://github.com/wmqfl861/wls861/pull/87) and integrate the original
+  reservation, unique send, observation and settlement path in
+  [#88](https://github.com/wmqfl861/wls861/pull/88).
+  The first local Release run passes 12/12 CTests; Responses and Chat each
+  complete 35 synthetic calls and all eight rehearsal scenarios, including
+  disconnect/resume to DELIVERED. R3 evaluation has not integrated Chat.
+  Store stays 410, Windows 11 remains NOT_RUN, and real WLS calls remain zero.
+
 ## Unreleased — G0 closeout and G1 integration (2026-11-07 through 2026-11-12, in progress; no version cut)
 
 - Merge G1-A–M through #66 on 2026-11-12, product baseline
