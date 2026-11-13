@@ -173,8 +173,8 @@ jobs:
     runs-on: ubuntu-24.04
     # Keep the existing 55-minute ASan budget for each CMake and Make shard.
     # CMake runners cover odd/even registrations; Make keeps its two parts.
-    # Keep all per-test deadlines, assertions, leak checks, ordinary-user
-    # checks and the original Make CPPFLAGS path.
+    # CTest doubles base per-test deadlines for ASan/UBSan; Make has no outer
+    # per-test timeout. Keep assertions, leak/user checks and Make CPPFLAGS.
     timeout-minutes: ${{ matrix.asan == 'ON' && 55 || 40 }}
     strategy:
       fail-fast: false
