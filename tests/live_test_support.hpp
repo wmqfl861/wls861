@@ -72,7 +72,7 @@ struct Assets {
     }
 };
 
-inline LiveModelSettings settings(std::string ca = "synthetic pre-cancel trust material", int port = 443) {
+inline LiveModelSettings settings(std::string ca = "synthetic pre-cancel trust material", int port = 443, bool chat = false) {
     LiveModelSettings live;
     live.provider = protocol::profile();
     live.provider.profile_id = "local-store-fixture"; live.provider.model_ref = "local-model";
@@ -82,14 +82,21 @@ inline LiveModelSettings settings(std::string ca = "synthetic pre-cancel trust m
     live.transport.max_total_response_bytes = 3U * 1024U * 1024U;
     live.execution_kind = "local_tls"; live.capability_evidence_source = "synthetic-loopback-fixture-v1";
     live.capability_evidence_sha256 = sha256_hex("synthetic loopback capabilities; no provider claim");
+    if (chat) {
+        live.provider.protocol = "openai-chat-v1"; live.provider.responses_path.clear();
+        live.provider.chat_completions_path = "/v1/chat/completions"; live.provider.streaming = false;
+        live.provider.chat_reasoning_policy = "reasoning-effort-v1";
+        live.provider.response_metadata_policy = "ignore-record-v1";
+    }
     return live;
 }
 inline Json model_profile(const LiveModelSettings& live) {
-    return Object{{"adapter", "openai-responses"}, {"adapter_version", "1"}, {"protocol", "openai-responses-v1"},
-        {"model", live.provider.model}, {"capabilities", Object{{"streaming", "supported"}, {"tool_calling", "supported"},
+    const bool chat = live.provider.protocol == "openai-chat-v1";
+    return Object{{"adapter", chat ? "openai-chat" : "openai-responses"}, {"adapter_version", "1"}, {"protocol", live.provider.protocol},
+        {"model", live.provider.model}, {"capabilities", Object{{"streaming", live.provider.streaming ? "supported" : "unsupported"}, {"tool_calling", "supported"},
             {"parallel_tool_calls", "supported"}, {"reasoning_modes", Array{"provider_default", "off"}},
             {"context_window", live.provider.context_window}, {"max_output_tokens", live.provider.max_output_tokens}, {"cache_mode", "none"}}},
-        {"responses", live_model_settings_json(live)}};
+        {chat ? "chat_completions" : "responses", live_model_settings_json(live)}};
 }
 inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& live,
                                 std::string key = "fixture", bool enabled = true, bool fake = false,
@@ -165,7 +172,7 @@ struct Fixture {
         AttemptReservation result;
         result.call_id = request.call_id; result.attempt_id = request.attempt_id;
         result.config_snapshot_sha256 = request.config_snapshot_id; result.model_ref = request.model.model;
-        result.adapter_kind = fake ? "fake" : "openai-responses";
+        result.adapter_kind = fake ? "fake" : request.context.protocol_version == "openai-chat-v1" ? "openai-chat" : "openai-responses";
         result.reserved_input_tokens = request.reserved_input_tokens; result.reserved_output_tokens = request.reserved_output_tokens;
         result.reserved_cost_micro_usd = request.reserved_cost_micro_usd; result.max_output_tokens = request.max_output_tokens;
         result.request_envelope = to_json(request); return result;
@@ -173,11 +180,11 @@ struct Fixture {
     Json reserve(const ModelRequest& request) { return store->reserve_attempt(actor(), request.binding, reservation(request)); }
     Json claim(const ModelRequest& request) {
         return store->claim_live_send(actor(), request.attempt_id, number(store->attempt(request.attempt_id), "state_version"),
-            encode_responses_request(live.provider, request, live.stream), live.transport, "claim-" + request.attempt_id);
+            encode_protocol_request(live.provider, request, live.stream), live.transport, "claim-" + request.attempt_id);
     }
     HttpsTransportResult cancelled(const ModelRequest& request) const {
         std::stop_source stopped; stopped.request_stop();
-        return perform_responses_https(live.provider, request, encode_responses_request(live.provider, request, live.stream),
+        return perform_protocol_https(live.provider, request, encode_protocol_request(live.provider, request, live.stream),
             live.transport, "WLS_SYNTHETIC_STORE_BEARER", stopped.get_token());
     }
     Json settle(const ModelRequest& request, const HttpsTransportResult& response) {

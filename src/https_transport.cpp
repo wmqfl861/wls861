@@ -653,10 +653,11 @@ void decode_retained(Transfer& transfer, const ModelRequest& request) {
                 {"offline_decoder_report", replay.evidence}};
         } else if (result.raw_body.size() <= transfer.profile.limits.max_response_bytes &&
                    result.http_status >= 100 && result.http_status <= 599) {
-            const auto decoded = decode_responses_response(transfer.profile, request,
-                                                          result.http_status, result.raw_body);
+            const auto decoded = decode_protocol_response(transfer.profile, request,
+                                                         result.http_status, result.raw_body);
             result.response = decoded.response;
-            result.protocol_evidence = Object{{"decoder", "bounded_responses_http_decoder"},
+            result.protocol_evidence = Object{{"decoder", transfer.profile.protocol == "openai-chat-v1"
+                ? "bounded_chat_http_decoder" : "bounded_responses_http_decoder"},
                 {"input_origin", "captured_libcurl_body_callbacks"},
                 {"offline_decoder_report", decoded.evidence}};
         }
@@ -703,9 +704,14 @@ Json https_transport_options_descriptor(const HttpsTransportOptions& options) {
 
 void validate_responses_https_target(const ProviderProfile& profile,
                                      const HttpsTransportOptions& options) {
-    validate_provider_profile(profile);
     require(profile.protocol == "openai-responses-v1", ErrorCode::Unsupported,
-            "Chat runtime requires separate send, admission and booking support");
+            "Responses HTTPS requires an openai-responses-v1 profile");
+    validate_protocol_https_target(profile, options);
+}
+
+void validate_protocol_https_target(const ProviderProfile& profile,
+                                    const HttpsTransportOptions& options) {
+    validate_provider_profile(profile);
     (void)endpoint_of(profile.base_url, options);
 }
 
@@ -740,8 +746,17 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
         const ModelRequest& request, const EncodedResponsesRequest& encoded,
         const HttpsTransportOptions& options, std::string_view bearer_token,
         std::stop_token stop) {
+    require(profile.protocol == "openai-responses-v1", ErrorCode::Unsupported,
+            "Responses HTTPS requires an openai-responses-v1 profile");
+    return perform_protocol_https(profile, request, encoded, options, bearer_token, stop);
+}
+
+HttpsTransportResult perform_protocol_https(const ProviderProfile& profile,
+        const ModelRequest& request, const EncodedProtocolRequest& encoded,
+        const HttpsTransportOptions& options, std::string_view bearer_token,
+        std::stop_token stop) {
     const auto started = Clock::now();
-    const auto expected = encode_responses_request(profile, request, encoded.stream);
+    const auto expected = encode_protocol_request(profile, request, encoded.stream);
     require(to_json(encoded) == to_json(expected), ErrorCode::Corrupt,
             "HTTPS encoded request differs from its original request and profile");
     require(!options.ca_bundle_pem.empty() && options.ca_bundle_pem.size() <= max_trust_bytes,
@@ -931,7 +946,8 @@ HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
     } else if (result.response.status != ModelResultStatus::Completed) {
         // Only shared-decoder classifications from a fully framed HTTP 200
         // survive. Refused/interrupted responses remain unusable for dispatch.
-        if (((result.response.error_code == "model_refusal" && transfer.profile.responses_compatibility.has_value()) ||
+        if (((result.response.error_code == "model_refusal" &&
+              (transfer.profile.responses_compatibility.has_value() || transfer.profile.protocol == "openai-chat-v1")) ||
              (result.response.status == ModelResultStatus::Interrupted && result.response.error_code == "response_max_output_tokens")) &&
             result.protocol_evidence.is_object() &&
             result.protocol_evidence.as_object().contains("decoder")) {

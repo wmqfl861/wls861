@@ -94,6 +94,7 @@ inline void profile_and_runtime_boundaries() {
     fails(ErrorCode::Unsupported, [&] { (void)decode_responses_response(p, request(), 200, "{}"); });
     fails(ErrorCode::Unsupported, [&] { (void)encode_protocol_request(p, request(), true); });
     fails(ErrorCode::Unsupported, [&] { validate_responses_https_target(p, {}); });
+    validate_protocol_https_target(p, {});
     LiveModelSettings live; live.provider = p; live.transport.ca_bundle_pem = "offline-only";
     live.transport.resolved_ipv4 = "127.0.0.1";
     const Json outer = Object{{"adapter", "openai-responses"}, {"adapter_version", "1"}, {"protocol", "openai-responses-v1"},

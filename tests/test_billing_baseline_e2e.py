@@ -140,8 +140,9 @@ class SimulatedPrefixCache:
 
     def observe(self, raw, profile_sha256):
         fields = captured_json_values(raw)
-        items = captured_json_values(fields['input'])
-        material = fields['tools'] + fields['instructions'] + b''.join(items)
+        items = captured_json_values(fields['messages' if 'messages' in fields else 'input'])
+        instructions = items.pop(0) if 'messages' in fields else fields['instructions']
+        material = fields['tools'] + instructions + b''.join(items)
         key = (json.loads(fields['model']), profile_sha256)
         longest = 0
         for previous in self.previous.get(key, []):
@@ -158,8 +159,8 @@ class SimulatedPrefixCache:
         return {'input_tokens': tokens, 'cache_read_tokens': cached,
                 'input_bytes': len(material), 'matched_prefix_bytes': longest,
                 'body_bytes': len(raw), 'ratio': cached / tokens,
-                'stable_material': fields['tools'] + fields['instructions'] + b''.join(items[:-1]),
-                'tools': fields['tools'], 'instructions': fields['instructions']}
+                'stable_material': fields['tools'] + instructions + b''.join(items[:-1]),
+                'tools': fields['tools'], 'instructions': instructions}
 
 
 def v2_comparison_request(captured):
@@ -389,8 +390,9 @@ class PricingFlowEndpoint:
 class RehearsalEndpoint(PricingFlowEndpoint):
     """Naive choices and one-shot faults, keyed by captured task/order state."""
 
-    def __init__(self):
+    def __init__(self, chat=False):
         super().__init__()
+        self.chat = chat
         self.faults = set()
         self.plan = {'summary': 'Three independent verified files', 'nodes': [
             {'node_id': node, 'title': f'Write {node} file', 'brief': {
@@ -402,13 +404,20 @@ class RehearsalEndpoint(PricingFlowEndpoint):
             'done_definition': 'The complete file has both requested lines'}
 
     @staticmethod
-    def actor(body, contract):
+    def contract(body):
+        return json.loads(body['messages'][-1]['content']) if 'messages' in body else PricingFlowEndpoint.contract(body)
+
+    @staticmethod
+    def tools(body):
+        return [tool.get('function', tool) for tool in body['tools']]
+
+    def actor(self, body, contract):
         action = contract.get('workflow_action')
         if action:
             return 'dispatcher' if action['kind'] == 'acceptance' else 'team_lead'
         if not contract['binding']['task_id']:
             return 'dispatcher'
-        return 'team_lead' if any(tool['name'] == 'issue_work_order' for tool in body['tools']) else 'worker'
+        return 'team_lead' if any(tool['name'] == 'issue_work_order' for tool in self.tools(body)) else 'worker'
 
     def choose(self, body):
         contract = self.contract(body)
@@ -490,7 +499,7 @@ class RehearsalEndpoint(PricingFlowEndpoint):
             self.faults.add(tag)  # Never consume a business step for a transport/output fault.
         else:
             name, arguments, tag = self.choose(body)
-            if name not in {tool['name'] for tool in body['tools']}:
+            if name not in {tool['name'] for tool in self.tools(body)}:
                 raise AssertionError(f'{name} was not declared')
             value['id'] = f'resp_rehearsal_{len(self.records)}'
             value['output'][0].update(call_id=f'rehearsal-{len(self.records)}', name=name,
@@ -499,7 +508,7 @@ class RehearsalEndpoint(PricingFlowEndpoint):
         if tag == 'disconnect':
             connection.sendall(tls.headers(1000) + b'{"id":')
             return
-        encoded = tls.encoded(value)
+        encoded = tls.encoded(tls.chat_response(value) if self.chat else value)
         connection.sendall(tls.headers(len(encoded), status=status,
             extra=b'Retry-After: 0\r\n' if status == 429 else b'') + encoded)
 
@@ -802,7 +811,7 @@ class BillingBaselineIntegration(unittest.TestCase):
         self.run_pair(4)
 
     @classmethod
-    def run_inputs(cls, label, peer):
+    def run_inputs(cls, label, peer, chat=False):
         directory = cls.directory / label
         directory.mkdir(mode=0o700)
         shutil.copytree(cls.functions, directory / 'functions')
@@ -810,6 +819,15 @@ class BillingBaselineIntegration(unittest.TestCase):
         provider = profile['responses']['provider_profile']
         provider.update(base_url=f'https://localhost:{peer.port}', profile_id='one-command-pricing', pricing=PRICING)
         provider.pop('billing_challenge', None)
+        if chat:
+            profile.update(adapter='openai-chat', protocol='openai-chat-v1')
+            profile['chat_completions'] = profile.pop('responses')
+            provider.update(adapter='openai-chat', protocol='openai-chat-v1', response_metadata_policy='ignore-record-v1',
+                chat_model_aliases=['fixture-z', 'fixture-a'],
+                chat_reasoning_policy='reasoning-effort-v1', chat_completions_path='/v1/chat/completions')
+            provider.pop('responses_path')
+            provider['capabilities']['streaming'] = False
+            profile['capabilities']['streaming'] = 'unsupported'
         system['models'][MODEL_REF] = profile
         system['defaults']['model_ref'] = MODEL_REF
         system['context']['request_format'] = 'structured-v2'
@@ -1180,15 +1198,20 @@ class BillingBaselineIntegration(unittest.TestCase):
                                                         if key != 'attempts'}, sort_keys=True))
 
     def test_g2_rehearsal_naive_choices_correct_then_resume_one_disconnect(self):
-        endpoint = RehearsalEndpoint()
+        for chat in (False, True):
+            with self.subTest(adapter='openai-chat' if chat else 'openai-responses'):
+                self.rehearse_adapter(chat)
+
+    def rehearse_adapter(self, chat):
+        endpoint = RehearsalEndpoint(chat)
         with tls.Peer(self.contexts['server'], endpoint) as peer:
-            case = self.run_inputs('g2-rehearsal', peer)
+            case = self.run_inputs('g2-rehearsal-chat' if chat else 'g2-rehearsal', peer, chat)
             case['system']['context'].update(request_format='structured-v3', model_projection='lean-v1',
                 tool_policy='fixed-role-v1', schema_retry_max=3, worker_history={
                     'mode': 'append-fold-v1', 'read_max_bytes': 24576, 'read_token_budget': 196608})
             case['system']['model_calls'].update(max_total_calls=80, max_paid_retries=2)
             case['system']['budget_defaults'].update(max_input_tokens=8000000, max_output_tokens=2000000)
-            provider = case['system']['models'][MODEL_REF]['responses']['provider_profile']
+            provider = case['system']['models'][MODEL_REF]['chat_completions' if chat else 'responses']['provider_profile']
             provider['tool_choice_policy'] = 'allowed-tools-v1'
             write_json(case['configuration'], case['system'])
             frozen_bytes = case['configuration'].read_bytes()
@@ -1250,6 +1273,11 @@ class BillingBaselineIntegration(unittest.TestCase):
             for index, (attempt, record, sent) in enumerate(zip(attempts, endpoint.records, peer.requests)):
                 attempt_id = attempt['attempt_id']; role = attempt['role']; tag = record['tag']
                 body = json.loads(sent['body'])
+                items = body['messages'][1:] if chat else body['input']
+                self.assertEqual(sent['line'], b'POST /v1/chat/completions HTTP/1.1' if chat else b'POST /v1/responses HTTP/1.1')
+                if chat:
+                    self.assertEqual((body['n'], body['stream'], body['messages'][0]['role']), (1, False, 'system'))
+                    self.assertNotIn('input', body)
                 self.assertEqual(record['request'], sent['body'])
                 self.assertEqual(originals['live_attempt_execution'][attempt_id]['request_body_sha256'], hashlib.sha256(sent['body']).hexdigest())
                 self.assertTrue(attempt['settlement_sha256'])
@@ -1262,7 +1290,7 @@ class BillingBaselineIntegration(unittest.TestCase):
                     following = next_record(index)
                     next_body = json.loads(following['request'])
                     if tag == 'truncated':
-                        history = [json.loads(item['content']) for item in next_body['input']
+                        history = [json.loads(item['content']) for item in next_body.get('messages', next_body.get('input'))
                             if item.get('role') == 'user' and item.get('content', '').startswith('{')]
                         original = next(item for item in history if item.get('attempt_id') == attempt_id)
                         self.assertEqual(original['feedback']['result'], outcome)
@@ -1270,11 +1298,21 @@ class BillingBaselineIntegration(unittest.TestCase):
                         original_call = json.loads(attempt['response'])['tool_calls'][0]
                         call_id = 'history_' + digest({'format': 'wls-history-tool-id-v1',
                             'attempt_id': attempt_id, 'call_id': original_call['call_id']})
-                        pair = [item for item in next_body['input'] if item.get('call_id') == call_id]
-                        self.assertEqual([item['type'] for item in pair], ['function_call', 'function_call_output'])
-                        self.assertEqual(pair[0]['name'], original_call['name'])
-                        self.assertEqual(json.loads(pair[0]['arguments']), original_call['arguments'])
-                        self.assertEqual(json.loads(pair[1]['output']), outcome)
+                        if chat:
+                            native = [(i, call) for i, item in enumerate(next_body['messages'])
+                                for call in item.get('tool_calls', []) if call['id'] == call_id]
+                            self.assertEqual(len(native), 1)
+                            position, call = native[0]
+                            self.assertEqual(call['function']['name'], original_call['name'])
+                            self.assertEqual(json.loads(call['function']['arguments']), original_call['arguments'])
+                            self.assertEqual(next_body['messages'][position + 1]['tool_call_id'], call_id)
+                            self.assertEqual(json.loads(next_body['messages'][position + 1]['content']), outcome)
+                        else:
+                            pair = [item for item in next_body['input'] if item.get('call_id') == call_id]
+                            self.assertEqual([item['type'] for item in pair], ['function_call', 'function_call_output'])
+                            self.assertEqual(pair[0]['name'], original_call['name'])
+                            self.assertEqual(json.loads(pair[0]['arguments']), original_call['arguments'])
+                            self.assertEqual(json.loads(pair[1]['output']), outcome)
                     observation = outcome['correction_feedback'].get('observation', '')
                     if tag == 'plan_bad_criteria':
                         self.assertIn('/nodes/0/brief/acceptance_criteria/0', observation)
@@ -1303,9 +1341,10 @@ class BillingBaselineIntegration(unittest.TestCase):
                 self.assertEqual(attempt['output_tokens'], None if unknown else 7)
                 self.assertIsNone(attempt['cost_micro_usd'])
                 # Independent integer bound from these original wire bytes and the frozen 1.5/4 rates.
-                reserved = (len(sent['body']) * 1500000 + body['max_output_tokens'] * 4000000 + 999999) // 1000000
+                output_limit = body['max_completion_tokens' if chat else 'max_output_tokens']
+                reserved = (len(sent['body']) * 1500000 + output_limit * 4000000 + 999999) // 1000000
                 self.assertEqual(attempt['reserved_cost'], reserved)
-                self.assertEqual(attempt['reserved_output'], body['max_output_tokens'])
+                self.assertEqual(attempt['reserved_output'], output_limit)
                 charge = reserved if unknown else PRICED_UNIT_MICRO_USD
                 expected_cost += charge
                 charges = expected_charges.setdefault(role, {'estimated_micro_usd': 0, 'reservation_charged_micro_usd': 0})
@@ -1323,28 +1362,39 @@ class BillingBaselineIntegration(unittest.TestCase):
                 self.assertEqual(safe['transfer_complete'], tag != 'disconnect')
                 if tag == 'truncated':
                     raw = json.loads(bytes.fromhex(transport['raw_body_hex']))
-                    self.assertEqual(raw['incomplete_details']['reason'], 'max_output_tokens')
+                    self.assertEqual(raw['choices'][0]['finish_reason'] if chat else raw['incomplete_details']['reason'],
+                                     'length' if chat else 'max_output_tokens')
                 if tag == 'plan_minimal':
                     raw = json.loads(bytes.fromhex(transport['raw_body_hex']))
-                    self.assertEqual(json.loads(raw['output'][0]['arguments']), endpoint.plan)
+                    arguments = raw['choices'][0]['message']['tool_calls'][0]['function']['arguments'] if chat else raw['output'][0]['arguments']
+                    self.assertEqual(json.loads(arguments), endpoint.plan)
                     self.assertNotIn('correction_feedback', outcome)
-                self.assertEqual(body['tool_choice']['mode'], 'required')
+                self.assertEqual(body['tool_choice'] if chat else body['tool_choice']['mode'], 'required')
                 logical = json.loads(attempt['request_envelope'])['context']['input']
                 self.assertEqual(logical['tool_policy'], 'fixed-role-v1')
+                if chat:
+                    native_calls = [call for item in body['messages'] for call in item.get('tool_calls', [])]
+                    logical_calls = [call for item in logical['messages'] for call in item['tool_calls']]
+                    self.assertEqual([(call['id'], call['function']['name'], json.loads(call['function']['arguments'])) for call in native_calls],
+                        [(call['call_id'], call['name'], call['arguments']) for call in logical_calls])
+                    self.assertEqual([item['tool_call_id'] for item in body['messages'] if item['role'] == 'tool'],
+                        [call['id'] for call in native_calls])
+                    self.assertEqual(len({call['id'] for call in native_calls}), len(native_calls))
+                    self.assertEqual({tool['name'] for tool in endpoint.tools(body)}, set(logical['current_state']['allowed_tools']))
                 cache = prefix_cache.observe(sent['body'], digest(provider))
                 if role == 'worker':
-                    declared = {tool['name'] for tool in body['tools']}
+                    declared = {tool['name'] for tool in endpoint.tools(body)}
                     self.assertFalse(declared & {'run', 'op_status', 'op_output', 'op_cancel', 'note', 'ack_change'})
                     self.assertTrue({'fs_list', 'fs_read', 'fs_search', 'fs_mkdir', 'fs_write', 'fs_patch', 'ask', 'submit'} <= declared)
                     worker_cache_ratios.setdefault(record['contract']['task']['node_id'], []).append(cache['ratio'])
                 role_calls[role] = role_calls.get(role, 0) + 1
-                contracts, history = [body['input'][0]], []
-                for item in body['input'][1:-1]:
+                contracts, history = [items[0]], []
+                for item in items[1:-1]:
                     content = item.get('content', '')
                     value = json.loads(content) if item.get('role') == 'user' and content.startswith('{') else {}
                     (contracts if 'semantic_versions' in value else history).append(item)
-                segments = dict(tools=len(canonical(body['tools'])), system=len(canonical(body['instructions'])),
-                    contract=sum(len(canonical(item)) for item in contracts), current_state=len(canonical(body['input'][-1])),
+                segments = dict(tools=len(canonical(body['tools'])), system=len(canonical(body['messages'][0] if chat else body['instructions'])),
+                    contract=sum(len(canonical(item)) for item in contracts), current_state=len(canonical(items[-1])),
                     history=sum(len(canonical(item)) for item in history), total=len(sent['body']))
                 segments['other'] = segments['total'] - sum(segments[key] for key in ('tools', 'system', 'contract', 'history', 'current_state'))
                 totals = segment_totals.setdefault(role, dict.fromkeys(segments, 0))
@@ -1401,7 +1451,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(next_record(tags.index('mkdir_parent'))['tag'], 'write')
             self.assertEqual(next_record(tags.index('disconnect'))['tag'], 'accept')
             self.assertTrue(all(set(node['brief']) == {'goal', 'acceptance_criteria'} for node in endpoint.plan['nodes']))
-            metrics = {'scenario_results': dict.fromkeys(('minimal_plan', 'criteria_shape', 'missing_parent',
+            metrics = {'adapter': 'openai-chat' if chat else 'openai-responses', 'scenario_results': dict.fromkeys(('minimal_plan', 'criteria_shape', 'missing_parent',
                 'missing_list', 'partial_rework', 'http_429', 'output_limit', 'disconnect_resume'), 'passed'),
                 'final_status': summary['status'], 'commands': 2, 'calls': count, 'corrections_by_reason': corrections,
                 'retries': 1, 'role_statistics': summary['role_statistics'],

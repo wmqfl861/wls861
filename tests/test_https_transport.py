@@ -41,6 +41,24 @@ def response_body(text="loopback 完成😀", *, tool=False):
     return encoded(value)
 
 
+def chat_response(value):
+    """Native Chat fixture from the same synthetic decisions and known usage."""
+    if 'output' not in value:
+        return value
+    calls = [{'id': item['call_id'], 'type': 'function', 'function': {
+        'name': item['name'], 'arguments': item['arguments']}}
+        for item in value['output'] if item['type'] == 'function_call']
+    content = ''.join(part['text'] for item in value['output'] if item['type'] == 'message' for part in item['content'])
+    message = {'role': 'assistant', 'content': content or None, 'tool_calls': calls}
+    usage = value.get('usage')
+    return {'id': value['id'], 'object': 'chat.completion', 'created': 1, 'model': value['model'],
+        'choices': [{'index': 0, 'message': message, 'finish_reason':
+            'length' if value.get('status') == 'incomplete' else 'tool_calls' if calls else 'stop'}],
+        'usage': None if usage is None else {new: usage[old] for old, new in (
+            ('input_tokens', 'prompt_tokens'), ('output_tokens', 'completion_tokens'), ('total_tokens', 'total_tokens'),
+            ('input_tokens_details', 'prompt_tokens_details'), ('output_tokens_details', 'completion_tokens_details')) if old in usage}}
+
+
 def tool_stream():
     terminal = json.loads(response_body(tool=True))
     start = dict(terminal, status="in_progress", output=[], usage=None)

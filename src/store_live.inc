@@ -243,13 +243,16 @@ FrozenPricing frozen_request_pricing(const Row& request) {
                                                      str(request, "config_snapshot_sha256"));
     for (const auto role : {Role::Dispatcher, Role::TeamLead, Role::Worker}) {
         const auto& entry = frozen.model_profile(role);
-        const auto* responses = entry.as_object().if_contains("responses");
-        if (!responses || !responses->is_object()) continue;
-        const auto* provider = responses->as_object().if_contains("provider_profile");
+        const auto adapter = entry.at("adapter").as_string();
+        if (adapter == "fake") continue;
+        const auto* settings = entry.as_object().if_contains(adapter == "openai-chat" ? "chat_completions" : "responses");
+        if (!settings || !settings->is_object()) continue;
+        const auto* provider = settings->as_object().if_contains("provider_profile");
         if (!provider) continue;
         auto parsed = provider_profile_from_json(*provider);
         const auto name = std::string(role_name(role));
-        result.providers[name] = canonical_json(*provider);
+        // Chat alias sets use the same normalization as the admitted settings.
+        result.providers[name] = canonical_json(adapter == "openai-chat" ? to_json(parsed) : *provider);
         if (parsed.pricing) result.by_role[name] = AttemptPricing{*parsed.pricing, parsed.billing_challenge.empty()};
     }
     return result;
@@ -534,7 +537,7 @@ Json Store::claim_live_send(const StoreActor& actor, const std::string& attempt_
     const auto current_request = impl_->request_row(actor.request_id);
     const auto frozen = FrozenRequestConfig::restore(str(current_request, "config_snapshot"), str(current_request, "config_snapshot_sha256"));
     const auto settings = live_model_settings_from_json(frozen.model_profile(actor.role), request.model.model);
-    const auto required_encoding = encode_responses_request(settings.provider, request, settings.stream);
+    const auto required_encoding = encode_protocol_request(settings.provider, request, settings.stream);
     require(to_json(encoded) == to_json(required_encoding) &&
             encoded.record_sha256 == str(live, "encoded_record_sha256") &&
             live_transport_options_sha256(transport) == str(live, "transport_options_sha256") &&
@@ -575,7 +578,7 @@ Json Store::claim_live_send(const StoreActor& actor, const std::string& attempt_
     if (settings.provider.pricing) {
         const auto minimum = minimum_cost_reservation(*settings.provider.pricing,
             settings.provider.billing_challenge.empty()
-                ? static_cast<std::int64_t>(encode_responses_request(settings.provider, request, settings.stream).body.size())
+                ? static_cast<std::int64_t>(required_encoding.body.size())
                 : request.reserved_input_tokens, request.reserved_output_tokens);
         require(minimum.available && request.reserved_cost_micro_usd >= minimum.cost_micro_usd,
                 ErrorCode::Quota, "live cost reservation is below the frozen pricing minimum");

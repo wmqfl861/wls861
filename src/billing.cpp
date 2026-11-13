@@ -185,7 +185,7 @@ OriginalBillingContext original_context(Store& store, const BillingTrustPolicy& 
     const auto frozen = FrozenRequestConfig::restore(canonical_json(field(row, "config_snapshot")), policy.config_snapshot_sha256());
     const auto profile = frozen.model_profile(request.role);
     auto settings = live_model_settings_from_json(profile, request.model.model);
-    auto encoded = encode_responses_request(settings.provider, request, settings.stream);
+    auto encoded = encode_protocol_request(settings.provider, request, settings.stream);
     require(!encoded.billing_challenge.empty() &&
             field(original, "frozen_live_settings") == live_model_settings_json(settings),
             ErrorCode::Corrupt, "billing source differs from the original frozen live settings");

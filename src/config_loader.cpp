@@ -468,11 +468,14 @@ CapabilityRegistry validate_models(const Json& value) {
         const auto where = child("system.models", name);
         const auto& profile = item.value();
         fields(profile, where, {{"adapter", 's'}, {"model", 's'}, {"capabilities", '-'},
-                               {"adapter_version", 's'}, {"protocol", 's'}, {"responses", '-'}}, {"responses"});
+                               {"adapter_version", 's'}, {"protocol", 's'}, {"responses", '-'},
+                               {"chat_completions", '-'}}, {"responses", "chat_completions"});
         const auto adapter = string_value(required(profile, "adapter", where), where);
-        if (adapter != "fake" && adapter != "openai-responses") unsupported(where, "unknown model adapter");
-        if (adapter == "openai-responses") (void)live_model_settings_from_json(profile, name);
-        else if (optional(profile, "responses")) invalid(where, "fake profiles cannot carry live provider settings");
+        if (adapter != "fake" && adapter != "openai-responses" && adapter != "openai-chat")
+            unsupported(where, "unknown model adapter");
+        if (adapter != "fake") (void)live_model_settings_from_json(profile, name);
+        else if (optional(profile, "responses") || optional(profile, "chat_completions"))
+            invalid(where, "fake profiles cannot carry live provider settings");
         if (string_value(required(profile, "adapter_version", where), where) != "1") {
             unsupported(where, "unknown model adapter version");
         }
@@ -529,9 +532,11 @@ CapabilityRegistry validate_system(const Json& system) {
     }
     if (bool_value(required(calls, "real_calls_enabled", "system.model_calls"), "system.model_calls.real_calls_enabled")) {
         bool has_live_profile = false;
-        for (const auto& entry : required(system, "models", "system").as_object())
-            if (entry.value().at("adapter").as_string() == "openai-responses") has_live_profile = true;
-        if (!has_live_profile) unsupported("system.model_calls", "real calls require a complete explicit responses profile and independent host authorization");
+        for (const auto& entry : required(system, "models", "system").as_object()) {
+            const auto& adapter = entry.value().at("adapter").as_string();
+            if (adapter == "openai-responses" || adapter == "openai-chat") has_live_profile = true;
+        }
+        if (!has_live_profile) unsupported("system.model_calls", "real calls require a complete explicit live profile and independent host authorization");
     }
     (void)integer_value(required(calls, "max_paid_retries", "system.model_calls"), "system.model_calls.max_paid_retries", 0, 2);
     flag(calls, "charge_all_attempts", true, "system.model_calls");

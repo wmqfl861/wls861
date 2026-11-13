@@ -104,12 +104,19 @@ class LiveStore(unittest.TestCase):
         self.assertFalse(result["safe"]["accounting"]["business_authority_restored"])
 
     def test_complete_original_store_path_and_exact_replay(self):
+        for chat in (False, True):
+            with self.subTest(adapter='openai-chat' if chat else 'openai-responses'):
+                self.complete_original_store_path(chat)
+
+    def complete_original_store_path(self, chat):
         body = tls.response_body("Loopback original bytes 😀")
+        if chat:
+            body = tls.encoded(tls.chat_response(json.loads(body)))
         with self.peer(tls.fixed_response(body)) as peer:
-            result, database = self.invoke(peer, reconcile=True)
+            result, database = self.invoke(peer, reconcile=True, chat=chat)
             self.assertEqual(len(peer.requests), 1)
             self.assertEqual(peer.requests[0]["headers"][b"authorization"], f"Bearer {BEARER}".encode())
-            self.assertEqual(peer.requests[0]["line"], b"POST /v1/responses HTTP/1.1")
+            self.assertEqual(peer.requests[0]["line"], b"POST /v1/chat/completions HTTP/1.1" if chat else b"POST /v1/responses HTTP/1.1")
         self.assert_original(result)
         self.assertEqual(result["attempt"]["accepted"], 1)
         self.assertTrue(result["first_sent"])
@@ -313,9 +320,9 @@ class LiveStore(unittest.TestCase):
             self.assertNotIn(BEARER, json.dumps(rows))
 
     def test_http_429_and_500_never_automatically_retry(self):
-        for status in (429, 500):
-            with self.subTest(status=status), self.peer(tls.fixed_response(b'{"error":"synthetic"}', status=status)) as peer:
-                result, _ = self.invoke(peer)
+        for chat, status in ((False, 429), (False, 500), (True, 429), (True, 500)):
+            with self.subTest(chat=chat, status=status), self.peer(tls.fixed_response(b'{"error":"synthetic"}', status=status)) as peer:
+                result, _ = self.invoke(peer, chat=chat)
                 self.assertEqual(len(peer.requests), 1)
                 self.assertEqual(result["attempt"]["accepted"], 0)
                 self.assertEqual(result["attempt"]["response"]["tool_calls"], [])
@@ -323,6 +330,30 @@ class LiveStore(unittest.TestCase):
                 self.assertEqual(result["budget"]["attempts"], 1)
                 self.assertEqual(result["budget"]["unknown_cost"], 100)
                 self.assertFalse(result["replay_new_send_authority"])
+
+    def test_chat_refusal_keeps_nonzero_usage_and_missing_usage_stays_unknown(self):
+        for refusal in (False, True):
+            value = tls.chat_response(json.loads(tls.response_body()))
+            if refusal:
+                value['choices'][0]['message']['refusal'] = 'synthetic refusal'
+            else:
+                value.pop('usage')
+            body = tls.encoded(value)
+            with self.subTest(refusal=refusal), self.peer(tls.fixed_response(body)) as peer:
+                result, database = self.invoke(peer, chat=True)
+                self.assertEqual(len(peer.requests), 1)
+            self.assert_original(result)
+            response = result['attempt']['response']
+            self.assertEqual(response['error_code'], 'model_refusal' if refusal else '')
+            self.assertEqual(response['usage']['input_tokens'], 9 if refusal else None)
+            self.assertEqual(response['tool_calls'], [])
+            self.assertEqual(result['budget']['unknown_cost'], 100)
+            self.assertFalse(result['replay_new_send_authority'])
+            self.assertEqual(result['safe']['transport']['status'], 'completed')
+            self.assertEqual(result['attempt']['accepted'], 0 if refusal else 1)
+            self.assertEqual(bytes.fromhex(result['private']['private_observation']['raw_body_hex']), body)
+            with sqlite3.connect(database) as connection:
+                self.assertEqual(connection.execute('SELECT count(*) FROM ops').fetchone()[0], 0)
 
     def test_partial_response_deadline_preserves_unknown_and_no_tools(self):
         def partial(peer, connection):

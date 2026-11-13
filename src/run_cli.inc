@@ -313,7 +313,7 @@ Json run_summary(Store& store, const std::string& id, const Json& report, const 
             sum(detail.at("reported_micro_usd"), accounting.at("projection").at("cost_micro_usd"));
         const auto request = model_request_from_json(original.at("request_envelope"));
         const auto settings = live_model_settings_from_json(config.model_profile(request.role), request.model.model);
-        const auto encoded = encode_responses_request(settings.provider, request, settings.stream);
+        const auto encoded = encode_protocol_request(settings.provider, request, settings.stream);
         if (encoded.body_sha256 == text(store.live_attempt(attempt).at("execution").at("request_body_sha256"))) {
             for (const auto& segment : encoded.body_segments.as_object())
                 sum(detail.at("mean_body_segment_bytes").at(segment.key()), segment.value());

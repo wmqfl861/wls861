@@ -49,6 +49,10 @@ Json https_transport_options_descriptor(const HttpsTransportOptions& options);
 // Runtime DNS backend and TLS checks remain part of the actual transport.
 void validate_responses_https_target(const ProviderProfile& profile,
                                      const HttpsTransportOptions& options);
+// Protocol dispatch accepts the declared Responses or nonstream Chat profile.
+// The Responses-only entry point above continues to reject other protocols.
+void validate_protocol_https_target(const ProviderProfile& profile,
+                                    const HttpsTransportOptions& options);
 
 struct HttpsTransportResult {
     ModelResponse response;
@@ -105,6 +109,12 @@ struct HttpsTransportResult {
 // separately supplied in-memory value; it never enters the safe summary.
 HttpsTransportResult perform_responses_https(const ProviderProfile& profile,
         const ModelRequest& request, const EncodedResponsesRequest& encoded,
+        const HttpsTransportOptions& options, std::string_view bearer_token,
+        std::stop_token stop = {});
+// Uses the same transport and original-identity checks with the declared codec.
+// The Responses-only entry point above retains its original protocol boundary.
+HttpsTransportResult perform_protocol_https(const ProviderProfile& profile,
+        const ModelRequest& request, const EncodedProtocolRequest& encoded,
         const HttpsTransportOptions& options, std::string_view bearer_token,
         std::stop_token stop = {});
 

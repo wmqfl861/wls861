@@ -691,12 +691,12 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             if (settings->provider.pricing) {
                 const auto minimum = minimum_cost_reservation(*settings->provider.pricing,
                     settings->provider.billing_challenge.empty()
-                        ? static_cast<std::int64_t>(encode_responses_request(settings->provider, captured.request, settings->stream).body.size())
+                        ? static_cast<std::int64_t>(encode_protocol_request(settings->provider, captured.request, settings->stream).body.size())
                         : captured.request.reserved_input_tokens, captured.request.reserved_output_tokens);
                 require(minimum.available && captured.request.reserved_cost_micro_usd >= minimum.cost_micro_usd,
                         ErrorCode::Quota, "live cost reservation is below the frozen pricing minimum before credential lookup");
             }
-            static_cast<void>(encode_responses_request(settings->provider, captured.request, settings->stream));
+            static_cast<void>(encode_protocol_request(settings->provider, captured.request, settings->stream));
             const auto budget = store_.budget(id);
             require(number(budget, "attempts") < number(budget, "max_attempts"), ErrorCode::Quota,
                     "original model attempt budget exhausted before credential lookup");
