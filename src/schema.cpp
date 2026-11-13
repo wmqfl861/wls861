@@ -13,6 +13,7 @@
 #include <valijson/adapters/boost_json_adapter.hpp>
 #include <valijson/schema.hpp>
 #include <valijson/schema_parser.hpp>
+#include <valijson/validation_results.hpp>
 #include <valijson/validator.hpp>
 
 #include <algorithm>
@@ -31,6 +32,66 @@ constexpr std::size_t max_schema_count = 128;
 
 void require(bool valid, const std::string& message) {
     if (!valid) throw Error(ErrorCode::InvalidInput, message);
+}
+
+std::string diagnostic_fragment(std::string_view value, std::size_t limit = 40) {
+    auto size = value.size() > limit ? limit - 3 : value.size();
+    while (size && size < value.size() && (static_cast<unsigned char>(value[size]) & 0xc0U) == 0x80U) --size;
+    if (size && size < value.size() && value[size - 1] == '~') --size;
+    std::string result(value.substr(0, size));
+    for (auto& c : result) if (static_cast<unsigned char>(c) < 0x20U || c == '\x7f') c = '?';
+    return result + (size < value.size() ? "..." : "");
+}
+
+bool diagnostic_input_bounded(const Json& value, std::size_t& remaining) {
+    if (!remaining) return false;
+    --remaining;
+    if (value.is_array()) {
+        const auto size = value.as_array().size();
+        if (size > remaining || size * size > remaining) return false;
+        remaining -= size * size; // Budget uniqueItems' pairwise error collection too.
+        for (const auto& child : value.as_array()) if (!diagnostic_input_bounded(child, remaining)) return false;
+    } else if (value.is_object())
+        for (const auto& item : value.as_object()) if (!diagnostic_input_bounded(item.value(), remaining)) return false;
+    return true;
+}
+
+std::string schema_diagnostics(valijson::ValidationResults& errors, const std::string& prefix) {
+    std::string result;
+    valijson::ValidationResults::Error error;
+    for (int count = 0; count < 3 && errors.popError(error);) {
+        const auto& description = error.description;
+        // Parent failures repeat leaf diagnostics; never forward arbitrary library text.
+        if (description.starts_with("Failed to validate")) continue;
+        std::string path = prefix, reason = description == "diagnostics_limited" ? "schema constraint failed (diagnostics_limited)" : "schema constraint failed";
+        const auto append = [&](std::string_view component) {
+            std::string escaped;
+            for (const auto c : diagnostic_fragment(component)) escaped += c == '~' ? "~0" : c == '/' ? "~1" : std::string(1, c);
+            path += "/" + diagnostic_fragment(escaped);
+        };
+        for (const auto& component : error.context) {
+            if (component != "<root>") append(std::string_view(component).substr(1, component.size() - 2));
+        }
+        constexpr std::string_view missing = "Missing required property '";
+        constexpr std::string_view extra = "Object contains a property that could not be validated using 'properties' or 'additionalProperties' constraints: '";
+        if (description.starts_with(missing) || description.starts_with(extra)) {
+            const auto lead = description.starts_with(missing) ? missing : extra;
+            append(std::string_view(description).substr(lead.size(), description.size() - lead.size() - 2));
+            reason = lead == missing ? "required property is missing" : "property is not allowed";
+        } else {
+            for (const auto& [needle, label] : {std::pair{"type", "type mismatch"},
+                    {"valid date", "format mismatch"}, {"valid time", "format mismatch"},
+                    {"pattern", "pattern mismatch"}, {"enum", "value is not allowed"},
+                    {"'const'", "value is not allowed"}, {"String should", "string length is out of bounds"},
+                    {"Array should", "array length is out of bounds"}, {"Expected number", "number is out of bounds"},
+                    {"Elements at indexes", "array items must be unique"}}) {
+                if (description.find(needle) != std::string::npos) { reason = label; break; }
+            }
+        }
+        result += "; " + (path.empty() ? "\"\"" : diagnostic_fragment(path, 120)) + ": " + reason;
+        ++count;
+    }
+    return result.empty() ? "; " + (prefix.empty() ? "\"\"" : prefix) + ": schema constraint failed" : result;
 }
 
 bool schema_name_valid(const std::string& name) {
@@ -304,7 +365,7 @@ public:
         compile_all(projected_, model_compiled_);
     }
 
-    void validate(std::string_view name, const Json& document, bool model_input) const {
+    void validate(std::string_view name, const Json& document, bool model_input, const std::string& prefix = {}) const {
         const auto key = std::string(name);
         const auto& registry = model_input ? model_compiled_ : compiled_;
         const auto found = registry.find(key);
@@ -315,16 +376,21 @@ public:
         valijson::Validator validator(valijson::Validator::kStrongTypes);
         const valijson::adapters::BoostJsonAdapter target(bounded);
         if (!validator.validate(*found->second, target, nullptr)) {
-            throw Error(ErrorCode::InvalidInput, "draft-07 validation failed for " + key +
-                        (model_input ? " model input" : " complete record"));
+            valijson::ValidationResults errors;
+            std::size_t remaining = 1024;
+            if (diagnostic_input_bounded(bounded, remaining)) (void)validator.validate(*found->second, target, &errors);
+            else errors.pushError({}, "diagnostics_limited");
+            throw Error(ErrorCode::InvalidInput, diagnostic_fragment("draft-07 validation failed for " + diagnostic_fragment(key) +
+                        (model_input ? " model input" : " complete record") + schema_diagnostics(errors, prefix), 600));
         }
         if (key == "plan") {
             // Capability inputs intentionally have dynamic schemas. Team-task
             // briefs have a known contract and cannot hide inside opaque JSON.
-            for (const auto& node : bounded.as_object().at("nodes").as_array()) {
-                const auto& object = node.as_object();
+            const auto& nodes = bounded.as_object().at("nodes").as_array();
+            for (std::size_t index = 0; index < nodes.size(); ++index) {
+                const auto& object = nodes[index].as_object();
                 if (object.at("kind").as_string() == "team_task") {
-                    validate("task_brief", object.at("brief"), model_input);
+                    validate("task_brief", object.at("brief"), model_input, "/nodes/" + std::to_string(index) + "/brief");
                 }
             }
         }
