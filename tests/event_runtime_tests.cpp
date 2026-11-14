@@ -4,6 +4,7 @@
 #include "test_support.hpp"
 #include "fake_script_support.hpp"
 #include "../src/runtime_diagnostic.hpp"
+#include "../src/retry_wait.hpp"
 
 #include <sqlite3.h>
 
@@ -482,6 +483,18 @@ void legacy_single_task_runner_cannot_supersede_a_durable_wait() {
     CHECK(f.store.task(binding.task_id).at("applied_instruction_revision") == 1);
     CHECK(read_runtime_file(f.directory.path / "alpha/after-wake.txt") == "explicit wake permits this new effect\n");
 }
+void retry_wait_keeps_original_deadline_and_cancellation() {
+    using namespace std::chrono_literals;
+    for (const auto remaining : {-1ms, 1500ms, 60000ms}) {
+        std::stop_source stop;
+        if (remaining == 60000ms) stop.request_stop();
+        const auto started = std::chrono::steady_clock::now(), deadline = started + remaining;
+        retry_detail::wait(stop.get_token(), deadline, 60s);
+        CHECK(std::chrono::steady_clock::now() - started < 30s);
+        CHECK(stop.stop_requested() || std::chrono::steady_clock::now() >= deadline);
+    }
+}
+
 void public_diagnostics_redact_credentials_and_bound_utf8() {
     const std::string secret = "synthetic-bearer-value";
     const std::string original = "cannot open /work/" + secret + "/item; Authorization: Bearer hidden-value";
@@ -506,6 +519,7 @@ int main() {
     tools_sql = read_runtime_file(source / "db/migrations/005_worker_tools.sql");
     events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     return test::run({
+        {"retry wait keeps the original deadline and honours cancellation", retry_wait_keeps_original_deadline_and_cancellation},
         {"public runtime diagnostics redact secrets without changing private facts", public_diagnostics_redact_credentials_and_bound_utf8},
         {"strict grouped scripts reject ambiguity and workspace host aliasing", strict_script_groups_and_host_mapping},
         {"independent tasks persist real files and scoped original feedback", independent_real_files_and_original_feedback},

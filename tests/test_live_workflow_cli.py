@@ -428,7 +428,7 @@ class LiveWorkflowCli(unittest.TestCase):
             self.assertEqual(self.rows('SELECT * FROM model_tool_feedback ORDER BY rowid')[0], original_feedback)
             self.assertEqual(len(self.rows('SELECT * FROM tasks')), 1)
 
-    def test_retry_after_wait_obeys_original_batch_deadline(self):
+    def test_original_batch_deadline_stops_before_another_attempt(self):
         with tls.Peer(self.contexts['server'], tls.fixed_response(b'{}', status=429,
                 extra=b'Retry-After: 999999999999999999999999\r\n')) as peer:
             request = self.admit(peer.port, pricing=PRICING, retries=2, cost_budget=1000000)
@@ -436,9 +436,30 @@ class LiveWorkflowCli(unittest.TestCase):
             self.authorization_file.write_text(json.dumps(auth))
             report = self.pump(request)
             self.assertEqual(report['stop_reason'], 'deadline', report)
-            self.assertEqual(report['calls'][0]['retry_delay_seconds'], 60)
-            self.assertEqual(len(peer.requests), 1)
-            self.assertEqual(len(self.rows('SELECT * FROM call_attempts')), 1)
+            # Expiry may precede reservation; the shared retry wait has component coverage.
+            attempts = self.rows('SELECT * FROM call_attempts'); calls = report['calls']
+            attempt_ids = [row['attempt_id'] for row in attempts]
+            self.assertLessEqual(len(attempts), len(calls))
+            self.assertLessEqual(len(calls), 1)
+            self.assertEqual(report['budget']['attempts'], len(attempts))
+            for table in ('live_send_claims', 'live_transport_observations', 'model_tool_feedback'):
+                self.assertEqual([row['attempt_id'] for row in self.rows(f'SELECT attempt_id FROM {table}')], attempt_ids)
+            self.assertTrue(all(row['settlement_sha256'] for row in attempts))
+            self.assertEqual(self.rows('SELECT * FROM tasks'), [])
+            self.assertTrue(report['network_count_complete'])
+            self.assertEqual(report['network_started_calls'], sum(call.get('network_started', False) for call in calls))
+            self.assertLessEqual(len(peer.requests), report['network_started_calls'])
+            self.assertLessEqual(report['network_started_calls'], len(attempts))
+            for call in calls:
+                if attempts:
+                    self.assertEqual(call['attempt_id'], attempt_ids[0])
+                    transport = call['transport']
+                    if transport['transfer_complete']:
+                        self.assertEqual((transport['http_status'], transport['retry_after_seconds']), (429, 60))
+                        self.assertEqual(len(peer.requests), 1)
+                if 'retry_delay_seconds' in call:
+                    self.assertEqual(call['retry_delay_seconds'], 60)
+                    self.assertTrue(call['transport']['transfer_complete'])
 
     def test_no_upload_connection_failure_retries_but_partial_response_does_not(self):
         for partial in (False, True):
