@@ -1800,6 +1800,7 @@ class BillingBaselineIntegration(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     summary = json.loads(result.stdout)
                     self.assertIn(expected, summary['blockers'][0]['next_step'])
+                    self.assertIn('Last failure category: model_arguments', summary['blockers'][0]['reason'])
                     if retries:
                         self.assertIn('new request', summary['blockers'][0]['next_step'])
                 self.assertEqual(len(peer.requests) - before, 2 if retries == 0 else 1)

@@ -257,6 +257,7 @@ Json run_export(Store& store, const Json& publication, Workspace& request) {
 Json run_summary(Store& store, const std::string& id, const Json& report, const Json& delivery,
                  std::chrono::steady_clock::time_point started) {
     std::set<std::string> attempts;
+    std::map<std::string, std::string> last_attempt, correction_categories;
     std::int64_t after = 0;
     while (true) {
         const auto page = store.events(id, after, 100);
@@ -264,6 +265,7 @@ Json run_summary(Store& store, const std::string& id, const Json& report, const 
         for (const auto& event : page) {
             after = integer(event.at("seq"));
             const auto& result = event.at("result");
+            if (event.at("type") == "reserve_attempt") last_attempt[text(result.at("role")) + ":" + text(result.at("frozen_binding").at("task_id"))] = text(result.at("attempt_id"));
             if (result.is_object()) if (const auto* attempt = result.as_object().if_contains("attempt_id"))
                 if (attempt->is_string()) attempts.insert(text(*attempt));
         }
@@ -299,6 +301,7 @@ Json run_summary(Store& store, const std::string& id, const Json& report, const 
                 if (reason != "tool_selection" && reason != "tool_result" && reason != "model_arguments" && reason != "missing_leaf" && reason != "read_only" && reason != "max_output_tokens")
                     reason = "other";
                 counts[reason] = counts.contains(reason) ? integer(counts.at(reason)) + 1 : 1;
+                correction_categories[attempt] = reason;
             }
             if (const auto* retry = result.as_object().if_contains("retry_of_attempt_id"); retry && retry->is_string() && !retry->as_string().empty())
                 detail["retries"] = integer(detail.at("retries")) + 1;
@@ -363,6 +366,7 @@ Json run_summary(Store& store, const std::string& id, const Json& report, const 
             code == "corrupt" || code == "storage" || code == "conflict" ? "Inspect the retained evidence and resolve the conflict before continuing." :
             !limit.empty() ? limit :
             "Run the same command again after resolving this cause.";
+        if (code == "correction_limit" || code == "stall_same_error_repeats" || (code == "not_ready" && reason == "stall_same_error_repeats")) if (const auto last = last_attempt.find(text(safe.at("role")) + ":" + text(safe.at("task_id"))); last != last_attempt.end() && correction_categories.contains(last->second)) safe["reason"] = reason + "; Last failure category: " + correction_categories.at(last->second) + ".";
         safe["summary"] = (safe.contains("role") ? text(safe.at("role")) : "root") + "/" +
             (safe.contains("node_id") && safe.at("node_id") != "" ? text(safe.at("node_id")) : id) + " [" + code + "]: " +
             text(safe.at("reason")) + " Next: " + text(safe.at("next_step"));
