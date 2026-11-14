@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <map>
+#include <mutex>
 #include <set>
 #include <string>
 #include <utility>
@@ -432,6 +433,7 @@ public:
         for (auto& [id, schema] : documents_) normalize_refs(schema, id, documents_, true);
         for (const auto& [id, schema] : documents_) {
             projected_.emplace(id, project_schema(schema));
+            v3_.emplace(id, std::make_unique<V3Schema>());
         }
         compile_all(documents_, compiled_);
         compile_all(projected_, model_compiled_);
@@ -442,13 +444,7 @@ public:
         const auto& registry = model_input ? model_compiled_ : compiled_;
         const auto found = registry.find(key);
         require(found != registry.end(), "unregistered schema name: " + key);
-        valijson::Schema minimal;
-        if (v3) {
-            const auto definition = project_v3(schema(name, true));
-            valijson::SchemaParser parser(valijson::SchemaParser::kDraft7);
-            parser.populateSchema(valijson::adapters::BoostJsonAdapter(definition), minimal);
-        }
-        const auto& selected = v3 ? minimal : *found->second;
+        const auto& selected = v3 ? v3_compiled(names_.at(key)) : *found->second;
         // Keep strong C++ integer/string typing, finite values, UTF-8 and depth
         // limits consistent with all other runtime JSON ingress.
         const auto bounded = parse_json_strict(canonical_json(document), max_schema_bytes, 64);
@@ -476,6 +472,21 @@ public:
     }
 
     Json project_v3(const Json& definition) const {
+        if (definition.is_object()) {
+            const auto* id = definition.as_object().if_contains("$id");
+            if (id && id->is_string()) {
+                const auto original = projected_.find(std::string(id->as_string()));
+                // An identity alone cannot authorize reuse for caller-modified
+                // definitions. Canonical bytes also distinguish number spellings.
+                if (original != projected_.end() && definition == original->second &&
+                    canonical_json(definition) == canonical_json(original->second))
+                    return v3_definition(original->first);
+            }
+        }
+        return expand_v3(definition);
+    }
+
+    Json expand_v3(const Json& definition) const {
         std::size_t budget = max_schema_bytes;
         std::set<std::string> active;
         return v3_schema(definition, projected_, budget, active);
@@ -498,11 +509,37 @@ public:
 
 private:
     using Schemas = std::map<std::string, std::unique_ptr<valijson::Schema>>;
+    struct V3Schema {
+        std::once_flag projected, compiled;
+        Json definition;
+        std::unique_ptr<valijson::Schema> schema;
+    };
     Documents documents_;
     Documents projected_;
     std::map<std::string, std::string> names_;
     Schemas compiled_;
     Schemas model_compiled_;
+    // Only registered identities own entries (at most max_schema_count).
+    // Every retained expansion still passes the original max_schema_bytes
+    // bound; arbitrary caller definitions and validation results are not kept.
+    std::map<std::string, std::unique_ptr<V3Schema>> v3_;
+
+    const Json& v3_definition(const std::string& id) const {
+        auto& cached = *v3_.at(id);
+        std::call_once(cached.projected, [&] { cached.definition = expand_v3(projected_.at(id)); });
+        return cached.definition;
+    }
+
+    const valijson::Schema& v3_compiled(const std::string& id) const {
+        auto& cached = *v3_.at(id);
+        std::call_once(cached.compiled, [&] {
+            auto schema = std::make_unique<valijson::Schema>();
+            valijson::SchemaParser parser(valijson::SchemaParser::kDraft7);
+            parser.populateSchema(valijson::adapters::BoostJsonAdapter(v3_definition(id)), *schema);
+            cached.schema = std::move(schema);
+        });
+        return *cached.schema;
+    }
 
     void compile_all(const Documents& documents, Schemas& result) {
         const auto fetch = [&documents](const std::string& uri) -> const Json* {

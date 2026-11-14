@@ -3,6 +3,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -162,6 +163,49 @@ void v3_minimal_contracts_are_closed_and_legacy_schemas_unchanged() {
     boost::json::array repeated;
     for (int i = 0; i < 256; ++i) repeated.push_back(boost::json::object{{"$ref", full_plan.at("$id")}});
     reject([&] { (void)registry->project_v3_input(boost::json::object{{"allOf", repeated}}); });
+}
+
+void v3_reuse_preserves_definition_identity_and_const_concurrency() {
+    auto original = basic_schema("cached", boost::json::object{
+        {"value", boost::json::object{{"type", "integer"}, {"maximum", 1}}}});
+    original.as_object()["required"] = boost::json::array{"value"};
+    const SchemaRegistry first(std::map<std::string, std::string>{{"cached.schema.json", canonical_json(original)}});
+    const auto definition = first.project_model_input("cached");
+    std::vector<std::future<Json>> readers;
+    for (int i = 0; i < 8; ++i) readers.push_back(std::async(std::launch::async, [&] {
+        const auto projected = first.project_v3_input(definition);
+        first.validate_v3_input("cached", boost::json::object{{"value", 1}});
+        reject([&] { first.validate_v3_input("cached", boost::json::object{{"value", 2}}); });
+        return projected;
+    }));
+    const auto expected = readers.front().get();
+    for (std::size_t i = 1; i < readers.size(); ++i) CHECK(readers[i].get() == expected);
+    auto returned = first.project_v3_input(definition);
+    returned.at("properties").at("value").as_object()["maximum"] = 9;
+    CHECK(first.project_v3_input(definition) == expected);
+    auto modified = definition;
+    modified.at("properties").at("value").as_object()["maximum"] = 4;
+    CHECK(first.project_v3_input(modified).at("properties").at("value").at("maximum") == 4);
+    modified.at("properties").at("value").as_object()["maximum"] = 1.0;
+    CHECK(first.project_v3_input(modified).at("properties").at("value").at("maximum").is_double());
+    modified.as_object()["description"] = std::string(1024U * 1024U, 'x');
+    reject([&] { (void)first.project_v3_input(modified); });
+    CHECK(first.project_v3_input(definition) == expected);
+    original.at("properties").at("value").as_object()["maximum"] = 2;
+    const SchemaRegistry second(std::map<std::string, std::string>{{"cached.schema.json", canonical_json(original)}});
+    second.validate_v3_input("cached", boost::json::object{{"value", 2}});
+    CHECK(second.project_v3_input(second.project_model_input("cached")).at("properties").at("value").at("maximum") == 2);
+    reject([&] { first.validate_v3_input("cached", boost::json::object{{"value", 2}}); });
+    auto oversized = basic_schema("lazy");
+    oversized.as_object()["definitions"] = boost::json::object{{"part", boost::json::object{
+        {"type", "object"}, {"description", std::string(16384, 'x')}}}};
+    boost::json::array references;
+    for (int i = 0; i < 64; ++i) references.emplace_back(boost::json::object{{"$ref", "#/definitions/part"}});
+    oversized.as_object()["allOf"] = std::move(references);
+    const SchemaRegistry lazy(std::map<std::string, std::string>{{"lazy.schema.json", canonical_json(oversized)}});
+    const auto deferred = lazy.project_model_input("lazy");
+    for (int i = 0; i < 2; ++i) reject([&] { (void)lazy.project_v3_input(deferred); });
+    reject([&] { lazy.validate_v3_input("lazy", boost::json::object{}); });
 }
 
 void runtime_conditions_are_projected_but_business_conditions_remain() {
@@ -474,6 +518,7 @@ int main(int argc, char** argv) {
         {"complete records enforce binding, usage and strong types", complete_record_requires_trusted_tuple},
         {"model input cannot forge host metadata or self-approval", model_input_cannot_forge_host_or_approval},
         {"v3 minimal contracts inline references and retain closed legacy schemas", v3_minimal_contracts_are_closed_and_legacy_schemas_unchanged},
+        {"v3 reuse preserves exact definitions, registry isolation and concurrent validation", v3_reuse_preserves_definition_identity_and_const_concurrency},
         {"projection removes host conditions and preserves business conditions", runtime_conditions_are_projected_but_business_conditions_remain},
         {"projection scopes host names without weakening nested business fields", projection_keeps_same_named_fields_in_separate_instance_scopes},
         {"plan team briefs and draft-07 conditional requirements validate", nested_briefs_and_draft7_conditionals},
