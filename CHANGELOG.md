@@ -2,6 +2,31 @@
 
 ## 0.12.0 — G2-P model readiness (2026-11-13)
 
+- 2026-11-14 convergence: split the growing acceptance suite into four
+  registrations and classify AGENTS/CHANGELOG as documentation in
+  [#95](https://github.com/wmqfl861/wls861/pull/95), preserving cases,
+  assertions and timeouts. The [branch full matrix](https://github.com/wmqfl861/wls861/actions/runs/43545587169)
+  and [merged main matrix](https://github.com/wmqfl861/wls861/actions/runs/43549145117)
+  pass all nine jobs, with each ASan acceptance registration below 90 seconds;
+  close the suite-size timeout issue while retaining earlier failures below.
+  Import all six November 14 review files unchanged in
+  [#96](https://github.com/wmqfl861/wls861/pull/96), then merge the G4-A1/B
+  work in [#97](https://github.com/wmqfl861/wls861/pull/97) after its full
+  matrix passes. Standard remains opt-in and Strict remains the default.
+  Hosted native Actions fails while the program reports BLOCKED/77 after
+  three prerequisite tests pass: bwrap cannot read a proc file descriptor,
+  the business command is never released, and the subtree exits completely.
+  The cause is unresolved; local native acceptance also remains BLOCKED.
+  Historical cleanup deletes 97 remote and 139 local branches and 146
+  existing worktrees, pruning one missing registration; the three merged
+  PRs' own remote/local branches and worktrees are counted separately.
+  Preserve 19 source files in eight archival commits and 127 evidence files;
+  keep all 41 original tags and add 70. See the [convergence report](docs/reports/convergence-20261114.md)
+  and complete disposition table. The report PR's final main matrix and
+  convergence tag are pending; this entry does not claim those future results.
+  STATUS is shortened; N1/N2 remain pending. Version 0.12.0, Store 410,
+  zero real/paid WLS calls and Windows 11 NOT_RUN are unchanged.
+
 - Make v3 tool definitions self-contained and minimal; fill host-owned fields
   from captured contracts, retain original responses, and return bounded field
   diagnostics. Extend safe correction, incomplete-output feedback, explicit
