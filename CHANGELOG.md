@@ -2,6 +2,14 @@
 
 ## 0.12.0 — G2-P model readiness (2026-11-13)
 
+- Split R3 evaluation under D-20 in [#103](https://github.com/wmqfl861/wls861/pull/103):
+  retain all 49 method bodies in legacy/logical/plain groups of 32/12/5, the
+  complete default invocation and existing deadlines; CTest now has 90 registrations.
+  The [PR core matrix](https://github.com/wmqfl861/wls861/actions/runs/43602255761)
+  passes 90/90 in all three configurations at its actual merge input `50e46b2`.
+  Local Release passes the prior 88/88 baseline and all three groups using
+  production sources identical to `f7f38e8`; merged-main verification is tracked in [STATUS](docs/STATUS.md).
+
 - Complete the seven convergence criteria at `converged-20261114` (`f4fbb62`), with all nine full-matrix jobs passing; retain that original convergence tag.
   Then merge fixed G2 output checks in [N2 #99](https://github.com/wmqfl861/wls861/pull/99) and accurate stop guidance with allowlisted failure categories in [N1 #100](https://github.com/wmqfl861/wls861/pull/100); both core gates pass 88/88 in all three configurations.
   N1/N2/N3 are complete; await the owner's key. Version 0.12.0, Store 410, zero real/paid WLS calls and G4 native BLOCKED remain unchanged; see the [convergence report](docs/reports/convergence-20261114.md).

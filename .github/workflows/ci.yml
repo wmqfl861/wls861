@@ -187,6 +187,8 @@ jobs:
     env:
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
       ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
+      CCACHE_MAXSIZE: 1G
+      CCACHE_COMPILERCHECK: content
     steps:
       - name: Check out the requested revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -204,10 +206,44 @@ jobs:
             'https://mirrors.edge.kernel.org/ubuntu/' 2 \
             | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get update
-          sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libcurl4-openssl-dev libyaml-dev openssl
+          sudo apt-get install --yes libboost1.83-dev libsqlite3-dev libssl-dev libcurl4-openssl-dev libyaml-dev openssl ccache
           if [ "${{ matrix.compiler }}" = clang++-18 ]; then
             sudo apt-get install --yes clang-18
           fi
+      - name: Identify the compiler cache configuration
+        id: ccache
+        if: needs.classify.outputs.mode != 'docs-only' && vars.WLS_DISABLE_CCACHE != '1'
+        shell: bash
+        env:
+          CACHE_COMPILER: ${{ matrix.compiler }}
+          CACHE_BUILD_SYSTEM: ${{ matrix.make_shard && 'make' || 'cmake' }}
+          CACHE_BUILD_TYPE: ${{ matrix.build_type }}
+          CACHE_UBSAN: ${{ matrix.ubsan }}
+          CACHE_ASAN: ${{ matrix.asan }}
+          CACHE_BUILD_FILES: ${{ hashFiles('.github/workflows/ci.yml', 'CMakeLists.txt', 'cmake/**', 'Makefile') }}
+        run: |
+          set -euo pipefail
+          echo "CCACHE_DIR=$RUNNER_TEMP/wls-ccache" >> "$GITHUB_ENV"
+          compiler_id="$( { "$CACHE_COMPILER" --version; "$CACHE_COMPILER" -dumpmachine; ccache --version; } | sha256sum)"
+          # Keep exact compiler flags and input hashing enabled; no sloppiness.
+          prefix="wls-ccache-v1-${{ runner.os }}-${{ runner.arch }}-$CACHE_COMPILER-${compiler_id%% *}-$CACHE_BUILD_SYSTEM-$CACHE_BUILD_TYPE-ubsan$CACHE_UBSAN-asan$CACHE_ASAN-$CACHE_BUILD_FILES"
+          {
+            echo "prefix=$prefix"
+            echo "key=$prefix-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+            echo 'launcher=ccache'
+            echo "make_cxx=ccache $CACHE_COMPILER"
+          } >> "$GITHUB_OUTPUT"
+      - name: Restore compiler cache
+        if: steps.ccache.outputs.key != ''
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/wls-ccache
+          key: ${{ steps.ccache.outputs.key }}
+          restore-keys: ${{ steps.ccache.outputs.prefix }}-
+      - name: Reset compiler cache counters
+        if: steps.ccache.outputs.key != ''
+        run: ccache --zero-stats
       - name: Prepare contract-test environment
         if: needs.classify.outputs.mode != 'docs-only'
         run: |
@@ -216,7 +252,7 @@ jobs:
       - name: Configure CMake
         if: needs.classify.outputs.mode != 'docs-only' && !matrix.make_shard
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }} -DWLS_ENABLE_ASAN=${{ matrix.asan }} -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python" -DWLS_CI_SLOW_TESTS="${{ needs.classify.outputs.slow_tests }}"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DCMAKE_CXX_COMPILER_LAUNCHER="${{ steps.ccache.outputs.launcher }}" -DWLS_ENABLE_UBSAN=${{ matrix.ubsan }} -DWLS_ENABLE_ASAN=${{ matrix.asan }} -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.local/test-venv/bin/python" -DWLS_CI_SLOW_TESTS="${{ needs.classify.outputs.slow_tests }}"
       - name: Build with warnings as errors
         if: needs.classify.outputs.mode != 'docs-only' && !matrix.make_shard
         run: |
@@ -333,7 +369,22 @@ jobs:
           test "$actual_sha" = "$GITHUB_SHA"
           test "$(id -u)" -ne 0
           umask 0002
-          make -j2 asan BUILD_DIR=build-make CPPFLAGS=-DWLS_CI_USER_CPPFLAGS=1 PYTHON="$GITHUB_WORKSPACE/.local/test-venv/bin/python" TEST_SHARD="${{ matrix.make_shard }}"
+          make -j2 asan CXX="${{ steps.ccache.outputs.make_cxx || matrix.compiler }}" BUILD_DIR=build-make CPPFLAGS=-DWLS_CI_USER_CPPFLAGS=1 PYTHON="$GITHUB_WORKSPACE/.local/test-venv/bin/python" TEST_SHARD="${{ matrix.make_shard }}"
+      - name: Report compiler cache statistics
+        if: always() && steps.ccache.outputs.key != ''
+        run: |
+          echo '### Compiler cache' >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Save compiler cache from a successful main job
+        # PRs only restore. Identical umask/shard jobs share one main writer.
+        if: success() && steps.ccache.outputs.key != '' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && matrix.name != 'strict-umask-0002' && (!matrix.cmake_shard || matrix.cmake_shard == '1') && (!matrix.make_shard || matrix.make_shard == '1')
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/wls-ccache
+          key: ${{ steps.ccache.outputs.key }}
       - name: Docs-only frozen-material check (no product build or tests)
         if: needs.classify.outputs.mode == 'docs-only'
         shell: bash
