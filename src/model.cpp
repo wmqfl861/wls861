@@ -1,6 +1,7 @@
 #include "wls/model.hpp"
 
 #include "responses_compat.hpp"
+#include "capture_diagnostic.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -136,6 +137,7 @@ void validate_envelope_fields(const ModelRequest& request) {
 }
 
 Json validate_envelope(const ModelRequest& request) {
+    wls::capture_diagnostic::Scope diagnostic_scope(wls::capture_diagnostic::Function::ValidateEnvelope);
     validate_envelope_fields(request);
     // Verify actual prefix bytes and all non-text cache parameters, including
     // when this request was restored from a persistent frozen snapshot.

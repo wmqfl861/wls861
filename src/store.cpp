@@ -8,6 +8,7 @@
 #include "wls/owned_capacity.hpp"
 #include "wls/worker_history.hpp"
 #include "amendment_disposition.hpp"
+#include "capture_diagnostic.hpp"
 
 #include <sqlite3.h>
 
@@ -432,6 +433,7 @@ public:
     Statement(const Statement&) = delete;
     Statement& operator=(const Statement&) = delete;
     bool step() {
+        wls::capture_diagnostic::Scope diagnostic_scope(wls::capture_diagnostic::Function::StatementStep);
         const auto result = sqlite3_step(statement_);
         sqlite_failure(db_, result, "step");
         return result == SQLITE_ROW;

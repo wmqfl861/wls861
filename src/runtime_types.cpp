@@ -1,4 +1,5 @@
 #include "wls/runtime_types.hpp"
+#include "capture_diagnostic.hpp"
 
 #include <boost/json/basic_parser_impl.hpp>
 #include <openssl/evp.h>
@@ -158,6 +159,7 @@ Role role_from_string(std::string_view name) {
 }
 
 Json parse_json_strict(std::string_view text, std::size_t max_bytes, std::size_t max_depth) {
+    wls::capture_diagnostic::Scope diagnostic_scope(wls::capture_diagnostic::Function::ParseJsonStrict);
     if (max_depth == 0 || max_depth > 256 || text.size() > max_bytes)
         throw Error(ErrorCode::InvalidInput, "JSON input/depth limit exceeded");
     boost::json::parse_options options;
@@ -178,6 +180,7 @@ Json parse_json_strict(std::string_view text, std::size_t max_bytes, std::size_t
 }
 
 std::string canonical_json(const Json& value) {
+    wls::capture_diagnostic::Scope diagnostic_scope(wls::capture_diagnostic::Function::CanonicalJson);
     std::string result;
     append_canonical(value, result, 0);
     // Program-created strings also need UTF-8 validation before hashing/storing.
@@ -190,6 +193,7 @@ std::string canonical_json(const Json& value) {
 }
 
 std::string sha256_hex(std::string_view bytes) {
+    wls::capture_diagnostic::Scope diagnostic_scope(wls::capture_diagnostic::Function::Sha256Hex);
     std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context(EVP_MD_CTX_new(), EVP_MD_CTX_free);
     std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
     unsigned int size{};

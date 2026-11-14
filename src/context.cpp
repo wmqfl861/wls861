@@ -1,6 +1,7 @@
 #include "wls/context.hpp"
 #include "wls/structured_context.hpp"
 #include "tool_descriptions.hpp"
+#include "capture_diagnostic.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -336,6 +337,7 @@ Json to_json(const CompiledContext& context) {
 }
 
 CompiledContext compiled_context_from_json(const Json& value) {
+    wls::capture_diagnostic::Scope diagnostic_scope(wls::capture_diagnostic::Function::CompiledContextFromJson);
     const auto& source = object(value);
     if (string_field(source, "format") == "wls-compiled-context-v2" ||
         string_field(source, "format") == "wls-compiled-context-v3")

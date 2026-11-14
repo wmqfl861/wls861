@@ -7,6 +7,7 @@
 #include "protocol_test_support.hpp"
 #include "live_test_support.hpp"
 #include "test_support.hpp"
+#include "../src/capture_diagnostic.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -912,13 +913,21 @@ struct V3Fixture {
 };
 
 void v3_capture_reserve_restore_policy_combinations(bool lean = false) {
+    namespace diagnostic = wls::capture_diagnostic;
+    diagnostic::enable();
+    diagnostic::snapshot(false, "none", 0, "capture_start");
     for (const bool fixed : {false, true}) for (const auto* mode : {"worker", "manager", "single", "all"}) {
         if (lean && std::string_view(mode) != "all") continue; // One combined fixture covers all three independent history choices.
+        diagnostic::begin(fixed, mode, 0, "fixture_init");
         V3Fixture fixture(mode, 6, fixed, lean);
+        diagnostic::snapshot(fixed, mode, 0, "fixture_init");
         Json prefix = nullptr;
         for (int round = 1; round <= (lean ? 2 : 5); ++round) {
             auto fake = fixture.note(round);
+            diagnostic::begin(fixed, mode, round, "capture_reserve");
             const auto call = OfflineRuntime(*fixture.store, fixture.schemas).reserve_call(fake, fixture.id, Role::Worker, fixture.task, round);
+            diagnostic::snapshot(fixed, mode, round, "capture_reserve");
+            diagnostic::begin(fixed, mode, round, "envelope_restore_compare");
             const auto envelope = fixture.store->attempt(call.request.attempt_id).at("request_envelope");
             CHECK(envelope.at("format") == "wls-model-request-v3");
             CHECK(to_json(model_request_from_json(envelope)) == envelope);
@@ -930,13 +939,31 @@ void v3_capture_reserve_restore_policy_combinations(bool lean = false) {
                 CHECK(std::find(names.begin(), names.end(), "recall") == names.end());
                 CHECK(std::find(names.begin(), names.end(), "load_memory") == names.end());
             }
-            CHECK(OfflineRuntime(*fixture.store, fixture.schemas).accept_response(call, fake.complete(call.request)).is_object());
-            if (round == 2) fixture.reopen();
+            diagnostic::snapshot(fixed, mode, round, "envelope_restore_compare");
+            {
+                auto diagnostic_runtime = OfflineRuntime(*fixture.store, fixture.schemas);
+                diagnostic::begin(fixed, mode, round, "fake_complete");
+                const auto diagnostic_response = fake.complete(call.request);
+                diagnostic::snapshot(fixed, mode, round, "fake_complete");
+                diagnostic::begin(fixed, mode, round, "accept_response");
+                CHECK(diagnostic_runtime.accept_response(call, diagnostic_response).is_object());
+            }
+            diagnostic::snapshot(fixed, mode, round, "accept_response");
+            if (round == 2) {
+                diagnostic::begin(fixed, mode, round, "round2_reopen");
+                fixture.reopen();
+                diagnostic::snapshot(fixed, mode, round, "round2_reopen");
+            }
         }
+        diagnostic::begin(fixed, mode, 0, "final_history_before_reopen");
         const auto frozen = restore_request_config(fixture.store->request(fixture.id));
         const auto worker = fixture.store->host_actor(Role::Worker, fixture.id, fixture.store->binding(fixture.task).team_id);
         const auto prior = fixture.store->previous_context(worker);
+        diagnostic::snapshot(fixed, mode, 0, "final_history_before_reopen");
+        diagnostic::begin(fixed, mode, 0, "final_reopen");
         fixture.reopen();
+        diagnostic::snapshot(fixed, mode, 0, "final_reopen");
+        diagnostic::begin(fixed, mode, 0, "final_history_compare");
         const auto current_worker = fixture.store->host_actor(Role::Worker, fixture.id, fixture.store->binding(fixture.task).team_id);
         CHECK(fixture.store->previous_context(current_worker) == prior);
         const auto call = OfflineRuntime(*fixture.store, fixture.schemas).capture_call(fixture.id, Role::Worker, fixture.task);
@@ -947,7 +974,10 @@ void v3_capture_reserve_restore_policy_combinations(bool lean = false) {
             CHECK(call.request.context.logical_input.at("messages") == single_agent_messages_json(transcript.messages));
             CHECK(call.request.context.role == Role::Worker);
         }
+        diagnostic::snapshot(fixed, mode, 0, "final_history_compare");
     }
+    diagnostic::snapshot(true, "all", 5, "capture_complete");
+    diagnostic::disable();
 }
 void lean_v3_capture_reserve_restore_policy_combinations() {
     v3_capture_reserve_restore_policy_combinations(true);
