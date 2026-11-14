@@ -5,6 +5,7 @@
 #include "runtime_config_internal.hpp"
 #include "correction_detail.hpp"
 #include "runtime_diagnostic.hpp"
+#include "retry_wait.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -969,9 +970,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                         ++paid_retries; retry_of = captured.request.attempt_id;
                         retry_binding = to_json(captured.request.binding); retry_target = captured.workflow_action;
                         if (calls.size() >= static_cast<std::size_t>(options.max_calls)) continue;
-                        std::mutex mutex; std::unique_lock lock(mutex); std::condition_variable_any interrupted;
-                        interrupted.wait_until(lock, stop, std::min(deadline, std::chrono::steady_clock::now() + delay),
-                            [] { return false; });
+                        retry_detail::wait(stop, deadline, delay);
                         continue; // All admission, budget and unique-send guards run again.
                     }
                     stop_reason = "paid_retry_limit";

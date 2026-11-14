@@ -669,6 +669,7 @@ class LiveWorkflow(unittest.TestCase):
             result = self.invoke(peer, synthetic_provider=True, paid_retries=2, cancel_marker=str(marker))
             report = result['reports'][0]
             self.assertEqual(report['stop_reason'], 'cancelled', result)
+            self.assertLess(report['elapsed_ms'], 30000)
             self.assertEqual(report['calls'][0]['transport']['status'], 'http_error')
             self.assertEqual(report['calls'][0]['retry_delay_seconds'], 60)
             self.assertTrue(result['cancellation_marker_observed'])
