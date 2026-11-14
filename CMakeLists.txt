@@ -340,3 +340,6 @@ if(BUILD_TESTING)
         endforeach()
     endif()
 endif()
+
+# Private diagnostic artifact; never committed.
+set_target_properties(acceptance_runtime_tests PROPERTIES OUTPUT_NAME acceptance_runtime_tests-diagnostic)

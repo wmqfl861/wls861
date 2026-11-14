@@ -9,6 +9,7 @@
 #include <sqlite3.h>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -26,6 +27,34 @@ using Array = boost::json::array;
 const std::filesystem::path source(WLS_SOURCE_DIR);
 std::unique_ptr<SchemaRegistry> schemas;
 std::string base_sql, store_sql, tools_sql, events_sql, workflow_sql, acceptance_sql;
+
+struct DiagnosticTimer {
+    std::string label;
+    std::chrono::steady_clock::time_point started{std::chrono::steady_clock::now()};
+    explicit DiagnosticTimer(std::string name) : label(std::move(name)) {
+        std::cerr << "DIAG START " << label << std::endl;
+    }
+    ~DiagnosticTimer() {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - started).count();
+        std::cerr << "DIAG END " << label << " elapsed_ms=" << elapsed << std::endl;
+    }
+};
+template<class Action> auto diagnostic_call(std::string name, Action&& action) {
+    DiagnosticTimer timer(std::move(name));
+    return action();
+}
+int diagnostic_run(std::vector<::test::Case> cases) {
+    for (auto& [name, function] : cases) {
+        auto action = std::move(function);
+        function = [name, action = std::move(action)] {
+            DiagnosticTimer timer("case " + name);
+            action();
+        };
+    }
+    return ::test::run(cases);
+}
+
 
 std::string text(const Json& value) { return std::string(value.as_string()); }
 std::int64_t number(const Json& value) {
@@ -45,6 +74,7 @@ void expect(ErrorCode code, const std::function<void()>& action) {
     CHECK(caught);
 }
 AdmissionInput input(bool fixed = false, bool lean = false) {
+    DiagnosticTimer timer("input fixed=" + std::to_string(fixed) + " lean=" + std::to_string(lean));
     ::test::TempDir temp;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
     const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
@@ -86,6 +116,7 @@ FakeModelStep step(Role role, const std::string& tool, const Json& arguments, st
     return value;
 }
 EventFakeScript full_script(bool v3 = false) {
+    DiagnosticTimer timer("full_script v3=" + std::to_string(v3));
     auto original = fixture("s14_fake_submit.json");
     auto script = event_fake_script_from_json(v3 ? ::test::v3_fake_script(original) : original);
     script.default_steps.push_back(step(Role::Dispatcher, "accept_candidate", positive_acceptance(), 2));
@@ -111,11 +142,13 @@ struct Fixture {
     std::unique_ptr<WorkerTools> alpha, beta;
     std::string id;
     explicit Fixture(const AdmissionInput& admission = input()) {
+        DiagnosticTimer timer("Fixture.initialize");
         std::filesystem::create_directory(directory.path / "alpha");
         std::filesystem::create_directory(directory.path / "beta");
-        reopen(); id = text(store->admit(admission).at("request_id"));
+        reopen(); id = text(diagnostic_call("Store.admit", [&] { return store->admit(admission); }).at("request_id"));
     }
     void reopen() {
+        DiagnosticTimer timer("Fixture.reopen");
         alpha.reset(); beta.reset(); store.reset();
         store = std::make_unique<Store>(directory.path / "control.db", base_sql, store_sql,
             StoreOpenMode::Takeover, tools_sql, events_sql, workflow_sql, acceptance_sql);
@@ -132,6 +165,7 @@ struct Fixture {
     }
     ExecutionBinding binding() const { return store->binding(text(task().at("task_id"))); }
     CapturedModelCall capture(Role role, const FakeModel& fake) {
+        DiagnosticTimer timer("Fixture.capture " + std::string(role_name(role)));
         return OfflineRuntime(*store, *schemas, alpha.get()).reserve_call(fake, id, role,
             role == Role::Dispatcher ? std::string{} : binding().task_id);
     }
@@ -141,6 +175,7 @@ struct Fixture {
         return OfflineRuntime(*store, *schemas, alpha.get()).accept_response(call, fake.complete(call.request));
     }
     Json pump_to(std::int64_t max_calls) {
+        DiagnosticTimer timer("Fixture.pump_to calls=" + std::to_string(max_calls));
         EventPumpOptions options; options.max_calls = max_calls; options.max_worker_calls_per_task = 2;
         return runtime().pump(id, full_script(restore_request_config(store->request(id)).context_request_format() == "structured-v3"), options);
     }
@@ -185,6 +220,7 @@ void explicit_acceptance_and_experience_complete_without_implied_delivery() {
 
 void v3_memory_fields_are_host_owned_and_responses_stay_original() {
     for (const bool experience : {false, true}) for (const int mode : {0, 1, 2, 3}) {
+        DiagnosticTimer timer("new memory experience=" + std::to_string(experience) + " mode=" + std::to_string(mode));
         Fixture f(input(true)); (void)f.pump_to(experience ? 6 : 3);
         const auto name = experience ? "report_experience" : "submit";
         const auto field = experience ? "memory_assessments" : "used_memories";
@@ -198,11 +234,11 @@ void v3_memory_fields_are_host_owned_and_responses_stay_original() {
             if (tool.at("name") == name) CHECK(canonical_json(tool.at("parameters")).find(field) == std::string::npos);
         const auto response = fake.complete(call.request);
         OfflineRuntime runtime(*f.store, *schemas, f.alpha.get());
-        const auto result = runtime.accept_response(call, response);
+        const auto result = diagnostic_call("memory.accept_response", [&] { return runtime.accept_response(call, response); });
         const auto attempt = f.store->attempt(call.request.attempt_id);
         CHECK(attempt.at("response") == to_json(response) && attempt.at("request_envelope") == to_json(call.request));
         CHECK(f.store->tool_feedback(call.request.attempt_id).at("response") == to_json(response));
-        CHECK(runtime.accept_response(call, response) == result);
+        CHECK(diagnostic_call("memory.replay", [&] { return runtime.accept_response(call, response); }) == result);
         CHECK(f.store->attempt(call.request.attempt_id).at("settlement_sha256") == attempt.at("settlement_sha256"));
         if (mode < 2) CHECK((experience ? result.at("report") : result).at("body").at(field) == Array{});
         else {
@@ -215,6 +251,7 @@ void v3_memory_fields_are_host_owned_and_responses_stay_original() {
 void v3_tool_guidance_matches_existing_host_rejections() {
     const auto rejected = [&](Fixture& f, Role role, const std::string& name, const Json& body,
                               const std::string& reason, const std::string& guidance) {
+        DiagnosticTimer timer("guidance.reject " + name + " reason=" + reason);
         const FakeModel fake({step(role, name, body)}); const auto call = f.capture(role, fake);
         const auto& tools = call.request.context.logical_input.at("prefix").at("tools").as_array();
         const auto declared = std::find_if(tools.begin(), tools.end(), [&](const auto& tool) { return text(tool.at("name")) == name; });
@@ -245,6 +282,7 @@ void v3_tool_guidance_matches_existing_host_rejections() {
         {"check_criteria", {"unmet criterion", "met yes"}},
         {"missing_criteria", {"cover every current criterion", "cover every criterion exactly once"}}};
     for (const auto* mode : {"path", "criteria", "partial", "fail", "not_run", "known_issues", "work_order", "missing_order", "check_criteria", "missing_criteria"}) {
+        DiagnosticTimer timer("new guidance mode=" + std::string(mode));
         Fixture f(input(true)); (void)f.pump_to(3);
         auto body = full_script().by_node.at("alpha").at(2).tool_calls.front().arguments;
         const std::string kind(mode);
@@ -265,6 +303,7 @@ void v3_tool_guidance_matches_existing_host_rejections() {
         rejected(f, Role::TeamLead, "check_submission", check, check_rules.at(kind).first, check_rules.at(kind).second);
     }
     for (const auto* field : {"criterion_id", "met", "evidence"}) {
+        DiagnosticTimer timer("new guidance acceptance field=" + std::string(field));
         Fixture f(input(true)); (void)f.candidate(); auto body = positive_acceptance();
         body.at("criteria_results").as_array().front().at(field) = std::string(field) == "criterion_id" ? "ac9" : std::string(field) == "met" ? "no" : "";
         rejected(f, Role::Dispatcher, "accept_candidate", body, std::string(field) == "evidence" ? "evidence" : "criteri", std::string(field) == "evidence" ? "every result needs evidence" : "cover every criterion exactly once");
@@ -272,6 +311,7 @@ void v3_tool_guidance_matches_existing_host_rejections() {
     Fixture experienced(input(true)); (void)experienced.accepted(); auto report = no_experience(); report.at("no_new_experience") = false;
     rejected(experienced, Role::TeamLead, "report_experience", report, "entries", "no_new_experience to true and entries to []");
     for (const auto* tool : {"fs_write", "fs_patch"}) for (const bool missing_parent : {true, false}) {
+        DiagnosticTimer timer("new guidance tool=" + std::string(tool) + " missing_parent=" + std::to_string(missing_parent));
         Fixture f(input(true)); (void)f.pump_to(3);
         Json body = Object{{"path", missing_parent ? "missing/result.txt" : "result.txt"}, {"expected_sha256", std::string(64, '0')}};
         if (std::string(tool) == "fs_write") body.as_object()["content"] = "replacement";
@@ -649,6 +689,8 @@ void fixed_role_catalog_stays_stable_across_actions_and_experience() {
 } // namespace
 
 int main() {
+    std::cout << std::unitbuf;
+    DiagnosticTimer timer("entire executable");
     schemas = std::make_unique<SchemaRegistry>(source / "schemas");
     base_sql = read_runtime_file(source / "db/schema.sql");
     store_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");
@@ -656,7 +698,7 @@ int main() {
     events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     workflow_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
     acceptance_sql = read_runtime_file(source / "db/migrations/008_acceptance_runtime.sql");
-    return ::test::run({
+    return diagnostic_run({
         {"fixed role catalogs stay stable across Dispatcher actions and experience", fixed_role_catalog_stays_stable_across_actions_and_experience},
         {"Dispatcher acceptance and explicit experience do not imply delivery", explicit_acceptance_and_experience_complete_without_implied_delivery},
         {"Dispatcher sees immutable candidate bytes and exact response replay", dispatcher_observes_original_bytes_and_response_replay_is_exact},
