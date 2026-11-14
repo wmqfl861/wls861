@@ -254,6 +254,67 @@ void explicit_cancel_disposition_has_no_worker_attempt() {
     CHECK(result.at("business_delivered") == false);
 }
 
+void fresh_disposition_is_rejected_before_any_model_reservation() {
+    test::TempDir directory;
+    Store store(directory.path / "request.db", base_sql, migration_sql);
+    const auto id = admit(store);
+    const auto before = store.request(id);
+    const auto budget = store.budget(id);
+    for (const auto* bad : {"update", "keep", "cancel", "invalid-enum"}) {
+        expect(ErrorCode::InvalidInput, [&] { (void)OfflineRuntime(store, *schemas).run(id, initial_steps(), bad); });
+        CHECK(store.request(id) == before);
+        CHECK(store.budget(id) == budget);
+        CHECK(store.tasks(id).empty());
+        CHECK(store.budget(id).at("attempts") == 0);
+    }
+}
+
+void inapplicable_disposition_is_rejected_before_published_plan_rebind() {
+    test::TempDir directory;
+    const auto db = directory.path / "request.db";
+    std::string id;
+    {
+        Store store(db, base_sql, migration_sql);
+        id = admit(store);
+        static_cast<void>(OfflineRuntime(store, *schemas).run(id, initial_steps()));
+        Json plan = store.plan(id).at("body");
+        plan.as_object()["plan_revision"] = 2;
+        plan.as_object()["summary"] = "Host-authorized plan published before the disposition gate";
+        static_cast<void>(store.publish_plan(store.host_actor(Role::Dispatcher, id), number(store.request(id).at("state_version")), 1, plan, new_id("plan")));
+        CHECK(store.task(task_id(store, id)).at("plan_revision") == 1);
+    }
+    Store store(db, base_sql, migration_sql);
+    const auto task_before = store.task(task_id(store, id));
+    const auto request_before = store.request(id);
+    const auto budget_before = store.budget(id);
+    const auto events_before = store.events(id, 0, 1000).size();
+    for (const auto* bad : {"update", "keep", "cancel", "invalid-enum"}) {
+        expect(ErrorCode::InvalidInput, [&] { (void)OfflineRuntime(store, *schemas).run(id, initial_steps(), bad); });
+        CHECK(store.task(task_id(store, id)) == task_before);
+        CHECK(store.request(id) == request_before);
+        CHECK(store.budget(id) == budget_before);
+        CHECK(store.events(id, 0, 1000).size() == events_before);
+    }
+    const auto resumed = OfflineRuntime(store, *schemas).run(id, initial_steps());
+    CHECK(resumed.at("calls").as_array().size() == 2);
+    CHECK(store.task(task_id(store, id)).at("plan_revision") == 2);
+    CHECK(store.task(task_id(store, id)).at("applied_plan_revision") == 2);
+}
+
+void current_task_disposition_still_requires_empty_value() {
+    test::TempDir directory;
+    Store store(directory.path / "request.db", base_sql, migration_sql);
+    const auto id = admit(store);
+    static_cast<void>(OfflineRuntime(store, *schemas).run(id, initial_steps()));
+    const auto task_before = store.task(task_id(store, id));
+    const auto budget_before = store.budget(id);
+    for (const auto* bad : {"keep", "invalid-enum"}) {
+        expect(ErrorCode::InvalidInput, [&] { (void)OfflineRuntime(store, *schemas).run(id, initial_steps(), bad); });
+        CHECK(store.task(task_id(store, id)) == task_before);
+        CHECK(store.budget(id) == budget_before);
+    }
+}
+
 void runtime_file_reads_reject_symlink_and_special_input() {
     test::TempDir directory;
     std::filesystem::create_directory(directory.path / "real");
@@ -298,6 +359,9 @@ int main() {
         {"read-only access is inert and restart fences pending call before resume", restart_fences_pending_call_and_preserves_frozen_config},
         {"published plan resumes task binding after process restart", published_plan_resumes_before_any_new_model_call},
         {"explicit cancel disposition does not create a Worker model attempt", explicit_cancel_disposition_has_no_worker_attempt},
+        {"fresh request rejects every disposition before any reservation", fresh_disposition_is_rejected_before_any_model_reservation},
+        {"inapplicable disposition is rejected before the published plan rebind", inapplicable_disposition_is_rejected_before_published_plan_rebind},
+        {"current task without AMEND still requires an empty disposition", current_task_disposition_still_requires_empty_value},
         {"bounded input reads reject parent/leaf symlinks and special files", runtime_file_reads_reject_symlink_and_special_input},
         {"runtime input rejects FIFO before any observable open", runtime_file_rejects_fifo_before_opening_it}
     });
