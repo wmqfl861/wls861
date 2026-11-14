@@ -201,8 +201,13 @@ if(BUILD_TESTING)
     set_tests_properties(runtime_resources_cli PROPERTIES TIMEOUT 120)
     add_test(NAME r3_evaluation
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/r3_evaluation_tests.py"
-                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
-    set_tests_properties(r3_evaluation PROPERTIES TIMEOUT 180)
+                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}" --group legacy)
+    foreach(group IN ITEMS logical plain)
+        add_test(NAME r3_evaluation_${group}
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/r3_evaluation_tests.py"
+                    "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}" --group ${group})
+    endforeach()
+    set_tests_properties(r3_evaluation r3_evaluation_logical r3_evaluation_plain PROPERTIES TIMEOUT 180)
     add_test(NAME handoff_integrity
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_handoff.py")
     add_test(NAME review_source_integrity
@@ -300,7 +305,7 @@ if(BUILD_TESTING)
     # Keep every test registered; CI selects execution and build dependencies together.
     set(WLS_CI_SLOW_TESTS "all" CACHE STRING "CI slow tests: all, none, or a semicolon-separated list")
     set(wls_ci_slow_tests billing_baseline_e2e run_cli_e2e g1_exit_e2e g2_rehearsal_e2e live_workflow audit24_capacity_repro
-        https_transport r3_evaluation r1_management)
+        https_transport r3_evaluation r3_evaluation_logical r3_evaluation_plain r1_management)
     if(WLS_CI_SLOW_TESTS STREQUAL "all")
         set(wls_ci_selected_slow ${wls_ci_slow_tests})
     elseif(WLS_CI_SLOW_TESTS STREQUAL "none")

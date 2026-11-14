@@ -118,7 +118,7 @@ jobs:
                   tests/live_workflow_driver.cpp) slow=live_workflow ;;
                   tests/audit24_capacity_repro_tests.cpp) slow=audit24_capacity_repro ;;
                   tests/https_transport_driver.cpp) slow=https_transport ;;
-                  tests/r3_evaluation_tests.py) slow=r3_evaluation ;;
+                  tests/r3_evaluation_tests.py) slow='r3_evaluation;r3_evaluation_logical;r3_evaluation_plain' ;;
                   tests/r1_management_tests.cpp) slow=r1_management ;;
                   scripts/check_g2_outputs.py|tests/test_check_g2_outputs.py) ;;
                   tests/journal_tests.cpp|tests/config_tests.cpp|tests/scheduler_tests.cpp|tests/task_engine_tests.cpp|\
