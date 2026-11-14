@@ -490,11 +490,9 @@ void retry_wait_keeps_original_deadline_and_cancellation() {
         if (remaining == 60000ms) stop.request_stop();
         const auto started = std::chrono::steady_clock::now(), deadline = started + remaining;
         retry_detail::wait(stop.get_token(), deadline, 60s);
-        CHECK(std::chrono::steady_clock::now() - started < 30s);
-        CHECK(stop.stop_requested() || std::chrono::steady_clock::now() >= deadline);
+        CHECK(std::chrono::steady_clock::now() - started < 30s && (stop.stop_requested() || std::chrono::steady_clock::now() >= deadline));
     }
 }
-
 void public_diagnostics_redact_credentials_and_bound_utf8() {
     const std::string secret = "synthetic-bearer-value";
     const std::string original = "cannot open /work/" + secret + "/item; Authorization: Bearer hidden-value";
