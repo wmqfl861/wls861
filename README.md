@@ -378,6 +378,12 @@ cmake --build build-cmake --parallel 2
 ctest --test-dir build-cmake --output-on-failure
 ```
 
+可选安装 `ccache` 后，CMake 配置时追加 `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`，
+或给 Make 传入 `CXX='ccache g++'`（Clang 用 `CXX='ccache clang++-18'`）；链接仍由原编译器执行。
+省略这些参数即可正常构建；临时绕过已配置的缓存可用 `CCACHE_DISABLE=1`。
+CI 按编译器、构建入口、编译选项和 sanitizer 配置恢复缓存，ccache 容量设为 1 GB，只有成功的 main 作业保存；
+相同配置的 umask/分片共用缓存，每次运行在摘要中报告命中统计。仓库变量 `WLS_DISABLE_CCACHE=1` 可关闭 CI 缓存。
+
 仅构建 C++ 程序可使用 `make -j2`，或 CMake 的 `-DBUILD_TESTING=OFF`。只核对契约用 `make verify-contracts PYTHON=...`；原件核对用 `make verify-handoff PYTHON=...`。
 
 完整测试入口包含 C++ 模块、CLI 演示、两个原始包校验及跨模块契约回归。严格编译启用主要警告和 `-Werror`，GitHub Actions 对 Release 与 UBSan 两种构建运行相同检查。原 51 项产品验收仍保留历史“未执行”，每批实际证据独立记录。
