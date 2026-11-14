@@ -8,7 +8,7 @@
 
 本轮收敛已在 [converged-20261114](https://github.com/wmqfl861/wls861/tree/converged-20261114)（`f4fbb62`）完成，七项标准通过；随后合入 [N2 #99](https://github.com/wmqfl861/wls861/pull/99) 与 [N1 #100](https://github.com/wmqfl861/wls861/pull/100)。标签保留原收敛点，见[收敛报告](reports/convergence-20261114.md)。
 
-当前 CI：[R3 分片 #103](https://github.com/wmqfl861/wls861/pull/103)已合并，49 个原方法分为 32/12/5 三组，CTest 共 90 个注册；[PR 三核心](https://github.com/wmqfl861/wls861/actions/runs/43602255761)在实际检查输入 `50e46b2` 上各 90/90 通过。合入后 main `45e9e05` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43603725398)仍待完成，后续见[最新 main Actions](https://github.com/wmqfl861/wls861/actions/workflows/ci.yml?query=branch%3Amain)。
+当前 CI：[R3 分片 #103](https://github.com/wmqfl861/wls861/pull/103)已合并，49 个原方法分为 32/12/5 三组，CTest 共 90 个注册；[PR 三核心](https://github.com/wmqfl861/wls861/actions/runs/43602255761)在实际检查输入 `50e46b2` 上各 90/90 通过。合入后 main `45e9e05` 与后续主线结果分别记录在[该提交的完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43603725398)及[最新 main Actions](https://github.com/wmqfl861/wls861/actions/workflows/ci.yml?query=branch%3Amain)。
 
 此前 main `f7f38e8` 的 88 注册[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43576774296)与[定时矩阵](https://github.com/wmqfl861/wls861/actions/runs/43585861193)均通过；后者 `r3_evaluation` 的 ASan 耗时 187.30/360 秒，触发此次 D-20 分片。旧 acceptance 超时项已由 [#95](https://github.com/wmqfl861/wls861/pull/95) 分片关闭。两次分片均保留原用例、断言和时限，历史失败保留。
 
