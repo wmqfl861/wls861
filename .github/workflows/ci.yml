@@ -16,6 +16,7 @@ on:
         options:
           - full
           - asan-affected
+          - standard-native
         default: full
 
 permissions:
@@ -73,11 +74,14 @@ jobs:
           slow_tests=all
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             case "${MANUAL_VERIFICATION:-full}" in
-              full|asan-affected) ;;
+              full|asan-affected|standard-native) ;;
               *) echo 'Unknown manual verification scope' >&2; exit 2 ;;
             esac
           fi
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "${MANUAL_VERIFICATION:-full}" = asan-affected ]; then
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "${MANUAL_VERIFICATION:-full}" = standard-native ]; then
+            mode=standard-native
+            matrix="$(printf '%s' "$pr_matrix" | python3 -c 'import json,sys; m=json.load(sys.stdin); m["include"]=[x for x in m["include"] if x["name"]=="strict"]; assert len(m["include"])==1; print(json.dumps(m))')"
+          elif [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "${MANUAL_VERIFICATION:-full}" = asan-affected ]; then
             mode=asan-affected
             matrix="$(printf '%s' "$full_matrix" | python3 -c 'import json,sys; m=json.load(sys.stdin); m["include"]=[x for x in m["include"] if x["name"]=="ASan"]; assert len(m["include"])==1; print(json.dumps(m))')"
           elif [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
@@ -217,6 +221,8 @@ jobs:
         run: |
           if [ "${{ needs.classify.outputs.mode }}" = selected ]; then
             cmake --build build --target wls_ci_selected --parallel 2
+          elif [ "${{ needs.classify.outputs.mode }}" = standard-native ]; then
+            cmake --build build --target sandbox_tests process_evidence_tests doctor_diagnostics_tests --parallel 2
           else
             cmake --build build --parallel 2
           fi
@@ -228,6 +234,9 @@ jobs:
           if [ "${{ needs.classify.outputs.mode }}" = asan-affected ]; then
             echo 'Running six complete affected ASan suites only; this is not the full gate.'
             ctest --test-dir build -R '^(r1_structured|r1_structured_capture|r1_structured_lean|billing_baseline_e2e|run_cli_e2e|s15_cli_smoke)$' --output-on-failure
+          elif [ "${{ needs.classify.outputs.mode }}" = standard-native ]; then
+            echo 'Running native sandbox prerequisites and the explicit native scenario; this is not the full gate.'
+            ctest --test-dir build -R '^(sandbox|process_evidence|doctor_diagnostics)$' --output-on-failure
           elif [ "${{ needs.classify.outputs.mode }}" = selected ]; then
             ctest --test-dir build -L '^ci_selected$' --output-on-failure
           elif [ "${{ needs.classify.outputs.mode }}" = full ] && [ -n "${{ matrix.cmake_shard }}" ]; then
@@ -250,6 +259,68 @@ jobs:
           else
             ctest --test-dir build --output-on-failure
           fi
+      - name: Allow user namespaces for the explicit hosted native check
+        if: github.event_name == 'workflow_dispatch' && needs.classify.outputs.mode == 'standard-native'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Verify standard isolation in an existing delegated user manager
+        if: needs.classify.outputs.mode == 'standard-native'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          umask 077
+          gate="$RUNNER_TEMP/wls-standard-native"
+          mkdir "$gate" "$gate/tmp"
+          exec > >(tee "$gate/gate.log") 2>&1
+          trap 'echo "BLOCKED: native environment preparation failed"' ERR
+          systemctl --user show --property=Version --value > "$gate/manager-version.txt"
+          version="$(cat "$gate/manager-version.txt")"
+          version="${version%% *}"
+          test "${version%%.*}" -ge 254
+          cd "$gate"
+          apt-get download bubblewrap
+          packages=(bubblewrap_*.deb)
+          test "${#packages[@]}" -eq 1
+          dpkg-deb --extract "${packages[0]}" unpacked
+          sudo install -o root -g root -m 0555 unpacked/usr/bin/bwrap "$gate/bwrap"
+          sha256sum "${packages[0]}" "$gate/bwrap" > "$gate/package-sha256.txt"
+          hash="$(sha256sum "$gate/bwrap")"
+          hash="${hash%% *}"
+          cat > "$gate/inside.sh" <<'NATIVE_UNIT'
+          set -euo pipefail
+          trap 'echo "BLOCKED: task-local delegated cgroup setup unavailable"' ERR
+          test "$(id -u)" -ne 0
+          echo "native uid=$(id -u)"
+          relative="$(sed -n 's/^0:://p' /proc/self/cgroup)"
+          test "${relative##*/}" = runner
+          root="/sys/fs/cgroup${relative%/runner}"
+          test "${root##*/}" = "$4.service"
+          test -z "$(cat "$root/cgroup.procs")"
+          controllers=" $(cat "$root/cgroup.controllers") "
+          for required in cpu memory pids; do [[ "$controllers" == *" $required "* ]]; done
+          printf '+cpu +memory +pids' > "$root/cgroup.subtree_control"
+          exec "$1" --standard-native "$2" "$3" "$root" "$5"
+          NATIVE_UNIT
+          unit="wls-standard-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          trap - ERR
+          if ! systemd-run --user --unit="$unit" --wait --pipe --collect --service-type=exec \
+            -p 'Delegate=cpu memory pids' -p 'DelegateSubgroup=runner' -p 'UMask=0077' --setenv="TMPDIR=$gate/tmp" \
+            /bin/bash "$gate/inside.sh" "$GITHUB_WORKSPACE/build/sandbox_tests" "$gate/bwrap" "$hash" "$unit" "$gate/native-output"; then
+            test -f "$gate/native-output/ordinary.json" || echo 'BLOCKED: native user service could not establish its prerequisites'
+            exit 1
+          fi
+      - name: Preserve native sandbox evidence even when blocked
+        if: always() && needs.classify.outputs.mode == 'standard-native'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: standard-native-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/wls-standard-native/gate.log
+            ${{ runner.temp }}/wls-standard-native/manager-version.txt
+            ${{ runner.temp }}/wls-standard-native/package-sha256.txt
+            ${{ runner.temp }}/wls-standard-native/native-output/
+          if-no-files-found: error
+          retention-days: 7
       - name: Verify GCC ASan Make shard ${{ matrix.make_shard }}/2 and user CPPFLAGS
         if: needs.classify.outputs.mode != 'docs-only' && matrix.make_shard
         shell: bash

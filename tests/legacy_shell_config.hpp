@@ -9,6 +9,7 @@ inline wls::s1::ConfigCatalog legacy_shell_catalog(const std::filesystem::path& 
         const std::filesystem::path& functions, const std::filesystem::path& prompts) {
     using namespace wls::s1;
     auto function = load_config_catalog(system, functions, prompts).freeze("general").json().at("function");
+    function.at("team_templates").at("shell").as_object()["isolation"] = "strong";
     if (function.at("team_templates").at("default") == function.at("team_templates").at("files"))
         function.at("team_templates").at("default") = function.at("team_templates").at("shell");
     TempDir fixture;

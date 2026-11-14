@@ -465,7 +465,10 @@ void workspace_and_execution_manifest_are_immutable() {
     Session session;
     const auto stored = session.store->workspace(session.binding().team_id);
     WorkerTools same(*session.store, session.work);
+    CHECK(frozen->context_request_format() == "framed-v1");
+    std::filesystem::create_hard_link(session.database, session.directory.path / "legacy-control-alias");
     same.bind(session.actor());
+    std::filesystem::remove(session.directory.path / "legacy-control-alias");
     CHECK(session.store->workspace(session.binding().team_id) == stored);
     WorkerTools changed(*session.store, session.work, Object{{"schema_version", 1}, {"cpu_quota_us", 50000}});
     expect(ErrorCode::Conflict, [&] { changed.bind(session.actor()); });
@@ -480,6 +483,74 @@ void workspace_and_execution_manifest_are_immutable() {
     expect(ErrorCode::Conflict, [&] { replaced.bind(session.actor()); });
     CHECK(!std::filesystem::exists(session.work / "new"));
     CHECK(!std::filesystem::exists(session.directory.path / "moved-work/new"));
+}
+
+void standard_policy_binding_does_not_expand_file_template_grants() {
+    // Session uses migration 005: retain its legacy context while exercising
+    // the current templates' standard execution policy and control-file guard.
+    test::TempDir config;
+    host_write(config.path / "system.json", canonical_json(frozen->json().at("system")));
+    const auto current = load_config_catalog(config.path / "system.json",
+        source / "config/examples/functions", source / "prompts").freeze("general");
+    const auto standard = worker_sandbox_policy(current, "shell");
+    CHECK(standard.isolation == SandboxIsolation::StandardCgroupV1);
+    const auto legacy = worker_sandbox_policy(*frozen, "default");
+    CHECK(legacy.isolation == SandboxIsolation::Strict);
+    CHECK(worker_execution_policy(*frozen, "default", legacy).at("version") == "wls-worker-execution-v1");
+    CHECK(worker_execution_policy(*frozen, "default", legacy).at("process_isolation") == "strong");
+    CHECK(!worker_execution_policy(*frozen, "default", legacy).as_object().contains("resource_enforcement"));
+    std::filesystem::copy(source / "config/examples/functions", config.path / "functions", std::filesystem::copy_options::recursive);
+    auto function = current.json().at("function"), system = current.json().at("system");
+    auto& shell = function.at("team_templates").at("shell").as_object();
+    shell["isolation"] = "strict"; shell.erase("network");
+    system.at("sandbox").as_object()["allow_weak_isolation"] = true;
+    host_write(config.path / "system.json", canonical_json(system));
+    const auto select = [&] {
+        host_write(config.path / "functions/general/function.yaml", canonical_json(function));
+        return load_config_catalog(config.path / "system.json", config.path / "functions", source / "prompts").freeze("general");
+    };
+    CHECK(worker_sandbox_policy(select(), "shell").isolation == SandboxIsolation::Strict);
+    shell["isolation"] = "standard"; shell["network"] = "host";
+    expect(ErrorCode::Unsupported, [&] { (void)worker_sandbox_policy(select(), "shell"); });
+    shell["isolation"] = "weak"; shell["network"] = "none";
+    expect(ErrorCode::Unsupported, [&] { (void)worker_sandbox_policy(select(), "shell"); });
+    auto input = admission(); input.config_snapshot = current.json();
+    const auto grants = current.worker_tools("shell");
+    input.tool_allowlist.assign(grants.begin(), grants.end());
+    for (const auto* selected : {"files", "shell"}) {
+        Session session(false, input);
+        auto script = steps({{"write", "fs_write", Object{{"path", "kept.txt"}, {"content", "original"}}}});
+        script[0].tool_calls.front().arguments.at("nodes").as_array().front().as_object()["template"] = selected;
+        static_cast<void>(session.runtime->run(session.request_id, script));
+        const auto stored = session.store->workspace(session.binding().team_id);
+        const Json args = Object{{"argv", Array{"/usr/bin/python3", "-c", "print(1)"}}};
+        const auto alias = session.directory.path / "control-hardlink";
+        std::filesystem::create_hard_link(session.database, alias);
+        if (std::string_view(selected) == "files") {
+            session.tools->bind(session.actor()); // Original strong mode adds no new guard.
+            CHECK(!declared(session.tools->declarations(session.actor())).contains("run"));
+            expect(ErrorCode::Unauthorized, [&] { (void)session.execute("run", args); });
+            std::filesystem::remove(alias);
+            continue;
+        }
+        const auto before = session.store->events(session.request_id);
+        expect(ErrorCode::Unauthorized, [&] { session.tools->bind(session.actor()); });
+        expect(ErrorCode::Unauthorized, [&] { (void)session.tools->declarations(session.actor()); });
+        expect(ErrorCode::Unauthorized, [&] { (void)session.execute("run", args); });
+        CHECK(session.store->events(session.request_id) == before);
+        std::filesystem::remove(alias);
+        CHECK(stored.at("execution_policy").at("version") == "wls-worker-execution-standard-cgroup-v1");
+        CHECK(stored.at("execution_policy").at("process_isolation") == "standard-cgroup-v1");
+        CHECK(session.tools->environment_card(session.actor()).at("process_isolation_verified") == false);
+        WorkerTools changed(*session.store, session.work, Object{{"schema_version", 1}, {"cpu_quota_us", 50000}});
+        expect(ErrorCode::Conflict, [&] { changed.bind(session.actor()); });
+        const auto refused = session.execute("run", args, "standard-missing", "standard-run");
+        CHECK(operation(refused).at("status") == "FAILED");
+        CHECK(execution(refused).at("result").at("spawned") == false);
+        CHECK(execution(refused).at("result").at("strong_isolation") == false);
+        CHECK(host_read(session.work / "kept.txt") == "original");
+        CHECK(session.store->workspace(session.binding().team_id) == stored);
+    }
 }
 
 void role_scope_and_model_authority_forgery() {
@@ -906,6 +977,7 @@ int main() {
         {"AMEND rejects old model file effects while retaining usage", late_model_response_after_amend_cannot_write},
         {"old business key only reads its fact during a pending new instruction", old_key_is_only_a_read_during_new_instruction},
         {"workspace directory and execution manifest binding are immutable", workspace_and_execution_manifest_are_immutable},
+        {"standard execution binding preserves file grants and refuses missing prerequisites", standard_policy_binding_does_not_expand_file_template_grants},
         {"non-Worker, cross-workspace and model authority forgery are rejected", role_scope_and_model_authority_forgery},
         {"missing strong sandbox gives a durable FAILED result without spawning", unavailable_strong_run_is_a_durable_refusal},
         {"pre-effect cancellation retains exact no-spawn evidence and cannot replay effects", cancellation_before_effect_preserves_original_no_spawn_evidence},

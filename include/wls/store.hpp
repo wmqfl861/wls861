@@ -122,6 +122,9 @@ public:
     // Read-only control-file placement check across all bound workspaces in
     // this Store, without exposing any other request's paths or data.
     void validate_control_file_path(const std::filesystem::path& path) const;
+    // Trusted host mount root: reject exposure of this Store and its sidecars.
+    // Rechecks live control identities; does not audit other files in the tree.
+    void validate_process_runtime_root(const std::filesystem::path& root) const;
     Json claim_live_send(const StoreActor& actor, const std::string& attempt_id,
         std::int64_t expected_attempt_version, const EncodedResponsesRequest& encoded,
         const HttpsTransportOptions& transport, const std::string& command_id);

@@ -41,7 +41,7 @@ team_templates:
     network: none
     workspace: plain
     env: shell-env.yaml
-    isolation: strong
+    isolation: standard
 
 capabilities:
   - id: run

@@ -24,13 +24,19 @@ struct SandboxRuntimeFile {
     std::string expected_sha256;
 };
 
+// Standard exposes the trusted host /usr tree read-only, without byte freezing.
+// Before selecting it, the trusted caller must keep its control plane and
+// credentials outside that readable tree; Store callers must validate their
+// control-file placement with Store::validate_process_runtime_root("/usr").
+enum class SandboxIsolation { Strict, StandardCgroupV1 };
+
 struct SandboxPolicy {
     std::filesystem::path bwrap_path{"/usr/bin/bwrap"};
     // Required for production run; never infer an empty hash means approved.
     std::string expected_bwrap_sha256;
     // An already delegated cgroup v2 directory with cpu/memory/pids enabled.
     // The runner never changes host delegation, installs packages or weakens
-    // namespace policy. Empty means strong execution is unavailable.
+    // namespace policy. Empty means execution is unavailable in either mode.
     std::filesystem::path cgroup_root;
     std::vector<SandboxRuntimeFile> runtime_files;
     std::uint64_t memory_max_bytes{268435456};
@@ -40,6 +46,7 @@ struct SandboxPolicy {
     std::chrono::milliseconds max_timeout{600000};
     std::chrono::milliseconds cleanup_timeout{2000};
     std::size_t max_output_bytes{1048576};
+    SandboxIsolation isolation{SandboxIsolation::Strict};
 };
 
 struct ProcessRequest {
@@ -67,6 +74,7 @@ struct ProcessResult {
     // spawned means a host child existed, not that a user program started.
     bool spawned{false};
     bool launcher_exec_confirmed{false};
+    // Legacy strict proof only; standard uses its versioned evidence object.
     bool strong_isolation{false};
     bool all_descendants_exited{false};
     bool output_truncated{false};
@@ -102,6 +110,8 @@ struct SandboxDoctor {
     bool report_truncated{false};
     std::size_t omitted_check_count{0};
     Json report_budget_reason = nullptr;
+    std::string selected_isolation{"strict"};
+    bool selected_prerequisites{false};
 };
 
 Json to_json(const ProcessResult& result);
