@@ -141,6 +141,29 @@ bool equals(const Json& j, std::string_view key, std::string_view value) {
     const auto* p = j.is_object() ? j.as_object().if_contains(key) : nullptr;
     return p && p->is_string() && p->as_string() == value;
 }
+bool isolation_proven(const ProcessResult& p) {
+    const auto& e = p.evidence;
+    if (!e.is_object()) return false;
+    bool versioned = false;
+    for (const auto* key : {"proof_format", "isolation_policy", "isolation_verified", "resource_enforcement", "runtime_mounts"})
+        versioned = versioned || e.as_object().contains(key);
+    if (!versioned) return p.strong_isolation; // Preserve only untagged legacy strict proofs.
+    if (p.strong_isolation || !equals(e, "proof_format", "wls-process-proof-standard-cgroup-v1") ||
+        !equals(e, "isolation_policy", "standard-cgroup-v1") || !flag(e, "isolation_verified") ||
+        !equals(e, "resource_enforcement", "cgroup-v2")) return false;
+    try {
+        const auto& mounts = e.at("runtime_mounts").as_array();
+        if (mounts.size() != 1) return false;
+        const auto& mount = mounts.front();
+        if (!equals(mount, "source", "/usr") || !equals(mount, "destination", "/usr")) return false;
+        for (const auto* key : {"read_only", "nosuid", "nodev", "private", "no_submounts", "verified"})
+            if (!flag(mount, key)) return false;
+        const auto integer = [](const Json& value) {
+            return value.is_uint64() || (value.is_int64() && value.as_int64() >= 0);
+        };
+        return integer(mount.at("device")) && integer(mount.at("inode")) && mount.at("inode") != 0;
+    } catch (const std::exception&) { return false; }
+}
 }
 Json observe_process_workspace(int root_fd) {
     // The exclusive cooperative lock spans both scans and the actual command
@@ -181,7 +204,7 @@ std::string process_operation_outcome(const ProcessResult& p) {
     if (!p.spawned && p.status != ProcessStatus::CleanupUnknown)
         return p.status == ProcessStatus::Cancelled ? "CANCELLED" : "FAILED";
     const auto& e = p.evidence;
-    if (!p.strong_isolation || !p.all_descendants_exited || !p.launcher_exec_confirmed ||
+    if (!isolation_proven(p) || !p.all_descendants_exited || !p.launcher_exec_confirmed ||
         !equals(e, "network", "none") || !equals(e, "supervision", "cgroup-v2") ||
         !equals(e, "descendants_proof", "cgroup.events populated=0") ||
         !flag(e, "workspace_mount_verified") || !flag(e, "namespaces_verified") || !flag(e, "command_start_released")) return "UNKNOWN";

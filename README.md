@@ -449,7 +449,11 @@ mkdir -p -m 700 .local/s12/work
 ./build/wls doctor
 ```
 
-进程工具需要另行准备的强环境及 [manifest](config/examples/sandbox-manifest.json)。该样例故意没有 launcher SHA、可写 cgroup 委派和运行文件，doctor 会列出缺项，run 会拒绝启动。实际使用前填写 bwrap 和每个运行文件的 SHA-256、白名单目标及已委派路径，并在新请求的首次工作目录绑定前传入 `--sandbox-manifest`。程序不会安装 bwrap、修改 user namespace/AppArmor 或创建宿主委派。完整参数与边界见 [Worker 工具契约](docs/implementation/S1-worker-tools.md)。
+`shell` 模板选择 `isolation: standard`、`network: none`；`files` 和 `default` 仍只授予文件工具。standard 使用受信宿主的只读 `/usr` 运行树；`strict`（旧取值 `strong`）保留逐运行文件 SHA-256 封存。两档都需要固定 bwrap SHA-256、可写 cgroup v2 委派及可用的 namespace；host 网络和无 cgroup 的 rlimit 回退尚不支持。
+
+先准备 [manifest](config/examples/sandbox-manifest.json)，再运行 `wls doctor --template shell --sandbox-manifest FILE` 查看两档各自的只读前提与拒绝原因。样例故意没有 launcher SHA 和委派路径，不能据此执行进程；strict 还需逐运行文件的 SHA-256 与白名单目标。doctor 不执行命令，也不验证实际隔离成功。
+
+`wls run` 可显式传入 `--sandbox-manifest FILE`，清单和配置指纹会绑定到新的请求身份并传给 Worker；更换清单不会接着执行原请求。各 Worker 仍受所选模板的工具授权约束。程序不会安装 bwrap、修改 user namespace/AppArmor 或创建宿主委派。原文件工具与进程约束见 [Worker 工具契约](docs/implementation/S1-worker-tools.md)。
 
 ## 运行持久事件与两个独立任务
 

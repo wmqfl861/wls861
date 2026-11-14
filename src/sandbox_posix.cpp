@@ -386,8 +386,11 @@ PinnedFile pin_file(const std::filesystem::path& path, std::string_view expected
     return {copy ? std::move(frozen) : std::move(source), std::move(actual), before.st_mode, total};
 }
 
-void validate_destination(std::string_view path) {
+void validate_destination(std::string_view path, SandboxIsolation isolation = SandboxIsolation::Strict) {
     (void)path_parts(path, true);
+    if (isolation == SandboxIsolation::StandardCgroupV1 && path != "/etc/ld.so.cache" &&
+        path != "/etc/nsswitch.conf" && path != "/etc/passwd" && path != "/etc/group")
+        diagnostic_error(ErrorCode::Unauthorized, "destination_refused", "destination", "standard runtime files must use a fixed /etc destination");
     const auto prefix = [&](std::string_view root) { return path.starts_with(root) && path.size() > root.size(); };
     if (!prefix("/usr/bin/") && !prefix("/usr/lib/") && !prefix("/bin/") &&
         !prefix("/lib/") && !prefix("/lib64/") && !prefix("/usr/lib64/") &&
@@ -419,12 +422,12 @@ std::string mountinfo_path(std::string_view encoded) {
     return decoded;
 }
 
-void verify_workspace_mounts(std::string_view mountinfo) {
+void verify_private_mount(std::string_view mountinfo, std::string_view target, bool read_only) {
     if (!bounded_text(mountinfo, 262144) || mountinfo.empty())
         throw Error(ErrorCode::Corrupt, "sandbox mountinfo is empty or exceeds bound");
     std::istringstream lines{std::string(mountinfo)};
     std::size_t records = 0;
-    std::size_t workspace_mounts = 0;
+    std::size_t matching_mounts = 0;
     for (std::string line; std::getline(lines, line); ) {
         if (++records > 1024) throw Error(ErrorCode::Corrupt, "sandbox mount count exceeds bound");
         std::istringstream row(line);
@@ -434,8 +437,8 @@ void verify_workspace_mounts(std::string_view mountinfo) {
         const auto point = mountinfo_path(encoded_point);
         // bwrap binds directories recursively. A same-device bind mount is
         // still outside the workspace boundary and must not evade this check.
-        if (point.starts_with("/work/"))
-            throw Error(ErrorCode::Unauthorized, "workspace contains a nested mount");
+        if (point.starts_with(std::string(target) + "/"))
+            throw Error(ErrorCode::Unauthorized, "sandbox mount contains a nested mount");
         bool separator = false;
         bool propagation = false;
         for (std::string field; row >> field; ) {
@@ -446,21 +449,54 @@ void verify_workspace_mounts(std::string_view mountinfo) {
         std::string filesystem, source, super_options, extra;
         if (!separator || !(row >> filesystem >> source >> super_options) || row >> extra)
             throw Error(ErrorCode::Corrupt, "malformed sandbox mountinfo record");
-        if (point == "/work") {
-            ++workspace_mounts;
+        if (point == target) {
+            ++matching_mounts;
             // A slave bind can receive later host submounts even after this
             // snapshot. Require a private workspace mount; never repair the
             // host's propagation settings from this runner.
             if (propagation)
-                throw Error(ErrorCode::Unauthorized, "workspace mount can receive host mount propagation");
+                throw Error(ErrorCode::Unauthorized, "sandbox mount can receive host mount propagation");
             const std::string flags = "," + options + ",";
-            if (flags.find(",rw,") == std::string::npos || flags.find(",nosuid,") == std::string::npos ||
+            if (flags.find(read_only ? ",ro," : ",rw,") == std::string::npos ||
+                flags.find(read_only ? ",rw," : ",ro,") != std::string::npos || flags.find(",nosuid,") == std::string::npos ||
                 flags.find(",nodev,") == std::string::npos)
-                throw Error(ErrorCode::Unauthorized, "workspace mount lacks required rw/nosuid/nodev flags");
+                throw Error(ErrorCode::Unauthorized, "sandbox mount lacks required access/nosuid/nodev flags");
         }
     }
-    if (workspace_mounts != 1)
-        throw Error(ErrorCode::Unauthorized, "sandbox must contain exactly one workspace mount");
+    if (matching_mounts != 1)
+        throw Error(ErrorCode::Unauthorized, "sandbox must contain exactly one mount at the required destination");
+}
+
+void verify_workspace_mounts(std::string_view mountinfo) {
+    verify_private_mount(mountinfo, "/work", false);
+}
+
+struct StandardRuntime {
+    Fd root;
+    struct stat identity{};
+    std::vector<std::string> links;
+};
+
+StandardRuntime pin_standard_runtime() {
+    StandardRuntime runtime{open_absolute("/usr", true), {}, {}};
+    if (::fstat(runtime.root.get(), &runtime.identity) != 0) system_error("inspect standard runtime root");
+    const auto trusted = [](const struct stat& info) {
+        if (!S_ISDIR(info.st_mode) || info.st_uid != 0 || (info.st_mode & 0022) != 0)
+            diagnostic_error(ErrorCode::Unauthorized, "owner_mode_refused", "runtime_tree", "standard runtime directories must be root-owned and not group/other writable");
+    };
+    trusted(runtime.identity);
+    // Fixed compatibility links only; never import a host /bin or /lib tree.
+    // The trusted /usr tree is not a frozen byte manifest or a package receipt.
+    for (const auto* name : {"bin", "sbin", "lib", "lib32", "lib64", "libx32"}) {
+        struct stat target{};
+        if (::fstatat(runtime.root.get(), name, &target, AT_SYMLINK_NOFOLLOW) != 0) {
+            if (errno == ENOENT && std::string_view(name) != "bin" && std::string_view(name) != "lib") continue;
+            system_error("inspect standard runtime compatibility directory");
+        }
+        trusted(target);
+        runtime.links.emplace_back(name);
+    }
+    return runtime;
 }
 
 struct statx workspace_node(int directory, const char* name) {
@@ -525,6 +561,8 @@ std::size_t verify_workspace_tree(int root) {
 
 #ifndef WLS_SANDBOX_SUPERVISOR_TEST_ONLY
 void validate_policy_limits(const SandboxPolicy& policy) {
+    if (policy.isolation != SandboxIsolation::Strict && policy.isolation != SandboxIsolation::StandardCgroupV1)
+        diagnostic_error(ErrorCode::Unsupported, "policy_unsupported", "policy", "unsupported sandbox isolation policy");
     if (policy.runtime_files.size() > 128 || policy.memory_max_bytes < 16777216 ||
         policy.memory_max_bytes > 1099511627776ULL || policy.pids_max < 4 || policy.pids_max > 65536 ||
         policy.cpu_period_us < 1000 || policy.cpu_period_us > 1000000 ||
@@ -546,7 +584,7 @@ void validate_policy(const SandboxPolicy& policy) {
     std::set<std::string> destinations;
     for (const auto& file : policy.runtime_files) {
         (void)path_parts(file.source.string(), true);
-        validate_destination(file.destination);
+        validate_destination(file.destination, policy.isolation);
         if (!destinations.insert(file.destination).second)
             diagnostic_error(ErrorCode::InvalidInput, "destination_duplicate", "destination", "duplicate runtime mount destination");
     }
@@ -1195,6 +1233,7 @@ void bound_sandbox_doctor_report(Json& report) {
         if (!budget_counted) { ++not_checked; budget_counted = true; }
         object["complete"] = false;
         object["strong_prerequisites"] = false;
+        object["selected_prerequisites"] = false;
         object["report_truncated"] = true;
         object["omitted_check_count"] = omitted;
         object["not_checked_count"] = not_checked;
@@ -1227,6 +1266,7 @@ void bound_sandbox_doctor_report(Json& report) {
             object["inputs"] = boost::json::object{{"omitted_due_to_report_budget", true}};
             object["evidence"] = boost::json::object{{"probe", "read-only-prerequisites"},
                 {"programs_executed", 0}, {"namespace_execution_tested", false},
+                {"execution_verified", false}, {"resource_enforcement", "cgroup-v2"},
                 {"weak_fallback_available", false}, {"network", "none"}, {"observations_omitted", true}};
             if (canonical_json(report).size() > doctor_max_report_bytes)
                 throw Error(ErrorCode::InvalidInput, "doctor report contains unsupported oversized extension fields");
@@ -1241,6 +1281,7 @@ Json to_json(const SandboxDoctor& result) {
         {"linux_supported", result.linux_supported}, {"bwrap_available", result.bwrap_available},
         {"cgroup_v2", result.cgroup_v2}, {"delegated_root_ready", result.delegated_root_ready},
         {"runtime_files_ready", result.runtime_files_ready}, {"strong_prerequisites", result.strong_prerequisites},
+        {"selected_isolation", result.selected_isolation}, {"selected_prerequisites", result.selected_prerequisites},
         {"issues", std::move(issues)}, {"evidence", result.evidence},
         {"report_format", result.report_format}, {"inputs", result.inputs}, {"checks", result.checks},
         {"complete", result.complete}, {"not_checked_count", result.not_checked_count}, {"limitations", result.limitations},
@@ -1254,11 +1295,15 @@ Json to_json(const SandboxDoctor& result) {
 SandboxDoctor sandbox_doctor(const SandboxPolicy& policy) {
     using namespace sandbox_detail;
     SandboxDoctor result;
+    const bool standard = policy.isolation == SandboxIsolation::StandardCgroupV1;
+    result.selected_isolation = standard ? "standard-cgroup-v1" : "strict";
     result.linux_supported = true;
     auto& evidence = result.evidence.as_object();
     evidence["probe"] = "read-only-prerequisites";
     evidence["programs_executed"] = 0;
     evidence["namespace_execution_tested"] = false;
+    evidence["execution_verified"] = false;
+    evidence["resource_enforcement"] = "cgroup-v2";
     evidence["weak_fallback_available"] = false;
     evidence["network"] = "none";
     result.limitations = boost::json::array{
@@ -1302,7 +1347,7 @@ SandboxDoctor sandbox_doctor(const SandboxPolicy& policy) {
     auto manifest_check = doctor_check("runtime.manifest", "runtime_manifest", "", true,
         boost::json::object{{"max_files", 128}, {"max_file_bytes", runtime_max_file_bytes}, {"max_total_bytes", runtime_max_total_bytes}});
     manifest_check["observed"] = boost::json::object{{"file_count", policy.runtime_files.size()}};
-    if (policy.runtime_files.empty())
+    if (!standard && policy.runtime_files.empty())
         doctor_reason(manifest_check, "runtime_manifest_empty", "no trusted runtime file manifest configured", "manifest");
     else if (policy.runtime_files.size() > 128)
         doctor_reason(manifest_check, "policy_unsupported", "runtime file count exceeds 128", "manifest");
@@ -1311,7 +1356,7 @@ SandboxDoctor sandbox_doctor(const SandboxPolicy& policy) {
     boost::json::array runtime_inputs;
     boost::json::array runtime_evidence;
     RuntimeReadBudget runtime_budget(runtime_max_total_bytes);
-    bool all_files_read = !policy.runtime_files.empty() && policy.runtime_files.size() <= 128;
+    bool all_files_read = (standard || !policy.runtime_files.empty()) && policy.runtime_files.size() <= 128;
     std::set<std::string> destinations;
     const auto count = std::min<std::size_t>(policy.runtime_files.size(), 128);
     for (std::size_t index = 0; index < count; ++index) {
@@ -1326,7 +1371,7 @@ SandboxDoctor sandbox_doctor(const SandboxPolicy& policy) {
             boost::json::object{{"sha256", doctor_text(file.expected_sha256, 64)}, {"max_bytes", runtime_max_file_bytes}}, file.destination);
         try {
             (void)path_parts(file.source.native(), true);
-            validate_destination(file.destination);
+            validate_destination(file.destination, policy.isolation);
             if (!destinations.insert(file.destination).second)
                 diagnostic_error(ErrorCode::InvalidInput, "destination_duplicate", "destination", "duplicate runtime mount destination");
             auto& observed = check.at("observed").as_object();
@@ -1347,6 +1392,19 @@ SandboxDoctor sandbox_doctor(const SandboxPolicy& policy) {
     evidence["runtime_bytes_read"] = runtime_budget.consumed();
     evidence["runtime_read_budget_remaining"] = runtime_budget.remaining();
     result.runtime_files_ready = all_files_read;
+    if (standard) {
+        auto check = doctor_check("runtime.tree", "runtime_tree", "/usr", true,
+            boost::json::object{{"root_owned", true}, {"group_other_writable", false}, {"byte_frozen", false}});
+        try {
+            const auto runtime = pin_standard_runtime();
+            boost::json::array links;
+            for (const auto& name : runtime.links) links.emplace_back("/" + name);
+            check["observed"] = boost::json::object{{"device", static_cast<std::uint64_t>(runtime.identity.st_dev)},
+                {"inode", static_cast<std::uint64_t>(runtime.identity.st_ino)}, {"compatibility_links", std::move(links)},
+                {"mount_execution_verified", false}};
+        } catch (const std::exception& error) { doctor_failure(check, error); }
+        doctor_append(result, std::move(check));
+    }
 
     auto root_check = doctor_check("cgroup.root", "cgroup_root", policy.cgroup_root.native(), true,
         boost::json::object{{"filesystem", "cgroup2"}, {"dedicated_subtree", true}});
@@ -1447,20 +1505,30 @@ SandboxDoctor sandbox_doctor(const SandboxPolicy& policy) {
             const bool boolean_setting = std::string_view(path) != "/proc/sys/user/max_user_namespaces";
             if (token.empty() || parsed.ec != std::errc{} || parsed.ptr != token.data() + token.size() || (boolean_setting && number > 1))
                 doctor_reason(check, "auxiliary_value_unknown", "kernel auxiliary value is outside the known bounded integer form", "interpretation");
-            else check.at("observed").as_object()["integer_value"] = number;
+            else {
+                check.at("observed").as_object()["integer_value"] = number;
+                const bool apparmor = std::string_view(path).ends_with("apparmor_restrict_unprivileged_userns");
+                if (!apparmor && number == 0) {
+                    policy_valid = false;
+                    doctor_reason(check, "user_namespaces_disabled", "observed kernel setting disables unprivileged user namespaces", "interpretation");
+                } else if (apparmor && number == 1)
+                    doctor_reason(check, "namespace_policy_unverified", "AppArmor user namespace policy requires a separate permitted launcher execution; no execution was attempted", "interpretation");
+            }
         } catch (const std::exception& error) { evidence[path] = "unavailable"; doctor_failure(check, error); }
         doctor_append(result, std::move(check));
     }
     bool required_ready = true;
     for (const auto& check : result.checks.as_array())
         if (check.at("required_for_prerequisites").as_bool() && check.at("status") != "observed_ok") required_ready = false;
-    result.strong_prerequisites = policy_valid && result.complete && required_ready && result.bwrap_available &&
+    result.selected_prerequisites = policy_valid && result.complete && required_ready && result.bwrap_available &&
         result.runtime_files_ready && result.cgroup_v2 && result.delegated_root_ready && result.issues.empty();
+    result.strong_prerequisites = !standard && result.selected_prerequisites;
     // Apply the serialization bound to the library result as well as JSON
     // callers; no public boolean may claim readiness after omitted evidence.
     const auto bounded = to_json(result);
     result.complete = bounded.at("complete").as_bool();
     result.strong_prerequisites = bounded.at("strong_prerequisites").as_bool();
+    result.selected_prerequisites = bounded.at("selected_prerequisites").as_bool();
     result.not_checked_count = static_cast<std::size_t>(doctor_count(bounded.as_object(), "not_checked_count"));
     result.report_truncated = bounded.at("report_truncated").as_bool();
     result.omitted_check_count = static_cast<std::size_t>(doctor_count(bounded.as_object(), "omitted_check_count"));
@@ -1510,6 +1578,7 @@ SandboxDoctor ProcessRunner::doctor() const { return sandbox_doctor(policy_); }
 
 ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token stop) const {
     ProcessResult result;
+    const bool standard = policy_.isolation == SandboxIsolation::StandardCgroupV1;
     bool locked = false;
     std::unique_lock instance_lock(run_mutex_, std::try_to_lock);
     result.evidence = boost::json::object{{"network", "none"}, {"weak_fallback_available", false}, {"side_effects_undone", false}};
@@ -1532,8 +1601,9 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
         }
         const auto workspace_entries = verify_workspace_tree(workspace_fd_);
         result.evidence.as_object()["workspace_audited_entries"] = workspace_entries;
-        if (policy_.cgroup_root.empty() || policy_.runtime_files.empty())
-            throw Error(ErrorCode::Unsupported, "strong execution requires configured runtime files and a dedicated delegated cgroup root");
+        if (policy_.cgroup_root.empty() || (!standard && policy_.runtime_files.empty()))
+            throw Error(ErrorCode::Unsupported, standard ? "standard execution requires a dedicated delegated cgroup root; no rlimit fallback is available" :
+                "strong execution requires configured runtime files and a dedicated delegated cgroup root");
         if (!hash_string(policy_.expected_bwrap_sha256) ||
             std::any_of(policy_.runtime_files.begin(), policy_.runtime_files.end(), [](const auto& file) {
                 return !hash_string(file.expected_sha256);
@@ -1541,6 +1611,8 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
             throw Error(ErrorCode::InvalidInput, "strong execution requires frozen SHA-256 for bubblewrap and every runtime file");
         const auto workspace_before = observe_process_workspace(workspace_fd_);
         auto launcher = pin_file(policy_.bwrap_path, policy_.expected_bwrap_sha256, true, false);
+        std::optional<StandardRuntime> runtime_tree;
+        if (standard) runtime_tree.emplace(pin_standard_runtime());
         std::vector<PinnedFile> runtime_files;
         std::uint64_t total = 0;
         for (const auto& file : policy_.runtime_files) {
@@ -1574,6 +1646,12 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
         // Never pass a host directory fd into bwrap's descendants. bwrap
         // closes --block-fd and --ro-bind-data fds before the command exec.
         child.mappings.push_back({gate_pipe[0].get(), 5});
+        if (runtime_tree) {
+            child.argv.insert(child.argv.end(), {"--ro-bind", "/proc/" + std::to_string(::getpid()) +
+                "/fd/" + std::to_string(runtime_tree->root.get()), "/usr"});
+            for (const auto& name : runtime_tree->links)
+                child.argv.insert(child.argv.end(), {"--symlink", "usr/" + name, "/" + name});
+        }
         boost::json::array hashes;
         for (std::size_t i = 0; i < runtime_files.size(); ++i) {
             const auto number = static_cast<int>(10 + i);
@@ -1592,6 +1670,7 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
         child.argv.insert(child.argv.end(), request.argv.begin(), request.argv.end());
         bool workspace_verified = false;
         bool namespaces_verified = false;
+        bool runtime_verified = false;
         bool released = false;
         struct stat workspace_identity{};
         struct stat host_root{};
@@ -1625,7 +1704,18 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
                 mounted_workspace.st_ino != workspace_identity.st_ino)
                 throw Error(ErrorCode::Unauthorized, "actual sandbox workspace mount differs from its pinned root");
             const auto blocked_process = open_absolute(prefix, true);
-            verify_workspace_mounts(read_at(blocked_process.get(), "mountinfo", 262144));
+            const auto mounts = read_at(blocked_process.get(), "mountinfo", 262144);
+            verify_workspace_mounts(mounts);
+            if (runtime_tree) {
+                struct stat mounted{};
+                if (::stat((prefix + "/root/usr").c_str(), &mounted) != 0)
+                    system_error("cannot attest blocked standard runtime");
+                if (!S_ISDIR(mounted.st_mode) || mounted.st_dev != runtime_tree->identity.st_dev ||
+                    mounted.st_ino != runtime_tree->identity.st_ino || mounted.st_uid != 0 || (mounted.st_mode & 0022) != 0)
+                    throw Error(ErrorCode::Unauthorized, "actual standard runtime differs from its trusted pinned root");
+                verify_private_mount(mounts, "/usr", true);
+                runtime_verified = true;
+            }
             for (const auto* ns : {"mnt", "user", "pid", "ipc", "uts", "net", "cgroup"}) {
                 struct stat host_ns{};
                 struct stat child_ns{};
@@ -1693,18 +1783,30 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
         // Empty exec-error EOF alone is ambiguous if SIGKILL preceded exec;
         // production confirms launcher execution with bwrap's own record.
         result.launcher_exec_confirmed = result.launcher_exec_confirmed && reported_startup;
-        result.strong_isolation = result.launcher_exec_confirmed && workspace_verified && namespaces_verified &&
-                                  released && !supervised.status_overflow;
+        const bool isolation_verified = result.launcher_exec_confirmed && workspace_verified && namespaces_verified &&
+            released && !supervised.status_overflow && (!standard || runtime_verified);
+        result.strong_isolation = !standard && isolation_verified;
+        if (standard) {
+            evidence["proof_format"] = "wls-process-proof-standard-cgroup-v1";
+            evidence["isolation_policy"] = "standard-cgroup-v1";
+            evidence["isolation_verified"] = isolation_verified;
+            evidence["resource_enforcement"] = "cgroup-v2";
+            evidence["runtime_mounts"] = boost::json::array{boost::json::object{
+                {"source", "/usr"}, {"destination", "/usr"}, {"read_only", runtime_verified},
+                {"nosuid", runtime_verified}, {"nodev", runtime_verified}, {"private", runtime_verified}, {"no_submounts", runtime_verified},
+                {"device", static_cast<std::uint64_t>(runtime_tree->identity.st_dev)},
+                {"inode", static_cast<std::uint64_t>(runtime_tree->identity.st_ino)}, {"verified", runtime_verified}}};
+        }
         evidence["workspace_mount_verified"] = workspace_verified;
         evidence["namespaces_verified"] = namespaces_verified;
         evidence["command_start_released"] = released;
         evidence["sandbox_setup_and_command_exit_reported"] = reported_exit;
         evidence["bwrap_status"] = std::move(status_records);
-        if ((!result.strong_isolation || !reported_exit) && result.status == ProcessStatus::Exited) {
+        if ((!isolation_verified || !reported_exit) && result.status == ProcessStatus::Exited) {
             result.status = ProcessStatus::SpawnFailed;
             add_error(result.error, "bubblewrap did not confirm sandbox setup and command exit");
         }
-        if (result.strong_isolation && result.all_descendants_exited) {
+        if (isolation_verified && result.all_descendants_exited) {
             const auto after = observe_process_workspace(workspace_fd_);
             evidence["workspace_observation"] = process_workspace_changes(workspace_before, after);
         }

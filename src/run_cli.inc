@@ -374,10 +374,26 @@ int run_request(Options& options, const RuntimeResources& resources) {
     const auto constraints = options.take("--constraints-file");
     if (!constraints.empty()) input.constraint_catalog = parse_json_strict(read_runtime_file(run_absolute(constraints)));
     validate_constraint_catalog_shape(input.constraint_catalog);
-    const auto digest = sha256_hex(canonical_json(Object{{"format", "run-key-v1"}, {"text", input.original_text},
-        {"constraints", input.constraint_catalog}, {"config_locator", locator.string()}}));
-    input.request_id = run_request_id(digest); input.idempotency_key = "run-key-v1:" + digest;
-    const auto grants = frozen.worker_tools(); input.tool_allowlist.assign(grants.begin(), grants.end());
+    const auto manifest_path = options.take("--sandbox-manifest");
+    const auto manifest_bytes = manifest_path.empty() ? std::string{} : read_runtime_file(run_absolute(manifest_path), 262144);
+    const auto manifest = manifest_path.empty() ? Json(Object{}) : parse_json_strict(manifest_bytes, 262144);
+    Object run_key{{"format", "run-key-v1"}, {"text", input.original_text},
+        {"constraints", input.constraint_catalog}, {"config_locator", locator.string()}};
+    auto grants = frozen.worker_tools();
+    if (!manifest_path.empty()) {
+        run_key["format"] = "run-key-sandbox-v1";
+        run_key["config_snapshot_sha256"] = frozen.sha256();
+        run_key["sandbox_manifest_sha256"] = sha256_hex(manifest_bytes);
+        for (const auto& entry : frozen.json().at("function").at("team_templates").as_object()) {
+            const std::string template_id(entry.key());
+            static_cast<void>(worker_sandbox_policy(frozen, template_id, manifest));
+            const auto tools = frozen.worker_tools(template_id);
+            grants.insert(tools.begin(), tools.end());
+        }
+    }
+    const auto digest = sha256_hex(canonical_json(run_key));
+    input.request_id = run_request_id(digest); input.idempotency_key = text(run_key.at("format")) + ":" + digest;
+    input.tool_allowlist.assign(grants.begin(), grants.end());
     const auto& defaults = frozen.json().at("system").at("budget_defaults");
     input.budget.max_attempts = frozen.max_total_calls();
     input.budget.input_tokens = defaults.at("max_input_tokens").is_null() ? 1000000 : integer(defaults.at("max_input_tokens"));
@@ -421,10 +437,12 @@ int run_request(Options& options, const RuntimeResources& resources) {
         {"max_batch_duration_ms", std::min<std::int64_t>(3600000, duration * frozen.max_total_calls())}, {"reserved_cost_micro_usd", reservation}};
     auto authorized = live_cli_authorization(authorization);
     validate_live_workflow_config(frozen, authorized.workflow);
-    const Json admission = Object{{"run_key_sha256", digest}, {"request_id", input.request_id}, {"config_locator", locator.string()},
+    Json admission = Object{{"run_key_sha256", digest}, {"request_id", input.request_id}, {"config_locator", locator.string()},
         {"original_text", input.original_text}, {"constraints", input.constraint_catalog}, {"config_snapshot", input.config_snapshot},
         {"budget", Object{{"max_attempts", input.budget.max_attempts}, {"input_tokens", input.budget.input_tokens},
             {"output_tokens", input.budget.output_tokens}, {"cost_micro_usd", input.budget.cost_micro_usd}}}};
+    if (!manifest_path.empty()) admission.as_object()["sandbox"] = Object{
+        {"manifest", manifest}, {"raw_sha256", sha256_hex(manifest_bytes)}, {"run_key_format", "run-key-sandbox-v1"}};
     RunLayout preflight(data, input.request_id, admission, false);
     const MigrationRegistry migrations(resources);
     const auto database = data / "requests" / input.request_id / "control.sqlite";
@@ -473,7 +491,7 @@ int run_request(Options& options, const RuntimeResources& resources) {
                 data / "requests" / input.request_id / "workspaces", "run-workspace-v1:" + text(task.at("team_id")));
             const auto path = text(resource.at("identity").at("workspace_identity").at("path"));
             auto& owner = owners[text(task.at("team_id"))];
-            if (!owner) owner = std::make_unique<WorkerTools>(store, path);
+            if (!owner) owner = std::make_unique<WorkerTools>(store, path, manifest);
             return owner.get();
         };
         report = EventRuntime(store, SchemaRegistry(resources.schema_documents()), {}, resolver).pump_live(

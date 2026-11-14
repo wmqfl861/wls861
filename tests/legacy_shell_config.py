@@ -7,7 +7,8 @@ def select_legacy_shell(functions):
     path = functions / 'general/function.yaml'
     text = path.read_text(encoding='utf-8')
     assert '  shell:\n' in text and '  default:\n' in text
-    path.write_text(text.replace('  default:\n', '  files_original:\n', 1)
+    path.write_text(text.replace('    isolation: standard\n', '    isolation: strong\n')
+                       .replace('  default:\n', '  files_original:\n', 1)
                        .replace('  shell:\n', '  default:\n', 1), encoding='utf-8')
 
 
