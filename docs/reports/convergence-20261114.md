@@ -30,4 +30,4 @@ G4-A1/B 已由 [#97](https://github.com/wmqfl861/wls861/pull/97) 合入，两个
 
 保险包 `wls861-all-refs.bundle`（31,030,689 bytes，SHA-256 见附表）及外移的 127 个原始证据文件（6,480,676 bytes，哈希已核对）至少保留至 **2026-12-14**。main 已禁止强推和删除，合并后自动删分支已开启。
 
-收尾后以 [converged-20261114](https://github.com/wmqfl861/wls861/tree/converged-20261114) 和该提交的 [main 完整矩阵](https://github.com/wmqfl861/wls861/actions/workflows/ci.yml?query=branch%3Amain) 查询最终结果；本页保留上述时点，不为回写自身再开 PR。N3 随本报告落实；N1、N2 尚未实施，之后等待密钥。
+收尾补记：Step 8 七项标准已在 [converged-20261114](https://github.com/wmqfl861/wls861/tree/converged-20261114)（`f4fbb62`）全部通过；该提交的[完整矩阵 43563602465](https://github.com/wmqfl861/wls861/actions/runs/43563602465)九作业及 [source](https://github.com/wmqfl861/wls861/actions/runs/43563602500)通过，四组 ASan 为 24.86 / 26.15 / 24.58 / 48.35 秒，87 个注册均未超过时限一半。随后 [N2 #99](https://github.com/wmqfl861/wls861/pull/99)、[N1 #100](https://github.com/wmqfl861/wls861/pull/100)完成并合入，N3 已随原报告完成；现在等待密钥。标签继续指向原收敛点，上述历史清理快照保留；后续 main 的完整矩阵见[最新 Actions](https://github.com/wmqfl861/wls861/actions/workflows/ci.yml?query=branch%3Amain)，不以旧收敛点的通过替代后续提交验证。
