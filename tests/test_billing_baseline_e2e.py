@@ -1514,6 +1514,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             summary = json.loads(result.stdout)
             self.assertEqual(summary['status'], 'RUNNING')
             self.assertEqual(summary['stop_reason'], 'total_call_limit')
+            self.assertIn('cannot add attempts', summary['blockers'][0]['next_step'])
             self.assertIsNone(summary['delivery_path'])
             self.assertEqual(len(peer.requests), 30)
             request = limited['data'] / 'requests' / summary['request_id']
@@ -1707,6 +1708,7 @@ class BillingBaselineIntegration(unittest.TestCase):
                     after = json.loads(resumed.stdout)
                     self.assertEqual(after['budget']['attempts'], 2)
                     self.assertEqual(after['blockers'][0]['code'], 'quota')
+                    self.assertIn('cannot add attempts', after['blockers'][0]['next_step'])
                     self.assertTrue(after['accounting']['ready'])
                     self.assertEqual(len(peer.requests), 2)
                     self.assertEqual(rows(database, 'SELECT * FROM call_attempts')[0], original)
@@ -1730,6 +1732,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(first.returncode, 0, first.stderr)
             summary = json.loads(first.stdout)
             self.assertEqual(len(peer.requests), 2, summary)
+            self.assertIn('two consecutive truncated outputs', summary['blockers'][0]['next_step'])
             self.assertEqual(summary['budget']['spent_cost'], 2 * PRICED_UNIT_MICRO_USD)
             self.assertTrue(summary['accounting']['ready'])
             self.assertIn('max_output_tokens', json.dumps(json.loads(peer.requests[1]['body'])['input']))
@@ -1743,6 +1746,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(len(peer.requests), 2)
             self.assertEqual(rows(database, 'SELECT * FROM call_attempts'), originals)
             self.assertEqual(json.loads(again.stdout)['budget']['spent_cost'], 2 * PRICED_UNIT_MICRO_USD)
+            self.assertIn('cannot continue', json.loads(again.stdout)['blockers'][0]['next_step'])
 
     def test_09c_one_dollar_uses_body_bound_and_rejects_output_alone_over_budget(self):
         with tls.Peer(self.contexts['server'], PricingFlowEndpoint(initialize_seed=True)) as peer:
@@ -1766,6 +1770,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             stopped = json.loads(too_small.stdout)
             self.assertEqual(stopped['budget']['attempts'], 0)
             self.assertEqual(stopped['blockers'][0]['code'], 'quota')
+            self.assertIn('cannot raise those limits', stopped['blockers'][0]['next_step'])
             self.assertEqual(len(peer.requests), 0)  # Output fits; complete request body does not.
             started = self.invoke_run(case, '--yes')
             self.assertEqual(started.returncode, 0, started.stderr)
@@ -1774,6 +1779,39 @@ class BillingBaselineIntegration(unittest.TestCase):
             bound = (len(peer.requests[0]['body']) * 1250000 + 32768 * 10000000 + 999999) // 1000000
             self.assertLess(bound, 1000000)
             self.assertEqual(rows(database, 'SELECT reserved_cost FROM call_attempts')[0]['reserved_cost'], bound)
+
+    def test_09d_stop_guidance_distinguishes_frozen_limits_and_explicit_retries(self):
+        def rejected(peer, connection):
+            peer.request(connection)
+            value = json.loads(tls.response_body(tool=True))
+            value['output'][0].update(name='submit_plan', arguments='{}')
+            body = tls.encoded(value)
+            connection.sendall(tls.headers(len(body)) + body)
+        with tls.Peer(self.contexts['server'], rejected) as peer:
+            for retries, repeats, expected in ((0, 3, 'Run the same command again'),
+                    (1, 3, 'consecutive-correction limit'), (10, 1, 'persistent same-error limit')):
+                case = self.run_inputs('stop-guidance-' + str(retries), peer)
+                case['system']['context']['schema_retry_max'] = retries
+                case['system']['limits']['stall_same_error_repeats'] = repeats
+                write_json(case['configuration'], case['system'])
+                before = len(peer.requests)
+                for _ in range(2):
+                    result = self.invoke_run(case, '--yes')
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    summary = json.loads(result.stdout)
+                    self.assertIn(expected, summary['blockers'][0]['next_step'])
+                    if retries:
+                        self.assertIn('new request', summary['blockers'][0]['next_step'])
+                self.assertEqual(len(peer.requests) - before, 2 if retries == 0 else 1)
+            database = next(case['data'].glob('requests/*/control.sqlite'))
+            with closing(sqlite3.connect(database)) as connection, connection:
+                connection.execute("UPDATE requests SET created_at='2000-01-01T00:00:00Z',state_version=state_version+1")
+            expired = self.invoke_run(case, '--yes')
+            self.assertEqual(expired.returncode, 0, expired.stderr)
+            summary = json.loads(expired.stdout)
+            self.assertEqual(summary['stop_reason'], 'wall_clock_exceeded')
+            self.assertIn('cannot reset max_wall_minutes', summary['blockers'][0]['next_step'])
+            self.assertEqual(len(peer.requests), before + 1)
 
     def test_09b_run_resumes_exact_intent_after_empty_store_initialization(self):
         endpoint = PricingFlowEndpoint(initialize_seed=True)
@@ -2446,6 +2484,7 @@ RUN_TEST_METHODS = frozenset((
     'test_09a_unsigned_failures_charge_original_usage_or_reservation_and_resume',
     'test_09b_output_limit_feedback_is_sent_and_two_originals_stop_across_runs',
     'test_09c_one_dollar_uses_body_bound_and_rejects_output_alone_over_budget',
+    'test_09d_stop_guidance_distinguishes_frozen_limits_and_explicit_retries',
     'test_09b_run_resumes_exact_intent_after_empty_store_initialization',
 ))
 G1_TEST_METHODS = frozenset((

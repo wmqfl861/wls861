@@ -337,11 +337,31 @@ Json run_summary(Store& store, const std::string& id, const Json& report, const 
         for (const auto* key : {"code", "role", "node_id", "task_id"}) if (blocked.as_object().contains(key)) safe[key] = blocked.at(key);
         const auto code = text(safe.at("code"));
         safe["reason"] = blocked.as_object().contains("reason") ? runtime_diagnostic(text(blocked.at("reason"))) : code;
-        safe["next_step"] = code == "waiting" || code == "rework_blocked" ? "Answer the pending question." :
-            code == "unknown_outcome" || code == "operation_incomplete" ? "Reconcile file effects before continuing." :
+        const auto reason = text(safe.at("reason"));
+        std::string limit;
+        if (report.at("stop_reason") == "wall_clock_exceeded" || reason == "wall_clock_exceeded")
+            limit = "This request's wall-clock deadline has expired; repeating the command cannot reset max_wall_minutes.";
+        else if ((code == "quota" || code == "call_limit" || report.at("stop_reason") == "total_call_limit") &&
+                 integer(budget.at("attempts")) >= integer(budget.at("max_attempts")))
+            limit = "This request's frozen model attempt limit is exhausted; repeating the command cannot add attempts.";
+        else if (code == "correction_limit" && config.schema_retry_max() > 0)
+            limit = "The current target reached its consecutive-correction limit; repeating the command cannot clear that count.";
+        else if (code == "stall_same_error_repeats" || (code == "not_ready" && reason == "stall_same_error_repeats"))
+            limit = "The current target reached its persistent same-error limit; repeating the command cannot clear that count.";
+        else if (code == "not_ready" && reason == "max_output_tokens: two consecutive incomplete responses")
+            limit = "The current target has two consecutive truncated outputs; repeating the command cannot continue it. Increase the role's maximum output or split the task.";
+        else if (code == "quota" && (reason == "original model budget exhausted before credential lookup" ||
+                 reason == "model input budget exhausted" || reason == "model output budget exhausted" ||
+                 reason == "model cost budget exhausted" || reason == "bounded output or context budget exhausted"))
+            limit = "The next model call exceeds the remaining frozen budget or context capacity; repeating the command cannot raise those limits. Reconcile any pending accounting first.";
+        if (!limit.empty()) limit += " To use adjusted limits, start a new request: change the request text or copy the configuration to a new directory and use that configuration path.";
+        safe["next_step"] = code == "unknown_outcome" || code == "operation_incomplete" ? "Reconcile file effects before continuing." :
             code == "needs_accounting" ? "Reconcile the original model accounting before continuing." :
-            code == "invalid_input" || code == "unauthorized" || code == "quota" ? "Check the configuration and original request limits." :
+            !limit.empty() && (report.at("stop_reason") == "wall_clock_exceeded" || reason == "wall_clock_exceeded") ? limit :
+            code == "waiting" || code == "rework_blocked" ? "Answer the pending question." :
+            code == "invalid_input" || code == "unauthorized" || (code == "quota" && limit.empty()) ? "Check the configuration and original request limits." :
             code == "corrupt" || code == "storage" || code == "conflict" ? "Inspect the retained evidence and resolve the conflict before continuing." :
+            !limit.empty() ? limit :
             "Run the same command again after resolving this cause.";
         safe["summary"] = (safe.contains("role") ? text(safe.at("role")) : "root") + "/" +
             (safe.contains("node_id") && safe.at("node_id") != "" ? text(safe.at("node_id")) : id) + " [" + code + "]: " +
