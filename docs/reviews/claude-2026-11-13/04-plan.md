@@ -9,7 +9,7 @@
 | 顺序 | 阶段 | 内容 | 出口 | 状态 |
 | --- | --- | --- | --- | --- |
 | 1 | G2-P 真实模型就绪 | `03-fix-list.md` 的 P1 至 P8 | 预演门禁 `g2_rehearsal_e2e` 通过；版本升 0.12.0 | 已完成：#81 三核心各 84/84，通过后合入 main；整体门禁 12:12 |
-| 2 | G2 首个真实闭环 | 探针、冒烟、三交付物请求、报告、最多 3 个修复 | U1、U2；新格式冻结；蓝图迁入 `docs/spec/v0.5/`；版本升 0.13.0 | 等密钥；按 [11-14 补充](../claude-2026-11-14/04-next.md)收尾后做 N1/N2，N3 随收敛报告完成；密钥到位、手头 PR 合并后转 G2，真实调用仍为 0 |
+| 2 | G2 首个真实闭环 | 探针、冒烟、三交付物请求、报告、最多 3 个修复 | U1、U2；新格式冻结；蓝图迁入 `docs/spec/v0.5/`；版本升 0.13.0 | 等待密钥；N2 [#99](https://github.com/wmqfl861/wls861/pull/99)、N1 [#100](https://github.com/wmqfl861/wls861/pull/100)已合并，N3 已完成；密钥到位、手头 PR 合并后转 G2，真实调用仍为 0 |
 | 3 | G4 能跑命令 | 原计划，加 `03-fix-list.md` 第三部分的 G4 两项 | U3、U4 | C [#86](https://github.com/wmqfl861/wls861/pull/86) 与 A1/B [#97](https://github.com/wmqfl861/wls861/pull/97) 已合并，#84 已替代关闭；原生验收仍 BLOCKED，托管拒绝根因未定，见[收敛报告](../../reports/convergence-20261114.md)；`/input` 与环境卡片实际执行检查未完成 |
 | 4 | G3 对照评测 | 原计划 | 一页对照报告 | G3-A1 [#91](https://github.com/wmqfl861/wls861/pull/91) 与 A2 [#92](https://github.com/wmqfl861/wls861/pull/92) 已合并：plain 单 Worker 循环及 v4 三条件/15 格工具就绪；G3-B 真实对照与共同质量 oracle 未做 |
 | 5 起 | G5、G6、G7、G8、G9、G10 | 原计划 | 原计划 | G5-A/B [#87](https://github.com/wmqfl861/wls861/pull/87)、[#88](https://github.com/wmqfl861/wls861/pull/88) 与 G6-B1 [#93](https://github.com/wmqfl861/wls861/pull/93) 已合并；真实冒烟待密钥，整个 G6 未完成；按 D-26 暂不开始 G7 及以后功能阶段，空档仅做获准的构建/测试治理和文档精简 |

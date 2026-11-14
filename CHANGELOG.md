@@ -2,6 +2,10 @@
 
 ## 0.12.0 — G2-P model readiness (2026-11-13)
 
+- Complete the seven convergence criteria at `converged-20261114` (`f4fbb62`), with all nine full-matrix jobs passing; retain that original convergence tag.
+  Then merge fixed G2 output checks in [N2 #99](https://github.com/wmqfl861/wls861/pull/99) and accurate stop guidance with allowlisted failure categories in [N1 #100](https://github.com/wmqfl861/wls861/pull/100); both core gates pass 88/88 in all three configurations.
+  N1/N2/N3 are complete; await the owner's key. Version 0.12.0, Store 410, zero real/paid WLS calls and G4 native BLOCKED remain unchanged; see the [convergence report](docs/reports/convergence-20261114.md).
+
 - 2026-11-14 convergence: split the growing acceptance suite into four
   registrations and classify AGENTS/CHANGELOG as documentation in
   [#95](https://github.com/wmqfl861/wls861/pull/95), preserving cases,
