@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
+#include <exception>
 #include <mutex>
 #include <source_location>
 #include <thread>
@@ -197,6 +198,8 @@ bool contains(const Json& ids, const Json& id) {
     return std::find(ids.as_array().begin(), ids.as_array().end(), id) != ids.as_array().end();
 }
 
+#include "persistent_event_runtime_diagnostics.inc"
+
 void original_target_shape_is_checked_before_empty_subject() {
     const Json event = Object{{"type", "amend"}, {"subject_task_id", ""}};
     const Json empty = Object{{"items", Array{}}};
@@ -280,7 +283,13 @@ void two_requests_two_nodes_advance_without_callback_wave_barrier() {
     };
     runtime.add_request(first, script(), limits(5), factory);
     runtime.add_request(second, script(), limits(5), factory);
-    until(runtime, [&] { return gate->entered == 1 && sql_number(f.path, "SELECT count(*) FROM ops WHERE status='SUCCEEDED'") == 3; });
+    DeadlinePollObservation observed{runtime};
+    try {
+        until(observed, [&] { return gate->entered == 1 && sql_number(f.path, "SELECT count(*) FROM ops WHERE status='SUCCEEDED'") == 3; });
+    } catch (...) {
+        observe_failed_concurrency_wait(runtime, f.path, gate, models, first, second, observed, std::current_exception());
+        throw;
+    }
     CHECK(runtime.snapshot().outstanding == 1);
     CHECK(number(task(runtime.store(), first, "alpha"), "instruction_revision") == 0);
     CHECK(number(task(runtime.store(), first, "beta"), "applied_instruction_revision") == 1);
