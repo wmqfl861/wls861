@@ -9,6 +9,7 @@
 #include "test_support.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <fstream>
 #include <memory>
 #include <regex>
@@ -855,6 +856,37 @@ void lean_wire_projection_preserves_originals_and_ordered_prefix() {
     v3_five_round_encoded_prefix_and_originals(true);
 }
 
+// Private diagnostic observation only; this source is not a PR candidate.
+const auto capture_diagnostic_epoch = std::chrono::steady_clock::now();
+class CaptureDiagnosticPhase {
+public:
+    CaptureDiagnosticPhase(bool fixed, const char* mode, int round, const char* stage)
+        : fixed_(fixed), mode_(mode), round_(round) { next(stage); }
+    ~CaptureDiagnosticPhase() { finish(); }
+    void next(const char* stage) {
+        finish(); stage_ = stage; start_ = std::chrono::steady_clock::now();
+        emit("begin", start_, 0);
+    }
+    void finish() {
+        if (!stage_) return;
+        const auto now = std::chrono::steady_clock::now();
+        emit("end", now, std::chrono::duration_cast<std::chrono::microseconds>(now - start_).count());
+        stage_ = nullptr;
+    }
+private:
+    void emit(const char* event, std::chrono::steady_clock::time_point now, std::int64_t elapsed) const {
+        std::cerr << "DIAGNOSTIC fixed=" << fixed_ << " mode=" << mode_ << " round=" << round_
+                  << " stage=" << stage_ << " event=" << event << " t_us="
+                  << std::chrono::duration_cast<std::chrono::microseconds>(now - capture_diagnostic_epoch).count()
+                  << " elapsed_us=" << elapsed << std::endl;
+    }
+    bool fixed_;
+    const char* mode_;
+    int round_;
+    const char* stage_ = nullptr;
+    std::chrono::steady_clock::time_point start_;
+};
+
 struct V3Fixture {
     ::test::TempDir directory;
     wls::test::live::Assets assets{root};
@@ -863,6 +895,7 @@ struct V3Fixture {
     std::unique_ptr<Store> store;
     std::string id, task;
     explicit V3Fixture(const std::string& mode, int recent = 6, bool fixed = false, bool lean = false) {
+        CaptureDiagnosticPhase diagnostic(fixed, mode.c_str(), 0, "fixture_configuration");
         auto yaml = read_runtime_file(root / "config/examples/system.yaml");
         const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
         yaml.erase(yaml.find(tool_policy), tool_policy.size());
@@ -889,8 +922,13 @@ struct V3Fixture {
         admission.config_snapshot = frozen.json();
         const auto tools = frozen.worker_tools(); admission.tool_allowlist.assign(tools.begin(), tools.end());
         admission.budget = {64, 10000000, 1000000, 0};
-        reopen(); id = str(store->admit(admission), "request_id");
+        diagnostic.next("fixture_store_open");
+        reopen();
+        diagnostic.next("fixture_admit");
+        id = str(store->admit(admission), "request_id");
+        diagnostic.next("fixture_initial_script");
         (void)OfflineRuntime(*store, schemas).run(id, script("s1_fake_initial.json"));
+        diagnostic.next("fixture_task_lookup");
         task = str(store->tasks(id).front(), "task_id");
     }
     static std::vector<FakeModelStep> script(const std::string& name) {
@@ -914,11 +952,16 @@ struct V3Fixture {
 void v3_capture_reserve_restore_policy_combinations(bool lean = false) {
     for (const bool fixed : {false, true}) for (const auto* mode : {"worker", "manager", "single", "all"}) {
         if (lean && std::string_view(mode) != "all") continue; // One combined fixture covers all three independent history choices.
+        CaptureDiagnosticPhase diagnostic_fixture(fixed, mode, 0, "fixture_init_total");
         V3Fixture fixture(mode, 6, fixed, lean);
+        diagnostic_fixture.finish();
         Json prefix = nullptr;
         for (int round = 1; round <= (lean ? 2 : 5); ++round) {
+            CaptureDiagnosticPhase diagnostic_round(fixed, mode, round, "round_fake_setup");
             auto fake = fixture.note(round);
+            diagnostic_round.next("round_capture_reserve");
             const auto call = OfflineRuntime(*fixture.store, fixture.schemas).reserve_call(fake, fixture.id, Role::Worker, fixture.task, round);
+            diagnostic_round.next("round_envelope_restore_compare");
             const auto envelope = fixture.store->attempt(call.request.attempt_id).at("request_envelope");
             CHECK(envelope.at("format") == "wls-model-request-v3");
             CHECK(to_json(model_request_from_json(envelope)) == envelope);
@@ -930,19 +973,37 @@ void v3_capture_reserve_restore_policy_combinations(bool lean = false) {
                 CHECK(std::find(names.begin(), names.end(), "recall") == names.end());
                 CHECK(std::find(names.begin(), names.end(), "load_memory") == names.end());
             }
-            CHECK(OfflineRuntime(*fixture.store, fixture.schemas).accept_response(call, fake.complete(call.request)).is_object());
-            if (round == 2) fixture.reopen();
+            diagnostic_round.next("round_accept_runtime_setup");
+            {
+                auto diagnostic_runtime = OfflineRuntime(*fixture.store, fixture.schemas);
+                diagnostic_round.next("round_fake_complete");
+                const auto diagnostic_response = fake.complete(call.request);
+                diagnostic_round.next("round_accept_response");
+                CHECK(diagnostic_runtime.accept_response(call, diagnostic_response).is_object());
+            }
+            diagnostic_round.finish();
+            if (round == 2) {
+                CaptureDiagnosticPhase diagnostic_reopen(fixed, mode, round, "round2_reopen");
+                fixture.reopen();
+            }
         }
+        CaptureDiagnosticPhase diagnostic_final(fixed, mode, 0, "final_restore_config");
         const auto frozen = restore_request_config(fixture.store->request(fixture.id));
+        diagnostic_final.next("final_previous_context");
         const auto worker = fixture.store->host_actor(Role::Worker, fixture.id, fixture.store->binding(fixture.task).team_id);
         const auto prior = fixture.store->previous_context(worker);
+        diagnostic_final.next("final_reopen");
         fixture.reopen();
+        diagnostic_final.next("final_previous_context_compare");
         const auto current_worker = fixture.store->host_actor(Role::Worker, fixture.id, fixture.store->binding(fixture.task).team_id);
         CHECK(fixture.store->previous_context(current_worker) == prior);
+        diagnostic_final.next("final_capture_call");
         const auto call = OfflineRuntime(*fixture.store, fixture.schemas).capture_call(fixture.id, Role::Worker, fixture.task);
+        diagnostic_final.next("final_capture_checks");
         CHECK(call.request.context.logical_input.at("contract_anchor") == prior.at("input").at("contract_anchor"));
         CHECK(call.request.context.logical_input.at("contract_updates") == prior.at("input").at("contract_updates"));
         if (!frozen.logical_agent_policy().is_null()) {
+            diagnostic_final.next("final_transcript_restore_compare");
             const auto transcript = single_agent_transcript(fixture.id, frozen, fixture.store->logical_agent_history(current_worker));
             CHECK(call.request.context.logical_input.at("messages") == single_agent_messages_json(transcript.messages));
             CHECK(call.request.context.role == Role::Worker);
