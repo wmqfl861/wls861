@@ -57,6 +57,7 @@ add_library(wls_s1 STATIC
     src/migrations.cpp
     src/capacity.cpp
     src/store.cpp
+    src/store_capacity.cpp
     src/store_rework.cpp
     src/config_loader.cpp
     src/model.cpp

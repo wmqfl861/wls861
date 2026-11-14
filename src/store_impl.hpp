@@ -20,6 +20,7 @@ using Array = boost::json::array;
 struct AttemptPricing : TokenPricing { bool reserve_fallback{false}; };
 
 void require(bool condition, ErrorCode code, const std::string& message);
+void text_field(std::string_view value, std::string_view field, std::size_t maximum = 256);
 std::string str(const Row& row, std::string_view key);
 std::int64_t number(const Row& row, std::string_view key);
 std::int64_t next(std::int64_t n);

@@ -1,4 +1,4 @@
-// Store capacity implementation remains in the original Store translation unit.
+// Store capacity implementation is owned by store_capacity.cpp.
 std::string Store::Impl::capacity_control_sql() {
     return "(type IN ('ack','cancel_op','finish_op','reconcile_op','record_op_result',"
         "'execute_tool_control','wait_worker','wake_worker','tool_feedback','ask_question',"
