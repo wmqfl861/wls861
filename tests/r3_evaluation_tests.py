@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Evaluation framework tests against disposable real CLI/SQLite evidence."""
 from contextlib import closing
+import argparse
 import base64
 import copy
 import hashlib
@@ -12,6 +13,13 @@ import sqlite3
 import subprocess
 import sys
 import unittest
+
+parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+parser.add_argument('wls_binary')
+parser.add_argument('source_root')
+parser.add_argument('--group', choices=('all', 'legacy', 'logical', 'plain'), default='all')
+OPTIONS = parser.parse_args()
+sys.argv = [sys.argv[0], OPTIONS.wls_binary, OPTIONS.source_root]
 
 spec = importlib.util.spec_from_file_location('acceptance_helpers', Path(__file__).with_name('s15_cli_smoke.py'))
 h = importlib.util.module_from_spec(spec)
@@ -1062,7 +1070,23 @@ class Evaluation(unittest.TestCase):
                 e.logical_agent_messages([record(broken)])
 
 
+def evaluation_groups():
+    names = set(unittest.defaultTestLoader.getTestCaseNames(Evaluation))
+    logical = {name for name in names if name.startswith('test_v3_')} | {
+        'test_submission_completion_requires_the_captured_new_v3_declaration',
+        'test_logical_agent_projection_covers_opaque_responses_output',
+    }
+    plain = {name for name in names if name.startswith('test_v4_')}
+    groups = {'legacy': names - logical - plain, 'logical': logical, 'plain': plain}
+    grouped = [name for methods in groups.values() for name in methods]
+    if (any(not methods for methods in groups.values()) or
+            len(grouped) != len(names) or set(grouped) != names):
+        raise ValueError('evaluation groups must cover every method exactly once')
+    return {'all': sorted(names), **{group: sorted(methods) for group, methods in groups.items()}}
+
+
 if __name__ == '__main__':
     if os.geteuid() == 0:
         raise SystemExit('Evaluation regressions require an ordinary user')
-    unittest.main(verbosity=2)
+    methods = evaluation_groups()[OPTIONS.group]
+    unittest.main(verbosity=2, defaultTest=[f'Evaluation.{name}' for name in methods])
