@@ -8,7 +8,7 @@
 
 本轮收敛已在 [converged-20261114](https://github.com/wmqfl861/wls861/tree/converged-20261114)（`f4fbb62`）完成，七项标准通过；随后合入 [N2 #99](https://github.com/wmqfl861/wls861/pull/99) 与 [N1 #100](https://github.com/wmqfl861/wls861/pull/100)。标签保留原收敛点，见[收敛报告](reports/convergence-20261114.md)。
 
-当前 CI：#99、#100 的三核心配置均通过 88/88；N2 合入后 main 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43571615589)九作业通过，四个 acceptance 注册均 ≤90 秒。N1 合入后的 main `d9305a0` 完整矩阵尚未核定，后续结果见[最新 main Actions](https://github.com/wmqfl861/wls861/actions/workflows/ci.yml?query=branch%3Amain)。旧 acceptance 超时项已由 #95 分片关闭，用例、断言和时限保持。
+当前 CI：main `f7f38e8` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43576774296)九作业及 [source](https://github.com/wmqfl861/wls861/actions/runs/43576774270)均通过。随后同提交的[定时矩阵](https://github.com/wmqfl861/wls861/actions/runs/43585861193)也通过；`r3_evaluation` 的 ASan 耗时 187.30/360 秒，超过时限一半，按 D-20 在下个代码 PR 分片。旧 acceptance 超时项已由 [#95](https://github.com/wmqfl861/wls861/pull/95) 分片关闭，用例、断言和时限保持。
 
 ## 已有能力
 
@@ -32,6 +32,6 @@
 
 ## 下一步
 
-等待：密钥。N1、N2、N3 均已完成；密钥和明确就绪通知到位后按 G2 计划执行，不开始 G7 及以后功能阶段。
+等待：密钥。N1、N2、N3 均已完成；按 [D-26](reviews/claude-2026-11-14/02-decisions.md#35-d-26-收敛之后密钥到来之前)，空档仅可做 G6-B 余下的构建提速、测试耗时治理和文档精简，G7 及以后功能阶段暂不开始。密钥和明确就绪通知到位、手头 PR 合并后按 G2 计划执行。
 
 历史实现、逐次运行及失败保留在 [CHANGELOG](../CHANGELOG.md)、[G1 交接](reviews/g1-main-handoff-20261112.md)、[G2-P 报告](reports/g2p-rehearsal.md)与[全代码审核](reviews/code-audit-20261027.md)；本页只记录现状与入口。

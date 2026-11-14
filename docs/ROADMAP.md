@@ -4,15 +4,17 @@
 当前能力、实现版本及证据集中在[STATUS](STATUS.md)，历史阶段成果见 CHANGELOG 和 reports。
 第二份审核处置见[10-24记录](reviews/claude-2026-10-24-disposition.md)和[ADR-064–066](adr/064-audit24-recovery.md)。
 
-## 0. 当前执行路线（2026-11-13 owner 采纳）
+## 0. 当前执行路线（2026-11-14 owner 采纳）
 
-[11-13 审核与计划](reviews/claude-2026-11-13/README.md)已合入 main；[11-11 计划](reviews/claude-2026-11-11/05-development-plan.md)继续有效，冲突以新决定为准。阶段 0、G1 与 G2-P 已完成，G1 获 owner 验收；随后是 G2 → G4 → G3 → G5 → G6 → G7 → G8 → G9 → G10。
+[11-14 审核与收敛后计划](reviews/claude-2026-11-14/README.md)已由 owner 采纳；[11-13 计划](reviews/claude-2026-11-13/04-plan.md)与[11-11 计划](reviews/claude-2026-11-11/05-development-plan.md)继续有效，冲突以 11-14 决定为准。阶段 0、G1、G2-P、本轮收敛和 N1/N2/N3 已完成，G1 获 owner 验收；后续阶段仍需逐项验收，G7 及以后按 D-26 暂不开始。
 
 G2-P 的接口、错误反馈、计费、重试与文件模板已合入，当前为 0.12.0 / Store 410，八个场景和三个核心配置的最终检查见[阶段报告](reports/g2p-rehearsal.md)。早期异步、Store 411 和 DAG 分支不属于当前 main，也不是已交付的默认能力。
 
-D-2/D-3 已授权首个 OpenAI Responses / gpt-5-mini 闭环，每请求上限 1 美元、G2 合计 10 美元，合格重试最多两次；密钥和 owner 的“密钥已就绪”尚未到位，真实调用仍为零。G2-P 出口后若仍无密钥，按[计划 §4](reviews/claude-2026-11-13/04-plan.md#4-密钥没到时做什么)依次推进 G4-A/B/C、G5-A/B、G3-A、G6-B，密钥就绪后优先转回 G2。
+D-2/D-3 已授权首个 OpenAI Responses / gpt-5-mini 闭环，每请求上限 1 美元、G2 合计 10 美元，合格重试最多两次；密钥和 owner 的“密钥已就绪”尚未到位，真实调用仍为零。[D-26](reviews/claude-2026-11-14/02-decisions.md#35-d-26-收敛之后密钥到来之前)已取代旧的待密钥推进顺序：空档仅可做 G6-B 余下的构建提速、测试耗时治理和文档精简。密钥和明确就绪通知到位、手头 PR 合并后，按 [G2 计划](reviews/claude-2026-11-13/04-plan.md#3-g2-的步骤)及 [11-14 补充](reviews/claude-2026-11-14/04-next.md#2-g2步骤不变补三处)执行；其他 Chat 端点按 D-27。
 
-新六种线上格式在 G2 出口冻结，旧 framed-v1 / structured-v2 继续保持。PR 三核心绿且符合行数/数据库/调用边界即可按 D-1a 合并；main 完整矩阵失败须在 24 小时内修复或回退。当前 ASan 验收套件超时正定向处理，原失败保留；D-11 的 sanitizer CTest 时限倍数不改变 Release 或业务期限。历史成果见 [G1 交接](reviews/g1-main-handoff-20261112.md)、[G1 报告](reports/g1-exit.md)、[阶段 0](reports/stage0-convergence.md)。
+新六种线上格式在 G2 出口冻结，旧 framed-v1 / structured-v2 继续保持。PR 三核心绿且符合行数/数据库/调用边界即可按 D-1a 合并；main 完整矩阵失败须在 24 小时内修复或回退，连续两次同因失败须按 D-21 先修、暂停合并功能 PR。旧 acceptance 超时项已由 [#95](https://github.com/wmqfl861/wls861/pull/95)按 D-20 分片关闭，用例、断言和时限保持，原失败保留；当前 main 完整矩阵已通过，见 [STATUS](STATUS.md)。
+
+G4 原生验收仍为 BLOCKED，托管拒绝根因未定；`/input`、环境卡片执行检查、无 cgroup 启动与回收按 [11-14 计划](reviews/claude-2026-11-14/04-next.md#5-到第一份真实报告为止不做的事)暂缓。Windows 11 NOT_RUN，整个 G6 尚未完成。历史成果见 [G1 交接](reviews/g1-main-handoff-20261112.md)、[G1 报告](reports/g1-exit.md)、[阶段 0](reports/stage0-convergence.md)。
 
 ## 1. 近期关键路径：先验证真实任务价值
 
