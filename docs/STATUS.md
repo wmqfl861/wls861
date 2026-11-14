@@ -8,7 +8,9 @@
 
 本轮收敛已在 [converged-20261114](https://github.com/wmqfl861/wls861/tree/converged-20261114)（`f4fbb62`）完成，七项标准通过；随后合入 [N2 #99](https://github.com/wmqfl861/wls861/pull/99) 与 [N1 #100](https://github.com/wmqfl861/wls861/pull/100)。标签保留原收敛点，见[收敛报告](reports/convergence-20261114.md)。
 
-当前 CI：[R3 分片 #103](https://github.com/wmqfl861/wls861/pull/103)已合并，49 个原方法分为 32/12/5 三组，CTest 共 90 个注册；[PR 三核心](https://github.com/wmqfl861/wls861/actions/runs/43602255761)在实际检查输入 `50e46b2` 上各 90/90 通过。合入后 main `45e9e05` 与后续主线结果分别记录在[该提交的完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43603725398)及[最新 main Actions](https://github.com/wmqfl861/wls861/actions/workflows/ci.yml?query=branch%3Amain)。
+当前 CI：main `95a4393` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43606163372)九作业通过，CTest 共 90 个注册，全部 ASan 注册低于时限一半；五个指定 main 作业成功保存编译缓存。后续结果见[最新 main Actions](https://github.com/wmqfl861/wls861/actions/workflows/ci.yml?query=branch%3Amain)。
+
+已合并的 [R3 分片 #103](https://github.com/wmqfl861/wls861/pull/103)保留 49 个原方法，分为 32/12/5 三组；main `45e9e05` [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43603725398)通过，此项 D-20 治理已关闭。[ccache #104](https://github.com/wmqfl861/wls861/pull/104) 的[PR 三核心](https://github.com/wmqfl861/wls861/actions/runs/43604946736)在实际检查输入 `aa782cbe` 上各 90/90 通过，PR 缓存保存步骤按设计跳过。
 
 此前 main `f7f38e8` 的 88 注册[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43576774296)与[定时矩阵](https://github.com/wmqfl861/wls861/actions/runs/43585861193)均通过；后者 `r3_evaluation` 的 ASan 耗时 187.30/360 秒，触发此次 D-20 分片。旧 acceptance 超时项已由 [#95](https://github.com/wmqfl861/wls861/pull/95) 分片关闭。两次分片均保留原用例、断言和时限，历史失败保留。
 
@@ -23,7 +25,7 @@
 | Responses / Chat | 两协议各八场景合成交付通过；Chat 非流式已接预约、发送与结算，R3 评估仍拒绝 Chat |
 | G4 | A1/B 已合并，standard 仍显式选用、默认 Strict；原生验收 BLOCKED：托管尝试与本机均未通过，托管拒绝的根因未定，见[收敛报告](reports/convergence-20261114.md) |
 | G3 | plain 单 Worker 与 v4 三条件工具就绪；停在不可变 SUBMITTED、业务验收待办；质量为 not_assessed，见[用法](implementation/R3-single-agent-baseline.md#5-普通单-agent-与-v4-三条件用法) |
-| G6 | #93 已将 Store 返工域单独编译；其余并行与构建提速未完成，单次测量不代表稳定性能收益 |
+| G6 | #93 已将 Store 返工域单独编译；[#104](https://github.com/wmqfl861/wls861/pull/104)已接入 CMake/Make 可选 ccache 与 CI 编译缓存，单次本地测量见 [CHANGELOG](../CHANGELOG.md)；整个 G6 仍只完成部分工作，单次测量不代表稳定性能收益 |
 
 ## 当前限制
 

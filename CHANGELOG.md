@@ -2,6 +2,26 @@
 
 ## 0.12.0 — G2-P model readiness (2026-11-13)
 
+- Add optional CMake/Make compiler caching and CI ccache integration in
+  [#104](https://github.com/wmqfl861/wls861/pull/104). One local GCC 13.3
+  Release/-j2 sample measures full builds at 500.77/520.05/15.46 seconds
+  without cache/with a cold cache/with a warm cache; warm compilation hits
+  88/88 and all 141 build products are byte-identical. Forced recompilation
+  of unchanged CLI source takes 26.47/1.99 seconds without/with a warm cache.
+  The local 88/88 baseline and all 49 grouped evaluation methods pass.
+  [PR core checks](https://github.com/wmqfl861/wls861/actions/runs/43604946736)
+  pass 90/90 in all three configurations at `aa782cbe`; PR cache saves are
+  skipped as designed. Main `95a4393` then passes all nine jobs in its
+  [full matrix](https://github.com/wmqfl861/wls861/actions/runs/43606163372),
+  and all five designated main cache writers save successfully; hosted
+  cache hits across runs remain unverified. This single local sample does
+  not establish general CI speed or completion of G6; current main results
+  are linked from [STATUS](docs/STATUS.md).
+  A bounded PCH experiment improves the library build by 13.3%, but the
+  full build improves only 3.86%, below the preset 10% threshold.
+  The candidate is not adopted and no PCH is shipped; runtime, Clang and
+  sanitizer validation with PCH enabled were not run.
+
 - Split R3 evaluation under D-20 in [#103](https://github.com/wmqfl861/wls861/pull/103):
   retain all 49 method bodies in legacy/logical/plain groups of 32/12/5, the
   complete default invocation and existing deadlines; CTest now has 90 registrations.
@@ -9,6 +29,12 @@
   passes 90/90 in all three configurations at its actual merge input `50e46b2`.
   Local Release passes the prior 88/88 baseline and all three groups using
   production sources identical to `f7f38e8`; merged-main verification is tracked in [STATUS](docs/STATUS.md).
+  Follow-up: main `45e9e05` passes all nine jobs in its
+  [full matrix](https://github.com/wmqfl861/wls861/actions/runs/43603725398),
+  with ASan/UBSan each covering all 90 registrations as 45+45. The three R3
+  ASan groups take 91.64/52.32/13.80 seconds against unchanged 360-second
+  deadlines; all 90 ASan registrations remain below half their deadlines,
+  closing this D-20 sharding item.
 
 - Complete the seven convergence criteria at `converged-20261114` (`f4fbb62`), with all nine full-matrix jobs passing; retain that original convergence tag.
   Then merge fixed G2 output checks in [N2 #99](https://github.com/wmqfl861/wls861/pull/99) and accurate stop guidance with allowlisted failure categories in [N1 #100](https://github.com/wmqfl861/wls861/pull/100); both core gates pass 88/88 in all three configurations.
