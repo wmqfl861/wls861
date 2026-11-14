@@ -92,6 +92,7 @@ ifneq ($(filter all 1,$(TEST_SHARD)),)
 	$(PYTHON) scripts/verify_handoff.py
 	$(PYTHON) scripts/verify_review_source.py
 	$(PYTHON) tests/contracts_tests.py
+	$(PYTHON) tests/test_check_g2_outputs.py
 	"$(BUILD_DIR)/journal_tests"
 	"$(BUILD_DIR)/config_tests"
 	"$(BUILD_DIR)/scheduler_tests"

@@ -120,6 +120,7 @@ jobs:
                   tests/https_transport_driver.cpp) slow=https_transport ;;
                   tests/r3_evaluation_tests.py) slow=r3_evaluation ;;
                   tests/r1_management_tests.cpp) slow=r1_management ;;
+                  scripts/check_g2_outputs.py|tests/test_check_g2_outputs.py) ;;
                   tests/journal_tests.cpp|tests/config_tests.cpp|tests/scheduler_tests.cpp|tests/task_engine_tests.cpp|\
                   tests/runtime_types_tests.cpp|tests/runtime_resources_tests.cpp|tests/store_tests.cpp|tests/event_store_tests.cpp|\
                   tests/workflow_store_tests.cpp|tests/acceptance_store_tests.cpp|tests/config_loader_tests.cpp|tests/model_tests.cpp|\

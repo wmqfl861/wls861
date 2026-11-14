@@ -209,6 +209,9 @@ if(BUILD_TESTING)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_review_source.py")
     add_test(NAME specification_contracts
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/contracts_tests.py")
+    add_test(NAME g2_outputs
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_check_g2_outputs.py")
+    set_tests_properties(g2_outputs PROPERTIES TIMEOUT 30)
     add_test(NAME demo_smoke
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/demo_smoke.py"
                 "$<TARGET_FILE:wls861>")
