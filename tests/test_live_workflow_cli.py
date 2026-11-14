@@ -458,8 +458,8 @@ class LiveWorkflowCli(unittest.TestCase):
                 self.assertTrue(report['pending'] and all(item['status'] == 'PENDING' for item in report['pending']))
                 self.assertTrue(all(report['budget'][f'reserved_{unit}'] == 0 for unit in ('input', 'output', 'cost')))
                 if calls:
-                    self.assertEqual(calls[0]['error'], {'code': 'not_ready',
-                        'message': 'batch deadline reached before live reservation'})
+                    self.assertEqual((calls[0]['error'], calls[0].get('network_started', False)), ({'code': 'not_ready',
+                        'message': 'batch deadline reached before live reservation'}, False))
                 else:
                     self.assertTrue(any(item['code'] in ('cancelled', 'deadline') for item in report['blocked']))
 
