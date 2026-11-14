@@ -649,8 +649,18 @@ void fixed_role_catalog_stays_stable_across_actions_and_experience() {
 }
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     std::cout << std::unitbuf;
+    std::string_view group;
+    if (argc != 1) {
+        if (argc != 3 || std::string_view(argv[1]) != "--group" ||
+            (std::string_view(argv[2]) != "acceptance" && std::string_view(argv[2]) != "experience" &&
+             std::string_view(argv[2]) != "memory" && std::string_view(argv[2]) != "guidance")) {
+            std::cerr << "usage: acceptance_runtime_tests [--group acceptance|experience|memory|guidance]\n";
+            return 2;
+        }
+        group = argv[2];
+    }
     schemas = std::make_unique<SchemaRegistry>(source / "schemas");
     base_sql = read_runtime_file(source / "db/schema.sql");
     store_sql = read_runtime_file(source / "db/migrations/004_s1_store.sql");
@@ -658,28 +668,33 @@ int main() {
     events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     workflow_sql = read_runtime_file(source / "db/migrations/007_workflow_runtime.sql");
     acceptance_sql = read_runtime_file(source / "db/migrations/008_acceptance_runtime.sql");
-    return ::test::run({
-        {"fixed role catalogs stay stable across Dispatcher actions and experience", fixed_role_catalog_stays_stable_across_actions_and_experience},
-        {"Dispatcher acceptance and explicit experience do not imply delivery", explicit_acceptance_and_experience_complete_without_implied_delivery},
-        {"Dispatcher sees immutable candidate bytes and exact response replay", dispatcher_observes_original_bytes_and_response_replay_is_exact},
-        {"raw Worker submission cannot bypass TeamLead checking", raw_submission_cannot_skip_team_lead_check},
-        {"captured acceptance identity and task CAS cannot be relabelled", captured_target_and_task_cas_cannot_be_relabelled},
-        {"model acceptance cannot forge identity hashes waivers or evidence", model_acceptance_cannot_supply_identity_or_waiver},
-        {"AMEND records stale acceptance responses without applying them", amend_records_old_acceptance_response_without_applying_it},
-        {"recovery accepts original candidate without reissuing business work", restart_accepts_original_candidate_without_new_business_order},
-        {"negative business judgment blocks without inventing experience", rejected_acceptance_is_blocked_without_automatic_experience},
-        {"experience uses frozen source and host-owned report identity", experience_uses_frozen_source_and_report_ids_are_host_owned},
-        {"v3 memory fields are host-owned while responses and replay stay original", v3_memory_fields_are_host_owned_and_responses_stay_original},
-        {"v3 tool guidance matches existing host rejection rules", v3_tool_guidance_matches_existing_host_rejections},
-        {"experience rejects forged identities and unbound memory claims", reports_cannot_forge_identity_or_invent_memory_use},
-        {"experience proposals remain reports with memory disabled", experience_proposals_are_reports_not_automatic_memory_publication},
-        {"captured experience source cannot be relabelled or become business work", experience_capture_cannot_change_source_or_become_business_order},
-        {"old experience can finish while amended task still awaits disposition", historical_experience_can_finish_while_amended_task_awaits_disposition},
-        {"accepted experience is not starved by an unanswered optional question", unanswered_nonblocking_question_does_not_starve_accepted_experience},
-        {"terminal cancellation resumes only the bounded experience job", cancelled_request_recovers_only_pending_experience},
-        {"terminal recovery fences previously captured experience response", stale_terminal_experience_response_does_not_complete_recovered_job},
-        {"missing scripts and budget caps preserve unfinished experience", missing_scripts_and_exhausted_budget_leave_experience_pending},
-        {"independent acceptance and experience targets remain isolated", independent_candidates_and_experience_do_not_share_targets},
-        {"ordinary event exhaustion preserves bounded experience-only reservation", ordinary_event_capacity_keeps_only_bounded_experience_reservation}
-    });
+    struct GroupedCase { std::string_view group; ::test::Case test; };
+    const std::vector<GroupedCase> cases{
+        {"acceptance", {"fixed role catalogs stay stable across Dispatcher actions and experience", fixed_role_catalog_stays_stable_across_actions_and_experience}},
+        {"acceptance", {"Dispatcher acceptance and explicit experience do not imply delivery", explicit_acceptance_and_experience_complete_without_implied_delivery}},
+        {"acceptance", {"Dispatcher sees immutable candidate bytes and exact response replay", dispatcher_observes_original_bytes_and_response_replay_is_exact}},
+        {"acceptance", {"raw Worker submission cannot bypass TeamLead checking", raw_submission_cannot_skip_team_lead_check}},
+        {"acceptance", {"captured acceptance identity and task CAS cannot be relabelled", captured_target_and_task_cas_cannot_be_relabelled}},
+        {"acceptance", {"model acceptance cannot forge identity hashes waivers or evidence", model_acceptance_cannot_supply_identity_or_waiver}},
+        {"acceptance", {"AMEND records stale acceptance responses without applying them", amend_records_old_acceptance_response_without_applying_it}},
+        {"acceptance", {"recovery accepts original candidate without reissuing business work", restart_accepts_original_candidate_without_new_business_order}},
+        {"acceptance", {"negative business judgment blocks without inventing experience", rejected_acceptance_is_blocked_without_automatic_experience}},
+        {"experience", {"experience uses frozen source and host-owned report identity", experience_uses_frozen_source_and_report_ids_are_host_owned}},
+        {"memory", {"v3 memory fields are host-owned while responses and replay stay original", v3_memory_fields_are_host_owned_and_responses_stay_original}},
+        {"guidance", {"v3 tool guidance matches existing host rejection rules", v3_tool_guidance_matches_existing_host_rejections}},
+        {"experience", {"experience rejects forged identities and unbound memory claims", reports_cannot_forge_identity_or_invent_memory_use}},
+        {"experience", {"experience proposals remain reports with memory disabled", experience_proposals_are_reports_not_automatic_memory_publication}},
+        {"experience", {"captured experience source cannot be relabelled or become business work", experience_capture_cannot_change_source_or_become_business_order}},
+        {"experience", {"old experience can finish while amended task still awaits disposition", historical_experience_can_finish_while_amended_task_awaits_disposition}},
+        {"experience", {"accepted experience is not starved by an unanswered optional question", unanswered_nonblocking_question_does_not_starve_accepted_experience}},
+        {"experience", {"terminal cancellation resumes only the bounded experience job", cancelled_request_recovers_only_pending_experience}},
+        {"experience", {"terminal recovery fences previously captured experience response", stale_terminal_experience_response_does_not_complete_recovered_job}},
+        {"experience", {"missing scripts and budget caps preserve unfinished experience", missing_scripts_and_exhausted_budget_leave_experience_pending}},
+        {"experience", {"independent acceptance and experience targets remain isolated", independent_candidates_and_experience_do_not_share_targets}},
+        {"experience", {"ordinary event exhaustion preserves bounded experience-only reservation", ordinary_event_capacity_keeps_only_bounded_experience_reservation}}
+    };
+    std::vector<::test::Case> selected;
+    for (const auto& item : cases)
+        if (group.empty() || item.group == group) selected.push_back(item.test);
+    return ::test::run(selected);
 }
