@@ -4,6 +4,8 @@ Current implementation: **0.12.0**, blueprint **v0.4.1**, Store **410**.
 
 Entry point only: the complete, still-binding contract is preserved verbatim in `docs/implementation/development-contract.md` — current, normative, not archived history; read it before changing runtime behavior.
 
+The owner adopted D-19 through D-29 in [`docs/reviews/claude-2026-11-14/02-decisions.md`](docs/reviews/claude-2026-11-14/02-decisions.md) on 2026-11-14. These decisions supersede conflicting earlier review decisions for process, defaults, priorities and authorization; the complete contract's safety invariants remain binding. Start with that review directory's `README.md` and read `01` through `05` in order.
+
 The owner adopted all decisions in [`docs/reviews/claude-2026-11-13/02-decisions.md`](docs/reviews/claude-2026-11-13/02-decisions.md) on 2026-11-13. For process, defaults, priorities and authorization, those decisions supersede conflicting earlier text; the complete contract's safety invariants remain binding. Start with that review directory's `README.md` and read `01` through `04` in order.
 
 ## Authority and permissions
