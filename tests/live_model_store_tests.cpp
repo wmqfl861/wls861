@@ -1,4 +1,5 @@
 #include "live_test_support.hpp"
+#include "fixtures/e2_state_golden.hpp"
 
 #include <barrier>
 #include <future>
@@ -382,6 +383,63 @@ void frozen_identity_and_one_claim_for(bool chat) {
 }
 void frozen_identity_and_one_claim() {
     for (const bool chat : {false, true}) frozen_identity_and_one_claim_for(chat);
+}
+
+void old_lean_pending_and_unknown_keep_original_send_identity() {
+    for (const bool chat : {false, true}) for (const bool sent : {false, true}) {
+        fixture::Fixture f(*assets, fixture::settings("synthetic trust", 443, chat));
+        const auto sibling_actor = f.actor();
+        auto admission = fixture::admission(*assets, f.live, "old-lean");
+        auto& context = admission.config_snapshot.at("system").at("context").as_object();
+        context["request_format"] = "structured-v3"; context["model_projection"] = "lean-v1";
+        const auto functions = f.directory.path / "functions";
+        std::filesystem::copy(assets->source / "config/examples/functions", functions, std::filesystem::copy_options::recursive);
+        { std::ofstream file(f.directory.path / "system.yaml"); file << canonical_json(admission.config_snapshot.at("system")); }
+        { std::ofstream file(functions / "general/function.yaml"); file << canonical_json(admission.config_snapshot.at("function")); }
+        admission.config_snapshot = ::test::legacy_shell_catalog(f.directory.path / "system.yaml", functions,
+            assets->source / "prompts").freeze("general").json();
+        f.request_id = text(f.store->admit(admission), "request_id");
+        auto request = wls::test::e2::request(chat, 4);
+        request.binding = f.store->request_binding(f.request_id);
+        request.config_snapshot_id = text(f.store->request(f.request_id), "config_snapshot_sha256");
+        const auto encoded = encode_protocol_request(f.live.provider, request);
+        CHECK(encoded.body_sha256 == wls::test::e2::hashes[chat][3][1]); // Independent old-library wire.
+        const auto envelope = canonical_json(to_json(request)); const auto actor = f.actor();
+        (void)f.reserve(request);
+        const auto original = f.store->live_attempt(request.attempt_id).at("execution");
+        CHECK(text(original, "encoded_record_sha256") == encoded.record_sha256);
+        CHECK(f.store->attempt(request.attempt_id).at("status") == "PENDING");
+        error(ErrorCode::Unauthorized, [&] { (void)f.store->claim_live_send(sibling_actor,
+            request.attempt_id, 1, encoded, f.live.transport, "claim-" + request.attempt_id); });
+        error(ErrorCode::Conflict, [&] { (void)f.store->claim_live_send(actor,
+            request.attempt_id, 2, encoded, f.live.transport, "claim-" + request.attempt_id); });
+        auto input = wls::test::e2::context(chat); input.model_projection = "lean-v1";
+        auto contract = parse_json_strict(input.task_contract); contract.as_object()["compact_model_state"] = true;
+        input.task_contract = canonical_json(contract); auto changed = request;
+        changed.context = compile_structured_context(input, {}, {}, StructuredContextFormat::V3);
+        error(ErrorCode::Conflict, [&] { (void)f.store->claim_live_send(actor, request.attempt_id, 1,
+            encode_protocol_request(f.live.provider, changed), f.live.transport, "claim-" + request.attempt_id); });
+        CHECK(f.store->live_attempt(request.attempt_id).at("send_claim").is_null());
+        Json first;
+        if (sent) {
+            first = f.claim(request); CHECK(first.at("new_send_authority") == true);
+            const auto replay = f.claim(request);
+            CHECK(replay.at("claim_id") == first.at("claim_id") && replay.at("new_send_authority") == false);
+        }
+        f.reopen(); CHECK(f.store->attempt(request.attempt_id).at("status") == "UNKNOWN");
+        const auto recovered = f.store->attempt(request.attempt_id);
+        const auto replay = [&] { return f.store->claim_live_send(actor, request.attempt_id, 1,
+            encoded, f.live.transport, "claim-" + request.attempt_id); };
+        if (sent) {
+            const auto claim = replay(); CHECK(claim.at("claim_id") == first.at("claim_id"));
+            CHECK(claim.at("new_send_authority") == false);
+        } else test::throws<Error>([&] { (void)replay(); });
+        CHECK(f.store->attempt(request.attempt_id) == recovered);
+        CHECK(canonical_json(recovered.at("request_envelope")) == envelope);
+        CHECK(f.store->live_attempt(request.attempt_id).at("execution") == original);
+        CHECK(fixture::sql_text(f.path, "SELECT count(*) FROM live_send_claims") == (sent ? "1" : "0"));
+        CHECK(fixture::sql_text(f.path, "SELECT count(*) FROM live_transport_observations") == "0");
+    }
 }
 
 void reservation_and_claim_rollback() {
@@ -988,6 +1046,7 @@ int main(int argc, char** argv) {
         {"live profile capacity rejects impossible durable evidence before admission", live_profile_capacity_is_rejected_before_admission},
         {"invalid live routes reject before admission and valid DNS/numeric routes remain exact", live_profile_route_is_rejected_before_admission},
         {"original encoding/options CAS and concurrent one-time durable send claim", frozen_identity_and_one_claim},
+        {"old lean wire permits one first claim while replay and UNKNOWN never authorize resend", old_lean_pending_and_unknown_keep_original_send_identity},
         {"legacy hash and versioned DNS/CONNECT route admission and send-claim tampering", versioned_transport_routes_are_frozen},
         {"reservation and send-claim faults roll back original budget and authority", reservation_and_claim_rollback},
         {"private observation and immutable original settlement faults are atomic", observation_and_original_settlement_rollback},

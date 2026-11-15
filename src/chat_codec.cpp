@@ -157,7 +157,9 @@ EncodedProtocolRequest encode_chat(const ProviderProfile& profile, const ModelRe
     append_updates(index);
     std::size_t state_bytes = 0;
     if (v3) {
-        messages.push_back(Object{{"role", "user"}, {"content", canonical_json(lean ? detail::lean_state(logical.at("current_state")) : logical.at("current_state"))}});
+        messages.push_back(Object{{"role", "user"}, {"content", canonical_json(lean ? detail::lean_state(logical.at("current_state"), request.role,
+            logical.at("contract_updates").as_array().empty() ? logical.at("contract_anchor") :
+                logical.at("contract_updates").as_array().back().at("contract")) : logical.at("current_state"))}});
         state_bytes = canonical_json(messages.back()).size();
     }
     Object body{{"model", profile.model}, {"messages", messages}, {"tools", tools}, {"max_completion_tokens", request.max_output_tokens},

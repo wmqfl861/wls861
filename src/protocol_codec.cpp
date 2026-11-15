@@ -10,6 +10,7 @@
 #include <optional>
 #include <set>
 #include <string_view>
+#include <openssl/evp.h>
 
 namespace wls::s1 {
 namespace protocol_detail {
@@ -376,9 +377,270 @@ std::string lean_read_output(const std::string& content) {
     return canonical_json(page);
 }
 
-Json lean_state(Json state) {
+namespace {
+const Json& compact_member(const Json& value, std::string_view key) {
+    static const Json absent;
+    const auto* item = value.is_object() ? value.as_object().if_contains(key) : nullptr;
+    return item ? *item : absent;
+}
+bool compact_equal(const Json& left, const Json& right) {
+    return left == right && canonical_json(left) == canonical_json(right);
+}
+bool compact_same(const Json& left, const Json& right, std::initializer_list<std::string_view> keys) {
+    for (const auto key : keys) {
+        const auto& value = compact_member(left, key);
+        if (value.is_null() || !compact_equal(value, compact_member(right, key))) return false;
+    }
+    return true;
+}
+std::string compact_reference(const Json& retained, std::string_view key, const std::string& path, const Json& original) {
+    const auto& reference = compact_member(compact_member(retained, "duplicate_fields"), key);
+    return original.is_object() && original.as_object().contains(key) && !original.as_object().contains("duplicate_fields") &&
+        reference.is_string() && !retained.as_object().contains(key) ? std::string(reference.as_string()) : path + "." + std::string(key);
+}
+// Called only for the explicitly typed slots below. Unknown outer fields stay
+// in place; each removed original has a path to an equal, surviving value.
+void compact_duplicates(Json& value, const Json& retained,
+        std::initializer_list<std::string_view> keys, const std::string& path, const Json* projected = nullptr) {
+    if (!value.is_object() || value.as_object().contains("duplicate_fields")) return;
+    Object references;
+    for (const auto key : keys) {
+        const auto& original = compact_member(value, key);
+        if (original.is_null() || !compact_equal(original, compact_member(retained, key))) continue;
+        const auto reference = projected ? compact_reference(*projected, key, path, retained) : path + "." + std::string(key);
+        if (canonical_json(original).size() <= reference.size() + key.size() + 48) continue;
+        references[key] = reference;
+        value.as_object().erase(key);
+    }
+    if (!references.empty()) value.as_object()["duplicate_fields"] = std::move(references);
+}
+bool same_submission(const Json& left, const Json& right) {
+    return compact_member(left, "original_binding").is_object() &&
+        compact_same(left, right, {"submission_id", "request_id", "task_id", "team_id",
+            "state_version", "original_binding", "record_sha256"});
+}
+void compact_submission(Json& value, const Json& retained, const std::string& path, const Json* projected) {
+    if (same_submission(value, retained))
+        compact_duplicates(value, retained, {"body", "artifact_snapshot", "checks", "acceptance"}, path, projected);
+}
+void compact_metadata(Json& value, const Json& binding, const std::string& path,
+        std::initializer_list<std::string_view> keys, std::initializer_list<std::string_view> display_columns) {
+    if (!value.is_object() || value.as_object().contains("binding_ref") ||
+        !compact_same(value, binding, {"request_id"})) return;
+    for (const auto key : keys) if (const auto* item = value.as_object().if_contains(key))
+        if (!compact_equal(*item, compact_member(binding, key))) return;
+    if (const auto* revision = value.as_object().if_contains("based_on_requirements_revision"))
+        if (!compact_equal(*revision, compact_member(binding, "requirements_revision"))) return;
+    auto projected = value;
+    for (const auto key : keys) projected.as_object().erase(key);
+    for (const auto key : display_columns) projected.as_object().erase(key);
+    projected.as_object()["binding_ref"] = path;
+    if (canonical_json(projected).size() < canonical_json(value).size()) value = std::move(projected);
+}
+void compact_plan_tasks(Json& state, const Json& original) {
+    const auto& plan = compact_member(original, "plan");
+    const auto& nodes = compact_member(compact_member(plan, "body"), "nodes");
+    const auto& tasks = compact_member(original, "tasks");
+    if (!tasks.is_array()) return;
+    for (std::size_t i = 0; i < tasks.as_array().size(); ++i) {
+        const auto& task = tasks.as_array()[i];
+        const auto path = "current_state.tasks[" + std::to_string(i) + "]";
+        if (nodes.is_array() && compact_same(task, plan, {"request_id", "plan_revision", "based_on_requirements_revision"}))
+          for (std::size_t j = 0; j < nodes.as_array().size(); ++j)
+            if (compact_same(task, nodes.as_array()[j], {"node_id"}))
+                compact_duplicates(state.at("tasks").as_array()[i], nodes.as_array()[j], {"brief"},
+                    "current_state.plan.body.nodes[" + std::to_string(j) + "]");
+        if (compact_same(compact_member(original, "acceptance_task"), task,
+                {"request_id", "task_id", "state_version", "based_on_requirements_revision", "plan_revision", "task_revision", "instruction_revision"}))
+            compact_duplicates(state.at("acceptance_task"), task, {"brief"}, path, &state.at("tasks").as_array()[i]);
+    }
+}
+void compact_files(Json& submission, const Json& views, const std::string& path) {
+    const auto& files = compact_member(submission, "artifact_snapshot");
+    if (!files.is_array() || !views.is_array() || files.as_array().size() != views.as_array().size()) return;
+    for (std::size_t i = 0; i < views.as_array().size(); ++i) {
+        auto& file = submission.at("artifact_snapshot").as_array()[i];
+        const auto& view = views.as_array()[i];
+        const auto& content = compact_member(view, "content");
+        const auto& encoded = compact_member(file, "content_base64");
+        const auto& size = compact_member(file, "size_bytes");
+        if (!file.is_object() || file.as_object().contains("content_ref") || !content.is_string() ||
+            !encoded.is_string() || compact_member(view, "binary") != false ||
+            compact_member(view, "source") != "immutable_submission_snapshot" ||
+            !compact_same(file, view, {"path", "sha256", "size_bytes"})) continue;
+        const auto& bytes = content.as_string();
+        if (bytes.size() > 65536 || !(size.is_int64() ? size.as_int64() == static_cast<std::int64_t>(bytes.size()) :
+                size.is_uint64() && size.as_uint64() == bytes.size()) ||
+            compact_member(file, "sha256") != Json(sha256_hex(std::string_view(bytes.data(), bytes.size())))) continue;
+        try { (void)canonical_json(content); }
+        catch (const Error& error) { if (error.code() == ErrorCode::InvalidInput) continue; throw; }
+        std::string base64(4 * ((bytes.size() + 2) / 3) + 1, '\0');
+        const auto count = EVP_EncodeBlock(reinterpret_cast<unsigned char*>(base64.data()),
+            reinterpret_cast<const unsigned char*>(bytes.data()), static_cast<int>(bytes.size()));
+        if (count < 0) continue;
+        base64.resize(static_cast<std::size_t>(count));
+        if (encoded != Json(base64)) continue;
+        file.as_object().erase("content_base64");
+        file.as_object()["content_ref"] = path + "[" + std::to_string(i) + "].content";
+    }
+}
+} // namespace
+
+Json lean_state(Json state, Role role, const Json& latest_contract) {
     state.as_object().erase("message_sources");
     for (auto& window : state.at("history_windows").as_array()) window.as_object().erase("source");
+    const auto* marker = state.as_object().if_contains("compact_model_state");
+    if (!marker) return state; // Old captured attempts retain their exact wire and admission hashes.
+    require(marker->is_bool() && marker->as_bool(), ErrorCode::InvalidInput, "invalid compact model state marker");
+    state.as_object().erase("compact_model_state");
+    const auto original = state;
+    const auto& binding = compact_member(original, "binding");
+    const auto& action = compact_member(original, "workflow_action");
+    const auto& kind = compact_member(action, "kind");
+    const Json* retained = nullptr;
+    Json* projected = nullptr;
+    std::string target_path, views_key;
+    if ((role == Role::TeamLead && kind == "submission") ||
+            (role == Role::Dispatcher && (kind == "acceptance" || kind == "rejection"))) {
+        retained = &compact_member(action, "target");
+        if (retained->is_object()) projected = &state.at("workflow_action").at("target");
+        target_path = "current_state.workflow_action.target";
+        views_key = "submission_file_views";
+    } else if (role == Role::TeamLead && kind == "experience") {
+        const auto& source = compact_member(compact_member(action, "target"), "source_snapshot");
+        retained = &compact_member(source, "submission");
+        if (retained->is_object()) projected = &state.at("workflow_action").at("target").at("source_snapshot").at("submission");
+        target_path = "current_state.workflow_action.target.source_snapshot.submission";
+        views_key = "experience_file_views";
+        if (projected) compact_duplicates(*projected, source, {"acceptance"},
+            "current_state.workflow_action.target.source_snapshot");
+        const auto& scope = compact_member(original, "experience_scope");
+        if (projected && binding.is_object() && compact_equal(compact_member(*retained, "original_binding"), binding) &&
+                compact_equal(compact_member(scope, "original_source_binding"), binding) && compact_equal(compact_member(scope, "control_binding"), binding) &&
+                compact_same(scope, compact_member(action, "target"), {"source_sha256"})) {
+            auto& wire_source = state.at("workflow_action").at("target").at("source_snapshot");
+            for (const auto section : {"task", "instruction"}) {
+                const auto& semantic = compact_member(latest_contract, section);
+                const auto& original_binding = compact_member(compact_member(original, "original_contract_bindings"), section);
+                if (!semantic.is_object() || !original_binding.is_object()) continue;
+                const bool instruction = std::string_view(section) == "instruction";
+                const auto& metadata = instruction ? compact_member(source, "instruction") : compact_member(original, "task");
+                if (!compact_same(metadata, binding, {"request_id", "task_id", "plan_revision", "task_revision", "instruction_revision"}) ||
+                        !compact_equal(compact_member(metadata, "based_on_requirements_revision"), compact_member(binding, "requirements_revision")) ||
+                        (instruction && (!compact_equal(original_binding, binding) ||
+                            !compact_same(metadata, binding, {"team_id", "dispatcher_epoch", "execution_epoch"})))) continue;
+                auto complete = semantic;
+                for (const auto& entry : original_binding.as_object()) complete.as_object()[entry.key()] = entry.value();
+                const auto& original_body = instruction ? compact_member(metadata, "body") : compact_member(source, "brief");
+                if (!compact_equal(complete, original_body)) continue;
+                Object reference{{"semantic_contract_ref", section}};
+                if (!original_binding.as_object().empty()) reference["original_binding_ref"] = compact_equal(original_binding, binding)
+                    ? "current_state.binding" : "current_state.original_contract_bindings." + std::string(section);
+                if (canonical_json(reference).size() >= canonical_json(original_body).size()) continue;
+                if (instruction) wire_source.at("instruction").as_object()["body"] = std::move(reference);
+                else wire_source.as_object()["brief"] = std::move(reference);
+            }
+        }
+    }
+    if (projected && compact_member(state, "submission").is_object())
+        compact_submission(state.at("submission"), *retained, target_path, projected);
+    auto* events = state.as_object().if_contains("pending_events");
+    if (events && events->is_array()) for (std::size_t i = 0; i < events->as_array().size(); ++i) {
+        auto& event = events->as_array()[i];
+        const auto& source = original.at("pending_events").as_array()[i];
+        const auto& type = compact_member(source, "type");
+        const auto& payload = compact_member(source, "payload");
+        const auto& result = compact_member(source, "result");
+        if ((type == "instruction" || type == "ack" || type == "tool_feedback") &&
+                compact_member(payload, "type") == type && binding.is_object() &&
+                compact_member(source, "role") == Json(role_name(role)) && compact_same(source, binding, {"request_id"}) &&
+                compact_equal(compact_member(source, "subject_task_id"), compact_member(binding, "task_id")) &&
+                compact_equal(compact_member(source, "event_requirements_revision"), compact_member(binding, "requirements_revision"))) {
+            const auto& order_binding = compact_member(compact_member(original, "original_contract_bindings"), "instruction");
+            const auto& order = compact_member(latest_contract, "instruction");
+            if (type == "instruction" && order.is_object() && compact_equal(order_binding, binding) &&
+                    compact_equal(compact_member(result, "binding"), order_binding) &&
+                    compact_same(compact_member(original, "task"), binding,
+                        {"request_id", "task_id", "plan_revision", "task_revision", "instruction_revision"}) &&
+                    compact_equal(compact_member(compact_member(original, "task"), "based_on_requirements_revision"), compact_member(binding, "requirements_revision")) &&
+                    compact_equal(compact_member(compact_member(original, "instruction"), "based_on_requirements_revision"), compact_member(binding, "requirements_revision")) &&
+                    compact_same(compact_member(original, "semantic_versions"), binding,
+                        {"requirements_revision", "task_revision", "instruction_revision"}) &&
+                    compact_same(compact_member(original, "instruction"), order_binding,
+                        {"request_id", "task_id", "team_id", "plan_revision", "task_revision", "instruction_revision", "dispatcher_epoch", "execution_epoch"})) {
+                auto complete = order;
+                for (const auto& entry : order_binding.as_object()) complete.as_object()[entry.key()] = entry.value();
+                if (compact_equal(complete, compact_member(payload, "body")))
+                    event.at("payload").as_object()["body"] = Object{{"semantic_contract_ref", "instruction"},
+                        {"original_binding_ref", "current_state.binding"}};
+            }
+            compact_duplicates(event.at("payload"), original, {"binding"}, "current_state");
+            if (result.is_object()) compact_duplicates(event.at("result"), original, {"binding"}, "current_state");
+            if (type == "tool_feedback" && result.is_object() && result.as_object().size() == 2 &&
+                    compact_same(payload, result, {"attempt_id", "record_sha256"}))
+                event.as_object()["result"] = Object{{"payload_fields", Array{"attempt_id", "record_sha256"}}};
+            event.as_object().erase("created_at");
+            continue;
+        }
+        if ((type != "submit_work" && type != "check_submission" && type != "accept_candidate") ||
+            compact_member(payload, "type") != type || !result.is_object() ||
+            compact_member(source, "role") != Json(role_name(role)) ||
+            !compact_same(source, result, {"request_id"}) ||
+            !compact_equal(compact_member(source, "subject_task_id"), compact_member(result, "task_id"))) continue;
+        const auto result_path = "current_state.pending_events[" + std::to_string(i) + "].result";
+        if (projected) compact_submission(event.at("result"), *retained, target_path, projected);
+        if (type == "submit_work" && compact_equal(compact_member(payload, "binding"), compact_member(result, "original_binding")) &&
+                compact_member(result, "original_binding").is_object() && compact_member(result, "body").is_object()) {
+            compact_duplicates(event.at("payload"), result, {"body"}, result_path, &event.at("result"));
+        } else if (type == "check_submission" && compact_member(result, "checks").is_array()) {
+            const auto& version = compact_member(payload, "expected_submission_version");
+            const auto& checks = result.at("checks").as_array();
+            for (std::size_t j = 0; j < checks.size(); ++j) {
+                const auto& check = checks[j];
+                if (version.is_int64() && version.as_int64() > 0 && version.as_int64() < INT64_MAX &&
+                    compact_same(payload, check, {"submission_id"}) && compact_same(result, check, {"submission_id", "status"}) &&
+                    compact_member(payload, "binding").is_object() && compact_equal(compact_member(payload, "binding"), compact_member(check, "captured_binding")) &&
+                    compact_equal(compact_member(check, "submission_version"), Json(version.as_int64() + 1)) &&
+                    compact_equal(compact_member(result, "state_version"), compact_member(check, "submission_version")))
+                    compact_duplicates(event.at("payload"), check, {"check_body", "rework_order"},
+                        compact_reference(event.at("result"), "checks", result_path, result) + "[" + std::to_string(j) + "]");
+            }
+        } else if (type == "accept_candidate") {
+            const auto& acceptance = compact_member(result, "acceptance");
+            if (compact_same(payload, acceptance, {"submission_id"}) &&
+                compact_member(payload, "binding").is_object() &&
+                !compact_member(payload, "expected_submission_version").is_null() && !compact_member(payload, "expected_task_version").is_null() &&
+                compact_equal(compact_member(payload, "binding"), compact_member(acceptance, "captured_binding")) &&
+                compact_equal(compact_member(payload, "expected_submission_version"), compact_member(acceptance, "submission_version")) &&
+                compact_equal(compact_member(payload, "expected_task_version"), compact_member(acceptance, "task_version")))
+                compact_duplicates(event.at("payload"), acceptance, {"decision"}, compact_reference(event.at("result"), "acceptance", result_path, result));
+        }
+    }
+    if (projected && (kind != "submission" || same_submission(compact_member(original, "submission"), *retained)))
+        compact_files(*projected, compact_member(original, views_key), "current_state." + views_key);
+    if (role == Role::Dispatcher) compact_plan_tasks(state, original);
+    if (projected && role == Role::Dispatcher && (kind == "acceptance" || kind == "rejection") &&
+            compact_same(compact_member(original, "acceptance_task"), compact_member(original, "acceptance_instruction"),
+                {"request_id", "task_id", "based_on_requirements_revision", "plan_revision", "task_revision", "instruction_revision"})) {
+        const auto& instruction = original.at("acceptance_instruction");
+        const auto& producer = compact_member(*retained, "original_binding");
+        if (compact_same(compact_member(instruction, "body"), producer, {"request_id", "task_id", "team_id", "requirements_revision",
+                "plan_revision", "task_revision", "instruction_revision", "dispatcher_epoch", "execution_epoch", "policy_epoch"}))
+            compact_duplicates(state.at("acceptance_instruction").at("body"), compact_member(original.at("acceptance_task"), "brief"),
+                {"constraints_verbatim", "constraint_refs"}, compact_reference(state.at("acceptance_task"), "brief", "current_state.acceptance_task", original.at("acceptance_task")));
+    }
+    if (auto* request = state.as_object().if_contains("request"))
+        compact_metadata(*request, binding, "current_state.binding", {"request_id", "requirements_revision"}, {});
+    if (auto* task = state.as_object().if_contains("task")) compact_metadata(*task, binding, "current_state.binding",
+        {"request_id", "task_id", "plan_revision", "task_revision", "instruction_revision"}, {"created_at", "updated_at"});
+    const auto& originals = compact_member(original, "original_contract_bindings");
+    if (auto* instruction = state.as_object().if_contains("instruction"))
+        compact_metadata(*instruction, compact_member(originals, "instruction"),
+            compact_equal(compact_member(originals, "instruction"), binding) ? "current_state.binding" : "current_state.original_contract_bindings.instruction",
+            {"request_id", "task_id", "team_id", "plan_revision", "task_revision", "instruction_revision", "dispatcher_epoch", "execution_epoch"}, {"created_at"});
+    if (originals.is_object() && compact_member(binding, "request_id").is_string()) for (const auto section : {"task", "instruction"})
+        if (compact_equal(compact_member(originals, section), binding))
+            state.at("original_contract_bindings").as_object()[section] = Object{{"binding_ref", "current_state.binding"}};
     return state;
 }
 void seal(EncodedResponsesRequest& value) { value.record_sha256 = sha256_hex(canonical_json(encoded_record(value))); }
@@ -552,7 +814,9 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     }
     append_updates(index);
     if (v3) input.push_back(Object{{"role", "user"}, {"content", canonical_json(Object{
-        {"format", "wls-responses-current-state-v3"}, {"current_state", lean ? lean_state(logical.at("current_state")) : logical.at("current_state")}})}});
+        {"format", "wls-responses-current-state-v3"}, {"current_state", lean ? lean_state(logical.at("current_state"), request.role,
+            logical.at("contract_updates").as_array().empty() ? logical.at("contract_anchor") :
+                logical.at("contract_updates").as_array().back().at("contract")) : logical.at("current_state")}})}});
     std::string instructions = canonical_json(Object{{"format", "wls-responses-system-v1"},
         {"system", prefix.at("system")},
         {"dependencies", prefix.at("dependencies")}, {"tool_versions", tool_versions}});

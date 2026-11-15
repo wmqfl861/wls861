@@ -427,7 +427,13 @@ class RehearsalEndpoint(PricingFlowEndpoint):
         action, binding = contract.get('workflow_action'), contract['binding']
         if action:
             if action['kind'] == 'submission':
-                if contract['submission']['body']['self_check'][0]['met'] == 'partial':
+                submission = contract['submission']
+                if 'body' not in submission:
+                    assert submission['duplicate_fields']['body'] == 'current_state.workflow_action.target.body'
+                    assert all(submission[key] == action['target'][key] for key in
+                               ('submission_id', 'request_id', 'task_id', 'team_id', 'state_version', 'original_binding', 'record_sha256'))
+                submission_body = submission['body'] if 'body' in submission else action['target']['body']
+                if submission_body['self_check'][0]['met'] == 'partial':
                     if 'bad_check' not in self.faults:
                         self.faults.add('bad_check')
                         return 'check_submission', self.check, 'check_mistaken'
@@ -1277,6 +1283,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             corrections, retry_links, expected_cost = {}, [], 0
             role_calls, segment_totals, expected_charges, worker_cache_ratios = {}, {}, {}, {}
             prefix_cache = SimulatedPrefixCache()
+            self.assertEqual(prefix_cache.previous, {})  # Independent protocol/request fixture starts cold.
             for index, (attempt, record, sent) in enumerate(zip(attempts, endpoint.records, peer.requests)):
                 attempt_id = attempt['attempt_id']; role = attempt['role']; tag = record['tag']
                 body = json.loads(sent['body'])
@@ -1379,6 +1386,8 @@ class BillingBaselineIntegration(unittest.TestCase):
                 self.assertEqual(body['tool_choice'] if chat else body['tool_choice']['mode'], 'required')
                 logical = json.loads(attempt['request_envelope'])['context']['input']
                 self.assertEqual(logical['tool_policy'], 'fixed-role-v1')
+                self.assertIs(logical['current_state']['compact_model_state'], True)
+                self.assertNotIn('compact_model_state', record['contract'])
                 if chat:
                     native_calls = [call for item in body['messages'] for call in item.get('tool_calls', [])]
                     logical_calls = [call for item in logical['messages'] for call in item['tool_calls']]
@@ -1429,6 +1438,18 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(summary['budget']['reserved_cost'], 0)
             self.assertEqual(summary['budget']['unknown_cost'], 0)
             tasks = rows(database, 'SELECT node_id,status,instruction_revision FROM tasks ORDER BY node_id')
+            self.assertEqual(set(worker_cache_ratios), {task['node_id'] for task in tasks})
+            self.assertTrue(all(len(own) >= 3 for own in worker_cache_ratios.values()))
+            eligible_cache = [ratio for own in worker_cache_ratios.values() for ratio in own[2:]]
+            self.assertEqual(len(eligible_cache), role_calls['worker'] - 2 * len(tasks))
+            self.assertTrue(eligible_cache)
+            # Frozen 2026-11-15: e2-final-release-03f_ta4q/d28-initial-measurement.json; counts span restart/rework.
+            threshold = 0.5304749340369392 if chat else 0.5433978099272639
+            self.assertEqual(len(eligible_cache), 11)
+            self.assertGreaterEqual(min(eligible_cache), threshold)
+            cache_gate = {'evidence': 'synthetic-prefix-cache-not-provider-usage',
+                'worker_nodes': len(worker_cache_ratios), 'eligible_samples': len(eligible_cache),
+                'minimum_ratio_from_third': min(eligible_cache), 'frozen_threshold': threshold}
             self.assertEqual([task['status'] for task in tasks], ['ACCEPTED'] * 3)
             self.assertEqual([task['instruction_revision'] for task in tasks], [2, 1, 1])
             submissions = rows(database, 'SELECT submission_id,task_id,original_binding,body,status FROM workflow_submissions ORDER BY rowid')
@@ -1463,6 +1484,7 @@ class BillingBaselineIntegration(unittest.TestCase):
                 'final_status': summary['status'], 'commands': 2, 'calls': count, 'corrections_by_reason': corrections,
                 'retries': 1, 'role_statistics': summary['role_statistics'],
                 'simulated_worker_cache_ratios': worker_cache_ratios, 'budget': summary['budget'],
+                'simulated_cache_gate': cache_gate,
                 'elapsed_ms': first['elapsed_ms'] + summary['elapsed_ms']}
             write_json(case['directory'] / 'g2-rehearsal-result.json', metrics)
             print('G2_REHEARSAL_METRICS ' + json.dumps(metrics, sort_keys=True))
