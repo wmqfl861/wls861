@@ -649,13 +649,18 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
             require(model_accepted(profile, text(source, "model")), ErrorCode::Stale,
                     "provider response model differs from the explicit profile alias");
             if (const auto* reported = object(source).if_contains("usage")) decoded.response.usage = usage(*reported, metadata.enabled);
-            // The documented response envelope includes these empty/null
-            // metadata fields. Their presence does not enable program access,
-            // an echoed-input format or a second reasoning configuration.
+            // Program metadata is opaque under the explicit ignore policy;
+            // retaining it never grants program access. Legacy profiles still
+            // accept only the documented null value.
             for (const auto* name : {"access_programs", "reasoning_effort"})
-                if (const auto* optional = object(source).if_contains(name))
+                if (const auto* optional = object(source).if_contains(name)) {
+                    if (metadata.enabled && std::string_view(name) == "access_programs" && !optional->is_null()) {
+                        metadata.record("", name);
+                        continue;
+                    }
                     require(optional->is_null(), ErrorCode::Unsupported,
                             "non-null response metadata is outside the implemented protocol subset");
+                }
             if (const auto* optional = object(source).if_contains("input"))
                 require(optional->is_array() && optional->as_array().empty(), ErrorCode::Unsupported,
                         "nonempty response input echo is outside the implemented protocol subset");

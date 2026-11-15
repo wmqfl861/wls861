@@ -90,6 +90,9 @@ void response_metadata_paths_keep_originals_and_known_results() {
         auto value = profile.responses_compatibility ? fixture::compat_json("reasoning-tool-response.json") : fixture::tool_response();
         const auto known = decode(value, profile);
         CHECK(!known.evidence.as_object().contains("unknown_fields"));
+        value.as_object()["access_programs"] = Object{{"cyber", "standard"}};
+        const auto strict = decode(value, profile);
+        CHECK(strict.response.error_code == "unsupported_response" && strict.response.tool_calls.empty());
         value.as_object()["future~/"] = Object{{"private-value", "never-copy-into-paths"}};
         value.at("usage").as_object()["future"] = Array{true, nullptr};
         value.at("usage").at("input_tokens_details").as_object()["future"] = "opaque";
@@ -99,13 +102,21 @@ void response_metadata_paths_keep_originals_and_known_results() {
         const std::string raw = " \n" + canonical_json(value) + "\n ";
         const auto result = decode_responses_response(profile, fixture::request(), 200, raw);
         CHECK(to_json(result.response) == to_json(known.response));
+        CHECK(result.response.status == ModelResultStatus::Completed);
         CHECK(result.raw_body == raw && result.raw_body_sha256 == sha256_hex(raw));
-        CHECK((result.evidence.at("unknown_fields") == Json(Array{"/future~0~1", "/usage/future",
+        CHECK((result.evidence.at("unknown_fields") == Json(Array{"/access_programs", "/future~0~1", "/usage/future",
             "/usage/input_tokens_details/future", "/usage/output_tokens_details/future"})));
-        CHECK(result.evidence.at("unknown_fields_observed") == 4);
+        CHECK(result.evidence.at("unknown_fields_observed") == 5);
         CHECK(result.evidence.at("unknown_fields_truncated") == false);
         CHECK(canonical_json(result.evidence.at("unknown_fields")).find("private-value") == std::string::npos);
         CHECK(to_json(result).at("raw_body_sha256") == Json(sha256_hex(raw)));
+        auto null_programs = value; null_programs.as_object()["access_programs"] = nullptr;
+        CHECK(decode(null_programs, profile).evidence.at("unknown_fields_observed") == 4);
+        value.at("output").as_array().back().as_object()["type"] = "unknown_output";
+        const auto rejected = decode(value, profile);
+        CHECK(rejected.response.error_code == "unsupported_response");
+        CHECK(rejected.response.tool_calls.empty() && rejected.response.text.empty());
+        CHECK(rejected.raw_body == canonical_json(value) && rejected.evidence.at("tool_dispatch_performed") == false);
     }
 }
 void response_metadata_lists_are_bounded_without_losing_raw_bytes() {
