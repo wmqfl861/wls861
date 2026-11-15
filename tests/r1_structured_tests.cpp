@@ -365,7 +365,11 @@ void actionable_dispatcher_originals_and_references() {
     namespace e81 = wls::test::e81_compact;
     for (const bool chat : {false, true}) {
         auto base = e81::state(e81::cases[1]); const auto producer = base.at("submission").at("original_binding");
-        base.as_object()["acceptance_task"] = base.at("task"); base.as_object()["acceptance_instruction"] = base.at("instruction");
+        // Inserting keys can reallocate base, so own both source values first.
+        const auto acceptance_task = base.at("task");
+        const auto acceptance_instruction = base.at("instruction");
+        base.as_object()["acceptance_task"] = acceptance_task;
+        base.as_object()["acceptance_instruction"] = acceptance_instruction;
         auto& source_check = base.at("workflow_action").at("target").at("checks").as_array()[0];
         source_check.as_object()["actor"] = Object{{"role", "team_lead"}, {"principal_id", "synthetic-lead"}, {"request_id", producer.at("request_id")},
             {"task_id", producer.at("task_id")}, {"team_id", producer.at("team_id")}, {"dispatcher_epoch", producer.at("dispatcher_epoch")}, {"execution_epoch", producer.at("execution_epoch")}};
