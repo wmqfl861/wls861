@@ -36,6 +36,8 @@ Root 输出发布复用业务 Workspace，扫描兄弟数据库时受到 16 MiB 
 
 最终 head `f773812` 的 [PR 三核心检查](https://github.com/wmqfl861/wls861/actions/runs/43752880351) **270/270 通过**，失败/跳过/未运行均为 0；[源码归档](https://github.com/wmqfl861/wls861/actions/runs/43752880296) **744 文件**与提交树逐字节一致。合并后的 main `900a879` 验证见[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43753899472)及[源码归档](https://github.com/wmqfl861/wls861/actions/runs/43753899551)。
 
+随后 main `900a879` 的 [Make-ASan（1/2）](https://github.com/wmqfl861/wls861/actions/runs/43753899472/job/132933710502) 检出新增 Dispatcher 测试夹具在同一 JSON 对象插入时引用失效（`heap-use-after-free`）；修复为任何插入前分别复制 task/instruction 两个值，全部断言及原失败日志保留。 修复后本机 GCC 13.3 Debug 的 CMake ASan/LSan `r1_structured_lean` 完整注册项 **1/1 PASS**（13 个方法全部通过，84.23 秒，低于原 180 秒期限；`halt_on_error=1:detect_leaks=1`），LastTest/JUnit 已保留；此结果不代表 Make-ASan 全门禁通过。
+
 本机旧轮次保留 89/90（专项 4/4，加其余 85/86），失败为 `doctor_diagnostics_cli` 布局检查；同一 ELF 在受支持布局下的 13 个方法通过，不将原轮次改报为全绿。历史本机 ASan `event_runtime` 仍 OPEN；Windows 11 NOT_RUN，G4 原生 BLOCKED。已记录的凭据模式扫描为原 132 文件和新增审计 36 文件，均 0 匹配。
 
 本机私有证据根：`/mnt/d/codex-workspace/wls861-g2-20261115-a78u4b6i/`。原实跑在 `evidence/protocol-probe-01`、`evidence/real-*` 及对应运行目录；最终审计在 `evidence/real-three-02/package-audit-oid7cqxk`，修复验证在 `evidence/export-final-release`，基线 CI 在 `evidence/ci/maincc65d9e`。公开仓库只保留本页摘要和 CI/PR 链接，不提交凭据、数据库、长日志或原始模型响应。按文件 UNKNOWN 规则暂停调用，保留现场、不重跑原请求或重试 export；新的真实复验及角色对照待恢复。
