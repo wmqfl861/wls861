@@ -19,6 +19,11 @@ using Row = boost::json::object;
 using Array = boost::json::array;
 struct AttemptPricing : TokenPricing { bool reserve_fallback{false}; };
 
+std::vector<std::string> owned_paths(const Json& intent);
+bool terminal_request(std::string_view s);
+Json actor_json(const StoreActor& actor);
+Json exposed(Row row);
+bool overlap(const std::string& left, const std::string& right);
 void require(bool condition, ErrorCode code, const std::string& message);
 void text_field(std::string_view value, std::string_view field, std::size_t maximum = 256);
 std::string str(const Row& row, std::string_view key);
