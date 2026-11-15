@@ -12,7 +12,7 @@ owner 指定 Responses 中转、`gpt-6.1-sol` / `max` 并取消金额门禁。�
 
 ## 当前阻塞
 
-G2-4 保留 Store `DELIVERED` / `output_blocked`、Root `unknown_outcome` 的原状态。最终包审计及私有副本的固定成果检查通过，原 export 仍未确认，三 team 分工也未验证。[发布修复 #111](https://github.com/wmqfl861/wls861/pull/111) 已通过本机回归与独立静态审核；远端 CI 进行中，尚未合并。
+G2-4 保留 Store `DELIVERED` / `output_blocked`、Root `unknown_outcome` 的原状态。最终包审计及私有副本的固定成果检查通过，原 export 仍未确认，三 team 分工也未验证。[发布修复 #111](https://github.com/wmqfl861/wls861/pull/111) 已合并到 main `9b7f700`，本机回归、独立静态审核及 PR 检查成功；合并后完整矩阵进行中。
 
 ## 已有能力与限制
 
@@ -24,6 +24,6 @@ G6 已完成 Store 返工域拆分和可选 ccache，整体仍只完成部分工
 
 ## 下一步
 
-跟进 #111 的远端验证，保留原件；原真实请求未重跑、export 未重试。后续优化和 G2-5 角色对照待恢复，当前 G2-5 NOT_RUN。单任务冒烟 PASS 的范围不扩大；G7 及以后功能阶段暂不开始。
+保留原 UNKNOWN 与原件；原真实请求未重跑、export 未重试。后续真实复验、优化和 G2-5 角色对照尚未恢复，当前 G2-5 NOT_RUN。单任务冒烟 PASS 的范围不扩大；G7 及以后功能阶段暂不开始。
 
 历史实现与逐次失败保留在 [CHANGELOG](../CHANGELOG.md)、[G1 交接](reviews/g1-main-handoff-20261112.md)、[G2-P 报告](reports/g2p-rehearsal.md)和[全代码审核](reviews/code-audit-20261027.md)；本页只记录现状与入口。

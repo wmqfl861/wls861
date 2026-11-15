@@ -13,8 +13,8 @@
   The final independent package audit passes its bindings and content
   checks; the original export remains unresolved. The publication fix
   [#111](https://github.com/wmqfl861/wls861/pull/111) passes local regression
-  and independent static review; its remote CI is running and it is not
-  yet merged.
+  and independent static review, and merges after its PR checks pass.
+  The merged-main full matrix is running.
   Results, limits and preserved failures are in [the run record](docs/reports/g2-first-real-run.md).
 
 - Add optional CMake/Make compiler caching and CI ccache integration in
