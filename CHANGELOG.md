@@ -2,6 +2,21 @@
 
 ## 0.12.0 — G2-P model readiness (2026-11-13)
 
+- 2026-11-15: run the owner-authorized Responses validation with explicit
+  `observe-only-v1`; money gates are removed while token/call/time bounds
+  and unknown costs remain. Merge compatibility and policy changes
+  [#108](https://github.com/wmqfl861/wls861/pull/108),
+  [#109](https://github.com/wmqfl861/wls861/pull/109) and
+  [#110](https://github.com/wmqfl861/wls861/pull/110); merged-main CI passes.
+  The real file smoke passes, but G2-4 retains a timeout and a later output
+  publication UNKNOWN. Pause further real calls; G2-5 remains NOT_RUN.
+  The final independent package audit passes its bindings and content
+  checks; the original export remains unresolved. The publication fix
+  [#111](https://github.com/wmqfl861/wls861/pull/111) passes local regression
+  and independent static review, and merges after its PR checks pass.
+  The merged-main full matrix is running.
+  Results, limits and preserved failures are in [the run record](docs/reports/g2-first-real-run.md).
+
 - Add optional CMake/Make compiler caching and CI ccache integration in
   [#104](https://github.com/wmqfl861/wls861/pull/104). One local GCC 13.3
   Release/-j2 sample measures full builds at 500.77/520.05/15.46 seconds
