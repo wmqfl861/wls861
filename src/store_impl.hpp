@@ -19,6 +19,27 @@ using Row = boost::json::object;
 using Array = boost::json::array;
 struct AttemptPricing : TokenPricing { bool reserve_fallback{false}; };
 
+[[noreturn]] void fail(ErrorCode code, const std::string& message);
+std::int64_t add(std::int64_t a, std::int64_t b);
+bool terminal_task(std::string_view s);
+std::int64_t runtime_wall_remaining(const Row& request, const FrozenRequestConfig& config);
+ModelResponse unobserved_live_response(const ModelRequest& request, const std::string& reason);
+
+// All R1.4 reads hold one SQLite read snapshot. A read-only connection may
+// coexist with the writer; its old membership must never be filled with later
+// rows between COUNT/MAX, current facts and the recent tail.
+class ManagementReadSnapshot {
+public:
+    explicit ManagementReadSnapshot(sqlite3* database);
+    ~ManagementReadSnapshot();
+    void finish();
+    ManagementReadSnapshot(const ManagementReadSnapshot&) = delete;
+    ManagementReadSnapshot& operator=(const ManagementReadSnapshot&) = delete;
+private:
+    sqlite3* db_;
+    bool owned_;
+};
+
 std::vector<std::string> owned_paths(const Json& intent);
 bool terminal_request(std::string_view s);
 Json actor_json(const StoreActor& actor);

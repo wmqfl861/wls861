@@ -265,28 +265,6 @@ void Store::authorize_history_control(const StoreActor& actor, const ExecutionBi
 }
 
 namespace {
-// All R1.4 reads hold one SQLite read snapshot. A read-only connection may
-// coexist with the writer; its old membership must never be filled with later
-// rows between COUNT/MAX, current facts and the recent tail.
-class ManagementReadSnapshot {
-public:
-    explicit ManagementReadSnapshot(sqlite3* database) : db_(database), owned_(sqlite3_get_autocommit(db_) != 0) {
-        if (owned_) sqlite_failure(db_, sqlite3_exec(db_, "BEGIN", nullptr, nullptr, nullptr), "management snapshot");
-    }
-    ~ManagementReadSnapshot() { if (owned_) sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr); }
-    void finish() {
-        if (owned_) {
-            sqlite_failure(db_, sqlite3_exec(db_, "COMMIT", nullptr, nullptr, nullptr), "management snapshot end");
-            owned_ = false;
-        }
-    }
-    ManagementReadSnapshot(const ManagementReadSnapshot&) = delete;
-    ManagementReadSnapshot& operator=(const ManagementReadSnapshot&) = delete;
-private:
-    sqlite3* db_;
-    bool owned_;
-};
-
 Json management_scope(const StoreActor& actor) {
     return Row{{"request_id", actor.request_id}, {"role", role_name(actor.role)},
         {"principal_id", actor.principal_id}, {"task_id", actor.task_id}, {"team_id", actor.team_id}};

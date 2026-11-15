@@ -36,49 +36,6 @@ namespace wls::s1 {
 using namespace store_detail;
 namespace {
 
-[[noreturn]] void fail(ErrorCode code, const std::string& message) {
-    throw Error(code, message);
-}
-
-
-std::int64_t add(std::int64_t a, std::int64_t b) {
-    require(a >= 0 && b >= 0 && b <= INT64_MAX - a, ErrorCode::Quota, "counter overflow");
-    return a + b;
-}
-bool terminal_task(std::string_view s) {
-    return s == "ACCEPTED" || s == "FAILED" || s == "CANCELLED" || s == "SKIPPED" || s == "SUPERSEDED";
-}
-
-std::int64_t runtime_wall_remaining(const Row& request, const FrozenRequestConfig& config) {
-    if (!config.bounded_runtime()) return INT64_MAX;
-    const auto created = str(request, "created_at");
-    std::tm utc{};
-    std::istringstream input(created);
-    input >> std::get_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
-    require(!input.fail() && created.size() == 20, ErrorCode::Corrupt, "invalid original request creation time");
-    const auto seconds = ::timegm(&utc);
-    std::ostringstream canonical;
-    canonical << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
-    const auto now = std::chrono::system_clock::now();
-    const auto start = std::chrono::system_clock::from_time_t(seconds);
-    require(seconds >= 0 && canonical.str() == created && start <= now,
-            ErrorCode::Corrupt, "invalid original request creation time");
-    const auto minutes = number(config.json().at("system").at("budget_defaults").as_object(), "max_wall_minutes");
-    require(minutes > 0 && minutes <= INT64_MAX / 60000, ErrorCode::Corrupt, "invalid frozen wall time");
-    return minutes * 60000 - std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
-}
-ModelResponse unobserved_live_response(const ModelRequest& request, const std::string& reason) {
-    ModelResponse response;
-    response.call_id = request.call_id; response.attempt_id = request.attempt_id;
-    response.role_call_index = request.role_call_index; response.role = request.role;
-    response.binding = request.binding; response.config_snapshot_id = request.config_snapshot_id;
-    response.status = ModelResultStatus::Interrupted;
-    response.error_code = reason;
-    response.error_message = reason == "not_dispatched_after_recovery" ?
-        "Host recovery found no original durable send authority; original usage awaits explicit host reconciliation." :
-        "Host recovery found no recorded transport response; remote outcome remains unknown.";
-    return response;
-}
 Array strings(const std::vector<std::string>& values) {
     Array result;
     std::set<std::string> unique;
@@ -348,6 +305,61 @@ private:
     sqlite3_stmt* statement_{};
 };
 }
+
+[[noreturn]] void store_detail::fail(ErrorCode code, const std::string& message) {
+    throw Error(code, message);
+}
+
+
+std::int64_t store_detail::add(std::int64_t a, std::int64_t b) {
+    require(a >= 0 && b >= 0 && b <= INT64_MAX - a, ErrorCode::Quota, "counter overflow");
+    return a + b;
+}
+bool store_detail::terminal_task(std::string_view s) {
+    return s == "ACCEPTED" || s == "FAILED" || s == "CANCELLED" || s == "SKIPPED" || s == "SUPERSEDED";
+}
+
+std::int64_t store_detail::runtime_wall_remaining(const Row& request, const FrozenRequestConfig& config) {
+    if (!config.bounded_runtime()) return INT64_MAX;
+    const auto created = str(request, "created_at");
+    std::tm utc{};
+    std::istringstream input(created);
+    input >> std::get_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+    require(!input.fail() && created.size() == 20, ErrorCode::Corrupt, "invalid original request creation time");
+    const auto seconds = ::timegm(&utc);
+    std::ostringstream canonical;
+    canonical << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+    const auto now = std::chrono::system_clock::now();
+    const auto start = std::chrono::system_clock::from_time_t(seconds);
+    require(seconds >= 0 && canonical.str() == created && start <= now,
+            ErrorCode::Corrupt, "invalid original request creation time");
+    const auto minutes = number(config.json().at("system").at("budget_defaults").as_object(), "max_wall_minutes");
+    require(minutes > 0 && minutes <= INT64_MAX / 60000, ErrorCode::Corrupt, "invalid frozen wall time");
+    return minutes * 60000 - std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
+}
+ModelResponse store_detail::unobserved_live_response(const ModelRequest& request, const std::string& reason) {
+    ModelResponse response;
+    response.call_id = request.call_id; response.attempt_id = request.attempt_id;
+    response.role_call_index = request.role_call_index; response.role = request.role;
+    response.binding = request.binding; response.config_snapshot_id = request.config_snapshot_id;
+    response.status = ModelResultStatus::Interrupted;
+    response.error_code = reason;
+    response.error_message = reason == "not_dispatched_after_recovery" ?
+        "Host recovery found no original durable send authority; original usage awaits explicit host reconciliation." :
+        "Host recovery found no recorded transport response; remote outcome remains unknown.";
+    return response;
+}
+
+store_detail::ManagementReadSnapshot::ManagementReadSnapshot(sqlite3* database) : db_(database), owned_(sqlite3_get_autocommit(db_) != 0) {
+        if (owned_) sqlite_failure(db_, sqlite3_exec(db_, "BEGIN", nullptr, nullptr, nullptr), "management snapshot");
+    }
+store_detail::ManagementReadSnapshot::~ManagementReadSnapshot() { if (owned_) sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr); }
+void store_detail::ManagementReadSnapshot::finish() {
+        if (owned_) {
+            sqlite_failure(db_, sqlite3_exec(db_, "COMMIT", nullptr, nullptr, nullptr), "management snapshot end");
+            owned_ = false;
+        }
+    }
 
 std::vector<std::string> store_detail::owned_paths(const Json& intent) {
     const auto parent = str(intent.at("parent_identity").as_object(), "path");
@@ -4055,7 +4067,5 @@ Json Store::Impl::settle_model_attempt(const std::string& attempt_id, const Exec
     if (tx) tx->commit();
     return result;
 }
-
-#include "store_live.inc"
 
 } // namespace wls::s1
