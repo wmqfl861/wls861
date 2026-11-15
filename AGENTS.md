@@ -8,6 +8,8 @@ The owner adopted D-19 through D-29 in [`docs/reviews/claude-2026-11-14/02-decis
 
 The owner adopted all decisions in [`docs/reviews/claude-2026-11-13/02-decisions.md`](docs/reviews/claude-2026-11-13/02-decisions.md) on 2026-11-13. For process, defaults, priorities and authorization, those decisions supersede conflicting earlier text; the complete contract's safety invariants remain binding. Start with that review directory's `README.md` and read `01` through `04` in order.
 
+The owner's 2026-11-15 direction supersedes older endpoint, credential-readiness and money-cap defaults for the current G2 work; see [the current run record](docs/reports/g2-first-real-run.md). Further real calls are paused under the file-UNKNOWN stop rule; preserve the original request and do not rerun it, retry export or delete its state. Read-only package audits and local synthetic regressions do not resolve the original publication outcome. G2-5 is NOT_RUN and full G2 acceptance has not passed. Historical review decisions and the preserved contract are not rewritten.
+
 ## Authority and permissions
 
 - The owner approved review corrections and GitHub push on 2026-10-17, then requested development under the current plan. Routine development, corrections and fixes in that scope need no new approval per task card; record decisions and changes. Never infer model spending or deployment credentials from this; explicit user instructions take precedence.
@@ -15,11 +17,18 @@ The owner adopted all decisions in [`docs/reviews/claude-2026-11-13/02-decisions
   endpoints, credentials, model aliases and budgets stay in external
   configuration. Tests use FakeModel and self-created temporary fixtures,
   including real file effects; tests never call real models. Do not operate
-  production data/services. G2 paid runs are separately authorized only for
-  OpenAI Responses / `gpt-5-mini`, at most USD 1 per request and USD 10 total,
-  with at most two eligible retries under decisions §3.3. Before any real
-  request, require both the owner's explicit “密钥已就绪” and the shell
-  environment variable `WLS_G2_API_KEY`; never echo or persist its value.
+  production data/services. The owner has authorized the supplied test key
+  for the specified Responses gateway, `gpt-6.1-sol` with reasoning `max`,
+  and removed money gates for reasonable, finite use. New requests opt in
+  with frozen `cost_policy: observe-only-v1`; keep token, call and time
+  limits and the independent host network authorization. Current real
+  runs use no automatic retries. Unknown cost is not zero or
+  free; retain original nullable usage and unresolved outcomes. Credentials
+  stay external and may be injected into the intended process; never echo
+  or persist their values. The current key authorization is already given
+  and observe-only requires no price table; verify credential availability
+  without exposing the value. This grants no
+  public deployment or fallback to another endpoint.
   Windows 11 remains NOT_RUN. D-12 cancels private CI evidence hosting:
   public CI logs and repository reports suffice; local raw originals are
   retained for 30 days before optional cleanup.

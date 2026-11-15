@@ -1,41 +1,29 @@
-现在能做什么：0.12.0 已通过 G2-P；Responses 与 Chat 非流式工作流完成合成交付；普通单 Agent 可提交原始成果，评估工具支持三条件、15 个固定样本位；G4-A1/B 已合入，N1 停止提示与 N2 固定成果核对已完成。
-还不能做什么：真实 WLS 调用仍为 0，三条件质量对照未做，普通单 Agent 的提交仍待业务验收；G4 原生验收 BLOCKED，`/input` 与环境卡片执行检查未完成，Windows 11 为 NOT_RUN。
-需要 owner 做什么：在运行 agent 的 shell 中导出 `WLS_G2_API_KEY`，然后明确告知“密钥已就绪”；两项满足前不发任何真实请求。
+现在能做什么：0.12.0 已通过 G2-P；真实 Responses 协议探针成功，第二次 WLS 冒烟已交付，固定三行文件检查通过；Responses/Chat 合成交付均可用。
+还不能做什么：G2-4 首次运行超时、第二次成果发布阻断，完整验收未通过；G2-5 NOT_RUN，尚无三条件质量结论；G4 原生验收 BLOCKED，Windows 11 NOT_RUN。
+需要 owner 做什么：测试密钥与 observe-only 授权已到位，无需重复提供或补价格表；因文件 UNKNOWN 已暂停后续真实调用，费用保持未知。
 
 # 当前状态
 
-更新：2026-11-14。实现 **0.12.0**，当前蓝图 **v0.4.1**、已采纳目标蓝图 **v0.5**，Store **410**。没有数据库版本变更。
+更新：2026-11-15。实现 **0.12.0**，当前蓝图 **v0.4.1**、已采纳目标蓝图 **v0.5**，Store **410**。没有数据库版本变更。
 
-本轮收敛已在 [converged-20261114](https://github.com/wmqfl861/wls861/tree/converged-20261114)（`f4fbb62`）完成，七项标准通过；随后合入 [N2 #99](https://github.com/wmqfl861/wls861/pull/99) 与 [N1 #100](https://github.com/wmqfl861/wls861/pull/100)。标签保留原收敛点，见[收敛报告](reports/convergence-20261114.md)。
+owner 指定 Responses 中转、`gpt-6.1-sol` / `max` 并取消金额门禁。新请求显式采用 `observe-only-v1`；旧冻结请求保留原门禁。凭据与配置留在外部，不授权公网上线或换端点兜底。实跑表、用量、审计及验证证据集中在[首次真实运行记录](reports/g2-first-real-run.md)。
 
-当前 CI：main `95a4393` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43606163372)九作业通过，CTest 共 90 个注册，全部 ASan 注册低于时限一半；五个指定 main 作业成功保存编译缓存。后续结果见[最新 main Actions](https://github.com/wmqfl861/wls861/actions/workflows/ci.yml?query=branch%3Amain)。
+实跑基线 main `cc65d9e` 的[完整 CI](https://github.com/wmqfl861/wls861/actions/runs/43724936562)及[源码验证](https://github.com/wmqfl861/wls861/actions/runs/43724936571)通过。本机 doctor 布局失败保留，受支持布局复验通过；历史 ASan `event_runtime` 问题仍 OPEN。
 
-已合并的 [R3 分片 #103](https://github.com/wmqfl861/wls861/pull/103)保留 49 个原方法，分为 32/12/5 三组；main `45e9e05` [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43603725398)通过，此项 D-20 治理已关闭。[ccache #104](https://github.com/wmqfl861/wls861/pull/104) 的[PR 三核心](https://github.com/wmqfl861/wls861/actions/runs/43604946736)在实际检查输入 `aa782cbe` 上各 90/90 通过，PR 缓存保存步骤按设计跳过。
+## 当前阻塞
 
-此前 main `f7f38e8` 的 88 注册[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43576774296)与[定时矩阵](https://github.com/wmqfl861/wls861/actions/runs/43585861193)均通过；后者 `r3_evaluation` 的 ASan 耗时 187.30/360 秒，触发此次 D-20 分片。旧 acceptance 超时项已由 [#95](https://github.com/wmqfl861/wls861/pull/95) 分片关闭。两次分片均保留原用例、断言和时限，历史失败保留。
+G2-4 保留 Store `DELIVERED` / `output_blocked`、Root `unknown_outcome` 的原状态。最终包审计及私有副本的固定成果检查通过，原 export 仍未确认，三 team 分工也未验证。[发布修复 #111](https://github.com/wmqfl861/wls861/pull/111) 已通过本机回归与独立静态审核；远端 CI 进行中，尚未合并。
 
-## 已有能力
+## 已有能力与限制
 
-| 能力 | 当前边界与入口 |
-| --- | --- |
-| G1、G2-P | 已通过；最小工具契约、受限纠错、按次预约与失败记账、至多两次合格重试、files 默认模板、成果原名导出均已合入；见[八场景预演](reports/g2p-rehearsal.md) |
-| N1、N2 | 停止提示区分持久限制、目标约束与可重试状态，仅附白名单失败类别；`python3 scripts/check_g2_outputs.py OUTPUT smoke`（或 `three`）核对固定任务成果并输出 JSON |
-| 四角色工作流 | 原版本、授权、首次派发、UNKNOWN、原字节提交/验收/交付守卫保留；运行时自有工作区清理不等于私有行全局清理 |
-| 文件与输出 | 文件工具及新 structured-v3 的 UTF-8 输出切片/前 8 KiB 预览已接通；旧格式与历史记录不回填 |
-| Responses / Chat | 两协议各八场景合成交付通过；Chat 非流式已接预约、发送与结算，R3 评估仍拒绝 Chat |
-| G4 | A1/B 已合并，standard 仍显式选用、默认 Strict；原生验收 BLOCKED：托管尝试与本机均未通过，托管拒绝的根因未定，见[收敛报告](reports/convergence-20261114.md) |
-| G3 | plain 单 Worker 与 v4 三条件工具就绪；停在不可变 SUBMITTED、业务验收待办；质量为 not_assessed，见[用法](implementation/R3-single-agent-baseline.md#5-普通单-agent-与-v4-三条件用法) |
-| G6 | #93 已将 Store 返工域单独编译；[#104](https://github.com/wmqfl861/wls861/pull/104)已接入 CMake/Make 可选 ccache 与 CI 编译缓存，单次本地测量见 [CHANGELOG](../CHANGELOG.md)；整个 G6 仍只完成部分工作，单次测量不代表稳定性能收益 |
+G1/G2-P、N1/N2/N3 已完成；[八场景预演](reports/g2p-rehearsal.md)只证明合成流程。四角色工作流保留版本、授权、首次派发、UNKNOWN、原字节提交/验收/交付守卫。普通单 Agent 可提交不可变成果，三条件评测与真实业务验收仍未完成。
 
-## 当前限制
+G4-A1/B 已合并，standard 显式选用、Strict 为默认；原生验收仍 BLOCKED，`/input`、环境卡片实际执行检查、无 cgroup 启动与全树回收仍待后续条件；Windows 11 NOT_RUN。[收敛报告](reports/convergence-20261114.md)保留此前失败。
 
-- 合成结果不代表真实模型验收。真实/付费 WLS 调用仍为 0；密钥与明确就绪通知到位后按 [G2 计划](reviews/claude-2026-11-13/04-plan.md#3-g2-的步骤)和 [11-14 补充](reviews/claude-2026-11-14/04-next.md#2-g2步骤不变补三处)执行，每请求 ≤1 美元、G2 合计 ≤10 美元。首选 Responses / gpt-5-mini，其他 Chat 端点按 D-27。
-- G4 的 `/input`、环境卡片实际执行检查、无 cgroup 启动与全树回收仍待后续条件；Windows 11 NOT_RUN。
-- 六个新格式在 G2 出口冻结，此前允许原地调整；framed-v1 / structured-v2 的旧请求回归保持。
-- daemon/API、私有行清理 runner、完整记忆和独立审核闭环仍未实现；D-12 取消私有证据托管要求，原始证据至少保留 30 天。
+G6 已完成 Store 返工域拆分和可选 ccache，整体仍只完成部分工作。daemon/API、私有行清理 runner、完整记忆和独立审核闭环仍未实现。六个新格式在 G2 出口冻结；旧请求回归保持。D-12 取消私有证据托管要求，原始证据至少保留 30 天。
 
 ## 下一步
 
-等待：密钥。N1、N2、N3 均已完成；按 [D-26](reviews/claude-2026-11-14/02-decisions.md#35-d-26-收敛之后密钥到来之前)，空档仅可做 G6-B 余下的构建提速、测试耗时治理和文档精简，G7 及以后功能阶段暂不开始。密钥和明确就绪通知到位、手头 PR 合并后按 G2 计划执行。
+跟进 #111 的远端验证，保留原件；原真实请求未重跑、export 未重试。后续优化和 G2-5 角色对照待恢复，当前 G2-5 NOT_RUN。单任务冒烟 PASS 的范围不扩大；G7 及以后功能阶段暂不开始。
 
-历史实现、逐次运行及失败保留在 [CHANGELOG](../CHANGELOG.md)、[G1 交接](reviews/g1-main-handoff-20261112.md)、[G2-P 报告](reports/g2p-rehearsal.md)与[全代码审核](reviews/code-audit-20261027.md)；本页只记录现状与入口。
+历史实现与逐次失败保留在 [CHANGELOG](../CHANGELOG.md)、[G1 交接](reviews/g1-main-handoff-20261112.md)、[G2-P 报告](reports/g2p-rehearsal.md)和[全代码审核](reviews/code-audit-20261027.md)；本页只记录现状与入口。
