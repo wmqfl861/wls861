@@ -8,7 +8,7 @@
 
 owner 指定 Responses 中转、`gpt-6.1-sol` / `max` 并取消金额门禁。新请求显式采用 `observe-only-v1`；旧冻结请求保留原门禁。凭据与配置留在外部，不授权公网上线或换端点兜底。实跑表、用量、审计及验证证据集中在[首次真实运行记录](reports/g2-first-real-run.md)。
 
-发布修复 #111 与报告 #112 合并后的 main `a83bdd8` [完整 CI](https://github.com/wmqfl861/wls861/actions/runs/43739309720)通过：450/450 CTest、Make 60+25，失败/跳过/未运行均为 0。E-2 合并后的 main 验证见[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43753899472)和[源码验证](https://github.com/wmqfl861/wls861/actions/runs/43753899551)，具体结果以对应运行记录为准。本机 doctor 布局失败保留，受支持布局复验通过；历史 ASan `event_runtime` 问题仍 OPEN。
+E-8 #116 合并后的 main `2327836` [完整 CI](https://github.com/wmqfl861/wls861/actions/runs/43766234662)通过：450/450 CTest、Make 60+25 全部 PASS，失败/跳过/未运行均为 0；[源码验证](https://github.com/wmqfl861/wls861/actions/runs/43766234740)确认 744 文件一致。完整 CI 未提供 JUnit/LastTest artifacts，原日志已保留；旧轮次失败见[已有运行记录](reports/g2-first-real-run.md)。本机 doctor 布局失败保留，受支持布局复验通过；历史 ASan `event_runtime` 问题仍 OPEN。
 
 ## 当前阻塞
 
@@ -22,7 +22,7 @@ G1/G2-P、N1/N2/N3 已完成；[八场景预演](reports/g2p-rehearsal.md)只证
 
 G4-A1/B 已合并，standard 显式选用、Strict 为默认；原生验收仍 BLOCKED，`/input`、环境卡片实际执行检查、无 cgroup 启动与全树回收仍待后续条件；Windows 11 NOT_RUN。[收敛报告](reports/convergence-20261114.md)保留此前失败。
 
-G6 已完成 Store 返工域拆分和可选 ccache，整体仍只完成部分工作。daemon/API、私有行清理 runner、完整记忆和独立审核闭环仍未实现。六个新格式在 G2 出口冻结；旧请求回归保持。D-12 取消私有证据托管要求，原始证据至少保留 30 天。
+G6 已完成 Store 返工、capacity 子域拆分与可选 ccache，具体构建切片范围和测量见 [CHANGELOG](../CHANGELOG.md)，整体仍只完成部分工作。daemon/API、私有行清理 runner、完整记忆和独立审核闭环仍未实现。六个新格式在 G2 出口冻结；旧请求回归保持。D-12 取消私有证据托管要求，原始证据至少保留 30 天。
 
 ## 下一步
 

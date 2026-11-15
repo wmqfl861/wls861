@@ -2,6 +2,20 @@
 
 ## 0.12.0 — G2-P model readiness (2026-11-13)
 
+- Compile the Store owned allocation/cleanup domain separately in G6-B,
+  preserving SQL, transactions, locks and guards. One GCC 13.3 Release/-j2
+  sample measures full builds at 472.275117/479.742074 seconds for
+  baseline/candidate (+1.58%); touching the unchanged cleanup include gives
+  incremental builds of 61.022981/21.014379 seconds (-65.56%). The complete
+  local Release suite passes 90/90 in 966.22 seconds. This single sample
+  does not establish general build performance or completion of G6.
+- Merge E-8 [#116](https://github.com/wmqfl861/wls861/pull/116): preserve
+  ordinary authorization diagnostics while retaining credential-header and
+  explicit-secret redaction. PR core checks pass 270/270; merged main
+  `2327836` passes [450/450 CTest and Make 60+25](https://github.com/wmqfl861/wls861/actions/runs/43766234662),
+  and [source validation](https://github.com/wmqfl861/wls861/actions/runs/43766234740)
+  matches all 744 files.
+
 - 2026-11-15: run the owner-authorized Responses validation with explicit
   `observe-only-v1`; money gates are removed while token/call/time bounds
   and unknown costs remain. Merge compatibility and policy changes
