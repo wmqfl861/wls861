@@ -41,35 +41,9 @@ namespace {
 }
 
 
-bool allocation_v2(const Json& intent) {
-    const auto* version = intent.as_object().if_contains("version");
-    return version && *version == "owned-allocation-v2";
-}
-std::vector<std::string> owned_paths(const Json& intent) {
-    const auto parent = str(intent.at("parent_identity").as_object(), "path");
-    std::vector<std::string> paths{parent + "/" + str(intent.as_object(), "leaf")};
-    if (const auto* stage = intent.as_object().if_contains("stage_leaf")) {
-        require(stage->is_string(), ErrorCode::Corrupt, "invalid owned staging path");
-        paths.push_back(parent + "/" + std::string(stage->as_string()));
-    }
-    return paths;
-}
-void owned_generation(const Json& value) {
-    require(value.is_object(), ErrorCode::InvalidInput, "complete filesystem generation required");
-    const auto& row = value.as_object();
-    for (const auto* key : {"device", "inode", "mount_id", "birth_seconds", "birth_nanoseconds"})
-        require(row.contains(key), ErrorCode::InvalidInput, "complete filesystem generation required");
-    require(number(row, "device") > 0 && number(row, "inode") > 0 && number(row, "mount_id") > 0 &&
-            number(row, "birth_seconds") >= 0 && number(row, "birth_nanoseconds") >= 0 &&
-            number(row, "birth_nanoseconds") < 1000000000, ErrorCode::InvalidInput, "invalid filesystem generation");
-}
-
 std::int64_t add(std::int64_t a, std::int64_t b) {
     require(a >= 0 && b >= 0 && b <= INT64_MAX - a, ErrorCode::Quota, "counter overflow");
     return a + b;
-}
-bool terminal_request(std::string_view s) {
-    return s == "DELIVERED" || s == "FAILED" || s == "CANCELLED" || s == "SUPERSEDED";
 }
 bool terminal_task(std::string_view s) {
     return s == "ACCEPTED" || s == "FAILED" || s == "CANCELLED" || s == "SKIPPED" || s == "SUPERSEDED";
@@ -93,25 +67,6 @@ std::int64_t runtime_wall_remaining(const Row& request, const FrozenRequestConfi
     require(minutes > 0 && minutes <= INT64_MAX / 60000, ErrorCode::Corrupt, "invalid frozen wall time");
     return minutes * 60000 - std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
 }
-Json actor_json(const StoreActor& actor) {
-    return Row{{"role", role_name(actor.role)}, {"principal_id", actor.principal_id},
-        {"request_id", actor.request_id}, {"task_id", actor.task_id}, {"team_id", actor.team_id},
-        {"dispatcher_epoch", actor.dispatcher_epoch}, {"execution_epoch", actor.execution_epoch}};
-}
-
-Json exposed(Row row) {
-    for (const auto* key : {"config_snapshot", "budget", "usage", "tool_allowlist", "denied_tools",
-             "body", "brief", "work_order", "lead_config", "worker_config", "frozen_binding",
-             "response", "request_envelope", "arguments", "payload", "result", "source_snapshot", "manifest_snapshot",
-             "original_binding", "evidence", "execution_policy", "captured_ids", "captured_binding",
-             "artifact_snapshot", "check_body", "rework_order", "producer_binding", "decision",
-             "frozen_plan", "acceptance_snapshot", "publication"}) {
-        if (auto* value = row.if_contains(key); value && value->is_string())
-            *value = parse_json_strict(value->as_string(), 16 * 1024 * 1024);
-    }
-    return row;
-}
-
 ModelResponse unobserved_live_response(const ModelRequest& request, const std::string& reason) {
     ModelResponse response;
     response.call_id = request.call_id; response.attempt_id = request.attempt_id;
@@ -130,19 +85,6 @@ Array strings(const std::vector<std::string>& values) {
     for (const auto& value : values) {
         text_field(value, "tool identifier");
         require(unique.insert(value).second, ErrorCode::InvalidInput, "duplicate tool grant");
-    }
-    for (const auto& value : unique) result.emplace_back(value);
-    return result;
-}
-Array owned_path_strings(const std::vector<std::string>& values) {
-    // Retained allocation paths are original intent bytes, not tool grants:
-    // apply the owned path domain while keeping the same nonempty/NUL rule,
-    // stable dictionary order and duplicate rejection.
-    Array result;
-    std::set<std::string> unique;
-    for (const auto& value : values) {
-        text_field(value, "owned path", 4096);
-        require(unique.insert(value).second, ErrorCode::InvalidInput, "duplicate owned path");
     }
     for (const auto& value : unique) result.emplace_back(value);
     return result;
@@ -224,9 +166,6 @@ bool semantic_binding_equal(ExecutionBinding left, ExecutionBinding right, bool 
 }
 Json model_contract(const ModelRequest& request) {
     return parse_json_strict(compiled_task_contract(request.context), 1024U * 1024U);
-}
-bool overlap(const std::string& left, const std::string& right) {
-    return left == right || left.starts_with(right + "/") || right.starts_with(left + "/");
 }
 void work_path(std::string_view path) {
     text_field(path, "submission path", 500);
@@ -410,6 +349,38 @@ private:
 };
 }
 
+std::vector<std::string> store_detail::owned_paths(const Json& intent) {
+    const auto parent = str(intent.at("parent_identity").as_object(), "path");
+    std::vector<std::string> paths{parent + "/" + str(intent.as_object(), "leaf")};
+    if (const auto* stage = intent.as_object().if_contains("stage_leaf")) {
+        require(stage->is_string(), ErrorCode::Corrupt, "invalid owned staging path");
+        paths.push_back(parent + "/" + std::string(stage->as_string()));
+    }
+    return paths;
+}
+bool store_detail::terminal_request(std::string_view s) {
+    return s == "DELIVERED" || s == "FAILED" || s == "CANCELLED" || s == "SUPERSEDED";
+}
+Json store_detail::actor_json(const StoreActor& actor) {
+    return Row{{"role", role_name(actor.role)}, {"principal_id", actor.principal_id},
+        {"request_id", actor.request_id}, {"task_id", actor.task_id}, {"team_id", actor.team_id},
+        {"dispatcher_epoch", actor.dispatcher_epoch}, {"execution_epoch", actor.execution_epoch}};
+}
+Json store_detail::exposed(Row row) {
+    for (const auto* key : {"config_snapshot", "budget", "usage", "tool_allowlist", "denied_tools",
+             "body", "brief", "work_order", "lead_config", "worker_config", "frozen_binding",
+             "response", "request_envelope", "arguments", "payload", "result", "source_snapshot", "manifest_snapshot",
+             "original_binding", "evidence", "execution_policy", "captured_ids", "captured_binding",
+             "artifact_snapshot", "check_body", "rework_order", "producer_binding", "decision",
+             "frozen_plan", "acceptance_snapshot", "publication"}) {
+        if (auto* value = row.if_contains(key); value && value->is_string())
+            *value = parse_json_strict(value->as_string(), 16 * 1024 * 1024);
+    }
+    return row;
+}
+bool store_detail::overlap(const std::string& left, const std::string& right) {
+    return left == right || left.starts_with(right + "/") || right.starts_with(left + "/");
+}
 
 void store_detail::require(bool condition, ErrorCode code, const std::string& message) {
     if (!condition) fail(code, message);
@@ -4086,6 +4057,5 @@ Json Store::Impl::settle_model_attempt(const std::string& attempt_id, const Exec
 }
 
 #include "store_live.inc"
-#include "store_cleanup.inc"
 
 } // namespace wls::s1

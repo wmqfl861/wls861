@@ -1,4 +1,4 @@
-// Included by store.cpp after Store::Impl is defined. Shares the same writer
+// Included by store_cleanup.cpp after Store::Impl is defined. Shares the same writer
 // lease, mutex, transaction helpers and current identity/authorization gates.
 Json Store::Impl::owned_info(const Row& row) const {
     Json result = row;
