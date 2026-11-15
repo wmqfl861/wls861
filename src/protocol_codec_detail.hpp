@@ -11,7 +11,7 @@ ModelUsage usage(const Json&, bool);
 std::optional<std::int64_t> amount(const Json&, std::string_view);
 std::string compose_instructions(const Json&);
 std::string lean_read_output(const std::string&);
-Json lean_state(Json);
+Json lean_state(Json, Role, const Json& latest_contract);
 void seal(EncodedResponsesRequest&);
 void seal(DecodedResponsesResponse&);
 }
