@@ -104,6 +104,9 @@ struct ProviderProfile {
     std::string chat_completions_path{};
     std::string chat_reasoning_policy{};
     std::vector<std::string> chat_model_aliases{};
+    // Responses-only opt-in: omit the default false background field.
+    // Empty preserves every original profile and request byte.
+    std::string responses_background_policy{};
 };
 
 // Strict parse/serialize; rates are integers in 0..10^12 micro USD.
