@@ -1,5 +1,6 @@
 #pragma once
 #include "../live_test_support.hpp"
+#include <openssl/evp.h>
 
 // Synthetic pre-E2 materials. Fingerprints were captured once with the saved
 // a83bdd8 libraries; no Store, endpoint or credentials participate in encoding.
@@ -42,3 +43,154 @@ inline constexpr const char* hashes[2][4][3] = {
     },
 };
 } // namespace wls::test::e2
+
+// Self-created deterministic data. Built against the saved e81ca97 library.
+// compact_model_state is captured; actionable_model_state is deliberately absent.
+namespace wls::test::e81_compact {
+using s1::Json;
+using Object = boost::json::object;
+using Array = boost::json::array;
+struct Case { const char* name; Role role; const char* kind; bool cross_version; };
+inline constexpr Case cases[] = {
+    {"tl-submission-same", Role::TeamLead, "submission", false},
+    {"dispatcher-acceptance-same", Role::Dispatcher, "acceptance", false},
+    {"worker-events", Role::Worker, "none", false},
+};
+inline std::string artifact_bytes() {
+    std::string bytes;
+    for (int i = 0; i != 12; ++i) bytes += "Synthetic original bytes. 原始字节😀\n";
+    return bytes;
+}
+inline std::string base64(const std::string& bytes) {
+    std::string encoded(4 * ((bytes.size() + 2) / 3) + 1, '\0');
+    const auto count = EVP_EncodeBlock(reinterpret_cast<unsigned char*>(encoded.data()),
+        reinterpret_cast<const unsigned char*>(bytes.data()), static_cast<int>(bytes.size()));
+    if (count < 0) throw std::runtime_error("synthetic base64 failed");
+    encoded.resize(static_cast<std::size_t>(count)); return encoded;
+}
+inline Json state(const Case& selected) {
+    const Json binding = s1::to_json(protocol::request().binding);
+    const auto bytes = artifact_bytes();
+    const Json file = Object{{"path", "result/说明.txt"}, {"sha256", s1::sha256_hex(bytes)},
+        {"size_bytes", static_cast<std::int64_t>(bytes.size())}, {"content_base64", base64(bytes)}};
+    const Json view = Object{{"path", file.at("path")}, {"sha256", file.at("sha256")},
+        {"size_bytes", file.at("size_bytes")}, {"content", bytes}, {"binary", false},
+        {"source", "immutable_submission_snapshot"}};
+    const Json body = Object{{"summary", "Original immutable submission. " + std::string(384, 's')},
+        {"self_check", Array{"Original requirement and exact artifact checked."}},
+        {"verification", "Original verification result."}, {"signed_zero", -0.0}};
+    const Json check_body = Object{{"verification", "Original independent check. " + std::string(288, 'v')},
+        {"passed", true}, {"missing_requirements", Array{}}};
+    const Json acceptance = Object{{"submission_id", "submission-e81"}, {"captured_binding", binding},
+        {"submission_version", 4}, {"task_version", 17}, {"business_accepted", true}, {"delivered", false},
+        {"decision", Object{{"rationale", "Original acceptance. " + std::string(288, 'a')}}}};
+    const Json submission = Object{{"submission_id", "submission-e81"}, {"request_id", binding.at("request_id")},
+        {"task_id", binding.at("task_id")}, {"team_id", binding.at("team_id")}, {"state_version", 4},
+        {"original_binding", binding}, {"record_sha256", s1::sha256_hex(s1::canonical_json(Object{
+            {"original_binding", binding}, {"body", body}, {"artifact_snapshot", Array{file}}}))},
+        {"body", body}, {"artifact_snapshot", Array{file}}, {"status", "CHECKED"},
+        {"checks", Array{Object{{"submission_id", "submission-e81"}, {"captured_binding", binding},
+            {"submission_version", 4}, {"status", "CHECKED"}, {"check_body", check_body}}}}, {"acceptance", acceptance}};
+    auto current = submission;
+    auto order = binding; order.as_object()["approach"] = std::string(384, 'i');
+    order.as_object()["steps"] = Array{"Preserve original bytes", "Wait while UNKNOWN remains"};
+    order.as_object()["done_definition"] = "Exact immutable artifact and settled original effects.";
+    auto task = binding; task.as_object()["brief"] = Object{{"goal", "Synthetic immutable-artifact task."}};
+    task.as_object()["based_on_requirements_revision"] = 1; task.as_object()["state_version"] = 17;
+    task.as_object()["applied_instruction_revision"] = 0; task.as_object()["paused_for_change"] = true;
+    task.as_object()["created_at"] = "2030-01-01T00:00:00Z"; task.as_object()["updated_at"] = "2030-01-01T00:01:00Z";
+    auto instruction = binding; instruction.as_object()["body"] = order;
+    instruction.as_object()["based_on_requirements_revision"] = 1; instruction.as_object()["state_version"] = 19;
+    instruction.as_object()["created_at"] = "2030-01-01T00:00:00Z";
+    const auto event = [&](const char* type, const Json& payload, const Json& result, int index) -> Json {
+        return Object{{"inbox_id", 100 + index}, {"event_seq", 500 + index}, {"seq", 500 + index},
+            {"request_id", binding.at("request_id")}, {"role", s1::role_name(selected.role)},
+            {"actor_task_id", selected.role == Role::Dispatcher ? Json("") : binding.at("task_id")},
+            {"subject_task_id", binding.at("task_id")}, {"event_requirements_revision", 1},
+            {"status", "CLAIMED"}, {"claim_id", "synthetic-claim-e81"}, {"completed_at", nullptr},
+            {"type", type}, {"created_at", "2030-01-01T00:02:00Z"},
+            {"actor", Object{{"role", "worker"}, {"principal_id", "synthetic-worker"}, {"team_id", binding.at("team_id")}}},
+            {"payload", payload}, {"result", result}, {"future_route_note", "Unknown original field remains."}};
+    };
+    Array events{
+        event("submit_work", Object{{"type", "submit_work"}, {"binding", binding}, {"body", body}}, submission, 1),
+        event("check_submission", Object{{"type", "check_submission"}, {"binding", binding},
+            {"submission_id", "submission-e81"}, {"expected_submission_version", 3}, {"check_body", check_body}}, submission, 2),
+        event("accept_candidate", Object{{"type", "accept_candidate"}, {"binding", binding},
+            {"submission_id", "submission-e81"}, {"expected_submission_version", 4}, {"expected_task_version", 17},
+            {"decision", acceptance.at("decision")}}, submission, 3)};
+    if (selected.role == Role::Worker) {
+        auto previous = binding; previous.at("instruction_revision") = 0;
+        const Json feedback = Object{{"attempt_id", "synthetic-attempt-original"},
+            {"record_sha256", s1::sha256_hex("synthetic original tool feedback")}};
+        auto payload = feedback; payload.as_object()["type"] = "tool_feedback"; payload.as_object()["binding"] = binding;
+        events = Array{
+            event("instruction", Object{{"type", "instruction"}, {"binding", previous}, {"body", order},
+                {"expected_task_version", 16}}, Object{{"binding", binding}, {"state_version", 17}}, 1),
+            event("ack", Object{{"type", "ack"}, {"binding", binding}}, Object{{"binding", binding}, {"state_version", 18}}, 2),
+            event("tool_feedback", payload, feedback, 3)};
+    }
+    events.push_back(event("future-synthetic-event", Object{{"type", "future-synthetic-event"},
+        {"binding", binding}, {"expected_task_version", 17}}, Object{{"status", "UNKNOWN"},
+        {"original_observation", nullptr}, {"operation_id", "synthetic-unknown-operation"}}, 4));
+    Json result = Object{{"compact_model_state", true},
+        {"request", Object{{"request_id", binding.at("request_id")}, {"requirements_revision", 1},
+            {"texts", Array{"Synthetic original requirement. 保留原始约束😀"}}, {"constraint_catalog", Array{}}}},
+        {"binding", binding}, {"captured_state_version", 23}, {"task", task}, {"instruction", instruction},
+        {"submission", current}, {"workflow_action", Object{{"kind", selected.kind}, {"target", current}}},
+        {"submission_file_views", Array{view}}, {"pending_events", events},
+        {"budget", Object{{"request_id", binding.at("request_id")}, {"state_version", 9},
+            {"max_attempts", 64}, {"attempts", 7}, {"input_limit", 100000}, {"output_limit", 10000}, {"cost_limit", 0},
+            {"spent_input", 2400}, {"reserved_input", 700}, {"unknown_input", 200},
+            {"spent_output", 240}, {"reserved_output", 70}, {"unknown_output", 20},
+            {"spent_cost", 0}, {"reserved_cost", 0}, {"unknown_cost", 0}, {"cost_policy", "observe-only-v1"},
+            {"money_limit_micro_usd", nullptr}, {"total_cost_micro_usd", nullptr}, {"unknown_cost_attempts", 1},
+            {"cost_breakdown", Object{{"reported_micro_usd", nullptr}, {"unknown_attempts", 1}}}}},
+        {"questions", Array{Object{{"question_id", "synthetic-question"}, {"status", "OPEN"}, {"text", "Original open question?"}}}},
+        {"wait", Object{{"generation", 3}, {"reason", "question"}, {"question_id", "synthetic-question"}}},
+        {"unresolved_operations", Array{Object{{"status", "UNKNOWN"}, {"operation_id", "synthetic-unknown-operation"}}}},
+        {"unresolved_attempts", Array{"synthetic-attempt-original"}}, {"allowed_tools", Array{"note", "fs_read", "submit"}},
+        {"file_path_policy", "work-relative-v1"}, {"execution_policy_sha256", s1::sha256_hex("synthetic policy")},
+        {"history_policy", Object{{"mode", "window-v1"}, {"scope", "synthetic-original-scope"}}}};
+    if (selected.role == Role::Worker) result.at("workflow_action") = nullptr;
+    return result;
+}
+inline s1::ProviderProfile profile(bool chat) {
+    auto result = protocol::profile();
+    if (chat) {
+        result.protocol = "openai-chat-v1"; result.responses_path.clear(); result.chat_completions_path = "/v1/chat/completions";
+        result.streaming = false; result.chat_reasoning_policy = "reasoning-effort-v1";
+        result.response_metadata_policy = "ignore-record-v1";
+    }
+    return result;
+}
+inline s1::ContextInput context(bool chat, const Case& selected) {
+    auto input = protocol::context(); input.role = selected.role;
+    input.role_prompt = std::string(s1::role_name(selected.role)) + ": preserve the captured original.";
+    input.protocol_version = chat ? "openai-chat-v1" : "openai-responses-v1"; input.model_projection = "lean-v1";
+    input.tools.front().description = s1::builtin_tool_description("note");
+    input.tools.front().definition.at("properties").at("message").as_object()["description"] = "Original observation.";
+    input.task_contract = s1::canonical_json(state(selected));
+    return input;
+}
+inline s1::ModelRequest request(bool chat, const Case& selected) {
+    const auto input = context(chat, selected);
+    auto result = protocol::request(); result.role = selected.role;
+    result.call_id = std::string("call-e81-") + selected.name; result.attempt_id = std::string("attempt-e81-") + selected.name;
+    result.context = s1::compile_structured_context(input, {}, {}, s1::StructuredContextFormat::V3);
+    return result;
+}
+// Independent saved e81 library; full originals: e2-e81-compact-golden-z8e2hwp0.
+inline constexpr const char* hashes[2][3][3] = {
+    {
+        {"6ff5baa7e43a5f9ff7167504c679e3f7f2da59657682f91ba5f4dac9db63f627", "f8e1023eb6ba5feefa80f894382e80deae70ca71efef11d17ed3355388985843", "bdb4cd2a87767076d0666fc95c99710213349e9cfcaca20b9620b2300eec1479"},
+        {"fd55f13a651dd9e47985a4100834b615d7815c2a55a88263de862035083ce67a", "2de1919e573ecae805a05b4fe8dfffbbed1b6ec189d0c8ea9a84ff2f9b04f514", "a2335d31d0ec49618aafea2e1f9e642e1b65fc7bbad3cbaf6c194dda7695e29c"},
+        {"603e9c6a3278236bc0d7c4a202272e396648312949190e364a7194a094dd38c4", "61db15f1528129d5872e357ab5a2a8f598b34f33e8cbf469d911c34f501d0256", "862e8296ac12c1dc13b8aeb4e8fec06c61bacf21f0d25dbf10b0960148424c41"},
+    },
+    {
+        {"b4ff100b8154c06cd5314c6bc9229536add1f4eac015c5ee657d52acefdd0c07", "b9e59f76d2a86007f11344218ee47042b4d9dd0b7c8c5ca7aa33f61fdbec0cfa", "5f503148d1ed100313c6e222b1ee6426a2488348e317992e120902ce5d48963f"},
+        {"56094814bca2121d2275baff5cfbcf0e92af57064127b482350cf215e4d475dc", "b5082585e70f074899a595cc3499fa2137d235e9f800abda9c958a5c3735d5a0", "05b8f79afc29ef688972e423f6ce04c10a1879d1215b34e285881786be8d5f5e"},
+        {"613845a4f22da77cf552d927e5c1fb434832d07aab450e90716e6ed0e847bd54", "16145692b67a0a61650a02018f3e8b24654b20521149f3b6c1577ccc70ed7ae5", "2cecfe7405e5d11fbb7b2145ab32e071e959ff47c61a6f5f3ba7665208292e2a"},
+    },
+};
+} // namespace wls::test::e81_compact

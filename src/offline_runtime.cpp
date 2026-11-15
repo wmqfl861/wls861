@@ -734,8 +734,10 @@ CapturedModelCall OfflineRuntime::capture_call(
         contract.as_object()["logical_agent_execution"] = shared_transcript->execution;
     }
     const bool v3 = config.context_request_format() == "structured-v3";
-    if (v3 && config.context_model_projection() == "lean-v1")
+    if (v3 && config.context_model_projection() == "lean-v1") {
         contract.as_object()["compact_model_state"] = true;
+        contract.as_object()["actionable_model_state"] = true;
+    }
     for (auto& tool : declared_tools) {
         tool.description = tool.version == "wls-history-text-v1"
             ? "Read scoped immutable history as UTF-8 text, or base64 for binary result_data; the host verifies originals before paging."

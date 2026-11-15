@@ -386,8 +386,14 @@ void frozen_identity_and_one_claim() {
 }
 
 void old_lean_pending_and_unknown_keep_original_send_identity() {
-    for (const bool chat : {false, true}) for (const bool sent : {false, true}) {
-        fixture::Fixture f(*assets, fixture::settings("synthetic trust", 443, chat));
+    namespace e81 = wls::test::e81_compact;
+    for (const bool chat : {false, true}) for (const bool sent : {false, true}) for (const bool compact : {false, true}) {
+        auto live = fixture::settings("synthetic trust", 443, chat);
+        if (compact) {
+            auto provider = e81::profile(chat); provider.base_url = live.provider.base_url;
+            provider.reasoning_efforts.clear(); live.provider = std::move(provider);
+        }
+        fixture::Fixture f(*assets, live);
         const auto sibling_actor = f.actor();
         auto admission = fixture::admission(*assets, f.live, "old-lean");
         auto& context = admission.config_snapshot.at("system").at("context").as_object();
@@ -399,11 +405,12 @@ void old_lean_pending_and_unknown_keep_original_send_identity() {
         admission.config_snapshot = ::test::legacy_shell_catalog(f.directory.path / "system.yaml", functions,
             assets->source / "prompts").freeze("general").json();
         f.request_id = text(f.store->admit(admission), "request_id");
-        auto request = wls::test::e2::request(chat, 4);
+        auto request = compact ? e81::request(chat, e81::cases[1]) : wls::test::e2::request(chat, 4);
+        if (compact) request.reserved_cost_micro_usd = 100;
         request.binding = f.store->request_binding(f.request_id);
         request.config_snapshot_id = text(f.store->request(f.request_id), "config_snapshot_sha256");
         const auto encoded = encode_protocol_request(f.live.provider, request);
-        CHECK(encoded.body_sha256 == wls::test::e2::hashes[chat][3][1]); // Independent old-library wire.
+        CHECK(encoded.body_sha256 == (compact ? e81::hashes[chat][1][1] : wls::test::e2::hashes[chat][3][1]));
         const auto envelope = canonical_json(to_json(request)); const auto actor = f.actor();
         (void)f.reserve(request);
         const auto original = f.store->live_attempt(request.attempt_id).at("execution");
@@ -413,8 +420,9 @@ void old_lean_pending_and_unknown_keep_original_send_identity() {
             request.attempt_id, 1, encoded, f.live.transport, "claim-" + request.attempt_id); });
         error(ErrorCode::Conflict, [&] { (void)f.store->claim_live_send(actor,
             request.attempt_id, 2, encoded, f.live.transport, "claim-" + request.attempt_id); });
-        auto input = wls::test::e2::context(chat); input.model_projection = "lean-v1";
-        auto contract = parse_json_strict(input.task_contract); contract.as_object()["compact_model_state"] = true;
+        auto input = compact ? e81::context(chat, e81::cases[1]) : wls::test::e2::context(chat); input.model_projection = "lean-v1";
+        auto contract = parse_json_strict(input.task_contract);
+        contract.as_object()[compact ? "actionable_model_state" : "compact_model_state"] = true;
         input.task_contract = canonical_json(contract); auto changed = request;
         changed.context = compile_structured_context(input, {}, {}, StructuredContextFormat::V3);
         error(ErrorCode::Conflict, [&] { (void)f.store->claim_live_send(actor, request.attempt_id, 1,

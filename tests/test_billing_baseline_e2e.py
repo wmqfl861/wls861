@@ -1388,6 +1388,8 @@ class BillingBaselineIntegration(unittest.TestCase):
                 self.assertEqual(logical['tool_policy'], 'fixed-role-v1')
                 self.assertIs(logical['current_state']['compact_model_state'], True)
                 self.assertNotIn('compact_model_state', record['contract'])
+                self.assertIs(logical['current_state']['actionable_model_state'], True)
+                self.assertNotIn('actionable_model_state', record['contract'])
                 if chat:
                     native_calls = [call for item in body['messages'] for call in item.get('tool_calls', [])]
                     logical_calls = [call for item in logical['messages'] for call in item['tool_calls']]
@@ -1443,8 +1445,8 @@ class BillingBaselineIntegration(unittest.TestCase):
             eligible_cache = [ratio for own in worker_cache_ratios.values() for ratio in own[2:]]
             self.assertEqual(len(eligible_cache), role_calls['worker'] - 2 * len(tasks))
             self.assertTrue(eligible_cache)
-            # Frozen 2026-11-15: e2-final-release-03f_ta4q/d28-initial-measurement.json; counts span restart/rework.
-            threshold = 0.5304749340369392 if chat else 0.5433978099272639
+            # Frozen 2026-11-15: e2-actionable-release-9iq5uhmm/d28-initial-measurement.json; counts span restart/rework.
+            threshold = 0.5506825938566553 if chat else 0.5633509583608723
             self.assertEqual(len(eligible_cache), 11)
             self.assertGreaterEqual(min(eligible_cache), threshold)
             cache_gate = {'evidence': 'synthetic-prefix-cache-not-provider-usage',

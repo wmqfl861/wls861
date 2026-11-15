@@ -185,6 +185,15 @@ void pre_e2_wire_and_envelope_goldens() {
         }
         CHECK(canonical_json(to_json(request)) == before);
     }
+    namespace e81 = wls::test::e81_compact;
+    for (const bool chat : {false, true}) for (std::size_t i = 0; i < std::size(e81::cases); ++i) {
+        const auto request = e81::request(chat, e81::cases[i]); const auto before = canonical_json(to_json(request));
+        const auto encoded = encode_protocol_request(e81::profile(chat), request); const auto& expected = e81::hashes[chat][i];
+        CHECK(sha256_hex(before) == expected[0]); CHECK(encoded.body_sha256 == expected[1]);
+        CHECK(encoded.record_sha256 == expected[2]); CHECK(canonical_json(to_json(request)) == before);
+        CHECK(canonical_json(to_json(encode_protocol_request(e81::profile(chat), model_request_from_json(to_json(request))))) ==
+            canonical_json(to_json(encoded)));
+    }
 }
 Json e2_submission() {
     const auto binding = to_json(fixture::request().binding);
@@ -248,8 +257,145 @@ Json e2_wire_state(Json contract, Role role, bool chat) {
     const auto body = parse_json_strict(encode_protocol_request(wls::test::live::settings("synthetic trust", 443, chat).provider, request).body);
     CHECK(canonical_json(to_json(request)) == before);
     CHECK(!request.context.logical_input.at("contract_anchor").as_object().contains("compact_model_state"));
+    CHECK(!request.context.logical_input.at("contract_anchor").as_object().contains("actionable_model_state"));
     const auto state = parse_json_strict(str(body.at(chat ? "messages" : "input").as_array().back(), "content"));
     return chat ? state : state.at("current_state");
+}
+Json actionable_wire(Json contract, Role role, bool chat) {
+    contract.as_object()["actionable_model_state"] = true;
+    return e2_wire_state(std::move(contract), role, chat);
+}
+void actionable_markers_and_budget_boundaries() {
+    namespace e81 = wls::test::e81_compact;
+    for (const bool chat : {false, true}) {
+        auto base = e81::state(e81::cases[2]);
+        for (const auto* key : {"compact_model_state", "actionable_model_state"})
+            for (const auto& invalid : {Json(nullptr), Json(false), Json("true"), Json(1)}) {
+                auto changed = base; changed.as_object()["actionable_model_state"] = true; changed.as_object()[key] = invalid;
+                fails(ErrorCode::InvalidInput, [&] { (void)e2_wire_state(changed, Role::Worker, chat); });
+            }
+        auto missing = base; missing.as_object().erase("compact_model_state"); missing.as_object()["actionable_model_state"] = true;
+        fails(ErrorCode::InvalidInput, [&] { (void)e2_wire_state(missing, Role::Worker, chat); });
+        auto input = e81::context(chat, e81::cases[2]); const auto old = compile_structured_context(input, {}, {}, StructuredContextFormat::V3);
+        auto next_contract = base; next_contract.as_object()["actionable_model_state"] = true; input.task_contract = canonical_json(next_contract);
+        continue_structured_contract(input, Object{{"attempt_id", "e81-original"}, {"input", old.logical_input}});
+        const auto next = compile_structured_context(input, {}, {}, StructuredContextFormat::V3);
+        CHECK(next.logical_input.at("contract_updates").as_array().empty()); CHECK(next.logical_input.at("contract_anchor") == old.logical_input.at("contract_anchor"));
+        CHECK(next.logical_input.at("current_state").at("semantic_versions") == old.logical_input.at("current_state").at("semantic_versions"));
+        CHECK(next.logical_input_sha256 != old.logical_input_sha256);
+        base.at("budget").as_object()["cost_breakdown"] = Object{{"estimated_micro_usd", nullptr}, {"reported_micro_usd", 0},
+            {"reservation_charged_micro_usd", 0}, {"pricing_sha256", Array{sha256_hex("synthetic prices")}},
+            {"unknown_reserved_micro_usd", 0}, {"known_cost_micro_usd", 0}, {"cost_policy", "observe-only-v1"},
+            {"total_cost_micro_usd", nullptr}, {"unknown_cost_attempts", 1}};
+        const auto budget = actionable_wire(base, Role::Worker, chat).at("budget");
+        const Json remaining = Object{{"calls", 57}, {"input_tokens", 96900}, {"output_tokens", 9690}};
+        CHECK(budget.at("remaining_at_capture") == remaining); // At capture, including this call; UNKNOWN is already reserved.
+        for (const auto* key : {"unknown_input", "unknown_output", "unknown_cost", "unknown_cost_attempts", "total_cost_micro_usd", "money_limit_micro_usd", "cost_policy"})
+            CHECK(budget.at(key) == base.at("budget").at(key));
+        for (const auto* key : {"request_id", "state_version", "max_attempts", "attempts", "input_limit", "spent_input", "reserved_input", "cost_limit", "cost_breakdown"})
+            CHECK(!budget.as_object().contains(key));
+        const std::vector<std::pair<std::string, Json>> invalid{
+            {"attempts", 65}, {"max_attempts", 64.0}, {"spent_input", 100001}, {"reserved_output", 10000},
+            {"input_limit", std::uint64_t(INT64_MAX) + 1}, {"unknown_input", -1}, {"unknown_input", 701},
+            {"unknown_output", 71}, {"unknown_cost", 1}, {"unknown_output", nullptr}, {"unknown_cost_attempts", "1"},
+            {"total_cost_micro_usd", "0"}, {"remaining_at_capture", Object{}}, {"future_budget", 0}, {"over_reserved", true},
+            {"cost_breakdown", Object{{"future_cost", 0}}}, {"cost_breakdown", Object{{"unknown_cost_attempts", 2}}},
+            {"cost_breakdown", Object{{"unknown_reserved_micro_usd", 1}}}, {"cost_breakdown", Object{{"reported_micro_usd", 0.0}}}};
+        for (const auto& [key, value] : invalid) {
+            auto changed = base; changed.at("budget").as_object()[key] = value;
+            CHECK(canonical_json(actionable_wire(changed, Role::Worker, chat).at("budget")) == canonical_json(changed.at("budget")));
+        }
+        auto limit = base; limit.at("budget").at("input_limit") = INT64_MAX;
+        CHECK(actionable_wire(limit, Role::Worker, chat).at("budget").at("remaining_at_capture").at("input_tokens") == Json(INT64_MAX - 3100));
+        auto priced = base; auto& ledger = priced.at("budget").as_object(); ledger.erase("cost_policy");
+        ledger["cost_limit"] = 1000; ledger["spent_cost"] = 100; ledger["reserved_cost"] = 20; ledger["unknown_cost"] = 5;
+        ledger["cost_breakdown"] = Object{{"estimated_micro_usd", 100}, {"reported_micro_usd", 0}, {"reservation_charged_micro_usd", 20}};
+        const auto priced_wire = actionable_wire(priced, Role::Worker, chat).at("budget");
+        CHECK(priced_wire.at("remaining_at_capture") == remaining);
+        for (const auto* key : {"cost_limit", "spent_cost", "reserved_cost", "unknown_cost", "cost_breakdown"}) CHECK(priced_wire.at(key) == priced.at("budget").at(key));
+        base.at("budget").at("cost_breakdown").as_object()["known_cost_micro_usd"] = 7;
+        CHECK(actionable_wire(base, Role::Worker, chat).at("budget").at("cost_breakdown").at("known_cost_micro_usd") == 7);
+    }
+}
+void actionable_events_and_task_boundaries() {
+    namespace e81 = wls::test::e81_compact;
+    for (const bool chat : {false, true}) {
+        auto base = e81::state(e81::cases[2]); const auto binding = base.at("binding"); auto& task = base.at("task").as_object();
+        task["kind"] = "team_task"; task["capability"] = nullptr; task["capability_input"] = nullptr; task["callee_request_id"] = nullptr;
+        task["template_id"] = "synthetic-template"; task["review_config"] = nullptr; task["review_round"] = 0;
+        const Json actor = Object{{"role", "team_lead"}, {"principal_id", "synthetic-lead"}, {"request_id", binding.at("request_id")},
+            {"task_id", binding.at("task_id")}, {"team_id", binding.at("team_id")}, {"dispatcher_epoch", binding.at("dispatcher_epoch")}, {"execution_epoch", binding.at("execution_epoch")}};
+        base.at("pending_events").as_array()[0].at("payload").as_object()["actor"] = actor;
+        const auto wire = actionable_wire(base, Role::Worker, chat); const auto& events = wire.at("pending_events").as_array();
+        CHECK(events.size() == base.at("pending_events").as_array().size());
+        for (std::size_t i = 0; i != events.size(); ++i) for (const auto* key : {"type", "status", "subject_task_id", "event_requirements_revision", "future_route_note"})
+            CHECK(events[i].at(key) == base.at("pending_events").as_array()[i].at(key));
+        CHECK(events.back() == base.at("pending_events").as_array().back());
+        for (const auto* key : {"inbox_id", "event_seq", "request_id", "role", "actor_task_id", "claim_id", "created_at", "completed_at"}) CHECK(!events[0].as_object().contains(key));
+        CHECK(events[0].at("payload").at("actor").as_object().size() == 1 && events[0].at("payload").at("actor").at("role") == "team_lead");
+        CHECK(events[2].at("payload").at("current_binding") == true && !events[2].as_object().contains("result"));
+        for (const auto* key : {"attempt_id", "record_sha256"}) CHECK(events[2].at("payload").at(key) == base.at("pending_events").as_array()[2].at("payload").at(key));
+        for (const auto* key : {"capability", "capability_input", "callee_request_id", "template_id", "review_round"}) CHECK(!wire.at("task").as_object().contains(key));
+        for (const auto* key : {"state_version", "applied_instruction_revision", "paused_for_change", "kind"}) CHECK(wire.at("task").at(key) == base.at("task").at(key));
+        for (const auto& [key, value] : std::vector<std::pair<std::string, Json>>{{"type", "AMEND"}, {"type", "cancel"}, {"type", "recovery"},
+                {"type", "question"}, {"type", "future-event"}, {"request_id", "other-request"}, {"subject_task_id", "other-task"}, {"event_requirements_revision", 2}}) {
+            auto changed = base; changed.at("pending_events").as_array()[0].as_object()[key] = value;
+            CHECK(actionable_wire(changed, Role::Worker, chat).at("pending_events").as_array()[0] == changed.at("pending_events").as_array()[0]);
+        }
+        auto unknown_actor = base; auto& original_actor = unknown_actor.at("pending_events").as_array()[0].at("payload").at("actor");
+        original_actor.as_object()["future_authority"] = "retain";
+        CHECK(actionable_wire(unknown_actor, Role::Worker, chat).at("pending_events").as_array()[0].at("payload").at("actor") == original_actor);
+        for (int variant = 0; variant != 4; ++variant) {
+            auto changed = base;
+            if (variant < 3) changed.at("task").at(variant == 0 ? "capability" : variant == 1 ? "capability_input" : "callee_request_id") = "non-null lane";
+            else changed.at("task").as_object().erase("capability");
+            CHECK(actionable_wire(changed, Role::Worker, chat).at("task").at("template_id") == "synthetic-template");
+        }
+        for (const auto& round : {Json(0.0), Json(-0.0), Json(1)}) {
+            auto changed = base; changed.at("task").at("review_round") = round;
+            CHECK(canonical_json(actionable_wire(changed, Role::Worker, chat).at("task").at("review_round")) == canonical_json(round));
+        }
+        auto missing = base; missing.at("pending_events").as_array()[2].as_object().erase("result");
+        CHECK(!actionable_wire(missing, Role::Worker, chat).at("pending_events").as_array()[2].as_object().contains("result"));
+        auto collision = base; collision.at("pending_events").as_array()[2].at("payload").as_object()["current_binding"] = "original business field";
+        CHECK(actionable_wire(collision, Role::Worker, chat).at("pending_events").as_array()[2].at("payload").at("current_binding") == "original business field");
+    }
+}
+void actionable_dispatcher_originals_and_references() {
+    namespace e81 = wls::test::e81_compact;
+    for (const bool chat : {false, true}) {
+        auto base = e81::state(e81::cases[1]); const auto producer = base.at("submission").at("original_binding");
+        base.as_object()["acceptance_task"] = base.at("task"); base.as_object()["acceptance_instruction"] = base.at("instruction");
+        auto& source_check = base.at("workflow_action").at("target").at("checks").as_array()[0];
+        source_check.as_object()["actor"] = Object{{"role", "team_lead"}, {"principal_id", "synthetic-lead"}, {"request_id", producer.at("request_id")},
+            {"task_id", producer.at("task_id")}, {"team_id", producer.at("team_id")}, {"dispatcher_epoch", producer.at("dispatcher_epoch")}, {"execution_epoch", producer.at("execution_epoch")}};
+        base.at("request").at("texts") = Array{Object{{"kind", "ORIGINAL"}, {"requirements_revision", 1}, {"text", "Original admit text."}}};
+        auto admit = base.at("pending_events").as_array()[0]; admit.at("type") = "admit";
+        admit.at("payload") = Object{{"type", "admit"}, {"immutable", Object{{"original_text", "Original admit text."}, {"constraint_catalog", Array{}},
+            {"tool_allowlist", Array{"fs_write"}}, {"function_id", "general"}, {"config_snapshot_sha256", sha256_hex("synthetic config")},
+            {"budget", Object{{"original_admission", 17}}}, {"future_business", "keep"}}}};
+        base.at("pending_events").as_array().push_back(admit);
+        auto absent = base; absent.at("workflow_action").as_object().erase("target");
+        CHECK(actionable_wire(absent, Role::Dispatcher, chat).at("workflow_action") == absent.at("workflow_action"));
+        const auto wire = actionable_wire(base, Role::Dispatcher, chat);
+        const auto& immutable = wire.at("pending_events").as_array().back().at("payload").at("immutable");
+        CHECK(immutable.at("original_text").at("semantic_contract_ref") == "request.texts[0].text");
+        CHECK(immutable.at("constraint_catalog").at("semantic_contract_ref") == "request.constraint_catalog");
+        CHECK(immutable.at("tool_allowlist") == admit.at("payload").at("immutable").at("tool_allowlist") && immutable.at("future_business") == "keep");
+        const auto& instruction = wire.at("acceptance_instruction"); CHECK(instruction.at("body").at("binding_ref") == "current_state.workflow_action.target.original_binding");
+        for (const auto* key : {"approach", "steps", "done_definition"}) CHECK(instruction.at("body").at(key) == base.at("acceptance_instruction").at("body").at(key));
+        CHECK(wire.at("workflow_action").at("target").at("checks").as_array()[0].at("captured_binding").at("binding_ref") == "current_state.workflow_action.target.original_binding");
+        for (int variant = 0; variant != 3; ++variant) {
+            auto changed = base;
+            if (variant == 0) changed.at("acceptance_instruction").at("body").at("instruction_revision") = 2;
+            if (variant == 1) changed.at("workflow_action").at("target").at("checks").as_array()[0].at("captured_binding").at("requirements_revision") = 2;
+            if (variant == 2) changed.at("pending_events").as_array().back().at("payload").at("immutable").at("original_text") = "Different original.";
+            const auto projected = actionable_wire(changed, Role::Dispatcher, chat);
+            if (variant == 0) CHECK(projected.at("acceptance_instruction").at("body") == changed.at("acceptance_instruction").at("body"));
+            if (variant == 1) CHECK(projected.at("workflow_action").at("target").at("checks").as_array()[0].at("captured_binding") == changed.at("workflow_action").at("target").at("checks").as_array()[0].at("captured_binding"));
+            if (variant == 2) CHECK(projected.at("pending_events").as_array().back().at("payload").at("immutable").at("original_text") == "Different original.");
+        }
+    }
 }
 void compact_state_respects_role_target_and_original_facts() {
     for (const bool chat : {false, true}) for (const auto& [role, kind] :
@@ -1006,7 +1152,8 @@ void guided_capture_uses_real_adapter_and_stable_role_rules(bool lean = false) {
             {.reserved_cost_micro_usd = 100}).request;
         const auto contract = parse_json_strict(compiled_task_contract(first.context));
         CHECK(contract.as_object().contains("compact_model_state") == lean);
-        if (lean) CHECK(contract.at("compact_model_state") == true);
+        CHECK(contract.as_object().contains("actionable_model_state") == lean);
+        if (lean) CHECK(contract.at("compact_model_state") == true && contract.at("actionable_model_state") == true);
         const auto system = first.context.logical_input.at("prefix").at("system");
         const auto environment = parse_json_strict(str(system, "environment_card"));
         CHECK(environment.at("adapter") == frozen.model_profile(Role::Dispatcher).at("adapter"));
@@ -1275,8 +1422,11 @@ void v3_capture_reserve_restore_policy_combinations(bool lean = false) {
             CHECK(to_json(model_request_from_json(envelope)) == envelope);
             const auto& logical = call.request.context.logical_input;
             CHECK(logical.at("current_state").as_object().contains("compact_model_state") == lean);
+            CHECK(logical.at("current_state").as_object().contains("actionable_model_state") == lean);
             CHECK(canonical_json(logical.at("contract_anchor")).find("compact_model_state") == std::string::npos);
             CHECK(canonical_json(logical.at("contract_updates")).find("compact_model_state") == std::string::npos);
+            CHECK(canonical_json(logical.at("contract_anchor")).find("actionable_model_state") == std::string::npos);
+            CHECK(canonical_json(logical.at("contract_updates")).find("actionable_model_state") == std::string::npos);
             if (fixed) {
                 CHECK(call.request.context.logical_input.at("tool_policy") == "fixed-role-v1");
                 if (prefix.is_null()) prefix = call.request.context.logical_input.at("prefix");
@@ -1601,6 +1751,9 @@ std::vector<TestCase> legacy_cases() {
 
 std::vector<TestCase> lean_cases() {
     return {
+        {"actionable markers and budget fallback preserve original uncertainty", actionable_markers_and_budget_boundaries},
+        {"actionable events and task fields retain typed boundaries", actionable_events_and_task_boundaries},
+        {"actionable Dispatcher references preserve original contracts", actionable_dispatcher_originals_and_references},
         {"compact Dispatcher plan copies keep distinct target revisions", compact_dispatcher_plan_keeps_target_versions},
         {"compact Worker event references require the original semantic binding", compact_worker_events_require_the_original_semantic_binding},
         {"compact state preserves typed targets revisions and unresolved facts", compact_state_respects_role_target_and_original_facts},
@@ -1616,6 +1769,9 @@ std::vector<TestCase> lean_cases() {
 
 std::vector<TestCase> all_cases() {
     return {
+        {"actionable markers and budget fallback preserve original uncertainty", actionable_markers_and_budget_boundaries},
+        {"actionable events and task fields retain typed boundaries", actionable_events_and_task_boundaries},
+        {"actionable Dispatcher references preserve original contracts", actionable_dispatcher_originals_and_references},
         {"compact Dispatcher plan copies keep distinct target revisions", compact_dispatcher_plan_keeps_target_versions},
         {"compact Worker event references require the original semantic binding", compact_worker_events_require_the_original_semantic_binding},
         {"compact state preserves typed targets revisions and unresolved facts", compact_state_respects_role_target_and_original_facts},

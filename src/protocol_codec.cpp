@@ -484,15 +484,161 @@ void compact_files(Json& submission, const Json& views, const std::string& path)
         file.as_object()["content_ref"] = path + "[" + std::to_string(i) + "].content";
     }
 }
+bool actionable_keys(const Json& value, std::initializer_list<std::string_view> keys) {
+    return value.is_object() && std::all_of(value.as_object().begin(), value.as_object().end(), [&](const auto& item) {
+        return std::find(keys.begin(), keys.end(), std::string_view(item.key().data(), item.key().size())) != keys.end();
+    });
+}
+std::optional<std::int64_t> actionable_integer(const Json& value) {
+    if (value.is_int64() && value.as_int64() >= 0) return value.as_int64();
+    if (value.is_uint64() && value.as_uint64() <= INT64_MAX) return static_cast<std::int64_t>(value.as_uint64());
+    return std::nullopt;
+}
+void actionable_budget(Json& value, const Json& binding) {
+    if (!actionable_keys(value, {"request_id", "state_version", "max_attempts", "attempts", "input_limit", "output_limit", "cost_limit",
+            "spent_input", "spent_output", "spent_cost", "reserved_input", "reserved_output", "reserved_cost", "unknown_input", "unknown_output", "unknown_cost",
+            "cost_policy", "money_limit_micro_usd", "total_cost_micro_usd", "unknown_cost_attempts", "accounting_format", "cost_breakdown"}) ||
+        !compact_same(value, binding, {"request_id"})) return;
+    const auto integer = [&](std::string_view key) { return actionable_integer(compact_member(value, key)); };
+    const auto maximum = integer("max_attempts"), attempts = integer("attempts");
+    if (!maximum || !attempts || !integer("state_version") || *attempts > *maximum) return;
+    Object remaining{{"calls", *maximum - *attempts}};
+    for (const auto dimension : {"input", "output", "cost"}) {
+        const std::string name(dimension);
+        const auto limit = integer(name + "_limit"), spent = integer("spent_" + name), reserved = integer("reserved_" + name), unknown = integer("unknown_" + name);
+        if (!limit || !spent || !reserved || !unknown || *unknown > *reserved || *spent > *limit || *reserved > *limit - *spent) return;
+        if (name != "cost") remaining[name + "_tokens"] = *limit - *spent - *reserved;
+    }
+    const bool observe = compact_member(value, "cost_policy") == "observe-only-v1";
+    if (value.as_object().contains("cost_policy") && !observe) return;
+    if (observe && (!value.as_object().contains("money_limit_micro_usd") || !value.at("money_limit_micro_usd").is_null() ||
+            !value.as_object().contains("total_cost_micro_usd") || !integer("unknown_cost_attempts") || *integer("unknown_cost_attempts") > *attempts)) return;
+    if (value.as_object().contains("unknown_cost_attempts") && !integer("unknown_cost_attempts")) return;
+    if (const auto* format = value.as_object().if_contains("accounting_format"); format && *format != "wls-estimated-budget-v1") return;
+    for (const auto key : {"money_limit_micro_usd", "total_cost_micro_usd"})
+        if (const auto* item = value.as_object().if_contains(key); item && !item->is_null() && !actionable_integer(*item)) return;
+    const auto& breakdown = compact_member(value, "cost_breakdown");
+    if (value.as_object().contains("cost_breakdown") && !breakdown.is_object()) return;
+    if (!breakdown.is_null()) {
+        if (!actionable_keys(breakdown, {"estimated_micro_usd", "reported_micro_usd", "reservation_charged_micro_usd", "unknown_reserved_micro_usd",
+                "pricing_sha256", "cost_policy", "unknown_cost_attempts", "total_cost_micro_usd", "known_cost_micro_usd"})) return;
+        for (const auto& item : breakdown.as_object()) {
+            if (item.key() == "pricing_sha256") {
+                if (!item.value().is_array() || !std::all_of(item.value().as_array().begin(), item.value().as_array().end(),
+                        [](const Json& hash) { return hash.is_string() && hash.as_string().size() == 64; })) return;
+            } else if (item.key() == "cost_policy" || item.key() == "unknown_cost_attempts" || item.key() == "total_cost_micro_usd") {
+                if (!value.as_object().contains(item.key()) || !compact_equal(item.value(), value.at(item.key()))) return;
+            } else if (!(observe && item.key() == "estimated_micro_usd" && item.value().is_null()) && !actionable_integer(item.value())) return;
+        }
+        if (const auto* unknown = breakdown.as_object().if_contains("unknown_reserved_micro_usd"); unknown &&
+                (!actionable_integer(*unknown) || *actionable_integer(*unknown) != 0)) return;
+    }
+    auto projected = value;
+    for (const auto key : {"request_id", "state_version", "max_attempts", "attempts", "input_limit", "spent_input", "reserved_input", "output_limit", "spent_output", "reserved_output"})
+        projected.as_object().erase(key);
+    projected.as_object()["remaining_at_capture"] = std::move(remaining);
+    if (observe && *integer("cost_limit") == 0 && *integer("spent_cost") == 0 && *integer("reserved_cost") == 0) {
+        for (const auto key : {"cost_limit", "spent_cost", "reserved_cost"}) projected.as_object().erase(key);
+        if (breakdown.is_object()) {
+            auto& costs = projected.at("cost_breakdown").as_object();
+            for (const auto key : {"estimated_micro_usd", "reported_micro_usd", "reservation_charged_micro_usd", "pricing_sha256", "cost_policy", "total_cost_micro_usd", "unknown_cost_attempts"}) costs.erase(key);
+            if (*integer("unknown_cost") == 0) costs.erase("unknown_reserved_micro_usd");
+            if (compact_member(breakdown, "known_cost_micro_usd") == Json(0)) costs.erase("known_cost_micro_usd");
+            if (costs.empty()) projected.as_object().erase("cost_breakdown");
+        }
+    }
+    value = std::move(projected);
+}
+void actionable_actor(Json& actor, const Json& binding, std::string_view role) {
+    if (actor.is_object() && actor.as_object().size() == 7 && actionable_keys(actor,
+            {"role", "principal_id", "request_id", "task_id", "team_id", "dispatcher_epoch", "execution_epoch"}) &&
+        compact_member(actor, "role") == Json(role) && compact_member(actor, "principal_id").is_string() &&
+        compact_same(actor, binding, {"request_id", "task_id", "team_id", "dispatcher_epoch", "execution_epoch"}))
+        actor = Object{{"role", role}};
+}
+void actionable_state(Json& state, const Json& original, Role role, const Json& semantic) {
+    const auto& binding = compact_member(original, "binding");
+    if (auto* budget = state.as_object().if_contains("budget")) actionable_budget(*budget, binding);
+    if (role == Role::Worker && compact_member(compact_member(original, "task"), "kind") == "team_task") {
+        auto& task = state.at("task").as_object();
+        const auto captured_null = [&](std::string_view key) { const auto* item = original.at("task").as_object().if_contains(key); return item && item->is_null(); };
+        if (captured_null("capability") && captured_null("capability_input") && captured_null("callee_request_id"))
+            for (const auto key : {"capability", "capability_input", "callee_request_id", "template_id"}) task.erase(key);
+        const auto review_round = actionable_integer(compact_member(original.at("task"), "review_round"));
+        if (captured_null("review_config") && review_round && *review_round == 0) task.erase("review_round");
+    }
+    if (auto* events = state.as_object().if_contains("pending_events"); events && events->is_array())
+      for (std::size_t i = 0; i < events->as_array().size(); ++i) {
+        auto& event = events->as_array()[i]; const auto& source = original.at("pending_events").as_array()[i];
+        const auto& type = compact_member(source, "type"); const auto& payload = compact_member(source, "payload");
+        const auto& target = compact_member(compact_member(original, "workflow_action"), "target");
+        if ((type != "instruction" && type != "ack" && type != "tool_feedback" && type != "admit" && type != "independent_plan" &&
+                type != "submit_work" && type != "check_submission" && type != "accept_candidate") ||
+            compact_member(source, "role") != Json(role_name(role)) || !compact_same(source, binding, {"request_id"}) ||
+            !compact_equal(compact_member(source, "event_requirements_revision"), compact_member(binding, "requirements_revision")) ||
+            !(compact_equal(compact_member(source, "subject_task_id"), compact_member(binding, "task_id")) ||
+                (role == Role::Dispatcher && compact_same(source, target, {"request_id"}) && compact_equal(compact_member(source, "subject_task_id"), compact_member(target, "task_id"))))) continue;
+        for (const auto key : {"inbox_id", "event_seq", "event_id", "request_id", "role", "actor_task_id", "claim_id", "created_at", "completed_at"}) event.as_object().erase(key);
+        if (payload.is_object() && compact_member(payload, "type") == type) {
+            if (auto* actor = event.at("payload").as_object().if_contains("actor"))
+                actionable_actor(*actor, compact_member(payload, "binding"), type == "instruction" || type == "check_submission" ? "team_lead" : type == "accept_candidate" ? "dispatcher" : "worker");
+            if (type == "tool_feedback" && actionable_keys(payload, {"type", "attempt_id", "binding", "record_sha256"}) &&
+                actionable_keys(compact_member(source, "result"), {"attempt_id", "record_sha256"}) && compact_same(payload, compact_member(source, "result"), {"attempt_id", "record_sha256"}) &&
+                compact_equal(compact_member(payload, "binding"), binding)) {
+                auto& notice = event.at("payload").as_object(); notice.erase("type"); notice.erase("binding"); notice.erase("duplicate_fields");
+                notice["current_binding"] = true; event.as_object().erase("result");
+            }
+            if (type == "admit" && compact_member(payload, "immutable").is_object()) {
+                auto& immutable = event.at("payload").at("immutable"); const auto& request = compact_member(semantic, "request");
+                if (const auto& texts = compact_member(request, "texts"); texts.is_array()) for (std::size_t j = 0; j < texts.as_array().size(); ++j) {
+                    const auto& text = texts.as_array()[j];
+                    if (compact_member(text, "kind") == "ORIGINAL" && compact_member(text, "requirements_revision") == Json(1) &&
+                        compact_equal(compact_member(immutable, "original_text"), compact_member(text, "text")))
+                        immutable.as_object()["original_text"] = Object{{"semantic_contract_ref", "request.texts[" + std::to_string(j) + "].text"}};
+                }
+                if (!compact_member(immutable, "constraint_catalog").is_null() && compact_equal(immutable.at("constraint_catalog"), compact_member(request, "constraint_catalog")))
+                    immutable.as_object()["constraint_catalog"] = Object{{"semantic_contract_ref", "request.constraint_catalog"}};
+                for (const auto key : {"function_id", "config_snapshot_sha256", "budget"}) immutable.as_object().erase(key);
+            }
+        }
+    }
+    const auto& action = compact_member(original, "workflow_action");
+    if (role != Role::Dispatcher || (compact_member(action, "kind") != "acceptance" && compact_member(action, "kind") != "rejection")) return;
+    const auto& producer = compact_member(compact_member(action, "target"), "original_binding");
+    if (!compact_member(action, "target").is_object() || !producer.is_object()) return;
+    const std::string path = "current_state.workflow_action.target.original_binding";
+    for (const auto key : {"acceptance_task", "acceptance_instruction"}) if (auto* value = state.as_object().if_contains(key)) {
+        if (!compact_same(*value, producer, {"request_id", "task_id", "plan_revision", "task_revision", "instruction_revision"}) ||
+                !compact_equal(compact_member(*value, "based_on_requirements_revision"), compact_member(producer, "requirements_revision"))) continue;
+        compact_metadata(*value, producer, path, std::string_view(key) == "acceptance_task"
+                ? std::initializer_list<std::string_view>{"request_id", "task_id", "plan_revision", "task_revision", "instruction_revision"}
+                : std::initializer_list<std::string_view>{"request_id", "task_id", "team_id", "plan_revision", "task_revision", "instruction_revision", "dispatcher_epoch", "execution_epoch"},
+            std::string_view(key) == "acceptance_task" ? std::initializer_list<std::string_view>{"created_at", "updated_at"} : std::initializer_list<std::string_view>{"created_at"});
+        if (std::string_view(key) == "acceptance_instruction" && compact_member(*value, "body").is_object())
+            compact_metadata(value->at("body"), producer, path, {"request_id", "task_id", "team_id", "requirements_revision", "plan_revision", "task_revision", "instruction_revision", "dispatcher_epoch", "execution_epoch", "policy_epoch"}, {});
+    }
+    auto& target = state.at("workflow_action").at("target");
+    for (const auto key : {"created_at", "updated_at"}) target.as_object().erase(key);
+    if (auto* checks = target.as_object().if_contains("checks"); checks && checks->is_array()) for (auto& check : checks->as_array()) if (check.is_object()) {
+        if (auto* actor = check.as_object().if_contains("actor")) actionable_actor(*actor, compact_member(check, "captured_binding"), "team_lead");
+        if (compact_equal(compact_member(check, "captured_binding"), producer) && producer.is_object()) check.as_object()["captured_binding"] = Object{{"binding_ref", path}};
+        check.as_object().erase("created_at");
+    }
+}
 } // namespace
 
 Json lean_state(Json state, Role role, const Json& latest_contract) {
     state.as_object().erase("message_sources");
     for (auto& window : state.at("history_windows").as_array()) window.as_object().erase("source");
     const auto* marker = state.as_object().if_contains("compact_model_state");
+    const auto* actionable = state.as_object().if_contains("actionable_model_state");
+    require(!actionable || (actionable->is_bool() && actionable->as_bool() && marker && marker->is_bool() && marker->as_bool()),
+        ErrorCode::InvalidInput, "invalid actionable model state marker");
+    const bool project_action = actionable != nullptr;
     if (!marker) return state; // Old captured attempts retain their exact wire and admission hashes.
     require(marker->is_bool() && marker->as_bool(), ErrorCode::InvalidInput, "invalid compact model state marker");
     state.as_object().erase("compact_model_state");
+    state.as_object().erase("actionable_model_state");
     const auto original = state;
     const auto& binding = compact_member(original, "binding");
     const auto& action = compact_member(original, "workflow_action");
@@ -641,6 +787,7 @@ Json lean_state(Json state, Role role, const Json& latest_contract) {
     if (originals.is_object() && compact_member(binding, "request_id").is_string()) for (const auto section : {"task", "instruction"})
         if (compact_equal(compact_member(originals, section), binding))
             state.at("original_contract_bindings").as_object()[section] = Object{{"binding_ref", "current_state.binding"}};
+    if (project_action) actionable_state(state, original, role, latest_contract);
     return state;
 }
 void seal(EncodedResponsesRequest& value) { value.record_sha256 = sha256_hex(canonical_json(encoded_record(value))); }
