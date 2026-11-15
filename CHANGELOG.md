@@ -14,7 +14,16 @@
   checks; the original export remains unresolved. The publication fix
   [#111](https://github.com/wmqfl861/wls861/pull/111) passes local regression
   and independent static review, and merges after its PR checks pass.
-  The merged-main full matrix is running.
+  Main `a83bdd8` after #111/#112 passes the
+  [full matrix](https://github.com/wmqfl861/wls861/actions/runs/43739309720):
+  450/450 CTest and Make 60+25, with no failures, skips or unrun tests.
+  Merge E-2 [#113](https://github.com/wmqfl861/wls861/pull/113): offline encoding
+  of the same 29 captures reduces complete state-item means by
+  50.45%/59.78%/51.05% for Dispatcher/TeamLead/Worker, meeting all three
+  half-size gates; both earlier wire paths retain all 29 original hashes.
+  Real G2 remains paused with its original publication UNKNOWN and G2-5 NOT_RUN.
+  Post-E-2 main `900a879` validation is tracked in the
+  [full matrix](https://github.com/wmqfl861/wls861/actions/runs/43753899472).
   Results, limits and preserved failures are in [the run record](docs/reports/g2-first-real-run.md).
 
 - Add optional CMake/Make compiler caching and CI ccache integration in
