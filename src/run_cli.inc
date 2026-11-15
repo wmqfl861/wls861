@@ -61,16 +61,158 @@ bool run_private_file(const Workspace& root, const char* name) {
     return true;
 }
 
+struct stat run_private_directory(int descriptor) {
+    struct stat metadata{};
+    if (::fstat(descriptor, &metadata) != 0)
+        throw Error(ErrorCode::Storage, "cannot inspect pinned run directory");
+    if (!S_ISDIR(metadata.st_mode) || metadata.st_uid != ::geteuid() ||
+            metadata.st_nlink == 0 || (metadata.st_mode & 07777) != 0700)
+        throw Error(ErrorCode::Unauthorized, "run directories must remain private and owned");
+    return metadata;
+}
+
+// Root receipts are bounded host metadata. A request's growing control database
+// must not be inventoried under the business Workspace's file-tool quotas.
+void run_retain_receipt(Workspace& directory, const char* name, const std::string& bytes) {
+    if (std::string_view(name) != "output-intent.json" && std::string_view(name) != "output-root.json")
+        throw Error(ErrorCode::InvalidInput, "unsupported run receipt");
+    if (bytes.size() > 65536) throw Error(ErrorCode::Quota, "run receipt exceeds 64 KiB");
+    RunFd parent(directory.dup_root_fd());
+    const auto parent_identity = run_private_directory(parent.value);
+    const bool existing = run_private_file(directory, name);
+    const auto temporary = existing ? std::string(name) : ".wls-run-receipt-" + new_id("tmp");
+    const auto flags = existing ? O_RDONLY | O_NONBLOCK : O_WRONLY | O_CREAT | O_EXCL;
+    RunFd retained(::openat(parent.value, temporary.c_str(), flags | O_NOFOLLOW | O_CLOEXEC, 0600));
+    if (retained.value < 0) throw Error(errno == EEXIST ? ErrorCode::Conflict : ErrorCode::Storage,
+        "cannot open private run receipt exclusively");
+    const char* phase = existing ? "validate" : "stage";
+    bool effects = !existing;
+    try {
+        struct stat owned{};
+        if (::fstat(retained.value, &owned) != 0)
+            throw Error(ErrorCode::Storage, "cannot pin private run receipt inode");
+        const auto check = [&](const char* leaf) {
+            struct stat current{};
+            if (::fstatat(parent.value, leaf, &current, AT_SYMLINK_NOFOLLOW) != 0)
+                throw Error(ErrorCode::Storage, "cannot inspect run receipt inode");
+            if (!S_ISREG(current.st_mode) || current.st_uid != ::geteuid() || current.st_nlink != 1 ||
+                    (current.st_mode & 07777) != 0600 || current.st_dev != parent_identity.st_dev ||
+                    current.st_dev != owned.st_dev || current.st_ino != owned.st_ino ||
+                    current.st_size != static_cast<off_t>(bytes.size()))
+                throw Error(ErrorCode::Conflict, "output intent or pinned root changed");
+            static_cast<void>(directory.root_identity());
+            static_cast<void>(run_private_directory(parent.value));
+        };
+        const auto verify = [&] {
+            check(name);
+            const auto original = directory.read(name, 0, 65536);
+            if (!original.at("eof").as_bool() || original.at("content") != Json(bytes))
+                throw Error(ErrorCode::Conflict, "output intent or pinned root changed");
+            check(name);
+        };
+        if (existing) verify();
+        else {
+            if (::fchmod(retained.value, 0600) != 0)
+                throw Error(ErrorCode::Storage, "cannot set private run receipt permissions");
+            std::size_t written = 0;
+            while (written < bytes.size()) {
+                const auto count = ::write(retained.value, bytes.data() + written, bytes.size() - written);
+                if (count < 0 && errno == EINTR) continue;
+                if (count <= 0) throw Error(ErrorCode::Storage, "cannot write complete run receipt");
+                written += static_cast<std::size_t>(count);
+            }
+        }
+        // Replays also finish a previously uncertain file/parent sync without
+        // rewriting either the receipt's bytes or its pinned inode.
+        phase = "file_sync";
+        effects = true;
+        if (::fsync(retained.value) != 0) throw Error(ErrorCode::Storage, "cannot sync run receipt");
+        check(temporary.c_str());
+        if (!existing) {
+            phase = "rename";
+            if (::renameat2(parent.value, temporary.c_str(), parent.value, name, RENAME_NOREPLACE) != 0)
+                throw Error(ErrorCode::Storage, "cannot publish run receipt without overwrite");
+        }
+        phase = "directory_sync";
+        if (::fsync(parent.value) != 0) throw Error(ErrorCode::Storage, "cannot sync run receipt directory");
+        phase = "verify";
+        verify();
+    } catch (const std::exception& error) {
+        if (!effects) throw;
+        // Retain unresolved staging/publication effects. Never unlink a name
+        // whose current inode may belong to another invocation or the owner.
+        throw Error(ErrorCode::UnknownOutcome, "run receipt persistence incomplete at " + std::string(phase) +
+            "; inspect " + name + (existing ? "" : " and any retained " + temporary) + ": " + error.what());
+    }
+}
+
 std::unique_ptr<Workspace> run_child(Workspace& parent, const char* leaf, bool create, bool* made = nullptr) {
+    const std::string_view name(leaf);
+    if (name.empty() || name.size() > 255 || name == "." || name == ".." ||
+            name.find('/') != std::string_view::npos || name.starts_with(".wls-tmp-"))
+        throw Error(ErrorCode::Unauthorized, "run directory requires one safe leaf");
+    static_cast<void>(canonical_json(Json(name))); // Validate UTF-8 before mkdir.
     const auto path = std::filesystem::path(text(parent.root_identity().at("path"))) / leaf;
     auto child = run_directory(path, false);
     if (made) *made = false;
     if (!child && create) {
-        const auto result = parent.mkdir(leaf);
-        if (result.status != WorkspaceMutationStatus::Succeeded)
-            throw Error(ErrorCode::UnknownOutcome, "private run directory creation incomplete; retain original intent");
-        child = run_directory(path, false);
-        if (made) *made = true;
+        RunFd descriptor(parent.dup_root_fd());
+        const auto parent_identity = run_private_directory(descriptor.value);
+        try {
+            if (::mkdirat(descriptor.value, leaf, 0700) != 0)
+                throw Error(ErrorCode::Storage, "cannot create run directory exclusively");
+            RunFd created(::openat(descriptor.value, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+            const auto identity = run_private_directory(created.value);
+            if (identity.st_dev != parent_identity.st_dev)
+                throw Error(ErrorCode::Unauthorized, "run directory crosses a filesystem boundary");
+            if (::fsync(created.value) != 0 || ::fsync(descriptor.value) != 0)
+                throw Error(ErrorCode::Storage, "cannot sync private run directory");
+            static_cast<void>(parent.root_identity());
+            static_cast<void>(run_private_directory(descriptor.value));
+            child = run_directory(path, false);
+            if (!child) throw Error(ErrorCode::Conflict, "created run directory disappeared");
+            RunFd bound(child->dup_root_fd());
+            const auto current = run_private_directory(bound.value);
+            struct stat linked{};
+            if (::fstatat(descriptor.value, leaf, &linked, AT_SYMLINK_NOFOLLOW) != 0 ||
+                    current.st_dev != identity.st_dev || current.st_ino != identity.st_ino ||
+                    linked.st_dev != identity.st_dev || linked.st_ino != identity.st_ino ||
+                    !child->list(".", "", 1).at("entries").as_array().empty())
+                throw Error(ErrorCode::Conflict, "created run directory binding or contents changed");
+            static_cast<void>(parent.root_identity());
+            static_cast<void>(run_private_directory(descriptor.value));
+            static_cast<void>(run_private_directory(bound.value));
+            if (made) *made = true;
+            return child;
+        } catch (const std::exception& error) {
+            throw Error(ErrorCode::UnknownOutcome, "private run directory creation incomplete; retain original intent: " +
+                std::string(error.what()));
+        }
+    }
+    if (child && create) {
+        RunFd descriptor(parent.dup_root_fd()), bound(child->dup_root_fd());
+        const auto identity = run_private_directory(bound.value);
+        const auto check = [&] {
+            const auto parent_identity = run_private_directory(descriptor.value);
+            static_cast<void>(run_private_directory(bound.value));
+            struct stat linked{};
+            if (::fstatat(descriptor.value, leaf, &linked, AT_SYMLINK_NOFOLLOW) != 0 ||
+                    linked.st_dev != identity.st_dev || linked.st_ino != identity.st_ino ||
+                    identity.st_dev != parent_identity.st_dev)
+                throw Error(ErrorCode::Conflict, "existing run directory binding changed");
+            static_cast<void>(parent.root_identity());
+            static_cast<void>(child->root_identity());
+        };
+        check();
+        try {
+            // An earlier mkdir may have succeeded before its parent sync failed.
+            if (::fsync(bound.value) != 0 || ::fsync(descriptor.value) != 0)
+                throw Error(ErrorCode::Storage, "cannot sync existing run directory");
+            check();
+        } catch (const std::exception& error) {
+            throw Error(ErrorCode::UnknownOutcome, "run directory persistence incomplete: " + std::string(error.what()));
+        }
+        return child;
     }
     static_cast<void>(parent.root_identity());
     return child;
@@ -197,13 +339,7 @@ Json run_export(Store& store, const Json& publication, Workspace& request) {
     DeliveryDirectory package(text(plan.at("root_identity").at("path")));
     static_cast<void>(package.inspect(plan));
     const auto retain = [](Workspace& directory, const char* name, const Json& value) {
-        const auto bytes = canonical_json(value);
-        if (run_private_file(directory, name)) {
-            const auto old = directory.read(name, 0, 65536);
-            if (!old.at("eof").as_bool() || old.at("content") != Json(bytes))
-                throw Error(ErrorCode::Conflict, "output intent or pinned root changed");
-        } else if (directory.write_atomic(name, bytes).status != WorkspaceMutationStatus::Succeeded)
-            throw Error(ErrorCode::UnknownOutcome, "output intent publication incomplete");
+        run_retain_receipt(directory, name, canonical_json(value));
     };
     retain(request, "output-intent.json", Object{{"request_root", request.root_identity()},
         {"manifest_sha256", plan.at("manifest_sha256")}, {"destination", "output"}});

@@ -1476,6 +1476,16 @@ class BillingBaselineIntegration(unittest.TestCase):
                 tool_policy='fixed-role-v1', worker_history={
                     'mode': 'append-fold-v1', 'read_max_bytes': 24576, 'read_token_budget': 196608})
             write_json(case['configuration'], case['system'])
+            choose, oversized = endpoint.choose, []
+            def retain_large_host_file(body):
+                if not oversized:
+                    request = next(case['data'].glob('requests/*/control.sqlite')).parent
+                    fixture = request / 'host-capacity-fixture.bin'
+                    with fixture.open('xb') as output:
+                        output.truncate(17 * 1024 * 1024)
+                    oversized.append(fixture)
+                return choose(body)
+            endpoint.choose = retain_large_host_file
             rejected = self.invoke_run(case, '--yes', '--budget-usd', '1')
             self.assertNotEqual(rejected.returncode, 0)
             self.assertFalse(case['data'].exists())
@@ -1484,6 +1494,8 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             summary = json.loads(result.stdout)
             self.assertEqual(summary['status'], 'DELIVERED')
+            self.assertEqual(oversized[0].stat().st_size, 17 * 1024 * 1024)
+            self.assertEqual(summary['blockers'], [])
             self.assertTrue(summary['accounting']['ready'])
             self.assertIsNone(summary['accounting']['total_cost_micro_usd'])
             self.assertIsNone(summary['budget']['money_limit_micro_usd'])
@@ -1506,11 +1518,28 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertTrue(any(item.get('type') == 'function_call_output' for request in peer.requests
                                 for item in json.loads(request['body'])['input']))
             before = snapshot(database)
+            receipts = [database.parent / name for name in ('output-intent.json', 'output-root.json')]
+            receipt_identity = [(path.stat().st_dev, path.stat().st_ino, path.read_bytes()) for path in receipts]
+            self.assertEqual(list(database.parent.glob('.wls-run-receipt-*')), [])
             repeat = self.invoke_run(case, '--yes')
             self.assertEqual(repeat.returncode, 0, repeat.stderr)
             self.assertEqual(json.loads(repeat.stdout)['stop_reason'], 'completed_replay')
             self.assertEqual(snapshot(database), before)
             self.assertEqual(len(peer.requests), len(attempts))
+            self.assertEqual([(path.stat().st_dev, path.stat().st_ino, path.read_bytes()) for path in receipts],
+                             receipt_identity)
+            for path in receipts:
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(list(database.parent.glob('.wls-run-receipt-*')), [])
+            # A new request must not inventory its sibling's growing control data.
+            case['material'].write_text('Create another independent original local file result.\n')
+            second = self.invoke_run(case, '--yes')
+            self.assertEqual(second.returncode, 0, second.stderr + second.stdout)
+            next_summary = json.loads(second.stdout)
+            self.assertEqual((next_summary['status'], next_summary['blockers']), ('DELIVERED', []))
+            self.assertNotEqual(next_summary['request_id'], summary['request_id'])
+            self.assertEqual((Path(next_summary['output_path']) / 'alpha/result.txt').read_bytes(), b'alpha\nbeta\n')
+            self.assertEqual(oversized[0].stat().st_size, 17 * 1024 * 1024)
 
     def test_06b_observe_only_disconnect_and_cancel_remain_blocked_on_resume(self):
         for cancel in (False, True):
