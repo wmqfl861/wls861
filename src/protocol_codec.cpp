@@ -561,6 +561,7 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
         {"input", input}, {"tools", tools}, {"max_output_tokens", request.max_output_tokens},
         {"parallel_tool_calls", profile.parallel_tool_calls}, {"stream", stream},
         {"store", false}, {"background", false}, {"truncation", "disabled"}};
+    if (profile.responses_background_policy == "omit-false-v1") body.erase("background");
     if (compat) body["include"] = Array{"reasoning.encrypted_content"};
     if (logical.as_object().contains("tool_policy") && profile.tool_choice_policy == "allowed-tools-v1") {
         Array allowed;

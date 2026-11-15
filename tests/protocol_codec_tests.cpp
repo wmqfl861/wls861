@@ -119,6 +119,33 @@ void response_metadata_paths_keep_originals_and_known_results() {
         CHECK(rejected.raw_body == canonical_json(value) && rejected.evidence.at("tool_dispatch_performed") == false);
     }
 }
+void responses_background_policy_preserves_legacy_wire_identity() {
+    for (const auto& legacy : {fixture::profile(), fixture::compat_profile()}) {
+        const auto saved = to_json(legacy);
+        auto value = saved; value.as_object()["responses_background_policy"] = "omit-false-v1";
+        const auto selected = provider_profile_from_json(value); CHECK(to_json(selected) == value);
+        CHECK(provider_profile_sha256(selected) != provider_profile_sha256(legacy));
+        for (const bool stream : {false, true}) {
+            const auto before = encode_responses_request(legacy, fixture::request(), stream);
+            auto expected = parse_json_strict(before.body); CHECK(expected.at("background") == false);
+            expected.as_object().erase("background");
+            const auto after = encode_responses_request(selected, fixture::request(), stream);
+            CHECK(after.body == canonical_json(expected) && after.body_sha256 != before.body_sha256);
+            CHECK(to_json(encode_responses_request(provider_profile_from_json(to_json(selected)), fixture::request(), stream)) == to_json(after));
+            auto restored = selected; restored.responses_background_policy.clear();
+            CHECK(to_json(restored) == saved && to_json(encode_responses_request(restored, fixture::request(), stream)) == to_json(before));
+        }
+    }
+    auto value = to_json(fixture::profile());
+    for (const auto& invalid : {Json(""), Json("omit-false-v2"), Json("true"), Json(true), Json(nullptr)}) {
+        value.as_object()["responses_background_policy"] = invalid;
+        fails(ErrorCode::InvalidInput, [&] { (void)provider_profile_from_json(value); });
+    }
+    auto chat = to_json(wls::test::chat::profile()); chat.as_object()["responses_background_policy"] = "omit-false-v1";
+    fails(ErrorCode::Unsupported, [&] { (void)provider_profile_from_json(chat); });
+    auto invalid = fixture::profile(); invalid.responses_background_policy = "true";
+    fails(ErrorCode::InvalidInput, [&] { (void)encode_responses_request(invalid, fixture::request()); });
+}
 void response_metadata_lists_are_bounded_without_losing_raw_bytes() {
     auto profile = fixture::profile(); profile.response_metadata_policy = "ignore-record-v1";
     for (const bool long_keys : {false, true}) {
@@ -1015,6 +1042,7 @@ int main() {
         {"Chat terminal errors retain usage without partial tools", wls::test::chat::terminal_results_preserve_usage_without_partial_tools},
         {"Chat malformed identity usage arguments and bounds refuse", wls::test::chat::malformed_identity_usage_and_call_limits},
         {"response metadata policy freezes explicit selection and preserves legacy profile bytes", response_metadata_policy_is_explicit_and_preserves_legacy_bytes},
+        {"Responses background omission requires a frozen opt-in and preserves legacy wire identity", responses_background_policy_preserves_legacy_wire_identity},
         {"response metadata paths preserve originals and known decoding", response_metadata_paths_keep_originals_and_known_results},
         {"response metadata count and byte overflow truncate paths without losing originals", response_metadata_lists_are_bounded_without_losing_raw_bytes},
         {"response metadata tolerance keeps output identity usage and strict JSON guards", response_metadata_does_not_relax_outputs_identity_or_known_types},
