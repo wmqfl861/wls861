@@ -30,9 +30,11 @@ Root 输出发布复用业务 Workspace，扫描兄弟数据库时受到 16 MiB 
 
 端点适配已合并 [元数据兼容 #108](https://github.com/wmqfl861/wls861/pull/108)、[金额观察策略 #109](https://github.com/wmqfl861/wls861/pull/109) 和显式省略 `background` 的 [#110](https://github.com/wmqfl861/wls861/pull/110)；#110 本机专项 3/3 通过。实跑基线 main `cc65d9e` 的[完整 CI](https://github.com/wmqfl861/wls861/actions/runs/43724936562)九个构建/测试作业及[源码验证](https://github.com/wmqfl861/wls861/actions/runs/43724936571)通过：三核心各 90/90、ASan 与 UBSan 各 45+45、Make 60+25，无测试跳过；最大 ASan 套件占比 65.21/180 秒＝36.23%。JUnit/LastTest artifacts 为 UNAVAILABLE，CI 原日志留存。
 
-[E-2 PR #113](https://github.com/wmqfl861/wls861/pull/113) 的用途投影在本机对同一组 29 份捕获请求作离线编码测量（Dispatcher / TeamLead / Worker 各 2 / 3 / 24 份），按完整序列化 `current_state` 项计字节、包含外层封装：Dispatcher 均值 **37,006.50→18,336.50**（减少 **50.45%**），TeamLead **52,303.33→21,038.67**（减少 **59.78%**），Worker **4,977→2,436.375**（减少 **51.05%**），三个角色均达到状态项减半门禁。无 marker 的 a83 路径及仅有 `compact_model_state:true` 的 e81 路径各 **29/29** 旧 wire hash 全等，原样本未改。此项为本机离线测量；真实发送仍为 41 次，原发布 UNKNOWN、角色对照 NOT_RUN 和历史本机 ASan OPEN 均保留。
+[E-2 PR #113](https://github.com/wmqfl861/wls861/pull/113) 已合并到 main `900a879`。用途投影在本机对同一组 29 份捕获请求作离线编码测量（Dispatcher / TeamLead / Worker 各 2 / 3 / 24 份），按完整序列化 `current_state` 项计字节、包含外层封装：Dispatcher 均值 **37,006.50→18,336.50**（减少 **50.45%**），TeamLead **52,303.33→21,038.67**（减少 **59.78%**），Worker **4,977→2,436.375**（减少 **51.05%**），三个角色均达到状态项减半门禁。无 marker 的 a83 路径及仅有 `compact_model_state:true` 的 e81 路径各 **29/29** 旧 wire hash 全等，原样本未改。此项为本机离线测量；真实发送仍为 41 次，原发布 UNKNOWN、角色对照 NOT_RUN 和历史本机 ASan OPEN 均保留。
 
 本机定向首轮 13 项为 **12 PASS / 1 夹具失败**（253.28 秒，0 超时/跳过/未运行），失败原件保留；原因为新增纯 codec 合成请求进入旧费用策略 Store 夹具时漏填正数费用预留。仅在该 Store 夹具补齐预留后，`live_model_store` 与 `g2_rehearsal` **2/2 PASS**（57.89 秒，0 失败/超时/跳过/未运行），产品 ELF 及四个产品源文件与首轮相同，本机 LastTest/JUnit 完整。D28 合成缓存固定序列在 Responses、Chat 均为 35 次调用、DELIVERED、3 个 Worker、11 个合格样本；冻结门槛分别为 `0.5633509583608723`、`0.5506825938566553`，确认运行均通过，原 G1 `>0.70` 门槛及固定序列/期限未改。CTest 注册总数仍为 90；首轮失败记录未改报为同轮 13/13 全绿。
+
+最终 head `f773812` 的 [PR 三核心检查](https://github.com/wmqfl861/wls861/actions/runs/43752880351) **270/270 通过**，失败/跳过/未运行均为 0；[源码归档](https://github.com/wmqfl861/wls861/actions/runs/43752880296) **744 文件**与提交树逐字节一致。合并后的 main `900a879` 验证见[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43753899472)及[源码归档](https://github.com/wmqfl861/wls861/actions/runs/43753899551)。
 
 本机旧轮次保留 89/90（专项 4/4，加其余 85/86），失败为 `doctor_diagnostics_cli` 布局检查；同一 ELF 在受支持布局下的 13 个方法通过，不将原轮次改报为全绿。历史本机 ASan `event_runtime` 仍 OPEN；Windows 11 NOT_RUN，G4 原生 BLOCKED。已记录的凭据模式扫描为原 132 文件和新增审计 36 文件，均 0 匹配。
 
