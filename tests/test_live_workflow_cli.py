@@ -158,7 +158,7 @@ class LiveWorkflowCli(unittest.TestCase):
         return json.loads(result.stdout)
 
     def admit(self, port, key='request-one', pricing=None, cost_budget=10000, retries=0, timeout_ms=None,
-              total=None, challenge=False, plain=False, text_file=None, constraints_file=None):
+              total=None, challenge=False, plain=False, text_file=None, constraints_file=None, observe_only=False):
         system = copy.deepcopy(self.system)
         provider = json.loads((SOURCE / 'config/examples/providers/responses-offline.json').read_text())
         provider.update(base_url=f'https://localhost:{port}', api_key_env=REFERENCE,
@@ -189,6 +189,11 @@ class LiveWorkflowCli(unittest.TestCase):
         system['model_calls']['max_paid_retries'] = retries
         if total is not None:
             system['model_calls'].update(runtime_policy='bounded-v1', max_total_calls=total)
+        if observe_only:
+            system['model_calls'].update(cost_policy='observe-only-v1', runtime_policy='bounded-v1', max_total_calls=64)
+            system['budget_defaults'].update(max_cost_usd=None, max_input_tokens=4000000,
+                                            max_output_tokens=1000000, max_wall_minutes=10)
+            cost_budget = 0
         system['context']['request_format'] = 'structured-v3'
         system['context'].pop('model_projection', None); system['context'].pop('tool_policy', None)  # Keep the original priced fixture's frozen request size.
         system['context'].pop('worker_history', None)
@@ -563,6 +568,61 @@ class LiveWorkflowCli(unittest.TestCase):
             self.assertEqual(len(peer.requests), 1)  # incremental send 0, cumulative stays 1
             self.assertEqual(self.rows('SELECT count(*) AS n FROM live_send_claims')[0]['n'], 1)
             self.assertIsNone(self.rows('SELECT cost_micro_usd FROM call_attempts')[0]['cost_micro_usd'])
+
+    def test_observe_only_requires_matching_explicit_host_policy_before_send(self):
+        with tls.Peer(self.contexts['server'], tls.fixed_response(plan_response())) as peer:
+            request = self.admit(peer.port, observe_only=True)
+            status = self.invoke('live-status', '--db', self.database, '--request', request)
+            template = status['authorization_template']
+            self.assertEqual(template['schema_version'], 3)
+            self.assertEqual(template['cost_policy'], 'observe-only-v1')
+            self.assertFalse(template['network_enabled'])
+            self.assertFalse(template['provider_enabled'])
+            self.assertEqual(template['reserved_cost_micro_usd'], 0)
+            valid = self.authorize(request, reserved=0)
+            missing = dict(valid); missing.pop('cost_policy'); missing['reserved_cost_micro_usd'] = 1
+            before = self.snapshot()
+            for invalid in (template, missing, {**valid, 'cost_policy': None},
+                            {**valid, 'cost_policy': 'observe-only-v2'},
+                            {**valid, 'config_snapshot_sha256': '0' * 64},
+                            {**valid, 'reserved_cost_micro_usd': 1}):
+                self.authorization_file.write_text(json.dumps(invalid))
+                self.pump(request, error=True)
+                self.assertEqual(self.snapshot(), before)
+            legacy = self.admit(peer.port, key='legacy-cost-policy', total=64)
+            self.assertNotIn('cost_policy', self.authorize(legacy))
+            invalid = self.authorize(legacy, reserved=0)
+            invalid['cost_policy'] = 'observe-only-v1'
+            self.authorization_file.write_text(json.dumps(invalid))
+            before = self.snapshot()
+            self.pump(legacy, error=True)
+            self.assertEqual(self.snapshot(), before)
+            self.assertEqual(peer.accepted, 0)
+            self.assertEqual(self.rows('SELECT count(*) n FROM live_send_claims')[0]['n'], 0)
+
+    def test_observe_only_continues_unknown_cost_but_stops_missing_tokens(self):
+        model = ScriptedPeer()
+        with tls.Peer(self.contexts['server'], model) as peer:
+            request = self.admit(peer.port, observe_only=True)
+            self.authorize(request, reserved=0)
+            report = self.pump(request)
+            self.assertEqual(len(peer.requests), 2)
+            self.assertFalse(report['accounting']['ready'])
+            attempts = self.rows('SELECT status,input_tokens,output_tokens,cost_micro_usd,unknown_cost,reserved_cost '
+                                 'FROM call_attempts ORDER BY rowid')
+            self.assertEqual([row['status'] for row in attempts], ['COMPLETED', 'ERROR'])
+            self.assertEqual((attempts[0]['input_tokens'], attempts[0]['output_tokens']), (11, 7))
+            self.assertIsNone(attempts[1]['input_tokens'])
+            self.assertIsNone(attempts[1]['output_tokens'])
+            self.assertTrue(all(row['cost_micro_usd'] is None and row['unknown_cost'] == 1 and
+                                row['reserved_cost'] == 0 for row in attempts))
+            original = self.rows('SELECT attempt_id,usage,response,settlement_sha256 FROM call_attempts ORDER BY rowid')
+            repeat = self.pump(request, credential=None)
+            self.assertEqual(repeat['stop_reason'], 'needs_accounting')
+            self.assertEqual(repeat['calls'], [])
+            self.assertEqual(len(peer.requests), 2)
+            self.assertEqual(self.rows('SELECT attempt_id,usage,response,settlement_sha256 FROM call_attempts ORDER BY rowid'), original)
+            self.assertEqual(self.rows('SELECT count(*) n FROM live_send_claims')[0]['n'], 2)
 
     def test_pricing_admission_reserves_the_frozen_minimum_before_send(self):
         with tls.Peer(self.contexts['server'], tls.fixed_response(priced(plan_response()))) as peer:

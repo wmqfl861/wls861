@@ -100,7 +100,7 @@ inline Json model_profile(const LiveModelSettings& live) {
 }
 inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& live,
                                 std::string key = "fixture", bool enabled = true, bool fake = false,
-                                bool bounded = false, std::int64_t paid_retries = 0) {
+                                bool bounded = false, std::int64_t paid_retries = 0, bool observe_only = false) {
     ::test::TempDir directory;
     std::filesystem::copy(assets.source / "config/examples", directory.path / "config", std::filesystem::copy_options::recursive);
     std::filesystem::copy(assets.source / "prompts", directory.path / "prompts", std::filesystem::copy_options::recursive);
@@ -118,9 +118,16 @@ inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& l
             system.at("model_calls").at("real_calls_enabled") = enabled;
             system.at("context").at("request_format") = "structured-v2";
         }
-        if (bounded) {
+        if (bounded || observe_only) {
             system.at("model_calls").as_object()["runtime_policy"] = "bounded-v1";
             system.at("budget_defaults").at("max_wall_minutes") = 1;
+        }
+        if (observe_only) {
+            system.at("model_calls").as_object()["cost_policy"] = "observe-only-v1";
+            system.at("model_calls").as_object()["max_total_calls"] = 64;
+            system.at("budget_defaults").at("max_input_tokens") = 1000000;
+            system.at("budget_defaults").at("max_output_tokens") = 100000;
+            system.at("budget_defaults").at("max_cost_usd") = nullptr;
         }
         { std::ofstream output(system_path); output << canonical_json(system); }
         catalog = ::test::legacy_shell_catalog(system_path, directory.path / "config/functions", directory.path / "prompts");
@@ -132,7 +139,7 @@ inline AdmissionInput admission(const Assets& assets, const LiveModelSettings& l
     input.config_snapshot = catalog.freeze("general").json();
     input.constraint_catalog = Array{Object{{"constraint_id", "c1"}, {"text", input.original_text}, {"source_revision", 1}}};
     input.tool_allowlist = {"note", "fs_read", "fs_write"};
-    input.budget = BudgetLimits{64, 1000000, 100000, 10000};
+    input.budget = BudgetLimits{64, 1000000, 100000, observe_only ? 0 : 10000};
     return input;
 }
 

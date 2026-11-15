@@ -37,6 +37,7 @@ struct LiveExecutionAuthorization {
     // No CLI enables this flag implicitly. Tests use only local_tls profiles.
     bool network_enabled{false};
     bool provider_enabled{false};
+    bool observe_only_cost_enabled{false}; // Independent host opt-in; never inferred by the low-level sender.
 };
 
 struct LiveAttemptResult {

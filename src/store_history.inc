@@ -42,12 +42,16 @@ Json previous_context_projection(Implementation& impl, const StoreActor& actor,
     return Row{{"attempt_id", original.attempt_id}, {"input", original.context.logical_input}};
 }
 
-std::string history_accounting_attention(bool reconciliation, const std::string& alias) {
+std::string history_accounting_attention(bool reconciliation, const std::string& alias, bool observe_cost = false) {
     const auto original = "(" + alias + ".unknown_input=1 OR " + alias +
         ".unknown_output=1 OR " + alias + ".unknown_cost=1)";
     if (!reconciliation) return original;
     const auto live = "SELECT 1 FROM live_attempt_execution l WHERE l.attempt_id=" + alias + ".attempt_id";
     const auto projection = "SELECT 1 FROM live_usage_projection p WHERE p.attempt_id=" + alias + ".attempt_id";
+    if (observe_cost)
+        return "((NOT EXISTS(" + live + ") AND " + original + ") OR (EXISTS(" + live +
+            ") AND (NOT EXISTS(" + projection + ") OR EXISTS(" + projection +
+            " AND (p.disputed=1 OR p.over_reserved=1 OR p.input_tokens IS NULL OR p.output_tokens IS NULL)))))";
     return "((NOT EXISTS(" + live + ") AND " + original + ") OR (EXISTS(" + live +
         ") AND (NOT EXISTS(" + projection + ") OR EXISTS(" + projection +
         " AND (p.disputed=1 OR p.over_reserved=1 OR p.input_tokens IS NULL OR p.output_tokens IS NULL OR "
@@ -211,7 +215,7 @@ Json Store::attempt_history_tail(const StoreActor& actor, std::int64_t limit) co
     for (const auto& operation : unresolved) operations.push_back(exposed(operation));
     const auto pending_calls = impl_->all("SELECT a.attempt_id,a.call_id,a.frozen_binding,a.status,a.accepted,"
         "a.unknown_input,a.unknown_output,a.unknown_cost FROM call_attempts a WHERE " + filter +
-        " AND (a.status IN ('PENDING','UNKNOWN') OR " + history_accounting_attention(impl_->reconciliation_schema, "a") +
+        " AND (a.status IN ('PENDING','UNKNOWN') OR " + history_accounting_attention(impl_->reconciliation_schema, "a", impl_->observe_only_cost(actor.request_id)) +
         " OR NOT EXISTS(SELECT 1 FROM model_tool_feedback f WHERE f.attempt_id=a.attempt_id)) ORDER BY a.rowid LIMIT 65", scope);
     require(pending_calls.size() <= 64, ErrorCode::Quota,
         "unresolved attempt facts cannot fit; reconcile missing feedback/accounting before another model call");
@@ -306,7 +310,7 @@ Json append_history_delta(Implementation& impl, const StoreActor& actor, const J
     auto parameters = scope; parameters.emplace_back(after); parameters.emplace_back(high);
     const auto rows = impl.all("SELECT rowid AS sequence,attempt_id,call_id,frozen_binding,status,accepted,"
         "CASE WHEN length(CAST(response AS BLOB))<=1048576 THEN response ELSE NULL END AS response,length(CAST(response AS BLOB)) AS response_size," +
-        history_accounting_attention(impl.reconciliation_schema, "call_attempts") + " AS accounting_attention FROM call_attempts WHERE " +
+        history_accounting_attention(impl.reconciliation_schema, "call_attempts", impl.observe_only_cost(actor.request_id)) + " AS accounting_attention FROM call_attempts WHERE " +
         filter + " AND rowid>? AND rowid<=? ORDER BY rowid LIMIT 65", parameters);
     require(rows.size() <= 64, ErrorCode::Quota, "append-fold delta exceeds 64 original turns");
     Array items;
@@ -359,7 +363,8 @@ struct ManagementSource {
 };
 
 
-ManagementSource management_source(const StoreActor& actor, const std::string& kind, bool reconciliation = false) {
+ManagementSource management_source(const StoreActor& actor, const std::string& kind, bool reconciliation = false,
+                                   bool observe_cost = false) {
     require(kind == "question" || kind == "submission" || kind == "attempt", ErrorCode::InvalidInput,
             "management history kind must be question/submission/attempt");
     ManagementSource source{kind, {}, {}, "q.request_id=?", {}, {actor.request_id}};
@@ -372,7 +377,7 @@ ManagementSource management_source(const StoreActor& actor, const std::string& k
             "q.reservation_sha256 AS original_sha256,q.frozen_binding AS original_binding,q.status,"
             "q.unknown_input,q.unknown_output,q.unknown_cost,"
             "(SELECT record_sha256 FROM model_tool_feedback f WHERE f.attempt_id=q.attempt_id) AS feedback_sha256," +
-            history_accounting_attention(reconciliation, "q") + " AS accounting_attention";
+            history_accounting_attention(reconciliation, "q", observe_cost) + " AS accounting_attention";
     } else {
         if (actor.role == Role::TeamLead) {
             source.filter += " AND q.task_id=? AND q.team_id=?";
@@ -586,7 +591,7 @@ Json Store::management_view(const StoreActor& actor, const ExecutionBinding& cur
     const auto policy = config.management_history_policy();
     const auto question_source = management_source(actor, "question");
     const auto submission_source = management_source(actor, "submission");
-    const auto attempt_source = management_source(actor, "attempt", impl_->reconciliation_schema);
+    const auto attempt_source = management_source(actor, "attempt", impl_->reconciliation_schema, config.observe_only_cost());
     Json catalogs = Row{{"question", management_catalog(*impl_, actor, question_source)},
         {"submission", management_catalog(*impl_, actor, submission_source)},
         {"attempt", management_catalog(*impl_, actor, attempt_source)}};
@@ -609,7 +614,7 @@ Json Store::management_view(const StoreActor& actor, const ExecutionBinding& cur
     const auto unsettled = impl_->all("SELECT attempt_id,call_id,role,principal_id,task_id,team_id,frozen_binding,status,"
         "accepted,unknown_input,unknown_output,unknown_cost,input_tokens,output_tokens,cost_micro_usd,usage,response "
         "FROM call_attempts WHERE " + descendant + " AND (status IN ('PENDING','UNKNOWN') OR " +
-        history_accounting_attention(impl_->reconciliation_schema, "call_attempts") +
+        history_accounting_attention(impl_->reconciliation_schema, "call_attempts", config.observe_only_cost()) +
         " OR NOT EXISTS(SELECT 1 FROM model_tool_feedback f "
         "WHERE f.attempt_id=call_attempts.attempt_id)) ORDER BY rowid LIMIT 65", scope);
     require(unsettled.size() <= 64, ErrorCode::Quota,
@@ -662,7 +667,7 @@ Json Store::management_history_page(const StoreActor& actor, const ExecutionBind
         "management history requires nonnegative cursors and page limit 1..4");
     ManagementReadSnapshot snapshot(impl_->db);
     (void)management_authorize(*impl_, actor, current, "management_history_page");
-    const auto source = management_source(actor, kind, impl_->reconciliation_schema);
+    const auto source = management_source(actor, kind, impl_->reconciliation_schema, impl_->observe_only_cost(actor.request_id));
     management_cursor(*impl_, source, after); management_cursor(*impl_, source, through);
     const auto catalog = management_catalog(*impl_, actor, source, through);
     through = number(catalog.as_object(), "through_sequence");
@@ -705,7 +710,7 @@ Json Store::read_management_history(const StoreActor& actor, const ExecutionBind
         "management history requires a positive original version and max_bytes 1..4096");
     ManagementReadSnapshot snapshot(impl_->db);
     (void)management_authorize(*impl_, actor, current, "management_history_read");
-    const auto source = management_source(actor, kind, impl_->reconciliation_schema);
+    const auto source = management_source(actor, kind, impl_->reconciliation_schema, impl_->observe_only_cost(actor.request_id));
     auto parameters = source.parameters; parameters.emplace_back(id);
     const auto row = impl_->optional("SELECT " + source.columns + " FROM " + source.table + " WHERE " +
         source.filter + " AND q." + source.id + "=?", parameters);

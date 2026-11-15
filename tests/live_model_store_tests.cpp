@@ -689,6 +689,128 @@ Json settle_completed(fixture::Fixture& f, const ModelRequest& request, const Mo
         to_json(usage), to_json(response));
 }
 
+void admit_observe_only(fixture::Fixture& f, BudgetLimits budget = {64, 1000000, 100000, 0}) {
+    auto input = fixture::admission(*assets, f.live, "observe-only", true, false, true, 0, true);
+    input.budget = budget;
+    f.request_id = text(f.store->admit(input), "request_id");
+}
+ModelRequest observe_request(fixture::Fixture& f, std::string id) {
+    auto request = f.request(std::move(id)); request.reserved_cost_micro_usd = 0;
+    return request;
+}
+
+void observe_only_unknown_cost_and_late_receipt_preserve_originals() {
+    for (const bool priced : {false, true}) {
+        fixture::Fixture f(*assets, priced ? pricing_settings() : fixture::settings());
+        admit_observe_only(f);
+        const auto first = observe_request(f, "observe-first");
+        LiveExecutionAuthorization host; host.network_enabled = true;
+        CHECK(!host.observe_only_cost_enabled);
+        error(ErrorCode::Unauthorized, [&] {
+            (void)observe_live_attempt(*f.store, f.actor(), first, "SYNTHETIC", host);
+        });
+        CHECK(number(f.store->budget(f.request_id), "attempts") == 0);
+        CHECK(fixture::sql_text(f.path, "SELECT count(*) FROM live_send_claims") == "0");
+        ModelUsage usage; usage.input_tokens = 11; usage.output_tokens = 7;
+        const auto settled = settle_completed(f, first, usage);
+        const auto original_bytes = canonical_json(settled);
+        CHECK(settled.at("cost_micro_usd").is_null() && settled.at("unknown_cost") == 1);
+        CHECK(settled.at("cache_read_tokens").is_null() && settled.at("cache_write_tokens").is_null());
+        CHECK(f.store->live_accounting_status(f.request_id).at("ready").as_bool());
+        CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 16);
+        CHECK(!f.store->verify_usage_ledger(f.request_id).at("unsettled_accounting").as_bool());
+        CHECK(f.store->usage_projection(first.attempt_id).at("projection").at("cost_micro_usd").is_null());
+        CHECK(!f.store->usage_projection(first.attempt_id).at("accounting_complete").as_bool());
+        CHECK(f.store->usage_projection(first.attempt_id).at("budget_accounting_complete").as_bool());
+        CHECK(number(f.store->budget(f.request_id), "spent_cost") == 0); // No price estimate or reservation fallback.
+        const auto second = observe_request(f, "observe-second");
+        (void)settle_completed(f, second, usage);
+        CHECK(f.store->attempt_history(f.actor()).size() == 2);
+        auto actual = usage; actual.cost_micro_usd = 12345;
+        const auto proof = fixture::evidence(settled, actual, "observe-late");
+        const UsageReconciliation command{"observe-late", "observe-late", 1};
+        const auto reconciled = f.store->reconcile_usage(f.actor(Role::Root), proof, command);
+        CHECK(reconciled.at("after").at("over_reserved") == 0);
+        CHECK(reconciled.at("budget_delta").at("cost").at("spent") == 12345);
+        const auto booked = f.store->budget(f.request_id);
+        CHECK(f.store->reconcile_usage(f.actor(Role::Root), proof, command) == reconciled);
+        CHECK(f.store->budget(f.request_id) == booked);
+        CHECK(number(f.store->budget(f.request_id), "spent_cost") == 12345);
+        CHECK(f.store->live_accounting_status(f.request_id).at("ready").as_bool());
+        CHECK(f.store->live_accounting_status(f.request_id).at("total_cost_micro_usd").is_null());
+        CHECK(number(f.store->live_accounting_status(f.request_id), "known_cost_micro_usd") == 12345);
+        CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 16);
+        CHECK(canonical_json(f.store->attempt(first.attempt_id)) == original_bytes);
+        auto zero = usage; zero.cost_micro_usd = 0;
+        const auto third = observe_request(f, "observe-known-zero");
+        (void)settle_completed(f, third, zero);
+        CHECK(f.store->usage_projection(third.attempt_id).at("effective_cost_basis") == "reported");
+        CHECK(f.store->usage_projection(third.attempt_id).at("effective_cost_micro_usd") == 0);
+        CHECK(f.store->live_accounting_status(f.request_id).at("total_cost_micro_usd").is_null());
+        f.reopen();
+        const auto budget = f.store->budget(f.request_id);
+        CHECK(f.store->replay_usage_reconciliation(f.actor(Role::Root), proof, command) == reconciled);
+        CHECK(f.store->budget(f.request_id) == budget);
+        CHECK(f.store->settle_attempt(first.attempt_id, first.binding, first.config_snapshot_id,
+            "COMPLETED", settled.at("usage"), settled.at("response")) == settled);
+        CHECK(canonical_json(f.store->attempt(first.attempt_id)) == original_bytes);
+        CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+        CHECK(number(f.store->budget(f.request_id), "attempts") == 3);
+    }
+}
+
+void observe_only_does_not_clear_unresolved_or_excess_tokens() {
+    for (const int variant : {0, 1, 2, 3, 4, 5}) {
+        fixture::Fixture f(*assets); admit_observe_only(f);
+        const auto request = observe_request(f, "observe-blocked");
+        ModelUsage usage; usage.input_tokens = 11; usage.output_tokens = 7;
+        if (variant == 0) usage.input_tokens.reset();
+        if (variant == 1) usage.output_tokens.reset();
+        if (variant == 2) usage.output_tokens = request.reserved_output_tokens + 1;
+        if (variant == 5) {
+            (void)f.reserve(request); (void)f.claim(request);
+            CHECK(!f.store->live_accounting_status(f.request_id).at("ready").as_bool());
+            f.reopen();
+            CHECK(f.store->attempt(request.attempt_id).at("status") == "UNKNOWN");
+        } else {
+            const auto original = settle_completed(f, request, usage);
+            if (variant == 3) {
+                usage.input_tokens = 12;
+                (void)f.store->reconcile_usage(f.actor(Role::Root), fixture::evidence(original, usage), {"disputed", "disputed", 1});
+                CHECK(f.store->usage_projection(request.attempt_id).at("projection").at("disputed") == 1);
+            }
+            if (variant == 4) fixture::sql(f.path,
+                "DROP TRIGGER usage_projection_no_delete; DELETE FROM live_usage_projection;");
+            CHECK(f.store->attempt(request.attempt_id) == original);
+        }
+        CHECK(!f.store->live_accounting_status(f.request_id).at("ready").as_bool());
+        error(ErrorCode::UnknownOutcome, [&] { (void)f.reserve(observe_request(f, "must-not-send")); });
+        CHECK(number(f.store->budget(f.request_id), "attempts") == 1);
+        CHECK(fixture::sql_text(f.path, "SELECT count(*) FROM live_send_claims") == "1");
+        if (variant != 4) CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+    }
+}
+
+void observe_only_keeps_token_call_and_wall_guards() {
+    for (const int variant : {0, 1, 2, 3}) {
+        fixture::Fixture f(*assets);
+        BudgetLimits budget{64, 1000000, 100000, 0};
+        if (variant == 0) budget.max_attempts = 1;
+        if (variant == 1) budget.input_tokens = 1000;
+        if (variant == 2) budget.output_tokens = 100;
+        admit_observe_only(f, budget);
+        const auto first = observe_request(f, "observe-limit");
+        ModelUsage usage; usage.input_tokens = 11; usage.output_tokens = 7;
+        (void)settle_completed(f, first, usage);
+        if (variant == 3) fixture::sql(f.path,
+            "UPDATE requests SET created_at=strftime('%Y-%m-%dT%H:%M:%SZ','now','-2 minutes'),state_version=state_version+1;");
+        error(variant == 3 ? ErrorCode::NotReady : ErrorCode::Quota,
+            [&] { (void)f.reserve(observe_request(f, "beyond-limit")); });
+        CHECK(number(f.store->budget(f.request_id), "attempts") == 1);
+        CHECK(fixture::sql_text(f.path, "SELECT count(*) FROM live_send_claims") == "1");
+    }
+}
+
 void priced_status_observes_one_budget_snapshot_across_late_receipt() {
     fixture::Fixture f(*assets, pricing_settings());
     const auto request = priced_request(f, "interleaved-priced");
@@ -854,6 +976,9 @@ int main(int argc, char** argv) {
     return test::run({
         {"bounded warnings preserve original usage and settlement capacity across failure and reopen", bounded_warnings_preserve_settlement_and_recover_without_capacity_charge},
         {"bounded first send enforces original request creation time", bounded_first_send_checks_original_creation_time},
+        {"observe-only cost preserves original unknown facts and replays late nonzero receipts", observe_only_unknown_cost_and_late_receipt_preserve_originals},
+        {"observe-only still blocks unknown input output disputed missing and pending evidence", observe_only_does_not_clear_unresolved_or_excess_tokens},
+        {"observe-only retains token call and wall limits", observe_only_keeps_token_call_and_wall_guards},
         {"response metadata selection survives original snapshot restore and current-profile tampering refuses", response_metadata_policy_survives_original_snapshot_restore},
         {"read-only ledger reconstruction uses one snapshot across a separate writer commit", readonly_ledger_observes_one_snapshot},
         {"priced accounting status observes one budget snapshot across a late receipt", priced_status_observes_one_budget_snapshot_across_late_receipt},

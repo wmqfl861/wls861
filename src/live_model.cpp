@@ -242,6 +242,8 @@ ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
     const auto persisted_request = store.request(request.binding.request_id);
     const auto config = FrozenRequestConfig::restore(canonical_json(persisted_request.at("config_snapshot")),
                                                     request.config_snapshot_id);
+    require(config.observe_only_cost() == authorization.observe_only_cost_enabled, ErrorCode::Unauthorized,
+            "live cost policy requires matching explicit host authorization");
     const auto settings = live_model_settings_from_json(config.model_profile(request.role), request.model.model);
     require(settings.execution_kind == "local_tls" || authorization.provider_enabled,
             ErrorCode::Unauthorized, "provider network execution has no explicit host authorization");

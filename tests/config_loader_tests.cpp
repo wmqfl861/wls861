@@ -571,6 +571,43 @@ void unknown_functions_capabilities_and_tools_are_rejected() {
     expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
 }
 
+void observe_only_cost_is_frozen_with_explicit_resource_limits() {
+    Fixture fixture;
+    const auto old = fixture.freeze();
+    CHECK(!old.observe_only_cost());
+    auto system = old.json().at("system");
+    auto& calls = system.at("model_calls").as_object();
+    calls["cost_policy"] = "observe-only-v1";
+    calls["runtime_policy"] = "bounded-v1";
+    calls["max_total_calls"] = 40;
+    auto& budget = system.at("budget_defaults").as_object();
+    budget["max_input_tokens"] = 4000000; budget["max_output_tokens"] = 1000000;
+    budget["max_wall_minutes"] = 10; budget["max_cost_usd"] = nullptr;
+    fixture.system(system);
+    const auto selected = fixture.freeze();
+    CHECK(selected.observe_only_cost() && selected.bounded_runtime() && selected.max_total_calls() == 40);
+    CHECK(selected.sha256() != old.sha256());
+    CHECK(FrozenRequestConfig::restore(old.serialize(), old.sha256()).serialize() == old.serialize());
+    CHECK(!FrozenRequestConfig::restore(old.serialize(), old.sha256()).observe_only_cost());
+    CHECK(FrozenRequestConfig::restore(selected.serialize(), selected.sha256()).observe_only_cost());
+    for (const auto change : {0, 1, 2, 3, 4, 5, 6}) {
+        auto invalid = system;
+        switch (change) {
+        case 0: invalid.at("model_calls").at("cost_policy") = "observe-only-v2"; break;
+        case 1: invalid.at("model_calls").as_object().erase("runtime_policy"); break;
+        case 2: invalid.at("model_calls").as_object().erase("max_total_calls"); break;
+        case 3: invalid.at("budget_defaults").at("max_input_tokens") = nullptr; break;
+        case 4: invalid.at("budget_defaults").at("max_output_tokens") = 0; break;
+        case 5: invalid.at("budget_defaults").at("max_wall_minutes") = nullptr; break;
+        case 6: invalid.at("budget_defaults").at("max_cost_usd") = 1; break;
+        default: CHECK(false);
+        }
+        fixture.system(invalid);
+        expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.freeze(); });
+    }
+    CHECK(selected.json().at("system").at("budget_defaults").at("max_cost_usd").is_null());
+}
+
 void configuration_fifo_is_rejected_without_open_side_effects() {
     Fixture fixture;
     std::filesystem::remove(fixture.system_path());
@@ -641,6 +678,7 @@ int main() {
         {"size and time validators preserve the exact ASCII grammar without regex", simple_format_validators_preserve_the_original_grammar},
         {"validated but unenforced settings are explicit and do not change frozen config", unsupported_enforcement_is_visible_without_changing_frozen_bytes},
         {"unknown functions capabilities roles and tools reject", unknown_functions_capabilities_and_tools_are_rejected},
+        {"observe-only cost freezes explicit finite resource bounds without migrating old requests", observe_only_cost_is_frozen_with_explicit_resource_limits},
         {"configuration FIFO is rejected before any observable open", configuration_fifo_is_rejected_without_open_side_effects},
         {"management and owned capacity policies preserve old frozen semantics", management_and_owned_capacity_policies_are_opt_in_and_frozen}
     });

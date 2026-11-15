@@ -299,7 +299,7 @@ class PricingFlowEndpoint:
     outbound bytes. Neither mode reports cache-write or provider-reported cost.
     """
 
-    def __init__(self, correctable_read=False, initialize_seed=False, simulate_cache=False):
+    def __init__(self, correctable_read=False, initialize_seed=False, simulate_cache=False, omit_cache_details=False):
         fixture = workflow.without_constraints(json.loads(
             (SOURCE / 'tests/fixtures/s15_fake_complete.json').read_text()))
         self.plan = fixture['default'][0]['tool_calls'][0]['arguments']
@@ -316,6 +316,7 @@ class PricingFlowEndpoint:
         self.correctable_read = correctable_read
         self.initialize_seed = initialize_seed
         self.cache = SimulatedPrefixCache() if simulate_cache else None
+        self.omit_cache_details = omit_cache_details
         self.records = []
 
     @staticmethod
@@ -376,6 +377,8 @@ class PricingFlowEndpoint:
                                   arguments=json.dumps(arguments, ensure_ascii=False))
         value['usage'].update(input_tokens=11, output_tokens=7, total_tokens=18)
         value['usage']['input_tokens_details'] = {'cached_tokens': 3}
+        if self.omit_cache_details:
+            value['usage'].pop('input_tokens_details')
         if self.cache is not None:
             observation = self.cache.observe(observed['body'], self.profile_sha256)
             value['usage'].update(input_tokens=observation['input_tokens'],
@@ -811,7 +814,7 @@ class BillingBaselineIntegration(unittest.TestCase):
         self.run_pair(4)
 
     @classmethod
-    def run_inputs(cls, label, peer, chat=False):
+    def run_inputs(cls, label, peer, chat=False, observe_only=False):
         directory = cls.directory / label
         directory.mkdir(mode=0o700)
         shutil.copytree(cls.functions, directory / 'functions')
@@ -836,6 +839,10 @@ class BillingBaselineIntegration(unittest.TestCase):
         system['context'].pop('worker_history', None)
         system['model_calls'].update(real_calls_enabled=True, runtime_policy='bounded-v1', max_total_calls=40)
         system['budget_defaults'].update(max_cost_usd=8, max_input_tokens=4000000, max_output_tokens=1000000)
+        if observe_only:
+            provider.pop('pricing')
+            system['model_calls']['cost_policy'] = 'observe-only-v1'
+            system['budget_defaults'].update(max_cost_usd=None, max_wall_minutes=10)
         system['paths']['data'] = str(directory / 'data')
         configuration = write_json(directory / 'system.json', system)
         material = directory / 'request.txt'
@@ -1459,6 +1466,94 @@ class BillingBaselineIntegration(unittest.TestCase):
                 'elapsed_ms': first['elapsed_ms'] + summary['elapsed_ms']}
             write_json(case['directory'] / 'g2-rehearsal-result.json', metrics)
             print('G2_REHEARSAL_METRICS ' + json.dumps(metrics, sort_keys=True))
+
+    def test_06a_observe_only_delivers_unknown_cost_and_replays_without_sending(self):
+        endpoint = PricingFlowEndpoint(initialize_seed=True, omit_cache_details=True)
+        endpoint.plan['nodes'] = endpoint.plan['nodes'][:1]
+        with tls.Peer(self.contexts['server'], endpoint) as peer:
+            case = self.run_inputs('run-observe-complete', peer, observe_only=True)
+            case['system']['context'].update(request_format='structured-v3', model_projection='lean-v1',
+                tool_policy='fixed-role-v1', worker_history={
+                    'mode': 'append-fold-v1', 'read_max_bytes': 24576, 'read_token_budget': 196608})
+            write_json(case['configuration'], case['system'])
+            rejected = self.invoke_run(case, '--yes', '--budget-usd', '1')
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertFalse(case['data'].exists())
+            self.assertEqual(peer.accepted, 0)
+            result = self.invoke_run(case, '--yes')
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            summary = json.loads(result.stdout)
+            self.assertEqual(summary['status'], 'DELIVERED')
+            self.assertTrue(summary['accounting']['ready'])
+            self.assertIsNone(summary['accounting']['total_cost_micro_usd'])
+            self.assertIsNone(summary['budget']['money_limit_micro_usd'])
+            self.assertIsNone(summary['budget']['cost_breakdown']['total_cost_micro_usd'])
+            self.assertIsNone(summary['budget']['cost_breakdown']['estimated_micro_usd'])
+            self.assertGreater(len(peer.requests), 2)
+            database = next(case['data'].glob('requests/*/control.sqlite'))
+            attempts = rows(database, 'SELECT attempt_id,cost_micro_usd,unknown_cost,cache_read_tokens,'
+                            'cache_write_tokens,reserved_cost,usage,response,settlement_sha256 FROM call_attempts')
+            self.assertEqual(len(attempts), len(peer.requests))
+            self.assertTrue(all(row['unknown_cost'] == 1 and row['reserved_cost'] == 0 and all(
+                row[key] is None for key in ('cost_micro_usd', 'cache_read_tokens', 'cache_write_tokens')) for row in attempts))
+            self.assertEqual(summary['accounting']['unknown_cost_attempts'], len(attempts))
+            projections = rows(database, 'SELECT cost_micro_usd,disputed,over_reserved FROM live_usage_projection')
+            self.assertTrue(all(row['cost_micro_usd'] is None and not row['disputed'] and not row['over_reserved']
+                                for row in projections))
+            self.assertEqual(rows(database, 'SELECT count(*) n FROM usage_reconciliations')[0]['n'], 0)
+            self.assertEqual([row['status'] for row in rows(database, 'SELECT status FROM tasks')], ['ACCEPTED'])
+            self.assertEqual((Path(summary['output_path']) / 'alpha/result.txt').read_bytes(), b'alpha\nbeta\n')
+            self.assertTrue(any(item.get('type') == 'function_call_output' for request in peer.requests
+                                for item in json.loads(request['body'])['input']))
+            before = snapshot(database)
+            repeat = self.invoke_run(case, '--yes')
+            self.assertEqual(repeat.returncode, 0, repeat.stderr)
+            self.assertEqual(json.loads(repeat.stdout)['stop_reason'], 'completed_replay')
+            self.assertEqual(snapshot(database), before)
+            self.assertEqual(len(peer.requests), len(attempts))
+
+    def test_06b_observe_only_disconnect_and_cancel_remain_blocked_on_resume(self):
+        for cancel in (False, True):
+            with self.subTest(cancel=cancel):
+                requested, release = threading.Event(), threading.Event()
+                def interrupted(peer, connection):
+                    peer.request(connection)
+                    body = tls.response_body(tool=True)
+                    connection.sendall(tls.headers(len(body)) + body[:40])
+                    requested.set()
+                    if cancel:
+                        release.wait(15)
+                with tls.Peer(self.contexts['server'], interrupted) as peer:
+                    case = self.run_inputs('run-observe-cancel' if cancel else 'run-observe-disconnect',
+                                           peer, observe_only=True)
+                    process = subprocess.Popen(self.run_arguments(case, '--yes'), cwd=case['directory'],
+                        env=self.environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE, text=True)
+                    self.addCleanup(lambda process=process: process.poll() is None and process.kill())
+                    self.addCleanup(release.set)
+                    self.assertTrue(requested.wait(20))
+                    if cancel:
+                        process.send_signal(signal.SIGINT)
+                    stdout, stderr = process.communicate(timeout=30)
+                    release.set()
+                    self.assertEqual(process.returncode, 130 if cancel else 0, stderr + stdout)
+                    first = json.loads(stdout)
+                    if cancel:
+                        self.assertEqual(first['stop_reason'], 'cancelled')
+                    self.assertFalse(first['accounting']['ready'])
+                    self.assertEqual(len(peer.requests), 1)
+                    database = next(case['data'].glob('requests/*/control.sqlite'))
+                    original = rows(database, 'SELECT attempt_id,input_tokens,output_tokens,cost_micro_usd,'
+                                    'usage,response,settlement_sha256 FROM call_attempts')
+                    self.assertTrue(all(original[0][key] is None for key in
+                                        ('input_tokens', 'output_tokens', 'cost_micro_usd')))
+                    resumed = self.invoke_run(case, '--yes')
+                    self.assertEqual(resumed.returncode, 0, resumed.stderr)
+                    self.assertEqual(json.loads(resumed.stdout)['stop_reason'], 'needs_accounting')
+                    self.assertEqual(rows(database, 'SELECT attempt_id,input_tokens,output_tokens,cost_micro_usd,'
+                                          'usage,response,settlement_sha256 FROM call_attempts'), original)
+                    self.assertEqual(rows(database, 'SELECT count(*) n FROM live_send_claims')[0]['n'], 1)
+                    self.assertEqual(len(peer.requests), 1)
 
     def test_07_run_refusal_config_budget_and_unsafe_paths_before_confirmation(self):
         endpoint = PricingFlowEndpoint(initialize_seed=True)
@@ -2479,6 +2574,8 @@ class BillingBaselineIntegration(unittest.TestCase):
 # G1-L added these complete methods after the original billing suite existed.
 RUN_TEST_METHODS = frozenset((
     'test_06_run_once_delivers_three_tasks_and_two_requests_share_data',
+    'test_06a_observe_only_delivers_unknown_cost_and_replays_without_sending',
+    'test_06b_observe_only_disconnect_and_cancel_remain_blocked_on_resume',
     'test_07_run_refusal_config_budget_and_unsafe_paths_before_confirmation',
     'test_08_run_ctrl_c_after_settlement_resumes_original_claims_and_effects',
     'test_09_run_unknown_send_stops_and_changed_configuration_cannot_resume',
