@@ -10,7 +10,7 @@
 
 G2-P 的接口、错误反馈、计费、重试与文件模板已合入，当前为 0.12.0 / Store 410，八个场景和三个核心配置的最终检查见[阶段报告](reports/g2p-rehearsal.md)。早期异步、Store 411 和 DAG 分支不属于当前 main，也不是已交付的默认能力。
 
-D-2/D-3 已授权首个 OpenAI Responses / gpt-5-mini 闭环，每请求上限 1 美元、G2 合计 10 美元，合格重试最多两次；密钥和 owner 的“密钥已就绪”尚未到位，真实调用仍为零。[D-26](reviews/claude-2026-11-14/02-decisions.md#35-d-26-收敛之后密钥到来之前)已取代旧的待密钥推进顺序：空档仅可做 G6-B 余下的构建提速、测试耗时治理和文档精简。密钥和明确就绪通知到位、手头 PR 合并后，按 [G2 计划](reviews/claude-2026-11-13/04-plan.md#3-g2-的步骤)及 [11-14 补充](reviews/claude-2026-11-14/04-next.md#2-g2步骤不变补三处)执行；其他 Chat 端点按 D-27。
+owner 已授权指定 Responses 中转、`gpt-6.1-sol` / `max` 与测试凭据；新请求冻结 `observe-only-v1`，取消金额门禁，保留有限调用数、token、时长与独立宿主网络授权，旧冻结请求保留原门禁。真实发送累计 41 次，实跑自动重试为 0；文件发布 UNKNOWN 已触发暂停，原请求不重跑、export 不重试，费用仍未知，完整 G2 验收未通过，见[首次真实运行记录](reports/g2-first-real-run.md)。后续仍按 [G2 计划](reviews/claude-2026-11-13/04-plan.md#3-g2-的步骤)及 [11-14 补充](reviews/claude-2026-11-14/04-next.md#2-g2步骤不变补三处)推进；已授权的本地修复可继续，[D-26](reviews/claude-2026-11-14/02-decisions.md#35-d-26-收敛之后密钥到来之前)允许的空档工作仍限 G6-B 构建提速、测试耗时治理和文档精简，不据此恢复真实调用或换端点兜底。
 
 新六种线上格式在 G2 出口冻结，旧 framed-v1 / structured-v2 继续保持。PR 三核心绿且符合行数/数据库/调用边界即可按 D-1a 合并；main 完整矩阵失败须在 24 小时内修复或回退，连续两次同因失败须按 D-21 先修、暂停合并功能 PR。旧 acceptance 超时项已由 [#95](https://github.com/wmqfl861/wls861/pull/95)按 D-20 分片关闭，用例、断言和时限保持，原失败保留；当前 main 完整矩阵已通过，见 [STATUS](STATUS.md)。
 

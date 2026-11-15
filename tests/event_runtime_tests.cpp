@@ -502,6 +502,20 @@ void public_diagnostics_redact_credentials_and_bound_utf8() {
     CHECK(safe.find("hidden-value") == std::string::npos);
     CHECK(original.find(secret) != std::string::npos);
     CHECK(runtime_diagnostic("aUtHoRiZaTiOn: credential") == "Authorization: [redacted]");
+    for (const std::string sentence : {"host authorization is required before a request", "authorization required: configure the host grant", "preauthorization failed without a header"})
+        CHECK(runtime_diagnostic(sentence) == sentence);
+    for (const std::string field : {"Proxy-Authorization", "X-Authorization", "'Authorization'", "\"Authorization\"", R"(\"Proxy-Authorization\")", R"(\'X-Authorization\')", "preauthorization"})
+        CHECK(runtime_diagnostic(field + " \t: opaque-value") == field + "  : [redacted]");
+    CHECK(runtime_diagnostic("Proxy-Authorization: opaque\r\n continued-one\r\n\tcontinued-two\r\nreason: refused\r\nX-Authorization: another\r\nnext reason") ==
+        "Proxy-Authorization: [redacted]  reason: refused  X-Authorization: [redacted]  next reason");
+    CHECK(runtime_diagnostic("Authorization: one\n folded\nreason\npreauthorization: two\nlast") == "Authorization: [redacted] reason preauthorization: [redacted] last");
+    CHECK(runtime_diagnostic("TOKENTOKEN/TOKEN", "TOKEN") == "[redacted][redacted]/[redacted]");
+    CHECK(runtime_diagnostic("redacted/redacted", "redacted") == "[redacted]/[redacted]");
+    std::string aliased = std::string(80, 'p') + "/TOKEN/TOKEN";
+    const std::string_view secret_view(aliased.data() + 81, 5);
+    CHECK(runtime_diagnostic(std::move(aliased), secret_view) == std::string(80, 'p') + "/[redacted]/[redacted]");
+    CHECK(runtime_diagnostic("Authorization: unknown-token\nX-Authorization: other-token\nreason: closed", "Authorization") ==
+        "[redacted]: [redacted] X-[redacted]: [redacted] reason: closed");
     const auto bounded = runtime_diagnostic(std::string(599, 'x') + "中文" + secret, secret);
     CHECK(bounded.size() <= 603);
     CHECK(parse_json_strict(canonical_json(Json(bounded))) == Json(bounded));
