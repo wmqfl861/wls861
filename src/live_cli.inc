@@ -30,13 +30,21 @@ LiveCliAuthorization live_cli_authorization(const Json& value) {
         "config_snapshot_sha256", "execution_kind", "network_enabled", "provider_enabled", "models",
         "max_calls", "max_worker_calls_per_task", "max_batch_duration_ms", "reserved_cost_micro_usd"};
     if (version == 2 || (version == 3 && value.as_object().contains("billing_policy_sha256"))) fields.insert("billing_policy_sha256");
-    if (version == 3) fields.insert("max_total_calls");
+    if (version == 3) {
+        fields.insert("max_total_calls");
+        if (value.as_object().contains("cost_policy")) fields.insert("cost_policy");
+    }
     if (value.as_object().size() != fields.size())
         throw Error(ErrorCode::InvalidInput, "live authorization requires the complete versioned host envelope");
     for (const auto& item : value.as_object())
         if (!fields.contains(std::string(item.key())))
             throw Error(ErrorCode::InvalidInput, "live authorization contains an unsupported field");
     LiveCliAuthorization result;
+    if (fields.contains("cost_policy")) {
+        if (text(value.at("cost_policy")) != "observe-only-v1" || fields.contains("billing_policy_sha256"))
+            throw Error(ErrorCode::InvalidInput, "invalid observe-only policy or external billing policy combination");
+        result.workflow.authorization.observe_only_cost_enabled = true;
+    }
     if (fields.contains("billing_policy_sha256")) {
         result.billing_policy_sha256 = text(value.at("billing_policy_sha256"));
         if (!live_cli_digest(result.billing_policy_sha256))
@@ -76,7 +84,8 @@ LiveCliAuthorization live_cli_authorization(const Json& value) {
             result.workflow.limits.max_calls < 1 || result.workflow.limits.max_calls > 64 ||
             result.workflow.limits.max_worker_calls_per_task < 1 ||
             result.workflow.limits.max_worker_calls_per_task > 16 || duration < 1 || duration > 3600000 ||
-            result.workflow.reserved_cost_micro_usd <= 0)
+            (result.workflow.authorization.observe_only_cost_enabled
+                ? result.workflow.reserved_cost_micro_usd != 0 : result.workflow.reserved_cost_micro_usd <= 0))
         throw Error(ErrorCode::InvalidInput, "live authorization limits are outside the bounded execution envelope");
     result.workflow.max_batch_duration = std::chrono::milliseconds(duration);
     result.workflow.credentials = [](std::string_view reference) {
@@ -123,7 +132,7 @@ void validate_live_cli_authorization(Store& store, const std::string& request_id
     const auto reserved = integer(budget.at("reserved_cost"));
     if (cost_limit < 0 || spent < 0 || reserved < 0)
         throw Error(ErrorCode::Corrupt, "the original request budget contains invalid negative balances");
-    if (authorization.workflow.reserved_cost_micro_usd > cost_limit)
+    if (!frozen.observe_only_cost() && authorization.workflow.reserved_cost_micro_usd > cost_limit)
         throw Error(ErrorCode::Quota, "the authorized per-attempt reservation exceeds the original request cost limit");
     // Existing pending/unknown work is not a reason to bypass scoped takeover.
     // The live pump reports the accounting stop after recovery, and checks all
@@ -161,6 +170,7 @@ Json live_cli_status(Store& store, const std::string& request_id) {
         authorization["schema_version"] = 3;
         authorization["kind"] = "wls-live-workflow-authorization-v3";
         authorization["max_total_calls"] = frozen.max_total_calls();
+        if (frozen.observe_only_cost()) authorization["cost_policy"] = "observe-only-v1";
     }
     return result;
 }

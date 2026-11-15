@@ -171,7 +171,10 @@ void validate_live_workflow_config(const FrozenRequestConfig& config,
     require(options.limits.amendment_dispositions.is_object() &&
             options.limits.amendment_dispositions.as_object().empty(), ErrorCode::Unauthorized,
             "live workflow AMEND decisions must come from the captured model response");
-    require(options.reserved_cost_micro_usd > 0 && options.max_batch_duration.count() > 0 &&
+    require(config.observe_only_cost() == options.authorization.observe_only_cost_enabled, ErrorCode::Unauthorized,
+            "live cost policy requires matching explicit host authorization");
+    require((config.observe_only_cost() ? options.reserved_cost_micro_usd == 0 : options.reserved_cost_micro_usd > 0) &&
+            options.max_batch_duration.count() > 0 &&
             options.max_batch_duration <= std::chrono::hours(1), ErrorCode::InvalidInput,
             "live workflow needs explicit positive cost reservation and a bounded batch deadline");
     require(static_cast<bool>(options.credentials), ErrorCode::InvalidInput,
@@ -744,7 +747,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                     ErrorCode::Stale, "live workflow target is outside its original captured event claim");
             // A frozen price table sets the minimum effective cost reservation;
             // check the complete encoded body before resolving any credential.
-            if (settings->provider.pricing) {
+            if (settings->provider.pricing && !config.observe_only_cost()) {
                 const auto minimum = minimum_cost_reservation(*settings->provider.pricing,
                     settings->provider.billing_challenge.empty()
                         ? static_cast<std::int64_t>(encode_protocol_request(settings->provider, captured.request, settings->stream).body.size())
@@ -759,6 +762,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
             for (const auto& [dimension, reservation] : {
                     std::pair<std::string, std::int64_t>{"input", captured.request.reserved_input_tokens},
                     {"output", captured.request.reserved_output_tokens}, {"cost", captured.request.reserved_cost_micro_usd}}) {
+                if (dimension == "cost" && config.observe_only_cost()) continue;
                 const auto limit = number(budget, dimension + "_limit");
                 const auto spent = number(budget, "spent_" + dimension);
                 const auto reserved = number(budget, "reserved_" + dimension);

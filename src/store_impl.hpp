@@ -193,6 +193,7 @@ public:
     bool allocation_schema{false};
     bool live_schema{false};
     bool reconciliation_schema{false};
+    bool observe_only_cost(const std::string& id) const;
     bool has_unsettled_model(const std::string& id, const std::string& team_id = {}) const;
     void live_accounting_ready(const std::string& request_id, const std::string& excluding = {}) const;
     void initialize_usage_projection(const Row& original);

@@ -1297,6 +1297,7 @@ std::int64_t Store::Impl::observe_runtime_controls(const std::string& id) {
     };
     for (const auto* dimension : {"attempts", "input", "output", "cost", "wall"}) {
         const std::string name(dimension);
+        if (name == "cost" && config.observe_only_cost()) continue;
         const auto used = name == "attempts" ? number(budget, "attempts") : name == "wall"
             ? wall - remaining : number(budget, "spent_" + name);
         const auto limit = name == "attempts" ? number(budget, "max_attempts") : name == "wall"
@@ -1854,7 +1855,12 @@ Json Store::budget(const std::string& id) const {
     // Priced requests label their effective cost basis so the raw spent_cost
     // balance is never mistaken for provider-confirmed actual usage.
     if (const auto summary = impl_->pricing_budget_summary(id); !summary.is_null()) {
-        row["accounting_format"] = "wls-estimated-budget-v1";
+        if (summary.as_object().contains("cost_policy")) {
+            row["cost_policy"] = "observe-only-v1";
+            row["money_limit_micro_usd"] = nullptr;
+            row["total_cost_micro_usd"] = summary.at("total_cost_micro_usd");
+            row["unknown_cost_attempts"] = summary.at("unknown_cost_attempts");
+        } else row["accounting_format"] = "wls-estimated-budget-v1";
         row["cost_breakdown"] = summary;
     }
     return row;
@@ -2873,6 +2879,10 @@ Json Store::admit(const AdmissionInput& input) {
     }
     for (const auto& grant : input.tool_allowlist) require(template_tools.contains(grant), ErrorCode::Unauthorized, "request grants tool absent from frozen templates");
     const auto& configured_budget = frozen_config.json().at("system").at("budget_defaults").as_object();
+    if (frozen_config.observe_only_cost())
+        require(input.budget.cost_micro_usd == 0 && input.budget.input_tokens > 0 && input.budget.output_tokens > 0 &&
+                input.budget.max_attempts <= frozen_config.max_total_calls(), ErrorCode::InvalidInput,
+                "observe-only admission requires finite token/call limits and a disabled money slot");
     if (!configured_budget.at("max_input_tokens").is_null()) require(input.budget.input_tokens <= number(configured_budget, "max_input_tokens"), ErrorCode::Quota, "admission exceeds frozen input token limit");
     if (!configured_budget.at("max_output_tokens").is_null()) require(input.budget.output_tokens <= number(configured_budget, "max_output_tokens"), ErrorCode::Quota, "admission exceeds frozen output token limit");
     if (!configured_budget.at("max_cost_usd").is_null()) require(input.budget.cost_micro_usd <= cost_limit_micro(configured_budget.at("max_cost_usd")), ErrorCode::Quota, "admission exceeds frozen money limit");
@@ -3841,13 +3851,14 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         require(frozen_config.json().at("system").at("model_calls").at("real_calls_enabled").as_bool(),
                 ErrorCode::Unauthorized, "live calls are disabled in the original request snapshot");
         require(reservation.reserved_input_tokens > 0 && reservation.reserved_output_tokens > 0 &&
-                reservation.reserved_cost_micro_usd > 0, ErrorCode::InvalidInput,
+                (frozen_config.observe_only_cost() ? reservation.reserved_cost_micro_usd == 0 :
+                    reservation.reserved_cost_micro_usd > 0), ErrorCode::InvalidInput,
                 "live admission requires explicit positive token and cost reservations");
         live_settings = live_model_settings_from_json(profile, reservation.model_ref);
         live_encoded = encode_protocol_request(live_settings->provider, original_model_request, live_settings->stream);
         // A frozen price table defines the minimum effective reservation; the
         // host's explicit positive reservation must cover it before INSERT.
-        if (live_settings->provider.pricing) {
+        if (live_settings->provider.pricing && !frozen_config.observe_only_cost()) {
             const auto minimum = minimum_cost_reservation(*live_settings->provider.pricing,
                 live_settings->provider.billing_challenge.empty() ? static_cast<std::int64_t>(live_encoded->body.size())
                     : reservation.reserved_input_tokens, reservation.reserved_output_tokens);
@@ -3918,6 +3929,7 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
     require(number(budget_row, "attempts") < number(budget_row, "max_attempts"), ErrorCode::Quota, "model attempt count exhausted");
     for (const auto& dimensions : {std::pair<std::string, std::int64_t>{"input", reservation.reserved_input_tokens},
              {"output", reservation.reserved_output_tokens}, {"cost", reservation.reserved_cost_micro_usd}}) {
+        if (dimensions.first == "cost" && frozen_config.observe_only_cost()) continue;
         const auto committed = add(number(budget_row, "spent_" + dimensions.first), number(budget_row, "reserved_" + dimensions.first));
         require(add(committed, dimensions.second) <= number(budget_row, dimensions.first + "_limit"), ErrorCode::Quota, "model " + dimensions.first + " budget exhausted");
     }

@@ -524,7 +524,9 @@ CapabilityRegistry validate_system(const Json& system) {
     const auto& calls = required(system, "model_calls", "system");
     fields(calls, "system.model_calls", {{"real_calls_enabled", 'b'}, {"max_paid_retries", 'z'},
         {"charge_all_attempts", 'b'}, {"require_fresh_reservation_for_retry", 'b'}, {"unknown_cost_policy", 's'},
-        {"runtime_policy", 's'}, {"max_total_calls", 'i'}}, {"runtime_policy", "max_total_calls"});
+        {"runtime_policy", 's'}, {"max_total_calls", 'i'}, {"cost_policy", 's'}},
+        {"runtime_policy", "max_total_calls", "cost_policy"});
+    if (optional(calls, "cost_policy")) literal(calls, "cost_policy", "observe-only-v1", "system.model_calls");
     if (optional(calls, "runtime_policy")) literal(calls, "runtime_policy", "bounded-v1", "system.model_calls");
     if (const auto* total = optional(calls, "max_total_calls")) {
         if (!optional(calls, "runtime_policy")) invalid("system.model_calls", "max_total_calls requires bounded-v1");
@@ -593,6 +595,18 @@ CapabilityRegistry validate_system(const Json& system) {
     const auto& cost = required(budget, "max_cost_usd", "system.budget_defaults");
     if (!cost.is_null()) (void)number_value(cost, "system.budget_defaults.max_cost_usd", 0.000001);
     (void)number_value(required(budget, "warn_at_fraction", "system.budget_defaults"), "system.budget_defaults.warn_at_fraction", 0.01, 0.99);
+    if (optional(calls, "cost_policy")) {
+        if (!optional(calls, "runtime_policy") || !optional(calls, "max_total_calls") || !cost.is_null())
+            invalid("system.model_calls.cost_policy", "observe-only requires explicit bounded calls and no money limit");
+        for (const auto key : {"max_input_tokens", "max_output_tokens", "max_wall_minutes"})
+            (void)integer_value(required(budget, key, "system.budget_defaults"), child("system.budget_defaults", key), 1);
+        for (const auto& entry : required(system, "models", "system").as_object()) {
+            if (entry.value().at("adapter") == "fake") continue;
+            const auto settings = live_model_settings_from_json(entry.value(), entry.key());
+            if (!settings.provider.billing_challenge.empty())
+                unsupported("system.model_calls.cost_policy", "observe-only cannot bypass a signed billing challenge");
+        }
+    }
 
     const auto& storage = required(system, "storage", "system");
     fields(storage, "system.storage", {{"engine", 's'}, {"journal_mode", 's'}, {"synchronous", 's'},
@@ -1054,6 +1068,10 @@ std::int64_t FrozenRequestConfig::schema_retry_max() const {
 
 bool FrozenRequestConfig::bounded_runtime() const {
     return document_.at("system").at("model_calls").as_object().contains("runtime_policy");
+}
+
+bool FrozenRequestConfig::observe_only_cost() const {
+    return document_.at("system").at("model_calls").as_object().contains("cost_policy");
 }
 
 std::int64_t FrozenRequestConfig::max_total_calls() const {

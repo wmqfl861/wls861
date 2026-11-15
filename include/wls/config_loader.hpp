@@ -60,6 +60,7 @@ public:
     Json logical_agent_policy() const; // Null preserves the original role-isolated execution.
     std::int64_t schema_retry_max() const; // Frozen consecutive correction bound; 0 disables continuation.
     bool bounded_runtime() const;
+    bool observe_only_cost() const; // Explicit frozen opt-in; absent keeps the original money gates.
     std::int64_t max_total_calls() const;
     Json model_profile(Role role) const;
     ToolSet worker_tools(std::string_view template_id = "default") const;

@@ -33,16 +33,17 @@ Row projection_usage(const Row& row) {
     for (const auto field : usage_fields) values[field] = row.at(field);
     return values;
 }
-bool exceeds_reservation(const Row& original, const Row& usage) {
+bool exceeds_reservation(const Row& original, const Row& usage, bool observe_cost = false) {
     for (const auto& [dimension, field] : ledger_dimensions)
-        if (!usage.at(field).is_null() && number(usage, field) > number(original, "reserved_" + std::string(dimension)))
+        if (!(observe_cost && dimension == "cost") && !usage.at(field).is_null() &&
+                number(usage, field) > number(original, "reserved_" + std::string(dimension)))
             return true;
     return false;
 }
-Row initial_projection(const Row& original) {
+Row initial_projection(const Row& original, bool observe_cost = false) {
     Row projection{{"attempt_id", original.at("attempt_id")},
         {"settlement_sha256", original.at("settlement_sha256")}, {"state_version", 1},
-        {"disputed", 0}, {"over_reserved", exceeds_reservation(original, original) ? 1 : 0}};
+        {"disputed", 0}, {"over_reserved", exceeds_reservation(original, original, observe_cost) ? 1 : 0}};
     for (const auto field : usage_fields) projection[field] = original.at(field);
     const Row fingerprint{{"format", "wls-original-usage-projection-v1"}, {"projection", projection}};
     projection["chain_sha256"] = sha256_hex(canonical_json(fingerprint));
@@ -75,7 +76,7 @@ struct ReconciledProjection {
     Array conflicts;
 };
 ReconciledProjection reconcile_projection(const Row& original, const Row& before, const Row& proposed,
-                                         const std::string& fingerprint) {
+                                         const std::string& fingerprint, bool observe_cost = false) {
     ReconciledProjection value{before, {}, {}};
     for (const auto field : usage_fields) {
         if (proposed.at(field).is_null()) continue;
@@ -89,7 +90,7 @@ ReconciledProjection reconcile_projection(const Row& original, const Row& before
             {"spent", filled ? number(value.after, field) : 0}, {"unknown", filled ? -reservation : 0}};
     }
     value.after["disputed"] = number(before, "disputed") != 0 || !value.conflicts.empty() ? 1 : 0;
-    value.after["over_reserved"] = number(before, "over_reserved") != 0 || exceeds_reservation(original, value.after) ? 1 : 0;
+    value.after["over_reserved"] = number(before, "over_reserved") != 0 || exceeds_reservation(original, value.after, observe_cost) ? 1 : 0;
     value.after["state_version"] = next(number(before, "state_version"));
     value.after.erase("chain_sha256");
     value.after["chain_sha256"] = sha256_hex(canonical_json(Row{{"format", "wls-usage-reconciliation-chain-v1"},
@@ -234,6 +235,7 @@ void effective_token_delta(const Row& original, const AttemptPricing& pricing, c
 }
 // Frozen request pricing: role name -> price table and canonical provider JSON.
 struct FrozenPricing {
+    bool observe_cost{false};
     std::map<std::string, AttemptPricing> by_role;
     std::map<std::string, std::string> providers;
 };
@@ -241,6 +243,7 @@ FrozenPricing frozen_request_pricing(const Row& request) {
     FrozenPricing result;
     const auto frozen = FrozenRequestConfig::restore(str(request, "config_snapshot"),
                                                      str(request, "config_snapshot_sha256"));
+    result.observe_cost = frozen.observe_only_cost();
     for (const auto role : {Role::Dispatcher, Role::TeamLead, Role::Worker}) {
         const auto& entry = frozen.model_profile(role);
         const auto adapter = entry.at("adapter").as_string();
@@ -253,7 +256,7 @@ FrozenPricing frozen_request_pricing(const Row& request) {
         const auto name = std::string(role_name(role));
         // Chat alias sets use the same normalization as the admitted settings.
         result.providers[name] = canonical_json(adapter == "openai-chat" ? to_json(parsed) : *provider);
-        if (parsed.pricing) result.by_role[name] = AttemptPricing{*parsed.pricing, parsed.billing_challenge.empty()};
+        if (parsed.pricing && !result.observe_cost) result.by_role[name] = AttemptPricing{*parsed.pricing, parsed.billing_challenge.empty()};
     }
     return result;
 }
@@ -273,6 +276,13 @@ std::optional<AttemptPricing> verified_pricing(const Row& original, const Row& l
     if (!provider.pricing) return std::nullopt;
     return AttemptPricing{*provider.pricing, provider.billing_challenge.empty()};
 }
+bool observed_accounting_ready(const Row& original, const std::optional<Row>& projection) {
+    return !original.at("settlement_sha256").is_null() && str(original, "status") != "PENDING" &&
+        str(original, "status") != "UNKNOWN" && projection && number(*projection, "disputed") == 0 &&
+        number(*projection, "over_reserved") == 0 && !projection->at("input_tokens").is_null() &&
+        !projection->at("output_tokens").is_null();
+}
+
 std::string_view budget_block_reason(const EffectiveAccounting& effective, const Row& original,
                                      const std::optional<Row>& projection) {
     if (original.at("settlement_sha256").is_null()) return "unsettled";
@@ -283,6 +293,12 @@ std::string_view budget_block_reason(const EffectiveAccounting& effective, const
     return "unknown_cost";
 }
 } // namespace
+
+bool Store::Impl::observe_only_cost(const std::string& id) const {
+    const auto request = request_row(id);
+    return FrozenRequestConfig::restore(str(request, "config_snapshot"),
+        str(request, "config_snapshot_sha256")).observe_only_cost();
+}
 
 bool Store::Impl::reservation_accounting(const Row& original) const {
     if (original.at("settlement_sha256").is_null()) return true;
@@ -310,12 +326,16 @@ std::optional<bool> Store::Impl::append_priced_accounting_ready(const Row& delta
     const auto id = str(delta, "attempt_id");
     const auto live = optional("SELECT settings,settings_sha256,profile_sha256 FROM live_attempt_execution WHERE attempt_id=?", {id});
     if (!live) return std::nullopt;
-    auto original = one("SELECT attempt_id,request_id,role,config_snapshot_sha256,settlement_sha256,input_tokens,output_tokens,"
+    auto original = one("SELECT attempt_id,request_id,role,status,config_snapshot_sha256,settlement_sha256,input_tokens,output_tokens,"
         "cache_read_tokens,cache_write_tokens,reserved_cost FROM call_attempts WHERE attempt_id=?", {id});
     const auto request = request_row(str(original, "request_id"));
     require(str(request, "config_snapshot_sha256") == str(original, "config_snapshot_sha256"),
         ErrorCode::Corrupt, "append attempt configuration differs from its original request");
     const auto frozen = frozen_request_pricing(request);
+    if (frozen.observe_cost) {
+        (void)verified_pricing(original, *live, frozen.providers);
+        return observed_accounting_ready(original, optional("SELECT * FROM live_usage_projection WHERE attempt_id=?", {id}));
+    }
     if (!frozen.by_role.contains(str(original, "role"))) return std::nullopt;
     auto pricing = verified_pricing(original, *live, frozen.providers);
     pricing->reserve_fallback = pricing->reserve_fallback && reservation_accounting(original);
@@ -333,11 +353,12 @@ Json Store::Impl::pricing_accounting_scan(const std::string& id, const std::stri
                                           const std::string& team_id) const {
     ManagementReadSnapshot snapshot(db);
     const auto frozen = frozen_request_pricing(request_row(id));
-    if (frozen.by_role.empty()) return nullptr;
+    if (frozen.by_role.empty() && !frozen.observe_cost) return nullptr;
     const auto filter = team_id.empty() ? std::string{} : " AND team_id=?";
     const Array arguments = team_id.empty() ? Array{id} : Array{id, team_id};
     Row totals{{"blocked", 0}, {"over_reserved", 0}, {"estimated", 0}, {"reported", 0}, {"reservation", 0}, {"unknown_reserved", 0}};
     Array blocked, hashes, warnings;
+    std::int64_t unknown_cost_attempts = 0;
     for (const auto& original : all("SELECT * FROM call_attempts WHERE request_id=?" + filter +
             " ORDER BY rowid", arguments)) {
         const auto attempt_id = str(original, "attempt_id");
@@ -351,7 +372,18 @@ Json Store::Impl::pricing_accounting_scan(const std::string& id, const std::stri
             {"missing_projection", projection.has_value() ? 0 : 1},
             {"disputed", projection ? projection->at("disputed") : Json(0)}};
         bool incomplete, over;
-        if (live && priced != frozen.by_role.end()) {
+        if (live && frozen.observe_cost) {
+            (void)verified_pricing(original, *live, frozen.providers);
+            incomplete = !observed_accounting_ready(original, projection);
+            over = projection && number(*projection, "over_reserved") != 0;
+            row["over_reserved"] = over ? 1 : 0;
+            for (const auto& [field, flag] : {std::pair{"input_tokens", "unknown_input"},
+                    {"output_tokens", "unknown_output"}, {"cache_read_tokens", "unknown_cache_read"},
+                    {"cache_write_tokens", "unknown_cache_write"}, {"cost_micro_usd", "unknown_cost"}})
+                row[flag] = !projection || projection->at(field).is_null() ? 1 : 0;
+            if (number(row, "unknown_cost")) ++unknown_cost_attempts;
+            else totals["reported"] = add(number(totals, "reported"), number(*projection, "cost_micro_usd"));
+        } else if (live && priced != frozen.by_role.end()) {
             auto pricing = verified_pricing(original, *live, frozen.providers);
             pricing->reserve_fallback = pricing->reserve_fallback && reservation_accounting(original);
             const auto effective = effective_attempt(original, projection, *pricing);
@@ -411,15 +443,34 @@ Json Store::Impl::pricing_accounting_scan(const std::string& id, const std::stri
         }
         if (over) totals["over_reserved"] = next(number(totals, "over_reserved"));
     }
-    return Row{{"blocked_attempts", std::move(blocked)},
+    Row result{{"blocked_attempts", std::move(blocked)},
         {"blocked_count", totals.at("blocked")}, {"truncated", number(totals, "blocked") > 64},
         {"over_reserved_count", totals.at("over_reserved")},
         {"estimated_micro_usd", totals.at("estimated")}, {"reported_micro_usd", totals.at("reported")},
         {"reservation_charged_micro_usd", totals.at("reservation")}, {"pricing_warnings", std::move(warnings)},
         {"unknown_reserved_micro_usd", totals.at("unknown_reserved")}, {"pricing_sha256", std::move(hashes)}};
+    if (frozen.observe_cost) {
+        result["cost_policy"] = "observe-only-v1";
+        result["estimated_micro_usd"] = nullptr;
+        result["unknown_cost_attempts"] = unknown_cost_attempts;
+        result["total_cost_micro_usd"] = unknown_cost_attempts ? Json(nullptr) : totals.at("reported");
+        result["known_cost_micro_usd"] = totals.at("reported");
+    }
+    return result;
 }
 
 Json Store::Impl::attempt_budget_view(const Row& original) const {
+    if (observe_only_cost(str(original, "request_id"))) {
+        const auto projection = optional("SELECT * FROM live_usage_projection WHERE attempt_id=?", {str(original, "attempt_id")});
+        const auto cost = projection ? projection->at("cost_micro_usd") : Json(nullptr);
+        Array unknown;
+        for (const auto* field : {"input_tokens", "output_tokens"})
+            if (!projection || projection->at(field).is_null()) unknown.emplace_back(field);
+        return Row{{"cost_policy", "observe-only-v1"}, {"budget_accounting_complete", observed_accounting_ready(original, projection)},
+            {"budget_unknown_dimensions", unknown}, {"not_applicable_dimensions", Array{}}, {"policy_mismatch", false},
+            {"effective_cost_basis", cost.is_null() ? "unknown" : "reported"}, {"effective_cost_micro_usd", cost},
+            {"estimated_cost", nullptr}};
+    }
     const auto pricing = attempt_pricing(original);
     if (!pricing) return nullptr;
     const auto projection = optional("SELECT * FROM live_usage_projection WHERE attempt_id=?",
@@ -441,11 +492,15 @@ Json Store::Impl::pricing_budget_summary(const std::string& id) const {
     if (!reconciliation_schema) return nullptr;
     const auto scan = pricing_accounting_scan(id, {});
     if (scan.is_null()) return nullptr;
-    return Row{{"estimated_micro_usd", scan.at("estimated_micro_usd")},
+    Row result{{"estimated_micro_usd", scan.at("estimated_micro_usd")},
         {"reported_micro_usd", scan.at("reported_micro_usd")},
         {"reservation_charged_micro_usd", scan.at("reservation_charged_micro_usd")},
         {"unknown_reserved_micro_usd", scan.at("unknown_reserved_micro_usd")},
         {"pricing_sha256", scan.at("pricing_sha256")}};
+    if (scan.as_object().contains("cost_policy"))
+        for (const auto* key : {"cost_policy", "unknown_cost_attempts", "total_cost_micro_usd", "known_cost_micro_usd"})
+            result[key] = scan.at(key);
+    return result;
 }
 
 bool Store::Impl::has_unsettled_model(const std::string& id, const std::string& team_id) const {
@@ -482,6 +537,7 @@ void Store::Impl::live_accounting_ready(const std::string& id, const std::string
     const auto budget = one("SELECT * FROM request_budgets WHERE request_id=?", {id});
     for (const auto& [dimension, unused] : ledger_dimensions) {
         (void)unused;
+        if (dimension == "cost" && observe_only_cost(id)) continue;
         require(add(number(budget, "spent_" + std::string(dimension)), number(budget, "reserved_" + std::string(dimension))) <=
                 number(budget, std::string(dimension) + "_limit"), ErrorCode::Quota, "original request budget is overspent");
     }
@@ -490,7 +546,7 @@ void Store::Impl::live_accounting_ready(const std::string& id, const std::string
 void Store::Impl::initialize_usage_projection(const Row& original) {
     require(reconciliation_schema && !original.at("settlement_sha256").is_null(),
             ErrorCode::Corrupt, "live settlement requires an original usage projection");
-    const auto projection = initial_projection(original);
+    const auto projection = initial_projection(original, observe_only_cost(str(original, "request_id")));
     execute("INSERT INTO live_usage_projection VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         {projection.at("attempt_id"), projection.at("settlement_sha256"), projection.at("input_tokens"),
          projection.at("output_tokens"), projection.at("cache_read_tokens"), projection.at("cache_write_tokens"),
@@ -575,7 +631,7 @@ Json Store::claim_live_send(const StoreActor& actor, const std::string& attempt_
         require(!terminal_task(str(task, "status")), ErrorCode::NotReady, "live send task is no longer active");
     }
     impl_->live_accounting_ready(actor.request_id, attempt_id);
-    if (settings.provider.pricing) {
+    if (settings.provider.pricing && !frozen.observe_only_cost()) {
         const auto minimum = minimum_cost_reservation(*settings.provider.pricing,
             settings.provider.billing_challenge.empty()
                 ? static_cast<std::int64_t>(required_encoding.body.size())
@@ -802,7 +858,7 @@ Json Store::reconcile_usage(const StoreActor& root, const VerifiedUsageEvidence&
     const auto before = impl_->one("SELECT * FROM live_usage_projection WHERE attempt_id=?", {statement.attempt_id});
     require(number(before, "state_version") == reconciliation.expected_projection_version,
             ErrorCode::Conflict, "usage projection compare-and-swap changed");
-    auto updated = reconcile_projection(original, before, proposed, fingerprint);
+    auto updated = reconcile_projection(original, before, proposed, fingerprint, impl_->observe_only_cost(root.request_id));
     // A priced request already booked the deterministic estimate at settlement,
     // so a later confirmed actual cost only adjusts the effective difference.
     const auto pricing = impl_->attempt_pricing(original);
@@ -905,11 +961,12 @@ Json Store::live_accounting_status(const std::string& request_id) const {
         bool within_limits = true;
         for (const auto& [dimension, unused] : ledger_dimensions) {
             (void)unused;
+            if (dimension == "cost" && scan.as_object().contains("cost_policy")) continue;
             if (add(number(budget, "spent_" + std::string(dimension)),
                     number(budget, "reserved_" + std::string(dimension))) >
                     number(budget, std::string(dimension) + "_limit")) within_limits = false;
         }
-        return Row{{"request_id", request_id}, {"ready", number(scan.as_object(), "blocked_count") == 0 &&
+        Row result{{"request_id", request_id}, {"ready", number(scan.as_object(), "blocked_count") == 0 &&
                 number(scan.as_object(), "over_reserved_count") == 0 && within_limits},
             {"blocked_count", scan.at("blocked_count")}, {"blocked_attempts", scan.at("blocked_attempts")},
             {"truncated", scan.at("truncated")}, {"budget_within_limits", within_limits},
@@ -920,6 +977,10 @@ Json Store::live_accounting_status(const std::string& request_id) const {
             {"pricing_warnings", scan.at("pricing_warnings")},
             {"unknown_reserved_cost_micro_usd", scan.at("unknown_reserved_micro_usd")},
             {"pricing_sha256", scan.at("pricing_sha256")}, {"reservation_authority", false}};
+        if (scan.as_object().contains("cost_policy"))
+            for (const auto* key : {"cost_policy", "unknown_cost_attempts", "total_cost_micro_usd", "known_cost_micro_usd"})
+                result[key] = scan.at(key);
+        return result;
     }
     const std::string predicate = " FROM call_attempts c JOIN live_attempt_execution l USING(attempt_id) "
         "LEFT JOIN live_usage_projection p USING(attempt_id) WHERE c.request_id=? AND "
@@ -985,6 +1046,7 @@ Json Store::verify_usage_ledger(const std::string& request_id) const {
         // Frozen prices are re-verified from the original settings bytes, the
         // encoded profile identity and the request's frozen role provider.
         std::optional<AttemptPricing> pricing;
+        if (live && frozen_pricing.observe_cost) (void)verified_pricing(original, *live_row, frozen_pricing.providers);
         if (live && frozen_pricing.by_role.contains(str(original, "role")))
             pricing = verified_pricing(original, *live_row, frozen_pricing.providers);
         if (pricing) pricing->reserve_fallback = pricing->reserve_fallback && impl_->reservation_accounting(original);
@@ -992,7 +1054,7 @@ Json Store::verify_usage_ledger(const std::string& request_id) const {
         auto values = projection_usage(original);
         std::optional<Row> projection;
         if (live && settled) {
-            auto expected = initial_projection(original);
+            auto expected = initial_projection(original, frozen_pricing.observe_cost);
             for (const auto& record : impl_->all("SELECT * FROM usage_reconciliations WHERE attempt_id=? ORDER BY expected_projection_version", {attempt_id})) {
                 const auto result = parse_json_strict(str(record, "result"));
                 const auto& command = result.at("command");
@@ -1022,7 +1084,7 @@ Json Store::verify_usage_ledger(const std::string& request_id) const {
                         require(!proposed.at(field).is_null() && number(proposed, field) == 0, ErrorCode::Corrupt,
                                 "replayed no-dispatch evidence is not complete zero usage");
                 }
-                auto reconstructed = reconcile_projection(original, expected, proposed, str(record, "record_sha256"));
+                auto reconstructed = reconcile_projection(original, expected, proposed, str(record, "record_sha256"), frozen_pricing.observe_cost);
                 Row adjusted;
                 if (pricing && effective_cost_delta(original, *pricing, expected, reconstructed.after, &adjusted))
                     reconstructed.delta["cost"] = adjusted;

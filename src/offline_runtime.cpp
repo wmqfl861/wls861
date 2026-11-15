@@ -925,7 +925,7 @@ CapturedModelCall OfflineRuntime::capture_call(
     }
     if (live_profile) {
         const auto settings = live_model_settings_from_json(profile, request.model.model);
-        if (settings.provider.pricing && settings.provider.billing_challenge.empty()) {
+        if (settings.provider.pricing && settings.provider.billing_challenge.empty() && !config.observe_only_cost()) {
             const auto bytes = encode_protocol_request(settings.provider, request, settings.stream).body.size();
             const auto bound = minimum_cost_reservation(*settings.provider.pricing,
                 static_cast<std::int64_t>(bytes), request.reserved_output_tokens);

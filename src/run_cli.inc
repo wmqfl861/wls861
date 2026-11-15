@@ -422,10 +422,13 @@ int run_request(Options& options, const RuntimeResources& resources) {
     input.budget.max_attempts = frozen.max_total_calls();
     input.budget.input_tokens = defaults.at("max_input_tokens").is_null() ? 1000000 : integer(defaults.at("max_input_tokens"));
     input.budget.output_tokens = defaults.at("max_output_tokens").is_null() ? 100000 : integer(defaults.at("max_output_tokens"));
+    const bool observe_cost = frozen.observe_only_cost();
     const auto dollars = options.take("--budget-usd");
-    if (dollars.empty() && defaults.at("max_cost_usd").is_null())
+    if (observe_cost && !dollars.empty())
+        throw Error(ErrorCode::InvalidInput, "observe-only cost policy cannot carry a money limit");
+    if (!observe_cost && dollars.empty() && defaults.at("max_cost_usd").is_null())
         throw Error(ErrorCode::InvalidInput, "run requires a configured cost cap or --budget-usd");
-    input.budget.cost_micro_usd = cost_limit_micro(dollars.empty() ? defaults.at("max_cost_usd") : parse_json_strict(dollars, 128));
+    input.budget.cost_micro_usd = observe_cost ? 0 : cost_limit_micro(dollars.empty() ? defaults.at("max_cost_usd") : parse_json_strict(dollars, 128));
     if (!defaults.at("max_cost_usd").is_null() && input.budget.cost_micro_usd > cost_limit_micro(defaults.at("max_cost_usd")))
         throw Error(ErrorCode::Quota, "run cost cap exceeds frozen configuration");
     const auto data = run_absolute(options.take("--data", text(frozen.json().at("system").at("paths").at("data"))), true);
@@ -438,12 +441,14 @@ int run_request(Options& options, const RuntimeResources& resources) {
         const auto settings = live_model_settings_from_json(profile, model);
         if (!kind.empty() && kind != settings.execution_kind) throw Error(ErrorCode::Unsupported, "run cannot mix execution kinds");
         kind = settings.execution_kind; models[model] = sha256_hex(canonical_json(profile));
-        if (!settings.provider.pricing || !settings.provider.billing_challenge.empty())
+        if ((!observe_cost && !settings.provider.pricing) || !settings.provider.billing_challenge.empty())
             throw Error(ErrorCode::Unsupported, "run requires frozen token pricing without an external billing challenge");
         // Exact input bytes are captured after admission and checked before credentials/send.
-        const auto bound = minimum_cost_reservation(*settings.provider.pricing, 0, settings.provider.max_output_tokens);
-        if (!bound.available) throw Error(ErrorCode::Quota, "frozen pricing bound exceeds capacity");
-        reservation = std::max(reservation, bound.cost_micro_usd);
+        if (!observe_cost) {
+            const auto bound = minimum_cost_reservation(*settings.provider.pricing, 0, settings.provider.max_output_tokens);
+            if (!bound.available) throw Error(ErrorCode::Quota, "frozen pricing bound exceeds capacity");
+            reservation = std::max(reservation, bound.cost_micro_usd);
+        }
         duration = std::max(duration, settings.provider.limits.max_timeout_ms);
         auto host = settings.provider.base_url.substr(8);
         if (const auto slash = host.find('/'); slash != std::string::npos) host.resize(slash);
@@ -451,7 +456,7 @@ int run_request(Options& options, const RuntimeResources& resources) {
         if (end != std::string::npos) host.resize(end);
         selected.push_back(Object{{"role", role_name(role)}, {"model_ref", model}, {"model", settings.provider.model}, {"endpoint_host", host}});
     }
-    reservation = std::max<std::int64_t>(1, reservation);
+    if (!observe_cost) reservation = std::max<std::int64_t>(1, reservation);
     if (reservation > input.budget.cost_micro_usd || input.budget.input_tokens <= 0 || input.budget.output_tokens <= 0)
         throw Error(ErrorCode::Quota, "run budget cannot cover one conservative priced attempt");
     Json authorization = Object{{"schema_version", 3}, {"kind", "wls-live-workflow-authorization-v3"},
@@ -459,6 +464,7 @@ int run_request(Options& options, const RuntimeResources& resources) {
         {"network_enabled", true}, {"provider_enabled", kind == "provider"}, {"models", models},
         {"max_calls", 64}, {"max_total_calls", frozen.max_total_calls()}, {"max_worker_calls_per_task", 16},
         {"max_batch_duration_ms", std::min<std::int64_t>(3600000, duration * frozen.max_total_calls())}, {"reserved_cost_micro_usd", reservation}};
+    if (observe_cost) authorization.as_object()["cost_policy"] = "observe-only-v1";
     auto authorized = live_cli_authorization(authorization);
     validate_live_workflow_config(frozen, authorized.workflow);
     Json admission = Object{{"run_key_sha256", digest}, {"request_id", input.request_id}, {"config_locator", locator.string()},
@@ -484,10 +490,12 @@ int run_request(Options& options, const RuntimeResources& resources) {
         }
     }
     std::cerr << canonical_json(Object{{"kind", "wls-run-confirmation-v1"}, {"request_id", input.request_id}, {"models", selected},
-        {"budget_micro_usd", input.budget.cost_micro_usd}, {"max_attempts", input.budget.max_attempts},
+        {"budget_micro_usd", observe_cost ? Json(nullptr) : Json(input.budget.cost_micro_usd)},
+        {"cost_policy", observe_cost ? "observe-only-v1" : "bounded"}, {"max_attempts", input.budget.max_attempts},
         {"input_token_budget", input.budget.input_tokens}, {"output_token_budget", input.budget.output_tokens},
         {"max_total_calls", frozen.max_total_calls()}, {"command_deadline_ms", authorization.at("max_batch_duration_ms")},
-        {"minimum_output_reservation_micro_usd", reservation}, {"reservation_basis", "encoded_body_bytes_plus_max_output"},
+        {"minimum_output_reservation_micro_usd", observe_cost ? Json(nullptr) : Json(reservation)},
+        {"reservation_basis", observe_cost ? "tokens_only" : "encoded_body_bytes_plus_max_output"},
         {"local_acknowledgement", "durable_local"}, {"completed", completed}}) << '\n';
     if (!yes && !completed) {
         std::cerr << "Authorize this bounded run? [y/N] " << std::flush;
