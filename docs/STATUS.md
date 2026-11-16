@@ -18,9 +18,9 @@ E1 [#133](https://github.com/wmqfl861/wls861/pull/133) 曾合入 `3fa7019`；本
 
 ## 长期边界
 
-G4 保持 Strict 默认、Standard 显式选用。绑定及挂载传播修复后，[托管原生](https://github.com/wmqfl861/wls861/actions/runs/43895693147)四场景通过，包含输出、命名空间/挂载和完整回收；Standard 的 `strong_isolation=false`。每夜调度已合入，首次实际 scheduled 结果待记录。
+G4 保持 Strict 默认、Standard 显式选用。绑定及挂载传播修复后，[托管原生](https://github.com/wmqfl861/wls861/actions/runs/43895693147)四场景通过，包含输出、命名空间/挂载和完整回收；Standard 的 `strong_isolation=false`。每夜调度已合入；scheduled native 仍 NOT_RUN。
 
-G4-N3 的[输入切片](reports/g4-run-tool.md)已由 [#136](https://github.com/wmqfl861/wls861/pull/136) 合入 `adb89e46`；合入 main 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43959157815) 10/10 作业、450/450 CTest、Make 60+25 通过。N4 [#137](https://github.com/wmqfl861/wls861/pull/137) 已合入 `87c31473`（树同最终提交 d365）；核心 270/270、源码检查、D-40 14/14 和[组合 native 独立复核](https://github.com/wmqfl861/wls861/actions/runs/43965206860) 通过，新 main 完整矩阵尚未完成。W128 容量候选被 TL check 的 1 MiB capture guard 拒绝，已按 D-23 归档并删除清洁分支/工作树，未合 main；正式失败、一次私人计数诊断与归档事实见[阶段记录](reports/g4-run-tool.md)。F-15 写入/提交扩容保持未实现，G4 只部分完成，版本仍为 0.13.0。
+G4-N3 的[输入切片](reports/g4-run-tool.md)已由 [#136](https://github.com/wmqfl861/wls861/pull/136) 合入 `adb89e46`；合入 main 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43959157815) 10/10 作业、450/450 CTest、Make 60+25 通过。N4 [#137](https://github.com/wmqfl861/wls861/pull/137) 已合入 `87c31473`（树同最终提交 d365）；核心 270/270、源码检查、D-40 14/14、[组合 native 独立复核](https://github.com/wmqfl861/wls861/actions/runs/43965206860) 和[main 完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43971296505) 均通过；后者 10/10 jobs、450/450 CTest、Make 两 shard，无测试失败/超时/跳过/未运行。W128 容量候选被 TL check 的 1 MiB capture guard 拒绝，已按 D-23 归档并删除清洁分支/工作树，未合 main；正式失败、一次私人计数诊断与归档事实见[阶段记录](reports/g4-run-tool.md)。F-15 写入/提交扩容保持未实现，G4 只部分完成，版本仍为 0.13.0。
 
 本机仍 BLOCKED：缺受信任 bwrap 和专用 cgroup 配置，普通用户 `uid_map: Operation not permitted`；owner 已选择保持该状态，agent 不改主机设置，也不把未配置推断为无 delegation。U3/U4 真实验收 NOT_RUN；下一步 G4-D 真实 run 必须先落实合规原生宿主，CI 不调用真实模型。Windows 11 NOT_RUN。完整记忆、独立审核闭环、私有行清理 runner、daemon/API 尚未完成。
 

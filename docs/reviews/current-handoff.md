@@ -4,7 +4,7 @@
 
 现在能做什么：N3 的冻结只读 `/input` 与总字节限制已由 [#136](https://github.com/wmqfl861/wls861/pull/136) 合入；N4 的冻结环境版本检查、原 BLOB 结果卡与 Worker 预约前重新 capture 已由 [#137](https://github.com/wmqfl861/wls861/pull/137) 合入 `87c31473`。最终 d365 核心 270/270、源码检查、D-40 14/14 和同请求 input/version 组合 native 独立复核均通过。R6 [`v0.13.0`](https://github.com/wmqfl861/wls861/tree/v0.13.0) 标签已推送，无 Release。
 
-卡在哪：W128 候选止于 TL check 的 1 MiB capture guard，已归档且未合 main；F-15 写入/提交扩容仍未实现，G4 未达阶段出口。新 main `87c31473` 完整矩阵尚未完成，不能沿用 N3 main 的成功；长期环境和真实验收状态见 [STATUS](../STATUS.md)。
+卡在哪：W128 候选止于 TL check 的 1 MiB capture guard，已归档且未合 main；F-15 写入/提交扩容仍未实现，G4 未达阶段出口。main `87c31473` [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43971296505) 10/10 jobs、450/450 CTest、Make-ASan shard 60+25 命令通过，测试失败/超时/跳过/未运行均 0；长期环境和真实验收状态见 [STATUS](../STATUS.md)。
 
 下一步：先为大成果上下文重复设计引用/分页或减少重复的方案，再重测 F-15；本轮不继续扩大容量，保持 0.13.0。G4-D 真实 run 等合规原生宿主可用后启动，CI 不调用真实模型。W128 已按 D-23 保险归档、推送标签并复核后删除清洁分支/工作树，标签与原件见 [阶段记录](../reports/g4-run-tool.md)。不重放失败 R2/R3/R5，不做第三轮 SSE 修补。
 
