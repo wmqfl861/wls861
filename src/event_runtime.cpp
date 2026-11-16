@@ -247,6 +247,16 @@ Json EventRuntime::pump(const std::string& id, const EventFakeScript& script,
     const auto config = restore_request_config(initial);
     const auto manager_cap = number(config.json().at("system").at("limits"), "manager_max_tool_calls_per_wake");
     require(manager_cap > 0, ErrorCode::Corrupt, "frozen manager wake limit must be positive");
+    Object environment_counts{{"started", 0}, {"reused", 0}, {"not_run", 0}, {"executed", 0}, {"counts_complete", true}};
+    bool environment_prepared = false;
+    const auto count_environment = [&](const Json& preparation) {
+        if (preparation.is_null()) return;
+        environment_prepared = true;
+        for (const auto* key : {"started", "reused", "not_run", "executed"})
+            environment_counts[key] = environment_counts.at(key).is_null() || preparation.at(key).is_null()
+                ? Json(nullptr) : Json(number(environment_counts, key) + number(preparation, key));
+        environment_counts["counts_complete"] = environment_counts.at("counts_complete").as_bool() && preparation.at("counts_complete").as_bool();
+    };
     Array calls;
     Array blocked;
     std::map<std::pair<Role, std::string>, std::int64_t> indices;
@@ -291,7 +301,11 @@ Json EventRuntime::pump(const std::string& id, const EventFakeScript& script,
         }
         const FakeModel fake(steps, config.resolve(role).model);
         OfflineRuntime runtime(store_, schemas_, tools);
-        const auto captured = runtime.reserve_call(fake, id, role, task, index);
+        Json preparation = nullptr;
+        CapturedModelCall captured;
+        try { captured = runtime.reserve_call(fake, id, role, task, index, {}, false, &preparation); }
+        catch (...) { count_environment(preparation); throw; }
+        count_environment(preparation);
         indices[{role, node}] = index;
         if (role != Role::Worker) ++manager_calls;
         Object invocation{{"attempt_id", captured.request.attempt_id}, {"role", role_name(role)},
@@ -469,12 +483,18 @@ Json EventRuntime::pump(const std::string& id, const EventFakeScript& script,
     for (const auto& item : store_.request_inbox(id)) pending.push_back(item);
     Array tasks;
     for (const auto& task : store_.tasks(id)) tasks.push_back(task);
-    return Object{{"mode", "event_fake"}, {"request_id", id}, {"config_snapshot_sha256", config.sha256()},
+    Object result{{"mode", "event_fake"}, {"request_id", id}, {"config_snapshot_sha256", config.sha256()},
         {"calls", std::move(calls)}, {"blocked", std::move(blocked)}, {"pending", std::move(pending)},
         {"tasks", std::move(tasks)}, {"request_status", store_.request(id).at("status")}, {"budget", store_.budget(id)},
         {"max_calls", options.max_calls}, {"max_worker_calls_per_task", options.max_worker_calls_per_task},
         {"manager_calls", manager_calls}, {"worker_tools_enabled", !tools_by_node_.empty()},
         {"business_delivered", false}, {"environment_checks_executed", false}, {"real_model_calls", 0}};
+    if (environment_prepared) {
+        result["environment_checks_executed"] = environment_counts.at("executed").is_null()
+            ? Json(nullptr) : Json(number(environment_counts, "executed") > 0);
+        result["environment_preparation"] = environment_counts;
+    }
+    return result;
 }
 
 Json EventRuntime::pump_live(const std::string& id, const LiveWorkflowOptions& options,
@@ -573,6 +593,16 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     std::string stop_reason = "quiescent";
     std::int64_t network_started_calls = 0, provider_calls = 0, unobserved_send_claims = 0;
     bool network_count_complete = true;
+    Object environment_counts{{"started", 0}, {"reused", 0}, {"not_run", 0}, {"executed", 0}, {"counts_complete", true}};
+    bool environment_prepared = false;
+    const auto count_environment = [&](const Json& preparation) {
+        if (preparation.is_null()) return;
+        environment_prepared = true;
+        for (const auto* key : {"started", "reused", "not_run", "executed"})
+            environment_counts[key] = environment_counts.at(key).is_null() || preparation.at(key).is_null()
+                ? Json(nullptr) : Json(number(environment_counts, key) + number(preparation, key));
+        environment_counts["counts_complete"] = environment_counts.at("counts_complete").as_bool() && preparation.at("counts_complete").as_bool();
+    };
     // Explicit host decisions retain their compatibility path for this whole
     // pump. Otherwise the Dispatcher captures its own bounded AMEND target;
     // later omitted-node decisions must not publish another plan.
@@ -724,6 +754,13 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         CapturedModelCall captured;
         std::optional<LiveModelSettings> settings;
         if (live) {
+            if (role == Role::Worker && tools) {
+                const auto preparation = tools->prepare_environment(
+                    store_.host_actor(role, id, store_.binding(task).team_id), stop, deadline);
+                count_environment(preparation);
+                require(preparation.is_null() || preparation.at("ready").as_bool(), ErrorCode::NotReady,
+                    preparation.is_null() ? "" : text(preparation, "reason"));
+            }
             settings = live_model_settings_from_json(config.model_profile(role), config.resolve(role).model);
             const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
                 deadline - std::chrono::steady_clock::now());
@@ -779,8 +816,13 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 stopped.insert(key); return std::nullopt;
             }
             fake.emplace(steps, config.resolve(role).model);
-            captured = runtime.reserve_call(*fake, id, role, task, index, {},
-                role == Role::Dispatcher && model_amendment);
+            Json preparation = nullptr;
+            try {
+                captured = runtime.reserve_call(*fake, id, role, task, index, {},
+                    role == Role::Dispatcher && model_amendment, &preparation, stop,
+                    deadline == std::chrono::steady_clock::time_point{} ? std::chrono::steady_clock::time_point::max() : deadline);
+            } catch (...) { count_environment(preparation); throw; }
+            count_environment(preparation);
         }
         indices[key] = index;
         if (role != Role::Worker) ++manager_calls;
@@ -1290,6 +1332,11 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         {"business_delivered", store_.acceptance_runtime_enabled() && text(final_request, "status") == "DELIVERED" &&
             text(final_request, "delivery_status") == "CONFIRMED"},
         {"environment_checks_executed", false}, {"real_model_calls", provider_calls}};
+    if (environment_prepared) {
+        result["environment_checks_executed"] = environment_counts.at("executed").is_null()
+            ? Json(nullptr) : Json(number(environment_counts, "executed") > 0);
+        result["environment_preparation"] = environment_counts;
+    }
     if (plain) {
         result["model_loop_complete"] = plain_submitted;
         result["business_acceptance_pending"] = plain_submitted;

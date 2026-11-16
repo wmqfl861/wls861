@@ -655,6 +655,51 @@ void management_and_owned_capacity_policies_are_opt_in_and_frozen() {
     expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.freeze(); });
 }
 
+void sandbox_environment_checks_require_frozen_v3_and_grants() {
+    Fixture fixture;
+    const auto legacy = fixture.freeze();
+    CHECK(legacy.environment_checks("shell").is_null());
+    auto function = legacy.json().at("function");
+    auto& selected = function.at("team_templates").at("shell").as_object();
+    selected["environment_checks"] = "sandbox-run-v1";
+    fixture.function(function);
+    const auto frozen = fixture.freeze();
+    const auto original = frozen.environment_checks("shell");
+    CHECK(original.at("tools").as_array().size() == 9);
+    write(fixture.general / "shell-env.yaml", "schema_version: 1\ntools: []\n");
+    CHECK(FrozenRequestConfig::restore(frozen.serialize(), frozen.sha256()).environment_checks("shell") == original);
+    CHECK(fixture.freeze().environment_checks("shell").at("tools").as_array().empty());
+    CHECK(FrozenRequestConfig::restore(legacy.serialize(), legacy.sha256()).serialize() == legacy.serialize());
+    selected["environment_checks"] = "automatic";
+    fixture.function(function);
+    expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
+    selected["environment_checks"] = "sandbox-run-v1";
+    const auto grants = selected.at("worker_tools");
+    for (const auto* denied : {"run", "op_output"}) {
+        Array remaining;
+        for (const auto& grant : grants.as_array()) if (grant != denied) remaining.push_back(grant);
+        selected["worker_tools"] = remaining; fixture.function(function);
+        expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
+    }
+    selected["worker_tools"] = grants; fixture.function(function);
+    auto system = frozen.json().at("system");
+    for (const auto* field_name : {"tool_policy", "model_projection", "worker_history"})
+        system.at("context").as_object().erase(field_name);
+    for (const auto* format : {"framed-v1", "structured-v2"}) {
+        system.at("context").at("request_format") = format; fixture.system(system);
+        expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
+    }
+    system.at("context").at("request_format") = "structured-v3"; fixture.system(system);
+    Array tools;
+    for (int index = 0; index < 17; ++index) tools.push_back(Object{{"name", std::to_string(index)},
+        {"check", "touch must-not-exist"}, {"usage", "fixture"}});
+    write(fixture.general / "shell-env.yaml", canonical_json(Object{{"schema_version", 1}, {"tools", tools}}));
+    expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
+    selected.erase("environment_checks"); fixture.function(function);
+    CHECK(fixture.freeze().environment_checks("shell").is_null());
+    CHECK(!std::filesystem::exists(fixture.general / "must-not-exist"));
+}
+
 } // namespace
 
 int main() {
@@ -680,6 +725,7 @@ int main() {
         {"unknown functions capabilities roles and tools reject", unknown_functions_capabilities_and_tools_are_rejected},
         {"observe-only cost freezes explicit finite resource bounds without migrating old requests", observe_only_cost_is_frozen_with_explicit_resource_limits},
         {"configuration FIFO is rejected before any observable open", configuration_fifo_is_rejected_without_open_side_effects},
-        {"management and owned capacity policies preserve old frozen semantics", management_and_owned_capacity_policies_are_opt_in_and_frozen}
+        {"management and owned capacity policies preserve old frozen semantics", management_and_owned_capacity_policies_are_opt_in_and_frozen},
+        {"sandbox environment checks require frozen v3 grants and bounded templates", sandbox_environment_checks_require_frozen_v3_and_grants}
     });
 }

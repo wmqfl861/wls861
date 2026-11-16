@@ -810,7 +810,15 @@ void validate_function(const Json& function, const Json& system, const Capabilit
         if (!safe_identifier(name)) invalid("function.team_templates", "invalid template identifier");
         const auto where = child("function.team_templates", name);
         const auto& item = entry.value();
-        fields(item, where, {{"worker_tools", 'a'}, {"network", 's'}, {"workspace", 's'}, {"env", 's'}, {"isolation", 's'}}, {"network"});
+        fields(item, where, {{"worker_tools", 'a'}, {"network", 's'}, {"workspace", 's'}, {"env", 's'}, {"isolation", 's'},
+            {"environment_checks", 's'}}, {"network", "environment_checks"});
+        if (optional(item, "environment_checks")) {
+            literal(item, "environment_checks", "sandbox-run-v1", where);
+            literal(required(system, "context", "system"), "request_format", "structured-v3", "system.context");
+            const auto grants = strings(required(item, "worker_tools", where), where);
+            if (!grants.contains("run") || !grants.contains("op_output"))
+                invalid(where, "environment checks require run and op_output grants");
+        }
         for (const auto& tool : strings(required(item, "worker_tools", where), child(where, "worker_tools"))) if (!tools.contains(tool)) invalid(child(where, "worker_tools"), "unregistered worker tool name");
         const auto isolation = string_value(required(item, "isolation", where), child(where, "isolation"));
         const auto* configured_network = optional(item, "network");
@@ -942,7 +950,15 @@ void validate_document(const Json& document, const ConfigLoadOptions& options) {
         if (kind == "system_config" || kind == "function_config") {
             const auto parsed = yaml_value(content, path, options);
             if (canonical_json(parsed) != canonical_json(kind == "system_config" ? system : function)) invalid(path, "dependency bytes do not match frozen parsed configuration");
-        } else if (kind == "environment_template") validate_environment(yaml_value(content, path, options), path);
+        } else if (kind == "environment_template") {
+            const auto environment = yaml_value(content, path, options);
+            validate_environment(environment, path);
+            for (const auto& item : function.at("team_templates").as_object())
+                if (optional(item.value(), "environment_checks") &&
+                    path == "functions/" + id + "/" + string_value(item.value().at("env"), path) &&
+                    environment.at("tools").as_array().size() > 16)
+                    invalid(path, "sandbox-run-v1 permits at most 16 environment checks");
+        }
         else if (content.empty()) invalid(path, "configured prompt or capability brief cannot be empty");
     }
 }
@@ -1124,6 +1140,19 @@ ToolSet FrozenRequestConfig::worker_tools(std::string_view template_id) const {
     const auto& templates = required(required(document_, "function", "snapshot"), "team_templates", "function");
     const auto& selected = required(templates, template_id, "function.team_templates");
     return strings(required(selected, "worker_tools", "team_template"), "team_template.worker_tools");
+}
+
+Json FrozenRequestConfig::environment_checks(std::string_view template_id) const {
+    const auto& selected = document_.at("function").at("team_templates").at(template_id);
+    if (!optional(selected, "environment_checks")) return nullptr;
+    const auto path = "functions/" + function_id_ + "/" + string_value(selected.at("env"), "team_template.env");
+    for (const auto& dependency : dependencies_) if (dependency.path == path) {
+        auto result = yaml_value(dependency.content, path, {});
+        validate_environment(result, path);
+        result.as_object()["template_sha256"] = dependency.sha256;
+        return result;
+    }
+    throw Error(ErrorCode::Corrupt, "frozen environment dependency is missing");
 }
 
 std::vector<std::string> ConfigCatalog::functions() const {

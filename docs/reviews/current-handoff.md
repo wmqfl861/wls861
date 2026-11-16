@@ -2,6 +2,12 @@
 
 更新：2026-11-16。实现 0.13.0，Store 410；长期状态统一见 [STATUS](../STATUS.md)。
 
+G4-N4 当前代码增量：显式冻结 `environment_checks: sandbox-run-v1`，经原持久 run 检查版本并在 Worker
+预约前重新 capture；旧默认不执行。语义、opt-in 片段和原生入口见 [Worker tools](../implementation/S1-worker-tools.md#g4-n4显式冻结的环境版本检查)。
+输入为 main `b49bbb1`；本机 Release 五项已通过，ASan 4/5 通过且 worker 本机 180 秒时限超时（无 ASan 错误输出），托管最终 SHA 的 D-40/native 仍待运行；[阶段记录](../reports/g4-run-tool.md#g4-n4-环境版本检查)区分实际范围，不据此声明 U3/U4。
+本次私有原件在数据盘 `wls861-g2-resume-20261116-k48kol3a/g4-env-evidence/`；不提交日志、DB 或二进制。
+下一步先合 N3，再普通 merge main 到 N4，解决共享文件后重跑受影响门禁；root 负责推送、CI 和合并。
+
 现在能做什么：原文件冒烟通过；R0 以零新调用恢复原三交付物导出，成果 12/12；R1 确认流式与 low/medium/high，R3 实际创建 3 任务/3 团队。v0.5 规格和六格式范围见 [ROADMAP](../ROADMAP.md)。
 
 卡在哪：U1/U2 未通过，R2/R3 的 Dispatcher 上游失败原件封存；R5 的末次 Worker 在无序号 `codex.response.metadata` 处被拒，未交付且 usage 未知。E1 没有完整真实改善证据，保守回退，不宣称收益或伤害；[详细运行记录](../reports/g2-first-real-run.md)区分三次失败及 R0 的 SHM mtime 保留检查 FAIL。

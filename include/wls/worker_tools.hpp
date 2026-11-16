@@ -53,12 +53,15 @@ public:
     void bind(const StoreActor& actor);
     std::vector<ContextTool> declarations(const StoreActor& actor) const;
     Json environment_card(const StoreActor& actor) const;
+    Json prepare_environment(const StoreActor& actor, std::stop_token stop = {},
+        std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max());
 
     Json execute(const StoreActor& actor, const ExecutionBinding& binding,
                  std::int64_t expected_task_version,
                  const std::string& business_key, const std::string& tool_name,
                  const Json& arguments, const std::string& command_id,
-                 std::stop_token stop = {});
+                 std::stop_token stop = {},
+                 std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max());
     Json diagnostic(const StoreActor& actor, const ExecutionBinding& binding,
                     const std::string& tool_name, const Json& arguments);
 

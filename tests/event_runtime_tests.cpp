@@ -113,8 +113,9 @@ struct Fixture {
     Store store;
     std::unique_ptr<WorkerTools> alpha, beta;
     std::string id;
-    explicit Fixture(const AdmissionInput& admission = input())
-        : store(directory.path / "control.db", base_sql, store_sql, StoreOpenMode::Takeover, tools_sql, events_sql) {
+    explicit Fixture(const AdmissionInput& admission = input(), bool workflow = false)
+        : store(directory.path / "control.db", base_sql, store_sql, StoreOpenMode::Takeover, tools_sql, events_sql,
+            workflow ? read_runtime_file(source / "db/migrations/007_workflow_runtime.sql") : "") {
         std::filesystem::create_directory(directory.path / "alpha");
         std::filesystem::create_directory(directory.path / "beta");
         alpha = std::make_unique<WorkerTools>(store, directory.path / "alpha");
@@ -140,6 +141,37 @@ void strict_script_groups_and_host_mapping() {
     expect(ErrorCode::InvalidInput, [&] { EventRuntime bad(f.store, *schemas, {{"alpha", f.alpha.get()}, {"beta", f.alpha.get()}}); });
     expect(ErrorCode::InvalidInput, [&] { EventRuntime bad(f.store, *schemas, {{"alpha", nullptr}}); });
     CHECK(f.store.budget(f.id).at("attempts") == 0);
+}
+
+void environment_refusals_block_workers_before_reservation_and_report_attempts() {
+    for (const bool workflow : {false, true}) {
+        auto admission = input();
+        auto& snapshot = admission.config_snapshot;
+        snapshot.at("system").at("context").at("request_format") = "structured-v3";
+        snapshot.at("function").at("team_templates").at("default").as_object()["environment_checks"] = "sandbox-run-v1";
+        for (auto& dependency : snapshot.at("dependencies").as_array()) {
+            if (dependency.at("kind") == "system_config") dependency.at("content") = canonical_json(snapshot.at("system"));
+            if (dependency.at("kind") == "function_config") dependency.at("content") = canonical_json(snapshot.at("function"));
+            if (dependency.at("path") == "functions/general/shell-env.yaml") dependency.at("content") = canonical_json(Object{
+                {"schema_version", 1}, {"tools", Array{Object{{"name", "fixture"}, {"check", "touch must-not-exist"}, {"usage", "fixture"}}}}});
+            dependency.at("sha256") = sha256_hex(text(dependency.at("content")));
+        }
+        Fixture f(admission, workflow);
+        const auto script = event_fake_script_from_json(::test::v3_fake_script(fixture("s13_fake_initial.json")));
+        const auto result = f.runtime().pump(f.id, script);
+        CHECK(result.at("environment_checks_executed") == false);
+        CHECK(result.at("environment_preparation").at("started") == 2);
+        CHECK(result.at("environment_preparation").at("executed") == 0);
+        CHECK(result.at("real_model_calls") == 0);
+        for (const auto& call : result.at("calls").as_array()) CHECK(call.at("role") != "worker");
+        CHECK(!std::filesystem::exists(f.directory.path / "alpha/must-not-exist"));
+        CHECK(!std::filesystem::exists(f.directory.path / "beta/must-not-exist"));
+        const auto budget = f.store.budget(f.id);
+        const auto repeat = f.runtime().pump(f.id, script);
+        CHECK(repeat.at("environment_preparation").at("started") == 0);
+        CHECK(repeat.at("environment_preparation").at("reused") == 2);
+        CHECK(f.store.budget(f.id) == budget);
+    }
 }
 
 void independent_real_files_and_original_feedback() {
@@ -531,6 +563,7 @@ int main() {
     tools_sql = read_runtime_file(source / "db/migrations/005_worker_tools.sql");
     events_sql = read_runtime_file(source / "db/migrations/006_event_runtime.sql");
     return test::run({
+        {"environment refusals preserve Worker reservations and actual per-batch counts", environment_refusals_block_workers_before_reservation_and_report_attempts},
         {"retry wait keeps the original deadline and honours cancellation", retry_wait_keeps_original_deadline_and_cancellation},
         {"public runtime diagnostics redact secrets without changing private facts", public_diagnostics_redact_credentials_and_bound_utf8},
         {"strict grouped scripts reject ambiguity and workspace host aliasing", strict_script_groups_and_host_mapping},

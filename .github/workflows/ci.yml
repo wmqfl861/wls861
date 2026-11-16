@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       verification:
-        description: Verification scope (asan-affected runs six complete suites only)
+        description: Verification scope (asan-affected runs eleven complete suites only)
         type: choice
         options:
           - full
@@ -164,7 +164,7 @@ jobs:
             echo "- event: $GITHUB_EVENT_NAME, matrix entries: $(printf '%s' "$matrix" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["include"]))')"
             echo "- slow tests: $slow_tests (selected mode always includes all fast tests)"
             if [ "$mode" = asan-affected ]; then
-              echo '- Six complete affected ASan suites only: r1_structured, r1_structured_capture, r1_structured_lean, billing_baseline_e2e, run_cli_e2e, s15_cli_smoke. This is not the full gate.'
+              echo '- Eleven complete affected ASan suites only: r1_structured, r1_structured_capture, r1_structured_lean, billing_baseline_e2e, run_cli_e2e, s15_cli_smoke, sandbox, worker_tools, config_loader, offline_runtime, event_runtime. This is not the full gate.'
             fi
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
               echo "- PR head: \`$PR_HEAD_SHA\`; diff merge base: \`${base_sha:-unavailable, fell back to core}\`"
@@ -259,7 +259,7 @@ jobs:
           if [ "${{ needs.classify.outputs.mode }}" = selected ]; then
             cmake --build build --target wls_ci_selected --parallel 2
           elif [ "${{ needs.classify.outputs.mode }}" = standard-native ]; then
-            cmake --build build --target sandbox_tests process_evidence_tests doctor_diagnostics_tests --parallel 2
+            cmake --build build --target sandbox_tests process_evidence_tests doctor_diagnostics_tests worker_tools_tests --parallel 2
           else
             cmake --build build --parallel 2
           fi
@@ -269,8 +269,8 @@ jobs:
           test "$(id -u)" -ne 0
           umask "${{ matrix.test_umask }}"
           if [ "${{ needs.classify.outputs.mode }}" = asan-affected ]; then
-            echo 'Running six complete affected ASan suites only; this is not the full gate.'
-            ctest --test-dir build -R '^(r1_structured|r1_structured_capture|r1_structured_lean|billing_baseline_e2e|run_cli_e2e|s15_cli_smoke)$' --output-on-failure
+            echo 'Running eleven complete affected ASan suites only; this is not the full gate.'
+            ctest --test-dir build -R '^(r1_structured|r1_structured_capture|r1_structured_lean|billing_baseline_e2e|run_cli_e2e|s15_cli_smoke|sandbox|worker_tools|config_loader|offline_runtime|event_runtime)$' --output-on-failure
           elif [ "${{ needs.classify.outputs.mode }}" = standard-native ]; then
             echo 'Running native sandbox prerequisites and the explicit native scenario; this is not the full gate.'
             ctest --test-dir build -R '^(sandbox|process_evidence|doctor_diagnostics)$' --output-on-failure
@@ -336,13 +336,15 @@ jobs:
           controllers=" $(cat "$root/cgroup.controllers") "
           for required in cpu memory pids; do [[ "$controllers" == *" $required "* ]]; done
           printf '+cpu +memory +pids' > "$root/cgroup.subtree_control"
-          exec "$1" --standard-native "$2" "$3" "$root" "$5"
+          "$1" --standard-native "$2" "$3" "$root" "$5"
+          exec "$6" --environment-native "$2" "$3" "$root" "$7"
           NATIVE_UNIT
           unit="wls-standard-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           trap - ERR
           if ! systemd-run --user --unit="$unit" --wait --pipe --collect --service-type=exec \
             -p 'Delegate=cpu memory pids' -p 'DelegateSubgroup=runner' -p 'UMask=0077' --setenv="TMPDIR=$gate/tmp" \
-            /bin/bash "$gate/inside.sh" "$GITHUB_WORKSPACE/build/sandbox_tests" "$gate/bwrap" "$hash" "$unit" "$gate/native-output"; then
+            /bin/bash "$gate/inside.sh" "$GITHUB_WORKSPACE/build/sandbox_tests" "$gate/bwrap" "$hash" "$unit" "$gate/native-output" \
+            "$GITHUB_WORKSPACE/build/worker_tools_tests" "$gate/environment-output"; then
             test -f "$gate/native-output/ordinary.json" || echo 'BLOCKED: native user service could not establish its prerequisites'
             exit 1
           fi
@@ -356,6 +358,7 @@ jobs:
             ${{ runner.temp }}/wls-standard-native/manager-version.txt
             ${{ runner.temp }}/wls-standard-native/package-sha256.txt
             ${{ runner.temp }}/wls-standard-native/native-output/
+            ${{ runner.temp }}/wls-standard-native/environment-output/
           if-no-files-found: error
           retention-days: 7
       - name: Verify GCC ASan Make shard ${{ matrix.make_shard }}/2 and user CPPFLAGS

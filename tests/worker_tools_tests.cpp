@@ -22,14 +22,14 @@
 #include <utility>
 
 namespace {
-void worker_tool_test_phase(std::string_view key, const wls::s1::Json& prepared);
+void worker_tool_test_phase(std::string_view key, const wls::s1::Json& prepared, std::stop_token stop);
 void worker_tool_test_output(wls::s1::ProcessResult& process);
 }
 
 // Compile the actual implementation in this TU to observe a single private
 // phase. The static linker uses these definitions instead of pulling the
 // library's worker_tools.o; production builds have no observer at all.
-#define WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE(key, prepared) ::worker_tool_test_phase(key, prepared)
+#define WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE(key, prepared, stop) ::worker_tool_test_phase(key, prepared, stop)
 #define WLS_WORKER_TOOLS_PRIVATE_TEST_OUTPUT(process) ::worker_tool_test_output(process)
 #include "../src/worker_tools.cpp"
 #undef WLS_WORKER_TOOLS_PRIVATE_TEST_OUTPUT
@@ -56,8 +56,10 @@ constexpr std::string_view original_text = "请在自有临时 workspace 测试�
 
 std::function<void(std::string_view, const Json&)> prepared_phase_observer;
 std::function<void(ProcessResult&)> output_observer;
+thread_local std::stop_token observed_prepare_stop;
 void worker_tool_test_output(ProcessResult& process) { if (output_observer) output_observer(process); }
-void worker_tool_test_phase(std::string_view key, const Json& prepared) {
+void worker_tool_test_phase(std::string_view key, const Json& prepared, std::stop_token stop) {
+    observed_prepare_stop = stop;
     if (prepared_phase_observer) prepared_phase_observer(key, prepared);
 }
 
@@ -947,9 +949,257 @@ void exact_old_ack_replays_without_acknowledging_new_order() {
     expect(ErrorCode::NotReady, [&] { (void)session.execute("fs_write", Object{{"path", "old-ack-cannot-enable"}, {"content", "x"}}); });
     CHECK(!std::filesystem::exists(session.work / "old-ack-cannot-enable"));
 }
+
+AdmissionInput environment_input(Array checks, bool standard = false) {
+    auto input = output_admission("structured-v3");
+    auto& function = input.config_snapshot.at("function");
+    auto& selected = function.at("team_templates").at("default").as_object();
+    selected["environment_checks"] = "sandbox-run-v1";
+    if (standard) selected["isolation"] = "standard";
+    for (auto& dependency : input.config_snapshot.at("dependencies").as_array()) {
+        if (dependency.at("kind") == "function_config") dependency.at("content") = canonical_json(function);
+        if (dependency.at("path") == "functions/general/shell-env.yaml")
+            dependency.at("content") = canonical_json(Object{{"schema_version", 1}, {"tools", checks}});
+        dependency.at("sha256") = sha256_hex(text(dependency.at("content")));
+    }
+    return input;
+}
+Json check_fixture(std::string command = "python3 --version", bool optional = false) {
+    return Object{{"name", command}, {"check", command}, {"usage", "synthetic fixture"}, {"optional", optional}};
+}
+void environment_setup(Session& session, Json manifest = Object{}) {
+    auto initial = steps();
+    auto& node = initial.front().tool_calls.front().arguments.at("nodes").as_array().front();
+    node.at("brief").at("title") = node.at("title");
+    const FakeModel fake(initial);
+    for (const auto role : {Role::Dispatcher, Role::TeamLead}) {
+        const auto call = session.runtime->reserve_call(fake, session.request_id, role,
+            role == Role::Dispatcher ? "" : session.task_id());
+        (void)session.runtime->accept_response(call, fake.complete(call.request));
+    }
+    (void)session.store->acknowledge(session.actor(), session.binding(), session.version(), new_id("ack"));
+    session.tools = std::make_unique<WorkerTools>(*session.store, session.work, manifest);
+    session.runtime = std::make_unique<OfflineRuntime>(*session.store, *schemas, session.tools.get());
+    session.tools->bind(session.actor());
+}
+ProcessResult synthetic_environment_result(Session& session, std::string out, int exit = 0) {
+    Workspace workspace(session.work, WorkspaceAccess::ReadWrite);
+    const auto fd = workspace.dup_root_fd();
+    const auto snapshot = observe_process_workspace(fd); ::close(fd);
+    ProcessResult result;
+    result.status = ProcessStatus::Exited; result.spawned = true; result.launcher_exec_confirmed = true;
+    result.strong_isolation = true; result.all_descendants_exited = true; result.exit_code = exit;
+    result.stdout_text = std::move(out);
+    result.evidence = Object{{"synthetic_environment_fixture", true}, {"network", "none"}, {"supervision", "cgroup-v2"},
+        {"descendants_proof", "cgroup.events populated=0"}, {"workspace_mount_verified", true},
+        {"namespaces_verified", true}, {"command_start_released", true},
+        {"workspace_observation", process_workspace_changes(snapshot, snapshot)}};
+    return result;
+}
+struct EnvironmentObservers {
+    std::vector<std::string> operations;
+    EnvironmentObservers() { prepared_phase_observer = [&](std::string_view, const Json& op) { operations.push_back(text(op.at("op_id"))); }; }
+    ~EnvironmentObservers() { output_observer = {}; prepared_phase_observer = {}; }
+};
+void environment_results_are_original_idempotent_and_bound_before_model_capture() {
+    auto input = environment_input({check_fixture(), check_fixture("git --version")});
+    input.config_snapshot.at("function").at("team_templates").at("default").at("worker_tools") = Array{"note", "run", "op_output"};
+    input.tool_allowlist = {"note", "run", "op_output"};
+    for (auto& dependency : input.config_snapshot.at("dependencies").as_array()) if (dependency.at("kind") == "function_config") {
+        dependency.at("content") = canonical_json(input.config_snapshot.at("function"));
+        dependency.at("sha256") = sha256_hex(text(dependency.at("content")));
+    }
+    Session session(false, input);
+    environment_setup(session); EnvironmentObservers observed;
+    OfflineRuntime missing_host(*session.store, *schemas);
+    const auto original_budget = session.store->budget(session.request_id);
+    expect(ErrorCode::NotReady, [&] { (void)missing_host.reserve_call(FakeModel(steps()), session.request_id,
+        Role::Worker, session.task_id()); });
+    CHECK(session.store->budget(session.request_id) == original_budget);
+    auto proof = synthetic_environment_result(session, "fixture-version\n");
+    output_observer = [&](ProcessResult& result) { CHECK(!result.spawned); result = proof; };
+    const auto before = session.tools->environment_card(session.actor());
+    const auto before_capture = session.runtime->capture_call(session.request_id, Role::Worker, session.task_id());
+    CHECK(observed.operations.empty() && before.at("ready") == false);
+    const auto version = session.version();
+    const auto first = session.tools->prepare_environment(session.actor(), {}, std::chrono::steady_clock::now() + std::chrono::seconds(12));
+    CHECK(first.at("ready") == true && first.at("started") == 2 && first.at("reused") == 0);
+    CHECK(observed.operations.size() == 2 && session.version() > version);
+    const auto card = session.tools->environment_card(session.actor());
+    CHECK(text(card.at("tools").as_array().front().at("version_text")) == proof.stdout_text);
+    CHECK(card.at("process_isolation_verified") == true && card.at("card_sha256") != before.at("card_sha256"));
+    const auto original = session.store->operation_result(observed.operations.front());
+    WorkerTools rebuilt(*session.store, session.work); rebuilt.bind(session.actor());
+    const auto again = rebuilt.prepare_environment(session.actor(), {}, std::chrono::steady_clock::now() + std::chrono::seconds(1));
+    CHECK(again.at("ready") == true && again.at("started") == 0 && again.at("reused") == 2);
+    CHECK(observed.operations.size() == 2 && rebuilt.environment_card(session.actor()) == card);
+    CHECK(session.store->operation_result(observed.operations.front()) == original);
+    CHECK(text(session.store->operation_output(session.actor(), session.binding(), observed.operations.front(), "stdout").at("data")) == proof.stdout_text);
+    Store read_only(session.database, base_sql, migration_sql, StoreOpenMode::ReadOnly, tools_sql);
+    WorkerTools reader(read_only, session.work, Object{}, true); reader.bind(session.actor());
+    CHECK(reader.environment_card(session.actor()) == card);
+    expect(ErrorCode::Unauthorized, [&] { (void)reader.prepare_environment(session.actor()); });
+    const FakeModel fake(steps());
+    const auto captured = session.runtime->reserve_call(fake, session.request_id, Role::Worker, session.task_id());
+    CHECK(captured.expected_state_version == session.version());
+    CHECK(captured.request.context.prefix_sha256 != before_capture.request.context.prefix_sha256);
+    CHECK(canonical_json(captured.request.context.logical_input).find("fixture-version") != std::string::npos);
+    CHECK(observed.operations.size() == 2);
+    Session changed(false, input);
+    environment_setup(changed);
+    proof = synthetic_environment_result(changed, "fixture-version-2\n");
+    CHECK(changed.tools->prepare_environment(changed.actor()).at("ready") == true);
+    CHECK(changed.tools->environment_card(changed.actor()).at("card_sha256") != card.at("card_sha256"));
+    Session driven(false, input); environment_setup(driven);
+    proof = synthetic_environment_result(driven, "driver-version\n");
+    const auto summary = driven.runtime->run(driven.request_id, steps());
+    CHECK(summary.at("environment_checks_executed") == true);
+    CHECK(summary.at("environment_preparation").at("started") == 2);
+    CHECK(summary.at("environment_preparation").at("executed") == 2);
+}
+void environment_versions_require_complete_stdout_and_exit_proof() {
+    struct Case { std::string out, err, status; int exit; bool truncated, isolated, optional; };
+    const std::vector<Case> cases{{"version", "", "available", 0, false, true, false},
+        {"", "not a version", "version_unavailable", 0, false, true, false},
+        {std::string("\xFF", 1), "", "non_text", 0, false, true, false},
+        {"prefix", "", "output_limit", 0, true, true, false},
+        {"", "missing", "missing", 127, false, true, true},
+        {"", "missing", "missing", 127, false, true, false},
+        {"", "denied", "check_failed", 126, false, true, false},
+        {"plausible", "", "unknown", 0, false, false, true},
+        {"partial", "", "TIMED_OUT", 0, false, true, false},
+        {"partial", "", "OUTPUT_LIMIT", 0, true, true, false}};
+    for (const auto& item : cases) {
+        Session session(false, environment_input({check_fixture("fixture-probe", item.optional)}));
+        environment_setup(session); EnvironmentObservers observed;
+        auto proof = synthetic_environment_result(session, item.out, item.exit);
+        proof.stderr_text = item.err; proof.output_truncated = item.truncated; proof.strong_isolation = item.isolated;
+        if (item.status == "TIMED_OUT") proof.status = ProcessStatus::TimedOut;
+        if (item.status == "OUTPUT_LIMIT") proof.status = ProcessStatus::OutputLimit;
+        output_observer = [&](ProcessResult& result) { CHECK(!result.spawned); result = proof; };
+        const auto receipt = session.tools->prepare_environment(session.actor());
+        CHECK(receipt.at("ready") == (item.status == "available" || (item.optional && item.status == "missing")));
+        const auto card = session.tools->environment_card(session.actor());
+        const auto& observation = card.at("tools").as_array().front();
+        CHECK(text(observation.at("status")) == item.status);
+        CHECK(observation.at("version_text").is_null() == (item.status != "available"));
+        CHECK(text(observation.at("stdout").at("stream_sha256")) == sha256_hex(item.out));
+        CHECK(output_page_bytes(observation.at("stderr")) == item.err);
+        const auto repeated = session.tools->prepare_environment(session.actor());
+        CHECK(repeated.at("ready") == receipt.at("ready") && observed.operations.size() == 1);
+        CHECK(session.tools->environment_card(session.actor()) == card);
+        if (receipt.at("ready") == false) {
+            const auto budget = session.store->budget(session.request_id);
+            expect(ErrorCode::NotReady, [&] { (void)session.runtime->reserve_call(FakeModel(steps()), session.request_id,
+                Role::Worker, session.task_id()); });
+            CHECK(session.store->budget(session.request_id) == budget);
+        }
+    }
+}
+void environment_fences_keep_checks_and_model_reservations_closed() {
+    for (const auto* fence : {"cancelled", "deadline", "setup_deadline", "amend", "instruction", "wait", "run", "op_output", "budget", "unknown", "prepared", "storage"}) {
+        auto input = environment_input({check_fixture()});
+        if (std::string_view(fence) == "budget") {
+            input.config_snapshot.at("system").at("limits").at("worker_max_tool_calls_per_order") = 1;
+            for (auto& dependency : input.config_snapshot.at("dependencies").as_array()) if (dependency.at("kind") == "system_config") {
+                dependency.at("content") = canonical_json(input.config_snapshot.at("system"));
+                dependency.at("sha256") = sha256_hex(text(dependency.at("content")));
+            }
+        }
+        Session session(false, input, true);
+        environment_setup(session); EnvironmentObservers observed;
+        const std::string which(fence);
+        std::stop_source stop;
+        auto deadline = std::chrono::steady_clock::time_point::max();
+        if (which == "cancelled") stop.request_stop();
+        if (which == "deadline") deadline = std::chrono::steady_clock::now();
+        if (which == "amend") session.amend();
+        if (which == "instruction") session.issue_new_instruction();
+        if (which == "wait") (void)session.store->wait_worker(session.actor(), session.binding(), session.version(), "fixture wait", new_id("wait"));
+        if (which == "run" || which == "op_output") fixture_sql(session.database,
+            "UPDATE runtime_policy SET denied_tools='[\"" + which + "\"]',policy_epoch=policy_epoch+1,state_version=state_version+1");
+        if (which == "budget") { (void)session.execute("note", Object{{"text", "consume frozen operation allowance"}}); observed.operations.clear(); }
+        if (which == "setup_deadline") {
+            deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            prepared_phase_observer = [&](std::string_view, const Json& operation) {
+                observed.operations.push_back(text(operation.at("op_id")));
+                std::this_thread::sleep_until(deadline + std::chrono::milliseconds(20));
+                CHECK(observed_prepare_stop.stop_requested()); // The absolute watcher, before the later timeout recheck.
+            };
+            output_observer = [&](ProcessResult& result) { CHECK(result.status == ProcessStatus::Cancelled && !result.spawned); };
+        }
+        if (which == "unknown") {
+            const auto prepared = session.store->prepare_tool_operation(session.actor(), session.binding(), session.version(),
+                "unresolved", "run", Object{{"argv", Array{"/bin/true"}}}, new_id("cmd"));
+            (void)session.store->start_tool_operation(session.actor(), text(prepared.at("op_id")), number(prepared.at("state_version")), new_id("cmd"));
+            (void)session.store->cancel_operation(session.actor(), text(prepared.at("op_id")),
+                number(session.store->operation(text(prepared.at("op_id"))).at("state_version")), new_id("cancel"));
+        }
+        if (which == "prepared") prepared_phase_observer = [&](std::string_view, const Json&) { throw Error(ErrorCode::NotReady, "fixture stops before dispatch"); };
+        if (which == "storage") fixture_sql(session.database,
+            "CREATE TRIGGER fail_environment_result BEFORE INSERT ON events WHEN NEW.type='record_op_result' "
+            "BEGIN SELECT RAISE(ABORT,'synthetic environment settlement fault'); END");
+        const auto receipt = session.tools->prepare_environment(session.actor(), stop.get_token(), deadline);
+        CHECK(receipt.at("ready") == false && !text(receipt.at("reason")).empty());
+        if (which == "storage") CHECK(receipt.at("started").is_null() && receipt.at("counts_complete") == false);
+        else CHECK(number(receipt.at("started")) == (which == "setup_deadline" ? 1 : 0));
+        if (which != "prepared" && which != "storage" && which != "setup_deadline") CHECK(observed.operations.empty());
+        if (which == "prepared" || which == "storage") {
+            prepared_phase_observer = {};
+            CHECK(session.tools->prepare_environment(session.actor()).at("ready") == false);
+        }
+    }
+    Session legacy; const auto card = legacy.tools->environment_card(legacy.actor());
+    CHECK(legacy.tools->prepare_environment(legacy.actor()).is_null());
+    CHECK(legacy.tools->environment_card(legacy.actor()) == card);
+    Session empty(false, environment_input({})); environment_setup(empty);
+    CHECK(empty.tools->prepare_environment(empty.actor()).at("ready") == true);
+    CHECK(empty.tools->environment_card(empty.actor()).at("process_isolation_verified") == false);
+}
+
+int environment_native(int argc, char** argv) {
+    if (argc != 6 || ::geteuid() == 0) return 1;
+    ::umask(0077);
+    const std::filesystem::path output(argv[5]);
+    try {
+        CHECK(output.is_absolute() && ::mkdir(output.c_str(), 0700) == 0);
+        Session session(false, environment_input({check_fixture(), check_fixture("wls-environment-absent-command", true)}, true));
+        const Json manifest = Object{{"schema_version", 1}, {"bwrap_path", argv[2]}, {"bwrap_sha256", argv[3]}, {"cgroup_root", argv[4]}};
+        environment_setup(session, manifest); EnvironmentObservers observed;
+        const auto receipt = session.tools->prepare_environment(session.actor());
+        const auto card = session.tools->environment_card(session.actor());
+        host_write(output / "preparation.json", canonical_json(receipt));
+        host_write(output / "card.json", canonical_json(card));
+        for (std::size_t index = 0; index < observed.operations.size(); ++index) {
+            const auto& id = observed.operations[index];
+            host_write(output / (std::to_string(index) + ".json"), canonical_json(session.store->operation_result(id)));
+            for (const auto* stream : {"stdout", "stderr"}) host_write(output / (std::to_string(index) + "." + stream),
+                output_page_bytes(session.store->operation_output(session.actor(), session.binding(), id, stream)));
+        }
+        if (card.at("process_isolation_verified") != true) {
+            host_write(output / "summary.json", "{\"status\":\"BLOCKED\",\"real_model_calls\":0}");
+            std::cerr << "BLOCKED: environment native prerequisites or isolation proof unavailable\n"; return 77;
+        }
+        CHECK(receipt.at("ready") == true && receipt.at("started") == 2 && observed.operations.size() == 2);
+        const auto& observations = card.at("tools").as_array();
+        CHECK(observations[0].at("status") == "available" && observations[1].at("status") == "missing");
+        CHECK(text(observations[0].at("version_text")) == host_read(output / "0.stdout"));
+        CHECK(observations[0].at("strong_isolation") == false);
+        WorkerTools rebuilt(*session.store, session.work, manifest); rebuilt.bind(session.actor());
+        CHECK(rebuilt.prepare_environment(session.actor()).at("started") == 0 && observed.operations.size() == 2);
+        CHECK(rebuilt.environment_card(session.actor()) == card);
+        auto initial = steps();
+        const FakeModel fake(initial);
+        const auto capture = session.runtime->reserve_call(fake, session.request_id, Role::Worker, session.task_id());
+        CHECK(capture.expected_state_version == session.version());
+        CHECK(canonical_json(capture.request.context.logical_input).find("Python ") != std::string::npos);
+        host_write(output / "summary.json", "{\"status\":\"PASS\",\"operations\":2,\"real_model_calls\":0}");
+        return 0;
+    } catch (const std::exception& error) { std::cerr << "FAIL native environment check: " << error.what() << '\n'; return 1; }
+}
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     schemas = std::make_unique<SchemaRegistry>(source / "schemas");
     test::TempDir temp;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
@@ -968,7 +1218,11 @@ int main() {
     tools_sql = read_runtime_file(source / "db/migrations/005_worker_tools.sql");
     original_script = parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_fake_initial.json"));
     constraints = parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_constraints.json"));
+    if (argc > 1 && std::string_view(argv[1]) == "--environment-native") return environment_native(argc, argv);
     return test::run({
+        {"environment checks preserve original output, CAS and idempotent capture", environment_results_are_original_idempotent_and_bound_before_model_capture},
+        {"environment versions require complete UTF-8 stdout and original exit proof", environment_versions_require_complete_stdout_and_exit_proof},
+        {"environment checks respect cancellation, authority, budget and unresolved fences", environment_fences_keep_checks_and_model_reservations_closed},
         {"static registration and frozen request tool grants", registry_and_request_permissions},
         {"v3 previews and text pages retain original bytes and legacy output formats", output_display_preserves_frozen_formats_and_original_bytes},
         {"output paging preserves UTF-8 boundaries, current authority and old records", output_pages_keep_byte_boundaries_authority_and_old_records},

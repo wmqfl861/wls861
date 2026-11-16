@@ -64,6 +64,7 @@ public:
     std::int64_t max_total_calls() const;
     Json model_profile(Role role) const;
     ToolSet worker_tools(std::string_view template_id = "default") const;
+    Json environment_checks(std::string_view template_id) const; // Null unless explicitly frozen; no external reads.
 
 private:
     friend class ConfigCatalog;
