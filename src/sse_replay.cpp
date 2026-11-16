@@ -59,6 +59,18 @@ std::string identifier(const Object& source, std::string_view key) {
     return value;
 }
 
+std::string provider_identifier(const Object& source, std::string_view key, std::size_t maximum) {
+    auto value = text(source, key);
+    require(!value.empty() && value.size() <= maximum &&
+            std::all_of(value.begin(), value.end(), [](unsigned char byte) { return byte >= 33 && byte <= 126; }),
+            "SSE provider response ID must be a bounded printable token");
+    return value;
+}
+
+std::string response_identifier(const Object& response, std::optional<std::size_t> maximum) {
+    return maximum ? provider_identifier(response, "id", *maximum) : identifier(response, "id");
+}
+
 std::uint64_t integer(const Object& source, std::string_view key) {
     const auto& value = field(source, key);
     if (value.is_int64() && value.as_int64() >= 0) return static_cast<std::uint64_t>(value.as_int64());
@@ -73,10 +85,14 @@ const Array& array(const Object& source, std::string_view key) {
     return value.as_array();
 }
 
-void allowed(const Object& value, const std::set<std::string>& names) {
+void allowed(const Object& value, const std::set<std::string>& names,
+             response_metadata::Collector* metadata = nullptr, std::string_view path = {}) {
     for (const auto& entry : value) {
-        if (!names.contains(std::string(entry.key())))
-            throw ReplayFailure("unsupported_output", "SSE output contains a field outside the implemented text/function subset");
+        if (!names.contains(std::string(entry.key()))) {
+            if (!metadata || !metadata->enabled)
+                throw ReplayFailure("unsupported_output", "SSE output contains a field outside the implemented text/function subset");
+            metadata->record(path, entry.key());
+        }
     }
 }
 
@@ -88,14 +104,15 @@ void empty_optional_array(const Object& value, std::string_view key) {
     }
 }
 
-Json normalize_part(const Json& value) {
+Json normalize_part(const Json& value, response_metadata::Collector* metadata = nullptr,
+                    const std::string& path = {}) {
     const auto& part = object(value);
     const auto type = text(part, "type");
     if (type == "refusal") {
-        allowed(part, {"type", "refusal"});
+        allowed(part, {"type", "refusal"}, metadata, path);
         return Object{{"type", "refusal"}, {"refusal", text(part, "refusal")}};
     }
-    allowed(part, {"type", "text", "annotations", "logprobs"});
+    allowed(part, {"type", "text", "annotations", "logprobs"}, metadata, path);
     if (type != "output_text")
         throw ReplayFailure("unsupported_output", "only output_text and refusal content are implemented by SSE replay");
     empty_optional_array(part, "annotations");
@@ -103,12 +120,21 @@ Json normalize_part(const Json& value) {
     return Object{{"type", "output_text"}, {"text", text(part, "text")}};
 }
 
-Json normalize_item(const Json& value, bool completed) {
+Json normalize_summary(const Json& value, response_metadata::Collector* metadata = nullptr,
+                       const std::string& path = {}) {
+    const auto& part = object(value);
+    require(text(part, "type") == "summary_text", "SSE reasoning summary parts must be summary_text");
+    allowed(part, {"type", "text"}, metadata, path);
+    return Object{{"type", "summary_text"}, {"text", text(part, "text")}};
+}
+
+Json normalize_item(const Json& value, bool completed, response_metadata::Collector* metadata,
+                    const std::string& path) {
     const auto& item = object(value);
     const auto type = text(item, "type");
     const auto id = identifier(item, "id");
     if (type == "reasoning") {
-        allowed(item, {"id", "type", "summary", "encrypted_content", "status", "content"});
+        allowed(item, {"id", "type", "summary", "encrypted_content", "status", "content"}, metadata, path);
         const auto status = item.if_contains("status");
         if (status) {
             require(status->is_string(), "SSE reasoning status must be a string");
@@ -121,13 +147,9 @@ Json normalize_item(const Json& value, bool completed) {
             require(content->is_array(), "SSE reasoning content must be an array");
             require(content->as_array().empty(), "SSE reasoning text content is outside the implemented subset");
         }
-        const auto& summary = array(item, "summary");
-        for (const auto& entry : summary) {
-            const auto& part = object(entry);
-            allowed(part, {"type", "text"});
-            require(text(part, "type") == "summary_text" && part.contains("text") &&
-                    part.at("text").is_string(), "SSE reasoning summary parts must be summary_text");
-        }
+        Array summary;
+        for (const auto& entry : array(item, "summary"))
+            summary.push_back(normalize_summary(entry, metadata, path + "/summary/" + std::to_string(summary.size())));
         Json encrypted = nullptr;
         if (const auto* found = item.if_contains("encrypted_content")) {
             require(found->is_null() || found->is_string(), "SSE encrypted reasoning content must be a string or null");
@@ -138,19 +160,20 @@ Json normalize_item(const Json& value, bool completed) {
         return result;
     }
     if (type == "message") {
-        allowed(item, {"id", "type", "role", "status", "content"});
+        allowed(item, {"id", "type", "role", "status", "content"}, metadata, path);
         require(text(item, "role") == "assistant", "SSE output message role must be assistant");
         const auto status = text(item, "status");
         require(completed ? status == "completed" :
                 (status == "in_progress" || status == "incomplete" || status == "completed"),
                 "SSE message status does not match its lifecycle");
         Array content;
-        for (const auto& part : array(item, "content")) content.push_back(normalize_part(part));
+        for (const auto& part : array(item, "content"))
+            content.push_back(normalize_part(part, metadata, path + "/content/" + std::to_string(content.size())));
         return Object{{"id", id}, {"type", type}, {"role", "assistant"},
                       {"status", status}, {"content", std::move(content)}};
     }
     if (type == "function_call") {
-        allowed(item, {"id", "type", "call_id", "name", "arguments", "status"});
+        allowed(item, {"id", "type", "call_id", "name", "arguments", "status"}, metadata, path);
         const auto* status = item.if_contains("status");
         if (status) {
             require(status->is_string(), "SSE function status must be a string");
@@ -316,8 +339,10 @@ struct ItemState {
 class Events {
 public:
     explicit Events(const SseReplayLimits& limits, std::size_t max_depth, bool compat,
+                    std::optional<std::size_t> max_response_id_bytes,
                     response_metadata::Collector& metadata)
-        : limits_(limits), max_depth_(max_depth), compat_(compat), metadata_(metadata) {}
+        : limits_(limits), max_depth_(max_depth), compat_(compat),
+          max_response_id_bytes_(max_response_id_bytes), metadata_(metadata) {}
 
     void accept(std::string_view event_name, std::string_view data);
     Json observations() const;
@@ -353,7 +378,9 @@ private:
     const SseReplayLimits& limits_;
     std::size_t max_depth_;
     bool compat_;
+    std::optional<std::size_t> max_response_id_bytes_;
     response_metadata::Collector& metadata_;
+    std::string event_path_;
     bool created_{false};
     bool in_progress_{false};
     std::string model_;
@@ -379,6 +406,24 @@ void Events::accept(std::string_view event_name, std::string_view data) {
                  sequence == *last_sequence + 1, "SSE sequence is repeated, reordered or missing an event");
     last_sequence = sequence;
     observed_types.insert(type);
+    event_path_ = "/events/" + std::to_string(sequence);
+    if (type == "response.metadata") {
+        if (!metadata_.enabled)
+            throw ReplayFailure("unsupported_event", "SSE telemetry requires the explicit metadata policy");
+        require(created_, "SSE telemetry must follow response.created");
+        const std::set<std::string> fields{"type", "sequence_number", "response_id", "model", "metadata"};
+        for (const auto& entry : event)
+            if (!fields.contains(std::string(entry.key())))
+                throw ReplayFailure("unsupported_event", "SSE telemetry has an unsupported shape");
+        require(identifier(event, "model") == model_, "SSE telemetry model differs from response.created");
+        (void)provider_identifier(event, "response_id", 128);
+        (void)object(field(event, "metadata"));
+        // The gateway's telemetry ID is unbound. Retain its path and raw
+        // bytes without treating it as the response envelope's identity.
+        metadata_.record(event_path_, "response_id");
+        metadata_.record(event_path_, "metadata");
+        return;
+    }
     // Summary/refusal events exist only inside the opt-in compatibility
     // subset; legacy profiles keep their original refusal behavior.
     if (!compat_ && (type.starts_with("response.reasoning_summary") || type.starts_with("response.refusal.")))
@@ -412,7 +457,7 @@ void Events::accept(std::string_view event_name, std::string_view data) {
         if (!fields.contains(std::string(entry.key()))) {
             if (!metadata_.enabled || entry.key() == "obfuscation")
                 throw ReplayFailure("unsupported_event", "SSE event field is outside the implemented Responses subset");
-            metadata_.record("/events/" + std::to_string(sequence), entry.key());
+            metadata_.record(event_path_, entry.key());
         }
     }
     if (fields.contains("response")) metadata_.response(field(event, "response"), "/response");
@@ -426,12 +471,7 @@ void Events::accept(std::string_view event_name, std::string_view data) {
         obfuscation_bytes += padding->as_string().size();
     }
     if (event.contains("response_id")) {
-        const auto linked_response = identifier(event, "response_id");
-        require(linked_response.size() <= 128 &&
-                std::all_of(linked_response.begin(), linked_response.end(), [](char character) {
-                    const auto byte = static_cast<unsigned char>(character);
-                    return byte >= 33 && byte <= 126;
-                }), "SSE response_id must be a bounded provider token");
+        const auto linked_response = provider_identifier(event, "response_id", max_response_id_bytes_.value_or(128));
         require(created_ && linked_response == response_id,
                 "SSE response_id differs from the response.created identity");
     }
@@ -464,12 +504,12 @@ void Events::response_start(const Object& event, bool first) {
     require(array(response, "output").empty(), "SSE resumed or prepopulated response is outside the implemented subset");
     if (first) {
         require(!created_, "SSE response.created cannot repeat");
-        response_id = identifier(response, "id");
+        response_id = response_identifier(response, max_response_id_bytes_);
         model_ = identifier(response, "model");
         created_ = true;
     } else {
         require(!in_progress_ && items_.empty(), "SSE response.in_progress is repeated or follows output");
-        require(identifier(response, "id") == response_id && identifier(response, "model") == model_,
+        require(response_identifier(response, max_response_id_bytes_) == response_id && identifier(response, "model") == model_,
                 "SSE response identity changed during the attempt");
         in_progress_ = true;
     }
@@ -508,7 +548,7 @@ void Events::output_added(const Object& event) {
     require(index == items_.size(), "SSE output indices must be introduced in order without gaps");
     within(items_.size() < limits_.max_output_items, "SSE output item count exceeds its bound");
     const auto& original = field(event, "item");
-    const auto normalized = normalize_item(original, false);
+    const auto normalized = normalize_item(original, false, &metadata_, event_path_ + "/item");
     const auto& source = normalized.as_object();
     ItemState state;
     state.id = identifier(source, "id");
@@ -542,7 +582,7 @@ void Events::content_added(const Object& event) {
     const auto index = integer(event, "content_index");
     require(index == state.parts.size(), "SSE content indices must be introduced in order without gaps");
     within(state.parts.size() < limits_.max_content_parts, "SSE content part count exceeds its bound");
-    const auto normalized = normalize_part(field(event, "part"));
+    const auto normalized = normalize_part(field(event, "part"), &metadata_, event_path_ + "/part");
     const auto kind = std::string(text(normalized.as_object(), "type"));
     if (kind == "refusal" && !compat_)
         throw ReplayFailure("unsupported_output", "SSE refusal content requires the compatibility profile");
@@ -597,9 +637,8 @@ void Events::summary_part_added(const Object& event) {
     const auto index = integer(event, "summary_index");
     require(index == state.summary.size(), "SSE summary indices must be introduced in order without gaps");
     within(state.summary.size() < limits_.max_content_parts, "SSE summary part count exceeds its bound");
-    const auto& part = object(field(event, "part"));
-    allowed(part, {"type", "text"});
-    require(text(part, "type") == "summary_text" && text(part, "text").empty(),
+    const auto normalized = normalize_summary(field(event, "part"), &metadata_, event_path_ + "/part");
+    require(text(normalized.as_object(), "text").empty(),
             "new SSE summary part must be empty summary_text");
     PartState added;
     added.kind = "summary_text";
@@ -613,9 +652,8 @@ void Events::summary_text(const Object& event, bool done) {
 void Events::summary_part_done(const Object& event) {
     auto& state = summary(event);
     require(state.text_done && !state.part_done, "SSE summary part.done requires one prior text.done");
-    const auto& part = object(field(event, "part"));
-    allowed(part, {"type", "text"});
-    require(text(part, "type") == "summary_text" && text(part, "text") == state.text,
+    const auto normalized = normalize_summary(field(event, "part"), &metadata_, event_path_ + "/part");
+    require(text(normalized.as_object(), "text") == state.text,
             "SSE summary part.done disagrees with the accumulated text");
     state.part_done = true;
 }
@@ -623,7 +661,7 @@ void Events::summary_part_done(const Object& event) {
 void Events::content_done(const Object& event) {
     auto& state = part(event);
     require(state.text_done && !state.part_done, "SSE content.done requires one prior text.done");
-    const auto normalized = normalize_part(field(event, "part"));
+    const auto normalized = normalize_part(field(event, "part"), &metadata_, event_path_ + "/part");
     const auto kind = std::string(text(normalized.as_object(), "type"));
     require(kind == state.kind, "SSE content.done changed its part type");
     const auto observed = kind == "refusal" ? text(normalized.as_object(), "refusal") :
@@ -654,8 +692,7 @@ void Events::arguments(const Object& event, bool done) {
 }
 
 void Events::matches(const ItemState& state, const Json& value, bool completed) const {
-    const auto normalized = normalize_item(value, completed);
-    const auto& candidate = normalized.as_object();
+    const auto& candidate = object(value);
     require(identifier(candidate, "id") == state.id && text(candidate, "type") == state.type,
             "SSE output snapshot changed its item identity or type");
     if (state.type == "message") {
@@ -694,16 +731,16 @@ void Events::matches(const ItemState& state, const Json& value, bool completed) 
 
 void Events::output_done(const Object& event) {
     auto& state = item(event);
-    const auto& value = field(event, "item");
+    const auto value = normalize_item(field(event, "item"), true, &metadata_, event_path_ + "/item");
     matches(state, value, true);
-    state.done_item = normalize_item(value, true);
+    state.done_item = value;
     state.done = true;
 }
 
 void Events::finish(const Object& event, const std::string& type) {
     const auto& value = field(event, "response");
     const auto& response = object(value);
-    require(text(response, "object") == "response" && identifier(response, "id") == response_id &&
+    require(text(response, "object") == "response" && response_identifier(response, max_response_id_bytes_) == response_id &&
             identifier(response, "model") == model_, "SSE terminal response identity changed");
     const auto status = type.substr(std::string("response.").size());
     require(text(response, "status") == status, "SSE terminal event and response status disagree");
@@ -712,10 +749,12 @@ void Events::finish(const Object& event, const std::string& type) {
     const bool completed = type == "response.completed";
     for (std::size_t index = 0; index < output.size(); ++index) {
         const auto& state = items_[index];
-        matches(state, output[index], completed);
+        const auto normalized = normalize_item(output[index], completed || state.done, &metadata_,
+                                               "/response/output/" + std::to_string(index));
+        matches(state, normalized, completed);
         if (completed) require(state.done, "SSE completed response contains an unfinished output item");
         if (state.done)
-            require(normalize_item(output[index], true) == state.done_item,
+            require(normalized == state.done_item,
                     "SSE terminal response changed an output_item.done snapshot");
     }
     terminal_type = type;
@@ -851,7 +890,8 @@ ResponsesSseReplay replay_responses_sse(const ProviderProfile& profile,
     ResponsesSseReplay result;
     result.response = original_response(request);
     response_metadata::Collector metadata(profile);
-    Events events(limits, profile.limits.max_json_depth, profile.responses_compatibility.has_value(), metadata);
+    Events events(limits, profile.limits.max_json_depth, profile.responses_compatibility.has_value(),
+                  profile.max_response_id_bytes, metadata);
     std::optional<ModelResponse> terminal_decoded;
     std::optional<ModelUsage> terminal_usage;
     Json terminal_codec_evidence = nullptr;

@@ -97,6 +97,9 @@ std::string stream(const EventList& events, std::string_view newline = "\n", boo
 ResponsesSseReplay replay(const EventList& events, SseReplayLimits limits = {}) {
     return replay_responses_sse(fixture::profile(), fixture::request(), {{stream(events), 0ms}}, limits);
 }
+ResponsesSseReplay replay_profile(const ProviderProfile& profile, const EventList& events) {
+    return replay_responses_sse(profile, fixture::request(), {{stream(events), 0ms}});
+}
 
 void completed_unknown_name_is_observation_but_corrupt_stream_stays_stopped() {
     auto events = tool_events();
@@ -865,6 +868,105 @@ void response_metadata_records_event_sequence_and_shared_terminal_paths() {
     CHECK(late.response.status == ModelResultStatus::Error && late.response.tool_calls.empty() && late.response.text.empty());
     CHECK(late.response.usage.input_tokens == result.response.usage.input_tokens);
 }
+void response_id_bound_preserves_legacy_sse_and_linked_identity() {
+    auto prefix = tool_events(); prefix.resize(1);
+    prefix[0].at("response").as_object()["id"] = std::string(256, 'r');
+    CHECK(replay(prefix).response.error_code == "stream_interrupted");
+    prefix[0].at("response").as_object()["id"] = std::string(257, 'r');
+    CHECK(replay(prefix).response.error_code == "invalid_sse");
+    prefix[0].at("response").as_object()["id"] = "旧 response";
+    CHECK(replay(prefix).response.error_code == "stream_interrupted");
+    auto profile = fixture::profile(); profile.max_response_id_bytes = 512;
+    CHECK(replay_profile(profile, prefix).response.error_code == "invalid_sse");
+    EventList events;
+    for (const auto length : {477, 512}) {
+        events = tool_events(); const std::string id(static_cast<std::size_t>(length), 'r');
+        for (auto& event : events) {
+            if (event.as_object().contains("response")) event.at("response").as_object()["id"] = id;
+            else event.as_object()["response_id"] = id;
+        }
+        const auto result = replay_profile(profile, events);
+        CHECK(result.response.status == ModelResultStatus::Completed && result.response.tool_calls.size() == 1);
+        CHECK(result.evidence.at("provider_response_id") == Json(id) && result.raw_stream == stream(events));
+    }
+    auto broken = events; broken[0].at("response").as_object()["id"] = std::string(513, 'r');
+    CHECK(replay_profile(profile, broken).response.error_code == "invalid_sse");
+    broken = events; broken[1].as_object()["response_id"] = std::string(512, 'x');
+    CHECK(replay_profile(profile, broken).response.error_code == "invalid_sse");
+    broken = events; broken.resize(2); broken[0].at("response").as_object()["id"] = std::string(129, 'r');
+    broken[1].as_object()["response_id"] = std::string(129, 'r');
+    CHECK(replay(broken).response.error_code == "invalid_sse");
+    for (const auto* key : {"id", "call_id"}) {
+        broken = events; broken.resize(2); broken[1].at("item").as_object()[key] = std::string(257, 'x');
+        CHECK(replay_profile(profile, broken).response.error_code == "invalid_sse");
+    }
+}
+void known_output_metadata_requires_policy_and_preserves_originals() {
+    auto profile = fixture::compat_profile(); profile.response_metadata_policy = "ignore-record-v1";
+    for (const bool reasoning : {true, false}) {
+        auto events = reasoning ? compat_reasoning_events() : tool_events();
+        for (auto& event : events) if (event.as_object().contains("response"))
+            event.at("response").as_object()["model"] = "o3-2025-04-16";
+        const auto known = replay_profile(profile, events);
+        const std::size_t added = reasoning ? 2 : 1, done = reasoning ? 8 : 5;
+        events[added].at("item").as_object()["metadata"] = Object{{"source", "synthetic-added"}};
+        events[done].at("item").as_object()["metadata"] = Object{{"source", "synthetic-done"}};
+        events.back().at("response").at("output").as_array()[0].as_object()["metadata"] = Object{{"source", "synthetic-terminal"}};
+        Array paths{std::string("/events/") + std::to_string(added) + "/item/metadata"};
+        if (reasoning) {
+            events[3].at("part").as_object()["future~/"] = "synthetic-part-added";
+            events[7].at("part").as_object()["future~/"] = "synthetic-part-done";
+            paths.emplace_back("/events/3/part/future~0~1"); paths.emplace_back("/events/7/part/future~0~1");
+        }
+        paths.emplace_back(std::string("/events/") + std::to_string(done) + "/item/metadata");
+        paths.emplace_back("/response/output/0/metadata");
+        CHECK(replay_profile(fixture::compat_profile(), events).response.error_code == "unsupported_output");
+        const auto result = replay_profile(profile, events);
+        CHECK(result.response.status == ModelResultStatus::Completed && result.response.text == known.response.text);
+        CHECK(to_json(result.response).at("tool_calls") == to_json(known.response).at("tool_calls"));
+        CHECK(to_json(result.response).at("usage") == to_json(known.response).at("usage"));
+        CHECK(result.raw_stream == stream(events) && result.terminal_response == events.back().at("response"));
+        CHECK(result.response.responses_output.at("output") == events.back().at("response").at("output"));
+        CHECK(result.evidence.at("unknown_fields") == Json(paths));
+        CHECK(result.evidence.at("terminal_codec").at("unknown_fields") == Json(Array{"/output/0/metadata"}));
+        events[done].at("item").as_object()[reasoning ? "encrypted_content" : "call_id"] = "changed-known-field";
+        const auto rejected = replay_profile(profile, events);
+        CHECK(rejected.response.status == ModelResultStatus::Error && rejected.response.tool_calls.empty());
+    }
+}
+void response_metadata_is_inert_but_keeps_lifecycle_and_shape_guards() {
+    auto profile = fixture::profile(); profile.response_metadata_policy = "ignore-record-v1";
+    profile.max_response_id_bytes = 512;
+    auto events = tool_events(); const auto known = replay_profile(profile, events);
+    events.insert(events.end() - 1, Object{{"type", "response.metadata"}, {"response_id", "telemetry_unrelated"},
+        {"model", profile.model}, {"metadata", Object{{"openai_chatgpt_moderation_metadata", Object{{"synthetic", true}}}}}});
+    resequence(events);
+    const auto result = replay_profile(profile, events);
+    CHECK(result.response.status == ModelResultStatus::Completed && to_json(result.response) == to_json(known.response));
+    CHECK(result.raw_stream == stream(events) && result.terminal_response == known.terminal_response);
+    CHECK((result.evidence.at("unknown_fields") == Json(Array{"/events/6/metadata", "/events/6/response_id"})));
+    CHECK(result.evidence.at("tools_dispatched") == 0 && result.evidence.at("unknown_fields_observed") == 2);
+    CHECK(replay(events).response.error_code == "unsupported_event");
+    std::vector<EventList> invalid;
+    auto broken = events; const auto metadata = broken[6]; broken.erase(broken.begin() + 6);
+    broken.insert(broken.begin(), metadata); resequence(broken); invalid.push_back(broken);
+    broken = events; std::swap(broken[6], broken[7]); resequence(broken); invalid.push_back(broken);
+    broken = events; broken[6].as_object()["sequence_number"] = 99; invalid.push_back(broken);
+    broken = events; broken[6].as_object()["metadata"] = Array{}; invalid.push_back(broken);
+    broken = events; broken[6].as_object()["usage"] = Object{}; invalid.push_back(broken);
+    broken = events; broken[6].as_object()["model"] = "unrelated-model"; invalid.push_back(broken);
+    broken = events; broken[6].as_object().erase("response_id"); invalid.push_back(broken);
+    broken = events; broken[6].as_object()["response_id"] = std::string(129, 't'); invalid.push_back(broken);
+    broken = events; broken[6].as_object()["type"] = "response.future_business"; invalid.push_back(broken);
+    broken = events; broken[1].as_object()["response_id"] = "telemetry_unrelated"; invalid.push_back(broken);
+    broken = events; broken[5].at("item").as_object()["call_id"] = "unpaired_call"; invalid.push_back(broken);
+    for (const auto& refused : invalid) {
+        const auto rejected = replay_profile(profile, refused);
+        CHECK(rejected.response.status == ModelResultStatus::Error);
+        CHECK(rejected.response.tool_calls.empty() && rejected.response.text.empty());
+        CHECK(rejected.raw_stream == stream(refused) && rejected.evidence.at("tools_dispatched") == 0);
+    }
+}
 void response_metadata_sse_bounds_and_strict_output_failures() {
     auto profile = fixture::profile(); profile.response_metadata_policy = "ignore-record-v1";
     auto events = tool_events();
@@ -877,11 +979,11 @@ void response_metadata_sse_bounds_and_strict_output_failures() {
     CHECK(result.raw_stream == stream(events));
     std::vector<EventList> invalid;
     events = tool_events(); events.back().as_object()["type"] = "response.future"; invalid.push_back(events);
-    events = tool_events(); events[1].at("item").as_object()["unknown"] = 1; invalid.push_back(events);
+    events = tool_events(); events[1].at("item").as_object()["status"] = 1; invalid.push_back(events);
     events = tool_events(); events.back().at("response").at("usage").as_object()["total_tokens"] = 1; invalid.push_back(events);
     events = tool_events(); events.back().as_object()["sequence_number"] = 100; invalid.push_back(events);
     events = tool_events(); events.front().as_object()["obfuscation"] = "padding"; invalid.push_back(events);
-    events = text_events(); events[3].at("part").as_object()["unknown"] = 1; invalid.push_back(events);
+    events = text_events(); events[3].at("part").as_object()["type"] = "future_content"; invalid.push_back(events);
     events = tool_events(); events.pop_back();
     add(events, "response.output_item.added", {{"output_index", 1}, {"item", Object{{"id", "future"}, {"type", "future_output"}}}});
     invalid.push_back(events); // A fully observed function before an unknown output cannot leak tools.
@@ -897,6 +999,9 @@ void response_metadata_sse_bounds_and_strict_output_failures() {
 
 int main() {
     return ::test::run({
+        {"SSE response ID opt-in preserves legacy and linked identity bounds", response_id_bound_preserves_legacy_sse_and_linked_identity},
+        {"SSE known output metadata needs policy and retains original output", known_output_metadata_requires_policy_and_preserves_originals},
+        {"SSE unbound metadata stays inert with strict lifecycle and shape guards", response_metadata_is_inert_but_keeps_lifecycle_and_shape_guards},
         {"SSE metadata records sequence paths and shared terminal metadata without changing known output", response_metadata_records_event_sequence_and_shared_terminal_paths},
         {"SSE metadata overflow stays bounded and unknown outputs never leak a completed function", response_metadata_sse_bounds_and_strict_output_failures},
         {"SSE preserves a complete unknown tool name without releasing corrupt output", completed_unknown_name_is_observation_but_corrupt_stream_stays_stopped},
