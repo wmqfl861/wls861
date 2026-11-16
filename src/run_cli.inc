@@ -494,7 +494,11 @@ Json run_summary(Store& store, const std::string& id, const Json& report, const 
                  reason == "model cost budget exhausted" || reason == "bounded output or context budget exhausted"))
             limit = "The next model call exceeds the remaining frozen budget or context capacity; repeating the command cannot raise those limits. Reconcile any pending accounting first.";
         if (!limit.empty()) limit += " To use adjusted limits, start a new request: change the request text or copy the configuration to a new directory and use that configuration path.";
-        safe["next_step"] = code == "unknown_outcome" || code == "operation_incomplete" ? "Reconcile file effects before continuing." :
+        const bool export_blocked = record.at("status") == "DELIVERED" && report.at("stop_reason") == "output_blocked" &&
+            safe.contains("role") && safe.at("role") == "root";
+        safe["next_step"] = export_blocked ?
+            "Resolve the export error, then run the same command again to replay the export; this does not call models." :
+            code == "unknown_outcome" || code == "operation_incomplete" ? "Reconcile file effects before continuing." :
             code == "needs_accounting" ? "Reconcile the original model accounting before continuing." :
             !limit.empty() && (report.at("stop_reason") == "wall_clock_exceeded" || reason == "wall_clock_exceeded") ? limit :
             code == "waiting" || code == "rework_blocked" ? "Answer the pending question." :

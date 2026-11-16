@@ -967,6 +967,10 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual((conflict['status'], conflict['stop_reason']), ('DELIVERED', 'output_blocked'))
             self.assertEqual(conflict['blockers'][0]['code'], 'conflict')
             self.assertIn('immutable package', conflict['blockers'][0]['reason'])
+            replay_guidance = ('Resolve the export error, then run the same command again to replay the export; '
+                               'this does not call models.')
+            self.assertEqual(conflict['blockers'][0]['next_step'], replay_guidance)
+            self.assertIn(replay_guidance, conflict['blockers'][0]['summary'])
             self.assertEqual(victim.read_bytes(), b'owner changed this copy')
             victim.unlink()
             outside = case['directory'] / 'outside.txt'
@@ -975,6 +979,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             unsafe = json.loads(self.invoke_run(case, '--yes').stdout)
             self.assertIsNone(unsafe['output_path'])
             self.assertEqual(unsafe['blockers'][0]['code'], 'unauthorized')
+            self.assertEqual(unsafe['blockers'][0]['next_step'], replay_guidance)
             self.assertEqual(outside.read_bytes(), b'outside must remain unchanged')
             victim.unlink()
             victim.write_bytes(b'alpha\nbeta\n')
@@ -984,6 +989,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             replaced = json.loads(self.invoke_run(case, '--yes').stdout)
             self.assertEqual(replaced['blockers'][0]['code'], 'conflict')
             self.assertIn('pinned root changed', replaced['blockers'][0]['reason'])
+            self.assertEqual(replaced['blockers'][0]['next_step'], replay_guidance)
             self.assertEqual(list(output.iterdir()), [])
             output.rmdir()
             retained_output.rename(output)
