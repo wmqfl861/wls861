@@ -11,6 +11,8 @@
 #include <arpa/inet.h>
 #include <fstream>
 #include <iostream>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
 #include <sys/socket.h>
 #include <thread>
 
@@ -80,6 +82,39 @@ int fixture(int argc, char** argv) {
     if (mode == "binary") {
         write_all(1, std::string("ok\0\xff\xf0", 5));
         write_all(2, "中文");
+        return 0;
+    }
+    if (mode == "deny-userns") {
+        // Deny the syscall before it reaches namespace creation. This exercises
+        // production pre-exec refusal without running a local native sandbox.
+        sock_filter instructions[] = {
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_unshare, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
+        };
+        sock_fprog filter{4, instructions};
+        CHECK(::prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
+        CHECK(::prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &filter) == 0);
+        struct stat before{}, after{};
+        CHECK(::stat("/proc/self/ns/mnt", &before) == 0);
+        Fd executable(::open("/proc/self/exe", O_RDONLY | O_CLOEXEC));
+        CHECK(executable);
+        ChildSpec child;
+        child.executable_fd = executable.get();
+        child.private_mounts = true;
+        child.argv = {"sandbox-fixture", "--process-fixture", "echo"};
+        const auto result = supervise(child,
+            {[](pid_t pid) { if (::kill(-pid, SIGKILL) != 0 && errno != ESRCH) system_error("kill refused fixture"); }, {}, false}, {}).process;
+        CHECK(result.spawned && result.status == ProcessStatus::SpawnFailed);
+        CHECK(!result.launcher_exec_confirmed && result.stdout_text.empty() && result.stderr_text.empty());
+        CHECK(result.error.find("stage 12") != std::string::npos);
+        CHECK(result.evidence.at("launcher_reaped") == true);
+        CHECK(result.evidence.at("kill_sent") == true);
+        CHECK(!result.all_descendants_exited && !result.strong_isolation);
+        CHECK(::stat("/proc/self/ns/mnt", &after) == 0);
+        CHECK(before.st_dev == after.st_dev && before.st_ino == after.st_ino);
+        std::cout << "namespace setup refused before command exec\n";
         return 0;
     }
     if (mode == "gated") {
@@ -466,6 +501,10 @@ void spawn_and_preexec_failure() {
     CHECK(bad_join.status == ProcessStatus::SpawnFailed);
     CHECK(!bad_join.launcher_exec_confirmed && bad_join.stdout_text.empty());
     CHECK(bad_join.error.find("stage 7") != std::string::npos);
+    const auto denied_namespace = FixtureSpec("deny-userns").run().process;
+    CHECK(denied_namespace.status == ProcessStatus::Exited && denied_namespace.exit_code == 0);
+    CHECK(denied_namespace.stdout_text == "namespace setup refused before command exec\n");
+    CHECK(denied_namespace.stderr_text.empty());
 }
 
 void escaped_descendant_remains_unknown() {

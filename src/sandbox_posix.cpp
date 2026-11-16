@@ -18,8 +18,10 @@
 #include <memory>
 #include <openssl/evp.h>
 #include <poll.h>
+#include <sched.h>
 #include <set>
 #include <sstream>
+#include <sys/mount.h>
 #include <sys/prctl.h>
 #include <sys/file.h>
 #include <sys/resource.h>
@@ -638,6 +640,7 @@ struct ChildSpec {
     int executable_fd{-1};
     int working_directory_fd{-1};
     int cgroup_procs_fd{-1};
+    bool private_mounts{false};
     std::vector<std::string> argv;
     std::vector<std::string> env;
     std::vector<ChildMapping> mappings;
@@ -675,6 +678,20 @@ struct ChildError { int stage; int number; };
         offset += static_cast<std::size_t>(count);
     }
     _exit(126);
+}
+
+void child_write_setup_file(int error_fd, int stage, const char* path,
+                            const char* bytes, std::size_t size) noexcept {
+    int fd;
+    do { fd = ::open(path, O_WRONLY | O_CLOEXEC | O_NOFOLLOW); } while (fd < 0 && errno == EINTR);
+    if (fd < 0) child_error(error_fd, stage, errno);
+    ssize_t count;
+    do { count = ::write(fd, bytes, size); } while (count < 0 && errno == EINTR);
+    const int failure = count < 0 ? errno : static_cast<std::size_t>(count) != size ? EIO : 0;
+    const int closed = ::close(fd);
+    if (failure != 0) child_error(error_fd, stage, failure);
+    // Linux releases the descriptor even when close reports EINTR; do not retry it.
+    if (closed != 0) child_error(error_fd, stage, errno);
 }
 
 // All allocations, argv construction and descriptor duplication happen before
@@ -721,6 +738,19 @@ SupervisionResult supervise(const ChildSpec& spec, DescendantControl control,
     for (const auto& item : spec.env) environment.push_back(const_cast<char*>(item.c_str()));
     args.push_back(nullptr);
     environment.push_back(nullptr);
+    std::string uid_map, gid_map;
+    if (spec.private_mounts) {
+        const auto uid = ::getuid();
+        const auto gid = ::getgid();
+        if (uid != ::geteuid() || gid != ::getegid())
+            throw Error(ErrorCode::Unauthorized, "sandbox launcher requires matching real and effective identities");
+        uid_map = std::to_string(uid) + " " + std::to_string(uid) + " 1\n";
+        gid_map = std::to_string(gid) + " " + std::to_string(gid) + " 1\n";
+    }
+    const auto* uid_bytes = uid_map.data();
+    const auto* gid_bytes = gid_map.data();
+    const auto uid_size = uid_map.size();
+    const auto gid_size = gid_map.size();
     const auto parent = ::getpid();
     const auto started = Clock::now();
     const pid_t child = ::fork();
@@ -749,6 +779,18 @@ SupervisionResult supervise(const ChildSpec& spec, DescendantControl control,
         if (::setrlimit(RLIMIT_CORE, &core) != 0) child_error(original_error, 6, errno);
         if (cgroup_procs && ::write(cgroup_procs.get(), "0", 1) != 1)
             child_error(original_error, 7, errno == 0 ? EIO : errno);
+        if (spec.private_mounts) {
+            // bwrap makes inherited mounts slave, which still permits incoming
+            // host mounts. Disconnect propagation in this child's own namespace
+            // first; the parent's namespace and root-ownership checks stay intact.
+            if (::syscall(SYS_unshare, CLONE_NEWUSER | CLONE_NEWNS) != 0)
+                child_error(original_error, 12, errno);
+            child_write_setup_file(original_error, 13, "/proc/self/uid_map", uid_bytes, uid_size);
+            child_write_setup_file(original_error, 14, "/proc/self/setgroups", "deny", 4);
+            child_write_setup_file(original_error, 15, "/proc/self/gid_map", gid_bytes, gid_size);
+            if (::syscall(SYS_mount, nullptr, "/", nullptr, MS_PRIVATE | MS_REC, nullptr) != 0)
+                child_error(original_error, 16, errno);
+        }
         if (working_directory && ::fchdir(working_directory.get()) != 0)
             child_error(original_error, 8, errno);
         for (const auto& mapping : mappings) {
@@ -1646,6 +1688,7 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
         child.executable_fd = launcher.fd.get();
         child.working_directory_fd = workspace_fd_;
         child.cgroup_procs_fd = group.procs();
+        child.private_mounts = true;
         child.timeout = request.timeout;
         child.cleanup_timeout = policy_.cleanup_timeout;
         child.output_limit = request.output_limit_bytes;
