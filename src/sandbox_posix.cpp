@@ -86,6 +86,20 @@ Fd duplicate_fd(int fd, int minimum = 3) {
     return Fd(value);
 }
 
+void append_directory_bind(std::vector<std::string>& argv, const char* option, int fd, const char* destination) {
+    // A new user namespace cannot resolve the parent's /proc/<pid>/fd links.
+    // Resolve here; the start gate still attests the actual mounted identity.
+    const auto link = "/proc/self/fd/" + std::to_string(fd);
+    std::array<char, 4096> buffer{};
+    ssize_t count;
+    do { count = ::readlink(link.c_str(), buffer.data(), buffer.size()); } while (count < 0 && errno == EINTR);
+    if (count < 0) system_error("resolve sandbox bind source");
+    const std::string source(buffer.data(), static_cast<std::size_t>(count));
+    if (source.empty() || source.size() == buffer.size() || source.front() != '/' || source.ends_with(" (deleted)"))
+        throw Error(ErrorCode::Unauthorized, "sandbox bind source is non-absolute, deleted or exceeds the path bound");
+    argv.insert(argv.end(), {option, source, destination});
+}
+
 void write_all(int fd, std::string_view bytes) {
     std::size_t offset = 0;
     while (offset < bytes.size()) {
@@ -1640,15 +1654,14 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
                       "--unshare-net", "--unshare-cgroup", "--disable-userns", "--assert-userns-disabled",
                       "--new-session", "--die-with-parent", "--cap-drop", "ALL", "--clearenv",
                       "--json-status-fd", "4", "--block-fd", "5", "--proc", "/proc", "--dev", "/dev",
-                      "--tmpfs", "/tmp", "--dir", "/tmp/home", "--dir", "/input",
-                      "--bind", "/proc/" + std::to_string(::getpid()) + "/fd/" + std::to_string(workspace_fd_), "/work"};
+                      "--tmpfs", "/tmp", "--dir", "/tmp/home", "--dir", "/input"};
+        append_directory_bind(child.argv, "--bind", workspace_fd_, "/work");
         child.mappings.push_back({status_pipe[1].get(), 4});
         // Never pass a host directory fd into bwrap's descendants. bwrap
         // closes --block-fd and --ro-bind-data fds before the command exec.
         child.mappings.push_back({gate_pipe[0].get(), 5});
         if (runtime_tree) {
-            child.argv.insert(child.argv.end(), {"--ro-bind", "/proc/" + std::to_string(::getpid()) +
-                "/fd/" + std::to_string(runtime_tree->root.get()), "/usr"});
+            append_directory_bind(child.argv, "--ro-bind", runtime_tree->root.get(), "/usr");
             for (const auto& name : runtime_tree->links)
                 child.argv.insert(child.argv.end(), {"--symlink", "usr/" + name, "/" + name});
         }
