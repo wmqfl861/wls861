@@ -1,5 +1,5 @@
 现在能做什么：0.12.0 已通过 G2-P，E-2 与 Responses/Chat 合成交付已落地；11-16 审核 D-30 至 D-45 已采纳，G2 真实运行与 G4 修复可以并行。
-还不能做什么：完整 G2 验收未通过；R1 探针完成；#126/#130/#131 已修复 profile 与两处 SSE 兼容性。U1 的 R2-stream-check 使用 17 次调用后仍未取得 Dispatcher 验收，按 D-32 封存；原 nullable usage 保持未知，输入占用计入额度；R3/U2 待执行。R0 导出恢复，严格 metadata 检查仅 SHM mtime 变化而 FAIL，原结果保留。
+还不能做什么：U1/U2 当前 main 复验均未完成交付；R2 第 17 次、R3 第 21 次调用的 Dispatcher 收到上游失败流，原 usage 保持未知。R3 建立了 3 个任务/团队。profile 和两处 SSE 兼容修复已合入，失败请求封存，接续 R5 最小优化；原导出由 R0 恢复，严格 metadata 保留检查的 SHM mtime 差异仍为 FAIL。
 需要 owner 做什么：当前无需操作；既有密钥授权有效，费用未知保持未知；阶段额度触顶等 D-32/D-34 指定情况才升级处理。
 
 # 当前状态

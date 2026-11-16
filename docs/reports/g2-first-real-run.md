@@ -1,6 +1,6 @@
 # G2 首次真实运行
 
-日期：2026-11-15 至 11-16。原三交付物导出已按 D-31 恢复，成果 12/12 通过、没有新模型调用；严格 metadata 保留检查仅 SHM mtime 变化而 FAIL，原结果保留。R1 探针通过。当前 U1/U2 尚未复验通过：#126 已修复发送前 profile 规范化，#130 已修复第一份 SSE 的兼容问题；第二份完整响应省略遥测 model，被原守卫拒绝，最小修复 [#131](https://github.com/wmqfl861/wls861/pull/131) 在验收。两次响应的产品账目保持未知。历史失败原样保留；实现 0.12.0、Store 410，G2 出口尚未通过。
+日期：2026-11-15 至 11-16。原三交付物导出已按 D-31 恢复，成果 12/12 通过、没有新模型调用；严格 metadata 保留检查仅 SHM mtime 变化而 FAIL，原结果保留。R1 探针通过。当前 U1/U2 均未复验通过：#126/#130/#131 已修复 profile 及两处 SSE 兼容性；之后 R2 和 R3 都在最后一个 Dispatcher 调用遇到中转 `upstream_error`，其失败事件重置序号并换响应 ID，未取得当前 Dispatcher 验收或交付。R2 共 17 次、R3 共 21 次，末次 Dispatcher 均为 ERROR，R3 建立了 3 个任务/团队；所有未知 usage 保留，不重发。历史失败原样保留；实现 0.12.0、Store 410，G2 出口尚未完成。
 
 owner 已授权指定 Responses 中转、`gpt-6.1-sol` 与测试凭据，并取消金额门禁；D-35 增加其他思考等级授权，R2 仍全部用 `max`，R3 在探针确认后分层。新请求冻结 `observe-only-v1`；D-34 的 G2 余下额度为 250 次调用、500 万输入 token，11-15 的 41 次另列历史。单次期限 180 秒，自动重试为 0；R2 上限 60 次/150 万输入/25 分钟，R3 上限 80 次/200 万输入/40 分钟，两者输出上限均为 8 万。费用未知不等于免费，无需补价格表或重新提供密钥。
 
@@ -16,7 +16,8 @@ owner 已授权指定 Responses 中转、`gpt-6.1-sol` 与测试凭据，并取�
 | 11-16 R2 首次启动 | `RECEIVED/error`；`live pricing differs from the request's frozen role provider`，尚未派发或发送模型请求 | 0（0/0/0）；无新用量；0.865 秒 |
 | 11-16 R2-fixed | `RECEIVED/needs_accounting`；完整 HTTP 200 SSE 被协议拒绝，0 任务/工具，无输出 | 1（1/0/0）；用量未知；96.326 秒；输入预留 34,266 保守占用 |
 | 11-16 R2-stream | `RECEIVED/needs_accounting`；完整 HTTP 200 SSE 的遥测事件省略 model 被拒，0 任务/工具，无输出 | 1（1/0/0）；用量未知；36.097 秒；输入预留 34,268 保守占用 |
-| 11-16 R2-stream-check | `RUNNING/needs_accounting`；17 次应答后新增 Dispatcher 响应不完整，未取得当前业务验收，无交付路径 | 17（2/2/13）；已知 187,388/8,832；1 Dispatcher 用量未知，输入预留 127,277；400.015 秒 |
+| 11-16 R2-stream-check | `RUNNING/needs_accounting`；第 17 次调用的 Dispatcher 响应不可用，未取得当前业务验收，无交付路径 | 17（2/2/13）；已知 187,388/8,832；1 Dispatcher 用量未知，输入预留 127,277；400.015 秒 |
+| 11-16 R3-stream-check | `RUNNING/needs_accounting`；3 任务/3 团队已创建，末次 Dispatcher 遇上游失败，无当前验收或交付 | 21（2/4/15）；已知 136,479/4,619；1 Dispatcher 用量未知，输入预留 87,747；325.431 秒 |
 
 按 Dispatcher / TeamLead / Worker 顺序，冒烟 02 输入/输出 token 为 14,622/1,006、30,323/1,356、28,056/937，平均请求体为 32,679.5、40,304、33,635.75 字节；三任务 02 为 31,194/4,887、76,857/7,098、467,090/6,446，平均请求体为 59,026、88,734、96,639.33 字节。缓存读分别为 0、7,680 token，缓存写均为 0；全请求按时间排序的 Worker 第 3..24 次缓存率为 7,680/446,197＝**1.7212%**（22 次调用，最小单次 0）。两次账目均 ready，总费用均 `null`，未知费用尝试分别为 9、29。冒烟保留 1 次 Worker `missing_leaf` 纠正，PASS 仅覆盖固定三行文件。
 
@@ -111,10 +112,14 @@ A-1/A-2 的输入为原捕获请求和 R0 完整备份，离线分析新增模�
 
 R2-stream 冻结在 main `322c173`，使用产品与资源等价的已验证 ELF。完整新 SSE 为 381,313 字节、1053 个连续事件，最后一个遥测事件没有 model，当前解码器报 `missing SSE field: model`。仅在该行补入 created.model 的派生诊断能完整解码，证明当前拒绝点，但不计作原输入通过；第二轮修复只允许该字段缺省，提供时继续强等值校验。原请求与 null 用量保留，不重发该 attempt。证据在 `r2-stream-execution/`、`r2-stream-diagnosis/`。
 
-#131 合并后的 main `55bf304` 上，以新目录运行 R2-stream-check。复用通过两份原始 SSE Release/ASan 检查的 ELF（哈希及完整 source tree 与 #131 候选相同，合并 main 也为同一 tree）。请求 400.015 秒，17 次调用（Dispatcher/TeamLead/Worker 为 2/2/13），已知输入/输出 187,388/8,832；最后一个 Dispatcher attempt 为 `ERROR` 且输入、输出、缓存与费用均未知，输入保守预留 127,277。摘要 `RUNNING/needs_accounting`，一个 team/task 状态为 ACTIVE/SUBMITTED，缺少当前 Dispatcher acceptance，`output_path=null`，无 delivery。请求目录完整保留；不取消、不重发。当前新失败仍属同一受限 SSE 兼容工作线，在 #130/#131 两次修复后仍未完成，按 D-32 封存 U1，不做第三轮；下一计划项 R3 继续单独准备。证据 `r2-stream-check-execution/` 与待完成只读诊断 `r2-stream-check-diagnosis/`。
+#131 合并后的 main `55bf304` 上，以新目录运行 R2-stream-check。复用通过两份原始 SSE Release/ASan 检查的 ELF（哈希及完整 source tree 与 #131 候选相同，合并 main 也为同一 tree）。请求 400.015 秒，17 次调用（Dispatcher/TeamLead/Worker 为 2/2/13），已知输入/输出 187,388/8,832；最后一个 Dispatcher attempt 为 `ERROR` 且输入、输出、缓存与费用均未知，输入保守预留 127,277。摘要 `RUNNING/needs_accounting`，一个 team/task 状态为 ACTIVE/SUBMITTED，缺少当前 Dispatcher acceptance，`output_path=null`，无 delivery。请求目录完整保留；不取消、不重发。当前新失败仍属同一受限 SSE 兼容工作线，在 #130/#131 两次修复后仍未完成，按 D-32 封存 U1，不做第三轮；下一计划项 R3 继续单独准备。证据 `r2-stream-check-execution/` 与只读诊断 `r2-stream-check-diagnosis/`。最后一份原流 57,385 字节（SHA-256 `a0faf4dd37b5697503f434b359ca05f7a1bda8b58cbf693974a4c4486f41a736`），事件序号 0..6 后以 seq=0 的 `response.failed` 报 `upstream_error`，其 response ID 也改变。原流有失败终态，解码器在序列守卫处拒绝，不能将 `terminal_received=false` 写成原流没有终态。
 
+截至 R3-stream-check，G2 本轮累计 **48 次调用**；已知输入 **350,071**、已知输出 **13,505**，未知输入预留 **283,558**、未知输出预留 **16,384**；阶段输入保守占用 **633,629 / 5,000,000**。加上 11-15 历史共 **89 次调用**，through-v1 已知输入 **998,468**、未知输入预留 **344,506**，保守占用 **1,342,974 / 60,000,000**。历史与本轮 nullable usage 均未回填；实际总输入和费用仍未知。
 
-截至 R2-stream-check，G2 本轮累计 **27 次调用**；已知输入 **213,592**、已知输出 **8,886**，未知输入预留 **195,811**、未知输出预留 **12,288**；阶段输入保守占用 **409,403 / 5,000,000**。加上 11-15 历史共 **68 次调用**，through-v1 输入保守占用 **1,118,748 / 60,000,000**。历史与本轮 nullable usage 均未回填；实际总输入和费用仍未知。
+[第二轮 SSE 修复 #131](https://github.com/wmqfl861/wls861/pull/131) 已合入 main `55bf304`。PR strict、strict-umask-0002、Clang-18、源码及 [D-40 ASan-affected 六项](https://github.com/wmqfl861/wls861/actions/runs/43916415645) 全部通过；main `322c173` [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43913004787) 也通过。main `55bf304` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43919634047)也已 10/10 作业成功：CTest 三核心各 90、ASan/UBSan 各 45+45，共 450/450；Make-ASan 两项作业通过。
 
+R3-stream-check 与 R2 使用同一 main/ELF、仅按计划改用 `three-split.txt`、high/medium/low 和 R3 原上限。21 次调用（2/4/15）中角色实际型号均为 `gpt-6.1-sol`、等级分别为 high/medium/low；3 个任务、3 个团队，Worker 参数纠正 1 次。任务没有完整交付，成果检查未执行。末次 Dispatcher 原流 79,635 字节（SHA-256 `3a0ba9c370a63f71c5090b963e3c8b54949df07ca2147c32c692c20cbe7c10ae`），149 事件的 seq 从 0..147 跳回 0，`response.failed` 报同一 `upstream_error` 并更换 response ID；该调用的 usage 全部 null。原件和新目录不改，U2 写未通过、多团队写已观察到；不将请求配置或分团队创建当交付成功。证据 `r3-stream-check-execution/`、`r3-stream-check-diagnosis/`。
 
-[第二轮 SSE 修复 #131](https://github.com/wmqfl861/wls861/pull/131) 已合入 main `55bf304`。PR strict、strict-umask-0002、Clang-18、源码及 [D-40 ASan-affected 六项](https://github.com/wmqfl861/wls861/actions/runs/43916415645) 全部通过；main `322c173` [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43913004787) 也通过。main `55bf304` 的完整矩阵仍在运行，最终结论待记。
+R4 后选择的 R5 最小切片是 E-1：仅对新配置显式 opt-in 的成功 fs_write 回执做发送副本投影；理由是 A-2 直接支持体积收益、无需修改历史记录，先避免组合三项无法归因。E-11/E-14 私有计划保留，本轮不为凑名额实施。合并前以同一 29 份捕获请求运行产品离线编码，合并后按原 R5 计划仅做一次新目录的同条件 R2；上游失败和不完整用量均单列，不以部分 token 差值宣称优化收益。
+
+`upstream_error` 是中转原始流明确报告的错误，更深层的上游失败原因未观察到；报告不以此归因于某一供应商、主机或编译器。
