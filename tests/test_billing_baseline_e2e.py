@@ -1502,6 +1502,9 @@ class BillingBaselineIntegration(unittest.TestCase):
         endpoint.plan['nodes'] = endpoint.plan['nodes'][:1]
         with tls.Peer(self.contexts['server'], endpoint) as peer:
             case = self.run_inputs('run-observe-complete', peer, observe_only=True)
+            profile = case['system']['models'][MODEL_REF]
+            for capabilities in (profile['capabilities'], profile['responses']['provider_profile']['capabilities']):
+                capabilities.update(reasoning_modes=['off', 'effort', 'provider_default'], reasoning_efforts=['low', 'medium', 'high', 'max'])
             case['system']['context'].update(request_format='structured-v3', model_projection='lean-v1',
                 tool_policy='fixed-role-v1', worker_history={
                     'mode': 'append-fold-v1', 'read_max_bytes': 24576, 'read_token_budget': 196608})
