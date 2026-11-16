@@ -629,7 +629,7 @@ response/binding，重复回放同一错误），本阶段不做纠错重调。�
 及其已支持的内容片段允许额外键，路径记入同一 `unknown_fields`；已知字段和内容类型仍严格校验。
 原始 output 值完整保留并回传；仅实际忽略输出额外键时，现有 `responses_output` 增加
 `response_metadata_policy:"ignore-record-v1"`，恢复时校验此值，编码时再次核对冻结 profile。
-未带策略的旧载荷仍严格验证。SSE 的独立 item/content 生命周期白名单继续严格检查。
+未带策略的旧载荷仍严格验证。SSE 已知 item/content/summary 在相同策略下记录并忽略额外元数据，原类型、生命周期、参数拼接及 done/terminal 一致性检查保持；未知业务事件和输出类型仍拒绝。
 原项回传依据：[reasoning](https://developers.openai.com/api/docs/guides/reasoning) 与
 [function calling](https://developers.openai.com/api/docs/guides/function-calling) 官方指南。
 
@@ -639,3 +639,5 @@ response/binding，重复回放同一错误），本阶段不做纠错重调。�
 超出时 `unknown_fields_truncated:true`，`unknown_fields_observed` 记录已检查范围的
 未知键出现次数（含重复路径）。完整原 body/已消费 stream 仍受原上限约束并无损保留；
 后续协议失败不会把该列表标作完整输入的扫描证明。旧证据不增加空字段。
+
+仅 Responses profile 可显式冻结 `max_response_id_bytes`（1..1024）；它限定响应 envelope ID 及已知事件对同一 ID 的引用，引用仍必须相等，item/call/model 名称边界不变。缺省不新增序列化字段，保留 HTTP 128、SSE envelope 256、已知 linked ID 128 字节的原行为。启用 `ignore-record-v1` 时，`response.metadata` 仅在 created 后、terminal 前作为未绑定遥测接受：序号连续、模型匹配、限定 `type/sequence_number/response_id/model/metadata` 字段，metadata 必须为对象，遥测 ID 仍限 128 字节。它的 ID 和元数据路径及原始流保留，不参与工具、账目或响应身份授权；真实请求原账目不因离线重放成功被重写。

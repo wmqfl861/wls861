@@ -85,6 +85,42 @@ void response_metadata_policy_is_explicit_and_preserves_legacy_bytes() {
         fails(ErrorCode::InvalidInput, [&] { (void)provider_profile_from_json(value); });
     }
 }
+void response_id_bound_is_optional_frozen_and_responses_only() {
+    const auto legacy = fixture::profile(); const auto original = to_json(legacy);
+    CHECK(!legacy.max_response_id_bytes && !original.as_object().contains("max_response_id_bytes"));
+    for (const auto bound : {1, 512, 1024}) {
+        auto value = original; value.as_object()["max_response_id_bytes"] = bound;
+        const auto selected = provider_profile_from_json(value);
+        CHECK(selected.max_response_id_bytes == static_cast<std::size_t>(bound));
+        CHECK(to_json(selected) == value && provider_profile_sha256(selected) != provider_profile_sha256(legacy));
+        CHECK(encode_responses_request(selected, fixture::request()).body == encode_responses_request(legacy, fixture::request()).body);
+    }
+    for (const auto& invalid : {Json(0), Json(1025), Json(-1), Json(true), Json(nullptr), Json("512")}) {
+        auto value = original; value.as_object()["max_response_id_bytes"] = invalid;
+        fails(ErrorCode::InvalidInput, [&] { (void)provider_profile_from_json(value); });
+    }
+    auto chat = to_json(wls::test::chat::profile()); chat.as_object()["max_response_id_bytes"] = 512;
+    fails(ErrorCode::Unsupported, [&] { (void)provider_profile_from_json(chat); });
+    auto reset = legacy; reset.max_response_id_bytes = 512; reset.max_response_id_bytes.reset();
+    CHECK(to_json(reset) == original && provider_profile_sha256(reset) == provider_profile_sha256(legacy));
+}
+void response_id_bound_does_not_expand_item_or_call_ids() {
+    auto value = fixture::tool_response(); value.as_object()["id"] = std::string(128, 'r');
+    CHECK(decode(value).response.status == ModelResultStatus::Completed);
+    value.as_object()["id"] = std::string(129, 'r'); refused(value);
+    auto profile = fixture::profile(); profile.max_response_id_bytes = 512;
+    value.as_object()["id"] = std::string(477, 'r');
+    const auto decoded = decode(value, profile);
+    CHECK(decoded.response.status == ModelResultStatus::Completed && decoded.provider_response_id == std::string(477, 'r'));
+    CHECK(decoded.raw_body == canonical_json(value) && decoded.response.tool_calls.size() == 1);
+    auto oversized = value; oversized.as_object()["id"] = std::string(513, 'r');
+    CHECK(decode(oversized, profile).response.error_code == "invalid_response");
+    for (const auto* key : {"id", "call_id"}) {
+        auto broken = value; broken.at("output").as_array()[0].as_object()[key] = std::string(129, 'x');
+        const auto rejected = decode(broken, profile);
+        CHECK(rejected.response.status == ModelResultStatus::Error && rejected.response.tool_calls.empty());
+    }
+}
 void response_metadata_paths_keep_originals_and_known_results() {
     for (auto profile : {fixture::profile(), fixture::compat_profile()}) {
         auto value = profile.responses_compatibility ? fixture::compat_json("reasoning-tool-response.json") : fixture::tool_response();
@@ -1042,6 +1078,8 @@ int main() {
         {"Chat terminal errors retain usage without partial tools", wls::test::chat::terminal_results_preserve_usage_without_partial_tools},
         {"Chat malformed identity usage arguments and bounds refuse", wls::test::chat::malformed_identity_usage_and_call_limits},
         {"response metadata policy freezes explicit selection and preserves legacy profile bytes", response_metadata_policy_is_explicit_and_preserves_legacy_bytes},
+        {"response ID bounds are optional frozen Responses profile fields", response_id_bound_is_optional_frozen_and_responses_only},
+        {"response ID opt-in preserves legacy HTTP and item/call bounds", response_id_bound_does_not_expand_item_or_call_ids},
         {"Responses background omission requires a frozen opt-in and preserves legacy wire identity", responses_background_policy_preserves_legacy_wire_identity},
         {"response metadata paths preserve originals and known decoding", response_metadata_paths_keep_originals_and_known_results},
         {"response metadata count and byte overflow truncate paths without losing originals", response_metadata_lists_are_bounded_without_losing_raw_bytes},

@@ -1056,7 +1056,8 @@ DecodedResponsesResponse decode_responses_response(const ProviderProfile& profil
             only_fields(source, response_metadata::response_fields, metadata.enabled);
             require(text(source, "object") == "response", ErrorCode::InvalidInput, "HTTP object is not a Responses response");
             const auto provider_id = text(source, "id");
-            require(token(provider_id), ErrorCode::InvalidInput, "invalid provider response ID");
+            require(token(provider_id, profile.max_response_id_bytes.value_or(128)), ErrorCode::InvalidInput,
+                    "invalid provider response ID");
             decoded.provider_response_id = provider_id;
             require(model_accepted(profile, text(source, "model")), ErrorCode::Stale,
                     "provider response model differs from the explicit profile alias");
