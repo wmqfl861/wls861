@@ -224,8 +224,8 @@ std::string store_detail::base64_bytes(std::string_view value) {
     }
     return result;
 }
-std::string store_detail::decoded_base64(std::string_view encoded) {
-    require(encoded.size() <= 87384 && encoded.size() % 4 == 0,
+std::string store_detail::decoded_base64(std::string_view encoded, std::size_t max_bytes) {
+    require(max_bytes <= 131072 && encoded.size() <= 4 * ((max_bytes + 2) / 3) && encoded.size() % 4 == 0,
             ErrorCode::InvalidInput, "invalid bounded snapshot base64");
     const auto digit = [](char c) -> unsigned int {
         if (c >= 'A' && c <= 'Z') return static_cast<unsigned int>(c - 'A');
@@ -251,8 +251,9 @@ std::string store_detail::decoded_base64(std::string_view encoded) {
         if (!third_padding) result.push_back(static_cast<char>((word >> 8U) & 255U));
         if (!fourth_padding) result.push_back(static_cast<char>(word & 255U));
     }
-    require(result.size() <= 65536 && base64_bytes(result) == encoded,
-            ErrorCode::InvalidInput, "snapshot requires canonical base64 and at most 64 KiB");
+    require(result.size() <= max_bytes && base64_bytes(result) == encoded,
+            ErrorCode::InvalidInput, max_bytes == 65536 ? "snapshot requires canonical base64 and at most 64 KiB" :
+                "snapshot requires canonical base64 within its frozen byte limit");
     return result;
 }
 
@@ -2343,6 +2344,9 @@ Json Store::submit_work(const StoreActor& actor, const ExecutionBinding& binding
                         std::int64_t expected, const Json& body,
                         const Json& artifact_snapshot, const std::string& command_id) {
     const std::lock_guard lock(impl_->mutex); impl_->require_workflow_schema();
+    const auto owner_config = impl_->request_row(actor.request_id);
+    const auto capacity = FrozenRequestConfig::restore(str(owner_config, "config_snapshot"),
+        str(owner_config, "config_snapshot_sha256")).artifact_capacity();
     object_fields(body, {"summary", "deliverables", "self_check", "verification", "known_issues", "used_memories"},
                   {"summary", "deliverables", "self_check"});
     (void)workflow_text(body, "summary", 16000); (void)json_text(body, 262144);
@@ -2350,7 +2354,8 @@ Json Store::submit_work(const StoreActor& actor, const ExecutionBinding& binding
         require(memories->is_array() && memories->as_array().empty(), ErrorCode::Unsupported,
                 "submission memory claims require the later versioned memory runner");
     require(body.at("deliverables").is_array() && !body.at("deliverables").as_array().empty() &&
-            body.at("deliverables").as_array().size() <= 8, ErrorCode::Quota, "submission needs 1..8 complete file snapshots");
+            body.at("deliverables").as_array().size() <= capacity.submission_files, ErrorCode::Quota,
+            capacity.configured ? "submission exceeds its frozen file count" : "submission needs 1..8 complete file snapshots");
     std::set<std::string> paths;
     for (const auto& deliverable : body.at("deliverables").as_array()) {
         object_fields(deliverable, {"path", "description"}, {"path", "description"});
@@ -2370,13 +2375,15 @@ Json Store::submit_work(const StoreActor& actor, const ExecutionBinding& binding
                 ErrorCode::InvalidInput, "snapshot SHA-256 must be lowercase hexadecimal");
         require(file.at("content_base64").is_string() && (file.at("size_bytes").is_int64() || file.at("size_bytes").is_uint64()),
                 ErrorCode::InvalidInput, "snapshot requires raw bytes and an integer byte count");
-        require((file.at("size_bytes").is_int64() && file.at("size_bytes").as_int64() >= 0 && file.at("size_bytes").as_int64() <= 65536) ||
-                (file.at("size_bytes").is_uint64() && file.at("size_bytes").as_uint64() <= 65536),
-                ErrorCode::InvalidInput, "snapshot file size must be 0..65536 bytes");
-        const auto bytes = decoded_base64(file.at("content_base64").as_string());
+        require((file.at("size_bytes").is_int64() && file.at("size_bytes").as_int64() >= 0 &&
+                file.at("size_bytes").as_int64() <= static_cast<std::int64_t>(capacity.submission_file_bytes)) ||
+                (file.at("size_bytes").is_uint64() && file.at("size_bytes").as_uint64() <= capacity.submission_file_bytes),
+                ErrorCode::InvalidInput, capacity.configured ? "snapshot file exceeds its frozen byte limit" : "snapshot file size must be 0..65536 bytes");
+        const auto bytes = decoded_base64(file.at("content_base64").as_string(), capacity.submission_file_bytes);
         require(number(file.as_object(), "size_bytes") == static_cast<std::int64_t>(bytes.size()) && sha256_hex(bytes) == hash,
                 ErrorCode::InvalidInput, "snapshot bytes, SHA-256 and size disagree");
-        require(bytes.size() <= 262144U - total, ErrorCode::Quota, "submission files exceed the 256 KiB total capacity"); total += bytes.size();
+        require(bytes.size() <= capacity.submission_total_bytes - total, ErrorCode::Quota,
+                capacity.configured ? "submission files exceed frozen total capacity" : "submission files exceed the 256 KiB total capacity"); total += bytes.size();
     }
     (void)json_text(artifact_snapshot, 524288);
     const auto command = payload(actor, "submit_work", Row{{"binding", to_json(binding)}, {"expected_task_version", expected},
@@ -2650,6 +2657,8 @@ Json Store::prepare_delivery(const StoreActor& actor, const ExecutionBinding& ca
     if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
     impl_->protect_inputs(root_path, root_identity);
     const auto request = impl_->authorize(actor, {Role::Root}); impl_->matches(captured);
+    const auto artifact_capacity = FrozenRequestConfig::restore(str(request, "config_snapshot"),
+        str(request, "config_snapshot_sha256")).artifact_capacity();
     require(number(request, "state_version") == expected, ErrorCode::Conflict, "delivery preparation request CAS changed");
     require(!terminal_request(str(request, "status")) && number(request, "plan_revision") > 0, ErrorCode::NotReady, "delivery needs a live planned request");
     for (const auto& workspace : impl_->all("SELECT canonical_path,device,inode FROM workspace_bindings"))
@@ -2698,7 +2707,7 @@ Json Store::prepare_delivery(const StoreActor& actor, const ExecutionBinding& ca
         Array source_files; std::size_t index = 0;
         for (const auto& artifact : submission.at("artifact_snapshot").as_array()) {
             const auto name = "artifact-" + str(task, "node_id") + "-" + std::to_string(++index) + ".bin";
-            const auto bytes = decoded_base64(artifact.at("content_base64").as_string());
+            const auto bytes = decoded_base64(artifact.at("content_base64").as_string(), artifact_capacity.submission_file_bytes);
             require(sha256_hex(bytes) == artifact.at("sha256").as_string() && bytes.size() == static_cast<std::size_t>(number(artifact.as_object(), "size_bytes")),
                     ErrorCode::Corrupt, "stored original artifact bytes changed");
             add_file(name, bytes);
@@ -3272,6 +3281,14 @@ Json Store::Impl::prepare_operation(const StoreActor& actor, const ExecutionBind
         require(!workspace_info(actor.team_id).is_null(), ErrorCode::NotReady, "team workspace has not been bound");
     const auto r = request_row(actor.request_id);
     const auto team = team_row(actor.team_id);
+    if (tool_id == "fs_write") {
+        const auto capacity = FrozenRequestConfig::restore(str(r, "config_snapshot"), str(r, "config_snapshot_sha256")).artifact_capacity();
+        if (capacity.configured) {
+            const auto* content = arguments.as_object().if_contains("content");
+            require(content && content->is_string() && content->as_string().size() <= capacity.write_bytes &&
+                    encoded_arguments.size() <= 256 * 1024, ErrorCode::Quota, "fs_write exceeds frozen raw or encoded capacity");
+        }
+    }
     require(number(team, "tool_calls_used") < configured_limit(r, "worker_max_tool_calls_per_order"), ErrorCode::Quota, "instruction tool-call budget exhausted");
     capacity_available(actor.request_id, "operations");
     cas("UPDATE tasks SET status='RUNNING',state_version=state_version+1,updated_at=? WHERE task_id=? AND state_version=?", {stamp(), actor.task_id, expected});

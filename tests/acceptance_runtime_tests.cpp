@@ -1,6 +1,7 @@
 #include "legacy_shell_config.hpp"
 #include "wls/event_runtime.hpp"
 #include "wls/worker_tools.hpp"
+#include "wls/delivery.hpp"
 #include "wls/structured_context.hpp"
 #include "protocol_test_support.hpp"
 #include "test_support.hpp"
@@ -45,7 +46,7 @@ void expect(ErrorCode code, const std::function<void()>& action) {
     }
     CHECK(caught);
 }
-AdmissionInput input(bool fixed = false, bool lean = false) {
+AdmissionInput input(bool fixed = false, bool lean = false, bool artifacts = false) {
     ::test::TempDir temp;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
     const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
@@ -57,6 +58,14 @@ AdmissionInput input(bool fixed = false, bool lean = false) {
     yaml.replace(at, format.size(), fixed ? "request_format: structured-v3\n  tool_policy: fixed-role-v1\n"
         "  management_history: {mode: window-v1, recent_attempts: 2, inline_bytes: 32768, max_context_bytes: 1048576}" : lean ? "request_format: structured-v3" : "request_format: framed-v1");
     if (lean) yaml.insert(yaml.find("  compaction_at_fraction:"), "  model_projection: lean-v1\n");
+    if (artifacts) {
+        yaml = read_runtime_file(source / "config/examples/system.yaml");
+        yaml.insert(yaml.find("  max_active_dispatchers:"),
+            "  artifact_capacity: {version: artifact-capacity-v1, fs_write_bytes: 131072, submission_files: 8, submission_file_bytes: 131072, submission_total_bytes: 262144}\n");
+        // An already-supported external profile window, not a production hard-limit change.
+        yaml.replace(yaml.find("context_window: 200000"), sizeof("context_window: 200000") - 1, "context_window: 1000000");
+        yaml.insert(yaml.find("  real_calls_enabled:"), "  runtime_policy: bounded-v1\n  max_total_calls: 80\n");
+    }
     write(temp.path / "system.yaml", yaml);
     const auto config = ::test::legacy_shell_catalog(temp.path / "system.yaml", source / "config/examples/functions",
                                             source / "prompts").freeze("general");
@@ -647,6 +656,102 @@ void fixed_role_catalog_stays_stable_across_actions_and_experience() {
     CHECK(f.invoke(Role::TeamLead, "report_experience", no_experience()).is_object());
     CHECK(f.store->experience_jobs(f.id).front().at("status") == "DONE");
 }
+
+void capacity_128_complete_original_history_and_delivery() {
+    Fixture f(input(false, false, true));
+    const std::string bytes(131072, 'a');
+    const Json write_arguments = Object{{"path", "result.txt"}, {"content", bytes}};
+    Json original_write_output = nullptr;
+    const auto invoke = [&](Role role, const std::string& tool, const Json& args) {
+        auto action = step(role, tool, args); action.tool_calls.front().call_id = new_id("call");
+        const FakeModel fake({action});
+        const auto call = f.capture(role, fake);
+        const auto round = call.request.attempt_id;
+        auto response = fake.complete(call.request);
+        response.responses_output = wls::test::protocol::compat_output_payload("o3", Array{
+            Object{{"type", "reasoning"}, {"id", "rs_" + round}, {"summary", Array{}},
+                {"encrypted_content", "synthetic-retained-reasoning"}},
+            Object{{"type", "function_call"}, {"id", "fc_" + round}, {"call_id", response.tool_calls.front().call_id},
+                {"name", tool}, {"arguments", canonical_json(args)}, {"status", "completed"}}});
+        if (role == Role::Worker && tool == "fs_write") original_write_output = response.responses_output;
+        if (role == Role::Worker && tool == "submit") {
+            std::size_t writes = 0;
+            for (const auto& message : call.request.context.logical_input.at("messages").as_array())
+                for (const auto& previous : message.at("tool_calls").as_array()) if (previous.at("name") == "fs_write") {
+                    CHECK(previous.at("arguments") == write_arguments);
+                    CHECK(message.at("responses_output") == original_write_output);
+                    ++writes;
+                }
+            CHECK(writes == 1);
+        }
+        CHECK(to_json(model_request_from_json(to_json(call.request))) == to_json(call.request));
+        CHECK(canonical_json(to_json(response)).size() < 4U * 1024U * 1024U);
+        // Pure offline codec copy; it never becomes a live Store attempt.
+        auto wire_request = call.request;
+        auto context = to_json(wire_request.context);
+        wire_request.model = wls::test::protocol::context().model;
+        context.at("model_ref") = wire_request.model.model; context.at("protocol_version") = "openai-responses-v1";
+        context.at("input").at("selection").at("model_ref") = wire_request.model.model;
+        context.at("input").at("selection").at("protocol_version") = "openai-responses-v1";
+        context.at("cache_identity") = sha256_hex(canonical_json(Object{{"format", "wls-context-cache-v3"},
+            {"selection", context.at("input").at("selection")}, {"prefix_sha256", context.at("prefix_sha256")},
+            {"tool_policy", "fixed-role-v1"}, {"model_projection", "lean-v1"}}));
+        context.at("logical_input_sha256") = sha256_hex(canonical_json(context.at("input")));
+        wire_request.context = compiled_context_from_json(context);
+        wire_request.reserved_input_tokens = 900000;
+        auto profile = wls::test::protocol::compat_profile(); profile.context_window = 1000000;
+        profile.max_output_tokens = 8192;
+        const auto wire = encode_responses_request(profile, wire_request);
+        auto raw = wls::test::protocol::response_with_output(response.responses_output.at("output").as_array());
+        raw.at("model") = "o3";
+        CHECK(decode_responses_response(profile, wire_request, 200, canonical_json(raw)).response.status == ModelResultStatus::Completed);
+        std::cout << "capacity128 " << role_name(role) << ':' << tool << " context=" << call.request.context.prompt().size()
+            << " envelope=" << canonical_json(to_json(call.request)).size() << " wire=" << wire.body.size()
+            << " response=" << canonical_json(to_json(response)).size() << '\n';
+        const auto result = OfflineRuntime(*f.store, *schemas, f.alpha.get()).accept_response(call, response);
+        CHECK(!f.store->tool_feedback(call.request.attempt_id).is_null());
+        return result;
+    };
+    const auto script = full_script(true);
+    (void)invoke(Role::Dispatcher, "submit_plan", script.default_steps.front().tool_calls.front().arguments);
+    (void)invoke(Role::TeamLead, "issue_work_order", script.by_node.at("alpha").front().tool_calls.front().arguments);
+    (void)f.store->acknowledge(f.store->host_actor(Role::Worker, f.id, f.binding().team_id), f.binding(),
+        number(f.task().at("state_version")), new_id("ack"));
+    (void)invoke(Role::Worker, "fs_write", write_arguments);
+    CHECK(read_runtime_file(f.directory.path / "alpha/result.txt") == bytes);
+    f.reopen();
+    (void)f.store->acknowledge(f.store->host_actor(Role::Worker, f.id, f.binding().team_id), f.binding(),
+        number(f.task().at("state_version")), new_id("ack"));
+    (void)invoke(Role::Worker, "submit", script.by_node.at("alpha").at(2).tool_calls.front().arguments);
+    CHECK(f.store->current_submission(f.binding().task_id).at("artifact_snapshot").as_array().front().at("size_bytes") == 131072);
+    (void)invoke(Role::TeamLead, "check_submission", positive_check());
+    (void)invoke(Role::Dispatcher, "accept_candidate", positive_acceptance());
+    f.reopen();
+    (void)invoke(Role::TeamLead, "report_experience", no_experience());
+    CHECK(f.store->experience_jobs(f.id).front().at("status") == "DONE");
+    std::filesystem::create_directory(f.directory.path / "delivery");
+    DeliveryDirectory directory(f.directory.path / "delivery");
+    auto root = f.store->host_actor(Role::Root, f.id);
+    auto delivery = f.store->prepare_delivery(root, f.store->request_binding(f.id),
+        number(f.store->request(f.id).at("state_version")), directory.root_identity(), new_id("prepare"));
+    const auto plan = delivery.at("frozen_plan");
+    const auto publication = directory.publish(plan);
+    CHECK(publication.status == DeliveryMutationStatus::Succeeded);
+    delivery = f.store->record_delivery_publication(root, f.store->request_binding(f.id), text(delivery.at("delivery_id")),
+        number(delivery.at("state_version")), publication.publication, new_id("publish"));
+    (void)f.store->acknowledge_delivery(root, f.store->request_binding(f.id), text(delivery.at("delivery_id")),
+        text(delivery.at("manifest_sha256")), number(delivery.at("requirements_revision")), number(delivery.at("plan_revision")),
+        "fixture-owner", "durable_local", new_id("receipt"), publication.publication);
+    CHECK(f.store->request(f.id).at("status") == "DELIVERED");
+    const auto path = f.directory.path / "delivery" / text(delivery.at("delivery_id"));
+    CHECK(read_runtime_file(path / "artifact-alpha-1.bin") == bytes);
+    f.reopen();
+    CHECK(f.store->delivery(text(delivery.at("delivery_id"))).at("frozen_plan") == plan);
+    CHECK(directory.inspect(plan).at("verified") == true);
+    CHECK(directory.publish(plan).status == DeliveryMutationStatus::Succeeded);
+    CHECK(read_runtime_file(path / "artifact-alpha-1.bin") == bytes);
+    std::filesystem::permissions(path, std::filesystem::perms::owner_all);
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -655,8 +760,9 @@ int main(int argc, char** argv) {
     if (argc != 1) {
         if (argc != 3 || std::string_view(argv[1]) != "--group" ||
             (std::string_view(argv[2]) != "acceptance" && std::string_view(argv[2]) != "experience" &&
-             std::string_view(argv[2]) != "memory" && std::string_view(argv[2]) != "guidance")) {
-            std::cerr << "usage: acceptance_runtime_tests [--group acceptance|experience|memory|guidance]\n";
+             std::string_view(argv[2]) != "memory" && std::string_view(argv[2]) != "guidance" &&
+             std::string_view(argv[2]) != "capacity")) {
+            std::cerr << "usage: acceptance_runtime_tests [--group acceptance|experience|memory|guidance|capacity]\n";
             return 2;
         }
         group = argv[2];
@@ -682,6 +788,7 @@ int main(int argc, char** argv) {
         {"experience", {"experience uses frozen source and host-owned report identity", experience_uses_frozen_source_and_report_ids_are_host_owned}},
         {"memory", {"v3 memory fields are host-owned while responses and replay stay original", v3_memory_fields_are_host_owned_and_responses_stay_original}},
         {"guidance", {"v3 tool guidance matches existing host rejection rules", v3_tool_guidance_matches_existing_host_rejections}},
+        {"capacity", {"128 KiB write, original history, submission and delivery survive reopen", capacity_128_complete_original_history_and_delivery}},
         {"experience", {"experience rejects forged identities and unbound memory claims", reports_cannot_forge_identity_or_invent_memory_use}},
         {"experience", {"experience proposals remain reports with memory disabled", experience_proposals_are_reports_not_automatic_memory_publication}},
         {"experience", {"captured experience source cannot be relabelled or become business work", experience_capture_cannot_change_source_or_become_business_order}},

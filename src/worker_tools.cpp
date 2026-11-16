@@ -179,7 +179,23 @@ Json normalize_worker_file_arguments(std::string_view name, Json arguments) {
     return arguments;
 }
 
-void validate_worker_tool_arguments(std::string_view name, const Json& args) {
+void apply_artifact_capacity(ContextTool& tool, const ArtifactCapacity& capacity) {
+    if (!capacity.configured) return;
+    if (tool.name == "fs_write") {
+        auto& content = tool.definition.at("properties").at("content").as_object();
+        content["maxLength"] = capacity.write_bytes;
+        content["description"] = "Complete replacement, at most " + std::to_string(capacity.write_bytes) +
+            " decoded bytes; the complete encoded arguments still must fit 256 KiB and the frozen provider limits.";
+    }
+    if (tool.name == "submit") {
+        auto& files = tool.definition.at("properties").at("deliverables").as_object();
+        files["maxItems"] = capacity.submission_files;
+        files["description"] = "Complete /work/ files, at most " + std::to_string(capacity.submission_file_bytes) +
+            " bytes each and " + std::to_string(capacity.submission_total_bytes) + " total; other context limits still apply.";
+    }
+}
+
+void validate_worker_tool_arguments(std::string_view name, const Json& args, ArtifactCapacity capacity) {
     static_cast<void>(worker_tool_definition(name));
     require(args.is_object(), ErrorCode::InvalidInput, "tool arguments must be an object");
     // Besides shape, these limits count decoded bytes, not Unicode characters.
@@ -199,7 +215,7 @@ void validate_worker_tool_arguments(std::string_view name, const Json& args) {
         allowed(args, {"path"}); text_argument(args, "path", 1, 4096);
     } else if (name == "fs_write") {
         allowed(args, {"path", "content", "expected_sha256"}); text_argument(args, "path", 1, 4096);
-        text_argument(args, "content", 0, 65536, false, true); hash_argument(args, "expected_sha256", true);
+        text_argument(args, "content", 0, capacity.write_bytes, false, true); hash_argument(args, "expected_sha256", true);
     } else if (name == "fs_patch") {
         allowed(args, {"path", "expected_sha256", "offset", "expected", "replacement"}); text_argument(args, "path", 1, 4096);
         hash_argument(args, "expected_sha256"); static_cast<void>(required(args, "offset"));
@@ -301,6 +317,8 @@ Json worker_execution_policy(const FrozenRequestConfig& config, std::string_view
         result["business_effect_scope"] = "file-tools-only";
     }
     if (!policy.input.is_null()) result["input"] = policy.input;
+    if (config.artifact_capacity().configured)
+        result.at("workspace_limits").as_object()["tool_write_bytes"] = config.artifact_capacity().write_bytes;
     return result;
 }
 
@@ -380,6 +398,8 @@ std::vector<ContextTool> WorkerTools::declarations(const StoreActor& actor) cons
     for (const auto& entry : worker_tool_registry()) if ((capacity.is_null() || entry.name != "run") &&
         std::find(grants.begin(), grants.end(), entry.name) != grants.end())
         result.push_back({entry.name, entry.version, entry.input_schema, builtin_tool_description(entry.name)});
+    const auto artifacts = restore_request_config(store_.request(actor.request_id)).artifact_capacity();
+    for (auto& tool : result) apply_artifact_capacity(tool, artifacts);
     return result;
 }
 
@@ -452,6 +472,21 @@ Json WorkerTools::diagnostic(const StoreActor& actor, const ExecutionBinding& bi
     }
 }
 
+Json WorkerTools::capture_submission_file(const StoreActor& actor, const ExecutionBinding& binding,
+                                        const std::string& path) {
+    const Json args = Object{{"path", path}, {"offset", 0}, {"max_bytes", 65536}};
+    const auto capacity = restore_request_config(store_.request(actor.request_id)).artifact_capacity();
+    if (!capacity.configured) return diagnostic(actor, binding, "fs_read", args);
+    validate_worker_tool_arguments("fs_read", args);
+    const auto allowance = store_.authorize_diagnostic(actor, binding, "fs_read");
+    rate_limit(actor, allowance); verify_workspace(actor);
+    // Workspace::read snapshots one pinned file under its directory lock and
+    // verifies its generation before returning the full hash and EOF marker.
+    const auto page = workspace_.read(path, 0, capacity.submission_file_bytes);
+    (void)store_.authorize_diagnostic(actor, binding, "fs_read"); verify_workspace(actor);
+    return page;
+}
+
 Json WorkerTools::control(const StoreActor& actor, const ExecutionBinding& binding, std::int64_t expected,
         const std::string& name, const Json& args, const std::string& command) {
     require(!read_only_, ErrorCode::Unauthorized, "read-only executor cannot change control state");
@@ -474,7 +509,7 @@ Json WorkerTools::control(const StoreActor& actor, const ExecutionBinding& bindi
 
 Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& binding, std::int64_t expected,
         const std::string& key, const std::string& name, const Json& args, const std::string& command, std::stop_token stop) {
-    validate_worker_tool_arguments(name, args);
+    validate_worker_tool_arguments(name, args, restore_request_config(store_.request(actor.request_id)).artifact_capacity());
     const auto& definition = worker_tool_definition(name);
     if (definition.category == ToolClass::Diagnostic) return diagnostic(actor, binding, name, args);
     if (definition.category == ToolClass::Control) return control(actor, binding, expected, name, args, command);

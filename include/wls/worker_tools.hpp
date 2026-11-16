@@ -27,7 +27,9 @@ struct ToolDefinition {
 // sandbox policy nor an authenticated actor can be supplied by model arguments.
 const std::vector<ToolDefinition>& worker_tool_registry();
 const ToolDefinition& worker_tool_definition(std::string_view name);
-void validate_worker_tool_arguments(std::string_view name, const Json& arguments);
+void validate_worker_tool_arguments(std::string_view name, const Json& arguments,
+                                    ArtifactCapacity capacity = {});
+void apply_artifact_capacity(ContextTool& tool, const ArtifactCapacity& capacity);
 // Only opt in from an immutable captured path policy; original model arguments stay intact.
 Json normalize_worker_file_arguments(std::string_view name, Json arguments);
 
@@ -61,6 +63,9 @@ public:
                  std::stop_token stop = {});
     Json diagnostic(const StoreActor& actor, const ExecutionBinding& binding,
                     const std::string& tool_name, const Json& arguments);
+    // Trusted submission capture; never a model-visible larger fs_read page.
+    Json capture_submission_file(const StoreActor& actor, const ExecutionBinding& binding,
+                                 const std::string& path);
 
 private:
     void check_actor(const StoreActor& actor) const;

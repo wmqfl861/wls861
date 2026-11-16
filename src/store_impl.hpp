@@ -27,7 +27,7 @@ std::int64_t runtime_wall_remaining(const Row& request, const FrozenRequestConfi
 ModelResponse unobserved_live_response(const ModelRequest& request, const std::string& reason);
 bool contains(const Json& list, std::string_view value);
 std::string base64_bytes(std::string_view value);
-std::string decoded_base64(std::string_view encoded);
+std::string decoded_base64(std::string_view encoded, std::size_t max_bytes = 65536);
 
 class Statement {
 public:

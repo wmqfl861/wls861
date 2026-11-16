@@ -556,7 +556,9 @@ CapabilityRegistry validate_system(const Json& system) {
         {"reserve_dispatchers_for_review", 'i'}, {"reserve_workers_for_review", 'i'}, {"review_reservation_policy", 's'},
         {"release_slots_while_waiting", 'b'}, {"max_teams_per_request", 'i'}, {"max_concurrent_model_calls_per_endpoint", 'i'},
         {"max_concurrent_ops", 'i'}, {"worker_max_tool_calls_per_order", 'i'}, {"manager_max_tool_calls_per_wake", 'i'},
-        {"team_internal_rework_max", 'z'}, {"stall_minutes", 'i'}, {"stall_same_error_repeats", 'i'}, {"store_capacity", '-'}}, {"store_capacity"});
+        {"team_internal_rework_max", 'z'}, {"stall_minutes", 'i'}, {"stall_same_error_repeats", 'i'}, {"store_capacity", '-'},
+        {"artifact_capacity", '-'}}, {"store_capacity", "artifact_capacity"});
+    (void)artifact_capacity_limits(system);
     (void)store_capacity_limits(system);
     if (limits.as_object().contains("store_capacity")) validate_store_capacity_admission(system);
     for (const auto& [total_key, reserve_key] : {std::pair{"max_active_dispatchers", "reserve_dispatchers_for_review"},
@@ -953,6 +955,32 @@ void validate_document(const Json& document, const ConfigLoadOptions& options) {
 }
 
 } // namespace
+
+ArtifactCapacity artifact_capacity_limits(const Json& system) {
+    ArtifactCapacity result;
+    const auto* policy = optional(required(system, "limits", "system"), "artifact_capacity");
+    if (!policy) return result;
+    fields(*policy, "artifact_capacity", {{"version", 's'}, {"fs_write_bytes", 'i'},
+        {"submission_files", 'i'}, {"submission_file_bytes", 'i'}, {"submission_total_bytes", 'i'}});
+    literal(*policy, "version", "artifact-capacity-v1", "artifact_capacity");
+    const auto limit = [&](const char* key, std::int64_t maximum) {
+        return static_cast<std::size_t>(integer_value(required(*policy, key, "artifact_capacity"), key, 1, maximum));
+    };
+    result.configured = true;
+    result.write_bytes = limit("fs_write_bytes", 131072);
+    result.submission_files = limit("submission_files", 8);
+    result.submission_file_bytes = limit("submission_file_bytes", 131072);
+    result.submission_total_bytes = limit("submission_total_bytes", 262144);
+    // Multiplication is bounded by the individually checked 8 and 131072 caps.
+    if (result.submission_file_bytes > result.submission_total_bytes ||
+        result.submission_total_bytes > result.submission_files * result.submission_file_bytes)
+        invalid("artifact_capacity", "requires per-file <= total <= file-count times per-file");
+    return result;
+}
+
+ArtifactCapacity FrozenRequestConfig::artifact_capacity() const {
+    return artifact_capacity_limits(document_.at("system"));
+}
 
 FrozenRequestConfig::FrozenRequestConfig(Json document, const ConfigLoadOptions& options,
                                        std::string canonical_bytes)

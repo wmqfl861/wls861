@@ -29,6 +29,15 @@ struct ConfigDependency {
     std::string content;
 };
 
+struct ArtifactCapacity {
+    bool configured{};
+    std::size_t write_bytes{65536};
+    std::size_t submission_files{8};
+    std::size_t submission_file_bytes{65536};
+    std::size_t submission_total_bytes{262144};
+};
+ArtifactCapacity artifact_capacity_limits(const Json& system);
+
 class ConfigCatalog;
 
 // An immutable, independently serializable request configuration. Restoration
@@ -50,6 +59,7 @@ public:
     ModelSelection resolve(Role role) const;
     Json explain(Role role) const;
     Json runtime_support() const;
+    ArtifactCapacity artifact_capacity() const;
     std::string context_request_format() const;
     std::string context_prompt_policy() const; // Empty preserves legacy rules and environment bytes.
     std::string context_model_projection() const; // Empty preserves the original model wire projection.
