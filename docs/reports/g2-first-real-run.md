@@ -16,6 +16,7 @@ owner 已授权指定 Responses 中转、`gpt-6.1-sol` 与测试凭据，并取�
 | 11-16 R2 首次启动 | `RECEIVED/error`；`live pricing differs from the request's frozen role provider`，尚未派发或发送模型请求 | 0（0/0/0）；无新用量；0.865 秒 |
 | 11-16 R2-fixed | `RECEIVED/needs_accounting`；完整 HTTP 200 SSE 被协议拒绝，0 任务/工具，无输出 | 1（1/0/0）；用量未知；96.326 秒；输入预留 34,266 保守占用 |
 | 11-16 R2-stream | `RECEIVED/needs_accounting`；完整 HTTP 200 SSE 的遥测事件省略 model 被拒，0 任务/工具，无输出 | 1（1/0/0）；用量未知；36.097 秒；输入预留 34,268 保守占用 |
+| 11-16 R2-stream-check | `RUNNING/needs_accounting`；17 次应答后新增 Dispatcher 响应不完整，未取得当前业务验收，无交付路径 | 17（2/2/13）；已知 187,388/8,832；1 Dispatcher 用量未知，输入预留 127,277；400.015 秒 |
 
 按 Dispatcher / TeamLead / Worker 顺序，冒烟 02 输入/输出 token 为 14,622/1,006、30,323/1,356、28,056/937，平均请求体为 32,679.5、40,304、33,635.75 字节；三任务 02 为 31,194/4,887、76,857/7,098、467,090/6,446，平均请求体为 59,026、88,734、96,639.33 字节。缓存读分别为 0、7,680 token，缓存写均为 0；全请求按时间排序的 Worker 第 3..24 次缓存率为 7,680/446,197＝**1.7212%**（22 次调用，最小单次 0）。两次账目均 ready，总费用均 `null`，未知费用尝试分别为 9、29。冒烟保留 1 次 Worker `missing_leaf` 纠正，PASS 仅覆盖固定三行文件。
 
@@ -110,4 +111,10 @@ A-1/A-2 的输入为原捕获请求和 R0 完整备份，离线分析新增模�
 
 R2-stream 冻结在 main `322c173`，使用产品与资源等价的已验证 ELF。完整新 SSE 为 381,313 字节、1053 个连续事件，最后一个遥测事件没有 model，当前解码器报 `missing SSE field: model`。仅在该行补入 created.model 的派生诊断能完整解码，证明当前拒绝点，但不计作原输入通过；第二轮修复只允许该字段缺省，提供时继续强等值校验。原请求与 null 用量保留，不重发该 attempt。证据在 `r2-stream-execution/`、`r2-stream-diagnosis/`。
 
-更新后的 G2 本轮累计 **10 次**，已知输入 **26,204**、已知输出 **54**；两次未知输入预留共 **68,534**，阶段输入保守占用 **94,738**。计入历史后共 **51 次**，已知输入 **674,601**，未知预留共 **129,482**，总输入保守占用 **804,083**；真实总输入和费用仍未知。
+#131 合并后的 main `55bf304` 上，以新目录运行 R2-stream-check。复用通过两份原始 SSE Release/ASan 检查的 ELF（哈希及完整 source tree 与 #131 候选相同，合并 main 也为同一 tree）。请求 400.015 秒，17 次调用（Dispatcher/TeamLead/Worker 为 2/2/13），已知输入/输出 187,388/8,832；最后一个 Dispatcher attempt 为 `ERROR` 且输入、输出、缓存与费用均未知，输入保守预留 127,277。摘要 `RUNNING/needs_accounting`，一个 team/task 状态为 ACTIVE/SUBMITTED，缺少当前 Dispatcher acceptance，`output_path=null`，无 delivery。请求目录完整保留；不取消、不重发。当前新失败仍属同一受限 SSE 兼容工作线，在 #130/#131 两次修复后仍未完成，按 D-32 封存 U1，不做第三轮；下一计划项 R3 继续单独准备。证据 `r2-stream-check-execution/` 与待完成只读诊断 `r2-stream-check-diagnosis/`。
+
+
+截至 R2-stream-check，G2 本轮累计 **27 次调用**；已知输入 **213,592**、已知输出 **8,886**，未知输入预留 **195,811**、未知输出预留 **12,288**；阶段输入保守占用 **409,403 / 5,000,000**。加上 11-15 历史共 **68 次调用**，through-v1 输入保守占用 **1,118,748 / 60,000,000**。历史与本轮 nullable usage 均未回填；实际总输入和费用仍未知。
+
+
+[第二轮 SSE 修复 #131](https://github.com/wmqfl861/wls861/pull/131) 已合入 main `55bf304`。PR strict、strict-umask-0002、Clang-18、源码及 [D-40 ASan-affected 六项](https://github.com/wmqfl861/wls861/actions/runs/43916415645) 全部通过；main `322c173` [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43913004787) 也通过。main `55bf304` 的完整矩阵仍在运行，最终结论待记。
