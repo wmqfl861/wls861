@@ -125,6 +125,7 @@ public:
     // Trusted host mount root: reject exposure of this Store and its sidecars.
     // Rechecks live control identities; does not audit other files in the tree.
     void validate_process_runtime_root(const std::filesystem::path& root) const;
+    void validate_process_input(const Json& input) const;
     Json claim_live_send(const StoreActor& actor, const std::string& attempt_id,
         std::int64_t expected_attempt_version, const EncodedResponsesRequest& encoded,
         const HttpsTransportOptions& transport, const std::string& command_id);

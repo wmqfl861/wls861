@@ -196,6 +196,7 @@ Json Store::prepare_owned_workspace(const StoreActor& actor, const std::string& 
         intent["version"] = "owned-allocation-v2"; intent["stage_leaf"] = new_id("stage"); intent["parent_identity"] = parent;
     }
     for (const auto& protected_path : owned_paths(intent)) {
+        impl_->protect_inputs(protected_path);
         // Reserve space for the absolute work path and its terminating NUL
         // before any mkdir. A predictable path-size failure must not strand
         // an otherwise complete stage without a persistable receipt.

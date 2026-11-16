@@ -114,6 +114,8 @@ public:
     Row team_row(const std::string& id) const;
     Row op_row(const std::string& id) const;
     void require_tools_schema() const;
+    void validate_input(const Json& input) const;
+    void protect_inputs(const std::string& path, const Json& identity = nullptr) const;
     void require_events_schema() const;
     void require_workflow_schema() const;
     void require_acceptance_schema() const;

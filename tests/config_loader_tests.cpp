@@ -655,6 +655,28 @@ void management_and_owned_capacity_policies_are_opt_in_and_frozen() {
     expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.freeze(); });
 }
 
+void input_policy_is_explicit_bounded_and_frozen() {
+    Fixture fixture;
+    const auto legacy = fixture.freeze();
+    CHECK(!legacy.json().at("system").at("sandbox").as_object().contains("input"));
+    auto system = legacy.json().at("system");
+    auto& input = system.at("sandbox").as_object()["input"];
+    input = Object{{"mode", "read-only-v1"}, {"max_total_bytes", 16777216}};
+    fixture.system(system);
+    const auto selected = fixture.freeze();
+    CHECK(selected.json().at("system").at("sandbox").at("input") == input);
+    for (const Json& invalid : Array{nullptr, Object{}, Object{{"mode", "rw"}, {"max_total_bytes", 1}},
+            Object{{"mode", "read-only-v1"}, {"max_total_bytes", 0}},
+            Object{{"mode", "read-only-v1"}, {"max_total_bytes", 268435457}},
+            Object{{"mode", "read-only-v1"}, {"max_total_bytes", "1"}},
+            Object{{"mode", "read-only-v1"}, {"max_total_bytes", 1}, {"path", "/input"}}}) {
+        input = invalid; fixture.system(system);
+        expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.freeze(); });
+    }
+    CHECK(FrozenRequestConfig::restore(selected.serialize(), selected.sha256()).serialize() == selected.serialize());
+    CHECK(FrozenRequestConfig::restore(legacy.serialize(), legacy.sha256()).serialize() == legacy.serialize());
+}
+
 } // namespace
 
 int main() {
@@ -671,6 +693,7 @@ int main() {
         {"unimplemented features reject and paid retries remain bounded", unsupported_runtime_features_never_silently_enable},
         {"budget durability and explicit weak isolation policies validate", budgets_durability_and_isolation_values_are_checked},
         {"standard and strict selection preserve frozen and legacy semantics", standard_and_strict_are_frozen_without_changing_legacy_defaults},
+        {"input policy is explicit bounded and frozen without upgrading old requests", input_policy_is_explicit_bounded_and_frozen},
         {"template references reject traversal and file or directory symlinks", template_paths_and_symbolic_links_cannot_escape_config_roots},
         {"configuration parsing and frozen payload have explicit capacity bounds", parser_and_snapshot_capacity_are_bounded},
         {"template dispatch requires a host registered deterministic validator", template_dispatch_requires_registered_deterministic_acceptance},
