@@ -1,25 +1,27 @@
-现在能做什么：0.12.0 已通过 G2-P，E-2 与 Responses/Chat 合成交付已落地；11-16 审核 D-30 至 D-45 已采纳，G2 真实运行与 G4 修复可以并行。
-还不能做什么：U1/U2 当前 main 复验均未完成交付；R2 第 17 次、R3 第 21 次调用的 Dispatcher 收到上游失败流，原 usage 保持未知。R3 建立了 3 个任务/团队。profile 和两处 SSE 兼容修复已合入，失败请求封存，接续 R5 最小优化；原导出由 R0 恢复，严格 metadata 保留检查的 SHM mtime 差异仍为 FAIL。
-需要 owner 做什么：当前无需操作；既有密钥授权有效，费用未知保持未知；阶段额度触顶等 D-32/D-34 指定情况才升级处理。
+现在能做什么：0.13.0 整理 G2 的实际结果、迁入 v0.5 规格并冻结六个既有格式；原文件冒烟、R0 原名导出恢复、R1 探针与三团队创建均有真实记录。
+还不能做什么：U1/U2 未通过。R2/R3 末次 Dispatcher 上游失败；R5 末次 Worker 因无序号扩展事件被协议拒绝，三次请求均无完整交付，缺失 usage 保持未知。E1 的完整真实改善未获得，按 D-37 保守回退，#134 已合入。
+需要 owner 做什么：当前无需操作；继续已定阶段和有限额度。额度触顶或 D-32 指定情况再按原规则处理。
 
 # 当前状态
 
-更新：2026-11-16。实现 **0.12.0**，当前蓝图 **v0.4.1**、已采纳目标 **v0.5**，Store **410**；没有数据库版本变更。
+更新：2026-11-16。实现 **0.13.0**，蓝图 **[v0.5](spec/v0.5/01_实施规格_v0.5.md)**，Store **410**；SQL 和已有请求未迁移。
 
-**稳定接手入口：[最新交接](reviews/current-handoff.md)**。后续工作唯一计划是 [11-16 计划](reviews/claude-2026-11-16/04-plan.md)；真实 G2 逐次事实保留在[运行记录](reports/g2-first-real-run.md)。长期状态仅在本页维护。
+**稳定接手入口：[最新交接](reviews/current-handoff.md)**。唯一前向计划是 [11-16 计划](reviews/claude-2026-11-16/04-plan.md)；G2 当前结论、用量、输入身份和冻结回归只在[运行记录](reports/g2-first-real-run.md)详记。
 
-最近合入 [#121](https://github.com/wmqfl861/wls861/pull/121) 沙箱绑定来源、[#122](https://github.com/wmqfl861/wls861/pull/122) 审核资料、[#123](https://github.com/wmqfl861/wls861/pull/123) 导出提示和 [#124](https://github.com/wmqfl861/wls861/pull/124) 三团队夹具。main `2cf036f` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43878414585)已成功；各 PR 的适用检查均通过。#121 另有分支 [asan-affected](https://github.com/wmqfl861/wls861/actions/runs/43864212503) 通过。
+R6 按计划中“明确记录未达原因”的路径整理出口，不能将 U1/U2 写为达成；六格式为 `structured-v3`、`lean-v1`、`fixed-role-v1`、`append-fold-v1`、`guided-v1`、`bounded-v1`。E1 不在保留能力内。R6 适用 CI 待核对，`v0.13.0` 标签待创建。
 
-## 当前边界
+## 已核对输入与验证
 
-D-31 允许先备份、再以当前 main 和原命令恢复原导出；D-32 只停止受影响请求或工作线，不再以该请求的 UNKNOWN 暂停全部真实调用。四角色的版本、授权、首次派发和原字节交付守卫保留。
+E1 [#133](https://github.com/wmqfl861/wls861/pull/133) 曾合入 `3fa7019`；本机协议 Release/ASan 各 60/60、同组 29 捕获默认 wire 全等，只有离线字节收益。一次真实 R5 未形成完整比较，回退 [#134](https://github.com/wmqfl861/wls861/pull/134) 已合入 `6f13998`，精确恢复 E1 前树，独立审核、PR 核心和 D-40 通过；最新 main [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43942161390)仍待结果。
 
-G4 保持 Strict 默认、standard 显式选用。[#127](https://github.com/wmqfl861/wls861/pull/127) 修复子进程挂载传播后，[托管原生运行](https://github.com/wmqfl861/wls861/actions/runs/43895693147)四种操作通过，包含输出、挂载/命名空间和完整回收；Standard 保持 `strong_isolation=false`。每夜调度已由 [#128](https://github.com/wmqfl861/wls861/pull/128) 合入，首次实际 scheduled 结果待记录。本机仍 BLOCKED：缺受信任 bwrap 和专用 cgroup 配置，普通用户实测 `uid_map: Operation not permitted`；未改主机设置，未将未配置推断为无 delegation；owner 已决定继续托管验收，本机保持 BLOCKED。Windows 11 NOT_RUN。完整记忆、独立审核闭环、私有行清理 runner、daemon/API 未完成，后续按 11-16 计划的阶段依赖推进。
+此前 `c01df93` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43929349216)通过：450/450 CTest、Make 60+25；它与回退源树相同，仍按原提交登记。PR、main 完整矩阵、本机局部测试和真实请求分列，不能相互替代。
 
-## G6 与下一步
+## 长期边界
 
-[#117](https://github.com/wmqfl861/wls861/pull/117)、[#118](https://github.com/wmqfl861/wls861/pull/118)、[#119](https://github.com/wmqfl861/wls861/pull/119) 完成 cleanup/live/history 构建切片；可选 ccache 及此前拆分保留。单组本机测量不证明普遍提速，G6 仍仅部分完成，详细测量见 [CHANGELOG](../CHANGELOG.md)。
+G4 保持 Strict 默认、Standard 显式选用。绑定及挂载传播修复后，[托管原生](https://github.com/wmqfl861/wls861/actions/runs/43895693147)四场景通过，包含输出、命名空间/挂载和完整回收；Standard 的 `strong_isolation=false`。每夜调度已合入，首次实际 scheduled 结果待记录。
 
-按 D-39，历史本机 ASan `event_runtime` 180 秒超时项已关闭，标为“本机现象，托管 CI 未复现”，不再投入诊断。原始超时与派生诊断原件保留，未改报为同一次门禁通过；证据索引见[最新交接](reviews/current-handoff.md)。
+本机仍 BLOCKED：缺受信任 bwrap 和专用 cgroup 配置，普通用户 `uid_map: Operation not permitted`；未改主机设置，不把未配置推断为无 delegation，按 owner 决定继续托管验收。Windows 11 NOT_RUN。完整记忆、独立审核闭环、私有行清理 runner、daemon/API 尚未完成。
 
-每次任务结束同步全部应提交代码与最新可公开交接，推送后核对远端提交、文档和 CI；私有原始证据与本机规则留本机，历史记录不改写。维护要求集中在[最新交接](reviews/current-handoff.md)。
+G6 的五个 Store 子域编译切片与可选 ccache 保留，实际并行未验收；单组构建测量不能证明普遍提速。D-39 的历史本机 ASan `event_runtime` 180 秒超时已关闭为“本机现象，托管 CI 未复现”，原失败与派生诊断保留。
+
+每次任务结束同步全部应提交代码和最新公开交接，推送后核对远端提交、文档和 CI；私有原件、凭据、数据库、构建包和本机规则不入库。

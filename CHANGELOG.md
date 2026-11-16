@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.13.0 — G2 evidence disposition and v0.5 contract freeze (2026-11-16)
+
+- Migrate the adopted v0.5 specification and A1–A5; freeze `structured-v3`,
+  `lean-v1`, `fixed-role-v1`, `append-fold-v1`, `guided-v1`, and `bounded-v1`.
+  Preserve old request interpretations, Store 410, published SQL and historical
+  documents. Archive the original ROADMAP bytes and update the public entry points.
+- Record the R6 exit under the plan's explicit unmet-results path: U1/U2 remain
+  unpassed. The original export was recovered; its SHM-mtime preservation check
+  remains FAIL. E1 passes offline/local validation, but one incomplete real R5
+  run cannot establish token or quality benefit. Conservatively revert E1 through
+  [#134](https://github.com/wmqfl861/wls861/pull/134), merged as `6f13998`;
+  retain the original commit, binary, frozen request and evidence, without
+  claiming the optimization ineffective or responsible for failure.
+- Actual input/CI identities, nullable usage and next actions are maintained in
+  [the G2 report](docs/reports/g2-first-real-run.md), [STATUS](docs/STATUS.md) and
+  [the latest handoff](docs/reviews/current-handoff.md). The version label alone
+  is not successful real acceptance; the annotated tag follows the actual exit.
+
 ## 0.12.0 — G2-P model readiness (2026-11-13)
 
 - Compile the Store history domain separately in G6-B, preserving SQL,

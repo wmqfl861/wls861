@@ -1,6 +1,6 @@
 # G2 首次真实运行
 
-日期：2026-11-15 至 11-16。原三交付物导出已按 D-31 恢复，成果 12/12 通过、没有新模型调用；严格 metadata 保留检查仅 SHM mtime 变化而 FAIL，原结果保留。R1 探针通过。当前 U1/U2 均未复验通过：#126/#130/#131 已修复 profile 及两处 SSE 兼容性；之后 R2 和 R3 都在最后一个 Dispatcher 调用遇到中转 `upstream_error`，其失败事件重置序号并换响应 ID，未取得当前 Dispatcher 验收或交付。R2 共 17 次、R3 共 21 次，末次 Dispatcher 均为 ERROR，R3 建立了 3 个任务/团队；所有未知 usage 保留，不重发。历史失败原样保留；实现 0.12.0、Store 410，G2 出口尚未完成。
+日期：2026-11-15 至 11-16。**U1/U2 未通过**：R2/R3 末次 Dispatcher 收到中转上游失败流；一次新 R5 则在末次 Worker 的无序号扩展事件处被协议拒绝，均无完整交付。原三交付物导出已按 D-31 恢复、成果 12/12 且无新调用；严格 metadata 保留检查仅 SHM mtime 变化而 FAIL，原结果保留。E1 离线字节减少已验证，真实改善仍未知，按 D-37 保守回退（[#134](https://github.com/wmqfl861/wls861/pull/134)，当前门禁/合入状态见末节），不宣称优化无效或导致失败。R6 按“明确记录未达原因”的计划路径整理 v0.5 与六格式；版本不代表 U1/U2 成功。R5 固定 main `3fa7019`（[#133](https://github.com/wmqfl861/wls861/pull/133)），原输入、CI 与回退身份见末节；Store 410。
 
 owner 已授权指定 Responses 中转、`gpt-6.1-sol` 与测试凭据，并取消金额门禁；D-35 增加其他思考等级授权，R2 仍全部用 `max`，R3 在探针确认后分层。新请求冻结 `observe-only-v1`；D-34 的 G2 余下额度为 250 次调用、500 万输入 token，11-15 的 41 次另列历史。单次期限 180 秒，自动重试为 0；R2 上限 60 次/150 万输入/25 分钟，R3 上限 80 次/200 万输入/40 分钟，两者输出上限均为 8 万。费用未知不等于免费，无需补价格表或重新提供密钥。
 
@@ -18,6 +18,7 @@ owner 已授权指定 Responses 中转、`gpt-6.1-sol` 与测试凭据，并取�
 | 11-16 R2-stream | `RECEIVED/needs_accounting`；完整 HTTP 200 SSE 的遥测事件省略 model 被拒，0 任务/工具，无输出 | 1（1/0/0）；用量未知；36.097 秒；输入预留 34,268 保守占用 |
 | 11-16 R2-stream-check | `RUNNING/needs_accounting`；第 17 次调用的 Dispatcher 响应不可用，未取得当前业务验收，无交付路径 | 17（2/2/13）；已知 187,388/8,832；1 Dispatcher 用量未知，输入预留 127,277；400.015 秒 |
 | 11-16 R3-stream-check | `RUNNING/needs_accounting`；3 任务/3 团队已创建，末次 Dispatcher 遇上游失败，无当前验收或交付 | 21（2/4/15）；已知 136,479/4,619；1 Dispatcher 用量未知，输入预留 87,747；325.431 秒 |
+| 11-16 R5-write-summary | `RUNNING/needs_accounting`；3 任务/3 团队；末次 Worker 无序号扩展事件被拒，`output_path=null`，成果核对未执行 | 10（1/3/6）；已知 57,642/7,894；1 Worker 用量未知，输入预留 51,440；230.839661 秒 |
 
 按 Dispatcher / TeamLead / Worker 顺序，冒烟 02 输入/输出 token 为 14,622/1,006、30,323/1,356、28,056/937，平均请求体为 32,679.5、40,304、33,635.75 字节；三任务 02 为 31,194/4,887、76,857/7,098、467,090/6,446，平均请求体为 59,026、88,734、96,639.33 字节。缓存读分别为 0、7,680 token，缓存写均为 0；全请求按时间排序的 Worker 第 3..24 次缓存率为 7,680/446,197＝**1.7212%**（22 次调用，最小单次 0）。两次账目均 ready，总费用均 `null`，未知费用尝试分别为 9、29。冒烟保留 1 次 Worker `missing_leaf` 纠正，PASS 仅覆盖固定三行文件。
 
@@ -123,3 +124,57 @@ R3-stream-check 与 R2 使用同一 main/ELF、仅按计划改用 `three-split.t
 R4 后选择的 R5 最小切片是 E-1：仅对新配置显式 opt-in 的成功 fs_write 回执做发送副本投影；理由是 A-2 直接支持体积收益、无需修改历史记录，先避免组合三项无法归因。E-11/E-14 私有计划保留，本轮不为凑名额实施。合并前以同一 29 份捕获请求运行产品离线编码，合并后按原 R5 计划仅做一次新目录的同条件 R2；上游失败和不完整用量均单列，不以部分 token 差值宣称优化收益。
 
 `upstream_error` 是中转原始流明确报告的错误，更深层的上游失败原因未观察到；报告不以此归因于某一供应商、主机或编译器。
+
+## R5：离线验证、一次真实比较与处置
+
+E1 原提交 `2bc26482b54865417635f4e9f294936c70c27f6c` 经 [#133](https://github.com/wmqfl861/wls861/pull/133) 合入 main `3fa70199af39600cf2c75e333e9ca97c4c4a9649`，两树相同。它只给独立 Worker profile 提供 `write-summary-v1`；原 profile/hash/wire、逻辑历史、Store 反馈及 `history_read` 原件保持。原 E1 本机 Release 与 ASan 协议各 60/60；[PR 三核心](https://github.com/wmqfl861/wls861/actions/runs/43933418378)270/270、[D-40 六项](https://github.com/wmqfl861/wls861/actions/runs/43933414439)和源码检查通过。
+
+同一 29 份历史捕获按产品编码器离线比较，缺省 29/29 wire SHA 全等，管理角色 5 份不变；24 份 Worker 的 5 个不同成功写回执（4 创建、1 覆盖）累计投影 99 次。首次测试夹具 58/60、私有验证启动器和测量脚本的初始失败均保留，修正后结果不覆盖原失败。
+
+| 离线样本 | 默认字节 | opt-in 字节 | 减少 |
+| --- | ---: | ---: | ---: |
+| 全部 29 请求 | 2,703,598 | 2,421,849 | 281,749（10.4213%） |
+| Worker 24 请求 | 2,319,344 | 2,037,595 | 281,749（12.1478%） |
+| 最后一次 Worker | 160,937 | 146,551 | 14,386（8.9389%） |
+
+真实 R5 使用 `three.txt` 和原 R2 constraints，Root/D/TL/W 全 max、流式、单次 180 秒、自动重试 0；60 次/150 万输入/8 万输出/25 分钟。实际模型均 `gpt-6.1-sol`；D/TL 沿用 `g2-r2-stream-check-model`，Worker 使用独立 `g2-r5-write-summary-worker-model` / `g2-r5-write-summary-worker-20261116`，10 次 profile/effort 逐项核对。fresh Release ELF SHA-256 `de7bee490fc15ef365460d1e4d685055433f5880c12933575fadae5c456c1c46`，35 资源 manifest SHA-256 `29f43a7b40134751e8b7cdbf97eb236a0a475d69531e6295b92d4d9fc4254e4d`；运行源 main 与构建源完整输入匹配。
+
+请求 230.839661 秒、10 调用后停于 `RUNNING/needs_accounting`。3 任务/3 团队仅证明建立路径；没有交付，`delivery_path/output_path=null`，成果核对未执行。最后 Worker HTTP 200，但 response 不可用，attempt ERROR，input/output/cache/cost 均保持 null，预留输入/输出 51,440/4,096。原数据库/WAL/SHM 哈希检查保持，分析仅在副本只读进行。
+
+| 实跑与角色 | 调用 | 已知输入/输出 | 未知 input/output 调用 |
+| --- | ---: | ---: | ---: |
+| R2 Dispatcher / TeamLead / Worker | 2 / 2 / 13 | 4,801/1,942；21,104/2,278；161,483/4,612 | 1 / 0 / 0 |
+| R3 Dispatcher / TeamLead / Worker | 2 / 4 / 15 | 4,820/1,121；29,716/1,791；101,943/1,707 | 1 / 0 / 0 |
+| R5 Dispatcher / TeamLead / Worker | 1 / 3 / 6 | 4,796/1,940；22,204/4,284；30,642/1,670 | 0 / 0 / 1 |
+
+R2/R3 实际 source 均为 main `55bf30459b8774e205023c20769c1b872894500b`，ELF SHA-256 `7634b85a5dcd4fbe50a7f5571602816b28738aa15dcb9a233c751afa3c8d04bd`；实际 model 均 `gpt-6.1-sol`，ref 分别为 `g2-r2-stream-check-model`、`g2-r3-stream-check-model`，effort 分别 max/max/max、high/medium/low。R2/R3 config 全文件 hash 分别绑定 preparation `db87ee301ac334eb6a2ac356f3dd1845f6c8766d08e34393a401b77efb3832ca`、`49cde095e26934c00e28aed378074f899aa0ad16b873c23690370bf266ad94fb`；R5 的同类绑定见下表。
+
+R5 原末流为 92,130 字节（SHA-256 `13d82e94e77eb830d46ff51bee143d687a8eedca939b24cd091f0859394d74b3`）。同一 ELF 对原流离线重放在首个 `codex.response.metadata` 报 `invalid_sse: missing SSE field: sequence_number`；49 个事件中 47 个序号 0..46 连续，另两个扩展事件为无序号的 `codex.response.metadata` 与 `responsesapi.websocket_timing`，后部存在 `response.completed`。本次原流没有 `response.failed/upstream_error`，不能沿用 R2/R3 的失败归因；终态中观察到的内容不回填原产品账目。
+
+六份实际 Worker wire 的编码哈希与原发送身份全等，发送历史中成功 `fs_write` 回执和 E1 summary output 均为 0。虽有两次写入成功，后续携带写回执的轮次尚未发送；本轮没有走到 E1 的实际压缩路径。既不能由部分 token、耗时或离线字节推断完整收益，也不能把失败归因于 E1。`token_improvement=null`，完整质量/用量比较 UNKNOWN。
+
+阶段累计经各原收据独立求和：G2 本轮 **58/250 次**，已知输入 **407,713** + 未知输入预留 **334,998** = 保守占用 **742,711/5,000,000**；已知输出 **21,399**，未知输出预留 **20,480**。包含 11-15 历史的 through-v1 为 **99/3,000 次**，已知输入 **1,056,110** + 未知输入预留 **395,946** = 保守占用 **1,452,056/60,000,000**；已知输出 **43,301**，未知输出预留 **26,624**。实际完整用量和费用仍未知，预留不是实际 token。
+
+决定：按 D-37 保守回退 E1，原因是一次获准比较没有取得有效完整改善证据；这不是“优化无效”或“优化有害”的结论。回退 [#134](https://github.com/wmqfl861/wls861/pull/134) 的 `ef8598a76cacbefc4673f5111b0c3b3b0b2a91b6` 仅反转 E1 五个文件，整个树精确等于 `c01df9310bbffaf43596a3487cf610d7aa68713a`，独立差异审核 PASS；[三核心](https://github.com/wmqfl861/wls861/actions/runs/43938846786)270/270、[D-40](https://github.com/wmqfl861/wls861/actions/runs/43938843600)六项和源码检查通过，已合入 main `6f13998366ecbd319eb844a413abe765b54d9c6a`。该 main 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43942161390)仍待结果；此前 `c01df93` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43929349216)450/450 CTest、Make 60+25 单独登记，不冒充本次回退/R6 的新门禁。
+
+原 E1 提交、离线验证、ELF/资源/配置与失败请求完整保留，不追加真实 R5，不做第三轮 SSE 修补。回退 parser 不接受已冻结 R5 opt-in profile；该请求继续封存，不用回退后的二进制恢复、重放或改写其账目。
+
+| 私有证据（相对本轮 `evidence/real-line/`） | SHA-256 |
+| --- | --- |
+| `r5-e1-validation-handoff.json` | `5d76f76699f2fbef4a1dad69a90d82946979394c706572d0ad5778bcb98d1a61` |
+| `r5-write-summary-measurement-final/summary.json` | `fa88d949da32d518eb4c54e16f881a32b07f4f7c1eedb11164fc5fed37b31f93` |
+| `r5-write-summary-prepared/preparation.json` | `0d7a9cd18d82fbe8c786ba040afc025b86d16e0cd91fa875508760bb99b1b704` |
+| `r5-write-summary-execution/result.json` | `633d1ac397564178d74c43f919a66c6c3214be2a4c8b2205b99e9351bc6ad947` |
+| `r5-write-summary-execution/metrics.json` | `0a8783bad1c5c3875566d553fe8354326a8b3441e78ec6a4ec7a305ee7d399d6` |
+| `r5-last-worker-diagnosis/diagnosis-summary.json` | `0eace82ff146a44ac6ed8e1c0cb9984b28cd41a948fe3029e28cd94bf728d684` |
+| `r5-actual-worker-wire-audit/summary.json` | `94f7260d30e35a01b54f45fa309420cb4c79d8ea0d9a15e8c9a661a95b4c85a7` |
+| `r5-cumulative-accounting-check.json` | `5a5bbf1df0e68605476c4e86d7c80132d22a27e764d3ffecb49531dcc272eeee` |
+| `r5-e1-exact-revert/receipt.json` | `1bc03e70c052055923267989ddc7c896f1a9eb37742ef647cd746e8d5f9ed49e` |
+
+## R6：规格、格式与版本出口记录
+
+R6 采用计划中“报告明确写出没达成原因”的出口路径：U1/U2 仍未通过，R5 完整比较 UNKNOWN，原请求处置及全部失败保持上述结论。迁入 [v0.5 规格](../spec/v0.5/01_实施规格_v0.5.md)及 A1–A5；冻结范围仅为 `structured-v3`、`lean-v1`、`fixed-role-v1`、`append-fold-v1`、`guided-v1`、`bounded-v1`。后续语义变化须新取值，旧 `framed-v1` / `structured-v2` 的字节、身份和恢复解释保持，E1 不作为保留能力。
+
+冻结回归沿用 `r1_structured`/`r1_structured_capture`/`r1_structured_lean`、`append_fold`、`model`、`acceptance_runtime_guidance`、`g1_exit_e2e`、`g2_rehearsal_e2e` 及完整矩阵中的现有旧请求、角色目录、原历史和有界运行检查；不缩减用例、断言或期限。R6 基于回退 main `6f13998`，适用 CI 待核对；历史 `c01df93` 全矩阵仅作为相同产品基线证据，不替代 R6 版本入口检查；标签尚未创建。
+
+旧 `docs/ROADMAP.md` 的 228 行原字节归档到 [roadmap-before-v0.5.md](../handoff/roadmap-before-v0.5.md)，SHA-256 `e3a990bb8b67dda88fd988a8b6d4818bbbf56d1663dc97e80383934266802505`；新路线不超过 60 行。AGENTS、README、STATUS、最新交接、CHANGELOG 与两处 0.13.0 常量同步；计划只维护 §1 状态列与 §15。旧规格、SQL、历史 handoff/审核与本文既有逐次事实保持。
