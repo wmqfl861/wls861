@@ -46,12 +46,6 @@ Array strings(const std::vector<std::string>& values) {
     for (const auto& value : unique) result.emplace_back(value);
     return result;
 }
-bool contains(const Json& list, std::string_view value) {
-    require(list.is_array(), ErrorCode::Corrupt, "expected string array");
-    return std::any_of(list.as_array().begin(), list.as_array().end(), [&](const Json& item) {
-        return item.is_string() && item.as_string() == value;
-    });
-}
 std::string tool_side_effect(std::string_view tool_id) {
     if (tool_id == "fs_mkdir" || tool_id == "fs_write" || tool_id == "fs_patch" || tool_id == "run") return "workspace";
     if (tool_id == "note") return "none";
@@ -60,53 +54,6 @@ std::string tool_side_effect(std::string_view tool_id) {
 bool diagnostic_tool(std::string_view tool_id) {
     return tool_id == "fs_list" || tool_id == "fs_read" || tool_id == "fs_search" ||
         tool_id == "op_status" || tool_id == "op_output";
-}
-std::string base64_bytes(std::string_view value) {
-    static constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string result;
-    result.reserve(((value.size() + 2) / 3) * 4);
-    for (std::size_t i = 0; i < value.size(); i += 3) {
-        const auto first = static_cast<unsigned char>(value[i]);
-        const auto second = i + 1 < value.size() ? static_cast<unsigned char>(value[i + 1]) : 0U;
-        const auto third = i + 2 < value.size() ? static_cast<unsigned char>(value[i + 2]) : 0U;
-        const auto word = (static_cast<unsigned int>(first) << 16U) | (second << 8U) | third;
-        result.push_back(alphabet[(word >> 18U) & 63U]);
-        result.push_back(alphabet[(word >> 12U) & 63U]);
-        result.push_back(i + 1 < value.size() ? alphabet[(word >> 6U) & 63U] : '=');
-        result.push_back(i + 2 < value.size() ? alphabet[word & 63U] : '=');
-    }
-    return result;
-}
-std::string decoded_base64(std::string_view encoded) {
-    require(encoded.size() <= 87384 && encoded.size() % 4 == 0,
-            ErrorCode::InvalidInput, "invalid bounded snapshot base64");
-    const auto digit = [](char c) -> unsigned int {
-        if (c >= 'A' && c <= 'Z') return static_cast<unsigned int>(c - 'A');
-        if (c >= 'a' && c <= 'z') return static_cast<unsigned int>(c - 'a' + 26);
-        if (c >= '0' && c <= '9') return static_cast<unsigned int>(c - '0' + 52);
-        if (c == '+') return 62;
-        if (c == '/') return 63;
-        fail(ErrorCode::InvalidInput, "snapshot base64 contains an invalid character");
-    };
-    std::string result;
-    result.reserve(encoded.size() / 4 * 3);
-    for (std::size_t i = 0; i < encoded.size(); i += 4) {
-        const auto first = digit(encoded[i]); const auto second = digit(encoded[i + 1]);
-        const bool third_padding = encoded[i + 2] == '=';
-        const bool fourth_padding = encoded[i + 3] == '=';
-        require((!third_padding || fourth_padding) &&
-                ((!third_padding && !fourth_padding) || i + 4 == encoded.size()),
-                ErrorCode::InvalidInput, "snapshot base64 has invalid padding");
-        const auto third = third_padding ? 0U : digit(encoded[i + 2]);
-        const auto fourth = fourth_padding ? 0U : digit(encoded[i + 3]);
-        const auto word = (first << 18U) | (second << 12U) | (third << 6U) | fourth;
-        result.push_back(static_cast<char>((word >> 16U) & 255U));
-        if (!third_padding) result.push_back(static_cast<char>((word >> 8U) & 255U));
-        if (!fourth_padding) result.push_back(static_cast<char>(word & 255U));
-    }
-    require(result.size() <= 65536 && base64_bytes(result) == encoded,
-            ErrorCode::InvalidInput, "snapshot requires canonical base64 and at most 64 KiB");
-    return result;
 }
 
 void nonblank(std::string_view value, std::string_view field, std::size_t maximum) {
@@ -252,9 +199,63 @@ Row reconciliation_command(const StoreActor& root, const std::string& id, std::i
     (void)canonical_json(command); // Validate UTF-8 before taking over a writer.
     return command;
 }
-class Statement {
-public:
-    Statement(sqlite3* db, std::string_view sql, const Array& parameters = {}) : db_(db) {
+}
+
+bool store_detail::contains(const Json& list, std::string_view value) {
+    require(list.is_array(), ErrorCode::Corrupt, "expected string array");
+    return std::any_of(list.as_array().begin(), list.as_array().end(), [&](const Json& item) {
+        return item.is_string() && item.as_string() == value;
+    });
+}
+std::string store_detail::base64_bytes(std::string_view value) {
+    static constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string result;
+    result.reserve(((value.size() + 2) / 3) * 4);
+    for (std::size_t i = 0; i < value.size(); i += 3) {
+        const auto first = static_cast<unsigned char>(value[i]);
+        const auto second = i + 1 < value.size() ? static_cast<unsigned char>(value[i + 1]) : 0U;
+        const auto third = i + 2 < value.size() ? static_cast<unsigned char>(value[i + 2]) : 0U;
+        const auto word = (static_cast<unsigned int>(first) << 16U) | (second << 8U) | third;
+        result.push_back(alphabet[(word >> 18U) & 63U]);
+        result.push_back(alphabet[(word >> 12U) & 63U]);
+        result.push_back(i + 1 < value.size() ? alphabet[(word >> 6U) & 63U] : '=');
+        result.push_back(i + 2 < value.size() ? alphabet[word & 63U] : '=');
+    }
+    return result;
+}
+std::string store_detail::decoded_base64(std::string_view encoded) {
+    require(encoded.size() <= 87384 && encoded.size() % 4 == 0,
+            ErrorCode::InvalidInput, "invalid bounded snapshot base64");
+    const auto digit = [](char c) -> unsigned int {
+        if (c >= 'A' && c <= 'Z') return static_cast<unsigned int>(c - 'A');
+        if (c >= 'a' && c <= 'z') return static_cast<unsigned int>(c - 'a' + 26);
+        if (c >= '0' && c <= '9') return static_cast<unsigned int>(c - '0' + 52);
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        fail(ErrorCode::InvalidInput, "snapshot base64 contains an invalid character");
+    };
+    std::string result;
+    result.reserve(encoded.size() / 4 * 3);
+    for (std::size_t i = 0; i < encoded.size(); i += 4) {
+        const auto first = digit(encoded[i]); const auto second = digit(encoded[i + 1]);
+        const bool third_padding = encoded[i + 2] == '=';
+        const bool fourth_padding = encoded[i + 3] == '=';
+        require((!third_padding || fourth_padding) &&
+                ((!third_padding && !fourth_padding) || i + 4 == encoded.size()),
+                ErrorCode::InvalidInput, "snapshot base64 has invalid padding");
+        const auto third = third_padding ? 0U : digit(encoded[i + 2]);
+        const auto fourth = fourth_padding ? 0U : digit(encoded[i + 3]);
+        const auto word = (first << 18U) | (second << 12U) | (third << 6U) | fourth;
+        result.push_back(static_cast<char>((word >> 16U) & 255U));
+        if (!third_padding) result.push_back(static_cast<char>((word >> 8U) & 255U));
+        if (!fourth_padding) result.push_back(static_cast<char>(word & 255U));
+    }
+    require(result.size() <= 65536 && base64_bytes(result) == encoded,
+            ErrorCode::InvalidInput, "snapshot requires canonical base64 and at most 64 KiB");
+    return result;
+}
+
+store_detail::Statement::Statement(sqlite3* db, std::string_view sql, const Array& parameters) : db_(db) {
         require(sql.size() <= static_cast<std::size_t>(INT_MAX), ErrorCode::Storage, "SQL too large");
         sqlite_failure(db_, sqlite3_prepare_v2(db_, sql.data(), static_cast<int>(sql.size()), &statement_, nullptr), "prepare");
         try {
@@ -275,15 +276,13 @@ public:
             }
         } catch (...) { sqlite3_finalize(statement_); throw; }
     }
-    ~Statement() { sqlite3_finalize(statement_); }
-    Statement(const Statement&) = delete;
-    Statement& operator=(const Statement&) = delete;
-    bool step() {
+store_detail::Statement::~Statement() { sqlite3_finalize(statement_); }
+bool store_detail::Statement::step() {
         const auto result = sqlite3_step(statement_);
         sqlite_failure(db_, result, "step");
         return result == SQLITE_ROW;
     }
-    Row row() const {
+Row store_detail::Statement::row() const {
         Row result;
         for (int i = 0; i < sqlite3_column_count(statement_); ++i) {
             const auto* name = sqlite3_column_name(statement_, i);
@@ -300,11 +299,6 @@ public:
         }
         return result;
     }
-private:
-    sqlite3* db_{};
-    sqlite3_stmt* statement_{};
-};
-}
 
 [[noreturn]] void store_detail::fail(ErrorCode code, const std::string& message) {
     throw Error(code, message);
@@ -2117,7 +2111,6 @@ std::vector<Json> Store::attempt_history(const StoreActor& actor, std::int64_t l
     return result;
 }
 
-#include "store_history.inc"
 #include "store_single_agent.inc"
 
 bool Store::workflow_runtime_enabled() const {
@@ -3786,7 +3779,7 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         require(context.tool_names == frozen_config.role_tool_catalog(actor.role, template_id), ErrorCode::Unauthorized,
             "complete tool catalog differs from frozen role/template permission");
     }
-    const auto previous = format == "structured-v3" ? previous_context_projection(*impl_, actor, frozen_config) : Json(nullptr);
+    const auto previous = format == "structured-v3" ? impl_->history_previous_context(actor, frozen_config) : Json(nullptr);
     if (format == "structured-v3") validate_structured_contract_continuity(context, previous);
     const auto* history_projection = context.structured() ? context.logical_input.as_object().if_contains("worker_history") : nullptr;
     const bool append = actor.role == Role::Worker && append_fold_policy(frozen_config.worker_history_policy());
@@ -3796,7 +3789,7 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         const auto requested = number(history_projection->as_object(), "fold_generation");
         require(requested == generation || requested == generation + 1, ErrorCode::Conflict, "history fold generation changed");
         auto expected = append_fold_history(previous.is_null() ? Json(nullptr) : previous.at("input"),
-            append_history_delta(*impl_, actor, previous), requested != generation);
+            impl_->history_append_delta(actor, previous), requested != generation);
         const auto messages = expected.at("messages"); expected.as_object().erase("messages");
         require(expected == *history_projection && messages == context.logical_input.at("messages"), ErrorCode::Conflict,
             "append-fold history_projection does not continue current original history");
