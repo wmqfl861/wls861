@@ -415,7 +415,8 @@ void Events::accept(std::string_view event_name, std::string_view data) {
         for (const auto& entry : event)
             if (!fields.contains(std::string(entry.key())))
                 throw ReplayFailure("unsupported_event", "SSE telemetry has an unsupported shape");
-        require(identifier(event, "model") == model_, "SSE telemetry model differs from response.created");
+        if (event.contains("model"))
+            require(identifier(event, "model") == model_, "SSE telemetry model differs from response.created");
         (void)provider_identifier(event, "response_id", 128);
         (void)object(field(event, "metadata"));
         // The gateway's telemetry ID is unbound. Retain its path and raw
