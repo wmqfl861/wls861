@@ -2,6 +2,14 @@
 
 ## 0.12.0 — G2-P model readiness (2026-11-13)
 
+- Compile the Store history domain separately in G6-B, preserving SQL,
+  transaction boundaries and public APIs. One GCC 13.3 Release/-j2 pair
+  measures baseline/candidate full builds at 1834.180195/1900.941800 seconds
+  (+3.6399%); touching the unchanged `store_history.inc` gives incremental
+  builds of 189.709923/76.139300 seconds (-59.8654%). One-second CPU-steal
+  observations were 56%/35%; whole-build averages were not measured.
+  This pair does not establish general build performance, completion of G6,
+  or the cause of the historical ASan timeout.
 - Compile the Store live accounting domain separately in G6-B, preserving
   SQL, transaction boundaries and public APIs. One paired local sample
   measures baseline/candidate full builds at 478.048187098/480.054200499
