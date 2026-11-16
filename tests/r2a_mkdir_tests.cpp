@@ -34,7 +34,7 @@ void mkdir_prepared_phase(std::string_view key, const wls::s1::Json& prepared);
 // Observe the existing private pre-dispatch phase in this executable only.
 // Production WorkerTools has no callback and still supplies the implementation
 // used here. The static archive does not also pull its worker_tools.o.
-#define WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE(key, prepared) ::mkdir_prepared_phase(key, prepared)
+#define WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE(key, prepared, stop) ::mkdir_prepared_phase(key, prepared)
 #include "../src/worker_tools.cpp"
 #undef WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE
 

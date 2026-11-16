@@ -11,8 +11,10 @@
 
 #include <algorithm>
 #include <charconv>
+#include <condition_variable>
 #include <limits>
 #include <set>
+#include <thread>
 
 namespace wls::s1 {
 namespace {
@@ -136,6 +138,17 @@ struct ActiveRuns {
     bool settlement_capacity_exhausted{false};
 };
 ActiveRuns& active_runs() { static ActiveRuns value; return value; }
+struct EnvironmentCheck { std::string key; Json arguments; };
+EnvironmentCheck environment_check(const FrozenRequestConfig& config, const StoreActor& actor,
+        const Json& environment, const Json& workspace, std::size_t index) {
+    const auto& check = environment.at("tools").as_array().at(index).at("check");
+    const auto& policy = workspace.at("execution_policy");
+    const auto key = sha256_hex(canonical_json(Array{actor.team_id, actor.execution_epoch,
+        environment.at("template_sha256"), workspace.at("execution_policy_sha256"), index, check}));
+    return {"environment:" + key, Object{{"argv", Array{"/bin/sh", "-c", check}},
+        {"timeout_s", std::min<std::uint64_t>(5, unsigned_number(config.json().at("system").at("sandbox").at("run_max_timeout_s")))},
+        {"max_output_bytes", std::min<std::uint64_t>(1024, unsigned_number(policy.at("max_output_bytes")))}}};
+}
 } // namespace
 
 const std::vector<ToolDefinition>& worker_tool_registry() {
@@ -404,7 +417,136 @@ Json WorkerTools::environment_card(const StoreActor& actor) const {
         result["business_effect_scope"] = "file-tools-only";
         result["owned_workspace_capacity"] = binding.at("execution_policy").at("owned_workspace_capacity");
     }
+    const auto config = restore_request_config(store_.request(actor.request_id));
+    const auto environment = config.environment_checks(field(store_.task(actor.task_id), "template_id"));
+    if (environment.is_null()) return result;
+    Array observations;
+    bool ready = true, executed = false, isolated = !environment.at("tools").as_array().empty();
+    for (std::size_t index = 0; index < environment.at("tools").as_array().size(); ++index) {
+        const auto& tool = environment.at("tools").as_array()[index];
+        const auto intent = environment_check(config, actor, environment, binding, index);
+        Object observation{{"name", tool.at("name")}, {"check_sha256", sha256_hex(field(tool, "check"))},
+            {"optional", tool.as_object().contains("optional") && tool.at("optional").as_bool()},
+            {"status", "not_run"}, {"version_text", nullptr}, {"process_isolation_verified", false}};
+        const auto current = store_.binding(actor.task_id);
+        const auto operation = store_.operation_for_key(actor, current, intent.key, "run", intent.arguments);
+        if (!operation.is_null()) {
+            const auto id = field(operation, "op_id");
+            const auto record = store_.operation_result(id);
+            observation["status"] = "pending";
+            if (!record.is_null()) {
+                const auto& run = record.at("result");
+                const auto status = optional_text(run, "status", "UNKNOWN");
+                const auto* released = record.at("evidence").as_object().if_contains("command_start_released");
+                executed = executed || (released && released->is_bool() && released->as_bool());
+                auto out = store_.operation_output(actor, current, id, "stdout", 0, 1024);
+                auto err = store_.operation_output(actor, current, id, "stderr", 0, 1024);
+                for (auto* page : {&out, &err}) for (const auto* key : {"op_id", "record_sha256"}) page->as_object().erase(key);
+                observation["stdout"] = out; observation["stderr"] = err;
+                observation["status"] = status;
+                if (field(operation, "status") == "UNKNOWN" || field(record, "observed_outcome") == "UNKNOWN" ||
+                    signed_number(record.at("accepted")) != 1) observation["status"] = "unknown";
+                else if (status == "EXITED") {
+                    ProcessResult proof;
+                    proof.status = ProcessStatus::Exited; proof.evidence = record.at("evidence");
+                    proof.spawned = run.at("spawned").as_bool();
+                    proof.launcher_exec_confirmed = run.at("launcher_exec_confirmed").as_bool();
+                    proof.strong_isolation = run.at("strong_isolation").as_bool();
+                    proof.all_descendants_exited = run.at("all_descendants_exited").as_bool();
+                    if (!run.at("exit_code").is_null()) proof.exit_code = run.at("exit_code").to_number<int>();
+                    const auto outcome = process_operation_outcome(proof);
+                    const bool complete = outcome != "UNKNOWN" && proof.spawned;
+                    observation["process_isolation_verified"] = complete;
+                    observation["strong_isolation"] = proof.strong_isolation;
+                    observation["status"] = !complete ? "unknown" : proof.exit_code == 127 ? "missing" : "check_failed";
+                    if (complete && outcome == "SUCCEEDED") {
+                        const bool full = out.at("eof").as_bool() && err.at("eof").as_bool() &&
+                            !out.at("truncated").as_bool() && !err.at("truncated").as_bool();
+                        observation["status"] = !full ? "output_limit" : out.at("encoding") != "utf-8" ? "non_text" :
+                            field(out, "data").empty() ? "version_unavailable" : "available";
+                        if (observation.at("status") == "available") observation["version_text"] = out.at("data");
+                    }
+                }
+            }
+        }
+        const auto status = field(observation, "status");
+        isolated = isolated && observation.at("process_isolation_verified").as_bool();
+        ready = ready && status != "unknown" && status != "pending" && status != "not_run" &&
+            (status == "available" || observation.at("optional").as_bool());
+        observations.push_back(std::move(observation));
+    }
+    result["environment_checks"] = "sandbox-run-v1"; result["template_sha256"] = environment.at("template_sha256");
+    result["tools"] = std::move(observations); result["ready"] = ready;
+    result["environment_checks_executed"] = executed; result["process_isolation_verified"] = isolated;
+    result["card_sha256"] = sha256_hex(canonical_json(result));
     return result;
+}
+
+Json WorkerTools::prepare_environment(const StoreActor& actor, std::stop_token stop,
+        std::chrono::steady_clock::time_point deadline) {
+    const auto config = restore_request_config(store_.request(actor.request_id));
+    const auto environment = config.environment_checks(field(store_.task(actor.task_id), "template_id"));
+    if (environment.is_null()) return nullptr;
+    require(!read_only_, ErrorCode::Unauthorized, "read-only executor cannot prepare environment checks");
+    bind(actor);
+    const auto workspace = store_.workspace(actor.team_id);
+    const auto count = environment.at("tools").as_array().size();
+    std::size_t started = 0, reused = 0, executed = 0;
+    Object receipt{{"ready", false}, {"counts_complete", true}, {"reason", ""}};
+    deadline = std::min(deadline, std::chrono::steady_clock::now() + std::chrono::seconds(80));
+    try {
+        for (std::size_t index = 0; index < count; ++index) {
+            const auto current = store_.binding(actor.task_id);
+            (void)store_.authorize_diagnostic(actor, current, "op_output");
+            const auto intent = environment_check(config, actor, environment, workspace, index);
+            const auto old = store_.operation_for_key(actor, current, intent.key, "run", intent.arguments);
+            Json result;
+            if (!old.is_null()) { result = old; ++reused; }
+            else {
+                if (config.bounded_runtime()) deadline = std::min(deadline, std::chrono::steady_clock::now() +
+                    std::chrono::milliseconds(store_.observe_runtime_controls(actor.request_id)));
+                require(!stop.stop_requested(), ErrorCode::NotReady, "environment checks cancelled");
+                require(deadline - std::chrono::steady_clock::now() >= std::chrono::seconds(1),
+                    ErrorCode::NotReady, "environment check deadline exhausted");
+                // Cover runner auditing and setup as well as the command's relative timeout.
+                std::stop_source bounded_stop;
+                std::stop_callback external_stop(stop, [&] { bounded_stop.request_stop(); });
+                std::jthread deadline_stop([deadline, &bounded_stop](std::stop_token finished) {
+                    std::mutex mutex;
+                    std::condition_variable_any wake;
+                    std::unique_lock lock(mutex);
+                    (void)wake.wait_until(lock, finished, deadline, [] { return false; });
+                    if (!finished.stop_requested()) bounded_stop.request_stop();
+                });
+                const auto execution = execute(actor, store_.binding(actor.task_id),
+                    signed_number(store_.task(actor.task_id).at("state_version")), intent.key, "run", intent.arguments,
+                    intent.key, bounded_stop.get_token(), deadline);
+                if (execution.at("executed_now").as_bool()) ++started; else ++reused;
+                const auto& original = execution.at("execution_result");
+                if (execution.at("executed_now").as_bool() && !original.is_null()) {
+                    const auto* released = original.at("evidence").as_object().if_contains("command_start_released");
+                    if (released && released->is_bool() && released->as_bool()) ++executed;
+                }
+                result = execution.at("operation");
+            }
+            const auto status = field(result, "status");
+            require(status != "UNKNOWN" && status != "PREPARED" && status != "RUNNING" &&
+                !store_.operation_result(field(result, "op_id")).is_null(), ErrorCode::NotReady,
+                "environment operation is unresolved; reconciliation required");
+        }
+        require(!stop.stop_requested(), ErrorCode::NotReady, "environment checks cancelled");
+        require(std::chrono::steady_clock::now() < deadline, ErrorCode::NotReady, "environment check deadline exhausted");
+        receipt["ready"] = environment_card(actor).at("ready");
+        if (!receipt.at("ready").as_bool()) receipt["reason"] = "required environment check unavailable";
+    } catch (const Error& error) {
+        receipt["reason"] = std::string(error_name(error.code())) + ": " + error.what();
+        if (error.code() == ErrorCode::Storage) receipt["counts_complete"] = false;
+    }
+    receipt["started"] = started; receipt["reused"] = reused; receipt["not_run"] = count - started - reused;
+    receipt["executed"] = executed;
+    if (!receipt.at("counts_complete").as_bool())
+        for (const auto* key : {"started", "not_run", "executed"}) receipt[key] = nullptr;
+    return receipt;
 }
 
 void WorkerTools::rate_limit(const StoreActor& actor, const Json& allowance) {
@@ -473,7 +615,8 @@ Json WorkerTools::control(const StoreActor& actor, const ExecutionBinding& bindi
 }
 
 Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& binding, std::int64_t expected,
-        const std::string& key, const std::string& name, const Json& args, const std::string& command, std::stop_token stop) {
+        const std::string& key, const std::string& name, const Json& args, const std::string& command, std::stop_token stop,
+        std::chrono::steady_clock::time_point deadline) {
     validate_worker_tool_arguments(name, args);
     const auto& definition = worker_tool_definition(name);
     if (definition.category == ToolClass::Diagnostic) return diagnostic(actor, binding, name, args);
@@ -509,6 +652,11 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
         request.output_limit_bytes = static_cast<std::size_t>(optional_number(args, "max_output_bytes", policy.max_output_bytes));
         require(request.timeout <= policy.max_timeout && request.output_limit_bytes <= policy.max_output_bytes,
             ErrorCode::Unauthorized, "run exceeds frozen host limits");
+        if (deadline != std::chrono::steady_clock::time_point::max()) {
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+            require(remaining >= std::chrono::seconds(1), ErrorCode::NotReady, "environment check deadline exhausted before prepare");
+            request.timeout = std::min(request.timeout, remaining);
+        }
         struct Fd { int value; ~Fd() { ::close(value); } } root{workspace_.dup_root_fd()};
         process_runner.emplace(root.value, policy);
         process_request = std::move(request);
@@ -517,7 +665,7 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
 #ifdef WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE
     // The regression TU alone supplies this phase observer; normal library
     // compilation has no callback or test entry point.
-    WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE(key, prepared);
+    WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE(key, prepared, stop);
 #endif
     const auto id = field(prepared, "op_id");
     std::stop_source cancel;
@@ -576,6 +724,11 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
             // no-process/exit facts. A generic cancelled_before_effect record
             // cannot satisfy the independent owned-cleanup process gate.
             process_request->operation_id = id;
+            if (deadline != std::chrono::steady_clock::time_point::max()) {
+                const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+                if (remaining < std::chrono::seconds(1)) cancel.request_stop();
+                else process_request->timeout = std::min(process_request->timeout, remaining);
+            }
             auto process = process_runner->run(*process_request, cancel.get_token());
 #ifdef WLS_WORKER_TOOLS_PRIVATE_TEST_OUTPUT
             WLS_WORKER_TOOLS_PRIVATE_TEST_OUTPUT(process);

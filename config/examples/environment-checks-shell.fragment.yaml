@@ -1,0 +1,5 @@
+# Merge this field into an existing team_templates.shell entry in function.yaml.
+# The system context must use structured-v3; the template must already grant
+# run and op_output. This fragment is not loaded automatically.
+shell:
+  environment_checks: sandbox-run-v1

@@ -12,7 +12,7 @@ R6 按计划中“明确记录未达原因”的路径完成出口，不能将 U
 
 ## 已核对输入与验证
 
-E1 [#133](https://github.com/wmqfl861/wls861/pull/133) 曾合入 `3fa7019`；本机协议 Release/ASan 各 60/60、同组 29 捕获默认 wire 全等，只有离线字节收益。一次真实 R5 未形成完整比较，回退 [#134](https://github.com/wmqfl861/wls861/pull/134) 已合入 `6f13998`，精确恢复 E1 前树，独立审核、PR 核心和 D-40 通过。R6 的 PR 核心 270/270 和源码检查已核对通过；`b49bbb1` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43946016276)单独核对，链接见最新交接。
+E1 [#133](https://github.com/wmqfl861/wls861/pull/133) 曾合入 `3fa7019`；本机协议 Release/ASan 各 60/60、同组 29 捕获默认 wire 全等，只有离线字节收益。一次真实 R5 未形成完整比较，回退 [#134](https://github.com/wmqfl861/wls861/pull/134) 已合入 `6f13998`，精确恢复 E1 前树，独立审核、PR 核心和 D-40 通过。R6 的 PR 核心 270/270 和源码检查已核对通过；`b49bbb1` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43946016276)已通过：450/450 CTest、Make 60+25。
 
 此前 `c01df93` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43929349216)通过：450/450 CTest、Make 60+25；它与回退源树相同，仍按原提交登记。PR、main 完整矩阵、本机局部测试和真实请求分列，不能相互替代。
 
@@ -20,7 +20,7 @@ E1 [#133](https://github.com/wmqfl861/wls861/pull/133) 曾合入 `3fa7019`；本
 
 G4 保持 Strict 默认、Standard 显式选用。绑定及挂载传播修复后，[托管原生](https://github.com/wmqfl861/wls861/actions/runs/43895693147)四场景通过，包含输出、命名空间/挂载和完整回收；Standard 的 `strong_isolation=false`。每夜调度已合入，首次实际 scheduled 结果待记录。
 
-G4-N3 的[输入切片](reports/g4-run-tool.md)增加冻结只读输入与总字节限制；N4 并行开发，F-15 写入/提交扩容和真实 U3/U4 仍未完成。本次输入原生扩展的结果单独登记，不复用此前四场景成功。
+G4-N3 的[输入切片](reports/g4-run-tool.md)已由 [#136](https://github.com/wmqfl861/wls861/pull/136) 合入 `adb89e46`，冻结只读输入与总字节限制完成；核心 270/270、D-40 11/11 和含输入扩展的 native 四场景通过。N4 [#137](https://github.com/wmqfl861/wls861/pull/137) 待普通 merge 后的最终提交门禁及合并；F-15 写入/提交扩容和真实 U3/U4 仍未完成。
 
 本机仍 BLOCKED：缺受信任 bwrap 和专用 cgroup 配置，普通用户 `uid_map: Operation not permitted`；未改主机设置，不把未配置推断为无 delegation，按 owner 决定继续托管验收。Windows 11 NOT_RUN。完整记忆、独立审核闭环、私有行清理 runner、daemon/API 尚未完成。
 

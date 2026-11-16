@@ -139,3 +139,32 @@ CLI 写者传入已分发的 `005_worker_tools.sql`，在已知 402 数据库上
 S1-06/07 继续补强环境的实际正向命令、凭据/网络/路径/后代逃逸测试、完整恢复残留 cgroup、真实输入目录与资源清理；无能力的环境保持明确拒绝。本批内部固定程序监督测试只验证 pipe、exec 错误、超时/取消与回收机制，不作为弱生产模式。
 
 下一开发增量沿 S1-03/09/10 接持久事件消费、Worker 等待/唤醒、跨调用历史与多任务 AMEND；再接 S1-11/12 的成果包、验收回执与可恢复收尾。真实协议和花费继续等对应配置与实现。每项能力按实际测试独立记录，不把文件已写入或 Schema 合格替代完整 S1 产品验收。
+
+## G4-N4：显式冻结的环境版本检查
+
+新请求可在现有 shell 团队模板中加入 `environment_checks: sandbox-run-v1`，参考
+[`environment-checks-shell.fragment.yaml`](../../config/examples/environment-checks-shell.fragment.yaml)。
+它要求 `structured-v3` 和已有 `run`、`op_output` 授权，最多 16 项；旧模板和旧快照缺省不执行。
+配置加载、恢复、explain、doctor、卡片读取和 capture 本身不执行命令。驱动在原 ack 后、
+Worker 模型预约前调用 `prepare_environment`；检查完成后重新 capture 当前 task CAS。
+
+检查仅来自已验证 SHA 的冻结 environment dependency，以 `[/bin/sh, -c, check]` 走原 `run`
+持久意图、唯一首次派发、结果和 stdout/stderr BLOB。每项消耗原操作/工具预算，最多 5 秒、
+合计输出 1024 bytes，并继续受冻结 run 限额、当前请求/批次剩余期限和取消约束；整组最多 80 秒。
+固定业务键和声明参数不含剩余期限，实际 ProcessRequest 只收紧超时；同 epoch 重建仍只读原操作，
+PREPARED/RUNNING/UNKNOWN 或缺失结果不重派发。新 epoch 不解除旧 UNKNOWN。
+
+`available` 需要完整隔离/回收证明、正常 exit 0、完整且非空的 UTF-8 stdout；stderr 单独保留，
+不得冒充版本。127 显示 `missing`，126/其他非零显示 `check_failed`，空 stdout 显示
+`version_unavailable`；非文本、截断、拒绝和超时保留自己的状态。required 不成功阻止下一模型预约，
+optional 的已结算失败可继续；UNKNOWN 始终阻断。空 tools 不表示沙箱已通过。
+
+卡片只投影原观察，版本文本仍是无权限的不可信数据，不会据此安装软件。模板 SHA、规范化输出和
+执行策略/隔离能力参与卡片 SHA 与 context dependencies；卡片不包含随机 operation ID、时间戳
+或宿主路径。Standard 实际运行仍是 `strong_isolation=false`。批次摘要另列本次 started/reused/
+not_run/executed；started 是持久 run 首次派发，executed 才表示实际命令启动屏障已释放。
+
+托管 `standard-native` 在原 sandbox 四场景之后，同一受委派用户单元内独立运行
+`worker_tools_tests --environment-native BWRAP SHA256 CGROUP_ROOT NEW_OUTPUT_DIR`，以自产 Store、
+FakeModel 和真实 ProcessRunner 核对 Python stdout、optional missing、原 BLOB 与重复复用。
+缺前提退出 77；原始结果与卡片单独上传。它不调用真实模型。本机和 CI 的执行结果按最新交接登记。

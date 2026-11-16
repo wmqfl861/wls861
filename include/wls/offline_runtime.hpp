@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <stop_token>
 #include <vector>
 
 namespace wls::s1 {
@@ -63,7 +64,10 @@ public:
                                   const std::string& task_id = {},
                                   std::int64_t role_call_index = 1,
                                   const std::vector<Json>& tool_feedback = {},
-                                  bool model_amendment = false);
+                                  bool model_amendment = false,
+                                  Json* environment_preparation = nullptr,
+                                  std::stop_token stop = {},
+                                  std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max());
     // Record usage and the raw response first. Invalid/stale responses never
     // authorize a tool; their consumed or unknown budget is still retained.
     Json accept_response(const CapturedModelCall& call,
