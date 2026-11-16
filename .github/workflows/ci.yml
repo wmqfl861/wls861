@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       verification:
-        description: Verification scope (asan-affected runs eleven complete suites only)
+        description: Verification scope (asan-affected runs twelve complete suites only)
         type: choice
         options:
           - full
@@ -164,7 +164,7 @@ jobs:
             echo "- event: $GITHUB_EVENT_NAME, matrix entries: $(printf '%s' "$matrix" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["include"]))')"
             echo "- slow tests: $slow_tests (selected mode always includes all fast tests)"
             if [ "$mode" = asan-affected ]; then
-              echo '- Eleven complete affected ASan suites only: r1_structured, r1_structured_capture, r1_structured_lean, billing_baseline_e2e, run_cli_e2e, s15_cli_smoke, sandbox, worker_tools, config_loader, offline_runtime, event_runtime. This is not the full gate.'
+              echo '- Twelve complete affected ASan suites only: r1_structured, r1_structured_capture, r1_structured_lean, billing_baseline_e2e, run_cli_e2e, s15_cli_smoke, sandbox, worker_tools, config_loader, offline_runtime, event_runtime, r2a_mkdir. This is not the full gate.'
             fi
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
               echo "- PR head: \`$PR_HEAD_SHA\`; diff merge base: \`${base_sha:-unavailable, fell back to core}\`"
@@ -269,8 +269,8 @@ jobs:
           test "$(id -u)" -ne 0
           umask "${{ matrix.test_umask }}"
           if [ "${{ needs.classify.outputs.mode }}" = asan-affected ]; then
-            echo 'Running eleven complete affected ASan suites only; this is not the full gate.'
-            ctest --test-dir build -R '^(r1_structured|r1_structured_capture|r1_structured_lean|billing_baseline_e2e|run_cli_e2e|s15_cli_smoke|sandbox|worker_tools|config_loader|offline_runtime|event_runtime)$' --output-on-failure
+            echo 'Running twelve complete affected ASan suites only; this is not the full gate.'
+            ctest --test-dir build -R '^(r1_structured|r1_structured_capture|r1_structured_lean|billing_baseline_e2e|run_cli_e2e|s15_cli_smoke|sandbox|worker_tools|config_loader|offline_runtime|event_runtime|r2a_mkdir)$' --output-on-failure
           elif [ "${{ needs.classify.outputs.mode }}" = standard-native ]; then
             echo 'Running native sandbox prerequisites and the explicit native scenario; this is not the full gate.'
             ctest --test-dir build -R '^(sandbox|process_evidence|doctor_diagnostics)$' --output-on-failure
