@@ -297,10 +297,10 @@ jobs:
             ctest --test-dir build --output-on-failure
           fi
       - name: Allow user namespaces for the explicit hosted native check
-        if: github.event_name == 'workflow_dispatch' && needs.classify.outputs.mode == 'standard-native'
+        if: (github.event_name == 'workflow_dispatch' && needs.classify.outputs.mode == 'standard-native') || (github.event_name == 'schedule' && matrix.name == 'strict')
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Verify standard isolation in an existing delegated user manager
-        if: needs.classify.outputs.mode == 'standard-native'
+        if: (github.event_name == 'workflow_dispatch' && needs.classify.outputs.mode == 'standard-native') || (github.event_name == 'schedule' && matrix.name == 'strict')
         shell: bash
         run: |
           set -euo pipefail
@@ -347,7 +347,7 @@ jobs:
             exit 1
           fi
       - name: Preserve native sandbox evidence even when blocked
-        if: always() && needs.classify.outputs.mode == 'standard-native'
+        if: always() && ((github.event_name == 'workflow_dispatch' && needs.classify.outputs.mode == 'standard-native') || (github.event_name == 'schedule' && matrix.name == 'strict'))
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: standard-native-${{ github.sha }}
