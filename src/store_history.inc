@@ -1,4 +1,4 @@
-// R1 read-only evidence access. Included after Store::attempt_history so this
+// R1 read-only evidence access. Included in store_history.cpp so this
 // narrow implementation can use the existing private Store transaction/actor
 // helpers without widening the trusted-host API or changing SQL assets.
 namespace {

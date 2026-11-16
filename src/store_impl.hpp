@@ -9,6 +9,7 @@
 #include <optional>
 
 struct sqlite3;
+struct sqlite3_stmt;
 
 namespace wls::s1 {
 class FrozenRequestConfig;
@@ -24,6 +25,22 @@ std::int64_t add(std::int64_t a, std::int64_t b);
 bool terminal_task(std::string_view s);
 std::int64_t runtime_wall_remaining(const Row& request, const FrozenRequestConfig& config);
 ModelResponse unobserved_live_response(const ModelRequest& request, const std::string& reason);
+bool contains(const Json& list, std::string_view value);
+std::string base64_bytes(std::string_view value);
+std::string decoded_base64(std::string_view encoded);
+
+class Statement {
+public:
+    Statement(sqlite3* db, std::string_view sql, const Array& parameters = {});
+    ~Statement();
+    Statement(const Statement&) = delete;
+    Statement& operator=(const Statement&) = delete;
+    bool step();
+    Row row() const;
+private:
+    sqlite3* db_{};
+    sqlite3_stmt* statement_{};
+};
 
 // All R1.4 reads hold one SQLite read snapshot. A read-only connection may
 // coexist with the writer; its old membership must never be filled with later
@@ -126,6 +143,8 @@ public:
     void supersede_workflow(const std::string& request_id, const std::string& task_id = {});
     Json wait_info(const std::string& task_id) const;
     Json feedback_info(const std::string& attempt_id) const;
+    Json history_previous_context(const StoreActor& actor, const FrozenRequestConfig& config);
+    Json history_append_delta(const StoreActor& actor, const Json& previous);
     Json workspace_info(const std::string& team_id) const;
     Json result_info(const std::string& op_id) const;
     Row authorize(const StoreActor& actor, std::initializer_list<Role> roles, bool current_epochs = true) const;
