@@ -947,6 +947,8 @@ void response_metadata_is_inert_but_keeps_lifecycle_and_shape_guards() {
     CHECK((result.evidence.at("unknown_fields") == Json(Array{"/events/6/metadata", "/events/6/response_id"})));
     CHECK(result.evidence.at("tools_dispatched") == 0 && result.evidence.at("unknown_fields_observed") == 2);
     CHECK(replay(events).response.error_code == "unsupported_event");
+    auto no_model = events; no_model[6].as_object().erase("model");
+    CHECK(to_json(replay_profile(profile, no_model).response) == to_json(known.response));
     std::vector<EventList> invalid;
     auto broken = events; const auto metadata = broken[6]; broken.erase(broken.begin() + 6);
     broken.insert(broken.begin(), metadata); resequence(broken); invalid.push_back(broken);
@@ -955,6 +957,7 @@ void response_metadata_is_inert_but_keeps_lifecycle_and_shape_guards() {
     broken = events; broken[6].as_object()["metadata"] = Array{}; invalid.push_back(broken);
     broken = events; broken[6].as_object()["usage"] = Object{}; invalid.push_back(broken);
     broken = events; broken[6].as_object()["model"] = "unrelated-model"; invalid.push_back(broken);
+    broken = events; broken[6].as_object()["model"] = nullptr; invalid.push_back(broken);
     broken = events; broken[6].as_object().erase("response_id"); invalid.push_back(broken);
     broken = events; broken[6].as_object()["response_id"] = std::string(129, 't'); invalid.push_back(broken);
     broken = events; broken[6].as_object()["type"] = "response.future_business"; invalid.push_back(broken);
