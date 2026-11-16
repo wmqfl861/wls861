@@ -4,15 +4,15 @@
 
 现在能做什么：0.12.0 的四角色文件闭环已完成固定冒烟；R0 恢复原三交付物导出，12/12 成果检查通过且没有新调用。R1 确认流式和 low/medium/high 可用，缓存探针不支持继续缓存优化。A-1/A-2 已按原捕获输入完成，详见 [G2 运行记录](../reports/g2-first-real-run.md)。
 
-卡在哪：R2 的 profile 规范化问题已在 #126 修复；新 R2 首次发送取得完整 SSE，因长 response ID 等兼容问题被拒绝，用量未知，正在离线诊断。G4 托管原生验收的实际新错误及长期状态统一见 [STATUS](../STATUS.md)。
+卡在哪：R2 的 profile 规范化和 SSE 兼容问题已分别由 #126、#130 修复；原失败账目仍为未知。新的 R2-stream 也在首次完整响应后停止，原因是遥测事件省略 model，第二轮最小修复中；R3-stream 尚未运行。长期状态统一见 [STATUS](../STATUS.md)。
 
-下一步：完成已捕获 SSE 的最小兼容修复、R2、R3，按数据选择最多 3 项 G2-7 改动；G4 托管 native 已过，正在将其加入每夜运行，owner 已决定继续托管验收，本机保持 BLOCKED。按 [11-16 唯一计划](claude-2026-11-16/04-plan.md)逐阶段推进，v1.0 验收报告后等 owner 回复。
+下一步：完成 R2、R3，按数据选择最多 3 项 G2-7 改动；G4 托管 native 已过且 #128 已加入每夜调度，实际 scheduled 结果另行记录。owner 已决定继续托管验收，本机保持 BLOCKED。按 [11-16 唯一计划](claude-2026-11-16/04-plan.md)逐阶段推进，v1.0 验收报告后等 owner 回复。
 
 ## 输入与已推送成果
 
-[#121](https://github.com/wmqfl861/wls861/pull/121) 至 [#124](https://github.com/wmqfl861/wls861/pull/124) 已合入 main：绑定来源、审核资料、导出重放提示、三团队固定任务。main `2cf036f` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43878414585)成功。R2 首次启动固定在 main `9aa9254`；修复后的实跑为 `bacf68bd`。配置修复 [#126](https://github.com/wmqfl861/wls861/pull/126) 与沙箱传播修复 [#127](https://github.com/wmqfl861/wls861/pull/127) 也已合入；[托管 native](https://github.com/wmqfl861/wls861/actions/runs/43895693147)实际四种操作通过，手动 ASan 与各 PR 检查通过。旧失败不改报。
+[#121](https://github.com/wmqfl861/wls861/pull/121) 至 [#124](https://github.com/wmqfl861/wls861/pull/124) 已合入 main：绑定来源、审核资料、导出重放提示、三团队固定任务。main `2cf036f` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43878414585)成功。R2 首次启动固定在 main `9aa9254`；修复后的实跑为 `bacf68bd`。配置修复 [#126](https://github.com/wmqfl861/wls861/pull/126) 与沙箱传播修复 [#127](https://github.com/wmqfl861/wls861/pull/127) 也已合入；[托管 native](https://github.com/wmqfl861/wls861/actions/runs/43895693147)实际四种操作通过，手动 ASan 与各 PR 检查通过。旧失败不改报。Responses [#130](https://github.com/wmqfl861/wls861/pull/130) 已合入，新运行冻结 main `322c173`；其 PR 核心、源码检查和 [D-40](https://github.com/wmqfl861/wls861/actions/runs/43909409408) 6/6 通过，本机 codec/SSE ASan 2/2 通过。
 
-真实调用沿用获准 Responses 中转与 `gpt-6.1-sol`，自动重试 0。G2 本轮累计 9 次，已知 26,204 输入/54 输出，另 1 次输入预留 34,266 保守占用；额度 250 次/500 万输入；历史 41 次另列，并保守计入到 v1.0 总额度。费用未知，凭据只在指定进程内存注入。
+真实调用沿用获准 Responses 中转与 `gpt-6.1-sol`，自动重试 0。G2 本轮累计 10 次，已知 26,204 输入/54 输出，另 2 次输入预留共 68,534 保守占用；额度 250 次/500 万输入；历史 41 次另列，并保守计入到 v1.0 总额度。费用未知，凭据只在指定进程内存注入。
 
 ## 证据与保留
 

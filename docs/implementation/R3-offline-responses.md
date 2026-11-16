@@ -640,4 +640,4 @@ response/binding，重复回放同一错误），本阶段不做纠错重调。�
 未知键出现次数（含重复路径）。完整原 body/已消费 stream 仍受原上限约束并无损保留；
 后续协议失败不会把该列表标作完整输入的扫描证明。旧证据不增加空字段。
 
-仅 Responses profile 可显式冻结 `max_response_id_bytes`（1..1024）；它限定响应 envelope ID 及已知事件对同一 ID 的引用，引用仍必须相等，item/call/model 名称边界不变。缺省不新增序列化字段，保留 HTTP 128、SSE envelope 256、已知 linked ID 128 字节的原行为。启用 `ignore-record-v1` 时，`response.metadata` 仅在 created 后、terminal 前作为未绑定遥测接受：序号连续、模型匹配、限定 `type/sequence_number/response_id/model/metadata` 字段，metadata 必须为对象，遥测 ID 仍限 128 字节。它的 ID 和元数据路径及原始流保留，不参与工具、账目或响应身份授权；真实请求原账目不因离线重放成功被重写。
+仅 Responses profile 可显式冻结 `max_response_id_bytes`（1..1024）；它限定响应 envelope ID 及已知事件对同一 ID 的引用，引用仍必须相等，item/call/model 名称边界不变。缺省不新增序列化字段，保留 HTTP 128、SSE envelope 256、已知 linked ID 128 字节的原行为。启用 `ignore-record-v1` 时，`response.metadata` 仅在 created 后、terminal 前作为未绑定遥测接受：序号连续、可省略 model 但提供时必须为合法字符串且与 created 匹配、限定 `type/sequence_number/response_id/model/metadata` 字段，metadata 必须为对象，遥测 ID 仍限 128 字节。它的 ID 和元数据路径及原始流保留，不参与工具、账目或响应身份授权；真实请求原账目不因离线重放成功被重写。

@@ -1,5 +1,5 @@
 现在能做什么：0.12.0 已通过 G2-P，E-2 与 Responses/Chat 合成交付已落地；11-16 审核 D-30 至 D-45 已采纳，G2 真实运行与 G4 修复可以并行。
-还不能做什么：完整 G2 验收未通过；R1 探针完成；R2/U1 的 profile 规范化缺陷已修复；新请求首次发送收到完整 SSE，但协议拒绝，1 次用量未知；R3/U2 待复验。原导出 UNKNOWN 已由 R0 恢复；严格 metadata 保留检查仅因 SHM mtime 变化而 FAIL，原检查结果保留。
+还不能做什么：完整 G2 验收未通过；R1 探针完成；R2/U1 的 profile 规范化缺陷已修复；两次完整 SSE 响应被拒的账目仍未知；#130 已修复第一份原样本；新 R2-stream 因可选遥测 model 被拒，第二轮最小修复中，R3/U2 待复验。原导出 UNKNOWN 已由 R0 恢复；严格 metadata 保留检查仅因 SHM mtime 变化而 FAIL，原检查结果保留。
 需要 owner 做什么：当前无需操作；既有密钥授权有效，费用未知保持未知；阶段额度触顶等 D-32/D-34 指定情况才升级处理。
 
 # 当前状态
@@ -14,7 +14,7 @@
 
 D-31 允许先备份、再以当前 main 和原命令恢复原导出；D-32 只停止受影响请求或工作线，不再以该请求的 UNKNOWN 暂停全部真实调用。四角色的版本、授权、首次派发和原字节交付守卫保留。
 
-G4 保持 Strict 默认、standard 显式选用。[#127](https://github.com/wmqfl861/wls861/pull/127) 修复子进程挂载传播后，[托管原生运行](https://github.com/wmqfl861/wls861/actions/runs/43895693147)四种操作通过，包含输出、挂载/命名空间和完整回收；Standard 保持 `strong_isolation=false`。每夜调度在 [#128](https://github.com/wmqfl861/wls861/pull/128)。本机仍 BLOCKED：缺受信任 bwrap 和专用 cgroup 配置，普通用户实测 `uid_map: Operation not permitted`；未改主机设置，未将未配置推断为无 delegation；owner 已决定继续托管验收，本机保持 BLOCKED。Windows 11 NOT_RUN。完整记忆、独立审核闭环、私有行清理 runner、daemon/API 未完成，后续按 11-16 计划的阶段依赖推进。
+G4 保持 Strict 默认、standard 显式选用。[#127](https://github.com/wmqfl861/wls861/pull/127) 修复子进程挂载传播后，[托管原生运行](https://github.com/wmqfl861/wls861/actions/runs/43895693147)四种操作通过，包含输出、挂载/命名空间和完整回收；Standard 保持 `strong_isolation=false`。每夜调度已由 [#128](https://github.com/wmqfl861/wls861/pull/128) 合入，首次实际 scheduled 结果待记录。本机仍 BLOCKED：缺受信任 bwrap 和专用 cgroup 配置，普通用户实测 `uid_map: Operation not permitted`；未改主机设置，未将未配置推断为无 delegation；owner 已决定继续托管验收，本机保持 BLOCKED。Windows 11 NOT_RUN。完整记忆、独立审核闭环、私有行清理 runner、daemon/API 未完成，后续按 11-16 计划的阶段依赖推进。
 
 ## G6 与下一步
 
