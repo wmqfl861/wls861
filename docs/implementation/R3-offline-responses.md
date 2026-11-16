@@ -641,3 +641,17 @@ response/binding，重复回放同一错误），本阶段不做纠错重调。�
 后续协议失败不会把该列表标作完整输入的扫描证明。旧证据不增加空字段。
 
 仅 Responses profile 可显式冻结 `max_response_id_bytes`（1..1024）；它限定响应 envelope ID 及已知事件对同一 ID 的引用，引用仍必须相等，item/call/model 名称边界不变。缺省不新增序列化字段，保留 HTTP 128、SSE envelope 256、已知 linked ID 128 字节的原行为。启用 `ignore-record-v1` 时，`response.metadata` 仅在 created 后、terminal 前作为未绑定遥测接受：序号连续、可省略 model 但提供时必须为合法字符串且与 created 匹配、限定 `type/sequence_number/response_id/model/metadata` 字段，metadata 必须为对象，遥测 ID 仍限 128 字节。它的 ID 和元数据路径及原始流保留，不参与工具、账目或响应身份授权；真实请求原账目不因离线重放成功被重写。
+
+## R5 E1：成功写入回执的发送投影
+
+新 Worker Responses profile 可显式冻结 `responses_tool_result_policy:"write-summary-v1"`，
+要求 `responses_compatibility`、`structured-v3` 和 `lean-v1`；其他角色、Chat 或不匹配上下文拒绝。
+配置须新增独立 Worker `profile_id` / `model_ref`，由 `function.roles.worker.model_ref` 显式选择，
+不能在全角色共用 profile 上启用。缺省不序列化新键，旧 profile/hash/wire 保持原义；空值和未知值拒绝。
+
+编码器先验证完整原生轮与工具配对，仅对已接受、已结算成功的 `fs_write` 精确回执结构生成发送副本，
+保留 `status/path/created/previous_sha256/sha256/size_bytes/executed_now/replayed`。创建时原
+`previous_sha256:null` 保留；覆盖时必须是原完整 SHA-256。来源、绑定、状态、参数、内容摘要、大小、
+持久化证据或重放标志不一致，以及未知字段/形状、失败和 UNKNOWN，均返回完整原 output。
+其他工具继续原编码行为；原响应、逻辑历史、Store 反馈和 `history_read` 原件不变。
+这是编码投影，不能据此推断内容验收通过、真实 token 节省或新真实请求成功。

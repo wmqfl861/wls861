@@ -105,6 +105,11 @@ Json validate_request(const ProviderProfile& profile, const ModelRequest& reques
     require(request.context.structured(), ErrorCode::Unsupported,
             "Responses codec requires explicit structured-v2 input; legacy frames are not converted");
     const auto envelope = to_json(request);
+    if (!profile.responses_tool_result_policy.empty())
+        require(request.role == Role::Worker && request.context.logical_input.at("format") == "wls-logical-input-v3" &&
+            request.context.logical_input.as_object().contains("model_projection") &&
+            request.context.logical_input.at("model_projection") == "lean-v1", ErrorCode::Unsupported,
+            "write-summary-v1 requires Worker structured-v3 lean-v1");
     require(request.model.model == profile.model_ref && request.context.adapter_version == profile.adapter_version &&
             request.context.protocol_version == profile.protocol, ErrorCode::Conflict,
             "request model or frozen adapter/protocol differs from the offline profile");
@@ -494,6 +499,91 @@ std::optional<std::int64_t> actionable_integer(const Json& value) {
     if (value.is_uint64() && value.as_uint64() <= INT64_MAX) return static_cast<std::int64_t>(value.as_uint64());
     return std::nullopt;
 }
+std::string write_summary_output(const std::string& content, const Json& call, const Json& source,
+        const Json& original_source, const std::string& provider_call_id) {
+    // A send-only copy of one settled native fs_write receipt. Unknown shapes
+    // and inconsistent facts retain the complete original, including errors.
+    if (call.at("name") != "fs_write" || !compact_equal(source, original_source) ||
+            compact_member(source, "kind") != "recorded_tool_turn" || compact_member(source, "status") != "COMPLETED" ||
+            actionable_integer(compact_member(source, "accepted")) != 1 ||
+            actionable_integer(compact_member(source, "accounting_attention")) != 0 ||
+            compact_member(source, "not_execution_authority") != true ||
+            compact_member(source, "original_tool_call_id") != Json(provider_call_id)) return content;
+    Json receipt;
+    try { receipt = parse_json_strict(content); }
+    catch (const Error&) { return content; }
+    const auto shape = [](const Json& value, std::initializer_list<std::string_view> strings,
+            std::initializer_list<std::string_view> integers, std::initializer_list<std::string_view> other) {
+        if (!value.is_object() || value.as_object().size() != strings.size() + integers.size() + other.size()) return false;
+        for (const auto key : strings) {
+            const auto& item = compact_member(value, key);
+            if (!item.is_string() || item.as_string().empty() || item.as_string().find('\0') != boost::json::string::npos) return false;
+        }
+        for (const auto key : integers) if (!actionable_integer(compact_member(value, key))) return false;
+        for (const auto key : other) if (!value.as_object().contains(key)) return false;
+        return true;
+    };
+    const auto hash = [](const Json& value) {
+        return value.is_string() && value.as_string().size() == 64 &&
+            std::all_of(value.as_string().begin(), value.as_string().end(), [](char ch) {
+                return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f');
+            });
+    };
+    const auto& op = compact_member(receipt, "operation");
+    const auto& execution = compact_member(receipt, "execution_result");
+    const auto& result = compact_member(execution, "result");
+    const auto& evidence = compact_member(execution, "evidence");
+    const auto& binding = compact_member(execution, "original_binding");
+    const auto& args = compact_member(op, "arguments");
+    if (!shape(receipt, {}, {}, {"operation", "execution_result", "executed_now", "replayed"}) ||
+        !shape(op, {"args_sha256", "business_idempotency_key", "created_at", "ended_at", "evidence_ref", "op_id", "request_id",
+            "side_effect", "started_at", "status", "task_id", "team_id", "tool_id"}, {"dispatcher_epoch", "execution_epoch",
+            "instruction_revision", "plan_revision", "policy_epoch", "requirements_revision", "state_version", "task_revision"},
+            {"arguments", "error_signature", "exit_code", "output_dir"}) ||
+        !shape(execution, {"observed_outcome", "op_id", "operation_status", "record_sha256", "recorded_at", "stderr_sha256", "stdout_sha256"},
+            {"accepted", "stderr_bytes", "stderr_truncated", "stdout_bytes", "stdout_truncated"}, {"evidence", "original_binding", "result"}) ||
+        !shape(result, {"path", "sha256"}, {"size_bytes"}, {"created", "previous_sha256"}) ||
+        !shape(evidence, {"after_sha256", "path", "temporary_path"}, {"root_device", "root_inode", "size_bytes"},
+            {"before_sha256", "durable", "renamed", "temporary_cleanup_complete", "temporary_remaining"}) ||
+        !shape(binding, {"request_id", "task_id", "team_id"}, {"dispatcher_epoch", "execution_epoch", "instruction_revision",
+            "plan_revision", "policy_epoch", "requirements_revision", "task_revision"}, {})) return content;
+    if (op.at("tool_id") != "fs_write" || op.at("side_effect") != "workspace" || op.at("status") != "SUCCEEDED" ||
+        execution.at("operation_status") != "SUCCEEDED" || execution.at("observed_outcome") != "SUCCEEDED" ||
+        actionable_integer(execution.at("accepted")) != 1 || !compact_same(op, execution, {"op_id"}) ||
+        !compact_equal(binding, compact_member(source, "frozen_binding")) ||
+        !hash(compact_member(source, "record_sha256")) || !hash(execution.at("record_sha256"))) return content;
+    for (const auto& item : binding.as_object()) if (!compact_equal(item.value(), op.at(item.key()))) return content;
+    for (const auto key : {"error_signature", "exit_code", "output_dir"}) if (!op.at(key).is_null()) return content;
+    for (const auto key : {"stdout_bytes", "stderr_bytes", "stdout_truncated", "stderr_truncated"})
+        if (actionable_integer(execution.at(key)) != 0) return content;
+    for (const auto key : {"stdout_sha256", "stderr_sha256"}) if (execution.at(key) != Json(sha256_hex(""))) return content;
+    // Store fingerprints boolean truncation flags before its SQL integer view.
+    const auto record_hash = sha256_hex(canonical_json(Object{{"op_id", execution.at("op_id")},
+        {"original_binding", binding}, {"outcome", execution.at("observed_outcome")}, {"result", result}, {"evidence", evidence},
+        {"stdout_bytes", execution.at("stdout_bytes")}, {"stderr_bytes", execution.at("stderr_bytes")},
+        {"stdout_sha256", execution.at("stdout_sha256")}, {"stderr_sha256", execution.at("stderr_sha256")},
+        {"stdout_truncated", false}, {"stderr_truncated", false}}));
+    if (execution.at("record_sha256") != Json(record_hash) ||
+        op.at("evidence_ref") != Json("store:operation_result:" + text(op, "op_id") + "#" + record_hash)) return content;
+    if (!receipt.at("replayed").is_bool() || !receipt.at("executed_now").is_bool() ||
+        receipt.at("replayed") == receipt.at("executed_now") || !result.at("created").is_bool() ||
+        !hash(result.at("sha256")) || !compact_same(result, evidence, {"path", "size_bytes"}) ||
+        result.at("sha256") != evidence.at("after_sha256") || !compact_equal(result.at("previous_sha256"), evidence.at("before_sha256")) ||
+        evidence.at("durable") != true || evidence.at("renamed") != true ||
+        evidence.at("temporary_cleanup_complete") != true || evidence.at("temporary_remaining") != false) return content;
+    const bool created = result.at("created").as_bool();
+    if (created ? !result.at("previous_sha256").is_null() : !hash(result.at("previous_sha256"))) return content;
+    if (!(created ? shape(args, {"path"}, {}, {"content"}) : shape(args, {"path", "expected_sha256"}, {}, {"content"})) ||
+        !compact_equal(args, call.at("arguments")) || !args.at("content").is_string() || args.at("path") != result.at("path") ||
+        (!created && args.at("expected_sha256") != result.at("previous_sha256")) ||
+        op.at("args_sha256") != Json(sha256_hex(canonical_json(args)))) return content;
+    const auto& bytes = args.at("content").as_string();
+    if (actionable_integer(result.at("size_bytes")) != static_cast<std::int64_t>(bytes.size()) ||
+        result.at("sha256") != Json(sha256_hex(std::string_view(bytes.data(), bytes.size())))) return content;
+    auto summary = result.as_object();
+    summary["status"] = op.at("status"); summary["executed_now"] = receipt.at("executed_now"); summary["replayed"] = receipt.at("replayed");
+    return canonical_json(summary);
+}
 void actionable_budget(Json& value, const Json& binding) {
     if (!actionable_keys(value, {"request_id", "state_version", "max_attempts", "attempts", "input_limit", "output_limit", "cost_limit",
             "spent_input", "spent_output", "spent_cost", "reserved_input", "reserved_output", "reserved_cost", "unknown_input", "unknown_output", "unknown_cost",
@@ -863,6 +953,7 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     const bool compat = profile.responses_compatibility.has_value();
     std::set<std::string> provider_item_ids, provider_call_ids;
     const Array* native_calls = nullptr;    // logical tool_calls of the native round
+    const Json* native_source = nullptr;
     std::vector<std::string> native_provider_call_ids;
     std::size_t native_consumed = 0;
     for (const auto& message : array(logical.at("messages"))) {
@@ -926,6 +1017,7 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
                 input.push_back(item);  // Original JSON value, unchanged order.
             }
             native_calls = &calls;
+            native_source = &history_source;
             native_consumed = 0;
             continue;
         }
@@ -944,7 +1036,9 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
                         message.at("tool_call_id") == native_calls->at(native_consumed).at("call_id"),
                         ErrorCode::InvalidInput, "native tool result does not pair with its original round");
                 input.push_back(Object{{"type", "function_call_output"},
-                    {"call_id", native_provider_call_ids.at(native_consumed)}, {"output", output()}});
+                    {"call_id", native_provider_call_ids.at(native_consumed)}, {"output", profile.responses_tool_result_policy.empty()
+                        ? output() : write_summary_output(output(), native_calls->at(native_consumed), history_source,
+                            *native_source, native_provider_call_ids.at(native_consumed))}});
                 ++native_consumed;
                 continue;
             }

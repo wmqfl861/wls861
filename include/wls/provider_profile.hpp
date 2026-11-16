@@ -109,6 +109,8 @@ struct ProviderProfile {
     std::string responses_background_policy{};
     // Provider response IDs and linked events; absence preserves legacy bounds.
     std::optional<std::size_t> max_response_id_bytes{};
+    // Worker-only send projection; empty preserves original profile/wire bytes.
+    std::string responses_tool_result_policy{};
 };
 
 // Strict parse/serialize; rates are integers in 0..10^12 micro USD.
