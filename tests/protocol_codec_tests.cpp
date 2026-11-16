@@ -686,6 +686,152 @@ Json compat_history_record(const Json& response) {
         {"feedback", Object{{"original_binding", binding}, {"response", response},
             {"result", Object{{"ok", true}}}, {"record_sha256", sha256_hex("compat-fixture-feedback")}}}};
 }
+
+Json write_receipt_record(bool created = true, const std::string& tool = "fs_write") {
+    const std::string content = "Synthetic receipt bytes.\n", path = "result.txt";
+    const auto hash = sha256_hex(content), previous = sha256_hex("prior bytes"), empty = sha256_hex("");
+    Object args{{"path", path}, {"content", content}};
+    if (!created) args["expected_sha256"] = previous;
+    auto wire = fixture::tool_response(); wire.at("model") = "o3";
+    auto& call = wire.at("output").as_array().front();
+    call.at("name") = tool; call.at("arguments") = canonical_json(args);
+    auto record = compat_history_record(to_json(compat_decode(wire).response));
+    record.as_object()["status"] = "COMPLETED"; record.as_object()["accounting_attention"] = 0;
+    const auto binding = record.at("frozen_binding");
+    Object operation = binding.as_object();
+    for (const auto& entry : Object{{"op_id", "op_fixture"}, {"tool_id", tool}, {"side_effect", "workspace"},
+            {"arguments", args}, {"args_sha256", sha256_hex(canonical_json(args))},
+            {"business_idempotency_key", "write-fixture-key"}, {"status", "SUCCEEDED"}, {"state_version", 3},
+            {"created_at", "2026-11-01T00:00:00Z"}, {"started_at", "2026-11-01T00:00:00Z"},
+            {"ended_at", "2026-11-01T00:00:01Z"}, {"error_signature", nullptr}, {"exit_code", nullptr},
+            {"output_dir", nullptr}, {"evidence_ref", ""}})
+        operation[entry.key()] = entry.value();
+    const Json old_hash = created ? Json(nullptr) : Json(previous);
+    record.at("feedback").at("result") = Object{{"operation", operation}, {"executed_now", true}, {"replayed", false},
+        {"execution_result", Object{{"op_id", "op_fixture"}, {"accepted", 1}, {"operation_status", "SUCCEEDED"},
+            {"observed_outcome", "SUCCEEDED"}, {"original_binding", binding}, {"record_sha256", ""},
+            {"recorded_at", "2026-11-01T00:00:01Z"}, {"stdout_bytes", 0}, {"stderr_bytes", 0},
+            {"stdout_truncated", 0}, {"stderr_truncated", 0}, {"stdout_sha256", empty}, {"stderr_sha256", empty},
+            {"result", Object{{"created", created}, {"path", path}, {"previous_sha256", old_hash},
+                {"sha256", hash}, {"size_bytes", content.size()}}},
+            {"evidence", Object{{"path", path}, {"before_sha256", old_hash}, {"after_sha256", hash},
+                {"size_bytes", content.size()}, {"durable", true}, {"renamed", true}, {"root_device", 1},
+                {"root_inode", 2}, {"temporary_path", ".wls-write-fixture"},
+                {"temporary_cleanup_complete", true}, {"temporary_remaining", false}}}}}};
+    auto& receipt = record.at("feedback").at("result"); auto& execution = receipt.at("execution_result");
+    Object fact{{"outcome", execution.at("observed_outcome")}, {"stdout_truncated", false}, {"stderr_truncated", false}};
+    for (const auto* key : {"op_id", "original_binding", "result", "evidence", "stdout_bytes", "stderr_bytes", "stdout_sha256", "stderr_sha256"})
+        fact[key] = execution.at(key);
+    const auto record_hash = sha256_hex(canonical_json(fact));
+    execution.at("record_sha256") = record_hash;
+    receipt.at("operation").at("evidence_ref") = "store:operation_result:op_fixture#" + record_hash;
+    return record;
+}
+ModelRequest write_receipt_request(const Json& record, Role role = Role::Worker, bool lean = true) {
+    auto context = fixture::context(); context.role = role; context.model_projection = lean ? "lean-v1" : "";
+    context.tools.front().name = std::string(record.at("response").at("tool_calls").as_array().front().at("name").as_string());
+    context.tools.front().description = "Read or write the named fixture file.";
+    context.tools.front().definition = Object{{"type", "object"},
+        {"properties", Object{
+            {"path", Object{{"type", "string"}, {"description", "Relative fixture file path."}}},
+            {"content", Object{{"type", "string"}, {"description", "UTF-8 fixture file content."}}},
+            {"expected_sha256", Object{{"type", "string"}, {"description", "Expected previous file SHA-256."}}}}},
+        {"required", Array{"path", "content"}}, {"additionalProperties", false}};
+    auto request = fixture::request(); request.role = role;
+    request.context = compile_structured_context(context, structured_attempt_history({record}), {}, StructuredContextFormat::V3);
+    return request;
+}
+void write_summary_policy_is_explicit_worker_only_and_keeps_defaults() {
+    const auto legacy = fixture::compat_profile(); const auto original = to_json(legacy);
+    CHECK(!original.as_object().contains("responses_tool_result_policy"));
+    auto selected = original; selected.as_object()["responses_tool_result_policy"] = "write-summary-v1";
+    auto profile = provider_profile_from_json(selected);
+    CHECK(to_json(profile) == selected && provider_profile_sha256(profile) != provider_profile_sha256(legacy));
+    const auto request = write_receipt_request(write_receipt_record());
+    const auto old_wire = encode_responses_request(legacy, request);
+    profile.responses_tool_result_policy.clear();
+    CHECK(to_json(profile) == original && encode_responses_request(profile, request).body == old_wire.body);
+    for (const auto& invalid : {Json(""), Json("write-summary-v2"), Json(nullptr), Json(true)}) {
+        selected.at("responses_tool_result_policy") = invalid;
+        fails(ErrorCode::InvalidInput, [&] { (void)provider_profile_from_json(selected); });
+    }
+    profile.responses_tool_result_policy = "write-summary-v1";
+    fails(ErrorCode::Unsupported, [&] { (void)encode_responses_request(profile, fixture::request()); });
+    for (const auto role : {Role::TeamLead, Role::Dispatcher})
+        fails(ErrorCode::Unsupported, [&] { (void)encode_responses_request(profile, write_receipt_request(write_receipt_record(), role)); });
+    fails(ErrorCode::Unsupported, [&] { (void)encode_responses_request(profile, write_receipt_request(write_receipt_record(), Role::Worker, false)); });
+    for (const auto& base : {fixture::profile(), wls::test::chat::profile()}) {
+        auto invalid = to_json(base); invalid.as_object()["responses_tool_result_policy"] = "write-summary-v1";
+        fails(ErrorCode::Unsupported, [&] { (void)provider_profile_from_json(invalid); });
+    }
+}
+void write_summary_projects_only_settled_success_and_preserves_originals() {
+    auto profile = fixture::compat_profile(); profile.responses_tool_result_policy = "write-summary-v1";
+    const auto legacy = fixture::compat_profile();
+    for (const bool created : {true, false}) {
+        auto record = write_receipt_record(created); const auto saved = record;
+        for (const bool replayed : {false, true}) {
+            auto& result = record.at("feedback").at("result");
+            result.at("replayed") = replayed; result.at("executed_now") = !replayed;
+            const auto request = write_receipt_request(record); const auto original = to_json(request);
+            auto expected = result.at("execution_result").at("result").as_object();
+            expected["status"] = "SUCCEEDED"; expected["replayed"] = replayed; expected["executed_now"] = !replayed;
+            const auto old_wire = parse_json_strict(encode_responses_request(legacy, request).body);
+            const auto encoded = encode_responses_request(profile, request);
+            auto projected = parse_json_strict(encoded.body);
+            CHECK(projected.at("input").as_array()[2].at("output") == Json(canonical_json(expected)));
+            CHECK(encoded.body.size() < canonical_json(old_wire).size());
+            projected.at("input").as_array()[2].at("output") = canonical_json(result);
+            CHECK(projected == old_wire && to_json(request) == original);
+        }
+        CHECK(record.at("response") == saved.at("response"));
+    }
+    const std::vector<std::function<void(Json&)>> changes{
+        [](auto& r) { r.at("operation").at("status") = "UNKNOWN"; },
+        [](auto& r) { r.at("execution_result").at("observed_outcome") = "FAILED"; },
+        [](auto& r) { r.as_object()["runtime_error"] = true; },
+        [](auto& r) { r.at("execution_result").as_object()["future"] = "keep original"; },
+        [](auto& r) { r.at("operation").as_object()["future"] = "keep original"; },
+        [](auto& r) { r.at("execution_result").at("result").as_object()["future"] = "keep original"; },
+        [](auto& r) { r.at("execution_result").at("evidence").as_object()["future"] = "keep original"; },
+        [](auto& r) { r.at("execution_result").at("accepted") = true; },
+        [](auto& r) { r.at("execution_result").at("stdout_truncated") = false; },
+        [](auto& r) { r.at("execution_result").at("result").as_object().erase("previous_sha256"); },
+        [](auto& r) { r.at("execution_result").at("result").at("previous_sha256") = ""; },
+        [](auto& r) { r.at("execution_result").at("original_binding").at("execution_epoch") = 99; },
+        [](auto& r) { r.at("operation").at("arguments").at("content") = "different bytes"; },
+        [](auto& r) { r.at("execution_result").at("evidence").at("temporary_remaining") = true; },
+        [](auto& r) { r.at("operation").at("evidence_ref") = "store:operation_result:other#" + std::string(r.at("execution_result").at("record_sha256").as_string()); },
+        [](auto& r) { const auto bad = sha256_hex("wrong execution fact"); r.at("execution_result").at("record_sha256") = bad;
+            r.at("operation").at("evidence_ref") = "store:operation_result:op_fixture#" + bad; },
+        [](auto& r) { r.at("execution_result").at("evidence").at("temporary_path") = ".wls-write-changed"; },
+        [](auto& r) { r.at("replayed") = true; }
+    };
+    for (const auto& change : changes) {
+        auto record = write_receipt_record(); change(record.at("feedback").at("result"));
+        const auto request = write_receipt_request(record); const auto original = to_json(request);
+        CHECK(encode_responses_request(profile, request).body == encode_responses_request(legacy, request).body);
+        CHECK(to_json(request) == original);
+    }
+    auto overwrite = write_receipt_record(false);
+    overwrite.at("feedback").at("result").at("execution_result").at("result").at("previous_sha256") = nullptr;
+    const auto invalid_hash = write_receipt_request(overwrite);
+    CHECK(encode_responses_request(profile, invalid_hash).body == encode_responses_request(legacy, invalid_hash).body);
+    for (const auto* tool : {"fs_read", "history_read", "fs_patch"}) {
+        auto record = write_receipt_record(true, tool);
+        record.at("feedback").at("result") = Object{{"content", "Original read bytes and errors must remain."}};
+        const auto request = write_receipt_request(record);
+        CHECK(encode_responses_request(profile, request).body == encode_responses_request(legacy, request).body);
+    }
+    auto unapplied = write_receipt_record(); unapplied.at("accepted") = 0;
+    const auto request = write_receipt_request(unapplied);
+    CHECK(encode_responses_request(profile, request).body == encode_responses_request(legacy, request).body);
+    for (const auto& entry : Object{{"status", "RUNNING"}, {"accounting_attention", 1}}) {
+        auto unsettled = write_receipt_record(); unsettled.at(entry.key()) = entry.value();
+        const auto pending = write_receipt_request(unsettled);
+        CHECK(encode_responses_request(profile, pending).body == encode_responses_request(legacy, pending).body);
+    }
+}
 void compat_output_extensions_are_recorded_and_replayed_under_the_frozen_policy() {
     auto profile = fixture::compat_profile(); profile.response_metadata_policy = "ignore-record-v1";
     for (const auto* name : {"reasoning-tool-response.json", "reasoning-text-response.json", "refusal-response.json"}) {
@@ -1081,6 +1227,8 @@ int main() {
         {"response ID bounds are optional frozen Responses profile fields", response_id_bound_is_optional_frozen_and_responses_only},
         {"response ID opt-in preserves legacy HTTP and item/call bounds", response_id_bound_does_not_expand_item_or_call_ids},
         {"Responses background omission requires a frozen opt-in and preserves legacy wire identity", responses_background_policy_preserves_legacy_wire_identity},
+        {"write result summaries require a frozen Worker-only policy and preserve defaults", write_summary_policy_is_explicit_worker_only_and_keeps_defaults},
+        {"write result summaries preserve originals and keep unknown or unmatched results", write_summary_projects_only_settled_success_and_preserves_originals},
         {"response metadata paths preserve originals and known decoding", response_metadata_paths_keep_originals_and_known_results},
         {"response metadata count and byte overflow truncate paths without losing originals", response_metadata_lists_are_bounded_without_losing_raw_bytes},
         {"response metadata tolerance keeps output identity usage and strict JSON guards", response_metadata_does_not_relax_outputs_identity_or_known_types},
