@@ -666,3 +666,17 @@ Responses profile 可显式冻结 `responses_reasoning_history_policy: last-two-
 仅发送时省略倒数两轮之前的 reasoning，最近两轮全部 reasoning 原值原序保留。
 其他消息、工具参数/结果、契约更新和折叠边界不变，仍请求 `reasoning.encrypted_content`。
 不改 Store/原历史或容量、UNKNOWN、版本、派发、交付守卫；字节缩减不代表 token 或缓存收益。
+
+## R5 E1：成功写入回执的发送投影
+
+新 Worker Responses profile 可显式冻结 `responses_tool_result_policy:"write-summary-v1"`，
+要求 `responses_compatibility`、`structured-v3` 和 `lean-v1`；其他角色、Chat 或不匹配上下文拒绝。
+配置须新增独立 Worker `profile_id` / `model_ref`，由 `function.roles.worker.model_ref` 显式选择，
+不能在全角色共用 profile 上启用。缺省不序列化新键，旧 profile/hash/wire 保持原义；空值和未知值拒绝。
+
+编码器先验证完整原生轮与工具配对，仅对已接受、已结算成功的 `fs_write` 精确回执结构生成发送副本，
+保留 `status/path/created/previous_sha256/sha256/size_bytes/executed_now/replayed`。创建时原
+`previous_sha256:null` 保留；覆盖时必须是原完整 SHA-256。来源、绑定、状态、参数、内容摘要、大小、
+持久化证据或重放标志不一致，以及未知字段/形状、失败和 UNKNOWN，均返回完整原 output。
+其他工具继续原编码行为；原响应、逻辑历史、Store 反馈和 `history_read` 原件不变。
+这是编码投影，不能据此推断内容验收通过、真实 token 节省或新真实请求成功。
