@@ -310,6 +310,33 @@ void workspace_mountinfo_rejects_escape_mounts() {
     test::throws<Error>([&] { verify_workspace_mounts(std::string(262145, 'x')); });
 }
 
+void directory_bind_sources_resolve_in_parent() {
+    Temp temp;
+    const auto original = temp.root / "work with spaces";
+    CHECK(std::filesystem::create_directory(original));
+    Fd directory(::open(original.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC));
+    CHECK(directory.get() >= 0);
+    const auto runtime = pin_standard_runtime();
+    std::vector<std::string> args{"bwrap"};
+    append_directory_bind(args, "--bind", directory.get(), "/work");
+    append_directory_bind(args, "--ro-bind", runtime.root.get(), "/usr");
+    const std::vector<std::string> expected{"bwrap", "--bind", original.string(), "/work", "--ro-bind", "/usr", "/usr"};
+    CHECK(args == expected);
+    CHECK(::fcntl(directory.get(), F_GETFD) == FD_CLOEXEC);
+    const auto renamed = temp.root / "renamed";
+    std::filesystem::rename(original, renamed);
+    args.clear();
+    append_directory_bind(args, "--bind", directory.get(), "/work");
+    CHECK(args.at(1) == renamed.string());
+    CHECK(std::filesystem::remove(renamed));
+    const auto unchanged = args;
+    test::throws<Error>([&] { append_directory_bind(args, "--bind", directory.get(), "/work"); });
+    auto pipe = make_pipe();
+    test::throws<Error>([&] { append_directory_bind(args, "--bind", pipe[0].get(), "/work"); });
+    test::throws<Error>([&] { append_directory_bind(args, "--bind", -1, "/work"); });
+    CHECK(args == unchanged);
+}
+
 void standard_runtime_mounts_require_read_only_private_identity() {
     // Fixed mountinfo observations exercise refusal; this is not mount execution.
     const std::string runtime = "20 10 8:1 /usr /usr ro,nosuid,nodev - ext4 /dev/test rw\n";
@@ -759,6 +786,7 @@ int main(int argc, char** argv) {
         {"setsid descendant escape stays UNKNOWN in supervisor-only fixture", escaped_descendant_remains_unknown},
         {"failed descendant query cannot reuse an earlier empty observation", stale_descendant_query_cannot_confirm_cleanup},
         {"mountinfo rejects nested and propagating workspace mounts", workspace_mountinfo_rejects_escape_mounts},
+        {"directory bind arguments resolve parent fds and reject invalid sources", directory_bind_sources_resolve_in_parent},
         {"standard runtime rejects writable nested and propagating mounts", standard_runtime_mounts_require_read_only_private_identity},
         {"standard has no cgroup fallback and imports only fixed etc files", standard_policy_requires_cgroup_and_scoped_etc_files},
         {"workspace audit rejects unsafe inodes, modes and traversal overflow", workspace_tree_rejects_unsafe_inodes},
