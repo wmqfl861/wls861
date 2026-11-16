@@ -4,6 +4,7 @@
 #include "wls/model.hpp"
 #include "test_support.hpp"
 #include "capacity_test_support.hpp"
+#include "../src/input_guard.hpp"
 
 #include <sqlite3.h>
 #include <sys/stat.h>
@@ -120,9 +121,18 @@ struct Fixture {
     std::filesystem::path path{temp.path / "state.sqlite"};
     std::unique_ptr<Store> store;
     std::string request_id;
-    explicit Fixture(bool acceptance = true, const Json& initial_plan = plan_body()) {
+    Json execution_policy = Object{};
+    explicit Fixture(bool acceptance = true, const Json& initial_plan = plan_body(), bool input_enabled = false) {
         store = std::make_unique<Store>(path, base_sql, store_sql, StoreOpenMode::Takeover, tools_sql, events_sql, workflow_sql, acceptance ? acceptance_sql : "");
-        request_id = s(store->admit(admission()), "request_id");
+        auto admitted = admission();
+        if (input_enabled) {
+            auto system = admitted.config_snapshot.at("system");
+            system.at("sandbox").as_object()["input"] = Object{{"mode", "read-only-v1"}, {"max_total_bytes", 4096}};
+            write(temp.path / "system.json", canonical_json(system));
+            admitted.config_snapshot = ::test::legacy_shell_catalog(temp.path / "system.json",
+                source_root / "config/examples/functions", source_root / "prompts").freeze("general").json();
+        }
+        request_id = s(store->admit(admitted), "request_id");
         store->apply_independent_plan(actor(Role::Dispatcher), rv(), 1, initial_plan, Object{}, new_id("plan"));
     }
     Json task(const std::string& node = "alpha") const {
@@ -148,7 +158,7 @@ struct Fixture {
         std::filesystem::create_directory(workspace(node)); struct stat info{};
         CHECK(::stat(workspace(node).c_str(), &info) == 0);
         store->bind_workspace(s(task(node), "team_id"), std::filesystem::canonical(workspace(node)).string(),
-            static_cast<std::uint64_t>(info.st_dev), static_cast<std::uint64_t>(info.st_ino));
+            static_cast<std::uint64_t>(info.st_dev), static_cast<std::uint64_t>(info.st_ino), execution_policy);
         write(workspace(node) / "result.txt", "original fixture\n");
     }
     Json snapshot(const std::string& node = "alpha") const { return Array{snapshot_file("/work/result.txt", read(workspace(node) / "result.txt"))}; }
@@ -501,6 +511,28 @@ void new_blocking_question_is_checked_at_publication_and_receipt() {
     CHECK(confirmed.at("frozen_plan") == frozen_plan); CHECK(confirmed.at("manifest_sha256") == stored.at("manifest_sha256"));
 }
 
+void input_delivery_boundaries_hold_in_both_orders() {
+    for (const bool input_first : {true, false}) {
+        Fixture f(true, plan_body(), true);
+        const auto delivery_root = root_identity(f);
+        auto input = input_detail::identity(s(delivery_root, "path"), true);
+        input.as_object()["mode"] = "read-only-v1"; input.as_object()["max_total_bytes"] = 4096;
+        if (input_first) f.execution_policy = Object{{"input", input}};
+        (void)accept(f, candidate(f)); (void)accept(f, candidate(f, "beta"), "beta");
+        if (input_first) {
+            error(ErrorCode::Unauthorized, [&] { (void)prepare(f); });
+            CHECK(scalar(f.path, "SELECT COUNT(*) FROM delivery_runtime") == 0);
+        } else {
+            const auto delivery = prepare(f);
+            const auto workspace = f.store->workspace(s(f.task(), "team_id"));
+            error(ErrorCode::Unauthorized, [&] { (void)f.store->bind_workspace(s(f.task(), "team_id"), f.workspace().string(),
+                workspace.at("device").to_number<std::uint64_t>(), workspace.at("inode").to_number<std::uint64_t>(), Object{{"input", input}}); });
+            CHECK(f.store->delivery(s(delivery, "delivery_id")) == delivery);
+        }
+        CHECK(std::filesystem::is_empty(std::filesystem::path(s(delivery_root, "path"))));
+    }
+}
+
 } // namespace
 int main() {
     source_root = std::filesystem::path(WLS_SOURCE_DIR);
@@ -523,6 +555,7 @@ int main() {
         {"experience identity source and explicit no experience",report_identity_source_and_explicit_no_experience_guards},
         {"cancellation retains cleanup unknown and recovery",cancellation_retains_jobs_unknown_and_recovery},
         {"delivery and workspace isolation both directions",delivery_workspace_database_isolation_is_bidirectional},
+        {"input and delivery roots remain separate in both registration orders",input_delivery_boundaries_hold_in_both_orders},
         {"acceptance job insert failure rolls back decision",acceptance_job_storage_failure_rolls_back_whole_decision},
         {"one concurrent captured business acceptance winner",concurrent_acceptance_has_one_captured_winner},
         {"ordinary event limit preserves bounded closeout controls",ordinary_event_exhaustion_preserves_bounded_finalization_controls},

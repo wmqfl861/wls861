@@ -697,7 +697,12 @@ CapabilityRegistry validate_system(const Json& system) {
     const auto& sandbox = required(system, "sandbox", "system");
     fields(sandbox, "system.sandbox", {{"engine", 's'}, {"network_default", 's'}, {"allow_weak_isolation", 'b'},
         {"require_cgroup_for_strong_isolation", 'b'}, {"extra_ro_binds", 'a'}, {"run_default_timeout_s", 'i'},
-        {"run_max_timeout_s", 'i'}, {"team_memory_max", 's'}, {"team_pids_max", 'i'}});
+        {"run_max_timeout_s", 'i'}, {"team_memory_max", 's'}, {"team_pids_max", 'i'}, {"input", '-'}}, {"input"});
+    if (const auto* input = optional(sandbox, "input")) {
+        fields(*input, "sandbox.input", {{"mode", 's'}, {"max_total_bytes", 'i'}});
+        literal(*input, "mode", "read-only-v1", "sandbox.input");
+        (void)integer_value(required(*input, "max_total_bytes", "sandbox.input"), "sandbox.input.max_total_bytes", 1, 268435456);
+    }
     literal(sandbox, "engine", "bwrap", "system.sandbox");
     const auto network = string_value(required(sandbox, "network_default", "system.sandbox"), "system.sandbox.network_default");
     if (network != "none" && network != "host") invalid("system.sandbox.network_default", "expected none or explicit host network");

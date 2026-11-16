@@ -5,6 +5,7 @@
 #include "runtime_config_internal.hpp"
 #include "correction_detail.hpp"
 #include "operation_output_detail.hpp"
+#include "input_guard.hpp"
 
 #include <unistd.h>
 
@@ -122,6 +123,10 @@ SandboxPolicy policy_from_config(Store& store, const StoreActor& actor,
     runtime_detail::require_matching_config(record, config);
     const auto policy = worker_sandbox_policy(config, field(store.task(actor.task_id), "template_id"), manifest);
     if (policy.isolation == SandboxIsolation::StandardCgroupV1) store.validate_process_runtime_root("/usr");
+    if (!policy.input.is_null()) {
+        store.validate_process_runtime_root(field(policy.input, "path"));
+        store.validate_process_input(policy.input);
+    }
     return policy;
 }
 // All WorkerTools instances sharing a writer use the same cancellation source.
@@ -234,7 +239,7 @@ void validate_worker_tool_arguments(std::string_view name, const Json& args) {
 
 SandboxPolicy worker_sandbox_policy(const FrozenRequestConfig& config, std::string_view template_id, const Json& manifest) {
     require(manifest.is_object(), ErrorCode::InvalidInput, "sandbox manifest must be an object");
-    allowed(manifest, {"schema_version", "bwrap_path", "bwrap_sha256", "cgroup_root", "runtime_files", "memory_max_bytes", "pids_max", "cpu_quota_us", "cpu_period_us", "cleanup_timeout_ms", "max_output_bytes"});
+    allowed(manifest, {"schema_version", "bwrap_path", "bwrap_sha256", "cgroup_root", "runtime_files", "memory_max_bytes", "pids_max", "cpu_quota_us", "cpu_period_us", "cleanup_timeout_ms", "max_output_bytes", "input_root"});
     if (!manifest.as_object().empty()) require(unsigned_number(required(manifest, "schema_version")) == 1, ErrorCode::InvalidInput, "unsupported sandbox manifest version");
     const auto& frozen = config.json().at("system").at("sandbox");
     const auto& templates = config.json().at("function").at("team_templates");
@@ -244,6 +249,15 @@ SandboxPolicy worker_sandbox_policy(const FrozenRequestConfig& config, std::stri
     const auto isolation = field(selected, "isolation");
     require(isolation == "strong" || isolation == "strict" || isolation == "standard", ErrorCode::Unsupported, "this executor has no weak process mode");
     SandboxPolicy policy;
+    const auto* input = frozen.as_object().if_contains("input");
+    require((input != nullptr) == manifest.as_object().contains("input_root"), ErrorCode::InvalidInput,
+        "input requires both explicit frozen read-only-v1 policy and a trusted input_root");
+    if (input) {
+        text_argument(manifest, "input_root", 1, 4096);
+        policy.input = input_detail::identity(field(manifest, "input_root"), true);
+        policy.input.as_object()["mode"] = input->at("mode");
+        policy.input.as_object()["max_total_bytes"] = input->at("max_total_bytes");
+    }
     if (isolation == "standard") policy.isolation = SandboxIsolation::StandardCgroupV1;
     policy.bwrap_path = optional_text(manifest, "bwrap_path", "/usr/bin/bwrap");
     if (manifest.as_object().contains("bwrap_sha256")) {
@@ -299,6 +313,7 @@ Json worker_execution_policy(const FrozenRequestConfig& config, std::string_view
         result["owned_workspace_capacity"] = capacity;
         result["business_effect_scope"] = "file-tools-only";
     }
+    if (!policy.input.is_null()) result["input"] = policy.input;
     return result;
 }
 
@@ -387,6 +402,11 @@ Json WorkerTools::environment_card(const StoreActor& actor) const {
     Object result{{"file_executor", "dirfd-openat2"}, {"process_executor", "bwrap-cgroup-v2"}, {"logical_workspace", "/work"},
         {"environment_checks_executed", false}, {"process_isolation_verified", false},
         {"execution_policy_sha256", binding.at("execution_policy_sha256")}, {"note_is_business_delivery", false}};
+    if (binding.at("execution_policy").as_object().contains("input")) {
+        result["logical_input"] = "/input";
+        result["input_read_only"] = true;
+        result["input_max_total_bytes"] = binding.at("execution_policy").at("input").at("max_total_bytes");
+    }
     if (binding.at("execution_policy").at("version") == "wls-worker-execution-standard-cgroup-v1") {
         result["process_isolation"] = "standard-cgroup-v1";
         result["network"] = "none";

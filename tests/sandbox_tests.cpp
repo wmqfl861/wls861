@@ -691,6 +691,63 @@ void doctor_real_environment_is_observation_only() {
     std::cout << "[OBSERVED] " << canonical_json(to_json(doctor)) << '\n';
 }
 
+void input_tree_limits_identity_and_aliases_fail_closed() {
+    Temp temp;
+    const auto input = temp.root / "input", work = temp.root / "work";
+    std::filesystem::create_directory(input); std::filesystem::create_directory(work);
+    put(input / "data.csv", "a,b\n1,2\n");
+    Fd root(::open(input.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC));
+    std::uint64_t bytes = 0;
+    CHECK(verify_workspace_tree(root.get(), &bytes, 8) == 1 && bytes == 8);
+    bytes = 0; test::throws<Error>([&] { (void)verify_workspace_tree(root.get(), &bytes, 7); });
+    put(input / "extra", "x");
+    bytes = 0; test::throws<Error>([&] { (void)verify_workspace_tree(root.get(), &bytes, 8); });
+    bytes = UINT64_MAX; test::throws<Error>([&] { (void)verify_workspace_tree(root.get(), &bytes, UINT64_MAX); });
+    SandboxPolicy policy;
+    policy.input = input_detail::identity(input, true);
+    policy.input.as_object()["mode"] = "read-only-v1";
+    policy.input.as_object()["max_total_bytes"] = 8;
+    ProcessRequest request; request.argv = {"/usr/bin/touch", "/work/marker"};
+    const ProcessRunner runner(work, policy);
+    auto refused = runner.run(request);
+    CHECK(refused.status == ProcessStatus::Refused && !refused.spawned && refused.cgroup_name.empty());
+    CHECK(!std::filesystem::exists(work / "marker"));
+    std::filesystem::remove(input / "extra");
+    const auto unsafe = input / "unsafe";
+    for (int kind = 0; kind < 3; ++kind) {
+        if (kind == 0) std::filesystem::create_symlink("data.csv", unsafe);
+        if (kind == 1) std::filesystem::create_hard_link(input / "data.csv", unsafe);
+        if (kind == 2) CHECK(::mkfifo(unsafe.c_str(), 0600) == 0);
+        refused = runner.run(request);
+        CHECK(refused.status == ProcessStatus::Refused && !refused.spawned && refused.cgroup_name.empty());
+        std::filesystem::remove(unsafe);
+    }
+    auto alias = input_detail::identity(work);
+    input_detail::separate(policy.input, work.string(), alias);
+    alias.at("mount_id") = policy.input.at("mount_id").to_number<std::uint64_t>() + 1;
+    test::throws<Error>([&] { input_detail::separate(policy.input, work.string(), alias); });
+    alias = policy.input;
+    test::throws<Error>([&] { input_detail::separate(policy.input, work.string(), alias); });
+    // Synthetic device transition: the protected leaf is on another filesystem,
+    // but a pinned parent still aliases the input. No host mounts are created.
+    std::filesystem::create_directory(work / "protected");
+    const auto protected_root = input_detail::identity(work / "protected");
+    auto other_device = protected_root;
+    other_device.at("device") = policy.input.at("device").to_number<std::uint64_t>() + 1;
+    const auto parent_chain = input_detail::ancestors(protected_root);
+    auto aliased_input = input_detail::identity(work);
+    aliased_input.at("mount_id") = aliased_input.at("mount_id").to_number<std::uint64_t>() + 1;
+    input_detail::distinct(aliased_input, other_device);
+    test::throws<Error>([&] { input_detail::distinct_chain(aliased_input, parent_chain); });
+    test::throws<Error>([&] { (void)input_detail::identity(input.string() + "/", true); });
+    test::throws<Error>([&] { (void)input_detail::identity(temp.root.string() + "//input", true); });
+    auto malformed = policy; malformed.input.as_object().erase("mode");
+    test::throws<Error>([&] { (void)ProcessRunner(work, malformed); });
+    std::filesystem::rename(input, temp.root / "original-input"); std::filesystem::create_directory(input);
+    refused = runner.run(request);
+    CHECK(refused.status == ProcessStatus::Refused && !refused.spawned && refused.cgroup_name.empty());
+}
+
 // Explicit opt-in only. Default CTest never treats synthetic/refusal fixtures
 // as native acceptance. Exit 77 is BLOCKED and must not be converted to green.
 int standard_native(int argc, char** argv) {
@@ -721,6 +778,13 @@ int standard_native(int argc, char** argv) {
         policy.bwrap_path = argv[2];
         policy.expected_bwrap_sha256 = argv[3];
         policy.cgroup_root = argv[4];
+        const auto input = output / "input";
+        CHECK(::mkdir(input.c_str(), 0700) == 0);
+        const std::string input_bytes = "name,value\nalpha,3\n";
+        put(input / "data.csv", input_bytes);
+        policy.input = input_detail::identity(input, true);
+        policy.input.as_object()["mode"] = "read-only-v1";
+        policy.input.as_object()["max_total_bytes"] = input_bytes.size();
         ProcessRunner runner(work, policy);
         const auto execute = [&](const char* name, const std::string& code, Milliseconds timeout,
                                  std::stop_token stop = {}) {
@@ -743,6 +807,12 @@ int standard_native(int argc, char** argv) {
             CHECK(result.evidence.at("resource_enforcement") == "cgroup-v2");
             CHECK(result.evidence.at("descendants_proof") == "cgroup.events populated=0");
             CHECK(result.evidence.at("workspace_observation").at("complete") == true);
+            CHECK(result.evidence.at("input_mount").at("verified") == true);
+            CHECK(result.evidence.at("input_mount").at("read_only") == true);
+            CHECK(result.evidence.at("input_mount").at("audited_bytes") == input_bytes.size());
+            CHECK(result.evidence.at("input_mount").at("destination") == "/input");
+            CHECK(canonical_json(result.evidence.at("input_mount")).find(input.string()) == std::string::npos);
+            CHECK(result.evidence.at("runtime_mounts").as_array().size() == 1);
             CHECK(!std::filesystem::exists(policy.cgroup_root / result.cgroup_name));
         };
         const auto ordinary = execute("ordinary", R"PY(
@@ -753,6 +823,17 @@ assert os.environ['WLS_NATIVE_EXPLICIT'] == 'present'
 assert 'WLS_NATIVE_HOST_CANARY' not in os.environ
 assert not pathlib.Path(sys.argv[1]).exists()
 assert not pathlib.Path('/home').exists() and not pathlib.Path('/etc/shadow').exists()
+assert pathlib.Path('/input/data.csv').read_bytes() == b'name,value\nalpha,3\n'
+for action in (lambda: pathlib.Path('/input/data.csv').write_text('overwritten'),
+               lambda: open('/input/data.csv', 'a'),
+               lambda: pathlib.Path('/input/data.csv').unlink(),
+               lambda: pathlib.Path('/input/new').write_text('new')):
+    try:
+        action()
+    except OSError:
+        pass
+    else:
+        raise AssertionError('input mutation succeeded')
 try:
     socket.create_connection(('127.0.0.1', int(sys.argv[2])), timeout=0.25)
 except OSError:
@@ -771,6 +852,9 @@ print('native-python-workdir-environment-network-ok')
         }
         proof(ordinary);
         CHECK(process_operation_outcome(ordinary) == "SUCCEEDED");
+        std::ifstream input_after(input / "data.csv", std::ios::binary);
+        CHECK(sha256_hex(std::string(std::istreambuf_iterator<char>(input_after), {})) == sha256_hex(input_bytes));
+        CHECK(!std::filesystem::exists(input / "new"));
         CHECK(std::filesystem::is_regular_file(work / "subdir/result"));
         const auto background = execute("background", R"PY(
 import os, time, pathlib
@@ -829,6 +913,7 @@ int main(int argc, char** argv) {
         {"standard runtime rejects writable nested and propagating mounts", standard_runtime_mounts_require_read_only_private_identity},
         {"standard has no cgroup fallback and imports only fixed etc files", standard_policy_requires_cgroup_and_scoped_etc_files},
         {"workspace audit rejects unsafe inodes, modes and traversal overflow", workspace_tree_rejects_unsafe_inodes},
+        {"input byte limits inode replacement and mount aliases refuse before spawn", input_tree_limits_identity_and_aliases_fail_closed},
         {"binary output retains exact bytes and valid JSON", binary_output_is_lossless_json},
         {"production policy, arguments and cwd reject unsafe boundaries", policy_and_paths_are_bounded},
         {"doctor is read-only and production refuses absent or forged isolation", doctor_and_production_refuse_without_capabilities},
