@@ -1,6 +1,6 @@
 # WLS861 development contract
 
-Current implementation: **0.12.0**, blueprint **v0.4.1**, Store **410**.
+Current implementation: **0.13.0**, blueprint **v0.5**, Store **410**. The v0.5 entry is [`docs/spec/v0.5/01_实施规格_v0.5.md`](docs/spec/v0.5/01_实施规格_v0.5.md); unchanged contracts continue to reference v0.4.1. Actual acceptance results and current limitations are in [`docs/STATUS.md`](docs/STATUS.md) and the [latest handoff](docs/reviews/current-handoff.md).
 
 Entry point only: the complete, still-binding contract is preserved verbatim in `docs/implementation/development-contract.md` — current, normative, not archived history; read it before changing runtime behavior.
 
@@ -88,7 +88,7 @@ The owner's 2026-11-15 direction and D-34/D-35 govern the current G2 endpoint, c
 
 ## Required reading
 
-Blueprint `docs/spec/v0.4.1/01_实施规格_v0.4.1.md`, `docs/ROADMAP.md`,
+Blueprint `docs/spec/v0.5/01_实施规格_v0.5.md` and its unchanged v0.4.1 references, `docs/ROADMAP.md`,
 `docs/implementation/M1-contract.md`; the S1 chain in `docs/implementation/`
 (from `S1-foundation.md` through `S1-owned-cleanup.md`); `docs/STATUS.md`
 and `docs/reviews/claude-disposition.md`; then every R1/R2/R3

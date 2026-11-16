@@ -1,10 +1,10 @@
 # 无量山 · wls861
 
-C++ 通用多 Agent 系统，Linux 优先。**当前增量：0.12.0；当前蓝图：v0.4.1，目标蓝图 v0.5 已采纳。** 原 `wls861` 继续提供 0.1.1-m1 合成内核，`wls` 提供持久化工作流、受控 Worker 工具和独立离线协议回放。
+C++ 通用多 Agent 系统，Linux 优先。**当前实现：0.13.0；蓝图：[v0.5](docs/spec/v0.5/01_实施规格_v0.5.md)；Store：410。** `wls861` 提供原 0.1.1-m1 合成内核，`wls` 提供持久化工作流、受控 Worker 文件工具、交付导出与离线协议回放。
 
-当前能力与下一步见[当前状态](docs/STATUS.md)、[首次真实运行记录](docs/reports/g2-first-real-run.md)、[G2-P 预演](docs/reports/g2p-rehearsal.md)及[11-13 计划](docs/reviews/claude-2026-11-13/04-plan.md)。[G1 交接](docs/reviews/g1-main-handoff-20261112.md)和[G1 简报](docs/reports/g1-exit.md)保留原阶段记录。
+当前能力、真实验收边界与未完成项见[当前状态](docs/STATUS.md)，接手动作和证据入口见[最新交接](docs/reviews/current-handoff.md)。后续开发统一按 [11-16 计划](docs/reviews/claude-2026-11-16/04-plan.md)；[G2 运行记录](docs/reports/g2-first-real-run.md)保留各次结果和未知用量，[路线摘要](docs/ROADMAP.md)说明阶段依赖。
 
-0.12.0 为真实模型闭环准备：新请求默认只授予文件工具；模型只填写最小工具参数，宿主补全其余字段。可纠正错误带具体反馈，输出截断和明确无效果的文件失败可继续，UNKNOWN 与存储错误仍停止。冻结单价后按次预留并为失败调用记账，符合条件的连接/HTTP 失败最多重试两次；交付后按原文件名导出成果。owner 已授权指定 Responses 中转与 `gpt-6.1-sol` / `max` 测试调用，并取消金额门禁；费用仍未知，调用数、token 和时长保持有限。真实文件冒烟已通过；G2-4 的原成果发布仍为 UNKNOWN，最终包审计和发布修复的本机验证已通过。后续真实调用暂停，G2-5 NOT_RUN。实跑结果与修复远端状态集中在[运行记录](docs/reports/g2-first-real-run.md)，完整 G2 尚未通过。
+新请求默认授予文件工具；模型只填写最小参数，宿主维护授权、版本、执行和验收绑定。原模型响应、工具反馈、交付原字节与未知副作用记录保持完整。0.13.0 冻结六个既有格式选择并迁入目标规格；版本升级不代表 U1/U2 真实验收已通过。获准真实请求继续使用显式 `observe-only-v1`、有限调用/token/墙钟和独立网络授权，自动重试为 0；费用未知保持未知。历史实现与验证范围按下文各自版本阅读。
 
 0.11.1 补丁按全代码审核修复写锁继承、并发账本快照、已核账容量、文件完整读取、启动前取消证据、
 调用路由预检、评测来源/原输入绑定与小数历史指纹兼容。范围和复现见[审核报告](docs/reviews/code-audit-20261027.md)，
@@ -279,8 +279,8 @@ context:
 | [R1.3 Worker窗口](docs/implementation/R1-worker-history-window.md) | 冻结策略、原证据回读、旧快照兼容及验收边界 |
 | [R1.1 原始历史读取](docs/implementation/R1-history-evidence.md) | 只读分页、原反馈哈希、字节分片及兼容边界 |
 | [首次审核修复验证](docs/reports/claude-review-fixes-validation.md) | 10-23审核补丁的历史复现、修复和测试证据 |
-| [实施蓝图 v0.4.1](docs/spec/v0.4.1/01_实施规格_v0.4.1.md) | 当前目标架构、版本关系、运行行为与各切片边界 |
-| [实施路线](docs/ROADMAP.md) | 已有 M1 与 S0–S5 的承接、优先顺序和完成条件 |
+| [实施蓝图 v0.5](docs/spec/v0.5/01_实施规格_v0.5.md) | 当前目标架构、六格式冻结与阶段契约；未改条款继续引用 v0.4.1 |
+| [实施路线](docs/ROADMAP.md) | 11-16 唯一计划的阶段依赖与验收摘要 |
 | [S1 任务卡](docs/spec/v0.4.1/07_S1任务卡.md) | 基于现有代码的增量任务，不从空项目重建 |
 | [本次审核修订说明](docs/REVISION-v0.4.1.md) | 每项审核发现如何进入文档、契约或内核修复 |
 | [决策记录](docs/spec/v0.4.1/00_决策记录.md) | 用户明确决定、工程默认值与实际接入参数 |
@@ -309,7 +309,7 @@ context:
 | [M1 实现契约](docs/implementation/M1-contract.md) | 原 Journal 内核的 API、持久化、身份和合成验收 |
 | [v0.4.1 修订验证](docs/reports/v0.4.1-validation.md) | 前一批审核修正的历史证据 |
 
-原 v0.3 的 33 个文件和本次 v0.4 审核包的 49 个文件分别保存在 [docs/handoff/v0.3](docs/handoff/v0.3) 与 [docs/handoff/v0.4](docs/handoff/v0.4)，有独立 SHA-256 校验。原件里的历史状态、提示词和 AGENTS 文件只作来源档案；当前开发入口是本页、根 AGENTS 和 v0.4.1 蓝图。
+原 v0.3 的 33 个文件和本次 v0.4 审核包的 49 个文件分别保存在 [docs/handoff/v0.3](docs/handoff/v0.3) 与 [docs/handoff/v0.4](docs/handoff/v0.4)，有独立 SHA-256 校验。原件里的历史状态、提示词和 AGENTS 文件只作来源档案；当前开发入口是本页、根 AGENTS 和 v0.5 蓝图，未变化的 v0.4.1 契约仍有效。
 
 ## 示例目录与权限
 
