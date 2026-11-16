@@ -1,4 +1,4 @@
-// Included in store.cpp after Store::Impl. All writes use the original Store
+// Included in store_live.cpp after Store::Impl. All writes use the original Store
 // mutex, writer scope and SQLite transaction; network and source verification
 // are deliberately outside these methods.
 namespace {

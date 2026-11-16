@@ -2,6 +2,13 @@
 
 ## 0.12.0 — G2-P model readiness (2026-11-13)
 
+- Compile the Store live accounting domain separately in G6-B, preserving
+  SQL, transaction boundaries and public APIs. One paired local sample
+  measures baseline/candidate full builds at 478.048187098/480.054200499
+  seconds (+0.4196258%); touching the unchanged `store_live.inc` gives
+  incremental builds of 59.596206308/25.852473273 seconds (-56.6206058%).
+  This single sample does not establish general build performance or
+  completion of G6.
 - Compile the Store owned allocation/cleanup domain separately in G6-B,
   preserving SQL, transactions, locks and guards. One GCC 13.3 Release/-j2
   sample measures full builds at 472.275117/479.742074 seconds for
