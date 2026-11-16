@@ -4,11 +4,13 @@ Current implementation: **0.12.0**, blueprint **v0.4.1**, Store **410**.
 
 Entry point only: the complete, still-binding contract is preserved verbatim in `docs/implementation/development-contract.md` — current, normative, not archived history; read it before changing runtime behavior.
 
+The owner adopted D-30 through D-45 in [`docs/reviews/claude-2026-11-16/02-decisions.md`](docs/reviews/claude-2026-11-16/02-decisions.md) on 2026-11-16. Start with that directory's `README.md` and read `01` through `04` in order. These decisions supersede conflicting earlier process, defaults, priorities and authorization; the complete contract's safety invariants remain binding. Its `04-plan.md` is the single forward plan; only its §1 status column and §15 are agent-maintained.
+
 The owner adopted D-19 through D-29 in [`docs/reviews/claude-2026-11-14/02-decisions.md`](docs/reviews/claude-2026-11-14/02-decisions.md) on 2026-11-14. These decisions supersede conflicting earlier review decisions for process, defaults, priorities and authorization; the complete contract's safety invariants remain binding. Start with that review directory's `README.md` and read `01` through `05` in order.
 
 The owner adopted all decisions in [`docs/reviews/claude-2026-11-13/02-decisions.md`](docs/reviews/claude-2026-11-13/02-decisions.md) on 2026-11-13. For process, defaults, priorities and authorization, those decisions supersede conflicting earlier text; the complete contract's safety invariants remain binding. Start with that review directory's `README.md` and read `01` through `04` in order.
 
-The owner's 2026-11-15 direction supersedes older endpoint, credential-readiness and money-cap defaults for the current G2 work; see [the current run record](docs/reports/g2-first-real-run.md). Further real calls are paused under the file-UNKNOWN stop rule; preserve the original request and do not rerun it, retry export or delete its state. Read-only package audits and local synthetic regressions do not resolve the original publication outcome. G2-5 is NOT_RUN and full G2 acceptance has not passed. Historical review decisions and the preserved contract are not rewritten.
+The owner's 2026-11-15 direction and D-34/D-35 govern the current G2 endpoint, credentials, reasoning levels and finite call/token/time limits; see [the current run record](docs/reports/g2-first-real-run.md). D-32 stops only the affected request or line; fresh real requests may continue. The original export was recovered under D-31; the strict metadata-check difference is recorded in that report, and this original replay must not be repeated. D-31 requires a complete verified directory backup, current main, and the original command/configuration paths. Only DELIVERED with one CONFIRMED delivery follows the verified model-free completion path; admission, filesystem identity, receipt, package and byte checks still apply. Historical review decisions and the preserved contract are not rewritten.
 
 ## Authority and permissions
 
@@ -18,7 +20,7 @@ The owner's 2026-11-15 direction supersedes older endpoint, credential-readiness
   configuration. Tests use FakeModel and self-created temporary fixtures,
   including real file effects; tests never call real models. Do not operate
   production data/services. The owner has authorized the supplied test key
-  for the specified Responses gateway, `gpt-6.1-sol` with reasoning `max`,
+  for the specified Responses gateway, `gpt-6.1-sol` with D-35 reasoning levels,
   and removed money gates for reasonable, finite use. New requests opt in
   with frozen `cost_policy: observe-only-v1`; keep token, call and time
   limits and the independent host network authorization. Current real
@@ -29,7 +31,7 @@ The owner's 2026-11-15 direction supersedes older endpoint, credential-readiness
   and observe-only requires no price table; verify credential availability
   without exposing the value. This grants no
   public deployment or fallback to another endpoint.
-  Windows 11 remains NOT_RUN. D-12 cancels private CI evidence hosting:
+  D-12 cancels private CI evidence hosting:
   public CI logs and repository reports suffice; local raw originals are
   retained for 30 days before optional cleanup.
 - No secrets, user datasets, generated builds, journals or local
