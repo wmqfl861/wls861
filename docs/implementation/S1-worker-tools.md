@@ -99,6 +99,7 @@ R2a.1已新增单个空目录创建工具，见[当前目录工具契约](R2a-di
 | `bwrap_path` / `bwrap_sha256` | 显式 launcher 文件与冻结 SHA；必须是 root 拥有、非 setuid/setgid、不可被 group/other 写的 ELF |
 | `cgroup_root` | 已由宿主准备、可委派且启用 cpu/memory/pids 的独立 cgroup v2 domain；不允许直接用层级根 |
 | `runtime_files` | 最多 128 个 `{source,destination,sha256}` 普通文件；不接受目录树挂载 |
+| `input_root` | 可选只读输入目录；必须配合新请求冻结的 `sandbox.input`，宿主提供绝对规范路径；模型不能指定 |
 | `memory_max_bytes` / `pids_max` | 不得超过请求冻结的资源上限；还受执行器自身边界限制 |
 | `cpu_quota_us` / `cpu_period_us` | 有界 CPU 带宽参数 |
 | `cleanup_timeout_ms` / `max_output_bytes` | 收尾等待上限、保留 stdout+stderr 的合计上限 |
@@ -107,7 +108,11 @@ R2a.1已新增单个空目录创建工具，见[当前目录工具契约](R2a-di
 
 非默认 manifest 的团队，后续 `run-fake` 和 `tool-query` 仍需提供产生相同 execution_policy 的 manifest；CLI 会比对已冻结内容，不自动从绑定生成部署文件。要使用不同清单需新的受控团队/工作目录或后续显式迁移机制，不能在原团队上悄悄换版本。
 
-进程进入每个 operation 的独立 cgroup 后才 exec launcher，设置 memory、禁 swap、pids、CPU；清单、版本哈希和资源设置进入证据。`/work` 是与文件代理一致的目录，`/tmp` 和临时 HOME 独立，`/input` 当前为空的只读目录，没有真实输入目录挂载。envp 由宿主从零构造，WorkerTools 仅提供固定 PATH/LANG，runner 设置 HOME/TMPDIR；不继承宿主密钥或允许模型注入加载器环境。
+进程进入每个 operation 的独立 cgroup 后才 exec launcher，设置 memory、禁 swap、pids、CPU；清单、版本哈希和资源设置进入证据。`/work` 是与文件代理一致的目录，`/tmp` 和临时 HOME 独立；未显式配置时 `/input` 保持空只读目录。envp 由宿主从零构造，WorkerTools 仅提供固定 PATH/LANG，runner 设置 HOME/TMPDIR；不继承宿主密钥或允许模型注入加载器环境。
+
+新请求可在 `system.sandbox` 中显式加入 `input: {mode: read-only-v1, max_total_bytes: 16777216}`，并在宿主 manifest 中加入 `"input_root": "/srv/wls-input/request-a"`（与已有 `schema_version: 1`、launcher/cgroup 字段一起提供）。两项缺一即拒绝；默认示例不自动启用。上限必须为 1..268435456 字节，只累计输入树普通文件的逻辑大小；不放宽 `fs_write`/提交上限，也不是 `/work` 磁盘配额。来源 path/device/inode/mount_id 和上限进入团队 execution_policy，旧请求与旧绑定不能原位升级。
+
+输入与本 Store 的数据库及锁/WAL/SHM、全部 workspace、保留的 owned stage/final 和 delivery root 必须双向分离；三个受写入口和首次输入绑定在事务内复核，原件没有清理授权。首版保守拒绝输入与受保护对象同 device、不同 mount ID 的宿主别名布局。输入树使用同一 inode 安全审计，超限或身份变化在 spawn 前拒绝；实际 `/input` 必须通过 pinned device/inode 及 private/ro/nosuid/nodev、无子挂载的启动证明，单列 `input_mount` 证据。只读保证约束沙箱，可信宿主仍须保持来源稳定；它不是输入内容不可变快照。
 
 launcher 通过固定 fd exec，关闭非白名单 fd。bwrap 建立 mount/user/PID/IPC/UTS/network/cgroup 命名空间，禁嵌套 user namespace、丢弃能力。业务启动屏障释放前，宿主核对实际 `/work` inode 和七类 namespace，拒绝读取不到的证明；仅 exec 成功或输出 child-pid 不等于隔离成功。最终另保留 bwrap setup/exit 记录，缺证明不会报告成功。
 

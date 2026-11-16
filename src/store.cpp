@@ -10,6 +10,7 @@
 #include "amendment_disposition.hpp"
 #include "storage_error.hpp"
 #include "operation_output_detail.hpp"
+#include "input_guard.hpp"
 
 #include <sqlite3.h>
 
@@ -1799,6 +1800,52 @@ void Store::validate_process_runtime_root(const std::filesystem::path& runtime_r
         }
     }
 }
+void Store::Impl::protect_inputs(const std::string& path, const Json& expected) const {
+    for (const auto& row : all("SELECT execution_policy,execution_policy_sha256 FROM workspace_bindings")) {
+        require(sha256_hex(str(row, "execution_policy")) == str(row, "execution_policy_sha256"), ErrorCode::Corrupt,
+            "workspace execution policy hash mismatch");
+        const auto policy = parse_json_strict(str(row, "execution_policy"), 262144);
+        const auto* input = policy.as_object().if_contains("input");
+        if (!input) continue;
+        const auto actual = input_detail::identity(path, false, true);
+        if (!expected.is_null() && actual.at("path") == Json(path))
+            for (const auto* key : {"device", "inode"}) require(actual.at(key) == expected.at(key), ErrorCode::Conflict,
+                "protected root identity changed");
+        input_detail::separate(*input, path, actual);
+    }
+}
+void Store::Impl::validate_input(const Json& input) const {
+    input_detail::validate(input);
+    int moved = 1;
+    require(sqlite3_file_control(db, "main", SQLITE_FCNTL_HAS_MOVED, &moved) == SQLITE_OK && moved == 0,
+        ErrorCode::Unauthorized, "input cannot verify the original control database identity");
+    const auto protect = [&](const std::string& path, const Json& expected = nullptr) {
+        const auto actual = input_detail::identity(path, false, true);
+        if (!expected.is_null() && actual.at("path") == Json(path))
+            for (const auto* key : {"device", "inode"}) require(actual.at(key) == expected.at(key), ErrorCode::Conflict,
+                "protected root identity changed");
+        input_detail::separate(input, path, actual);
+    };
+    for (const auto* suffix : {"", ".writer-lock", "-wal", "-shm"}) protect(database_file_path + suffix);
+    for (const auto& row : all("SELECT canonical_path,device,inode FROM workspace_bindings")) protect(str(row, "canonical_path"), row);
+    if (cleanup_schema) for (const auto& row : all("SELECT intent FROM owned_workspaces")) {
+        const auto intent = parse_json_strict(str(row, "intent"));
+        const auto& parent = intent.at("parent_identity");
+        const auto observed = input_detail::identity(str(parent.as_object(), "path"), false, true);
+        if (observed.at("path") == parent.at("path"))
+            for (const auto* key : {"device", "inode"}) require(observed.at(key) == parent.at(key), ErrorCode::Conflict,
+                "owned input boundary parent identity changed");
+        for (const auto& path : owned_paths(intent)) protect(path);
+    }
+    if (acceptance_schema) for (const auto& row : all("SELECT frozen_plan FROM delivery_runtime")) {
+        const auto root = parse_json_strict(str(row, "frozen_plan"), 8 * 1024 * 1024).at("root_identity");
+        protect(str(root.as_object(), "path"), root);
+    }
+}
+void Store::validate_process_input(const Json& input) const {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->validate_input(input);
+}
 Json Store::request(const std::string& id) const {
     const std::lock_guard lock(impl_->mutex); return exposed(impl_->request_row(id));
 }
@@ -2601,6 +2648,7 @@ Json Store::prepare_delivery(const StoreActor& actor, const ExecutionBinding& ca
     const auto command = payload(actor, "prepare_delivery", Row{{"binding", to_json(captured)}, {"expected_request_version", expected}, {"root_identity", root_identity}});
     Impl::Transaction tx(*impl_); (void)impl_->authorize(actor, {Role::Root}, false); impl_->actor_binding(actor, captured);
     if (auto old = impl_->replay(actor.request_id, command_id, command)) { tx.commit(); return *old; }
+    impl_->protect_inputs(root_path, root_identity);
     const auto request = impl_->authorize(actor, {Role::Root}); impl_->matches(captured);
     require(number(request, "state_version") == expected, ErrorCode::Conflict, "delivery preparation request CAS changed");
     require(!terminal_request(str(request, "status")) && number(request, "plan_revision") > 0, ErrorCode::NotReady, "delivery needs a live planned request");
@@ -3414,6 +3462,17 @@ Json Store::bind_workspace(const std::string& team_id, const std::string& path,
     const auto signed_inode = static_cast<std::int64_t>(inode);
     Impl::Transaction tx(*impl_);
     const auto team = impl_->team_row(team_id);
+    impl_->protect_inputs(path, Row{{"device", device}, {"inode", inode}});
+    if (const auto* input = execution_policy.as_object().if_contains("input")) {
+        impl_->validate_input(*input);
+        const auto config = parse_json_strict(str(impl_->request_row(str(team, "request_id")), "config_snapshot"), 8 * 1024 * 1024);
+        const auto* frozen = config.at("system").at("sandbox").as_object().if_contains("input");
+        require(frozen && frozen->at("mode") == input->at("mode") && frozen->at("max_total_bytes") == input->at("max_total_bytes"),
+            ErrorCode::Unauthorized, "input policy must match the request's explicit frozen selection");
+        const auto actual = input_detail::identity(path);
+        require(actual.at("device") == device && actual.at("inode") == inode, ErrorCode::Conflict, "workspace input boundary identity changed");
+        input_detail::separate(*input, path, actual);
+    }
     if (impl_->cleanup_schema) {
         if (const auto owned = impl_->optional("SELECT * FROM owned_workspaces WHERE team_id=? AND status<>'ABANDONED'", {team_id})) {
             require(str(*owned, "status") == "OWNED", ErrorCode::NotReady, "owned workspace is not ready for binding");

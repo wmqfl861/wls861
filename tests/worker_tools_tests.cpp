@@ -553,6 +553,74 @@ void standard_policy_binding_does_not_expand_file_template_grants() {
     }
 }
 
+void input_binding_requires_frozen_opt_in_and_protects_host_roots() {
+    test::TempDir config;
+    const auto input_root = config.path / "input";
+    std::filesystem::create_directory(input_root); host_write(input_root / "data.csv", "a,b\n1,2\n");
+    const Json manifest = Object{{"schema_version", 1}, {"input_root", input_root.string()}};
+    const auto old_policy = worker_execution_policy(*frozen, "default", worker_sandbox_policy(*frozen, "default"));
+    CHECK(!old_policy.as_object().contains("input"));
+    expect(ErrorCode::InvalidInput, [&] { (void)worker_sandbox_policy(*frozen, "default", manifest); });
+    auto system = frozen->json().at("system");
+    system.at("sandbox").as_object()["input"] = Object{{"mode", "read-only-v1"}, {"max_total_bytes", 8}};
+    host_write(config.path / "system.json", canonical_json(system));
+    const auto selected = ::test::legacy_shell_catalog(config.path / "system.json", source / "config/examples/functions", source / "prompts").freeze("general");
+    expect(ErrorCode::InvalidInput, [&] { (void)worker_sandbox_policy(selected, "default"); });
+    auto admission_input = admission(); admission_input.config_snapshot = selected.json();
+    Session session(false, admission_input);
+    session.tools = std::make_unique<WorkerTools>(*session.store, session.work, manifest);
+    session.runtime = std::make_unique<OfflineRuntime>(*session.store, *schemas, session.tools.get());
+    (void)session.runtime->run(session.request_id, steps());
+    session.tools->bind(session.actor());
+    const auto saved = session.store->workspace(session.binding().team_id);
+    CHECK(saved.at("execution_policy").at("input").at("max_total_bytes") == 8);
+    CHECK(saved.at("execution_policy").at("input").at("path") == Json(input_root.string()));
+    CHECK(session.tools->environment_card(session.actor()).at("input_read_only") == true);
+    CHECK(canonical_json(session.tools->environment_card(session.actor())).find(input_root.string()) == std::string::npos);
+    {
+        // Synthetic settlement coverage through the existing test-only observer;
+        // actual input mount acceptance belongs to --standard-native.
+        const int fd = Workspace(session.work, WorkspaceAccess::ReadOnly).dup_root_fd();
+        const auto observation = observe_process_workspace(fd); ::close(fd);
+        auto public_identity = saved.at("execution_policy").at("input"); public_identity.as_object().erase("path");
+        struct Reset { ~Reset() { output_observer = {}; } } reset;
+        output_observer = [&](ProcessResult& process) {
+            CHECK(!process.spawned);
+            process.status = ProcessStatus::Exited; process.exit_code = 0;
+            process.spawned = true; process.launcher_exec_confirmed = true; process.all_descendants_exited = true;
+            process.strong_isolation = false;
+            process.evidence = Object{{"synthetic_fixture", true}, {"network", "none"}, {"supervision", "cgroup-v2"},
+                {"descendants_proof", "cgroup.events populated=0"}, {"workspace_mount_verified", true},
+                {"namespaces_verified", true}, {"command_start_released", true}, {"isolation_verified", true},
+                {"proof_format", "wls-process-proof-standard-cgroup-v1"}, {"isolation_policy", "standard-cgroup-v1"},
+                {"resource_enforcement", "cgroup-v2"}, {"workspace_observation", process_workspace_changes(observation, observation)},
+                {"input_mount", Object{{"destination", "/input"}, {"identity", public_identity}, {"audited_bytes", 8}, {"read_only", true}, {"verified", true}}},
+                {"runtime_mounts", Array{Object{{"source", "/usr"}, {"destination", "/usr"}, {"device", 1}, {"inode", 2},
+                    {"read_only", true}, {"nosuid", true}, {"nodev", true}, {"private", true}, {"no_submounts", true}, {"verified", true}}}}};
+        };
+        const Json args = Object{{"argv", Array{"/usr/bin/true"}}};
+        const auto settled = session.execute("run", args, "synthetic-input-settlement");
+        CHECK(operation(settled).at("status") == "SUCCEEDED" && execution(settled).at("accepted") == 1);
+        CHECK(execution(settled).at("evidence").at("input_mount").at("identity") == public_identity);
+        CHECK(canonical_json(execution(settled)).find(input_root.string()) == std::string::npos);
+        CHECK(execution(session.execute("run", args, "synthetic-input-settlement")) == execution(settled));
+    }
+    auto changed = saved.at("execution_policy"); changed.at("input").at("max_total_bytes") = 9;
+    expect(ErrorCode::Unauthorized, [&] { (void)session.store->bind_workspace(session.binding().team_id, session.work.string(),
+        saved.at("device").to_number<std::uint64_t>(), saved.at("inode").to_number<std::uint64_t>(), changed); });
+    for (const auto& forbidden : {session.work, session.directory.path}) {
+        WorkerTools invalid(*session.store, session.work, Object{{"schema_version", 1}, {"input_root", forbidden.string()}});
+        expect(ErrorCode::Unauthorized, [&] { invalid.bind(session.actor()); });
+    }
+    const auto alternate = config.path / "alternate"; std::filesystem::create_directory(alternate);
+    WorkerTools changed_source(*session.store, session.work, Object{{"schema_version", 1}, {"input_root", alternate.string()}});
+    expect(ErrorCode::Conflict, [&] { changed_source.bind(session.actor()); });
+    std::filesystem::rename(input_root, config.path / "original-input"); std::filesystem::create_directory(input_root);
+    expect(ErrorCode::Unauthorized, [&] { session.tools->bind(session.actor()); });
+    CHECK(session.store->workspace(session.binding().team_id) == saved);
+    CHECK(worker_execution_policy(*frozen, "default", worker_sandbox_policy(*frozen, "default")) == old_policy);
+}
+
 void role_scope_and_model_authority_forgery() {
     Session session;
     const auto leader = session.store->host_actor(Role::TeamLead, session.request_id, session.binding().team_id);
@@ -978,6 +1046,7 @@ int main() {
         {"old business key only reads its fact during a pending new instruction", old_key_is_only_a_read_during_new_instruction},
         {"workspace directory and execution manifest binding are immutable", workspace_and_execution_manifest_are_immutable},
         {"standard execution binding preserves file grants and refuses missing prerequisites", standard_policy_binding_does_not_expand_file_template_grants},
+        {"input binding freezes opt-in source identity limit and host boundaries", input_binding_requires_frozen_opt_in_and_protects_host_roots},
         {"non-Worker, cross-workspace and model authority forgery are rejected", role_scope_and_model_authority_forgery},
         {"missing strong sandbox gives a durable FAILED result without spawning", unavailable_strong_run_is_a_durable_refusal},
         {"pre-effect cancellation retains exact no-spawn evidence and cannot replay effects", cancellation_before_effect_preserves_original_no_spawn_evidence},

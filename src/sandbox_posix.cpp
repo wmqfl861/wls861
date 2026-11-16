@@ -1,4 +1,5 @@
 #include "wls/sandbox.hpp"
+#include "input_guard.hpp"
 #include "wls/process_evidence.hpp"
 
 #include <algorithm>
@@ -88,7 +89,7 @@ Fd duplicate_fd(int fd, int minimum = 3) {
     return Fd(value);
 }
 
-void append_directory_bind(std::vector<std::string>& argv, const char* option, int fd, const char* destination) {
+std::string directory_bind_source(int fd) {
     // A new user namespace cannot resolve the parent's /proc/<pid>/fd links.
     // Resolve here; the start gate still attests the actual mounted identity.
     const auto link = "/proc/self/fd/" + std::to_string(fd);
@@ -99,7 +100,10 @@ void append_directory_bind(std::vector<std::string>& argv, const char* option, i
     const std::string source(buffer.data(), static_cast<std::size_t>(count));
     if (source.empty() || source.size() == buffer.size() || source.front() != '/' || source.ends_with(" (deleted)"))
         throw Error(ErrorCode::Unauthorized, "sandbox bind source is non-absolute, deleted or exceeds the path bound");
-    argv.insert(argv.end(), {option, source, destination});
+    return source;
+}
+void append_directory_bind(std::vector<std::string>& argv, const char* option, int fd, const char* destination) {
+    argv.insert(argv.end(), {option, directory_bind_source(fd), destination});
 }
 
 void write_all(int fd, std::string_view bytes) {
@@ -526,7 +530,8 @@ struct statx workspace_node(int directory, const char* name) {
     return info;
 }
 
-std::size_t verify_workspace_tree(int root) {
+std::size_t verify_workspace_tree(int root, std::uint64_t* input_bytes = nullptr, std::uint64_t input_limit = 0) {
+    if (input_bytes && *input_bytes > input_limit) throw Error(ErrorCode::Quota, "invalid input tree byte count");
     const auto root_info = workspace_node(root, "");
     const auto check = [&](const struct statx& info) {
         if (info.stx_uid != ::geteuid() || (info.stx_mode & 0022U) != 0 ||
@@ -559,6 +564,11 @@ std::size_t verify_workspace_tree(int root) {
                 throw Error(ErrorCode::Quota, "workspace audit exceeds entry, depth or path bound");
             const auto info = workspace_node(::dirfd(directory.get()), entry->d_name);
             check(info);
+            if (input_bytes && S_ISREG(info.stx_mode)) {
+                if ((info.stx_mask & STATX_SIZE) == 0 || info.stx_size > input_limit - *input_bytes)
+                    throw Error(ErrorCode::Quota, "input tree exceeds its frozen byte limit or lacks size evidence");
+                *input_bytes += info.stx_size;
+            }
             if (S_ISDIR(info.stx_mode)) {
                 Fd child(::openat(::dirfd(directory.get()), entry->d_name,
                                   O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
@@ -591,6 +601,7 @@ void validate_policy_limits(const SandboxPolicy& policy) {
 
 void validate_policy(const SandboxPolicy& policy) {
     validate_policy_limits(policy);
+    if (!policy.input.is_null()) input_detail::validate(policy.input);
     (void)path_parts(policy.bwrap_path.string(), true);
     if (!policy.cgroup_root.empty()) {
         (void)path_parts(policy.cgroup_root.string(), true);
@@ -1656,6 +1667,16 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
             return result;
         }
         const auto workspace_entries = verify_workspace_tree(workspace_fd_);
+        Fd input_root;
+        std::uint64_t input_bytes = 0;
+        if (!policy_.input.is_null()) {
+            const std::string path(policy_.input.at("path").as_string());
+            input_root = open_absolute(path, true);
+            input_detail::match(policy_.input, input_detail::identity(input_root.get(), path, true));
+            const auto work_path = directory_bind_source(workspace_fd_);
+            input_detail::separate(policy_.input, work_path, input_detail::identity(workspace_fd_, work_path));
+            (void)verify_workspace_tree(input_root.get(), &input_bytes, policy_.input.at("max_total_bytes").to_number<std::uint64_t>());
+        }
         result.evidence.as_object()["workspace_audited_entries"] = workspace_entries;
         if (policy_.cgroup_root.empty() || (!standard && policy_.runtime_files.empty()))
             throw Error(ErrorCode::Unsupported, standard ? "standard execution requires a dedicated delegated cgroup root; no rlimit fallback is available" :
@@ -1699,6 +1720,7 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
                       "--json-status-fd", "4", "--block-fd", "5", "--proc", "/proc", "--dev", "/dev",
                       "--tmpfs", "/tmp", "--dir", "/tmp/home", "--dir", "/input"};
         append_directory_bind(child.argv, "--bind", workspace_fd_, "/work");
+        if (input_root) append_directory_bind(child.argv, "--ro-bind", input_root.get(), "/input");
         child.mappings.push_back({status_pipe[1].get(), 4});
         // Never pass a host directory fd into bwrap's descendants. bwrap
         // closes --block-fd and --ro-bind-data fds before the command exec.
@@ -1727,6 +1749,7 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
         bool workspace_verified = false;
         bool namespaces_verified = false;
         bool runtime_verified = false;
+        bool input_verified = !input_root;
         bool released = false;
         struct stat workspace_identity{};
         struct stat host_root{};
@@ -1762,6 +1785,15 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
             const auto blocked_process = open_absolute(prefix, true);
             const auto mounts = read_at(blocked_process.get(), "mountinfo", 262144);
             verify_workspace_mounts(mounts);
+            if (input_root) {
+                struct stat mounted{};
+                if (::stat((prefix + "/root/input").c_str(), &mounted) != 0 || !S_ISDIR(mounted.st_mode) ||
+                    mounted.st_dev != policy_.input.at("device").to_number<std::uint64_t>() ||
+                    mounted.st_ino != policy_.input.at("inode").to_number<std::uint64_t>())
+                    throw Error(ErrorCode::Unauthorized, "actual sandbox input differs from pinned root");
+                verify_private_mount(mounts, "/input", true);
+                input_verified = true;
+            }
             if (runtime_tree) {
                 struct stat mounted{};
                 if (::stat((prefix + "/root/usr").c_str(), &mounted) != 0)
@@ -1805,6 +1837,12 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
         evidence["bwrap_sha256"] = launcher.sha256;
         evidence["runtime_files"] = std::move(hashes);
         evidence["workspace_audited_entries"] = workspace_entries;
+        if (input_root) {
+            auto identity = policy_.input;
+            identity.as_object().erase("path"); // Feedback identifies the virtual mount, never the host source path.
+            evidence["input_mount"] = boost::json::object{{"destination", "/input"}, {"identity", std::move(identity)},
+                {"audited_bytes", input_bytes}, {"read_only", true}, {"verified", input_verified}};
+        }
         evidence["workspace_mount_policy"] = "one private rw/nosuid/nodev mount without submounts";
         evidence["cgroup_name"] = group.name();
         evidence["limits"] = boost::json::object{{"memory_max_bytes", policy_.memory_max_bytes},
@@ -1840,7 +1878,7 @@ ProcessResult ProcessRunner::run(const ProcessRequest& request, std::stop_token 
         // production confirms launcher execution with bwrap's own record.
         result.launcher_exec_confirmed = result.launcher_exec_confirmed && reported_startup;
         const bool isolation_verified = result.launcher_exec_confirmed && workspace_verified && namespaces_verified &&
-            released && !supervised.status_overflow && (!standard || runtime_verified);
+            released && input_verified && !supervised.status_overflow && (!standard || runtime_verified);
         result.strong_isolation = !standard && isolation_verified;
         if (standard) {
             evidence["proof_format"] = "wls-process-proof-standard-cgroup-v1";

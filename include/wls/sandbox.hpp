@@ -47,6 +47,8 @@ struct SandboxPolicy {
     std::chrono::milliseconds cleanup_timeout{2000};
     std::size_t max_output_bytes{1048576};
     SandboxIsolation isolation{SandboxIsolation::Strict};
+    // Explicit request-frozen read-only-v1 input; null preserves the empty /input.
+    Json input = nullptr;
 };
 
 struct ProcessRequest {

@@ -7,6 +7,7 @@
 #include "wls/worker_tools.hpp"
 #include "capacity_test_support.hpp"
 #include "test_support.hpp"
+#include "../src/input_guard.hpp"
 
 #include <sqlite3.h>
 #include <fcntl.h>
@@ -137,10 +138,11 @@ struct Fixture {
     bool recovery;
     Json brief = O{{"goal", "retain exact allocation facts"}, {"constraint_refs", A{"c1"}},
                    {"constraints_verbatim", A{"retain exact allocation facts"}}};
-    explicit Fixture(bool upgraded = true, bool small = false, bool legacy_capacity = false) : recovery(upgraded) {
+    explicit Fixture(bool upgraded = true, bool small = false, bool legacy_capacity = false, bool input_enabled = false) : recovery(upgraded) {
         std::filesystem::create_directory(parent);
         auto system = ::test::legacy_shell_catalog(source / "config/examples/system.yaml", source / "config/examples/functions", source / "prompts").freeze("general").json().at("system");
         system.at("cleanup").as_object()["enabled"] = true;
+        if (input_enabled) system.at("sandbox").as_object()["input"] = O{{"mode", "read-only-v1"}, {"max_total_bytes", 4096}};
         if (small || legacy_capacity) {
             auto& limits = system.at("limits").as_object();
             limits["max_teams_per_request"] = 1;
@@ -219,6 +221,45 @@ struct Fixture {
         store=open(StoreRecoveryScope::request(node.request));
     }
 };
+
+void input_and_writable_roots_are_transactionally_separate() {
+    const auto policy = [](const std::filesystem::path& path) {
+        auto input = input_detail::identity(path, true);
+        input.as_object()["mode"] = "read-only-v1"; input.as_object()["max_total_bytes"] = 4096;
+        return Json(O{{"input", input}});
+    };
+    const auto bind = [&](Fixture& f, const Node& node, const std::filesystem::path& work, const Json& input_policy = O{}) {
+        std::filesystem::create_directories(work); const auto identity = input_detail::identity(work);
+        return f.store->bind_workspace(node.team, work.string(), identity.at("device").to_number<std::uint64_t>(),
+            identity.at("inode").to_number<std::uint64_t>(), input_policy);
+    };
+    {
+        Fixture f(true, false, false, true); const auto other = f.create("other");
+        bind(f, f.node, f.dir.path / "work", policy(f.parent));
+        const auto before = rows(f.db, "SELECT * FROM owned_workspaces");
+        rejects(ErrorCode::Unauthorized, [&] { (void)f.store->prepare_owned_workspace(f.actor(other), other.task,
+            allocation_parent_identity(f.parent), "overlapping-input"); });
+        CHECK(rows(f.db, "SELECT * FROM owned_workspaces") == before && std::filesystem::is_empty(f.parent));
+        rejects(ErrorCode::Unauthorized, [&] { (void)bind(f, other, f.parent / "new-work"); });
+        CHECK(rows(f.db, "SELECT * FROM workspace_bindings").size() == 1);
+    }
+    {
+        Fixture f(true, false, false, true); const auto other = f.create("other");
+        const auto selected = policy(f.parent);
+        f.store->validate_process_input(selected.at("input")); // Deliberately precede another team's binding.
+        bind(f, f.node, f.parent / "existing-work");
+        rejects(ErrorCode::Unauthorized, [&] { (void)bind(f, other, f.dir.path / "work", selected); });
+        CHECK(rows(f.db, "SELECT * FROM workspace_bindings").size() == 1);
+    }
+    for (const bool staging : {false, true}) {
+        Fixture f(true, false, false, true); const auto resource = f.prepare(); const auto other = f.create("other");
+        const auto retained = f.path(resource, staging); std::filesystem::create_directory(retained);
+        rejects(ErrorCode::Unauthorized, [&] { (void)bind(f, other, f.dir.path / "work", policy(retained)); });
+        rejects(ErrorCode::Unauthorized, [&] { (void)bind(f, other, f.dir.path / "work", policy(f.parent)); });
+        CHECK(rows(f.db, "SELECT * FROM workspace_bindings").empty());
+        CHECK(f.current(resource).at("status") == "PREPARED" && std::filesystem::is_empty(retained));
+    }
+}
 
 void ordinary_allocation_exact_replay() {
     Fixture f;
@@ -800,6 +841,7 @@ int main() {
     schemas=std::make_unique<SchemaRegistry>(source/"schemas");
     return test::run({
         {"v2 allocation and exact replay retain private generations",ordinary_allocation_exact_replay},
+        {"input and workspace or retained allocation boundaries hold in both registration orders",input_and_writable_roots_are_transactionally_separate},
         {"SIGKILL during partial marker requires explicit abandonment",partial_marker_kill_requires_explicit_abandonment},
         {"SIGKILL after full stage without receipt never adopts it",killed_complete_stage_without_receipt_is_not_adopted},
         {"SIGKILL after persisted receipt recovers exact stage",killed_after_receipt_recovers_exact_generation},
