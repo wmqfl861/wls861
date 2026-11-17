@@ -162,7 +162,7 @@ class LiveWorkflowCli(unittest.TestCase):
 
     def admit(self, port, key='request-one', pricing=None, cost_budget=10000, retries=0, timeout_ms=None,
               total=None, challenge=False, plain=False, text_file=None, constraints_file=None, observe_only=False, stream=False,
-              streaming_supported=True, refusal_compat=False):
+              streaming_supported=True, refusal_compat=False, metadata=False):
         system = copy.deepcopy(self.system)
         provider = json.loads((SOURCE / 'config/examples/providers/responses-offline.json').read_text())
         provider.update(base_url=f'https://localhost:{port}', api_key_env=REFERENCE,
@@ -170,6 +170,7 @@ class LiveWorkflowCli(unittest.TestCase):
         provider['capabilities']['reasoning_efforts'] = []
         provider['capabilities']['reasoning_modes'] = ['provider_default', 'off']
         provider['capabilities']['streaming'] = streaming_supported
+        if metadata: provider['response_metadata_policy'] = 'ignore-record-v1'
         if refusal_compat:
             provider['responses_compatibility'] = {'format': 'wls-responses-compat-v1',
                 'reference': 'openai-responses-2026-11-08', 'model_aliases': {provider['model']: ['o3-2025-04-16']}}
@@ -379,6 +380,7 @@ class LiveWorkflowCli(unittest.TestCase):
                  ('timeout', False, 2, 1, 1), ('unknown', False, 2, 1, 1),
                  ('schema', False, 2, 1, 2), ('text', False, 2, 1, 2)]
         cases += [('failed', 'media', 2, 1, 2), ('failed', 'media', 2, 3, 3), ('failed', 'media', 0, 1, 1)]
+        cases += [('gateway', True, 2, 1, 2), ('gateway', True, 0, 1, 1), ('gateway', True, 2, 3, 3)]
         cases += [(case, 'media', 2, 1, 1) for case in ('completed', 'completed-tail', 'failed-content',
                   'incomplete', 'refusal', 'no-terminal', 'metadata', 'capability')]
         for case, stream, retries, failures, expected in cases:
@@ -391,9 +393,9 @@ class LiveWorkflowCli(unittest.TestCase):
                     if len(peer.requests) <= failures:
                         if case == 'timeout':
                             peer.stop.wait(2); return
-                        if case in ('failed', 'unknown', 'cancelled', 'incomplete', 'capability'):
-                            value.update(status='failed' if case in ('failed', 'unknown', 'capability') else case,
-                                         output=[], usage=None, error={'code': 'upstream_error'} if case in ('failed', 'unknown', 'capability') else None)
+                        if case in ('failed', 'gateway', 'unknown', 'cancelled', 'incomplete', 'capability'):
+                            value.update(status='failed' if case in ('failed', 'gateway', 'unknown', 'capability') else case,
+                                         output=[], usage=None, error={'code': 'upstream_error'} if case in ('failed', 'gateway', 'unknown', 'capability') else None)
                         if case == 'failed-content': value.update(status='failed', error={'code': 'upstream_error'})
                         if case == 'schema': value['output'][0]['arguments'] = '{}'
                         if case == 'text': value = json.loads(priced(tls.response_body()))
@@ -408,9 +410,14 @@ class LiveWorkflowCli(unittest.TestCase):
                                        ('response.function_call_arguments.delta', {**target, 'delta': item['arguments']}),
                                        ('response.function_call_arguments.done', {**target, 'arguments': item['arguments']}),
                                        ('response.output_item.done', {'output_index': index, 'item': item})]
+                        reset = case == 'gateway' and len(peer.requests) <= failures
+                        if reset:
+                            events.append(('response.output_item.added', {'output_index': 0,
+                                'item': dict(json.loads(plan_response())['output'][0], status='in_progress', arguments='')}))
+                            value['id'] = 'synthetic_gateway_reset'
                         events.append((event, {'response': value}))
                         if case in ('no-terminal', 'metadata'): events = events[:1]
-                        body = b''.join(b'data: ' + tls.encoded(dict(data, type=kind, sequence_number=index)) + b'\n\n'
+                        body = b''.join(b'data: ' + tls.encoded(dict(data, type=kind, sequence_number=0 if reset and kind == 'response.failed' else index)) + b'\n\n'
                                         for index, (kind, data) in enumerate(events)) if body != b'{}' else b'data: {}\n\n'
                         if case == 'incomplete': body += b'data: {}\n\n'  # Rejection after an incomplete terminal stays ineligible.
                         if case == 'completed-tail': body += b'data: {}\n\n'
@@ -420,7 +427,7 @@ class LiveWorkflowCli(unittest.TestCase):
                 with tls.Peer(self.contexts['server'], respond) as peer:
                     request = self.admit(peer.port, retries=retries, observe_only=case != 'unknown',
                                          timeout_ms=300 if case == 'timeout' else None, stream=stream is True,
-                                         streaming_supported=case != 'capability', refusal_compat=case == 'refusal')
+                                         streaming_supported=case != 'capability', refusal_compat=case == 'refusal', metadata=case == 'gateway')
                     if retries == 0:  # Current configuration cannot grant a frozen request another attempt.
                         changed = json.loads(self.configuration.read_text()); changed['model_calls']['max_paid_retries'] = 2
                         self.configuration.write_text(json.dumps(changed))
@@ -434,11 +441,11 @@ class LiveWorkflowCli(unittest.TestCase):
                 feedback = [json.loads(row['result']) for row in self.rows('SELECT result FROM model_tool_feedback ORDER BY rowid')]
                 observations = self.rows('SELECT protocol_evidence,raw_body_hex FROM live_transport_observations ORDER BY rowid')
                 self.assertEqual((len(attempts), len(feedback), len(observations), len(self.rows('SELECT * FROM live_send_claims'))), (expected,) * 4)
-                paid = case in ('failed', 'rejected') and retries > 0
+                paid = case in ('failed', 'gateway', 'rejected') and retries > 0
                 for i, row in enumerate(attempts):
                     self.assertTrue(row['settlement_sha256'])
                     self.assertEqual(feedback[i].get('retry_of_attempt_id'), attempts[i - 1]['attempt_id'] if paid and i else None)
-                if case in ('failed', 'rejected', 'unknown', 'cancelled', 'incomplete', 'timeout', 'capability'):
+                if case in ('failed', 'gateway', 'rejected', 'unknown', 'cancelled', 'incomplete', 'timeout', 'capability'):
                     self.assertIsNone(attempts[0]['input_tokens']); self.assertIsNone(attempts[0]['output_tokens'])
                 if media:
                     first = json.loads(observations[0]['protocol_evidence'])
@@ -468,6 +475,7 @@ class LiveWorkflowCli(unittest.TestCase):
                     first = json.loads(observations[0]['protocol_evidence'])
                     self.assertIn('decoder_reason_code', first)
                     self.assertEqual(first['decoder_reason_code'], 'provider_failed' if case in ('failed', 'unknown') else
+                                     'gateway_failed' if case == 'gateway' else
                                      'unsupported_event' if case == 'cancelled' and stream else
                                      'invalid_sse' if case == 'incomplete' and stream else
                                      ('invalid_sse' if stream else 'invalid_response') if case == 'rejected' else

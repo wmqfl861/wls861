@@ -998,10 +998,97 @@ void response_metadata_sse_bounds_and_strict_output_failures() {
         CHECK(rejected.raw_stream == raw);
     }
 }
+void extension_telemetry_is_bounded_inert_and_opt_in() {
+    auto profile = fixture::profile(); profile.response_metadata_policy = "ignore-record-v1";
+    auto events = tool_events(); const auto known = replay_profile(profile, events);
+    const Object extension{{"type", "synthetic.telemetry"}, {"headers", Object{{"a/b~", "opaque"}}}};
+    events.insert(events.begin(), extension);
+    events.insert(events.end() - 1, Object{{"type", "synthetic.timing"}, {"sequence_number", -100},
+        {"metrics", Object{{"response_id", "unbound"}, {"duration", 7}}}});
+    const auto result = replay_profile(profile, events);
+    CHECK(to_json(result.response) == to_json(known.response) && result.terminal_response == known.terminal_response);
+    CHECK(result.raw_stream == stream(events) && result.evidence.at("provider_response_id") == known.evidence.at("provider_response_id"));
+    CHECK(result.evidence.at("last_sequence_number") == known.evidence.at("last_sequence_number"));
+    CHECK(result.evidence.at("observed_event_types").as_array().size() == known.evidence.at("observed_event_types").as_array().size() + 2);
+    CHECK(result.evidence.at("unknown_fields").as_array().front() == "/telemetry/0/headers");
+    CHECK(result.evidence.at("unknown_fields").as_array()[1] == "/telemetry/0/headers/a~1b~0");
+    expect_rejected(events, "invalid_sse"); // Legacy failure still occurs at the absent sequence.
+    for (const auto key : {"output", "usage", "tool_calls", "arguments", "text", "content", "input_tokens", "function_call"}) {
+        auto bad = events; bad[0].at("headers").as_object()["nested"] = Array{Object{{key, nullptr}}};
+        const auto rejected = replay_profile(profile, bad);
+        CHECK(rejected.response.error_code == "unsupported_event" && rejected.response.tool_calls.empty());
+    }
+    for (const auto key : {"id", "response_id", "model", "status"}) {
+        auto bad = events; bad[0].as_object()[key] = "unbound";
+        CHECK(replay_profile(profile, bad).response.error_code == "unsupported_event");
+    }
+    auto bad = events; bad.back().as_object()["type"] = "response.unknown";
+    CHECK(replay_profile(profile, bad).response.error_code == "unsupported_event");
+    bad = events; bad[0].at("headers").as_object()["nested"] = Object{{"type", "function_call"}};
+    CHECK(replay_profile(profile, bad).response.error_code == "unsupported_event");
+    bad = events; bad.push_back(extension);
+    CHECK(replay_profile(profile, bad).response.error_code == "event_after_terminal");
+    bad = events; bad[0].as_object()["type"] = std::string(257, 'x');
+    CHECK(replay_profile(profile, bad).response.error_code == "invalid_sse");
+    bad = events; Json deep = nullptr;
+    for (std::size_t i = 0; i <= profile.limits.max_json_depth; ++i) deep = Array{std::move(deep)};
+    bad[0].as_object()["deep"] = std::move(deep);
+    CHECK(replay_profile(profile, bad).response.error_code == "invalid_sse");
+    for (int boundary = 0; boundary < 3; ++boundary) {
+        SseReplayLimits limits;
+        if (boundary == 0) limits.max_events = events.size() - 1;
+        if (boundary == 1) limits.max_event_bytes = 64;
+        if (boundary == 2) limits.max_total_bytes = stream(events).size() - 1;
+        const auto rejected = replay_responses_sse(profile, fixture::request(), {{stream(events), 0ms}}, limits);
+        CHECK(rejected.response.error_code == "stream_limit" && rejected.response.tool_calls.empty());
+    }
+    for (int i = 0; i < 150; ++i) events[0].at("headers").as_object()["extra" + std::to_string(i)] = i;
+    const auto bounded = replay_profile(profile, events);
+    CHECK(to_json(bounded.response) == to_json(known.response));
+    CHECK(bounded.evidence.at("unknown_fields_truncated") == true && bounded.evidence.at("unknown_fields").as_array().size() == 128);
+}
+
+void reset_upstream_failure_keeps_identity_and_never_releases_tools() {
+    auto profile = fixture::profile(); profile.response_metadata_policy = "ignore-record-v1";
+    auto events = tool_events(); auto failed = fixture::response_with_output({});
+    failed.as_object()["id"] = "gateway_reset"; failed.as_object()["status"] = "failed";
+    failed.as_object()["usage"] = nullptr; failed.as_object()["error"] = Object{{"code", "upstream_error"}};
+    events.back() = Object{{"type", "response.failed"}, {"sequence_number", 0}, {"response", failed}};
+    const auto result = replay_profile(profile, events);
+    CHECK(result.response.error_code == "gateway_failed" && result.response.status == ModelResultStatus::Error);
+    CHECK(result.response.tool_calls.empty() && result.response.text.empty() && result.response.responses_output.is_null());
+    CHECK(!result.response.usage.input_tokens && !result.response.usage.output_tokens);
+    CHECK(result.evidence.at("provider_response_id") == "resp_offline_fixture" && result.terminal_response == failed);
+    CHECK(result.evidence.at("stream_complete") == true && result.evidence.at("terminal_received") == true);
+    CHECK(result.evidence.at("partial_output_observations").as_array().size() == 1 && result.raw_stream == stream(events));
+    CHECK(result.response.binding == fixture::request().binding && result.evidence.at("tools_dispatched") == 0);
+    expect_rejected(events, "invalid_sse");
+    auto malformed = events; malformed.back().at("response").as_object()["usage"] = "invalid";
+    CHECK(replay_profile(profile, malformed).response.error_code == "invalid_response");
+    auto narrow = profile; narrow.limits.max_response_bytes = canonical_json(failed).size() - 1;
+    CHECK(replay_profile(narrow, events).response.error_code == "stream_limit");
+    for (int variant = 0; variant < 8; ++variant) {
+        auto bad = events; auto& terminal = bad.back().at("response").as_object();
+        if (variant == 0) terminal["model"] = "wrong-model";
+        if (variant == 1) terminal["status"] = "completed";
+        if (variant == 2) terminal["output"] = fixture::tool_response().at("output");
+        if (variant == 3) terminal["error"] = Object{{"code", "other_error"}};
+        if (variant == 4) terminal["error"] = nullptr;
+        if (variant == 5) terminal["id"] = std::string(257, 'x');
+        if (variant == 6) terminal["id"] = "resp_offline_fixture";
+        if (variant == 7) bad.back().as_object()["sequence_number"] = 1;
+        const auto rejected = replay_profile(profile, bad);
+        CHECK(rejected.response.error_code == "invalid_sse" && rejected.response.tool_calls.empty());
+    }
+    auto tail = events; tail.push_back(events.back());
+    CHECK(replay_profile(profile, tail).response.error_code == "event_after_terminal");
+}
 } // namespace
 
 int main() {
     return ::test::run({
+        {"SSE extension telemetry is bounded, inert and opt-in", extension_telemetry_is_bounded_inert_and_opt_in},
+        {"SSE reset upstream failure preserves identity without releasing tools", reset_upstream_failure_keeps_identity_and_never_releases_tools},
         {"SSE response ID opt-in preserves legacy and linked identity bounds", response_id_bound_preserves_legacy_sse_and_linked_identity},
         {"SSE known output metadata needs policy and retains original output", known_output_metadata_requires_policy_and_preserves_originals},
         {"SSE unbound metadata stays inert with strict lifecycle and shape guards", response_metadata_is_inert_but_keeps_lifecycle_and_shape_guards},

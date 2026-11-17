@@ -622,7 +622,7 @@ response/binding，重复回放同一错误），本阶段不做纠错重调。�
 旧 profile 不补字段，保留原序列化、哈希及各自原有检查（包括 SSE start response 原有
 检查）；该选择独立于 `responses_compatibility`，随内嵌 profile 冻结和恢复。已知字段的
 类型、模型身份、usage、sequence、生命周期、obfuscation 和输出内部校验不变；未知
-事件、输出类型仍拒绝，失败不返回
+`response.*` 事件、输出类型仍拒绝，失败不返回
 可派发的部分 text/tools，不授予重试或工具权限。
 
 同时启用 `responses_compatibility` 时，HTTP 原生输出的 message、function_call、reasoning
@@ -641,6 +641,14 @@ response/binding，重复回放同一错误），本阶段不做纠错重调。�
 后续协议失败不会把该列表标作完整输入的扫描证明。旧证据不增加空字段。
 
 仅 Responses profile 可显式冻结 `max_response_id_bytes`（1..1024）；它限定响应 envelope ID 及已知事件对同一 ID 的引用，引用仍必须相等，item/call/model 名称边界不变。缺省不新增序列化字段，保留 HTTP 128、SSE envelope 256、已知 linked ID 128 字节的原行为。启用 `ignore-record-v1` 时，`response.metadata` 仅在 created 后、terminal 前作为未绑定遥测接受：序号连续、可省略 model 但提供时必须为合法字符串且与 created 匹配、限定 `type/sequence_number/response_id/model/metadata` 字段，metadata 必须为对象，遥测 ID 仍限 128 字节。它的 ID 和元数据路径及原始流保留，不参与工具、账目或响应身份授权；真实请求原账目不因离线重放成功被重写。
+
+### D-50：非 response 扩展事件与上游失败
+
+同一 `ignore-record-v1` 开关允许非 `response.` 命名空间的惰性遥测出现在 created 前或终态前；其序号不参与语义流，类型记入 `observed_event_types`，字段路径以 `/telemetry/<物理事件序号>/` 记入有界 `unknown_fields`。记录递归覆盖对象/数组，仍受原 JSON 深度、事件数和字节上限约束。输出、用量、工具相关结构键递归拒绝；顶层响应身份字段拒绝，嵌套遥测 ID 只作未绑定记录。原始值只留在原始流；终态后数据和未知 `response.*` 事件继续拒绝。
+
+该开关还允许一项窄失败模式：已有 created 后，`response.failed` 的序号重置为 0、ID 变为另一个合法有界 ID、model 不变、status 为 failed、output 为空且 error.code 为 `upstream_error`。原 created 身份不变，失败终态完整保留并经过共享有界响应解码；有效 provider_failed 分类为 `gateway_failed`。累积的部分或已 done 输出均不成为可派发工具，缺失 usage 保持 null。未选择开关的旧请求继续按原序号/身份规则拒绝。
+
+`gateway_failed` 仅加入 D-48 的宿主解码错误白名单；完整传输、解码证据、无可执行输出、结算、账目就绪、冻结重试次数及每次新预约仍由现有守卫验证。离线回放不发送、重试或修改原请求账目。
 
 ## E-14：可选 Worker 效率提示
 
