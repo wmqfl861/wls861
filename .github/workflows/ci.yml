@@ -340,6 +340,7 @@ jobs:
           "$6" --environment-native "$2" "$3" "$root" "$7"
           python3 "$8/tests/g4d_csv_workflow.py" "$8/build/wls" "$8" --native "$2" "$3" "$root" "$9"
           python3 "$8/tests/g4d_function_workflow.py" "$8/build/wls" "$8" --native "$2" "$3" "$root" "${10}"
+          python3 "$8/scripts/check_g4d_amend.py"
           exec python3 "$8/tests/test_billing_baseline_e2e.py" "$8/build/wls" "$8" --amend-native "$2" "$3" "$root" "${11}" BillingBaselineIntegration.test_g4d_interrupt_amend_resume_original_command
           NATIVE_UNIT
           unit="wls-standard-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
