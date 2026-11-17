@@ -1,0 +1,174 @@
+{
+  "amendment": {
+    "plan": {
+      "summary": "Two independent synthetic tasks; retain alpha effects and revise beta only.",
+      "nodes": [
+        {
+          "node_id": "alpha",
+          "kind": "team_task",
+          "title": "alpha",
+          "depends_on": [],
+          "required": true,
+          "brief": {
+            "title": "alpha",
+            "goal": "Keep the one-time alpha effect.",
+            "acceptance_criteria": [
+              {
+                "id": "ac1",
+                "text": "文件及其原绑定事实持久化；后续上下文保留原始观察。"
+              }
+            ],
+            "constraints_verbatim": [
+              "Use only the allocated workspace; never use the network.",
+              "Preserve alpha result.txt and counter.txt after exactly one execution.",
+              "Replace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline."
+            ],
+            "constraint_refs": [
+              "c1",
+              "c2",
+              "c3"
+            ]
+          }
+        },
+        {
+          "node_id": "beta",
+          "kind": "team_task",
+          "title": "beta",
+          "depends_on": [],
+          "required": true,
+          "brief": {
+            "title": "beta",
+            "goal": "Produce the current beta result.",
+            "acceptance_criteria": [
+              {
+                "id": "ac1",
+                "text": "文件及其原绑定事实持久化；后续上下文保留原始观察。"
+              }
+            ],
+            "constraints_verbatim": [
+              "Use only the allocated workspace; never use the network.",
+              "Preserve alpha result.txt and counter.txt after exactly one execution.",
+              "Replace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline."
+            ],
+            "constraint_refs": [
+              "c1",
+              "c2",
+              "c3"
+            ]
+          }
+        }
+      ]
+    },
+    "dispositions": {
+      "alpha": {
+        "disposition": "keep",
+        "rationale": "Keep the completed one-time business effect and submit its original bytes."
+      },
+      "beta": {
+        "disposition": "update",
+        "rationale": "Original native operation was cancelled and cleaned up; produce revised bytes."
+      }
+    }
+  },
+  "order": {
+    "approach": "Alpha: submit existing result.txt/counter.txt without running another business tool. Beta: run the revised command and submit result-v2.txt.",
+    "steps": [
+      {
+        "id": "s1",
+        "text": "Alpha: submit existing result.txt/counter.txt without running another business tool. Beta: run the revised command and submit result-v2.txt."
+      }
+    ],
+    "constraints_verbatim": [
+      "Use only the allocated workspace; never use the network.",
+      "Preserve alpha result.txt and counter.txt after exactly one execution.",
+      "Replace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline."
+    ],
+    "constraint_refs": [
+      "c1",
+      "c2",
+      "c3"
+    ],
+    "done_definition": "Complete immutable artifacts are submitted for separate TeamLead checking and Dispatcher acceptance."
+  },
+  "workers": {
+    "alpha": [
+      [
+        "submit",
+        {
+          "summary": "Submit the original complete workspace bytes for this current task.",
+          "deliverables": [
+            {
+              "path": "/work/result.txt",
+              "description": "Fixed G4-D synthetic artifact."
+            },
+            {
+              "path": "/work/counter.txt",
+              "description": "Fixed G4-D synthetic artifact."
+            }
+          ],
+          "verification": [
+            {
+              "check": "ac1",
+              "method": "固定 Fake 文件写入后由宿主捕获完整原始字节和 SHA-256。",
+              "result": "pass",
+              "evidence": "/work/result.txt 的提交快照。"
+            }
+          ],
+          "self_check": [
+            {
+              "criterion_id": "ac1",
+              "met": "yes",
+              "evidence": "已保存完整文件快照及其原始执行版本。"
+            }
+          ],
+          "known_issues": [],
+          "used_memories": []
+        }
+      ]
+    ],
+    "beta": [
+      [
+        "run",
+        {
+          "argv": [
+            "/usr/bin/python3",
+            "-B",
+            "-c",
+            "from pathlib import Path\nPath('result-v2.txt').write_text('changed revision 2\\n')\nprint('CHANGED 2', flush=True)\n"
+          ],
+          "timeout_s": 5,
+          "max_output_bytes": 4096
+        }
+      ],
+      [
+        "submit",
+        {
+          "summary": "Submit the original complete workspace bytes for this current task.",
+          "deliverables": [
+            {
+              "path": "/work/result-v2.txt",
+              "description": "Fixed G4-D synthetic artifact."
+            }
+          ],
+          "verification": [
+            {
+              "check": "ac1",
+              "method": "固定 Fake 文件写入后由宿主捕获完整原始字节和 SHA-256。",
+              "result": "pass",
+              "evidence": "/work/result.txt 的提交快照。"
+            }
+          ],
+          "self_check": [
+            {
+              "criterion_id": "ac1",
+              "met": "yes",
+              "evidence": "已保存完整文件快照及其原始执行版本。"
+            }
+          ],
+          "known_issues": [],
+          "used_memories": []
+        }
+      ]
+    ]
+  }
+}

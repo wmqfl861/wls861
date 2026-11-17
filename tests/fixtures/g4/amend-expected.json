@@ -1,0 +1,9 @@
+{
+  "alpha": {
+    "result.txt": "stable once\n",
+    "counter.txt": "1\n"
+  },
+  "beta": {
+    "result-v2.txt": "changed revision 2\n"
+  }
+}

@@ -34,6 +34,7 @@ if len(sys.argv) < 3:
 BINARY, SOURCE = (Path(value).resolve() for value in sys.argv[1:3])
 group_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
 group_parser.add_argument('--group', choices=('all', 'billing', 'run', 'g1', 'g2', 'legacy'), default='all')
+group_parser.add_argument('--amend-native', nargs=4, metavar=('BWRAP', 'SHA256', 'CGROUP_ROOT', 'NEW_EVIDENCE'))
 GROUP_OPTIONS, TEST_ARGUMENTS = group_parser.parse_known_args(sys.argv[3:])
 sys.argv = [sys.argv[0], str(BINARY), str(SOURCE)]
 spec = importlib.util.spec_from_file_location('independent_workflow_fixture',
@@ -1796,6 +1797,124 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual(rows(database, 'SELECT attempt_id,claim_id FROM live_send_claims ORDER BY rowid')[:len(claims)], claims)
             self.assertEqual(rows(database, 'SELECT op_id,status FROM ops ORDER BY rowid')[:len(operations)], operations)
             self.assertEqual(len(peer.requests), 31)
+
+    @unittest.skipUnless(GROUP_OPTIONS.amend_native, 'requires the explicit hosted Standard native environment')
+    def test_g4d_interrupt_amend_resume_original_command(self):
+        sys.path.insert(0, str(SOURCE / 'scripts'))
+        from check_g4d_amend import check_cancelled, check_resumed
+        started = time.monotonic()
+        deadline = started + 90
+        bwrap, sha, cgroup, destination = GROUP_OPTIONS.amend_native
+        evidence = Path(destination).resolve()
+        evidence.mkdir(mode=0o700)
+        fixture = SOURCE / 'tests/fixtures/g4'
+        scripts = [json.loads((fixture / f'amend-{phase}.json').read_text()) for phase in ('initial', 'resume')]
+        endpoint = PricingFlowEndpoint()
+        original_choose = endpoint.choose
+        with tls.Peer(self.contexts['server'], endpoint) as peer:
+            case = self.run_inputs('g4d-amend', peer)
+            case['system']['model_calls'].update(max_total_calls=24, max_paid_retries=0)
+            write_json(case['configuration'], case['system'])
+            for key, name in (('material', 'task.txt'), ('constraints', 'constraints.json')):
+                shutil.copyfile(fixture / ('amend-' + name), case[key])
+            function = case['directory'] / 'functions/general/function.yaml'
+            function.write_text(function.read_text().replace('  default:\n', '  files-original:\n', 1).replace('  shell:\n', '  default:\n', 1))
+            manifest = write_json(case['directory'] / 'manifest.json',
+                dict(schema_version=1, bwrap_path=bwrap, bwrap_sha256=sha, cgroup_root=cgroup))
+            argv = self.run_arguments(case, '--yes', '--sandbox-manifest', manifest)
+            frozen = [case[key] for key in ('configuration', 'material', 'constraints')] + [manifest]
+            frozen += sorted(path for path in (case['directory'] / 'functions').rglob('*') if path.is_file())
+
+            def database():
+                found, = case['data'].glob('requests/*/control.sqlite')
+                return found
+
+            def choose(body):
+                contract = endpoint.contract(body)
+                binding, action = contract['binding'], contract.get('workflow_action')
+                script = scripts[binding['requirements_revision'] - 1]
+                if action:
+                    return ('submit_amendment_plan', script['amendment']) if action['kind'] == 'amendment' else original_choose(body)
+                if not binding['task_id']:
+                    return 'submit_plan', script['plan']
+                if 'issue_work_order' in {tool['name'] for tool in body['tools']}:
+                    return 'issue_work_order', script['order']
+                node = rows(database(), 'SELECT node_id FROM tasks WHERE task_id=?', (binding['task_id'],))[0]['node_id']
+                key = (node, binding['requirements_revision'])
+                index = endpoint.steps.get(key, 0)
+                endpoint.steps[key] = index + 1
+                return script['workers'][node][index]
+
+            def launch(command, label):
+                with (evidence / (label + '.stdout')).open('xb') as stdout, (evidence / (label + '.stderr')).open('xb') as stderr:
+                    process = subprocess.Popen(command, cwd=case['directory'], env=self.environment,
+                        stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr)
+                self.addCleanup(lambda: process.poll() is None and process.kill())
+                return process
+
+            def finish(label, process, command):
+                process.wait(timeout=max(.01, deadline - time.monotonic()))
+                record = dict(argv=command, returncode=process.returncode)
+                write_json(evidence / (label + '-cli.json'), record)
+                return dict(record, summary=json.loads((evidence / (label + '.stdout')).read_bytes()))
+
+            def capture(cli):
+                tables = ('tasks', 'ops', 'operation_results', 'model_tool_feedback', 'instructions',
+                    'workflow_submissions', 'amend_dispositions', 'team_lead_checks', 'candidate_acceptances',
+                    'delivery_runtime', 'delivery_receipts', 'experience_jobs', 'workspace_bindings', 'live_send_claims')
+                data = {table: rows(database(), f'SELECT * FROM {table} ORDER BY rowid') for table in tables}
+                data['events'] = rows(database(), "SELECT * FROM events WHERE type IN ('start_tool_op','amend','instruction','ack',"
+                    "'independent_plan','independent_dispositions','submit_work','check_submission','accept_candidate','report_experience') ORDER BY seq")
+                data['request'] = rows(database(), 'SELECT request_id,created_at,config_snapshot_sha256,budget,requirements_revision,plan_revision,status FROM requests JOIN request_runtime USING(request_id)')
+                data['attempts'] = rows(database(), 'SELECT attempt_id,frozen_binding,response,status,settlement_sha256 FROM call_attempts ORDER BY rowid')
+                data['outputs'] = rows(database(), 'SELECT op_id,stream,hex(bytes) bytes_hex FROM operation_output_bytes ORDER BY rowid')
+                data = {name: [{key: json.loads(value) if isinstance(value, str) and value.startswith(('{', '[')) else value
+                    for key, value in row.items()} for row in records] for name, records in data.items()}
+                data['files'] = {node: {name: (path / name).read_text() for name in
+                    ('result.txt', 'counter.txt', 'ready.txt', 'obsolete.txt', 'result-v2.txt') if (path / name).exists()} for node, path in locations.items()}
+                data['removed'] = {row['op_id']: bool(row['result'].get('cgroup_name')) and not (Path(cgroup) / row['result']['cgroup_name']).exists() for row in data['operation_results']}
+                data.update(cli=cli, frozen={str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in frozen},
+                    calls=len(peer.requests), elapsed_s=time.monotonic() - started)
+                return data
+
+            endpoint.choose = choose
+            process = launch(argv, 'initial')
+            active, locations = None, {}
+            while process.poll() is None and time.monotonic() < deadline - 35:
+                candidates = list(case['data'].glob('requests/*/control.sqlite'))
+                if candidates:
+                    try:
+                        locations = {row['node_id']: Path(row['canonical_path']) for row in rows(database(),
+                            'SELECT node_id,canonical_path FROM tasks JOIN teams USING(task_id) JOIN workspace_bindings USING(team_id)')}
+                    except sqlite3.OperationalError:  # Admission may still be applying the original migrations.
+                        locations = {}
+                    if 'beta' in locations and (locations['beta'] / 'ready.txt').exists():
+                        active = dict(parent_pid=process.pid, signal=signal.SIGINT, ready=(locations['beta'] / 'ready.txt').read_text(),
+                            ops=rows(database(), 'SELECT * FROM ops ORDER BY rowid'),
+                            claims=rows(database(), "SELECT * FROM events WHERE type='start_tool_op' ORDER BY seq"))
+                        active['stable'] = {name: (locations['alpha'] / name).read_text() for name in ('result.txt', 'counter.txt')}
+                        write_json(evidence / 'active.json', active)
+                        self.assertEqual([op['status'] for op in active['ops']], ['SUCCEEDED', 'RUNNING'])
+                        self.assertEqual(len(active['claims']), 2)
+                        self.assertTrue(all(json.loads(event['result'])['dispatch_claimed'] for event in active['claims']))
+                        self.assertEqual(active['stable'], {'result.txt': 'stable once\n', 'counter.txt': '1\n'})
+                        process.send_signal(signal.SIGINT)
+                        break
+                time.sleep(.01)
+            initial = finish('initial', process, argv)
+            self.assertIsNotNone(active)
+            before = capture(initial)
+            write_json(evidence / 'before.json', before)
+            check_cancelled(before, active)
+            amendment = [str(BINARY), 'amend', '--db', str(database()), '--request', before['request'][0]['request_id'],
+                '--text-file', str(fixture / 'amend-text.txt'), '--constraints-file', str(fixture / 'amend-amended-constraints.json'), '--source-root', str(SOURCE)]
+            amended = finish('amend', launch(amendment, 'amend'), amendment)
+            self.assertEqual(amended['returncode'], 0)
+            after = capture(finish('resume', launch(argv, 'resume'), argv))
+            write_json(evidence / 'after.json', after)
+            check_resumed(before, after, active)
+            write_json(evidence / 'oracle.json', dict(passed=True, scenario='synthetic hosted interrupt-AMEND-resume',
+                request_id=after['request'][0]['request_id'], calls=after['calls'], elapsed_s=after['elapsed_s']))
 
     def test_09_run_unknown_send_stops_and_changed_configuration_cannot_resume(self):
         requested, release = threading.Event(), threading.Event()

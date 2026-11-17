@@ -1,0 +1,3 @@
+Run alpha once, preserving its counter and result; start the bounded beta revision 1 job and wait for interruption.
+Use only the allocated workspace; never use the network.
+Preserve alpha result.txt and counter.txt after exactly one execution.
