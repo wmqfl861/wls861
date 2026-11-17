@@ -109,6 +109,9 @@ struct ProviderProfile {
     std::string responses_background_policy{};
     // Provider response IDs and linked events; absence preserves legacy bounds.
     std::optional<std::size_t> max_response_id_bytes{};
+    // Responses-only frozen opt-in for nonstream JSON mislabeled as SSE.
+    // Empty preserves the original profile bytes/hash and media rejection.
+    std::string responses_media_type_policy{};
 };
 
 // Strict parse/serialize; rates are integers in 0..10^12 micro USD.

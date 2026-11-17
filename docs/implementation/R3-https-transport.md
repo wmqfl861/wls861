@@ -177,7 +177,7 @@ TLS 未发生或不计费证明。时钟、字节范围、截断和供应商 res
 
 ### 4.3 凭据与报告
 
-非流式 Responses 收到 HTTP 200 的 `text/event-stream` 时，只在原非流式 body、
+默认情况下，非流式 Responses 收到 HTTP 200 的 `text/event-stream` 时，只在原非流式 body、
 累计字节、SSE 硬限及同一 deadline 内保留诊断原文，最终仍以
 `unexpected_response_media_type` 拒绝所有文本、工具和 opaque replay 输出。
 仅冻结 profile 原已声明流式能力时，才调用原严格 SSE 回放；私有证据区分
@@ -186,6 +186,18 @@ TLS 未发生或不计费证明。时钟、字节范围、截断和供应商 res
 无可用内容且终态/解码代码属于原允许集合；成功、拒绝、未完成、取消、未知事件、
 断流、超限和超时不因该诊断取得资格。原头/framing/TLS 守卫及冻结重试预算不变。
 安全摘要只含宿主代码、计数、时间和 hash；原头、正文、供应商文本仍只进私有证据。
+
+冻结 profile 可显式声明 `responses_media_type_policy: "json-under-sse-v1"`：仅当上述
+非流式 HTTP 200 原 body 在原 byte/depth 上限内严格解析为完整 JSON 对象，且
+`object="response"` 时，交给原 HTTP 解码器，保留其模型、metadata、usage、工具及
+状态检查。此路径不要求流式能力；`stream:true` 行为不变。缺省保持原 profile/hash；
+空值、未知值、错误类型及 Chat 声明均拒绝，当前配置不能改写已有请求的冻结选择。
+真实 SSE、残缺/非法 JSON、尾随数据及非 Responses 对象仍走上述诊断拒绝路径；
+原 body/累计字节/SSE 诊断容量、framing、取消和 deadline 守卫不变。
+选中 JSON 路径的私有证据记录策略、实际 `requested_stream:false`、期望/观察媒体类型
+及 `actual_encoded_request_body_sha256`，使用原 HTTP 解码报告，不带 SSE 的
+`diagnostic_only` 或 `diagnostic_encoder_stream`。原头、body 和实际发送身份不改写；
+正常解码结果仍须通过原 Store 结算与业务准入，媒体策略本身不增加重试或工具权限。
 
 bearer 只作为当次请求的秘密输入，在构造 HTTP 头之前验证长度和字符边界，拒绝
 CR/LF 等头注入。公开编码请求、profile 快照、日志和错误记录只包含认证引用名称，
