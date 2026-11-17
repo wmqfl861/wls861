@@ -4,13 +4,17 @@ Current implementation: **0.13.0**, blueprint **v0.5**, Store **410**. The v0.5 
 
 Entry point only: the complete, still-binding contract is preserved verbatim in `docs/implementation/development-contract.md` — current, normative, not archived history; read it before changing runtime behavior.
 
+The owner adopted D-46 through D-57 in [`docs/reviews/claude-2026-11-17/03-decisions.md`](docs/reviews/claude-2026-11-17/03-decisions.md) on 2026-11-17. Start with that directory's `README.md` and read `01` through `04` in order. These decisions supersede conflicting 11-13, 11-14 and 11-16 process, defaults, priorities and authorization; the complete contract's safety invariants remain binding. The authorized replacements in `04-plan-revisions.md` are applied to the single forward plan, `claude-2026-11-16/04-plan.md`; its other historical entries remain unchanged.
+
 The owner adopted D-30 through D-45 in [`docs/reviews/claude-2026-11-16/02-decisions.md`](docs/reviews/claude-2026-11-16/02-decisions.md) on 2026-11-16. Start with that directory's `README.md` and read `01` through `04` in order. These decisions supersede conflicting earlier process, defaults, priorities and authorization; the complete contract's safety invariants remain binding. Its `04-plan.md` is the single forward plan; only its §1 status column and §15 are agent-maintained.
 
 The owner adopted D-19 through D-29 in [`docs/reviews/claude-2026-11-14/02-decisions.md`](docs/reviews/claude-2026-11-14/02-decisions.md) on 2026-11-14. These decisions supersede conflicting earlier review decisions for process, defaults, priorities and authorization; the complete contract's safety invariants remain binding. Start with that review directory's `README.md` and read `01` through `05` in order.
 
 The owner adopted all decisions in [`docs/reviews/claude-2026-11-13/02-decisions.md`](docs/reviews/claude-2026-11-13/02-decisions.md) on 2026-11-13. For process, defaults, priorities and authorization, those decisions supersede conflicting earlier text; the complete contract's safety invariants remain binding. Start with that review directory's `README.md` and read `01` through `04` in order.
 
-The owner's 2026-11-15 direction and D-34/D-35 govern the current G2 endpoint, credentials, reasoning levels and finite call/token/time limits; see [the current run record](docs/reports/g2-first-real-run.md). D-32 stops only the affected request or line; fresh real requests may continue. The original export was recovered under D-31; the strict metadata-check difference is recorded in that report, and this original replay must not be repeated. D-31 requires a complete verified directory backup, current main, and the original command/configuration paths. Only DELIVERED with one CONFIRMED delivery follows the verified model-free completion path; admission, filesystem identity, receipt, package and byte checks still apply. Historical review decisions and the preserved contract are not rewritten.
+The owner's 2026-11-15 direction and D-34/D-35 govern the current G2 endpoint, credentials, reasoning levels and finite call/token/time limits; see [the current run record](docs/reports/g2-first-real-run.md). New real requests wait for D-46; the revised R8–R11 sequence starts only after D-46 and D-48 merge. The original export was recovered under D-31; the strict metadata-check difference is recorded in that report, and this original replay must not be repeated. D-31 requires a complete verified directory backup, current main, and the original command/configuration paths. Only DELIVERED with one CONFIRMED delivery follows the verified model-free completion path; admission, filesystem identity, receipt, package and byte checks still apply. Historical review decisions and the preserved contract are not rewritten.
+
+D-47/D-48 set new acceptance requests to non-streaming with frozen `max_paid_retries: 2`; timeouts remain ineligible for retry and existing requests retain their frozen semantics. After D-46 and D-48 merge, D-49 authorizes one R3-stream-check continuation, following a complete directory backup and verified checksum inventory, on current main with the original command/configuration paths and at most 20 new calls. R3 retains its frozen streaming and zero-retry configuration; any guard rejection seals it without bypass. R2-stream-check and R5 remain sealed. D-52 applies the two-round stop only to the same root cause; a stage-exit line returns to the latest working configuration instead of stopping the stage.
 
 ## Authority and permissions
 
@@ -23,9 +27,11 @@ The owner's 2026-11-15 direction and D-34/D-35 govern the current G2 endpoint, c
   for the specified Responses gateway, `gpt-6.1-sol` with D-35 reasoning levels,
   and removed money gates for reasonable, finite use. New requests opt in
   with frozen `cost_policy: observe-only-v1`; keep token, call and time
-  limits and the independent host network authorization. Current real
-  runs use no automatic retries. Unknown cost is not zero or
-  free; retain original nullable usage and unresolved outcomes. Credentials
+  limits and the independent host network authorization. New acceptance
+  requests freeze `max_paid_retries: 2` under D-48; each retry consumes a
+  new reservation and the call/token limits. Timeouts are not retried,
+  and existing requests keep their original frozen retry policy. Unknown
+  cost is not zero or free; retain original nullable usage and unresolved outcomes. Credentials
   stay external and may be injected into the intended process; never echo
   or persist their values. The current key authorization is already given
   and observe-only requires no price table; verify credential availability
