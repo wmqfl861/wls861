@@ -177,6 +177,16 @@ TLS 未发生或不计费证明。时钟、字节范围、截断和供应商 res
 
 ### 4.3 凭据与报告
 
+非流式 Responses 收到 HTTP 200 的 `text/event-stream` 时，只在原非流式 body、
+累计字节、SSE 硬限及同一 deadline 内保留诊断原文，最终仍以
+`unexpected_response_media_type` 拒绝所有文本、工具和 opaque replay 输出。
+仅冻结 profile 原已声明流式能力时，才调用原严格 SSE 回放；私有证据区分
+实际 `stream:false` 请求身份与诊断编码的 `stream:true` 派生指纹，原 usage/null 保留。
+媒体不匹配本身不授予重试。D-48 另要求 HTTP 和严格 SSE 终态均完整、未截断、
+无可用内容且终态/解码代码属于原允许集合；成功、拒绝、未完成、取消、未知事件、
+断流、超限和超时不因该诊断取得资格。原头/framing/TLS 守卫及冻结重试预算不变。
+安全摘要只含宿主代码、计数、时间和 hash；原头、正文、供应商文本仍只进私有证据。
+
 bearer 只作为当次请求的秘密输入，在构造 HTTP 头之前验证长度和字符边界，拒绝
 CR/LF 等头注入。公开编码请求、profile 快照、日志和错误记录只包含认证引用名称，
 不能出现实际值。不开启默认 verbose，不记录 outgoing headers 或 debug 文本。
