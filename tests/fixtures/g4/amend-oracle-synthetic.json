@@ -87,7 +87,7 @@
           "execution_epoch": 1,
           "policy_epoch": 1
         },
-        "record_sha256": "e08f1902e62fad3374268d92a260ffc3073572e45f9595bbca2dda6fc9c11567",
+        "record_sha256": "4f443990f21a46c03f8736ab23c2bd7283394aa3c53756bff952f500f16201aa",
         "stdout_bytes": 9,
         "stdout_sha256": "ed16eea8a15560d4d83664756c86b6308411e1efcfc9a072ca8d5679a6dc949d",
         "stdout_truncated": 0,
@@ -146,7 +146,7 @@
           "execution_epoch": 1,
           "policy_epoch": 1
         },
-        "record_sha256": "4d05e2a5d9dd0784e8b5bfe120d3042e73433f2d6f2428d1b2979c665c89beb8",
+        "record_sha256": "fd22da1dfd1cb51c12b01a3ea3489fd687e3dba9796fd962c728a7cda14415fd",
         "stdout_bytes": 6,
         "stdout_sha256": "3dfa3fb239f56c778a1e9b33eb31328349edd155a95806dac4378904e88527e5",
         "stdout_truncated": 0,
@@ -272,7 +272,7 @@
               "execution_epoch": 1,
               "policy_epoch": 1
             },
-            "record_sha256": "e08f1902e62fad3374268d92a260ffc3073572e45f9595bbca2dda6fc9c11567",
+            "record_sha256": "4f443990f21a46c03f8736ab23c2bd7283394aa3c53756bff952f500f16201aa",
             "stdout_bytes": 9,
             "stdout_sha256": "ed16eea8a15560d4d83664756c86b6308411e1efcfc9a072ca8d5679a6dc949d",
             "stdout_truncated": 0,
@@ -281,7 +281,7 @@
             "stderr_truncated": 0
           }
         },
-        "record_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        "record_sha256": "4885e99d7c678cfa11ddc2adb378b14fa1957df22be70e8be0b42045415bc1d1"
       },
       {
         "attempt_id": "synthetic-attempt-synthetic-op-beta-1",
@@ -377,7 +377,7 @@
               "execution_epoch": 1,
               "policy_epoch": 1
             },
-            "record_sha256": "4d05e2a5d9dd0784e8b5bfe120d3042e73433f2d6f2428d1b2979c665c89beb8",
+            "record_sha256": "fd22da1dfd1cb51c12b01a3ea3489fd687e3dba9796fd962c728a7cda14415fd",
             "stdout_bytes": 6,
             "stdout_sha256": "3dfa3fb239f56c778a1e9b33eb31328349edd155a95806dac4378904e88527e5",
             "stdout_truncated": 0,
@@ -386,7 +386,7 @@
             "stderr_truncated": 0
           }
         },
-        "record_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        "record_sha256": "fcd0ed90b10b720681208eb96a807fe81fb897b0b1ea739c8a54d050e5d9d9b0"
       }
     ],
     "attempts": [
@@ -708,7 +708,7 @@
           "execution_epoch": 1,
           "policy_epoch": 1
         },
-        "record_sha256": "e08f1902e62fad3374268d92a260ffc3073572e45f9595bbca2dda6fc9c11567",
+        "record_sha256": "4f443990f21a46c03f8736ab23c2bd7283394aa3c53756bff952f500f16201aa",
         "stdout_bytes": 9,
         "stdout_sha256": "ed16eea8a15560d4d83664756c86b6308411e1efcfc9a072ca8d5679a6dc949d",
         "stdout_truncated": 0,
@@ -767,7 +767,7 @@
           "execution_epoch": 1,
           "policy_epoch": 1
         },
-        "record_sha256": "4d05e2a5d9dd0784e8b5bfe120d3042e73433f2d6f2428d1b2979c665c89beb8",
+        "record_sha256": "fd22da1dfd1cb51c12b01a3ea3489fd687e3dba9796fd962c728a7cda14415fd",
         "stdout_bytes": 6,
         "stdout_sha256": "3dfa3fb239f56c778a1e9b33eb31328349edd155a95806dac4378904e88527e5",
         "stdout_truncated": 0,
@@ -826,7 +826,7 @@
           "execution_epoch": 1,
           "policy_epoch": 1
         },
-        "record_sha256": "dacd1a5919d72536f3e066900531f4b7c505dd40ed1cd4938b0333cd1e66bcf8",
+        "record_sha256": "fa2d95c7c115f0da444bfcca50b778875239fcbe7d0b1cca56582a89906a230e",
         "stdout_bytes": 10,
         "stdout_sha256": "bc8079ffbc96d3b24fca2d48c88e4d268716ace53ec0965f964bb8d88ec4aad4",
         "stdout_truncated": 0,
@@ -962,7 +962,7 @@
               "execution_epoch": 1,
               "policy_epoch": 1
             },
-            "record_sha256": "e08f1902e62fad3374268d92a260ffc3073572e45f9595bbca2dda6fc9c11567",
+            "record_sha256": "4f443990f21a46c03f8736ab23c2bd7283394aa3c53756bff952f500f16201aa",
             "stdout_bytes": 9,
             "stdout_sha256": "ed16eea8a15560d4d83664756c86b6308411e1efcfc9a072ca8d5679a6dc949d",
             "stdout_truncated": 0,
@@ -971,7 +971,7 @@
             "stderr_truncated": 0
           }
         },
-        "record_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        "record_sha256": "4885e99d7c678cfa11ddc2adb378b14fa1957df22be70e8be0b42045415bc1d1"
       },
       {
         "attempt_id": "synthetic-attempt-synthetic-op-beta-1",
@@ -1067,7 +1067,7 @@
               "execution_epoch": 1,
               "policy_epoch": 1
             },
-            "record_sha256": "4d05e2a5d9dd0784e8b5bfe120d3042e73433f2d6f2428d1b2979c665c89beb8",
+            "record_sha256": "fd22da1dfd1cb51c12b01a3ea3489fd687e3dba9796fd962c728a7cda14415fd",
             "stdout_bytes": 6,
             "stdout_sha256": "3dfa3fb239f56c778a1e9b33eb31328349edd155a95806dac4378904e88527e5",
             "stdout_truncated": 0,
@@ -1076,7 +1076,7 @@
             "stderr_truncated": 0
           }
         },
-        "record_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        "record_sha256": "fcd0ed90b10b720681208eb96a807fe81fb897b0b1ea739c8a54d050e5d9d9b0"
       },
       {
         "attempt_id": "synthetic-amend-attempt",
@@ -1160,7 +1160,8 @@
             }
           ]
         },
-        "result": {}
+        "result": {},
+        "record_sha256": "2ad8a88897a1775cacc012c82c96bc6d19887fa644fba5d6ea2430d50ca8cbf0"
       },
       {
         "attempt_id": "synthetic-attempt-synthetic-op-beta-2",
@@ -1256,7 +1257,7 @@
               "execution_epoch": 1,
               "policy_epoch": 1
             },
-            "record_sha256": "dacd1a5919d72536f3e066900531f4b7c505dd40ed1cd4938b0333cd1e66bcf8",
+            "record_sha256": "fa2d95c7c115f0da444bfcca50b778875239fcbe7d0b1cca56582a89906a230e",
             "stdout_bytes": 10,
             "stdout_sha256": "bc8079ffbc96d3b24fca2d48c88e4d268716ace53ec0965f964bb8d88ec4aad4",
             "stdout_truncated": 0,
@@ -1265,7 +1266,7 @@
             "stderr_truncated": 0
           }
         },
-        "record_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        "record_sha256": "adf9053b68738617692ae64e0679bd28eb3b6ae243166973eb26749a6d14074f"
       }
     ],
     "attempts": [
@@ -2359,7 +2360,7 @@
                 "execution_epoch": 1,
                 "policy_epoch": 1
               },
-              "record_sha256": "4d05e2a5d9dd0784e8b5bfe120d3042e73433f2d6f2428d1b2979c665c89beb8",
+              "record_sha256": "fd22da1dfd1cb51c12b01a3ea3489fd687e3dba9796fd962c728a7cda14415fd",
               "stdout_bytes": 6,
               "stdout_sha256": "3dfa3fb239f56c778a1e9b33eb31328349edd155a95806dac4378904e88527e5",
               "stdout_truncated": 0,
@@ -2368,7 +2369,7 @@
               "stderr_truncated": 0
             }
           },
-          "record_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          "record_sha256": "fcd0ed90b10b720681208eb96a807fe81fb897b0b1ea739c8a54d050e5d9d9b0"
         },
         {
           "attempt_id": "synthetic-amend-attempt",
@@ -2452,7 +2453,8 @@
               }
             ]
           },
-          "result": {}
+          "result": {},
+          "record_sha256": "2ad8a88897a1775cacc012c82c96bc6d19887fa644fba5d6ea2430d50ca8cbf0"
         },
         {
           "attempt_id": "synthetic-attempt-synthetic-op-beta-2",
@@ -2548,7 +2550,7 @@
                 "execution_epoch": 1,
                 "policy_epoch": 1
               },
-              "record_sha256": "dacd1a5919d72536f3e066900531f4b7c505dd40ed1cd4938b0333cd1e66bcf8",
+              "record_sha256": "fa2d95c7c115f0da444bfcca50b778875239fcbe7d0b1cca56582a89906a230e",
               "stdout_bytes": 10,
               "stdout_sha256": "bc8079ffbc96d3b24fca2d48c88e4d268716ace53ec0965f964bb8d88ec4aad4",
               "stdout_truncated": 0,
@@ -2557,7 +2559,7 @@
               "stderr_truncated": 0
             }
           },
-          "record_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          "record_sha256": "adf9053b68738617692ae64e0679bd28eb3b6ae243166973eb26749a6d14074f"
         }
       ]
     },
@@ -2799,6 +2801,107 @@
         "output_location"
       ],
       "value": "inline"
+    },
+    {
+      "name": "original operation hash and every copy changed consistently in both phases",
+      "changes": [
+        {
+          "path": [
+            "before",
+            "operation_results",
+            0,
+            "record_sha256"
+          ],
+          "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "path": [
+            "before",
+            "model_tool_feedback",
+            0,
+            "result",
+            "execution_result",
+            "record_sha256"
+          ],
+          "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "path": [
+            "before",
+            "model_tool_feedback",
+            0,
+            "record_sha256"
+          ],
+          "value": "86d35c6ffe2077442636b5ccf99a08d548530934d371cd0707c9df1cd1da262b"
+        },
+        {
+          "path": [
+            "after",
+            "operation_results",
+            0,
+            "record_sha256"
+          ],
+          "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "path": [
+            "after",
+            "model_tool_feedback",
+            0,
+            "result",
+            "execution_result",
+            "record_sha256"
+          ],
+          "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "path": [
+            "after",
+            "model_tool_feedback",
+            0,
+            "record_sha256"
+          ],
+          "value": "86d35c6ffe2077442636b5ccf99a08d548530934d371cd0707c9df1cd1da262b"
+        }
+      ],
+      "error": "operation-result record hash mismatch"
+    },
+    {
+      "name": "original feedback hash changed consistently in both phases",
+      "changes": [
+        {
+          "path": [
+            "before",
+            "model_tool_feedback",
+            0,
+            "record_sha256"
+          ],
+          "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "path": [
+            "after",
+            "model_tool_feedback",
+            0,
+            "record_sha256"
+          ],
+          "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ],
+      "error": "model-tool-feedback record hash mismatch"
+    },
+    {
+      "name": "non-run feedback original fact tampered",
+      "path": [
+        "after",
+        "model_tool_feedback",
+        2,
+        "result"
+      ],
+      "value": {
+        "tampered_original": true
+      },
+      "error": "model-tool-feedback record hash mismatch"
     }
   ]
 }

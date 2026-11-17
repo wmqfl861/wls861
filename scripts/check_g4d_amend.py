@@ -10,10 +10,24 @@ EXPECTED = json.loads((FIXTURE / 'amend-expected.json').read_text())
 if not __debug__: raise RuntimeError('oracle requires assertions enabled')
 
 
+def record_digest(value):
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    return hashlib.sha256(encoded.encode('utf-8')).hexdigest()
+
+
 def check_operations(data):
     assert len(data['ops']) == len(data['operation_results'])
+    for feedback in data['model_tool_feedback']:
+        fact = {key: feedback[key] for key in ('attempt_id', 'original_binding', 'response', 'result')}
+        assert record_digest(fact) == feedback['record_sha256'], 'model-tool-feedback record hash mismatch'
     for op in data['ops']:
         record, = [row for row in data['operation_results'] if row['op_id'] == op['op_id']]
+        fact = {key: record[key] for key in ('op_id', 'original_binding', 'result', 'evidence',
+            'stdout_bytes', 'stderr_bytes', 'stdout_sha256', 'stderr_sha256')}
+        # Store hashes booleans; SQLite exposes these two fields as 0/1.
+        fact.update(outcome=record['observed_outcome'], stdout_truncated=bool(record['stdout_truncated']),
+            stderr_truncated=bool(record['stderr_truncated']))
+        assert record_digest(fact) == record['record_sha256'], 'operation-result record hash mismatch'
         process, proof = record['result'], record['evidence']
         assert op['tool_id'] == 'run' and op['status'] == record['observed_outcome'] and record['accepted']
         assert op['status'] in ('SUCCEEDED', 'CANCELLED') and op['started_at']
@@ -115,13 +129,16 @@ if __name__ == '__main__':
     check_resumed(fixture['before'], fixture['after'], fixture['active'])
     for negative in fixture['negatives']:
         altered = copy.deepcopy(fixture)
-        target = altered
-        for key in negative['path'][:-1]:
-            target = target[key]
-        target[negative['path'][-1]] = negative['value']
+        for change in negative.get('changes', [negative]):
+            target = altered
+            for key in change['path'][:-1]:
+                target = target[key]
+            target[change['path'][-1]] = change['value']
         try:
             check_resumed(altered['before'], altered['after'], altered['active'])
-        except (AssertionError, KeyError, ValueError):
+        except (AssertionError, KeyError, ValueError) as error:
+            if 'error' in negative:
+                assert str(error) == negative['error'], negative['name']
             continue
         raise AssertionError('oracle accepted ' + negative['name'])
     print(f"PASS synthetic oracle positive and {len(fixture['negatives'])} negatives; native NOT_RUN")
