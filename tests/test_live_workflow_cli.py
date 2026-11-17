@@ -676,14 +676,14 @@ class LiveWorkflowCli(unittest.TestCase):
             self.assertEqual(peer.accepted, 0)
             self.assertEqual(self.rows('SELECT count(*) n FROM live_send_claims')[0]['n'], 0)
 
-    def test_observe_only_continues_unknown_cost_but_stops_missing_tokens(self):
+    def test_observe_only_continues_after_settled_errors_with_missing_tokens(self):
         model = ScriptedPeer()
         with tls.Peer(self.contexts['server'], model) as peer:
             request = self.admit(peer.port, observe_only=True)
             self.authorize(request, reserved=0)
             report = self.pump(request)
             self.assertEqual(len(peer.requests), 2)
-            self.assertFalse(report['accounting']['ready'])
+            self.assertTrue(report['accounting']['ready'])
             attempts = self.rows('SELECT status,input_tokens,output_tokens,cost_micro_usd,unknown_cost,reserved_cost '
                                  'FROM call_attempts ORDER BY rowid')
             self.assertEqual([row['status'] for row in attempts], ['COMPLETED', 'ERROR'])
@@ -694,8 +694,8 @@ class LiveWorkflowCli(unittest.TestCase):
                                 row['reserved_cost'] == 0 for row in attempts))
             original = self.rows('SELECT attempt_id,usage,response,settlement_sha256 FROM call_attempts ORDER BY rowid')
             repeat = self.pump(request, credential=None)
-            self.assertEqual(repeat['stop_reason'], 'needs_accounting')
-            self.assertEqual(repeat['calls'], [])
+            self.assertEqual(repeat['stop_reason'], 'error')
+            self.assertEqual(repeat['calls'][0]['error']['message'], 'trusted credential resolver failed')
             self.assertEqual(len(peer.requests), 2)
             self.assertEqual(self.rows('SELECT attempt_id,usage,response,settlement_sha256 FROM call_attempts ORDER BY rowid'), original)
             self.assertEqual(self.rows('SELECT count(*) n FROM live_send_claims')[0]['n'], 2)
