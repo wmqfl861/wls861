@@ -1,6 +1,7 @@
 #include "wls/worker_history.hpp"
 #include "wls/config_loader.hpp"
 #include "wls/single_agent.hpp"
+#include "file_batch_detail.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -110,7 +111,10 @@ Json execute_history_control(Store& store, const StoreActor& actor,
     return result;
 }
 
-Json append_fold_history(const Json& previous, const Json& delta, bool fold) {
+Json append_fold_history(const Json& previous, const Json& delta, bool fold,
+        const FileBatchHistoryContext* batch_context) {
+    if (file_batch_detail::enabled(batch_context)) file_batch_detail::require(
+        delta.at("scope").at("request_id") == Json(batch_context->request_id) && delta.at("scope").at("role") == "worker");
     Json result = previous.is_null() ? Json(Object{{"scope", delta.at("scope")}, {"last_sequence", 0},
         {"fold_generation", 0}, {"visible_turns", Array{}}, {"folded_entries", Array{}}}) : previous.at("worker_history");
     require(result.is_object() && result.as_object().size() == 5 && result.at("scope") == delta.at("scope"),
@@ -145,7 +149,9 @@ Json append_fold_history(const Json& previous, const Json& delta, bool fold) {
         if (!feedback.is_null()) require(std::string(feedback.at("record_sha256").as_string()) == sha256_hex(canonical_json(Object{
             {"attempt_id", turn.at("attempt_id")}, {"original_binding", turn.at("frozen_binding")},
             {"response", turn.at("response")}, {"result", feedback.at("result")}})), "append-fold original feedback hash changed");
-        const auto native = structured_attempt_history({turn});
+        const auto native = structured_attempt_history({turn}, batch_context);
+        const auto* batch = file_batch_detail::enabled(batch_context) && !feedback.is_null()
+            ? file_batch_detail::validate(turn, model_response_from_json(turn.at("response")), batch_context) : nullptr;
         Array tools;
         try { for (const auto& call : model_response_from_json(turn.at("response")).tool_calls) tools.emplace_back(call.name); }
         catch (const Error& error) { if (error.code() != ErrorCode::InvalidInput) throw; }
@@ -156,7 +162,8 @@ Json append_fold_history(const Json& previous, const Json& delta, bool fold) {
                     if (canonical_json(*value).size() <= 128) outcome[key] = *value;
         const bool reasoning = std::any_of(native.begin(), native.end(), [](const auto& m) { return !m.responses_output.is_null(); });
         const bool completed = turn.at("status") != "PENDING" && turn.at("status") != "UNKNOWN" &&
-            !feedback.is_null() && turn.at("accounting_attention") == 0;
+            !feedback.is_null() && turn.at("accounting_attention") == 0 &&
+            (!batch || batch->at("observation_complete") == true);
         turns.push_back(Object{{"sequence", sequence}, {"attempt_id", turn.at("attempt_id")}, {"tools", tools},
             {"outcome", canonical_json(outcome)},
             {"record_sha256", feedback.is_null() ? Json(nullptr) : feedback.at("record_sha256")},
@@ -211,7 +218,10 @@ std::vector<StructuredContextMessage> append_fold_messages(const Json& projectio
     return result;
 }
 
-std::vector<StructuredContextMessage> worker_history_messages(const Json& tail, const Json& policy) {
+std::vector<StructuredContextMessage> worker_history_messages(const Json& tail, const Json& policy,
+        const FileBatchHistoryContext* batch_context) {
+    if (file_batch_detail::enabled(batch_context)) file_batch_detail::require(
+        tail.at("request_id") == Json(batch_context->request_id) && tail.at("role") == "worker");
     require(policy.is_object() && policy.at("mode") == "window-v1", "missing frozen history window policy");
     const auto recent = integer(policy.at("recent_attempts"));
     const auto inline_bytes = integer(policy.at("inline_bytes"));
@@ -236,7 +246,7 @@ std::vector<StructuredContextMessage> worker_history_messages(const Json& tail, 
     const auto& tail_items = tail.at("items").as_array();
     for (std::size_t tail_index = 0; tail_index < tail_items.size(); ++tail_index) {
         const auto& attempt = tail_items[tail_index];
-        auto messages = structured_attempt_history({attempt});
+        auto messages = structured_attempt_history({attempt}, batch_context);
         const bool reasoning_bearing = std::any_of(messages.begin(), messages.end(),
             [](const StructuredContextMessage& message) { return !message.responses_output.is_null(); });
         if (message_size(messages) <= static_cast<std::size_t>(inline_bytes)) {

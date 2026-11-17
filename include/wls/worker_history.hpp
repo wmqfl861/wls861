@@ -16,11 +16,12 @@ Json execute_history_control(Store& store, const StoreActor& actor,
 // explicit hash-pinned references; originals stay in SQLite. The current task
 // contract is never an input to this projection and therefore cannot be pruned.
 std::vector<StructuredContextMessage> worker_history_messages(const Json& tail,
-    const Json& frozen_policy);
+    const Json& frozen_policy, const FileBatchHistoryContext* batch_context = nullptr);
 
 bool append_fold_policy(const Json& policy);
 // Flat original turns and readback entries; no compiled predecessor is embedded.
-Json append_fold_history(const Json& previous, const Json& delta, bool fold = false);
+Json append_fold_history(const Json& previous, const Json& delta, bool fold = false,
+    const FileBatchHistoryContext* batch_context = nullptr);
 std::vector<StructuredContextMessage> append_fold_messages(const Json& projection);
 
 } // namespace wls::s1
