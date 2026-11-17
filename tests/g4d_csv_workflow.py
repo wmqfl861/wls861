@@ -164,7 +164,9 @@ def exercise(binary, source, output, native, scenario="csv"):
         if scenario == "csv":
             assert artifact["sha256"] == observed["output_sha256"]
         (exported / Path(artifact["path"]).name).write_bytes(content)
-        (evidence / Path(artifact["path"]).name).write_bytes(content)
+        evidence_name = Path(artifact["path"]).name if scenario == "csv" else "submitted-" + Path(artifact["path"]).name
+        with (evidence / evidence_name).open("xb") as stream:
+            stream.write(content)
     verdict = check_output(exported) if scenario == "csv" else check_output(exported, process["exit_code"],
         (evidence / "run.stdout").read_bytes(), (evidence / "run.stderr").read_bytes())
     save("oracle.json", verdict)
