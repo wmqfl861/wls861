@@ -901,13 +901,57 @@ class HttpsTransport(unittest.TestCase):
             self.assertEqual(peer.requests[0]["headers"][b"accept"], b"application/json")
             self.assertEqual(result["request_body_sha256"], hashlib.sha256(peer.requests[0]["body"]).hexdigest())
 
+    def test_json_under_sse_requires_policy_and_the_unchanged_http_decoder(self):
+        body, policy, sse = b" \n" + response_body(tool=True) + b"\n", "json-under-sse-v1", "text/event-stream"
+        cases = [(body, "", "application/json", "completed"), (body, policy, "application/json", "completed"),
+                 (body, policy, sse, "completed"), (body, "", sse, "unexpected_response_media_type")]
+        cases += [(bad, policy, sse, "unexpected_response_media_type") for bad in (
+            tool_stream(), body[:-2], body + b"{}", b'{"object":"response","object":"response"}',
+            b'{"object":"chat.completion"}', b'[]', b'{"object":"response","x":"\xff"}')]
+        cases += [(body.replace(b'fixture-responses-model', b'wrong-model'), policy, sse, "protocol_error")]
+        for raw, selected, media, expected in cases:
+            with self.subTest(media=media, policy=selected, expected=expected, sha=hashlib.sha256(raw).hexdigest()), self.peer(
+                    fixed_response(raw, content_type=media)) as peer:
+                result = self.invoke(peer, responses_media_type_policy=selected, streaming_capability=False)
+            self.assertEqual(bytes.fromhex(result["raw_body_hex"]), raw)
+            self.assertTrue(result["transfer_complete"])
+            self.assertFalse(json.loads(peer.requests[0]["body"])["stream"])
+            self.assertEqual(peer.requests[0]["headers"][b"accept"], b"application/json")
+            self.assertEqual(result["request_body_sha256"], hashlib.sha256(peer.requests[0]["body"]).hexdigest())
+            if expected != "completed":
+                self.assert_failed(result, "protocol_error")
+                self.assertEqual(result["reason"], expected)
+                continue
+            self.assertEqual(result["status"], "completed")
+            if not selected: reference = result["response"]
+            self.assertEqual(result["response"], reference)
+            self.assertEqual(result["response"]["tool_calls"][0]["arguments"], {"message": "fixture"})
+            evidence = result["protocol_evidence"]
+            self.assertEqual(evidence["decoder"], "bounded_responses_http_decoder")
+            self.assertIn("offline_decoder_report", evidence)
+            self.assertNotIn("diagnostic_only", evidence)
+            self.assertNotIn("diagnostic_encoder_stream", evidence)
+            if media == sse:
+                for key, value in {"responses_media_type_policy": policy, "requested_stream": False,
+                        "expected_media_type": "application/json", "observed_media_type": sse,
+                        "actual_encoded_request_body_sha256": result["request_body_sha256"]}.items():
+                    self.assertEqual(evidence[key], value)
+                self.assertNotIn("json-under-sse-v1", json.dumps(result["summary"]))
+        with self.peer(fixed_response(tool_stream(), content_type=sse)) as peer:
+            result = self.invoke(peer, stream=True, responses_media_type_policy=policy)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["protocol_evidence"]["decoder"], "bounded_responses_sse_replay")
+
     def test_nonstream_sse_retains_original_limits_and_interruption_priority(self):
         body = tool_stream()
         cases = [("limit", {"max_body_bytes": 256}), ("limit", {"max_stream_bytes": 256}),
                  ("limit", {"max_total_bytes": 256}), ("limit", {"max_sse_chunks": 1}),
                  ("deadline", {"timeout_ms": 300}), ("cancelled", {"cancel_after_ms": 300}),
                  ("transfer_error", {})]
-        for expected, options in cases:
+        cases = [(expected, options, body) for expected, options in cases] + [
+            (expected, dict(options, responses_media_type_policy="json-under-sse-v1"), response_body(tool=True))
+            for expected, options in cases]
+        for expected, options, body in cases:
             def serve(peer, connection):
                 peer.request(connection)
                 connection.sendall(headers(len(body) + (expected != "limit"), content_type="text/event-stream"))
