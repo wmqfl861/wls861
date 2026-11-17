@@ -87,6 +87,15 @@ hook 位于应用之前，以满足原验收和收尾的完整账目门禁，但
 取消、deadline、真实错误、没有新发送权和不完整操作都会停止 batch；不存在隐式付费重试。
 原 pending events、AMEND 未决节点和未处理管理目标保持可恢复。
 
+冻结 `observe-only-v1` 的请求按 D-46 将已结算、未被接受且没有工具调用的 `ERROR`
+纳入有效 token 账目：缺失的输入/输出维度使用各自原正数预留，已知维度仍用实际值。
+`usage_projection.effective_token_usage` 标注 `basis: reservation`；`live-status.accounting`
+列出至多 64 条 `reservation_token_attempts`，另给总数和截断标志。原用量、投影 null、
+费用未知以及账本的已知支出加未知预留均保留，迟到核对仍按原差额入账。
+旧观察模式请求重启后适用同一只读计算，无需迁移或改写结算。首次错误仍停止当前 batch；
+再次运行相同请求可继续。未结算、PENDING、UNKNOWN、INTERRUPTED、缺投影、争议、
+超预留或无正数预留的未知维度均不能用此规则放行；调用数、token 与时间限制继续生效。
+
 ## 4. 输出与恢复
 
 报告模式为 `event_live`。`calls`、`blocked`、`pending`、任务、问题及提交记录提供安全标识、

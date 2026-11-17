@@ -1574,7 +1574,7 @@ class BillingBaselineIntegration(unittest.TestCase):
             self.assertEqual((Path(next_summary['output_path']) / 'alpha/result.txt').read_bytes(), b'alpha\nbeta\n')
             self.assertEqual(oversized[0].stat().st_size, 17 * 1024 * 1024)
 
-    def test_06b_observe_only_disconnect_and_cancel_remain_blocked_on_resume(self):
+    def test_06b_observe_only_disconnect_resumes_but_cancel_remains_blocked(self):
         for cancel in (False, True):
             with self.subTest(cancel=cancel):
                 requested, release = threading.Event(), threading.Event()
@@ -1602,7 +1602,7 @@ class BillingBaselineIntegration(unittest.TestCase):
                     first = json.loads(stdout)
                     if cancel:
                         self.assertEqual(first['stop_reason'], 'cancelled')
-                    self.assertFalse(first['accounting']['ready'])
+                    self.assertEqual(first['accounting']['ready'], not cancel)
                     self.assertEqual(len(peer.requests), 1)
                     database = next(case['data'].glob('requests/*/control.sqlite'))
                     original = rows(database, 'SELECT attempt_id,input_tokens,output_tokens,cost_micro_usd,'
@@ -1611,11 +1611,53 @@ class BillingBaselineIntegration(unittest.TestCase):
                                         ('input_tokens', 'output_tokens', 'cost_micro_usd')))
                     resumed = self.invoke_run(case, '--yes')
                     self.assertEqual(resumed.returncode, 0, resumed.stderr)
-                    self.assertEqual(json.loads(resumed.stdout)['stop_reason'], 'needs_accounting')
+                    self.assertEqual(json.loads(resumed.stdout)['stop_reason'], 'needs_accounting' if cancel else 'error')
                     self.assertEqual(rows(database, 'SELECT attempt_id,input_tokens,output_tokens,cost_micro_usd,'
-                                          'usage,response,settlement_sha256 FROM call_attempts'), original)
-                    self.assertEqual(rows(database, 'SELECT count(*) n FROM live_send_claims')[0]['n'], 1)
-                    self.assertEqual(len(peer.requests), 1)
+                                          'usage,response,settlement_sha256 FROM call_attempts ORDER BY rowid')[:1], original)
+                    self.assertEqual(rows(database, 'SELECT count(*) n FROM live_send_claims')[0]['n'], 1 if cancel else 2)
+                    self.assertEqual(len(peer.requests), 1 if cancel else 2)
+
+    def test_06c_observe_only_failed_response_resumes_same_request_to_delivery(self):
+        endpoint = PricingFlowEndpoint(initialize_seed=True)
+        endpoint.plan['nodes'] = endpoint.plan['nodes'][:1]
+        def fail_once(peer, connection):
+            if len(peer.requests) != 2:
+                return endpoint(peer, connection)
+            peer.request(connection)
+            value = json.loads(tls.response_body(tool=True))
+            value.update(status='failed', output=[], usage=None, error={'code': 'upstream_error'})
+            encoded = tls.encoded(value)
+            connection.sendall(tls.headers(len(encoded)) + encoded)
+        with tls.Peer(self.contexts['server'], fail_once) as peer:
+            case = self.run_inputs('run-observe-error-resume', peer, observe_only=True)
+            case['system']['model_calls']['max_paid_retries'] = 0
+            case['system']['context'].update(request_format='structured-v3', model_projection='lean-v1',
+                tool_policy='fixed-role-v1', worker_history={
+                    'mode': 'append-fold-v1', 'read_max_bytes': 24576, 'read_token_budget': 196608})
+            write_json(case['configuration'], case['system'])
+            first = self.invoke_run(case, '--yes')
+            self.assertEqual(first.returncode, 0, first.stderr)
+            stopped = json.loads(first.stdout)
+            self.assertEqual((stopped['stop_reason'], len(peer.requests)), ('error', 3))
+            database = next(case['data'].glob('requests/*/control.sqlite'))
+            originals = rows(database, 'SELECT * FROM call_attempts ORDER BY rowid')
+            failed = originals[-1]
+            self.assertEqual((failed['status'], failed['accepted']), ('ERROR', 0))
+            self.assertTrue(failed['settlement_sha256'])
+            self.assertTrue(all(failed[key] is None for key in ('input_tokens', 'output_tokens', 'cost_micro_usd')))
+            status = self.command('live-status', '--db', database, '--request', stopped['request_id'])
+            self.assertTrue(status['accounting']['ready'])
+            self.assertEqual(status['accounting']['reservation_token_attempts'], [{
+                'attempt_id': failed['attempt_id'], 'settlement_sha256': failed['settlement_sha256'],
+                'basis': 'reservation', 'input_tokens': failed['reserved_input'], 'output_tokens': failed['reserved_output']}])
+            second = self.invoke_run(case, '--yes')
+            self.assertEqual(second.returncode, 0, second.stderr)
+            delivered = json.loads(second.stdout)
+            self.assertEqual((delivered['request_id'], delivered['status']), (stopped['request_id'], 'DELIVERED'))
+            self.assertTrue(delivered['accounting']['ready'] and delivered['technical_acknowledgement'])
+            self.assertEqual(rows(database, 'SELECT * FROM call_attempts ORDER BY rowid')[:3], originals)
+            self.assertEqual((Path(delivered['output_path']) / 'alpha/result.txt').read_bytes(), b'alpha\nbeta\n')
+            self.assertEqual(rows(database, "SELECT count(*) n FROM delivery_runtime WHERE status='CONFIRMED'")[0]['n'], 1)
 
     def test_07_run_refusal_config_budget_and_unsafe_paths_before_confirmation(self):
         endpoint = PricingFlowEndpoint(initialize_seed=True)
@@ -2637,7 +2679,8 @@ class BillingBaselineIntegration(unittest.TestCase):
 RUN_TEST_METHODS = frozenset((
     'test_06_run_once_delivers_three_tasks_and_two_requests_share_data',
     'test_06a_observe_only_delivers_unknown_cost_and_replays_without_sending',
-    'test_06b_observe_only_disconnect_and_cancel_remain_blocked_on_resume',
+    'test_06b_observe_only_disconnect_resumes_but_cancel_remains_blocked',
+    'test_06c_observe_only_failed_response_resumes_same_request_to_delivery',
     'test_07_run_refusal_config_budget_and_unsafe_paths_before_confirmation',
     'test_08_run_ctrl_c_after_settlement_resumes_original_claims_and_effects',
     'test_09_run_unknown_send_stops_and_changed_configuration_cannot_resume',

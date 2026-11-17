@@ -836,6 +836,8 @@ void observe_only_does_not_clear_unresolved_or_excess_tokens() {
         if (variant == 5) {
             (void)f.reserve(request); (void)f.claim(request);
             CHECK(!f.store->live_accounting_status(f.request_id).at("ready").as_bool());
+            CHECK(f.store->live_accounting_status(f.request_id).at("reservation_token_attempts").as_array().empty());
+            error(ErrorCode::UnknownOutcome, [&] { (void)f.reserve(observe_request(f, "pending-must-not-send")); });
             f.reopen();
             CHECK(f.store->attempt(request.attempt_id).at("status") == "UNKNOWN");
         } else {
@@ -857,6 +859,41 @@ void observe_only_does_not_clear_unresolved_or_excess_tokens() {
     }
 }
 
+void observe_only_error_reservations_preserve_ledger_and_late_evidence() {
+    for (const int known : {0, 1, 2}) {
+        fixture::Fixture f(*assets); admit_observe_only(f);
+        const auto request = observe_request(f, "observe-error");
+        ModelUsage usage;
+        if (known == 1) usage.input_tokens = 11;
+        if (known == 2) usage.output_tokens = 7;
+        const auto original = settle_completed(f, request, usage, ModelResultStatus::Error);
+        const auto budget = f.store->budget(f.request_id);
+        const auto projection = f.store->usage_projection(request.attempt_id);
+        CHECK(projection.at("effective_token_usage") == Object({{"basis", "reservation"},
+            {"input_tokens", known == 1 ? 11 : request.reserved_input_tokens},
+            {"output_tokens", known == 2 ? 7 : request.reserved_output_tokens}}));
+        CHECK(projection.at("projection").at("input_tokens") == original.at("input_tokens"));
+        CHECK(projection.at("projection").at("output_tokens") == original.at("output_tokens"));
+        CHECK(projection.at("budget_accounting_complete").as_bool());
+        CHECK(!projection.at("accounting_complete").as_bool());
+        CHECK(number(f.store->capacity_status(f.request_id), "reserved_control") == 16);
+        f.reopen();
+        CHECK(f.store->budget(f.request_id) == budget);
+        CHECK(f.store->live_accounting_status(f.request_id).at("ready").as_bool());
+        CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+        usage.input_tokens = 11; usage.output_tokens = 7;
+        (void)f.store->reconcile_usage(f.actor(Role::Root), fixture::evidence(original, usage), {"late", "late", 1});
+        CHECK(number(f.store->budget(f.request_id), "spent_input") == 11);
+        CHECK(number(f.store->budget(f.request_id), "spent_output") == 7);
+        CHECK(f.store->usage_projection(request.attempt_id).at("effective_token_usage").is_null());
+        CHECK(f.store->attempt(request.attempt_id) == original);
+        CHECK(f.store->verify_usage_ledger(f.request_id).at("consistent").as_bool());
+        usage.input_tokens = 12;
+        (void)f.store->reconcile_usage(f.actor(Role::Root), fixture::evidence(original, usage), {"dispute", "dispute", 2});
+        CHECK(!f.store->live_accounting_status(f.request_id).at("ready").as_bool());
+    }
+}
+
 void observe_only_keeps_token_call_and_wall_guards() {
     for (const int variant : {0, 1, 2, 3}) {
         fixture::Fixture f(*assets);
@@ -866,8 +903,7 @@ void observe_only_keeps_token_call_and_wall_guards() {
         if (variant == 2) budget.output_tokens = 100;
         admit_observe_only(f, budget);
         const auto first = observe_request(f, "observe-limit");
-        ModelUsage usage; usage.input_tokens = 11; usage.output_tokens = 7;
-        (void)settle_completed(f, first, usage);
+        (void)settle_completed(f, first, {}, ModelResultStatus::Error);
         if (variant == 3) fixture::sql(f.path,
             "UPDATE requests SET created_at=strftime('%Y-%m-%dT%H:%M:%SZ','now','-2 minutes'),state_version=state_version+1;");
         error(variant == 3 ? ErrorCode::NotReady : ErrorCode::Quota,
@@ -1044,6 +1080,7 @@ int main(int argc, char** argv) {
         {"bounded first send enforces original request creation time", bounded_first_send_checks_original_creation_time},
         {"observe-only cost preserves original unknown facts and replays late nonzero receipts", observe_only_unknown_cost_and_late_receipt_preserve_originals},
         {"observe-only still blocks unknown input output disputed missing and pending evidence", observe_only_does_not_clear_unresolved_or_excess_tokens},
+        {"observe-only settled errors retain reservations across restart and late evidence", observe_only_error_reservations_preserve_ledger_and_late_evidence},
         {"observe-only retains token call and wall limits", observe_only_keeps_token_call_and_wall_guards},
         {"response metadata selection survives original snapshot restore and current-profile tampering refuses", response_metadata_policy_survives_original_snapshot_restore},
         {"read-only ledger reconstruction uses one snapshot across a separate writer commit", readonly_ledger_observes_one_snapshot},
