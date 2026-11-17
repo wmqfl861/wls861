@@ -232,6 +232,12 @@ if(BUILD_TESTING)
     add_test(NAME g3_outputs
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_check_g3_outputs.py")
     set_tests_properties(g3_outputs PROPERTIES TIMEOUT 30)
+    add_test(NAME g4d_csv
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_g4d_csv.py")
+    add_test(NAME g4d_csv_refusal
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/g4d_csv_workflow.py"
+                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(g4d_csv g4d_csv_refusal PROPERTIES TIMEOUT 60)
     add_test(NAME demo_smoke
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/demo_smoke.py"
                 "$<TARGET_FILE:wls861>")

@@ -259,7 +259,7 @@ jobs:
           if [ "${{ needs.classify.outputs.mode }}" = selected ]; then
             cmake --build build --target wls_ci_selected --parallel 2
           elif [ "${{ needs.classify.outputs.mode }}" = standard-native ]; then
-            cmake --build build --target sandbox_tests process_evidence_tests doctor_diagnostics_tests worker_tools_tests --parallel 2
+            cmake --build build --target sandbox_tests process_evidence_tests doctor_diagnostics_tests worker_tools_tests wls --parallel 2
           else
             cmake --build build --parallel 2
           fi
@@ -337,14 +337,15 @@ jobs:
           for required in cpu memory pids; do [[ "$controllers" == *" $required "* ]]; done
           printf '+cpu +memory +pids' > "$root/cgroup.subtree_control"
           "$1" --standard-native "$2" "$3" "$root" "$5"
-          exec "$6" --environment-native "$2" "$3" "$root" "$7"
+          "$6" --environment-native "$2" "$3" "$root" "$7"
+          exec python3 "$8/tests/g4d_csv_workflow.py" "$8/build/wls" "$8" --native "$2" "$3" "$root" "$9"
           NATIVE_UNIT
           unit="wls-standard-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           trap - ERR
           if ! systemd-run --user --unit="$unit" --wait --pipe --collect --service-type=exec \
             -p 'Delegate=cpu memory pids' -p 'DelegateSubgroup=runner' -p 'UMask=0077' --setenv="TMPDIR=$gate/tmp" \
             /bin/bash "$gate/inside.sh" "$GITHUB_WORKSPACE/build/sandbox_tests" "$gate/bwrap" "$hash" "$unit" "$gate/native-output" \
-            "$GITHUB_WORKSPACE/build/worker_tools_tests" "$gate/environment-output"; then
+            "$GITHUB_WORKSPACE/build/worker_tools_tests" "$gate/environment-output" "$GITHUB_WORKSPACE" "$gate/csv-output"; then
             test -f "$gate/native-output/ordinary.json" || echo 'BLOCKED: native user service could not establish its prerequisites'
             exit 1
           fi
@@ -359,6 +360,13 @@ jobs:
             ${{ runner.temp }}/wls-standard-native/package-sha256.txt
             ${{ runner.temp }}/wls-standard-native/native-output/
             ${{ runner.temp }}/wls-standard-native/environment-output/
+            ${{ runner.temp }}/wls-standard-native/csv-output/evidence/*.json
+            ${{ runner.temp }}/wls-standard-native/csv-output/evidence/*.stdout
+            ${{ runner.temp }}/wls-standard-native/csv-output/evidence/*.stderr
+            ${{ runner.temp }}/wls-standard-native/csv-output/evidence/*.csv
+            ${{ runner.temp }}/wls-standard-native/csv-output/evidence/*.txt
+            ${{ runner.temp }}/wls-standard-native/csv-output/evidence/*.yaml
+            ${{ runner.temp }}/wls-standard-native/csv-output/evidence/*.py
           if-no-files-found: error
           retention-days: 7
       - name: Verify GCC ASan Make shard ${{ matrix.make_shard }}/2 and user CPPFLAGS
