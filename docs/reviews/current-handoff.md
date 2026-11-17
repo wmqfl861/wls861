@@ -1,15 +1,17 @@
 # 最新交接
 
-更新：2026-11-17。[#149](https://github.com/wmqfl861/wls861/pull/149) 已合入，[v0.13.1](https://github.com/wmqfl861/wls861/tree/v0.13.1) 已推送，Store 410；长期状态见 [STATUS](../STATUS.md)，后续按 [唯一前向计划](claude-2026-11-16/04-plan.md)。
+更新：2026-11-17。[#150](https://github.com/wmqfl861/wls861/pull/150) D-50 与 [#151](https://github.com/wmqfl861/wls861/pull/151) G3-B0 已合入，[v0.13.1](https://github.com/wmqfl861/wls861/tree/v0.13.1) 已推送；当前产品基线为 [main f9da424](https://github.com/wmqfl861/wls861/commit/f9da424)。长期状态和宿主边界只在 [STATUS](../STATUS.md) 维护。
 
-现在能做什么：U1、U2 真实交付均通过，原请求导出 UNKNOWN 已按 R0 恢复。E-14、E-11、E-1 已由 [#146](https://github.com/wmqfl861/wls861/pull/146)、[#147](https://github.com/wmqfl861/wls861/pull/147)、[#148](https://github.com/wmqfl861/wls861/pull/148) 合入；R11 完整对照也通过 12/12 成果检查和唯一确认，输入从 375,089 降至 201,365 token。
+现在能做什么：G2 U1/U2 已真实交付，R11 完整组合对照达成，详见 [G2 记录](../reports/g2-first-real-run.md#r12出口与r11真实比较)。G3-B1 五任务×两拓扑均已运行、封存和分析；文件字节、完整 oracle、工作流、场景与费用分别列在 [B1 对照报告](../reports/g3-comparison.md)。
 
-卡在哪：G3-B0 五场景检查已实现，本机新旧回归通过，等待本 PR 门禁；G4 实机 U3/U4 等合规宿主，Windows 11 未执行。整体项目尚未完成。R11 首次停在 UTF-8 工具语义的待答问题，原状态完整保留；其 6 次调用计入总量，没有把不完整结果算作节省。
+卡在哪：B1 有两格确认交付，其余保留验收待定、AMEND 未完成或场景未触发，不能拿不同终态作性能优劣结论。F-29 原 6→4 目标仍未达；[#152](https://github.com/wmqfl861/wls861/pull/152) 测试分片尚未合入，状态见下。
 
-下一步：先完成 G3-B0 的五任务成果检查，再做五任务×两拓扑的真实对照、快路径和新版多工具应答；D-50 SSE 修正已推送为 [#150](https://github.com/wmqfl861/wls861/pull/150)，正在跑核心/源码及受影响 ASan。普通单 Agent 的 AMEND/返工/交付确认限制和未知费用必须独立列明。G4 保持宿主等待，不重复要求 owner 修改已决定保留的本机配置。
+下一步：独立推进 G3-C 固定单任务模板 opt-in，仅计划省首次 Dispatcher 规划；测试尚待执行，目标口径与验收后经验捕获限制见 [B1 报告](../reports/g3-comparison.md)，决定见[前向计划 §15](claude-2026-11-16/04-plan.md#15-修订记录)。之后 E-9 两 PR、新冻结格式，再做 B2；不改变数据库或现有默认值，不提前登记阶段出口。
 
-实际结果、输入身份、调用/重试、未知费用和比较限制集中在 [G2 出口记录](../reports/g2-first-real-run.md#r12出口与r11真实比较)。G2 累计 155/250 次、2,610,716/5,000,000 输入保守占用；R11 两次合计 24 次，无自动重试。组合效果不能分别归因，旧失败不改写。
+## 验证与证据
 
-验证：#148 本机协议 63/63、配置 24/24；PR 核心 276/276、受影响 ASan 19/19、源码检查和源码/离线复核通过。[#148 main](https://github.com/wmqfl861/wls861/actions/runs/44060667435) 完整矩阵 460/460 CTest、Make 两组通过，92 套 ASan 无超半项。R12 本机版本一致性、增量构建和 CLI 14/14、[PR 核心](https://github.com/wmqfl861/wls861/actions/runs/44068439533) 276/276 及源码检查通过；合入后的 [main 完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44070987714) 460/460 CTest、Make 两组通过，92 套 ASan 无超半项。
+基线 main f9da424 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44081983219)与[源码快照](https://github.com/wmqfl861/wls861/actions/runs/44081983151)已独立核验 PASS：465/465 CTest（核心 279、ASan 93、UBSan 93），Make 两组 61+25 条命令通过，口径分别保留。ASan worker_tools 为 90.92/180 秒（50.51%），触发 D-20 后续分片要求，原 main PASS 不改写。
 
-私有证据根 `/mnt/d/codex-workspace/wls861-g2-ready-20261117-9_tfsmtv/`：`output-headroom-real-xjvkt5yx/` 为成功 U1/U2；`r11-real-prep-owsr_1_5/` 为首次未完成对照及完整备份；`r11-real-second-l1sjsnp1/` 为完成对照；`r11-e*-evidence/` 和 `run-intake/` 为离线/CI 原件。原始数据库只复制核对，分析查询用副本。凭据及私有原件不入 GitHub。
+[#152](https://github.com/wmqfl861/wls861/pull/152) 当前 head [8c47b5f](https://github.com/wmqfl861/wls861/commit/8c47b5f)：[核心](https://github.com/wmqfl861/wls861/actions/runs/44145394773)与[源码检查](https://github.com/wmqfl861/wls861/actions/runs/44145394706)通过；[受影响 ASan](https://github.com/wmqfl861/wls861/actions/runs/44145437310)仍待独立核验，不登记为已合并或全部门禁完成。
+
+私有证据根 `/mnt/d/codex-workspace/wls861-g2-ready-20261117-9_tfsmtv/`：main CI 核验在 `run-intake/hosted-main151-f9da424/verification.json`；B1 原件定位和汇总哈希见 [B1 报告](../reports/g3-comparison.md)。本次仅据已完成分析更新文档，没有读取原始 live DB、调用模型或重跑产品测试；原始证据留数据盘。
