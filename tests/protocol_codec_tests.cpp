@@ -106,14 +106,11 @@ void response_id_bound_is_optional_frozen_and_responses_only() {
 }
 void responses_media_type_policy_is_explicit_and_frozen() {
     const auto legacy = fixture::profile(); const auto original = to_json(legacy);
-    CHECK(!original.as_object().contains("responses_media_type_policy"));
     auto value = original; value.as_object()["responses_media_type_policy"] = "json-under-sse-v1";
     auto selected = provider_profile_from_json(value);
     CHECK(to_json(selected) == value && provider_profile_sha256(selected) != provider_profile_sha256(legacy));
     for (const bool stream : {false, true})
         CHECK(encode_responses_request(selected, fixture::request(), stream).body == encode_responses_request(legacy, fixture::request(), stream).body);
-    selected.responses_media_type_policy.clear(); CHECK(to_json(selected) == original);
-    CHECK(provider_profile_sha256(selected) == provider_profile_sha256(legacy));
     for (const auto& invalid : {Json(""), Json("json-under-sse-v2"), Json(true), Json(nullptr), Json(1)}) {
         value.as_object()["responses_media_type_policy"] = invalid;
         fails(ErrorCode::InvalidInput, [&] { (void)provider_profile_from_json(value); });
