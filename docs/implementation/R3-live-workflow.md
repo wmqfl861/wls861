@@ -189,4 +189,4 @@ basis，不冒充 actual；不含 `billing_challenge` 的 profile 才能用估�
 
 新验收请求按 D-48 冻结 `max_paid_retries: 2`，已有请求继续使用原冻结上限。除原未发送连接失败和完整 408/429/5xx 外，完整 HTTP 200 的 `provider_failed` 或明确的解码拒绝可进入原重试流程；新传输观察的 `protocol_evidence.decoder_reason_code` 直接记录宿主解码器分类，缺少该字段的旧观察不推断资格。资格只在原观察持久化后计算，要求无截断、最终 ERROR 且没有可执行文本、工具或 opaque 输出；原结算、持久反馈、账目就绪、当前目标和预算门禁仍全部适用。
 
-超时、取消、未完成、流中断、模型拒绝、profile 身份不匹配和可用应答的业务/Schema 错误不增加付费重试；SSE 的已解码取消或未完成终态也不能因随后坏尾升级资格。每次重试取得新的预约和唯一发送权，保留 `retry_of_attempt_id`、原失败及 nullable usage，计入原调用/token 额度，沿用 2 秒和 8 秒退避。重试不重放旧工具、不修改冻结配置、不消除 UNKNOWN；观察模式的失败账目就绪另按 D-46。
+超时、取消、未完成、流中断、已被解码器识别为 `model_refusal` 的拒绝、profile 身份不匹配和可用应答的业务/Schema 错误不增加付费重试；SSE 的已解码取消或未完成终态也不能因随后坏尾升级资格。每次重试取得新的预约和唯一发送权，保留 `retry_of_attempt_id`、原失败及 nullable usage，计入原调用/token 额度，沿用 2 秒和 8 秒退避。重试不重放旧工具、不修改冻结配置、不消除 UNKNOWN；观察模式的失败账目就绪另按 D-46。

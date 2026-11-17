@@ -105,8 +105,8 @@ bool retryable_unusable_response(const HttpsTransportResult& transport) {
     if (const auto* types = report->as_object().if_contains("observed_event_types"); types && types->is_array())
         for (const auto& type : types->as_array())
             if (type == "response.cancelled" || type == "response.incomplete") return false;
-    // Host decoder codes only: interrupted, cancelled, incomplete, refusal,
-    // profile mismatch and tool/schema outcomes cannot grant a paid retry.
+    // Host decoder codes only: interrupted/cancelled/incomplete and recognized
+    // refusal/profile mismatch or tool/schema codes cannot grant a paid retry.
     const auto rejected = [](const Json& value) {
         if (!value.is_string()) return false;
         for (const auto code : {"provider_failed", "invalid_response", "unsupported_response",
