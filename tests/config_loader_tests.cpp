@@ -722,10 +722,66 @@ void input_policy_is_explicit_bounded_and_frozen() {
     CHECK(FrozenRequestConfig::restore(legacy.serialize(), legacy.sha256()).serialize() == legacy.serialize());
 }
 
+void fixed_initial_plan_is_selected_frozen_and_strict() {
+    Fixture fixture;
+    const auto old = fixture.freeze();
+    CHECK(old.initial_plan().is_null());
+    auto function = old.json().at("function");
+    auto& capability = function.at("capabilities").as_array().front();
+    const Json plan = Object{{"mode", "fixed-single-task-v1"}, {"node_id", "alpha"},
+        {"title", "Write result"}, {"goal", "Write and verify the requested file."},
+        {"acceptance_criteria", Array{Object{{"id", "ac1"}, {"text", "Requested bytes match."}}}}};
+    capability.as_object()["initial_plan"] = plan;
+    capability.as_object()["team_template"] = "files";
+    fixture.function(function);
+    const auto frozen = fixture.freeze();
+    CHECK(frozen.initial_plan().at("team_template") == "files" && frozen.sha256() != old.sha256());
+    auto other = capability; other.at("id") = "other"; other.at("default") = false;
+    other.as_object().erase("initial_plan"); function.at("capabilities").as_array().push_back(other);
+    fixture.function(function);
+    CHECK(fixture.load().freeze("general", "other").initial_plan().is_null());
+    function = frozen.json().at("function");
+    const auto reject = [&](const std::function<void(Json&)>& mutate) {
+        auto bad = function; mutate(bad.at("capabilities").as_array().front()); fixture.function(bad);
+        expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
+    };
+    for (const auto* key : {"mode", "node_id", "title", "goal", "acceptance_criteria"})
+        reject([&](Json& cap) { cap.at("initial_plan").as_object().erase(key); });
+    for (const auto& entry : Object{{"mode", "future"}, {"node_id", "bad_id"},
+            {"title", std::string(121, 'x')}, {"goal", std::string(2001, 'x')}, {"unknown", true},
+            {"acceptance_criteria", Array{}}})
+        reject([&](Json& cap) { cap.at("initial_plan").as_object()[entry.key()] = entry.value(); });
+    reject([](Json& cap) { cap.at("initial_plan").at("goal") = " "; });
+    for (const Json& criteria : Array{Array{Object{{"id", "ac1"}, {"text", ""}}},
+            Array{Object{{"id", "ac1000"}, {"text", "ok"}}},
+            Array{Object{{"id", "ac1"}, {"text", "ok"}}, Object{{"id", "ac1"}, {"text", "duplicate"}}}})
+        reject([&](Json& cap) { cap.at("initial_plan").at("acceptance_criteria") = criteria; });
+    for (const auto& entry : Object{{"dispatch", "template"}, {"input", "json"}, {"team_template", "unknown"}})
+        reject([&](Json& cap) { cap.as_object()[entry.key()] = entry.value(); });
+    fixture.function(function);
+    auto system = old.json().at("system");
+    for (const auto* key : {"tool_policy", "model_projection", "worker_history"}) system.at("context").as_object().erase(key);
+    for (const auto* format : {"framed-v1", "structured-v2"}) {
+        system.at("context").at("request_format") = format; fixture.system(system);
+        expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
+    }
+    system.at("context").at("request_format") = "structured-v3";
+    for (const auto* mode : {"single-agent-plain-v1", "single-agent-role-broker-v1"}) {
+        system.at("context").as_object()["logical_agent"] = Object{{"mode", mode}, {"max_attempts", 20}, {"max_history_bytes", 65536}};
+        fixture.system(system); expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
+    }
+    std::filesystem::remove_all(fixture.config);
+    const auto restored = FrozenRequestConfig::restore(frozen.serialize(), frozen.sha256());
+    CHECK(restored.initial_plan() == frozen.initial_plan() && restored.serialize() == frozen.serialize());
+    CHECK(FrozenRequestConfig::restore(old.serialize(), old.sha256()).serialize() == old.serialize());
+    CHECK(old.initial_plan().is_null() && old.sha256() == sha256_hex(old.serialize()));
+}
+
 } // namespace
 
 int main() {
     return test::run({
+        {"fixed initial plan is selected, frozen, and strictly opt-in", fixed_initial_plan_is_selected_frozen_and_strict},
         {"configuration sample loads with field provenance and literal environment paths", sample_loads_with_provenance_and_no_environment_expansion},
         {"role fields resolve independently from frozen Root", roles_resolve_independently_and_explain_each_field},
         {"loaded configuration and restored requests ignore later disk changes", loaded_catalog_and_restoration_ignore_later_disk_changes},

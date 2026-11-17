@@ -45,7 +45,7 @@ void expect(ErrorCode code, const std::function<void()>& action) {
     }
     CHECK(caught);
 }
-AdmissionInput input(bool fixed = false, bool lean = false) {
+AdmissionInput input(bool fixed = false, bool lean = false, bool initial_plan = false) {
     ::test::TempDir temp;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
     const std::string tool_policy = "  tool_policy: fixed-role-v1\n";
@@ -58,8 +58,21 @@ AdmissionInput input(bool fixed = false, bool lean = false) {
         "  management_history: {mode: window-v1, recent_attempts: 2, inline_bytes: 32768, max_context_bytes: 1048576}" : lean ? "request_format: structured-v3" : "request_format: framed-v1");
     if (lean) yaml.insert(yaml.find("  compaction_at_fraction:"), "  model_projection: lean-v1\n");
     write(temp.path / "system.yaml", yaml);
-    const auto config = ::test::legacy_shell_catalog(temp.path / "system.yaml", source / "config/examples/functions",
+    auto config = ::test::legacy_shell_catalog(temp.path / "system.yaml", source / "config/examples/functions",
                                             source / "prompts").freeze("general");
+    if (initial_plan) {
+        auto function = config.json().at("function");
+        const auto script = fixture("s14_fake_submit.json");
+        const auto& node = script.at("default").as_array().front().at("tool_calls").as_array().front().at("arguments").at("nodes").as_array().front();
+        auto plan = node.at("brief");
+        plan.at("title") = node.at("title"); // Same normalization as the existing v3 model fixture.
+        plan.as_object().erase("constraint_refs"); plan.as_object().erase("constraints_verbatim");
+        plan.as_object()["mode"] = "fixed-single-task-v1"; plan.as_object()["node_id"] = node.at("node_id");
+        function.at("capabilities").as_array().front().as_object()["initial_plan"] = plan;
+        std::filesystem::copy(source / "config/examples/functions", temp.path / "functions", std::filesystem::copy_options::recursive);
+        write(temp.path / "functions/general/function.yaml", canonical_json(function));
+        config = load_config_catalog(temp.path / "system.yaml", temp.path / "functions", source / "prompts").freeze("general");
+    }
     AdmissionInput value;
     value.tenant_id = "test-tenant"; value.project_id = "test-project"; value.root_id = "test-root";
     value.function_id = config.function_id(); value.idempotency_key = new_id("key");
@@ -182,6 +195,101 @@ void explicit_acceptance_and_experience_complete_without_implied_delivery() {
     const auto budget = f.store->budget(f.id);
     const auto again = f.runtime().pump(f.id, EventFakeScript{});
     CHECK(again.at("calls").as_array().empty() && f.store->budget(f.id) == budget);
+}
+
+EventFakeScript fixed_plan_script() {
+    auto script = full_script(true);
+    script.default_steps.erase(script.default_steps.begin());
+    script.default_steps.front().role_call_index = 1;
+    return script;
+}
+void fixed_plan_removes_only_initial_dispatcher_attempt() {
+    Fixture baseline(input(true)), candidate(input(true, false, true));
+    const auto before = baseline.pump_to(12);
+    EventPumpOptions options; options.max_worker_calls_per_task = 2;
+    const auto after = candidate.runtime().pump(candidate.id, fixed_plan_script(), options);
+    const auto& old_calls = before.at("calls").as_array(); const auto& calls = after.at("calls").as_array();
+    CHECK(old_calls.size() == calls.size() + 1 && old_calls.front().at("role") == "dispatcher");
+    CHECK(old_calls.front().at("workflow_action").is_null());
+    std::size_t workers = 0, dispatchers = 0;
+    for (std::size_t i = 0; i < calls.size(); ++i) {
+        CHECK(calls[i].at("role") == old_calls[i + 1].at("role"));
+        CHECK(!candidate.store->attempt(text(calls[i].at("attempt_id"))).at("settlement_sha256").is_null());
+        if (calls[i].at("role") == "worker") ++workers;
+        if (calls[i].at("role") == "dispatcher") {
+            ++dispatchers; CHECK(calls[i].at("workflow_action").at("kind") == "acceptance");
+        }
+    }
+    CHECK(dispatchers == 1 && workers == 2);
+    CHECK(before.at("manager_calls") == number(after.at("manager_calls")) + 1);
+    CHECK(candidate.store->tasks(candidate.id).size() == 1 && candidate.task().at("brief") == baseline.task().at("brief"));
+    CHECK(candidate.task().at("status") == "ACCEPTED" && candidate.store->experience_jobs(candidate.id).front().at("status") == "DONE");
+    CHECK(candidate.store->deliveries(candidate.id).empty() && after.at("business_delivered") == false);
+    CHECK(read_runtime_file(candidate.directory.path / "alpha/result.txt") == read_runtime_file(baseline.directory.path / "alpha/result.txt"));
+    std::cout << "PAIRED calls baseline=" << old_calls.size() << " candidate=" << calls.size()
+              << " worker=" << workers << " (one fs_write, one submit); managers="
+              << before.at("manager_calls") << "->" << after.at("manager_calls") << '\n';
+}
+void fixed_plan_recovery_and_amend_preserve_dispatch() {
+    Fixture reference(input(true, false, true));
+    CHECK(reference.runtime().pump(reference.id, {}).at("calls").as_array().empty());
+    CHECK(reference.store->instruction(reference.binding().task_id).is_null());
+    const auto body = reference.store->plan(reference.id).at("body");
+    Fixture f(input(true, false, true));
+    const auto actor = f.store->host_actor(Role::Dispatcher, f.id);
+    const auto claim = f.store->claim_events(actor); CHECK(!claim.at("items").as_array().empty());
+    const auto version = number(f.store->request(f.id).at("state_version"));
+    expect(ErrorCode::Conflict, [&] { (void)f.store->apply_independent_plan(actor, version + 1, 1, body, Object{}, new_id("stale")); });
+    CHECK(f.store->tasks(f.id).empty());
+    (void)f.store->apply_independent_plan(actor, version, 1, body, Object{}, new_id("fixedplan"));
+    const auto task_id = f.binding().task_id; f.reopen(); // allocation committed, original claim unfinished
+    EventPumpOptions options; options.max_worker_calls_per_task = 2;
+    const auto resumed = f.runtime().pump(f.id, fixed_plan_script(), options);
+    CHECK(f.store->tasks(f.id).size() == 1 && f.binding().task_id == task_id);
+    for (const auto& call : resumed.at("calls").as_array()) if (call.at("role") == "dispatcher")
+        CHECK(call.at("workflow_action").at("kind") == "acceptance");
+    CHECK(f.task().at("status") == "ACCEPTED");
+    (void)reference.store->amend(reference.store->host_actor(Role::Root, reference.id),
+        number(reference.store->request(reference.id).at("state_version")),
+        read_runtime_file(source / "tests/fixtures/s13_amendment.txt"), fixture("s13_amended_constraints.json"), new_id("amend"));
+    const auto pending = reference.runtime().pump(reference.id, {});
+    CHECK(pending.at("calls").as_array().empty() && !pending.at("pending").as_array().empty());
+    CHECK(reference.store->request(reference.id).at("plan_revision") == 1);
+    CHECK(reference.task().at("based_on_requirements_revision") == 1);
+    expect(ErrorCode::Stale, [&] { (void)reference.store->apply_independent_plan(
+        reference.store->host_actor(Role::Dispatcher, reference.id),
+        number(reference.store->request(reference.id).at("state_version")), 1, body, Object{}, new_id("oldplan")); });
+    const FakeModel fake({step(Role::Dispatcher, "submit_plan", body)});
+    const auto captured = OfflineRuntime(*reference.store, *schemas, reference.alpha.get()).reserve_call(
+        fake, reference.id, Role::Dispatcher, {}, 1, {}, true);
+    CHECK(captured.workflow_action.at("kind") == "amendment");
+    CHECK(reference.store->experience_jobs(reference.id).empty());
+}
+void fixed_plan_retains_check_acceptance_and_experience_boundaries() {
+    Fixture f(input(true, false, true)); EventPumpOptions options; options.max_calls = 3; options.max_worker_calls_per_task = 2;
+    (void)f.runtime().pump(f.id, fixed_plan_script(), options);
+    CHECK(f.store->current_submission(f.binding().task_id).at("status") == "SUBMITTED");
+    CHECK(f.store->experience_jobs(f.id).empty());
+    auto combined = step(Role::TeamLead, "check_submission", positive_check());
+    combined.tool_calls.push_back({"premature-experience", "report_experience", no_experience()});
+    const FakeModel fake({combined}); const auto captured = f.capture(Role::TeamLead, fake);
+    const auto rejected = OfflineRuntime(*f.store, *schemas, f.alpha.get()).accept_response(captured, fake.complete(captured.request));
+    CHECK(rejected.at("correction_feedback").at("reason") == "tool_selection");
+    CHECK(f.store->current_submission(f.binding().task_id).at("status") == "SUBMITTED");
+    auto check = positive_check(); check.at("passed") = false;
+    check.as_object()["work_order"] = full_script(true).by_node.at("alpha").front().tool_calls.front().arguments;
+    CHECK(f.invoke(Role::TeamLead, "check_submission", check).at("status") == "RETURNED_FOR_REWORK");
+    CHECK(f.store->experience_jobs(f.id).empty() && f.task().at("task_revision") == 2);
+    CHECK(f.task().at("status") == "READY");
+    Fixture passing(input(true, false, true)); options.max_calls = 4;
+    (void)passing.runtime().pump(passing.id, fixed_plan_script(), options);
+    CHECK(passing.store->current_submission(passing.binding().task_id).at("status") == "CANDIDATE_READY");
+    CHECK(passing.task().at("status") == "SUBMITTED" && passing.store->experience_jobs(passing.id).empty());
+    (void)passing.invoke(Role::Dispatcher, "accept_candidate", positive_acceptance());
+    CHECK(passing.store->experience_jobs(passing.id).size() == 1);
+    CHECK(passing.store->experience_jobs(passing.id).front().at("status") != "DONE");
+    (void)passing.invoke(Role::TeamLead, "report_experience", no_experience());
+    CHECK(passing.store->experience_jobs(passing.id).front().at("status") == "DONE");
 }
 
 void v3_memory_fields_are_host_owned_and_responses_stay_original() {
@@ -670,6 +778,9 @@ int main(int argc, char** argv) {
     acceptance_sql = read_runtime_file(source / "db/migrations/008_acceptance_runtime.sql");
     struct GroupedCase { std::string_view group; ::test::Case test; };
     const std::vector<GroupedCase> cases{
+        {"acceptance", {"fixed plan removes exactly one initial Dispatcher attempt on the same file task", fixed_plan_removes_only_initial_dispatcher_attempt}},
+        {"acceptance", {"fixed plan recovery and AMEND preserve original dispatch", fixed_plan_recovery_and_amend_preserve_dispatch}},
+        {"acceptance", {"fixed plan retains check, acceptance, and experience boundaries", fixed_plan_retains_check_acceptance_and_experience_boundaries}},
         {"acceptance", {"fixed role catalogs stay stable across Dispatcher actions and experience", fixed_role_catalog_stays_stable_across_actions_and_experience}},
         {"acceptance", {"Dispatcher acceptance and explicit experience do not imply delivery", explicit_acceptance_and_experience_complete_without_implied_delivery}},
         {"acceptance", {"Dispatcher sees immutable candidate bytes and exact response replay", dispatcher_observes_original_bytes_and_response_replay_is_exact}},

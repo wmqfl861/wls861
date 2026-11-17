@@ -790,6 +790,43 @@ Json resolutions(const Json& system, const Json& function, const CapabilityRegis
     } catch (const ConfigurationError& error) { invalid("function role resolution", error.what()); }
 }
 
+void validate_initial_plan(const Json& capability, const Json& system) {
+    const auto* plan = optional(capability, "initial_plan");
+    if (!plan) return;
+    constexpr std::string_view where = "function.capability.initial_plan";
+    literal(capability, "dispatch", "plan", "function.capability");
+    literal(capability, "input", "free_text", "function.capability");
+    const auto& context = required(system, "context", "system");
+    literal(context, "request_format", "structured-v3", "system.context");
+    if (optional(context, "logical_agent")) invalid(where, "requires role-isolated execution");
+    fields(*plan, where, {{"mode", 's'}, {"node_id", 's'}, {"title", 's'}, {"goal", 's'},
+        {"acceptance_criteria", '-'}});
+    literal(*plan, "mode", "fixed-single-task-v1", where);
+    const auto node = string_value(plan->at("node_id"), child(where, "node_id"), false, 48);
+    const auto alphanumeric = [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'); };
+    if (!alphanumeric(node.front()) || !std::all_of(node.begin(), node.end(),
+            [&](char c) { return alphanumeric(c) || c == '-'; })) invalid(where, "invalid node_id");
+    const auto bounded_text = [&](const Json& value, std::string_view key, std::size_t maximum) {
+        const auto contents = string_value(value, child(where, key), false, maximum);
+        if (contents.find_first_not_of(" \t\r\n") == std::string::npos) invalid(where, "blank template text");
+    };
+    bounded_text(plan->at("title"), "title", 120);
+    bounded_text(plan->at("goal"), "goal", 2000);
+    const auto& criteria = plan->at("acceptance_criteria");
+    if (!criteria.is_array() || criteria.as_array().empty() || criteria.as_array().size() > 30)
+        invalid(where, "expected 1 to 30 acceptance criteria");
+    std::set<std::string> ids;
+    for (const auto& criterion : criteria.as_array()) {
+        fields(criterion, where, {{"id", 's'}, {"text", 's'}, {"check", 's'}}, {"check"});
+        const auto id = string_value(criterion.at("id"), where, false, 5);
+        if (id.size() < 3 || !id.starts_with("ac") ||
+                !std::all_of(id.begin() + 2, id.end(), [](char c) { return c >= '0' && c <= '9'; }) ||
+                !ids.insert(id).second) invalid(where, "invalid or duplicate acceptance criterion id");
+        bounded_text(criterion.at("text"), "acceptance_criteria.text", 500);
+        if (const auto* check = optional(criterion, "check")) bounded_text(*check, "acceptance_criteria.check", 500);
+    }
+}
+
 void validate_function(const Json& function, const Json& system, const CapabilityRegistry& registry,
                        const ConfigLoadOptions& options) {
     fields(function, "function", {{"schema_version", 'i'}, {"spec_version", 's'}, {"id", 's'}, {"version", 'i'},
@@ -844,8 +881,9 @@ void validate_function(const Json& function, const Json& system, const Capabilit
     for (const auto& item : capabilities.as_array()) {
         fields(item, "function.capability", {{"id", 's'}, {"input", 's'}, {"dispatch", 's'}, {"default", 'b'},
             {"input_schema", 's'}, {"output_schema", 's'}, {"acceptance_validator", 's'}, {"required_checks_source", 's'},
-            {"fail_on_required_not_run", 'b'}, {"team_template", 's'}, {"brief_template", 's'}},
-            {"input", "default", "input_schema", "output_schema", "acceptance_validator", "required_checks_source", "fail_on_required_not_run", "team_template", "brief_template"});
+            {"fail_on_required_not_run", 'b'}, {"team_template", 's'}, {"brief_template", 's'}, {"initial_plan", '-'}},
+            {"input", "default", "input_schema", "output_schema", "acceptance_validator", "required_checks_source", "fail_on_required_not_run", "team_template", "brief_template", "initial_plan"});
+        validate_initial_plan(item, system);
         const auto id = identifier(required(item, "id", "function.capability"), "function.capability.id");
         if (!ids.insert(id).second) invalid("function.capabilities", "duplicate capability id");
         if (const auto* selected = optional(item, "default"); selected && selected->as_bool()) ++defaults;
@@ -1080,6 +1118,19 @@ Json FrozenRequestConfig::logical_agent_policy() const {
     const auto& context = required(required(document_, "system", "snapshot"), "context", "system");
     const auto* policy = optional(context, "logical_agent");
     return policy ? *policy : Json(nullptr);
+}
+
+Json FrozenRequestConfig::initial_plan() const {
+    for (const auto& capability : document_.at("function").at("capabilities").as_array()) {
+        if (capability.at("id").as_string() != capability_id_) continue;
+        const auto* plan = optional(capability, "initial_plan");
+        if (!plan) return nullptr;
+        auto result = *plan;
+        const auto* team = optional(capability, "team_template");
+        result.as_object()["team_template"] = team ? *team : Json("default");
+        return result;
+    }
+    throw Error(ErrorCode::Corrupt, "selected capability is missing");
 }
 
 std::int64_t FrozenRequestConfig::schema_retry_max() const {
