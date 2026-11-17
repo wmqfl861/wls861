@@ -148,6 +148,8 @@ int main(int argc, char** argv) {
             throw std::runtime_error("test transport endpoint must be loopback");
 
         auto profile = fixture::profile();
+        profile.responses_media_type_policy = text(config, "responses_media_type_policy");
+        profile.streaming = boolean(config, "streaming_capability", true);
         profile.base_url = "https://" + host + ":" + std::to_string(port);
         profile.limits.max_response_bytes = size(config, "max_body_bytes", profile.limits.max_response_bytes);
         profile.limits.max_stream_bytes = size(config, "max_stream_bytes", profile.limits.max_stream_bytes);
@@ -296,6 +298,7 @@ int main(int argc, char** argv) {
             {"raw_headers_hex", hex(result.raw_headers)}, {"raw_body_hex", hex(result.raw_body)},
             {"record_sha256", result.record_sha256}, {"summary", https_transport_summary(result)},
             {"response", to_json(result.response)}, {"request_body_size", original_body_size},
+            {"protocol_evidence", result.protocol_evidence},
             {"encoded_record_sha256", original_encoded_hash}, {"request_body_sha256", original_body_hash},
             {"profile_sha256", original_profile_hash}, {"logical_request_sha256", original_logical_hash},
             {"ca_bundle_sha256", sha256_hex(options.ca_bundle_pem)},

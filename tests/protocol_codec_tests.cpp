@@ -104,6 +104,23 @@ void response_id_bound_is_optional_frozen_and_responses_only() {
     auto reset = legacy; reset.max_response_id_bytes = 512; reset.max_response_id_bytes.reset();
     CHECK(to_json(reset) == original && provider_profile_sha256(reset) == provider_profile_sha256(legacy));
 }
+void responses_media_type_policy_is_explicit_and_frozen() {
+    const auto legacy = fixture::profile(); const auto original = to_json(legacy);
+    CHECK(!original.as_object().contains("responses_media_type_policy"));
+    auto value = original; value.as_object()["responses_media_type_policy"] = "json-under-sse-v1";
+    auto selected = provider_profile_from_json(value);
+    CHECK(to_json(selected) == value && provider_profile_sha256(selected) != provider_profile_sha256(legacy));
+    for (const bool stream : {false, true})
+        CHECK(encode_responses_request(selected, fixture::request(), stream).body == encode_responses_request(legacy, fixture::request(), stream).body);
+    selected.responses_media_type_policy.clear(); CHECK(to_json(selected) == original);
+    CHECK(provider_profile_sha256(selected) == provider_profile_sha256(legacy));
+    for (const auto& invalid : {Json(""), Json("json-under-sse-v2"), Json(true), Json(nullptr), Json(1)}) {
+        value.as_object()["responses_media_type_policy"] = invalid;
+        fails(ErrorCode::InvalidInput, [&] { (void)provider_profile_from_json(value); });
+    }
+    auto chat = to_json(wls::test::chat::profile()); chat.as_object()["responses_media_type_policy"] = "json-under-sse-v1";
+    fails(ErrorCode::Unsupported, [&] { (void)provider_profile_from_json(chat); });
+}
 void response_id_bound_does_not_expand_item_or_call_ids() {
     auto value = fixture::tool_response(); value.as_object()["id"] = std::string(128, 'r');
     CHECK(decode(value).response.status == ModelResultStatus::Completed);
@@ -1079,6 +1096,7 @@ int main() {
         {"Chat malformed identity usage arguments and bounds refuse", wls::test::chat::malformed_identity_usage_and_call_limits},
         {"response metadata policy freezes explicit selection and preserves legacy profile bytes", response_metadata_policy_is_explicit_and_preserves_legacy_bytes},
         {"response ID bounds are optional frozen Responses profile fields", response_id_bound_is_optional_frozen_and_responses_only},
+        {"media type compatibility is explicit frozen Responses policy", responses_media_type_policy_is_explicit_and_frozen},
         {"response ID opt-in preserves legacy HTTP and item/call bounds", response_id_bound_does_not_expand_item_or_call_ids},
         {"Responses background omission requires a frozen opt-in and preserves legacy wire identity", responses_background_policy_preserves_legacy_wire_identity},
         {"response metadata paths preserve originals and known decoding", response_metadata_paths_keep_originals_and_known_results},

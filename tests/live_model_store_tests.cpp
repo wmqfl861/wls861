@@ -229,6 +229,7 @@ void live_profile_capacity_is_rejected_before_admission() {
 void response_metadata_policy_survives_original_snapshot_restore() {
     for (const bool selected : {false, true}) {
         auto live = fixture::settings(); if (selected) live.provider.response_metadata_policy = "ignore-record-v1";
+        if (selected) live.provider.responses_media_type_policy = "json-under-sse-v1";
         fixture::Fixture f(*assets, live); // admission writes and reloads the temporary source configuration.
         const auto row = f.store->request(f.request_id);
         const auto bytes = canonical_json(row.at("config_snapshot")); const auto hash = text(row, "config_snapshot_sha256");
@@ -236,6 +237,7 @@ void response_metadata_policy_survives_original_snapshot_restore() {
         const auto restored = live_model_settings_from_json(frozen.model_profile(Role::Dispatcher), live.provider.model_ref);
         CHECK(to_json(restored.provider) == to_json(live.provider));
         CHECK(restored.provider.response_metadata_policy == (selected ? "ignore-record-v1" : ""));
+        CHECK(restored.provider.responses_media_type_policy == (selected ? "json-under-sse-v1" : ""));
         auto value = wls::test::protocol::text_response(); value.as_object()["future"] = true;
         const auto request = f.request(); (void)f.reserve(request);
         const auto result = decode_responses_response(restored.provider, request, 200, canonical_json(value));
@@ -244,6 +246,9 @@ void response_metadata_policy_survives_original_snapshot_restore() {
         auto current = live.provider; current.response_metadata_policy = selected ? "" : "ignore-record-v1";
         error(ErrorCode::Conflict, [&] { (void)f.store->claim_live_send(f.actor(), request.attempt_id, 1,
             encode_responses_request(current, request), live.transport, "changed-profile"); });
+        current = live.provider; current.responses_media_type_policy = selected ? "" : "json-under-sse-v1";
+        error(ErrorCode::Conflict, [&] { (void)f.store->claim_live_send(f.actor(), request.attempt_id, 1,
+            encode_responses_request(current, request), live.transport, "changed-media-policy"); });
         f.reopen(StoreRecoveryScope::request(f.request_id));
         CHECK(canonical_json(f.store->request(f.request_id).at("config_snapshot")) == bytes);
         CHECK(FrozenRequestConfig::restore(bytes, hash).sha256() == frozen.sha256());
