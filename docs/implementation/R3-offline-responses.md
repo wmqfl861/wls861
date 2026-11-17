@@ -653,3 +653,16 @@ response/binding，重复回放同一错误），本阶段不做纠错重调。�
 不改变协议工具 description/Schema、工具权限、历史、UNKNOWN 或派发/交付守卫。
 每次离线比较必须保留同一完整历史并计入新提示字节；它不能证明减少了历史调用，
 真实 token、调用与交付效果由同任务的新请求比较确认。
+
+## E-11：可选最近两轮 reasoning
+
+Responses profile 可显式冻结 `responses_reasoning_history_policy: last-two-rounds-v1`，
+仅适用于声明 native compatibility 的独立 Worker、structured-v3 与 lean-v1；
+其他角色、格式、Chat 和 `logical_agent_execution` 共享路径拒绝该策略。
+缺键保持原 profile/hash/wire；空值、错误类型和未知策略拒绝，可与媒体策略并存。
+一轮是带非 null 原始 `responses_output` 的 assistant message；无 reasoning 的
+工具、文本及合法纠正轮也计数，历史窗口/折叠标记和 user 错误观察不计数。
+完整 logical 输入、payload、projection、密文与全部原 item/call ID 仍须通过校验，
+仅发送时省略倒数两轮之前的 reasoning，最近两轮全部 reasoning 原值原序保留。
+其他消息、工具参数/结果、契约更新和折叠边界不变，仍请求 `reasoning.encrypted_content`。
+不改 Store/原历史或容量、UNKNOWN、版本、派发、交付守卫；字节缩减不代表 token 或缓存收益。

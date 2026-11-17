@@ -105,6 +105,13 @@ Json validate_request(const ProviderProfile& profile, const ModelRequest& reques
     require(request.context.structured(), ErrorCode::Unsupported,
             "Responses codec requires explicit structured-v2 input; legacy frames are not converted");
     const auto envelope = to_json(request);
+    if (!profile.responses_reasoning_history_policy.empty()) {
+        const auto& logical = request.context.logical_input;
+        require(request.role == Role::Worker && logical.at("format") == "wls-logical-input-v3" &&
+                logical.as_object().contains("model_projection") && logical.at("model_projection") == "lean-v1" &&
+                !logical.at("current_state").as_object().contains("logical_agent_execution"),
+                ErrorCode::Unsupported, "reasoning history policy requires an independent structured-v3 lean Worker");
+    }
     require(request.model.model == profile.model_ref && request.context.adapter_version == profile.adapter_version &&
             request.context.protocol_version == profile.protocol, ErrorCode::Conflict,
             "request model or frozen adapter/protocol differs from the offline profile");
@@ -802,6 +809,17 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
     const auto& prefix = logical.at("prefix");
     const bool v3 = logical.at("format") == "wls-logical-input-v3";
     const bool lean = logical.as_object().contains("model_projection") && logical.at("model_projection") == "lean-v1";
+    const bool trim_reasoning = profile.responses_reasoning_history_policy == "last-two-rounds-v1";
+    std::size_t native_rounds_remaining = 0;
+    if (trim_reasoning) for (const auto& message : array(logical.at("messages"))) {
+        const auto& source = message.at("source");
+        const auto* kind = source.is_object() ? source.as_object().if_contains("kind") : nullptr;
+        if (kind && (*kind == "history_fold" || *kind == "history_window" || *kind == "management_history_window")) continue;
+        const auto* payload = message.as_object().if_contains("responses_output");
+        // Count complete native rounds, including rounds with no reasoning.
+        // Full logical validation above has already checked payload shape.
+        if (text(message, "role") == "assistant" && payload && !payload->is_null()) ++native_rounds_remaining;
+    }
     std::map<std::string, std::string> historical_tools;
     Array tools, tool_versions, sources;
     for (const auto& definition : array(prefix.at("tools"))) {
@@ -906,6 +924,12 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
                 logical_calls.push_back({std::string(call.at("call_id").as_string()),
                     std::string(call.at("name").as_string()), call.at("arguments")});
             responses_compat::require_projection_match(projection, content, logical_calls);
+            const bool omit_reasoning = trim_reasoning && native_rounds_remaining > 2;
+            if (trim_reasoning) {
+                require(projection.reasoning_replay_ready, ErrorCode::InvalidInput,
+                        "native reasoning history requires original ciphertext for every round");
+                --native_rounds_remaining;
+            }
             for (const auto& item : payload->at("output").as_array()) {
                 const auto id = std::string(item.at("id").as_string());
                 require(provider_item_ids.insert(id).second, ErrorCode::Conflict,
@@ -923,6 +947,9 @@ EncodedResponsesRequest encode_responses_request(const ProviderProfile& profile,
                             ErrorCode::Unauthorized, "native round replay names an unavailable tool");
                     native_provider_call_ids.push_back(call_id);
                 }
+                // Omitted items still participate in full payload/projection and
+                // transcript-wide ID checks; only their wire replay is reduced.
+                if (omit_reasoning && item.at("type") == "reasoning") continue;
                 input.push_back(item);  // Original JSON value, unchanged order.
             }
             native_calls = &calls;

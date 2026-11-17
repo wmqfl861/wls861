@@ -310,6 +310,7 @@ void validate_provider_profile(const ProviderProfile& p) {
     if (chat) {
         if (p.streaming || !p.responses_path.empty() || p.responses_compatibility || !p.billing_challenge.empty() ||
                 !p.responses_background_policy.empty() || !p.responses_media_type_policy.empty() ||
+                !p.responses_reasoning_history_policy.empty() ||
                 p.max_response_id_bytes || p.response_metadata_policy != "ignore-record-v1")
             throw Error(ErrorCode::Unsupported, "Chat requires nonstream metadata policy without Responses extensions");
         if ((!p.chat_reasoning_policy.empty() && p.chat_reasoning_policy != "reasoning-effort-v1") ||
@@ -357,6 +358,10 @@ void validate_provider_profile(const ProviderProfile& p) {
             "unsupported Responses background policy");
     require(p.responses_media_type_policy.empty() || p.responses_media_type_policy == "json-under-sse-v1",
             "unsupported Responses media type policy");
+    require(p.responses_reasoning_history_policy.empty() || p.responses_reasoning_history_policy == "last-two-rounds-v1",
+            "unsupported Responses reasoning history policy");
+    if (!p.responses_reasoning_history_policy.empty() && !p.responses_compatibility)
+        throw Error(ErrorCode::Unsupported, "Responses reasoning history policy requires native compatibility");
     require(!p.max_response_id_bytes || (*p.max_response_id_bytes > 0 && *p.max_response_id_bytes <= 1024),
             "provider response ID bound must be 1..1024 bytes");
     require(p.tool_choice_policy.empty() || p.tool_choice_policy == "allowed-tools-v1" || p.tool_choice_policy == "required-v1", "unsupported tool choice policy");
@@ -398,6 +403,7 @@ ProviderProfile provider_profile_from_json(const Json& value) {
     if (object(value).contains("tool_choice_policy")) keys.insert("tool_choice_policy");
     if (object(value).contains("responses_background_policy")) keys.insert("responses_background_policy");
     if (object(value).contains("responses_media_type_policy")) keys.insert("responses_media_type_policy");
+    if (object(value).contains("responses_reasoning_history_policy")) keys.insert("responses_reasoning_history_policy");
     if (object(value).contains("max_response_id_bytes")) keys.insert("max_response_id_bytes");
     exact(value, keys);
     if (text(value, "format") != "wls-provider-profile-v1" || (!chat && text(value, "adapter") != "openai-responses") ||
@@ -439,6 +445,10 @@ ProviderProfile provider_profile_from_json(const Json& value) {
     if (object(value).contains("responses_media_type_policy")) {
         p.responses_media_type_policy = text(value, "responses_media_type_policy");
         require(p.responses_media_type_policy == "json-under-sse-v1", "unsupported Responses media type policy");
+    }
+    if (object(value).contains("responses_reasoning_history_policy")) {
+        p.responses_reasoning_history_policy = text(value, "responses_reasoning_history_policy");
+        require(p.responses_reasoning_history_policy == "last-two-rounds-v1", "unsupported Responses reasoning history policy");
     }
     if (object(value).contains("max_response_id_bytes")) p.max_response_id_bytes = size(value, "max_response_id_bytes");
     if (object(value).contains("billing_challenge")) {
@@ -524,6 +534,7 @@ Json to_json(const ProviderProfile& p) {
     if (!p.tool_choice_policy.empty()) result["tool_choice_policy"] = p.tool_choice_policy;
     if (!p.responses_background_policy.empty()) result["responses_background_policy"] = p.responses_background_policy;
     if (!p.responses_media_type_policy.empty()) result["responses_media_type_policy"] = p.responses_media_type_policy;
+    if (!p.responses_reasoning_history_policy.empty()) result["responses_reasoning_history_policy"] = p.responses_reasoning_history_policy;
     if (p.max_response_id_bytes) result["max_response_id_bytes"] = *p.max_response_id_bytes;
     if (!p.chat_reasoning_policy.empty()) result["chat_reasoning_policy"] = p.chat_reasoning_policy;
     if (!p.chat_model_aliases.empty()) {
