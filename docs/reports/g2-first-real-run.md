@@ -1,6 +1,6 @@
 # G2 首次真实运行
 
-2026-11-17 更新：D-46、D-48 已分别由 [#140](https://github.com/wmqfl861/wls861/pull/140)、[#141](https://github.com/wmqfl861/wls861/pull/141) 合入；R8 的原 R3 请求账目已就绪，但原冻结期限已过，守卫拒绝后封存，新预约/发送均 0。R9 首次与一次原命令续跑、R10 首次的 `invalid_http_header` 已核实为非流式请求收到 `text/event-stream` 媒体类型，头部检查提前拒绝，响应体未捕获，无交付；U1/U2 为 NOT_PASSED，窄范围修正计划进行中。本轮事实与证据见[末节](#r7r10账目恢复重试与真实复验)，下面的 11-15/11-16 原逐次记录保留。
+2026-11-17 更新：D-46、D-48 已分别由 [#140](https://github.com/wmqfl861/wls861/pull/140)、[#141](https://github.com/wmqfl861/wls861/pull/141) 合入；R8 的原 R3 请求账目已就绪，但原冻结期限已过，守卫拒绝后封存，新预约/发送均 0。R9 首次与一次原命令续跑、R10 首次的 `invalid_http_header` 已核实为非流式请求收到 `text/event-stream` 媒体类型，头部检查提前拒绝，响应体未捕获，无交付；U1/U2 为 NOT_PASSED，窄范围修正候选已通过本机合成验证，托管检查及真实复验待执行。本轮事实与证据见[末节](#r7r10账目恢复重试与真实复验)，下面的 11-15/11-16 原逐次记录保留。
 
 日期：2026-11-15 至 11-16。**U1/U2 未通过**：R2/R3 末次 Dispatcher 收到中转上游失败流；一次新 R5 则在末次 Worker 的无序号扩展事件处被协议拒绝，均无完整交付。原三交付物导出已按 D-31 恢复、成果 12/12 且无新调用；严格 metadata 保留检查仅 SHM mtime 变化而 FAIL，原结果保留。E1 离线字节减少已验证，真实改善仍未知，按 D-37 保守回退（[#134](https://github.com/wmqfl861/wls861/pull/134)，当前门禁/合入状态见末节），不宣称优化无效或导致失败。R6 按“明确记录未达原因”的计划路径整理 v0.5 与六格式；版本不代表 U1/U2 成功。R5 固定 main `3fa7019`（[#133](https://github.com/wmqfl861/wls861/pull/133)），原输入、CI 与回退身份见末节；Store 410。
 
@@ -188,7 +188,9 @@ R7 已完成：D-46 [#140](https://github.com/wmqfl861/wls861/pull/140) 合入 `
 | 产品输入 | 本机合成验证 | 托管验证 |
 | --- | --- | --- |
 | D-46 `3eafe36` | Store 30/30；完整 live workflow CLI 23/23；修改的 run CLI 2/2 | [核心](https://github.com/wmqfl861/wls861/actions/runs/43995465626)270/270、[源码](https://github.com/wmqfl861/wls861/actions/runs/43995465610)及 [D-40](https://github.com/wmqfl861/wls861/actions/runs/43995485977)15/15 PASS；合入 main [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43998851346)450/450 CTest、Make 两 shard PASS |
-| D-48 `2854c86` | 完整 live workflow CLI 24/24；HTTPS transport 46/46；专项 14 子场景 | [核心](https://github.com/wmqfl861/wls861/actions/runs/43999386304)270/270、[源码](https://github.com/wmqfl861/wls861/actions/runs/43999386291)及 [D-40](https://github.com/wmqfl861/wls861/actions/runs/43999408575)16/16 PASS；合入 main [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44002919509)最终结果待独立核对 |
+| D-48 `2854c86` | 完整 live workflow CLI 24/24；HTTPS transport 46/46；专项 14 子场景 | [核心](https://github.com/wmqfl861/wls861/actions/runs/43999386304)270/270、[源码](https://github.com/wmqfl861/wls861/actions/runs/43999386291)及 [D-40](https://github.com/wmqfl861/wls861/actions/runs/43999408575)16/16 PASS；合入 main [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44002919509)450/450 CTest 与 Make 两 shard 通过 |
+
+D-48 main 完整矩阵经独立核对，三种核心构建各 90 套，ASan/UBSan 各 45+45 套，合计 450/450 CTest；Make 两 shard 通过。D-20 检查 90 套 ASan，最大耗时为 live_workflow_cli 的 141.37/360 秒（39.27%），没有超过期限 50% 的项。原件 `run-intake/hosted-d48-main141-44002919509/verification.json`，SHA-256 `65110e96bfaad69b87020ded8f6e378b2c736b7b2e92b08cbc77ebb4018f1d1d`。
 
 两项独立审核均 PASS；D-48 本机测试输入为 `7db60b2`，到最终 `2854c86` 只有产品注释和文档变化，执行代码/测试及 ELF 哈希一致。两项开发验证真实模型调用均为 0，不能当作 U1/U2 验收。新配置最初误把 provider codec 重试也设为 2，离线 `config check` 拒绝；只修新配置为 provider 0/runtime 2 后，配置、六个角色 explain 和资源检查均通过，没有更改 codec 守卫或旧请求。
 
@@ -206,7 +208,7 @@ R9/R10 都使用 main `93b8968` 与上述同一 Release ELF、新建请求和数
 
 R9 续跑前完成整个请求与配置目录的备份、哈希和元数据核对；同一 main/ELF、全部原 argv、配置路径、根身份及原 `created_at=2026-11-17T02:29:32Z` 保持，25 分钟期限仍于 `02:54:32Z` 到期，没有重置。续跑后原 attempt/send claim 事实保持，新 attempt/send claim 各 1。三次运行均 `accounting.ready=true`、自动重试记录 0、已确认交付 0，成果检查未执行。R9 两次 Worker 的原 usage 均 null；预留回退参与就绪不等于补出实际 token。
 
-独立只读核对三个失败 attempt 的分析副本、冻结设置与编码记录后，确认同一响应媒体类型不匹配：持久化及实际发送的请求均为 `stream=false`，发送 `Accept: application/json`；收到普通 HTTP 200 响应头，语法、CRLF 分隔和 chunked 声明核对通过，但 `Content-Type` 均为 `text/event-stream`。头部回调在结束空行处发现不符合预期的 JSON 媒体类型，提前终止接收并记为通用 `invalid_http_header`。三者 `transfer_complete=false`，已观察及保留的响应体字节均为 0；这不证明模型没有执行或响应没有内容，也无法推断 SSE 终态、模型是否完成、实际 usage 或哪个上游网络层选择了该媒体类型。针对该分类和处理的窄范围修正处于计划阶段，尚未交付。
+独立只读核对三个失败 attempt 的分析副本、冻结设置与编码记录后，确认同一响应媒体类型不匹配：持久化及实际发送的请求均为 `stream=false`，发送 `Accept: application/json`；收到普通 HTTP 200 响应头，语法、CRLF 分隔和 chunked 声明核对通过，但 `Content-Type` 均为 `text/event-stream`。头部回调在结束空行处发现不符合预期的 JSON 媒体类型，提前终止接收并记为通用 `invalid_http_header`。三者 `transfer_complete=false`，已观察及保留的响应体字节均为 0；这不证明模型没有执行或响应没有内容，也无法推断 SSE 终态、模型是否完成、实际 usage 或哪个上游网络层选择了该媒体类型。针对该分类和处理的窄范围修正候选已通过下述本机合成验证，尚未合入，真实复验未执行。
 
 11-17 新增合计 **5 次调用**，已知输入 **12,900** + 未知输入预留 **196,640** = 输入保守占用 **209,540**；已知输出 **5,441**，未知输出预留 **12,288**。R10 的阶段预算只加 R9 续跑后的累计回执，不再另加 R9 首次的 3 次；R8 增量为 0，也不重计原 R3 的 21 次。
 
@@ -222,3 +224,11 @@ R9 续跑前完成整个请求与配置目录的备份、哈希和元数据核�
 | `r10/execution/result.json` | `d13eaa717c165922450d72ed29d246b34bd38c8e22bc2c4024a87a72a2a5ae89` |
 
 媒体类型核对原件位于本轮私有根的 `run-intake/r9-r10-content-cause-o9xoamb7/cause.json`，SHA-256 `51af18469714b3dcc47b835bf818a2e8343e19b433a5afcbfb3e769cb1f44981`。该核对没有打开原数据库、读取凭据或调用模型；没有捕获响应体的事实保持。
+
+### 非流式响应媒体不匹配修正候选
+
+候选产品提交 `3968e53`、测试提交 `256aa2c`，集成测试输入 `2b131af`（后续仅同步文档）。非流式 Responses 收到 HTTP 200 / `text/event-stream` 时，在原非流式 body、累计字节、SSE 硬限和同一 deadline 内保存诊断正文，返回明确的 `unexpected_response_media_type`；原 `stream:false`、Accept 与实际发送身份保持。仅原 profile 声明流式能力才用既有严格 SSE 解码器作诊断，成功 SSE 也不进入业务。D-48 资格还要求完整 HTTP 与完整严格终态、没有任何输出观察、当前允许的失败代码；成功、拒绝、缺终态、未知事件、取消、超限和超时均不因该路径取得资格。原使用量/null 保留，SQL、冻结配置及现有预算不改。
+
+本机 uid 1000、GCC 13 的一次干净 CMake Release 构建，四套 CTest 全通过：protocol_codec 58/58（0.30 秒）、sse_replay 42/42（4.44 秒）、HTTPS transport 49/49 方法（15.16 秒）、live workflow CLI 24/24 方法（89.62 秒），并行墙钟 94.07 秒。新增传输 16 个子场景、D-48 矩阵新增 11 个媒体子场景（矩阵共 25），核对有界原文、实际与诊断哈希、完整失败后的独立重试预约/send claim/结算、冻结零重试及成功/缺终态/拒绝/无能力等负例。首次编译因新比较 helper 的 Boost Json 显式构造要求失败，修正后正常依赖重编通过；原失败日志保留，未放宽断言或期限。产品非移动改动 60 行，测试 120 行；没有修改 C++ 测试。以上为合成端点验证，真实模型调用 0，托管检查与合入后的真实复验尚未执行。
+
+私有验证收据 `media-evidence/final-validation.json`，SHA-256 `38ffc0aaf43e5cce9b19bb1906b5a7765a3196c43e2f248dfa52b05983a487e0`；永久构建/测试日志 `media-build.log`、`media-build-retry.log`、`media-tests-initial.log` 及精确源码和 ELF 哈希均绑定在收据。随后文档 CTest 2/2 通过，但覆盖了构建目录临时 `LastTest.log`；逐方法计数为覆盖前实读，四套通过有永久汇总日志，原逐方法详细日志未保留，原收据保持并注明此限制。该验证证明本地拒绝与重试边界，不保证上游将返回正确的非流式媒体，也不补回 R9/R10 缺失正文。U1/U2 仍为 NOT_PASSED。
