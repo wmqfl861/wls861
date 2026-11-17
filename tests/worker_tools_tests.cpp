@@ -1291,6 +1291,17 @@ int environment_native(int argc, char** argv) {
 } // namespace
 
 int main(int argc, char** argv) {
+    std::cout << std::unitbuf;
+    std::string_view group;
+    if (argc != 1 && std::string_view(argv[1]) != "--environment-native") {
+        if (argc != 3 || std::string_view(argv[1]) != "--group" ||
+            (std::string_view(argv[2]) != "runtime" && std::string_view(argv[2]) != "output" &&
+             std::string_view(argv[2]) != "environment")) {
+            std::cerr << "usage: worker_tools_tests [--group runtime|output|environment]\n";
+            return 2;
+        }
+        group = argv[2];
+    }
     schemas = std::make_unique<SchemaRegistry>(source / "schemas");
     test::TempDir temp;
     auto yaml = read_runtime_file(source / "config/examples/system.yaml");
@@ -1310,32 +1321,37 @@ int main(int argc, char** argv) {
     original_script = parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_fake_initial.json"));
     constraints = parse_json_strict(read_runtime_file(source / "tests/fixtures/s1_constraints.json"));
     if (argc > 1 && std::string_view(argv[1]) == "--environment-native") return environment_native(argc, argv);
-    return test::run({
-        {"environment checks preserve original output, CAS and idempotent capture", environment_results_are_original_idempotent_and_bound_before_model_capture},
-        {"environment versions require complete UTF-8 stdout and original exit proof", environment_versions_require_complete_stdout_and_exit_proof},
-        {"environment checks respect cancellation, authority, budget and unresolved fences", environment_fences_keep_checks_and_model_reservations_closed},
-        {"static registration and frozen request tool grants", registry_and_request_permissions},
-        {"v3 previews and text pages retain original bytes and legacy output formats", output_display_preserves_frozen_formats_and_original_bytes},
-        {"output paging preserves UTF-8 boundaries, current authority and old records", output_pages_keep_byte_boundaries_authority_and_old_records},
-        {"model feedback retains the persisted output preview and exact replay", output_feedback_keeps_persisted_preview_and_exact_replay},
-        {"durable real file write/read/patch and side-effect-free business replay", durable_write_patch_and_business_replay},
-        {"AMEND rejects old model file effects while retaining usage", late_model_response_after_amend_cannot_write},
-        {"old business key only reads its fact during a pending new instruction", old_key_is_only_a_read_during_new_instruction},
-        {"workspace directory and execution manifest binding are immutable", workspace_and_execution_manifest_are_immutable},
-        {"standard execution binding preserves file grants and refuses missing prerequisites", standard_policy_binding_does_not_expand_file_template_grants},
-        {"input binding freezes opt-in source identity limit and host boundaries", input_binding_requires_frozen_opt_in_and_protects_host_roots},
-        {"non-Worker, cross-workspace and model authority forgery are rejected", role_scope_and_model_authority_forgery},
-        {"missing strong sandbox gives a durable FAILED result without spawning", unavailable_strong_run_is_a_durable_refusal},
-        {"pre-effect cancellation retains exact no-spawn evidence and cannot replay effects", cancellation_before_effect_preserves_original_no_spawn_evidence},
-        {"read-only diagnostics do not mutate epochs, task state, budgets or events", readonly_diagnostics_preserve_epochs_and_budgets},
-        {"UNKNOWN preserves diagnostics and instruction control while blocking business", unknown_allows_diagnostics_and_instruction_control},
-        {"bounded model loop preserves original text and complete tool feedback", model_loop_carries_complete_tool_results},
-        {"Worker call bounds and failed tools stop subsequent model effects", batch_limits_and_failed_tool_stop_further_calls},
-        {"payload, path and schema restrictions precede filesystem effects", path_payload_and_schema_limits_precede_effects},
-        {"concurrent exact commands have at most one actual execution owner", concurrent_exact_commands_have_one_execution_owner},
-        {"current policy revocation removes tools from new model contexts", revoked_tool_is_removed_from_new_model_context},
-        {"SQLite result-event failure after file effect blocks further business", result_commit_failure_blocks_new_business},
-        {"prepared concurrent call cannot claim after another result and all fallbacks fail", prepared_call_cannot_claim_after_another_settlement_fails},
-        {"exact old ack replay cannot acknowledge a newer instruction", exact_old_ack_replays_without_acknowledging_new_order}
-    });
+    struct GroupedCase { std::string_view group; ::test::Case test; };
+    const std::vector<GroupedCase> cases{
+        {"environment", {"environment checks preserve original output, CAS and idempotent capture", environment_results_are_original_idempotent_and_bound_before_model_capture}},
+        {"environment", {"environment versions require complete UTF-8 stdout and original exit proof", environment_versions_require_complete_stdout_and_exit_proof}},
+        {"environment", {"environment checks respect cancellation, authority, budget and unresolved fences", environment_fences_keep_checks_and_model_reservations_closed}},
+        {"runtime", {"static registration and frozen request tool grants", registry_and_request_permissions}},
+        {"output", {"v3 previews and text pages retain original bytes and legacy output formats", output_display_preserves_frozen_formats_and_original_bytes}},
+        {"output", {"output paging preserves UTF-8 boundaries, current authority and old records", output_pages_keep_byte_boundaries_authority_and_old_records}},
+        {"output", {"model feedback retains the persisted output preview and exact replay", output_feedback_keeps_persisted_preview_and_exact_replay}},
+        {"runtime", {"durable real file write/read/patch and side-effect-free business replay", durable_write_patch_and_business_replay}},
+        {"runtime", {"AMEND rejects old model file effects while retaining usage", late_model_response_after_amend_cannot_write}},
+        {"runtime", {"old business key only reads its fact during a pending new instruction", old_key_is_only_a_read_during_new_instruction}},
+        {"runtime", {"workspace directory and execution manifest binding are immutable", workspace_and_execution_manifest_are_immutable}},
+        {"runtime", {"standard execution binding preserves file grants and refuses missing prerequisites", standard_policy_binding_does_not_expand_file_template_grants}},
+        {"runtime", {"input binding freezes opt-in source identity limit and host boundaries", input_binding_requires_frozen_opt_in_and_protects_host_roots}},
+        {"runtime", {"non-Worker, cross-workspace and model authority forgery are rejected", role_scope_and_model_authority_forgery}},
+        {"runtime", {"missing strong sandbox gives a durable FAILED result without spawning", unavailable_strong_run_is_a_durable_refusal}},
+        {"runtime", {"pre-effect cancellation retains exact no-spawn evidence and cannot replay effects", cancellation_before_effect_preserves_original_no_spawn_evidence}},
+        {"runtime", {"read-only diagnostics do not mutate epochs, task state, budgets or events", readonly_diagnostics_preserve_epochs_and_budgets}},
+        {"runtime", {"UNKNOWN preserves diagnostics and instruction control while blocking business", unknown_allows_diagnostics_and_instruction_control}},
+        {"runtime", {"bounded model loop preserves original text and complete tool feedback", model_loop_carries_complete_tool_results}},
+        {"runtime", {"Worker call bounds and failed tools stop subsequent model effects", batch_limits_and_failed_tool_stop_further_calls}},
+        {"runtime", {"payload, path and schema restrictions precede filesystem effects", path_payload_and_schema_limits_precede_effects}},
+        {"runtime", {"concurrent exact commands have at most one actual execution owner", concurrent_exact_commands_have_one_execution_owner}},
+        {"runtime", {"current policy revocation removes tools from new model contexts", revoked_tool_is_removed_from_new_model_context}},
+        {"runtime", {"SQLite result-event failure after file effect blocks further business", result_commit_failure_blocks_new_business}},
+        {"runtime", {"prepared concurrent call cannot claim after another result and all fallbacks fail", prepared_call_cannot_claim_after_another_settlement_fails}},
+        {"runtime", {"exact old ack replay cannot acknowledge a newer instruction", exact_old_ack_replays_without_acknowledging_new_order}}
+    };
+    std::vector<::test::Case> selected;
+    for (const auto& item : cases)
+        if (group.empty() || item.group == group) selected.push_back(item.test);
+    return ::test::run(selected);
 }
