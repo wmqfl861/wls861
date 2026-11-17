@@ -112,6 +112,8 @@ struct ProviderProfile {
     // Responses-only frozen opt-in for nonstream JSON mislabeled as SSE.
     // Empty preserves the original profile bytes/hash and media rejection.
     std::string responses_media_type_policy{};
+    // Worker native replay only; empty retains every original reasoning item.
+    std::string responses_reasoning_history_policy{};
 };
 
 // Strict parse/serialize; rates are integers in 0..10^12 micro USD.

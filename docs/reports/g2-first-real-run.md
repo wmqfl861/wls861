@@ -278,8 +278,18 @@ HTTP 完整、头部 477 字节、正文 46,852 字节且未截断；头声明 `
 
 ### R11 E-14：可选 Worker 提示
 
-本项只新增显式选择的 function 模板及说明，默认模板不变，不改产品 C++、SQL、工具权限或旧快照。已结算写回执只证明保存字节，两次历史调用是效率目标，必要取证与验收继续保留。现有 config check/explain 通过且不解析凭据，独立源码与测量审核通过；托管门禁/合入结果待本项 PR 核验。
+本项只新增显式选择的 function 模板及说明，默认模板不变，不改产品 C++、SQL、工具权限或旧快照。已结算写回执只证明保存字节，两次历史调用是效率目标，必要取证与验收继续保留。现有 config check/explain 通过且不解析凭据，独立源码与测量审核通过；[#146](https://github.com/wmqfl861/wls861/pull/146) 的[核心](https://github.com/wmqfl861/wls861/actions/runs/44040840012)276/276 和[源码检查](https://github.com/wmqfl861/wls861/actions/runs/44040840067)通过并合入。
 
 成功 U1 的 19 份原捕获全部重现实际 wire SHA；仅 13 份 Worker 的 function_prompt、依赖身份及派生哈希变化，管理角色和全部 wire 历史逐字不变。Worker 总 body 1,036,252→1,054,036 B（+17,784，+1.7162%）；全集 1,349,285→1,367,069 B（+1.3180%）。基线 history_page/history_read 为 0/0，未宣称历史调用或真实 token 已改善。原 JSON 数字拼写与 Python 默认序列化不一致的首次断言失败已保留；改用保留原数字词法的同输入派生后通过，未改变原件。私有证据 `r11-e14-evidence/lexical-matched/summary.json`，SHA-256 `d09bc2071f9daa95d2f37dadd2eb7aa22ac146dd0de28348f979e27d2ea9575c`。38 次 encode-only、网络/付费/工具派发均为 0；后续组合真实比较仍待 E-11/E-1 合入。
 
 #144 main [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44033514578)已独立核验通过：核心 276/276、ASan 92/92、UBSan 92/92，共 460 次 CTest；Make 50 个 C++ 套件/883 子例及 8+25 Python 套件/120+331 子例。原 24 个 CLI 方法保持，三个分组 ASan 为 24.46/91.85/55.05 秒；全部 92 套最大期限占比 48.65%，无 D-20 超半项。原始日志及收据位于 `run-intake/hosted-live-cli-main144-44033514578/`。
+
+#146 合入后的 [main 完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44042486727)和[源码检查](https://github.com/wmqfl861/wls861/actions/runs/44042486527)也已独立核验通过：460/460 CTest、Make 子例数同上；全部 92 个 ASan 套件最大期限占比 38.60%，无 D-20 超半项。收据 `run-intake/hosted-e14-main146-44042486727/verification.json`，SHA-256 `eeeadead5344bd5c8f0f8ce742c6f1079772ca89e501e96bc15dddf7a7174061`。
+
+### R11 E-11：最近两轮原生 reasoning
+
+新增显式冻结的 `responses_reasoning_history_policy: last-two-rounds-v1`，只用于独立 Worker 的 structured-v3/lean-v1 Responses 输入。发送副本省略两轮之前的 reasoning，完整 payload、projection、密文、item/call ID 检查仍先执行；工具调用、结果和原历史不变。缺键保持原 profile 和 wire。独立审核发现的历史标记计数边界已修正，并覆盖直接构造的窗口标记和空 native payload。产品 40 行、测试 79 行；本机 Release 协议 61/61 和 config_loader、三组 r1_structured、sse_replay 5/5 通过。首次用例缺少必需字段的失败保留，修正夹具后通过。
+
+同一 U1 的 19 份捕获，当前候选缺键 wire 19/19 全等；启用 E-11 后只省略 57 个旧 reasoning item，保留项逐字相同。相对 E-14，全集 body 1,367,069→1,101,502 B（−265,567，−19.4260%），Worker 1,054,036→788,469 B（−25.1952%），管理角色不变。累计相对原 U1 少 247,783 B；尚未宣称真实 token 改善。最终测量 `r11-e11-evidence/same19-reviewed/summary.json`，SHA-256 `0ab4d201b0f5e902fae6655f2261448673b1d44ae114934a1a2218248dcc2c91`；源码审核 `e11-source-review-final-20261117.json`，全部原日志留在同一私有目录。
+
+手动 asan-affected 选择器新增 protocol_codec，由 18→19 个完整套件，CTest 注册数保持 92。语法和选择器清单已核对；本项托管门禁及合入待实际运行，不能由本机结果替代。

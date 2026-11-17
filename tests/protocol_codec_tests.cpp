@@ -1077,6 +1077,83 @@ void compat_two_native_rounds_pair_results_with_their_own_provider_calls() {
     CHECK(input[6].at("output") == Json(canonical_json(Object{{"ok", true}})));
     CHECK(input[7].at("role") == "user" && input[7].at("content") == "next question");
 }
+void reasoning_history_policy_is_frozen_and_scoped() {
+    auto p = fixture::compat_profile(); p.responses_media_type_policy = "json-under-sse-v1";
+    const auto original = to_json(p); p.responses_reasoning_history_policy = "last-two-rounds-v1";
+    CHECK(to_json(provider_profile_from_json(to_json(p))) == to_json(p));
+    CHECK(provider_profile_sha256(p) != sha256_hex(canonical_json(original)));
+    for (const auto& bad : {Json(""), Json("last-one-v1"), Json(nullptr), Json(true), Json(2)}) {
+        auto j = to_json(p); j.at("responses_reasoning_history_policy") = bad;
+        fails(ErrorCode::InvalidInput, [&] { (void)provider_profile_from_json(j); });
+    }
+    for (auto bad : {fixture::profile(), wls::test::chat::profile()}) {
+        bad.responses_reasoning_history_policy = p.responses_reasoning_history_policy;
+        fails(ErrorCode::Unsupported, [&] { (void)to_json(bad); });
+    }
+    auto c = wls::test::chat::context(); c.protocol_version = p.protocol; c.model = fixture::context().model;
+    for (int variant = 0; variant != 6; ++variant) {
+        auto scope = c; scope.model_projection = variant <= 1 ? "" : "lean-v1";
+        if (variant >= 2 && variant <= 4) scope.role = variant == 2 ? Role::Root : variant == 3 ? Role::Dispatcher : Role::TeamLead;
+        if (variant == 5) scope.task_contract = canonical_json(Object{{"request", Object{{"requirements_revision", 1}, {"texts", Array{}}, {"constraint_catalog", Array{}}}}, {"logical_agent_execution", Object{}}});
+        auto r = wls::test::chat::request({}, scope, variant != 0); r.role = scope.role;
+        fails(ErrorCode::Unsupported, [&] { (void)encode_responses_request(p, r); });
+    }
+    p.responses_reasoning_history_policy.clear(); CHECK(to_json(p) == original);
+}
+void reasoning_history_counts_complete_rounds_and_validates_omitted_items() {
+    auto p = fixture::compat_profile(); p.responses_reasoning_history_policy = "last-two-rounds-v1";
+    auto c = wls::test::chat::context(); c.protocol_version = p.protocol; c.model = fixture::context().model; c.model_projection = "lean-v1";
+    const auto make = [&](const std::vector<StructuredContextMessage>& messages) { return wls::test::chat::request(messages, c, true); };
+    const auto previous = make({}); c.task_contract += " amended original";
+    continue_structured_contract(c, Object{{"attempt_id", "round0"}, {"input", previous.context.logical_input}});
+    std::vector<Json> records;
+    for (int round = 0; round != 4; ++round) {
+        auto raw = fixture::compat_json(round % 2 ? "reasoning-text-response.json" : "reasoning-tool-response.json");
+        auto& output = raw.at("output").as_array();
+        if (round % 2) output.erase(output.begin());
+        else output.insert(output.begin(), output.front());
+        for (std::size_t i = 0; i < output.size(); ++i) output[i].at("id") = "item" + std::to_string(round) + "_" + std::to_string(i);
+        if (!(round % 2)) output.back().at("call_id") = "provider" + std::to_string(round);
+        auto response = to_json(compat_decode(raw).response); response.at("attempt_id") = "round" + std::to_string(round);
+        response.at("call_id") = "call" + std::to_string(round); records.push_back(compat_history_record(response));
+        if (round % 2) records.back().at("feedback").at("result") = Object{{"status", "FAILED"}, {"correction_feedback", Object{
+            {"format", "wls-correction-feedback-v1"}, {"reason", "tool_selection"}, {"target_sha256", sha256_hex("target")}, {"consecutive_failures", 1}}}};
+    }
+    for (std::size_t count = 1; count <= records.size(); ++count) {
+        auto messages = structured_attempt_history(std::vector<Json>(records.begin(), records.begin() + static_cast<std::ptrdiff_t>(count)));
+        messages.push_back({"user", "UNKNOWN original observation", {}, {}, nullptr});
+        const auto r = make(messages); const auto saved = canonical_json(to_json(r));
+        auto legacy = p; legacy.responses_reasoning_history_policy.clear();
+        auto expected = parse_json_strict(encode_responses_request(legacy, r).body);
+        auto& input = expected.at("input").as_array();
+        if (count > 2) input.erase(std::remove_if(input.begin(), input.end(), [](const Json& item) {
+            return item.as_object().contains("id") && (item.at("id") == "item0_0" || item.at("id") == "item0_1");
+        }), input.end());
+        CHECK(encode_responses_request(p, r).body == canonical_json(expected));
+        CHECK(canonical_json(to_json(r)) == saved);
+    }
+    for (const auto* kind : {"history_window", "management_history_window", "recorded_tool_turn"}) {
+        auto two = structured_attempt_history({records[0], records[2]});
+        auto marker = structured_attempt_history({records[1]}).front(); marker.source.at("kind") = kind;
+        const bool empty_round = std::string_view(kind) == "recorded_tool_turn";
+        if (empty_round) { marker.content.clear(); marker.responses_output.at("output") = Array{}; }
+        two.push_back(marker); const auto r = make(two); auto legacy = p; legacy.responses_reasoning_history_policy.clear();
+        auto expected = parse_json_strict(encode_responses_request(legacy, r).body); auto& input = expected.at("input").as_array();
+        if (empty_round) input.erase(std::remove_if(input.begin(), input.end(), [](const Json& item) {
+            return item.as_object().contains("id") && (item.at("id") == "item0_0" || item.at("id") == "item0_1");
+        }), input.end());
+        CHECK(encode_responses_request(p, r).body == canonical_json(expected));
+    }
+    const auto messages = structured_attempt_history(records);
+    for (int variant = 0; variant != 6; ++variant) {
+        auto bad = messages; auto& old = bad.front().responses_output.at("output").as_array();
+        if (variant < 3) old.front().at("encrypted_content") = variant == 0 ? Json(5) : variant == 1 ? Json(nullptr) : Json("");
+        if (variant == 3) bad.front().content = "different projection";
+        if (variant == 4) bad[4].responses_output.at("output").as_array().front().at("id") = old.front().at("id");
+        if (variant == 5) bad[4].responses_output.at("output").as_array().back().at("call_id") = old.back().at("call_id");
+        fails(variant >= 4 ? ErrorCode::Conflict : ErrorCode::InvalidInput, [&] { (void)encode_responses_request(p, make(bad)); });
+    }
+}
 } // namespace
 
 int main() {
@@ -1139,6 +1216,8 @@ int main() {
         {"compat alias model acceptance covers the explicit snapshot list", compat_alias_model_acceptance},
         {"compat reasoning item subset boundaries reject unknown shapes", compat_reasoning_item_subset_boundaries},
         {"compat next-round wire replays original items with provider IDs", compat_next_round_wire_replays_original_items_verbatim},
+        {"reasoning history policy is frozen and scoped", reasoning_history_policy_is_frozen_and_scoped},
+        {"reasoning history counts complete rounds and validates omissions", reasoning_history_counts_complete_rounds_and_validates_omitted_items},
         {"compat two native rounds pair results with their own provider calls", compat_two_native_rounds_pair_results_with_their_own_provider_calls}
     });
 }
