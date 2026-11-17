@@ -641,3 +641,15 @@ response/binding，重复回放同一错误），本阶段不做纠错重调。�
 后续协议失败不会把该列表标作完整输入的扫描证明。旧证据不增加空字段。
 
 仅 Responses profile 可显式冻结 `max_response_id_bytes`（1..1024）；它限定响应 envelope ID 及已知事件对同一 ID 的引用，引用仍必须相等，item/call/model 名称边界不变。缺省不新增序列化字段，保留 HTTP 128、SSE envelope 256、已知 linked ID 128 字节的原行为。启用 `ignore-record-v1` 时，`response.metadata` 仅在 created 后、terminal 前作为未绑定遥测接受：序号连续、可省略 model 但提供时必须为合法字符串且与 created 匹配、限定 `type/sequence_number/response_id/model/metadata` 字段，metadata 必须为对象，遥测 ID 仍限 128 字节。它的 ID 和元数据路径及原始流保留，不参与工具、账目或响应身份授权；真实请求原账目不因离线重放成功被重写。
+
+## E-14：可选 Worker 效率提示
+
+新 function 配置可显式选择 `roles.worker.prompt_append: prompts/worker-efficient.md`，
+并复制 general 示例中的该模板到其 `prompts/` 目录；原默认仍为 `prompts/worker.md`。
+选择、模板内容及依赖哈希由现有配置冻结，恢复旧请求继续使用其原提示字节。
+模板指导按需定位历史、复用相同版本的已结算事实；同一完整任务至多两次 `history_*`
+是效率目标，必要原始取证、完整输入、版本冲突、安全覆盖及任务验收不能省略。
+写回执可证明保存的字节，不能单独证明内容正确。具名工具指导属于 function prompt，
+不改变协议工具 description/Schema、工具权限、历史、UNKNOWN 或派发/交付守卫。
+每次离线比较必须保留同一完整历史并计入新提示字节；它不能证明减少了历史调用，
+真实 token、调用与交付效果由同任务的新请求比较确认。
