@@ -1,6 +1,6 @@
-现在能做什么：D-46 观察模式账目就绪、D-48 有界重试和响应媒体修复已由 #140–#143 合入 main。新请求可显式冻结 `json-under-sse-v1` 处理标错媒体的完整 Responses JSON，仍通过原严格解码和 Store 准入。
-还不能做什么：U1/U2 仍为 NOT_PASSED。修复后的新 U1 正在运行，结果以交付确认和成果检查为准；R11、0.13.1 和 G3 未完成。
-需要 owner 做什么：已选择保持本机 BLOCKED，当前不重复要求配置；真实 U3/U4 等合规原生宿主可用后再启动。额度触顶或 D-32 指定情况再按原规则处理。
+现在能做什么：U1 单团队、U2 三任务三团队已真实交付，唯一确认回执和 12/12 成果检查均通过。D-46、D-48、显式 JSON 媒体兼容与测试分片已由 #140–#144 合入。
+还不能做什么：R11 优化比较、0.13.1 出口和 G3 及后续阶段未完成；实现仍为 0.13.0。G4 真实 U3/U4 等合规宿主。
+需要 owner 做什么：当前继续已有授权任务；本机 BLOCKED 的选择保持，不重复要求配置。到宿主依赖或额度边界时按已定规则处理。
 
 # 当前状态
 
@@ -8,7 +8,7 @@
 
 **稳定接手入口：[最新交接](reviews/current-handoff.md)**。唯一前向计划是 [11-16 计划](reviews/claude-2026-11-16/04-plan.md)；G2 当前结论、用量、输入身份和冻结回归只在[运行记录](reports/g2-first-real-run.md)详记。
 
-R6 按计划中“明确记录未达原因”的路径完成出口，不能将 U1/U2 写为达成；六格式为 `structured-v3`、`lean-v1`、`fixed-role-v1`、`append-fold-v1`、`guided-v1`、`bounded-v1`。E1 不在保留能力内。[#135](https://github.com/wmqfl861/wls861/pull/135) 已合入 `b49bbb1`，[`v0.13.0`](https://github.com/wmqfl861/wls861/tree/v0.13.0) 注释标签已推送，无 Release。
+R6 当时按计划中“明确记录未达原因”的路径完成出口，本次 U1/U2 成功另行记录，不能回写成旧版本已通过；六格式为 `structured-v3`、`lean-v1`、`fixed-role-v1`、`append-fold-v1`、`guided-v1`、`bounded-v1`。E1 当前仍未恢复；后续按 D-51/D-56 在 R11 顺序处理。[#135](https://github.com/wmqfl861/wls861/pull/135) 已合入 `b49bbb1`，[`v0.13.0`](https://github.com/wmqfl861/wls861/tree/v0.13.0) 注释标签已推送，无 Release。
 
 ## 已核对输入与验证
 
@@ -18,7 +18,7 @@ E1 [#133](https://github.com/wmqfl861/wls861/pull/133) 曾合入 `3fa7019`；本
 
 此前 `c01df93` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43929349216)通过：450/450 CTest、Make 60+25；它与回退源树相同，仍按原提交登记。PR、main 完整矩阵、本机局部测试和真实请求分列，不能相互替代。
 
-媒体修复 [#143](https://github.com/wmqfl861/wls861/pull/143) 的核心 270/270、源码与受影响 ASan 16/16 通过，已合入 main `5a96f40`；完整矩阵在运行。前一 main `4b10ee1` 完整矩阵通过，D-20 发现 live_workflow_cli 达 ASan 期限的 53.64%；紧接的测试分片候选保留全部 24 方法，3 组本机通过，远端验证待执行。详见 [运行记录](reports/g2-first-real-run.md)。
+媒体修复 [#143](https://github.com/wmqfl861/wls861/pull/143) 的核心 270/270、源码与受影响 ASan 16/16 通过，合入 main 的完整矩阵也已核验通过。D-20 测试分片 [#144](https://github.com/wmqfl861/wls861/pull/144) 保留全部 24 方法，核心 276/276、受影响 ASan 18/18 及独立源码审核通过并合入；其 main 完整矩阵仍在核对。最新 CI 与真实记录见 [运行记录](reports/g2-first-real-run.md)。
 
 ## 长期边界
 
