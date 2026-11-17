@@ -18,7 +18,7 @@ E1 [#133](https://github.com/wmqfl861/wls861/pull/133) 曾合入 `3fa7019`；本
 
 此前 `c01df93` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43929349216)通过：450/450 CTest、Make 60+25；它与回退源树相同，仍按原提交登记。PR、main 完整矩阵、本机局部测试和真实请求分列，不能相互替代。
 
-媒体修复 [#143](https://github.com/wmqfl861/wls861/pull/143) 的核心 270/270、源码与受影响 ASan 16/16 通过，合入 main 的完整矩阵也已核验通过。D-20 测试分片 [#144](https://github.com/wmqfl861/wls861/pull/144) 保留全部 24 方法，核心 276/276、受影响 ASan 18/18 及独立源码审核通过并合入；其 main 完整矩阵仍在核对。最新 CI 与真实记录见 [运行记录](reports/g2-first-real-run.md)。
+媒体修复 [#143](https://github.com/wmqfl861/wls861/pull/143) 的核心 270/270、源码与受影响 ASan 16/16 通过，合入 main 的完整矩阵也已核验通过。D-20 测试分片 [#144](https://github.com/wmqfl861/wls861/pull/144) 保留全部 24 方法，核心 276/276、受影响 ASan 18/18 及独立源码审核通过并合入；其 main 完整矩阵 460/460 CTest、Make 两 shard 已通过，全部 92 套 ASan 未触发 D-20。最新 CI 与真实记录见 [运行记录](reports/g2-first-real-run.md)。
 
 ## 长期边界
 

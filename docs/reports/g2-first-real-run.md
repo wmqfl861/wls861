@@ -275,3 +275,11 @@ HTTP 完整、头部 477 字节、正文 46,852 字节且未截断；头声明 `
 截至 U2 结束，11-17 新增 73 次；G2 本阶段累计 **131/250 次、2,355,289/5,000,000 输入保守占用**，through-v1 **172/3,000 次、3,064,634/60,000,000 输入保守占用**。历史未知预留没有改写；剩余 G2 为 119 次、2,644,711 输入，足够按原 60 次/150 万输入上限准备一次 R11 对比，后续仍按实际用量检查。
 
 私有根同前，成功原件 `output-headroom-real-xjvkt5yx/r9-output-headroom/execution/`、`r10/execution/`；独立复核 `u1-review-new/`、`u2-review-new/`，累计账目 `budget-after-u1-u2.json`。旧预留超限请求及备份位于 `json-media-real-prep-4gybr21u/`。R11 按 E-14→E-11→E-1 顺序实施并完成真实比较后，再做 R12 版本/标签；当前不宣布整个项目完成。
+
+### R11 E-14：可选 Worker 提示
+
+本项只新增显式选择的 function 模板及说明，默认模板不变，不改产品 C++、SQL、工具权限或旧快照。已结算写回执只证明保存字节，两次历史调用是效率目标，必要取证与验收继续保留。现有 config check/explain 通过且不解析凭据，独立源码与测量审核通过；托管门禁/合入结果待本项 PR 核验。
+
+成功 U1 的 19 份原捕获全部重现实际 wire SHA；仅 13 份 Worker 的 function_prompt、依赖身份及派生哈希变化，管理角色和全部 wire 历史逐字不变。Worker 总 body 1,036,252→1,054,036 B（+17,784，+1.7162%）；全集 1,349,285→1,367,069 B（+1.3180%）。基线 history_page/history_read 为 0/0，未宣称历史调用或真实 token 已改善。原 JSON 数字拼写与 Python 默认序列化不一致的首次断言失败已保留；改用保留原数字词法的同输入派生后通过，未改变原件。私有证据 `r11-e14-evidence/lexical-matched/summary.json`，SHA-256 `d09bc2071f9daa95d2f37dadd2eb7aa22ac146dd0de28348f979e27d2ea9575c`。38 次 encode-only、网络/付费/工具派发均为 0；后续组合真实比较仍待 E-11/E-1 合入。
+
+#144 main [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44033514578)已独立核验通过：核心 276/276、ASan 92/92、UBSan 92/92，共 460 次 CTest；Make 50 个 C++ 套件/883 子例及 8+25 Python 套件/120+331 子例。原 24 个 CLI 方法保持，三个分组 ASan 为 24.46/91.85/55.05 秒；全部 92 套最大期限占比 48.65%，无 D-20 超半项。原始日志及收据位于 `run-intake/hosted-live-cli-main144-44033514578/`。
