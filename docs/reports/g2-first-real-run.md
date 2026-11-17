@@ -1,6 +1,6 @@
 # G2 首次真实运行
 
-2026-11-17 更新：D-46、D-48 和媒体诊断 [#140](https://github.com/wmqfl861/wls861/pull/140)–[#142](https://github.com/wmqfl861/wls861/pull/142) 已合入。最新 R9 捕获完整 JSON，但中转声明为 SSE；原 JSON 产品离线回放通过，旧冻结媒体策略按预期拒绝，U1/U2 仍为 NOT_PASSED。仅新请求显式选择的 JSON 媒体兼容已通过本机六套回归，托管门禁及合入待执行；旧用量不回填。本轮事实见[末节](#r7r10账目恢复重试与真实复验)，11-15/11-16 原逐次记录保留。
+2026-11-17 更新：D-46、D-48 和媒体诊断 [#140](https://github.com/wmqfl861/wls861/pull/140)–[#142](https://github.com/wmqfl861/wls861/pull/142) 已合入。最新 R9 捕获完整 JSON，但中转声明为 SSE；原 JSON 产品离线回放通过，旧冻结媒体策略按预期拒绝，U1/U2 仍为 NOT_PASSED。新请求显式 JSON 媒体兼容已由 #143 合入，核心/源码/受影响 ASan 通过，新的 U1 运行中；旧用量不回填。本轮事实见[末节](#r7r10账目恢复重试与真实复验)，11-15/11-16 原逐次记录保留。
 
 日期：2026-11-15 至 11-16。**U1/U2 未通过**：R2/R3 末次 Dispatcher 收到中转上游失败流；一次新 R5 则在末次 Worker 的无序号扩展事件处被协议拒绝，均无完整交付。原三交付物导出已按 D-31 恢复、成果 12/12 且无新调用；严格 metadata 保留检查仅 SHM mtime 变化而 FAIL，原结果保留。E1 离线字节减少已验证，真实改善仍未知，按 D-37 保守回退（[#134](https://github.com/wmqfl861/wls861/pull/134)，当前门禁/合入状态见末节），不宣称优化无效或导致失败。R6 按“明确记录未达原因”的计划路径整理 v0.5 与六格式；版本不代表 U1/U2 成功。R5 固定 main `3fa7019`（[#133](https://github.com/wmqfl861/wls861/pull/133)），原输入、CI 与回退身份见末节；Store 410。
 
@@ -233,7 +233,7 @@ R9 续跑前完成整个请求与配置目录的备份、哈希和元数据核�
 
 私有验证收据 `media-evidence/final-validation.json`，SHA-256 `38ffc0aaf43e5cce9b19bb1906b5a7765a3196c43e2f248dfa52b05983a487e0`；永久构建/测试日志 `media-build.log`、`media-build-retry.log`、`media-tests-initial.log` 及精确源码和 ELF 哈希均绑定在收据。随后文档 CTest 2/2 通过，但覆盖了构建目录临时 `LastTest.log`；逐方法计数为覆盖前实读，四套通过有永久汇总日志，原逐方法详细日志未保留，原收据保持并注明此限制。该验证证明本地拒绝与重试边界，不保证上游将返回正确的非流式媒体，也不补回 R9/R10 缺失正文。U1/U2 仍为 NOT_PASSED。
 
-#142 最终输入 `99c16e6` 经独立审核 PASS，产品 60 行、测试 120 行；[核心](https://github.com/wmqfl861/wls861/actions/runs/44012736757)270/270、[源码](https://github.com/wmqfl861/wls861/actions/runs/44012736755)和[受影响 ASan](https://github.com/wmqfl861/wls861/actions/runs/44012777575)16/16 通过。合入 main `4b10ee1` 的树与受审输入相同；核心实际测试合成 merge 的父关系及树均核对。受影响 ASan 最大占比为 live_workflow_cli 173.50/360 秒（48.19%），未超 50%。核验原件 `run-intake/pr142-ci-root-ianinol0/`；[main 完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44015952843)正在核对，不能以 PR 局部矩阵替代。
+#142 最终输入 `99c16e6` 经独立审核 PASS，产品 60 行、测试 120 行；[核心](https://github.com/wmqfl861/wls861/actions/runs/44012736757)270/270、[源码](https://github.com/wmqfl861/wls861/actions/runs/44012736755)和[受影响 ASan](https://github.com/wmqfl861/wls861/actions/runs/44012777575)16/16 通过。合入 main `4b10ee1` 的树与受审输入相同；核心实际测试合成 merge 的父关系及树均核对。受影响 ASan 最大占比为 live_workflow_cli 173.50/360 秒（48.19%），未超 50%。核验原件 `run-intake/pr142-ci-root-ianinol0/`；[main 完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44015952843)已核对通过：九个构建作业、450/450 CTest、Make 两 shard；实际 checkout 及所有原日志已核对。
 
 ### 完整 JSON 被标为 SSE：真实捕获与离线判定
 
@@ -245,8 +245,16 @@ HTTP 完整、头部 477 字节、正文 46,852 字节且未截断；头声明 `
 
 累计更新：11-17 新增 6 次，输入保守占用 243,820；G2 本轮 **64/250 次、986,531/5,000,000 输入**（已知 420,613 + 未知预留 565,918），through-v1 **105/3,000 次、1,695,876/60,000,000 输入**（已知 1,069,010 + 未知预留 626,866）。费用及未捕获的实际用量保持未知。
 
-决定：新增明确冻结的 `responses_media_type_policy: json-under-sse-v1`，只作用于新请求的非流式 Responses HTTP 200 + SSE 媒体声明，完整严格 JSON 仍由原解码器处理；理由：原文已证明内容可解码，显式策略能修中转错误并保留旧请求解释。缺键仍拒绝，实际 SSE 仍仅诊断，原 framing、字节限额、期限、取消、模型/字段/工具检查均保留。真实复验等待候选合入；准备目录 `json-media-real-prep-4gybr21u/` 尚未调用模型。
+决定：新增明确冻结的 `responses_media_type_policy: json-under-sse-v1`，只作用于新请求的非流式 Responses HTTP 200 + SSE 媒体声明，完整严格 JSON 仍由原解码器处理；理由：原文已证明内容可解码，显式策略能修中转错误并保留旧请求解释。缺键仍拒绝，实际 SSE 仍仅诊断，原 framing、字节限额、期限、取消、模型/字段/工具检查均保留。此前准备目录 `json-media-real-prep-4gybr21u/` 的新请求，在 #143 合入后启动；结果待交付核验。
 
 显式兼容候选本机验证：干净 GCC 13 Release、普通 uid 1000，`cmake --build BUILD --parallel 2 --target wls protocol_codec_tests sse_replay_tests live_model_store_tests https_transport_driver live_model_store_driver` 通过；`ctest --test-dir BUILD -R '^(protocol_codec|sse_replay|live_model_store|https_transport|live_model_store_tls|live_workflow_cli)$' --output-on-failure` 6/6 通过，135.98 秒。六套报告用例分别 59、42、30、50、15、24，共 220；HTTP matrix 包含 12 个新非流式子场景及 2 个流式不变子场景，容量/中断 matrix 包含 7 个新 JSON 子场景。Store 入口验证冻结/恢复、原发送和证据 hash、Completed/usable 的持久化。产品 38 行、测试 76 行；无 SQL/Store 版本变化。独立静态审核无发现；两份新配置各 config check 和三个角色 explain 共 8/8 通过，凭据未解析。
 
-构建输入 `4157894`，测试输入 `90f2e76` 的唯一后续差异为 Python 流式边界用例；C++/构建输入逐字相同。证据 `json-media-evidence/ctest-focused-20261117T044949260904Z.json`，SHA-256 `1ecbcc55eb57dbdf782fed391d89e60dc626cbaac13b4383e2bfbb34df475d05`；永久同前缀 `-LastTest.log` SHA-256 `02333a6b6a2bcf2a2cd4bc7d535aca0a4987c278f8175c97f04de302ce3818b2`，详细原日志已在后续检查前复制。原命令未请求 JUnit，故没有该文件，不补造或重跑替代。托管门禁、合入与真实复验仍待执行。
+构建输入 `4157894`，测试输入 `90f2e76` 的唯一后续差异为 Python 流式边界用例；C++/构建输入逐字相同。证据 `json-media-evidence/ctest-focused-20261117T044949260904Z.json`，SHA-256 `1ecbcc55eb57dbdf782fed391d89e60dc626cbaac13b4383e2bfbb34df475d05`；永久同前缀 `-LastTest.log` SHA-256 `02333a6b6a2bcf2a2cd4bc7d535aca0a4987c278f8175c97f04de302ce3818b2`，详细原日志已在后续检查前复制。原命令未请求 JUnit，故没有该文件，不补造或重跑替代。随后托管门禁和合入见下；真实复验正在执行。
+
+[#143](https://github.com/wmqfl861/wls861/pull/143) 最终提交 `36b1d1f` 的[核心](https://github.com/wmqfl861/wls861/actions/runs/44020460645)三配置各 90/90、[源码](https://github.com/wmqfl861/wls861/actions/runs/44020460626)与[D-40 ASan](https://github.com/wmqfl861/wls861/actions/runs/44020456515)16/16 通过，精确 checkout/合成 merge 树均独立核验。合入 main `5a96f40` 与受审树一致，当前 main [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44026549272)运行中；本机重建 ELF SHA-256 `a32a6969b2dd2556b7c7cdb52f21e5939ee0317e5ee01c901430845d7c237a14` 与六套验证输入一致。新 U1 于该输入启动，非流式/max/max/max、原 60 次/150 万输入/25 分钟限额，结果尚未知。独立 CI 收据在 `run-intake/hosted-json-media-pr143-36b1d1f/`，D-40 收据 SHA-256 `6653f52fc15233eccb0ccc25deb60a8e9bbddd665154c2ebb5f55511d29d9c9d`。
+
+### D-20：live_workflow_cli 分片
+
+前一 main 完整 ASan 中 live_workflow_cli 为 193.10/360 秒（53.64%），触发 D-20。该结果在 #143 已开启后才取得，紧接的分片 PR 直接基于 main，将原套件注册为 core/media/retries 三组。24 方法的 AST、原用例/断言/业务期限保持；分组 18+1+5 完整互斥，直接 Python/Make 不指定 group 仍执行全套。每组 Release 180 秒、sanitizer 360 秒不变；CTest 注册 90→92，受影响 ASan 16→18，不修改历史运行计数。
+
+分片本机验证用未修改产品 ELF `c29c988…`：core 18 方法、media 1 方法（原完整子场景矩阵）、retries 5 方法全部通过，分别 10.25/44.41/35.13 秒，普通用户、临时夹具在数据盘。第一次启动在导入共享 TLS 夹具时因 group argv 拒绝，尚未运行方法；仅修正导入前 argv 后运行上述三组，原失败日志保留。CMake 配置及实际注册/选择器核验通过。源码产品 0 行；测试修改仅 runner 分组，没有增加或删除测试断言，不以增加产品行凑比例。代理派发正文多次被网关省略，实际编辑与本机核验由 root 完成，不宣称未发生的独立代理审核；后续 CI 与静态核验分别登记。原件 `d20-shards-evidence/`，托管各组耗时待执行。
