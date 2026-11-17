@@ -158,7 +158,7 @@ class LiveWorkflowCli(unittest.TestCase):
         return json.loads(result.stdout)
 
     def admit(self, port, key='request-one', pricing=None, cost_budget=10000, retries=0, timeout_ms=None,
-              total=None, challenge=False, plain=False, text_file=None, constraints_file=None, observe_only=False):
+              total=None, challenge=False, plain=False, text_file=None, constraints_file=None, observe_only=False, stream=False):
         system = copy.deepcopy(self.system)
         provider = json.loads((SOURCE / 'config/examples/providers/responses-offline.json').read_text())
         provider.update(base_url=f'https://localhost:{port}', api_key_env=REFERENCE,
@@ -181,7 +181,7 @@ class LiveWorkflowCli(unittest.TestCase):
                 'ca_bundle_pem': (self.certificates / 'ca.pem').read_text(), 'resolved_ipv4': '127.0.0.1',
                 'max_header_bytes': 65536, 'max_header_line_bytes': 8192,
                 'max_total_response_bytes': 3 * 1024 * 1024, 'poll_interval_ms': 25},
-                'stream': False, 'execution_kind': 'local_tls',
+                'stream': stream, 'execution_kind': 'local_tls',
                 'capability_evidence_source': 'synthetic-cli-loopback-v1',
                 'capability_evidence_sha256': hashlib.sha256(b'synthetic CLI capabilities only').hexdigest()}}
         system['defaults']['model_ref'] = 'cli-loopback'
@@ -361,6 +361,79 @@ class LiveWorkflowCli(unittest.TestCase):
             self.assertEqual(report['network_started_calls'], 1)
             self.assertEqual(len(original.requests), 1)
             self.assertEqual(replacement.accepted, 0)
+
+    def test_unusable_response_retries_keep_original_evidence_and_boundaries(self):
+        cases = [('failed', False, 2, 1, 2), ('rejected', False, 2, 1, 2),
+                 ('failed', True, 2, 1, 2), ('rejected', True, 2, 1, 2),
+                 ('failed', False, 2, 3, 3), ('failed', False, 0, 1, 1),
+                 ('cancelled', False, 2, 1, 1), ('incomplete', False, 2, 1, 1),
+                 ('incomplete', True, 2, 1, 1),
+                 ('timeout', False, 2, 1, 1), ('unknown', False, 2, 1, 1),
+                 ('schema', False, 2, 1, 2), ('text', False, 2, 1, 2)]
+        for case, stream, retries, failures, expected in cases:
+            with self.subTest(case=case, stream=stream, retries=retries, failures=failures):
+                self.database = self.directory / f'd48-{case}-{stream}-{retries}-{failures}.sqlite'
+                def respond(peer, connection):
+                    peer.request(connection)
+                    value = json.loads(priced(plan_response()))
+                    if len(peer.requests) <= failures:
+                        if case == 'timeout':
+                            peer.stop.wait(2); return
+                        if case in ('failed', 'unknown', 'cancelled', 'incomplete'):
+                            value.update(status='failed' if case in ('failed', 'unknown') else case,
+                                         output=[], usage=None, error={'code': 'upstream_error'} if case in ('failed', 'unknown') else None)
+                        if case == 'schema': value['output'][0]['arguments'] = '{}'
+                        if case == 'text': value = json.loads(priced(tls.response_body()))
+                    body = b'{}' if case == 'rejected' and len(peer.requests) <= failures else tls.encoded(value)
+                    if stream:
+                        event = 'response.' + value['status']
+                        events = [('response.created', {'response': dict(value, status='in_progress', output=[], usage=None, error=None)})]
+                        for index, item in enumerate(value['output']):
+                            target = {'output_index': index, 'item_id': item['id']}
+                            events += [('response.output_item.added', {'output_index': index, 'item': dict(item, status='in_progress', arguments='')}),
+                                       ('response.function_call_arguments.delta', {**target, 'delta': item['arguments']}),
+                                       ('response.function_call_arguments.done', {**target, 'arguments': item['arguments']}),
+                                       ('response.output_item.done', {'output_index': index, 'item': item})]
+                        events.append((event, {'response': value}))
+                        body = b''.join(b'data: ' + tls.encoded(dict(data, type=kind, sequence_number=index)) + b'\n\n'
+                                        for index, (kind, data) in enumerate(events)) if body != b'{}' else b'data: {}\n\n'
+                        if case == 'incomplete': body += b'data: {}\n\n'  # Rejection after an incomplete terminal stays ineligible.
+                    connection.sendall(tls.headers(len(body), content_type='text/event-stream' if stream else 'application/json') + body)
+                with tls.Peer(self.contexts['server'], respond) as peer:
+                    request = self.admit(peer.port, retries=retries, observe_only=case != 'unknown',
+                                         timeout_ms=300 if case == 'timeout' else None, stream=stream)
+                    if retries == 0:  # Current configuration cannot grant a frozen request another attempt.
+                        changed = json.loads(self.configuration.read_text()); changed['model_calls']['max_paid_retries'] = 2
+                        self.configuration.write_text(json.dumps(changed))
+                    auth = self.authorize(request, reserved=0 if case != 'unknown' else 100)
+                    auth.update(max_calls=3 if failures == 3 else 2, max_batch_duration_ms=25000)
+                    self.authorization_file.write_text(json.dumps(auth))
+                    report = self.pump(request)
+                    self.assertEqual(len(peer.requests), expected, report)
+                attempts = self.rows('SELECT * FROM call_attempts ORDER BY rowid')
+                feedback = [json.loads(row['result']) for row in self.rows('SELECT result FROM model_tool_feedback ORDER BY rowid')]
+                observations = self.rows('SELECT protocol_evidence FROM live_transport_observations ORDER BY rowid')
+                self.assertEqual((len(attempts), len(feedback), len(observations), len(self.rows('SELECT * FROM live_send_claims'))), (expected,) * 4)
+                paid = case in ('failed', 'rejected') and retries > 0
+                for i, row in enumerate(attempts):
+                    self.assertTrue(row['settlement_sha256'])
+                    self.assertEqual(feedback[i].get('retry_of_attempt_id'), attempts[i - 1]['attempt_id'] if paid and i else None)
+                if case in ('failed', 'rejected', 'unknown', 'cancelled', 'incomplete', 'timeout'):
+                    self.assertIsNone(attempts[0]['input_tokens']); self.assertIsNone(attempts[0]['output_tokens'])
+                if case != 'timeout':
+                    first = json.loads(observations[0]['protocol_evidence'])
+                    self.assertIn('decoder_reason_code', first)
+                    self.assertEqual(first['decoder_reason_code'], 'provider_failed' if case in ('failed', 'unknown') else
+                                     'invalid_sse' if case == 'incomplete' and stream else
+                                     ('invalid_sse' if stream else 'invalid_response') if case == 'rejected' else
+                                     'response_' + case if case in ('cancelled', 'incomplete') else '')
+                if paid:
+                    self.assertEqual([call.get('retry_delay_seconds') for call in report['calls'][:min(failures, 2)]], [2, 8][:min(failures, 2)])
+                else:
+                    self.assertFalse(any('retry_delay_seconds' in call for call in report['calls']))
+                if failures == 3: self.assertEqual(report['stop_reason'], 'paid_retry_limit')
+                if case in ('schema', 'text'): self.assertIn('correction_feedback', feedback[0])
+                self.assertEqual(len(self.rows('SELECT * FROM tasks')), int(expected > failures))
 
     def test_bounded_paid_retries_preserve_independent_attempts_and_feedback(self):
         for status, failures, expected in ((429, 1, 2), (429, 3, 3),

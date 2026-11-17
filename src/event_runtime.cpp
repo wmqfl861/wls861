@@ -836,6 +836,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
         if (!captured.input_estimate.is_null()) invocation["input_estimate"] = captured.input_estimate;
         bool live_execution_started = false;
         bool settled_for_retry = false;
+        bool retryable_unusable_response = false;
         const auto preserve_observation_gap = [&] {
             if (!live || !live_execution_started || invocation.contains("network_started")) return;
             try {
@@ -905,6 +906,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 live_execution_started = true;
                 auto observed = observe_live_attempt(store_, captured.actor, captured.request, credential.bytes,
                     live->authorization, experience, stop);
+                retryable_unusable_response = observed.retryable_unusable_response;
                 invocation["send_claim"] = live_record_summary(observed.send_claim);
                 invocation["transport"] = observed.transport_summary;
                 invocation["network_started"] = observed.sent;
@@ -1001,7 +1003,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                     number(transport, "header_bytes_observed") == 0 && number(transport, "body_bytes_observed") == 0 &&
                     (status == "connection_error" || status == "certificate_error" ||
                         (status == "transfer_error" && text(transport, "reason") == "transfer_error"));
-                const bool eligible = unsent || (status == "http_error" && transport.at("transfer_complete").as_bool() &&
+                const bool eligible = retryable_unusable_response || unsent || (status == "http_error" && transport.at("transfer_complete").as_bool() &&
                     (http == 408 || http == 429 || http == 500 || http == 502 || http == 503 || http == 504));
                 const auto maximum = number(config.json().at("system").at("model_calls"), "max_paid_retries");
                 const auto feedback = store_.tool_feedback(captured.request.attempt_id);
