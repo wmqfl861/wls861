@@ -38,8 +38,8 @@ def check_operations(data):
         for stream in ('stdout', 'stderr'):
             output, = [row for row in data['outputs'] if row['op_id'] == op['op_id'] and row['stream'] == stream]
             raw = bytes.fromhex(output['bytes_hex'])
-            assert not record[stream + '_truncated'] and len(raw) == record[stream + '_bytes']
-            assert hashlib.sha256(raw).hexdigest() == record[stream + '_sha256'] and raw == base64.b64decode(process[stream + '_base64'], validate=True)
+            assert not record[stream + '_truncated'] and len(raw) == record[stream + '_bytes'] == process[stream + '_bytes']
+            assert hashlib.sha256(raw).hexdigest() == record[stream + '_sha256'] and process['output_location'] == 'op_output'
 
 
 def check_cancelled(before, active):

@@ -58,8 +58,9 @@
             "operation_id": "synthetic-op-alpha-1"
           },
           "cgroup_name": "synthetic-op-alpha-1",
-          "stdout_base64": "U1RBQkxFIDEK",
-          "stderr_base64": ""
+          "stdout_bytes": 9,
+          "stderr_bytes": 0,
+          "output_location": "op_output"
         },
         "evidence": {
           "proof_format": "wls-process-proof-standard-cgroup-v1",
@@ -116,8 +117,9 @@
             "operation_id": "synthetic-op-beta-1"
           },
           "cgroup_name": "synthetic-op-beta-1",
-          "stdout_base64": "UkVBRFkK",
-          "stderr_base64": ""
+          "stdout_bytes": 6,
+          "stderr_bytes": 0,
+          "output_location": "op_output"
         },
         "evidence": {
           "proof_format": "wls-process-proof-standard-cgroup-v1",
@@ -241,8 +243,9 @@
                 "operation_id": "synthetic-op-alpha-1"
               },
               "cgroup_name": "synthetic-op-alpha-1",
-              "stdout_base64": "U1RBQkxFIDEK",
-              "stderr_base64": ""
+              "stdout_bytes": 9,
+              "stderr_bytes": 0,
+              "output_location": "op_output"
             },
             "evidence": {
               "proof_format": "wls-process-proof-standard-cgroup-v1",
@@ -345,8 +348,9 @@
                 "operation_id": "synthetic-op-beta-1"
               },
               "cgroup_name": "synthetic-op-beta-1",
-              "stdout_base64": "UkVBRFkK",
-              "stderr_base64": ""
+              "stdout_bytes": 6,
+              "stderr_bytes": 0,
+              "output_location": "op_output"
             },
             "evidence": {
               "proof_format": "wls-process-proof-standard-cgroup-v1",
@@ -675,8 +679,9 @@
             "operation_id": "synthetic-op-alpha-1"
           },
           "cgroup_name": "synthetic-op-alpha-1",
-          "stdout_base64": "U1RBQkxFIDEK",
-          "stderr_base64": ""
+          "stdout_bytes": 9,
+          "stderr_bytes": 0,
+          "output_location": "op_output"
         },
         "evidence": {
           "proof_format": "wls-process-proof-standard-cgroup-v1",
@@ -733,8 +738,9 @@
             "operation_id": "synthetic-op-beta-1"
           },
           "cgroup_name": "synthetic-op-beta-1",
-          "stdout_base64": "UkVBRFkK",
-          "stderr_base64": ""
+          "stdout_bytes": 6,
+          "stderr_bytes": 0,
+          "output_location": "op_output"
         },
         "evidence": {
           "proof_format": "wls-process-proof-standard-cgroup-v1",
@@ -791,8 +797,9 @@
             "operation_id": "synthetic-op-beta-2"
           },
           "cgroup_name": "synthetic-op-beta-2",
-          "stdout_base64": "Q0hBTkdFRCAyCg==",
-          "stderr_base64": ""
+          "stdout_bytes": 10,
+          "stderr_bytes": 0,
+          "output_location": "op_output"
         },
         "evidence": {
           "proof_format": "wls-process-proof-standard-cgroup-v1",
@@ -926,8 +933,9 @@
                 "operation_id": "synthetic-op-alpha-1"
               },
               "cgroup_name": "synthetic-op-alpha-1",
-              "stdout_base64": "U1RBQkxFIDEK",
-              "stderr_base64": ""
+              "stdout_bytes": 9,
+              "stderr_bytes": 0,
+              "output_location": "op_output"
             },
             "evidence": {
               "proof_format": "wls-process-proof-standard-cgroup-v1",
@@ -1030,8 +1038,9 @@
                 "operation_id": "synthetic-op-beta-1"
               },
               "cgroup_name": "synthetic-op-beta-1",
-              "stdout_base64": "UkVBRFkK",
-              "stderr_base64": ""
+              "stdout_bytes": 6,
+              "stderr_bytes": 0,
+              "output_location": "op_output"
             },
             "evidence": {
               "proof_format": "wls-process-proof-standard-cgroup-v1",
@@ -1218,8 +1227,9 @@
                 "operation_id": "synthetic-op-beta-2"
               },
               "cgroup_name": "synthetic-op-beta-2",
-              "stdout_base64": "Q0hBTkdFRCAyCg==",
-              "stderr_base64": ""
+              "stdout_bytes": 10,
+              "stderr_bytes": 0,
+              "output_location": "op_output"
             },
             "evidence": {
               "proof_format": "wls-process-proof-standard-cgroup-v1",
@@ -2320,8 +2330,9 @@
                   "operation_id": "synthetic-op-beta-1"
                 },
                 "cgroup_name": "synthetic-op-beta-1",
-                "stdout_base64": "UkVBRFkK",
-                "stderr_base64": ""
+                "stdout_bytes": 6,
+                "stderr_bytes": 0,
+                "output_location": "op_output"
               },
               "evidence": {
                 "proof_format": "wls-process-proof-standard-cgroup-v1",
@@ -2508,8 +2519,9 @@
                   "operation_id": "synthetic-op-beta-2"
                 },
                 "cgroup_name": "synthetic-op-beta-2",
-                "stdout_base64": "Q0hBTkdFRCAyCg==",
-                "stderr_base64": ""
+                "stdout_bytes": 10,
+                "stderr_bytes": 0,
+                "output_location": "op_output"
               },
               "evidence": {
                 "proof_format": "wls-process-proof-standard-cgroup-v1",
@@ -2745,6 +2757,48 @@
         "elapsed_s"
       ],
       "value": 91
+    },
+    {
+      "name": "tampered original BLOB",
+      "path": [
+        "after",
+        "outputs",
+        0,
+        "bytes_hex"
+      ],
+      "value": "535441424c4520320a"
+    },
+    {
+      "name": "wrong persisted process byte count",
+      "path": [
+        "after",
+        "operation_results",
+        0,
+        "result",
+        "stdout_bytes"
+      ],
+      "value": 0
+    },
+    {
+      "name": "wrong original BLOB digest",
+      "path": [
+        "after",
+        "operation_results",
+        0,
+        "stdout_sha256"
+      ],
+      "value": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "name": "wrong persisted output location",
+      "path": [
+        "after",
+        "operation_results",
+        0,
+        "result",
+        "output_location"
+      ],
+      "value": "inline"
     }
   ]
 }
