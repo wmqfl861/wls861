@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.13.1 — G2 real acceptance and measured opt-ins (2026-11-17)
+
+- Complete U1 and U2 with one confirmed delivery and 12/12 artifact checks each.
+  New acceptance requests use non-streaming Responses, explicit observe-only
+  accounting and at most two eligible paid retries; timeouts remain ineligible,
+  and old requests keep their frozen settings and unknown usage.
+- Retain the optional Worker efficiency prompt, last-two-round reasoning replay
+  and verified write-receipt summaries. After one incomplete comparison, the
+  second complete R11 run uses 18 calls and 201,365 input tokens versus U1's
+  19 calls and 375,089 input tokens. This is a joint observation; both R11 runs
+  remain charged, and the first open question is not rewritten as success.
+- Record the actual results under D-57 without repeating the 0.13.0 contract
+  freeze. Store 410 and the original `wls861` 0.1.1-m1 kernel are unchanged.
+  G4/U3/U4 still await a compliant host; file-only G3 is the next stage.
+  Detailed results, validation, nullable costs and remaining work stay in
+  [the G2 report](docs/reports/g2-first-real-run.md), [STATUS](docs/STATUS.md)
+  and [the latest handoff](docs/reviews/current-handoff.md).
+
 ## 0.13.0 — G2 evidence disposition and v0.5 contract freeze (2026-11-16)
 
 - Migrate the adopted v0.5 specification and A1–A5; freeze `structured-v3`,
