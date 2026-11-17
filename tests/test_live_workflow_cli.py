@@ -158,13 +158,18 @@ class LiveWorkflowCli(unittest.TestCase):
         return json.loads(result.stdout)
 
     def admit(self, port, key='request-one', pricing=None, cost_budget=10000, retries=0, timeout_ms=None,
-              total=None, challenge=False, plain=False, text_file=None, constraints_file=None, observe_only=False, stream=False):
+              total=None, challenge=False, plain=False, text_file=None, constraints_file=None, observe_only=False, stream=False,
+              streaming_supported=True, refusal_compat=False):
         system = copy.deepcopy(self.system)
         provider = json.loads((SOURCE / 'config/examples/providers/responses-offline.json').read_text())
         provider.update(base_url=f'https://localhost:{port}', api_key_env=REFERENCE,
                         model_ref='cli-loopback', profile_id='synthetic-cli-loopback')
         provider['capabilities']['reasoning_efforts'] = []
         provider['capabilities']['reasoning_modes'] = ['provider_default', 'off']
+        provider['capabilities']['streaming'] = streaming_supported
+        if refusal_compat:
+            provider['responses_compatibility'] = {'format': 'wls-responses-compat-v1',
+                'reference': 'openai-responses-2026-11-08', 'model_aliases': {provider['model']: ['o3-2025-04-16']}}
         if pricing is not None:
             provider['pricing'] = copy.deepcopy(pricing)
         if timeout_ms is not None:
@@ -173,7 +178,7 @@ class LiveWorkflowCli(unittest.TestCase):
             provider['billing_challenge'] = 'wls-billing-challenge-v1'
         system['models']['cli-loopback'] = {
             'adapter': 'openai-responses', 'adapter_version': '1', 'protocol': 'openai-responses-v1',
-            'model': provider['model'], 'capabilities': {'streaming': 'supported',
+            'model': provider['model'], 'capabilities': {'streaming': 'supported' if streaming_supported else 'unsupported',
                 'tool_calling': 'supported', 'parallel_tool_calls': 'supported',
                 'reasoning_modes': ['provider_default', 'off'], 'context_window': 100000,
                 'max_output_tokens': 4096, 'cache_mode': 'none'},
@@ -370,8 +375,12 @@ class LiveWorkflowCli(unittest.TestCase):
                  ('cancelled', True, 2, 1, 1), ('incomplete', True, 2, 1, 1),
                  ('timeout', False, 2, 1, 1), ('unknown', False, 2, 1, 1),
                  ('schema', False, 2, 1, 2), ('text', False, 2, 1, 2)]
+        cases += [('failed', 'media', 2, 1, 2), ('failed', 'media', 2, 3, 3), ('failed', 'media', 0, 1, 1)]
+        cases += [(case, 'media', 2, 1, 1) for case in ('completed', 'completed-tail', 'failed-content',
+                  'incomplete', 'refusal', 'no-terminal', 'metadata', 'capability')]
         for case, stream, retries, failures, expected in cases:
             with self.subTest(case=case, stream=stream, retries=retries, failures=failures):
+                media = stream == 'media'
                 self.database = self.directory / f'd48-{case}-{stream}-{retries}-{failures}.sqlite'
                 def respond(peer, connection):
                     peer.request(connection)
@@ -379,13 +388,15 @@ class LiveWorkflowCli(unittest.TestCase):
                     if len(peer.requests) <= failures:
                         if case == 'timeout':
                             peer.stop.wait(2); return
-                        if case in ('failed', 'unknown', 'cancelled', 'incomplete'):
-                            value.update(status='failed' if case in ('failed', 'unknown') else case,
-                                         output=[], usage=None, error={'code': 'upstream_error'} if case in ('failed', 'unknown') else None)
+                        if case in ('failed', 'unknown', 'cancelled', 'incomplete', 'capability'):
+                            value.update(status='failed' if case in ('failed', 'unknown', 'capability') else case,
+                                         output=[], usage=None, error={'code': 'upstream_error'} if case in ('failed', 'unknown', 'capability') else None)
+                        if case == 'failed-content': value.update(status='failed', error={'code': 'upstream_error'})
                         if case == 'schema': value['output'][0]['arguments'] = '{}'
                         if case == 'text': value = json.loads(priced(tls.response_body()))
                     body = b'{}' if case == 'rejected' and len(peer.requests) <= failures else tls.encoded(value)
-                    if stream:
+                    reply_stream = stream is True or (media and len(peer.requests) <= failures)
+                    if reply_stream:
                         event = 'response.' + value['status']
                         events = [('response.created', {'response': dict(value, status='in_progress', output=[], usage=None, error=None)})]
                         for index, item in enumerate(value['output']):
@@ -395,13 +406,18 @@ class LiveWorkflowCli(unittest.TestCase):
                                        ('response.function_call_arguments.done', {**target, 'arguments': item['arguments']}),
                                        ('response.output_item.done', {'output_index': index, 'item': item})]
                         events.append((event, {'response': value}))
+                        if case in ('no-terminal', 'metadata'): events = events[:1]
                         body = b''.join(b'data: ' + tls.encoded(dict(data, type=kind, sequence_number=index)) + b'\n\n'
                                         for index, (kind, data) in enumerate(events)) if body != b'{}' else b'data: {}\n\n'
                         if case == 'incomplete': body += b'data: {}\n\n'  # Rejection after an incomplete terminal stays ineligible.
-                    connection.sendall(tls.headers(len(body), content_type='text/event-stream' if stream else 'application/json') + body)
+                        if case == 'completed-tail': body += b'data: {}\n\n'
+                        if case == 'metadata': body += b'data: {"type":"codex.response.metadata"}\n\n'
+                        if case == 'refusal': body = (tls.FIXTURES / 'refusal.sse').read_bytes()
+                    connection.sendall(tls.headers(len(body), content_type='text/event-stream' if reply_stream else 'application/json') + body)
                 with tls.Peer(self.contexts['server'], respond) as peer:
                     request = self.admit(peer.port, retries=retries, observe_only=case != 'unknown',
-                                         timeout_ms=300 if case == 'timeout' else None, stream=stream)
+                                         timeout_ms=300 if case == 'timeout' else None, stream=stream is True,
+                                         streaming_supported=case != 'capability', refusal_compat=case == 'refusal')
                     if retries == 0:  # Current configuration cannot grant a frozen request another attempt.
                         changed = json.loads(self.configuration.read_text()); changed['model_calls']['max_paid_retries'] = 2
                         self.configuration.write_text(json.dumps(changed))
@@ -413,15 +429,39 @@ class LiveWorkflowCli(unittest.TestCase):
                     self.assertEqual(len(peer.requests), expected, report)
                 attempts = self.rows('SELECT * FROM call_attempts ORDER BY rowid')
                 feedback = [json.loads(row['result']) for row in self.rows('SELECT result FROM model_tool_feedback ORDER BY rowid')]
-                observations = self.rows('SELECT protocol_evidence FROM live_transport_observations ORDER BY rowid')
+                observations = self.rows('SELECT protocol_evidence,raw_body_hex FROM live_transport_observations ORDER BY rowid')
                 self.assertEqual((len(attempts), len(feedback), len(observations), len(self.rows('SELECT * FROM live_send_claims'))), (expected,) * 4)
                 paid = case in ('failed', 'rejected') and retries > 0
                 for i, row in enumerate(attempts):
                     self.assertTrue(row['settlement_sha256'])
                     self.assertEqual(feedback[i].get('retry_of_attempt_id'), attempts[i - 1]['attempt_id'] if paid and i else None)
-                if case in ('failed', 'rejected', 'unknown', 'cancelled', 'incomplete', 'timeout'):
+                if case in ('failed', 'rejected', 'unknown', 'cancelled', 'incomplete', 'timeout', 'capability'):
                     self.assertIsNone(attempts[0]['input_tokens']); self.assertIsNone(attempts[0]['output_tokens'])
-                if case != 'timeout':
+                if media:
+                    first = json.loads(observations[0]['protocol_evidence'])
+                    self.assertTrue(first['diagnostic_only']); self.assertFalse(first['requested_stream'])
+                    self.assertEqual((first['expected_media_type'], first['observed_media_type']), ('application/json', 'text/event-stream'))
+                    sent_hash = hashlib.sha256(peer.requests[0]['body']).hexdigest()
+                    self.assertEqual(first['actual_encoded_request_body_sha256'], sent_hash)
+                    self.assertEqual(self.rows('SELECT request_body_sha256 FROM live_attempt_execution ORDER BY rowid')[0]['request_body_sha256'], sent_hash)
+                    self.assertFalse(json.loads(peer.requests[0]['body'])['stream'])
+                    original = json.loads(attempts[0]['response'])
+                    self.assertEqual((original['status'], original['text'], original['tool_calls']), ('error', '', []))
+                    self.assertIsNone(original.get('responses_output'))
+                    self.assertNotIn('correction_feedback', feedback[0])
+                    self.assertTrue(observations[0]['raw_body_hex'])
+                    if case == 'capability':
+                        self.assertNotIn('diagnostic_encoder_stream', first)
+                        self.assertNotIn('offline_decoder_report', first)
+                    else:
+                        self.assertTrue(first['diagnostic_encoder_stream'])
+                        diagnostic = first['offline_decoder_report']
+                        self.assertNotEqual(diagnostic['encoded_request_body_sha256'], sent_hash)
+                        if case == 'failed':
+                            self.assertTrue(diagnostic['stream_complete'] and diagnostic['terminal_received'])
+                            self.assertEqual(first['decoder_reason_code'], 'provider_failed')
+                        if case == 'refusal': self.assertEqual(first['decoder_reason_code'], 'model_refusal')
+                elif case != 'timeout':
                     first = json.loads(observations[0]['protocol_evidence'])
                     self.assertIn('decoder_reason_code', first)
                     self.assertEqual(first['decoder_reason_code'], 'provider_failed' if case in ('failed', 'unknown') else
