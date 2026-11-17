@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       verification:
-        description: Verification scope (asan-affected runs twenty-six complete suites only)
+        description: Verification scope (asan-affected runs twenty-seven complete suites only)
         type: choice
         options:
           - full
@@ -269,8 +269,8 @@ jobs:
           test "$(id -u)" -ne 0
           umask "${{ matrix.test_umask }}"
           if [ "${{ needs.classify.outputs.mode }}" = asan-affected ]; then
-            echo 'Running twenty-six complete affected ASan suites only; this is not the full gate.'
-            ctest --test-dir build -R '^(protocol_codec|r1_structured|r1_structured_capture|r1_structured_lean|billing_baseline_e2e|run_cli_e2e|s15_cli_smoke|sandbox|worker_tools(_output|_environment)?|config_loader|acceptance_store|acceptance_runtime|acceptance_runtime_initialization|acceptance_runtime_experience|acceptance_runtime_memory|acceptance_runtime_guidance|allocation_recovery|offline_runtime|event_runtime|r2a_mkdir|live_model_store|live_workflow_cli_(core|media|retries))$' --output-on-failure
+            echo 'Running twenty-seven complete affected ASan suites only; this is not the full gate.'
+            ctest --test-dir build -R '^(protocol_codec|r1_structured|r1_structured_capture|r1_structured_lean|billing_baseline_e2e|run_cli_e2e|s15_cli_smoke|sandbox|worker_tools(_output|_environment)?|config_loader|acceptance_store|acceptance_runtime|acceptance_runtime_initialization|acceptance_runtime_experience|acceptance_runtime_memory|acceptance_runtime_guidance|allocation_recovery|offline_runtime|event_runtime|r2a_mkdir|live_model_store|live_workflow|live_workflow_cli_(core|media|retries))$' --output-on-failure
           elif [ "${{ needs.classify.outputs.mode }}" = standard-native ]; then
             echo 'Running native sandbox prerequisites and the explicit native scenario; this is not the full gate.'
             ctest --test-dir build -R '^(sandbox|process_evidence|doctor_diagnostics)$' --output-on-failure
