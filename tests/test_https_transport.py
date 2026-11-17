@@ -885,6 +885,64 @@ class HttpsTransport(unittest.TestCase):
                 result = self.invoke(peer)
                 self.assert_failed(result, "protocol_error")
 
+    def test_nonstream_sse_keeps_diagnostic_bytes_and_usage_without_output(self):
+        for body in (tool_stream(), (FIXTURES / "text.sse").read_bytes(),
+                     tool_stream() + b'data: {}\n\n'):
+            with self.subTest(body_sha=hashlib.sha256(body).hexdigest()), self.peer(
+                    fixed_response(body, content_type="text/event-stream")) as peer:
+                result = self.invoke(peer)
+            self.assert_failed(result, "protocol_error")
+            self.assertEqual(result["reason"], "unexpected_response_media_type")
+            self.assertTrue(result["transfer_complete"])
+            self.assertEqual(bytes.fromhex(result["raw_body_hex"]), body)
+            self.assertIsNone(result["response"].get("responses_output"))
+            self.assertEqual(result["response"]["usage"]["input_tokens"], 9)
+            self.assertFalse(json.loads(peer.requests[0]["body"])["stream"])
+            self.assertEqual(peer.requests[0]["headers"][b"accept"], b"application/json")
+            self.assertEqual(result["request_body_sha256"], hashlib.sha256(peer.requests[0]["body"]).hexdigest())
+
+    def test_nonstream_sse_retains_original_limits_and_interruption_priority(self):
+        body = tool_stream()
+        cases = [("limit", {"max_body_bytes": 256}), ("limit", {"max_stream_bytes": 256}),
+                 ("limit", {"max_total_bytes": 256}), ("limit", {"max_sse_chunks": 1}),
+                 ("deadline", {"timeout_ms": 300}), ("cancelled", {"cancel_after_ms": 300}),
+                 ("transfer_error", {})]
+        for expected, options in cases:
+            def serve(peer, connection):
+                peer.request(connection)
+                connection.sendall(headers(len(body) + (expected != "limit"), content_type="text/event-stream"))
+                connection.sendall(body[:64]); peer.stop.wait(0.05)
+                connection.sendall(body[64:])
+                if expected in ("deadline", "cancelled"): peer.stop.wait(2)
+            with self.subTest(expected=expected, options=options), self.peer(serve) as peer:
+                result = self.invoke(peer, **options)
+            self.assert_failed(result, expected)
+            self.assertFalse(result["transfer_complete"])
+            self.assertTrue(body.startswith(bytes.fromhex(result["raw_body_hex"])))
+            if "max_body_bytes" in options or "max_stream_bytes" in options:
+                self.assertLessEqual(len(bytes.fromhex(result["raw_body_hex"])), 256)
+            if "max_total_bytes" in options:
+                self.assertLessEqual(len(bytes.fromhex(result["raw_body_hex"] + result["raw_headers_hex"])), 256)
+
+    def test_nonstream_sse_does_not_relax_later_headers_or_trailers(self):
+        body = tool_stream()
+        for extra in (b"Content-Length: 1\r\n", b"Transfer-Encoding: chunked\r\n",
+                      b"Content-Encoding: gzip\r\n", b"Broken\r\n", b"X-Test: \x01\r\n"):
+            with self.subTest(extra=extra), self.peer(fixed_response(body,
+                    content_type="text/event-stream", extra=extra)) as peer:
+                result = self.invoke(peer)
+            self.assert_failed(result, "protocol_error")
+            self.assertEqual(result["raw_body_hex"], "")
+        def serve(peer, connection):
+            peer.request(connection)
+            connection.sendall(headers(chunked=True, content_type="text/event-stream") +
+                f"{len(body):x}\r\n".encode() + body + b"\r\n0\r\nContent-Type: application/json\r\n\r\n")
+        with self.peer(serve) as peer:
+            result = self.invoke(peer)
+        self.assert_failed(result, "protocol_error")
+        self.assertNotEqual(result["reason"], "unexpected_response_media_type")
+        self.assertFalse(result["transfer_complete"])
+
     def test_conflicting_http_framing_fails_closed(self):
         body = response_body(tool=True)
         for extra in (b"Content-Length: 1\r\n", b"Transfer-Encoding: chunked\r\n"):
