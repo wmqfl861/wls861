@@ -207,6 +207,7 @@ struct Transfer {
     std::vector<SseReplayChunk> chunks;
     std::size_t request_offset{};
     unsigned prerequests{};
+    bool json_media_selected{false};
 
     Microseconds elapsed() const noexcept {
         return std::chrono::duration_cast<Microseconds>(Clock::now() - started);
@@ -646,21 +647,36 @@ void decode_retained(Transfer& transfer, const ModelRequest& request) {
     // a valid terminal's usage survives an illegal tail or later cancellation.
     // Its tools are cleared by the outer transport outcome before return.
     if (!transfer.header.final || !transfer.header.completed) return;
+    if (transfer.header.diagnostic_sse && transfer.profile.responses_media_type_policy == "json-under-sse-v1") {
+        try {
+            // Select only a complete strict Responses JSON body. All semantic
+            // checks remain in the original HTTP decoder below.
+            const auto body = parse_json_strict(result.raw_body, transfer.profile.limits.max_response_bytes,
+                                               transfer.profile.limits.max_json_depth);
+            const auto* object = body.is_object() ? body.as_object().if_contains("object") : nullptr;
+            transfer.json_media_selected = object && object->is_string() && object->as_string() == "response";
+        } catch (const Error&) {
+            // Malformed JSON keeps the existing diagnostic SSE refusal.
+        }
+    }
+    const bool diagnostic_sse = transfer.header.diagnostic_sse && !transfer.json_media_selected;
     const auto diagnostic = [&] {
         if (!transfer.header.diagnostic_sse) return;
         auto& evidence = result.protocol_evidence.as_object();
-        evidence["diagnostic_only"] = true;
+        if (transfer.json_media_selected)
+            evidence["responses_media_type_policy"] = transfer.profile.responses_media_type_policy;
+        else evidence["diagnostic_only"] = true;
         evidence["requested_stream"] = false;
         evidence["expected_media_type"] = "application/json";
         evidence["observed_media_type"] = "text/event-stream";
         evidence["actual_encoded_request_body_sha256"] = transfer.encoded.body_sha256;
     };
-    if (transfer.header.diagnostic_sse && !transfer.profile.streaming) {
+    if (diagnostic_sse && !transfer.profile.streaming) {
         result.protocol_evidence = Object{{"decoder_unavailable", true}};
         diagnostic(); return;
     }
     try {
-        if ((transfer.encoded.stream || transfer.header.diagnostic_sse) && result.http_status == 200 &&
+        if ((transfer.encoded.stream || diagnostic_sse) && result.http_status == 200 &&
             transfer.header.content_type == "text/event-stream") {
             // The decoder already intersects its hard limits with the frozen
             // profile. A wider valid profile cannot enlarge those hard limits
@@ -968,7 +984,7 @@ HttpsTransportResult perform_protocol_https(const ProviderProfile& profile,
         fail(result, HttpsTransportStatus::ProtocolError, "incomplete_http_framing");
     } else if (result.http_status != 200) {
         fail(result, HttpsTransportStatus::HttpError, "http_error");
-    } else if (transfer.header.diagnostic_sse) {
+    } else if (transfer.header.diagnostic_sse && !transfer.json_media_selected) {
         fail(result, HttpsTransportStatus::ProtocolError, "unexpected_response_media_type");
     } else if (result.response.status != ModelResultStatus::Completed) {
         // Only shared-decoder classifications from a fully framed HTTP 200

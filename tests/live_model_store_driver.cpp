@@ -129,6 +129,7 @@ int main(int argc, char** argv) {
         CHECK(port > 0 && port <= 65535);
         auto live = fixture::settings(fixture::read(text(config, "ca_path")), static_cast<int>(port), flag(config, "chat"));
         live.stream = flag(config, "stream");
+        live.provider.responses_media_type_policy = optional_text(config, "responses_media_type_policy");
         // Compatibility profile is applied through the public JSON boundary
         // only; the frozen admission then carries the same original profile.
         if (const auto* compat = config.as_object().if_contains("compat_profile")) {
