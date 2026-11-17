@@ -1,4 +1,4 @@
-# G3 对照报告：B1 真实基线与 G3-C 合成候选
+# G3 对照报告：B1 真实基线与 G3-C 合成对照
 
 **B1 十格已完成并封存：完整 oracle 为 4 PASS、4 MISSING、2 FAIL，仅两格有原始确认交付。** 每个任务、每种条件各运行一次（n=1）；终态不同，不能据调用数或 token 总量宣称普遍性能改善或同等验收比较，也不构成 v4 PASS、G3 出口或 0.15.0 发布。
 
@@ -31,6 +31,16 @@ multi AMEND 的原件和目标字节通过，但最后一批在凭据读取前�
 
 私有证据索引（本机，不随仓库分发）：`/mnt/d/codex-workspace/wls861-g2-ready-20261117-9_tfsmtv/g3-b1-analysis/`，`aggregate-results.json` SHA-256 `bf1e485b821b3b5d60776f2f0bb6b0c0131bb62cd1335b8fe11d5f4cdaad4914`。汇总关联逐格结果与时间/守卫补充；`analysis-completion-receipt.json` 记录十格副本及捕获校验，根目录 `budget-after-g3-b1.json` 记录累计额度。原始日志、数据库、凭据和私有控制器均不入 Git。
 
-**G3-C 合成候选（不计入上述 B1 真实调用）：** 分支 `feat/g3-fixed-single-task-20261117` 已正常导入 #152 main `de7f5b5`，改动 94 产品行、171 测试行。显式 `initial_plan.mode: fixed-single-task-v1` 只省首次 Dispatcher 规划；同一有效文件任务实测总调用 **7→6**、管理 **5→4**，Worker 均为一次 `fs_write` 加一次 `submit`，完整 brief、成果字节与保留的角色顺序一致。排除文件写入后固定开销为 6→5，原 **6→4 未达（UNMET）**；没有新增真实调用或改变冻结格式、默认值、AMEND、验收/验收后经验守卫。源码/38 项契约与定向 Release 通过；原始失败及修正证据在私有 `g3-c-evidence/result.md`，CI/D-40 仍 pending。
+**G3-C1（#154 已合入）：** 显式 `initial_plan.mode: fixed-single-task-v1` 只省首次 Dispatcher 规划；产品增删 94 行、测试 171 行，同一有效文件任务总调用 7→6、管理 5→4。排除一次实际文件写入后的固定开销为 6→5，该切片原 6→4 目标未达的记录保留。原始失败/修正证据在私有 `g3-c-evidence/result.md`；PR154 核心、源码及 D-40 25/25 已通过，精确输入与托管计时见[当前交接](../reviews/current-handoff.md#验证与证据)。
 
-#152 核心 285/285、受影响 ASan 21/21、源码 PASS 后已合入；三组 Worker 托管 ASan 29.63/36.72/21.44 秒均低于 180 秒期限的 50%。main 完整矩阵 `44152280898` pending；候选受影响 ASan 选择器补齐至 25 组（95 项 CTest 注册），尚不能据选择器检查宣称候选 ASan PASS，链接与验证口径集中在[当前交接](../reviews/current-handoff.md#验证与证据)。下一步完成候选 CI/D-40，再按[前向计划 §15](../reviews/claude-2026-11-16/04-plan.md#15-修订记录)推进 E-9 两 PR、新冻结格式与 B2，不提前宣称 G3 出口。
+**G3-C2（#155 已合入，基于 main `2213c27`，未增加真实调用）：** 新增显式 `initial_work_order.mode: fixed-initial-work-order-v1`，必须同时选择 C1。合法初始 TeamLead claim 按冻结正文、完整原约束及当前 actor/binding/CAS 调用已有 `issue_instruction`，仍须 Worker 确认；任务/计划/模板/claim 不匹配时阻塞，AMEND、返工及已有说明保留原路径。产品增删 **114 行**，C1+C2 **208/250**；测试 **173 行**，另有 CTest/CI 注册维护 11 行，合计仍低于 C2 产品两倍。下面是同一 `result.txt` 有效文件任务、同一 brief/工单语义和最终字节的本机 FakeModel 对照：
+
+| 配置 | 总调用 | 管理调用 | Worker 调用 | 固定开销（排除一次写入） | 宿主 context 字节 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 原角色隔离流程 | 7 | 5 | 2 | 6 | 348,146 |
+| 仅冻结初始计划 | 6 | 4 | 2 | 5 | 305,374 |
+| 冻结初始计划＋初始工单 | 5 | 3 | 2 | 4 | 259,588 |
+
+Worker 始终各执行一次 `fs_write` 和 `submit`；TeamLead 检查、Dispatcher 验收、验收后独立经验报告仍分别调用，候选阶段无经验 job。固定开销合成实测 **6→4** 采用了独立初始工单替代方案，原 F-29“检查与经验同响应”机制未实施。字节为各次原始持久请求 envelope 中 `context` 的 canonical JSON UTF-8 大小之和，不是 provider wire bytes、真实 token、费用或性能结论。冻结六格式、默认值、Store 410、SQL 和工具 Schema 不变；没有 B2、真实模型或 G3 出口验收。
+
+配置、五个 acceptance 分组、38 项契约和源码检查已通过；初始化分组按 D-20 独立注册，实际 96 项 CTest、26 组受影响 ASan 选择器通过一致性核对。C2 最终 head 核心 288/288、源码及 D-40 26/26 已核验通过；实际输入与计时见[当前交接](../reviews/current-handoff.md#验证与证据)。完整命令、初次段错误和两次负例夹具失败、修正及最终结果只在私有 `g3-c2-evidence/result.md` 和相邻原始日志维护；下一步继续 E-9，再做 B2。

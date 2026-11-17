@@ -734,10 +734,17 @@ void fixed_initial_plan_is_selected_frozen_and_strict() {
     capability.as_object()["initial_plan"] = plan;
     capability.as_object()["team_template"] = "files";
     fixture.function(function);
+    const auto plan_only = fixture.freeze();
+    const Json order = Object{{"mode", "fixed-initial-work-order-v1"}, {"approach", "Write the requested file."},
+        {"steps", Array{Object{{"id", "s1"}, {"text", "Write and verify."}, {"check", "Compare bytes."}}}},
+        {"done_definition", "The requested file is verified."}};
+    capability.as_object()["initial_work_order"] = order; fixture.function(function);
     const auto frozen = fixture.freeze();
     CHECK(frozen.initial_plan().at("team_template") == "files" && frozen.sha256() != old.sha256());
+    CHECK(frozen.initial_plan().at("initial_work_order") == order && frozen.sha256() != plan_only.sha256());
     auto other = capability; other.at("id") = "other"; other.at("default") = false;
-    other.as_object().erase("initial_plan"); function.at("capabilities").as_array().push_back(other);
+    other.as_object().erase("initial_plan"); other.as_object().erase("initial_work_order");
+    function.at("capabilities").as_array().push_back(other);
     fixture.function(function);
     CHECK(fixture.load().freeze("general", "other").initial_plan().is_null());
     function = frozen.json().at("function");
@@ -745,6 +752,24 @@ void fixed_initial_plan_is_selected_frozen_and_strict() {
         auto bad = function; mutate(bad.at("capabilities").as_array().front()); fixture.function(bad);
         expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
     };
+    reject([](Json& cap) { cap.as_object().erase("initial_plan"); });
+    for (const auto* key : {"mode", "approach", "steps", "done_definition"})
+        reject([&](Json& cap) { cap.at("initial_work_order").as_object().erase(key); });
+    for (const auto& entry : Object{{"mode", "future"}, {"approach", " "}, {"done_definition", ""},
+            {"steps", Array{}}, {"unknown", true}, {"constraint_refs", Array{}}, {"task_id", "forged"}})
+        reject([&](Json& cap) { cap.at("initial_work_order").as_object()[entry.key()] = entry.value(); });
+    for (const auto* key : {"approach", "done_definition"})
+        reject([&](Json& cap) { cap.at("initial_work_order").at(key) = std::string(2001, 'x'); });
+    for (const auto& entry : Object{{"id", "s"}, {"text", " "}, {"check", ""}, {"extra", true}})
+        reject([&](Json& cap) { cap.at("initial_work_order").at("steps").as_array().front().as_object()[entry.key()] = entry.value(); });
+    for (const auto* id : {"s1000", "x1", "s-1"})
+        reject([&](Json& cap) { cap.at("initial_work_order").at("steps").as_array().front().at("id") = id; });
+    for (const auto& [key, size] : std::vector<std::pair<std::string, std::size_t>>{{"text", 1001}, {"check", 501}})
+        reject([&](Json& cap) { cap.at("initial_work_order").at("steps").as_array().front().as_object()[key] = std::string(size, 'x'); });
+    for (const auto count : {2, 41}) reject([&](Json& cap) {
+        const auto first = cap.at("initial_work_order").at("steps").as_array().front();
+        cap.at("initial_work_order").at("steps") = Array(static_cast<std::size_t>(count), first);
+    });
     for (const auto* key : {"mode", "node_id", "title", "goal", "acceptance_criteria"})
         reject([&](Json& cap) { cap.at("initial_plan").as_object().erase(key); });
     for (const auto& entry : Object{{"mode", "future"}, {"node_id", "bad_id"},
@@ -774,6 +799,8 @@ void fixed_initial_plan_is_selected_frozen_and_strict() {
     const auto restored = FrozenRequestConfig::restore(frozen.serialize(), frozen.sha256());
     CHECK(restored.initial_plan() == frozen.initial_plan() && restored.serialize() == frozen.serialize());
     CHECK(FrozenRequestConfig::restore(old.serialize(), old.sha256()).serialize() == old.serialize());
+    const auto old_plan = FrozenRequestConfig::restore(plan_only.serialize(), plan_only.sha256());
+    CHECK(old_plan.serialize() == plan_only.serialize() && !old_plan.initial_plan().as_object().contains("initial_work_order"));
     CHECK(old.initial_plan().is_null() && old.sha256() == sha256_hex(old.serialize()));
 }
 

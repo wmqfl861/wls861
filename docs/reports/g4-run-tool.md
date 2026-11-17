@@ -39,11 +39,13 @@ W128 候选的正式 CTest 在 3.90 秒实际失败：128 KiB 写入、reopen+ac
 
 ## G4-D CSV 准备候选（2026-11-17）
 
-`test/g4d-csv-workflow-20261117` 基于 main `2213c27` 增加第一个完整准备切片：FakeModel 经原 CLI 完成 Dispatcher 计划、TeamLead 工单、Worker 写入 Python、实际 `run` 和不可变提交；核对 `/input/orders.csv` 的 12 条订单聚合、原输入写入拒绝、隔离和进程回收证明、原调用/操作/反馈绑定及提交中的 `summary.csv`。这里只走到提交，其他两项 G4-D 场景仍未形成完整准备记录。
+[#156](https://github.com/wmqfl861/wls861/pull/156) 初始基于 main `2213c27`，现正常整合 `67f52f0`，增加第一个完整准备切片：FakeModel 经原 CLI 完成 Dispatcher 计划、TeamLead 工单、Worker 写入 Python、实际 `run` 和不可变提交；核对 `/input/orders.csv` 的 12 条订单聚合、原输入写入拒绝、隔离和进程回收证明、原调用/操作/反馈绑定及提交中的 `summary.csv`。这里只走到提交，其他两项 G4-D 场景仍未形成完整准备记录。
 
-准确候选 `0ea6ca9` 的全新 Release 构建已完成；两个聚焦 CTest 通过：解析/oracle 0.23 秒、Worker 预启动拒绝 1.22 秒。拒绝夹具保留合法 input manifest、使用不存在的 launcher，真实原结果为 `REFUSED`、`spawned=false`，没有成功汇总或提交。托管正向工作流尚待执行；原四个 sandbox 和两个环境检查继续保留。
+准确候选 `0ea6ca9` 的全新 Release 构建已完成；两个聚焦 CTest 通过：解析/oracle 0.23 秒、Worker 预启动拒绝 1.22 秒。拒绝夹具保留合法 input manifest、使用不存在的 launcher，真实原结果为 `REFUSED`、`spawned=false`，没有成功汇总或提交。原四个 sandbox 和两个环境检查继续保留。
 
-首次本机检查曾使用封存的 B1 `f9da424` 二进制，已纠正其身份归属，不计作准确候选验证。原件、`binary-identity-correction.json`、准确候选构建/二进制身份及新测试日志在当前私有任务根 `g4d-csv-evidence/`；没有覆盖 B1 ELF。该候选产品/C++ 改动 0，脚本/测试/集成 292 行，固定夹具 181 行。公开 CI 制品只选取小型合成输入、配置、结果和 stdout/stderr，排除数据库、工作目录和构建产物。没有真实模型调用。
+首次本机检查曾使用封存的 B1 `f9da424` 二进制，已纠正其身份归属，不计作准确候选验证。原件、`binary-identity-correction.json`、准确候选构建/二进制身份及新测试日志在当前私有任务根 `g4d-csv-evidence/`；没有覆盖 B1 ELF。该候选产品/C++ 改动 0，脚本/测试/集成增删 295 行（292 新增、3 删除），另有固定夹具 181 行。公开 CI 制品只选取小型合成输入、配置、结果和 stdout/stderr，排除数据库、工作目录和构建产物。没有真实模型调用。
+
+旧 head `2a28951` 的[核心 291/291](https://github.com/wmqfl861/wls861/actions/runs/44168598933)、[源码](https://github.com/wmqfl861/wls861/actions/runs/44168599111)及[native](https://github.com/wmqfl861/wls861/actions/runs/44168595942)已完成核验。native 精确 checkout、UID 1001、五次 FakeModel、真实模型调用 0；150B input 的写入被 EROFS(30) 拒绝且前后 SHA 相同，原 run/feedback/submission hash、binding、Standard 无网络隔离和 cleanup 证明均核对，提交 CSV 62B 与独立 oracle 一致。终态是 task SUBMITTED、request RUNNING，TeamLead check 待处理，不能写成业务验收或交付。原件在当前任务根 `run-intake/hosted-pr156-2a28951/`，native artifact SHA-256 `297f64952b223a05e0df06c04d36fff30f8e3fb1c1248f00555545d657e2275f`。整合 main 后最终输入的核心、源码和 native 另跑并分列，当前尚待结果。
 
 ## 原始证据与接手
 

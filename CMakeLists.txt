@@ -130,10 +130,11 @@ if(BUILD_TESTING)
             set_tests_properties(single_agent_runtime PROPERTIES TIMEOUT 90)
         elseif(suite STREQUAL "acceptance_runtime")
             add_test(NAME acceptance_runtime COMMAND acceptance_runtime_tests --group acceptance)
+            add_test(NAME acceptance_runtime_initialization COMMAND acceptance_runtime_tests --group initialization)
             add_test(NAME acceptance_runtime_experience COMMAND acceptance_runtime_tests --group experience)
             add_test(NAME acceptance_runtime_memory COMMAND acceptance_runtime_tests --group memory)
             add_test(NAME acceptance_runtime_guidance COMMAND acceptance_runtime_tests --group guidance)
-            set_tests_properties(acceptance_runtime_experience acceptance_runtime_memory
+            set_tests_properties(acceptance_runtime_initialization acceptance_runtime_experience acceptance_runtime_memory
                 acceptance_runtime_guidance PROPERTIES TIMEOUT 90)
         elseif(suite STREQUAL "worker_tools")
             add_test(NAME worker_tools COMMAND worker_tools_tests --group runtime)
