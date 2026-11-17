@@ -1,5 +1,5 @@
 现在能做什么：U1、U2 已真实交付，各有唯一确认回执和 12/12 成果检查；G3-B1 十格基线已完成，结果有通过、缺失和失败。
-当前任务：G3-C 最小固定单任务切片正在实施，G3 尚未达出口；接手看最新交接。
+当前任务：G3-C 固定单任务候选已通过定向合成测试，待 CI/D-40；G3 尚未达出口，接手看最新交接。
 需要 owner 做什么：当前继续已有授权任务；到合规宿主依赖或额度边界时按既定规则处理。
 
 # 当前状态
@@ -12,7 +12,7 @@
 
 U1、U2 均在 #143 合入后完成。E-14/E-11/E-1 已合入，R11 完整组合对照输入 token 减少 46.32%；首次未完成对照和两次全部用量保留，组合结果不分别归因，旧请求仍按冻结取值解释。R12 已由 #149 合入并完成标签。
 
-D-50 [#150](https://github.com/wmqfl861/wls861/pull/150) 和 G3-B0 [#151](https://github.com/wmqfl861/wls861/pull/151) 已合入；B1 完成不代表同等验收性能比较或 G3 出口。当前 main 完整矩阵与 #152 待核项见[交接验证](reviews/current-handoff.md#验证与证据)，不把 CI 通过写成真实场景通过。
+D-50 [#150](https://github.com/wmqfl861/wls861/pull/150)、G3-B0 [#151](https://github.com/wmqfl861/wls861/pull/151) 和测试分片 [#152](https://github.com/wmqfl861/wls861/pull/152) 已合入，main 为 `de7f5b5`。B1 完成不代表同等验收性能比较或 G3 出口；G3-C 合成对照与 B1 真实调用分开登记。#152 已通过的核心/ASan/源码检查、当前 main 待完成矩阵和候选待核项见[交接验证](reviews/current-handoff.md#验证与证据)。
 
 R6 原未达记录保留，原导出 UNKNOWN 在 R0 恢复，但 SHM-mtime 保留检查的 FAIL 不改写。六格式 `structured-v3`、`lean-v1`、`fixed-role-v1`、`append-fold-v1`、`guided-v1`、`bounded-v1` 保持冻结。
 
