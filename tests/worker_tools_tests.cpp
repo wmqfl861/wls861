@@ -1324,7 +1324,7 @@ int main(int argc, char** argv) {
     struct GroupedCase { std::string_view group; ::test::Case test; };
     const std::vector<GroupedCase> cases{
         {"environment", {"environment checks preserve original output, CAS and idempotent capture", environment_results_are_original_idempotent_and_bound_before_model_capture}},
-        {"environment", {"environment versions require complete UTF-8 stdout and original exit proof", environment_versions_require_complete_stdout_and_exit_proof}},
+        {"output", {"environment versions require complete UTF-8 stdout and original exit proof", environment_versions_require_complete_stdout_and_exit_proof}},
         {"environment", {"environment checks respect cancellation, authority, budget and unresolved fences", environment_fences_keep_checks_and_model_reservations_closed}},
         {"runtime", {"static registration and frozen request tool grants", registry_and_request_permissions}},
         {"output", {"v3 previews and text pages retain original bytes and legacy output formats", output_display_preserves_frozen_formats_and_original_bytes}},
