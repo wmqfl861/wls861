@@ -110,15 +110,8 @@ void setup_plain_agent(Store& store, const SchemaRegistry& schemas, const std::s
     static_cast<void>(store.issue_instruction(store.host_actor(Role::TeamLead, id, binding.team_id),
         binding, number(task, "state_version"), order, new_id("plainorder")));
 }
-void apply_fixed_initial_plan(Store& store, const SchemaRegistry& schemas, const StoreActor& dispatcher,
-                              const Json& request, const Json& initial) {
-    require(number(request, "requirements_revision") == 1 && number(request, "plan_revision") == 0,
-        ErrorCode::Stale, "fixed initial plan requires the original unplanned request");
-    require(store.tasks(dispatcher.request_id).empty(), ErrorCode::Conflict,
-        "fixed initial plan cannot adopt pre-existing tasks");
-    require(store.capacity_status(dispatcher.request_id).at("status") != "WAITING_INPUT",
-        ErrorCode::NotReady, "fixed initial plan requires the pending capacity checkpoint");
-    const auto snapshot = store.request_snapshot(dispatcher.request_id);
+Json fixed_initial_plan(Store& store, const std::string& id, const Json& initial) {
+    const auto snapshot = store.request_snapshot(id);
     Array refs, constraints;
     for (const auto& constraint : snapshot.at("constraint_catalog").as_array()) {
         refs.push_back(constraint.at("constraint_id"));
@@ -127,11 +120,22 @@ void apply_fixed_initial_plan(Store& store, const SchemaRegistry& schemas, const
     const Json brief = Object{{"title", initial.at("title")}, {"goal", initial.at("goal")},
         {"acceptance_criteria", initial.at("acceptance_criteria")},
         {"constraint_refs", refs}, {"constraints_verbatim", constraints}};
-    const Json plan = Object{{"summary", "Host initialization from frozen fixed-single-task-v1 template"},
+    return Object{{"summary", "Host initialization from frozen fixed-single-task-v1 template"},
         {"plan_revision", 1}, {"based_on_requirements_revision", 1},
         {"nodes", Array{Object{{"node_id", initial.at("node_id")}, {"kind", "team_task"},
             {"title", initial.at("title")}, {"template", initial.at("team_template")},
             {"required", true}, {"depends_on", Array{}}, {"brief", brief}}}}};
+}
+void apply_fixed_initial_plan(Store& store, const SchemaRegistry& schemas, const StoreActor& dispatcher,
+                              const Json& request, const Json& initial) {
+    require(number(request, "requirements_revision") == 1 && number(request, "plan_revision") == 0,
+        ErrorCode::Stale, "fixed initial plan requires the original unplanned request");
+    require(store.tasks(dispatcher.request_id).empty(), ErrorCode::Conflict,
+        "fixed initial plan cannot adopt pre-existing tasks");
+    require(store.capacity_status(dispatcher.request_id).at("status") != "WAITING_INPUT",
+        ErrorCode::NotReady, "fixed initial plan requires the pending capacity checkpoint");
+    const auto plan = fixed_initial_plan(store, dispatcher.request_id, initial);
+    const auto& brief = plan.at("nodes").as_array().front().at("brief");
     schemas.validate("task_brief", brief);
     schemas.validate("plan", plan);
     store.validate_brief(dispatcher.request_id, brief);
@@ -139,6 +143,50 @@ void apply_fixed_initial_plan(Store& store, const SchemaRegistry& schemas, const
     // The Store transaction retains request CAS and current requirement checks.
     static_cast<void>(store.apply_independent_plan(dispatcher, number(request, "state_version"),
         number(request, "requirements_revision"), plan, Object{}, new_id("fixedplan")));
+}
+void apply_fixed_initial_work_order(Store& store, const SchemaRegistry& schemas, const StoreActor& actor,
+                                   const ExecutionBinding& binding, const Json& task, const Json& claim,
+                                   const Json& initial) {
+    const auto request = store.request(actor.request_id);
+    const auto tasks = store.tasks(actor.request_id);
+    require((text(request, "status") == "RUNNING" || text(request, "status") == "VERIFYING") &&
+        number(request, "requirements_revision") == 1 && number(request, "plan_revision") == 1 &&
+        tasks.size() == 1 && tasks.front().at("task_id") == task.at("task_id") &&
+        text(task, "status") == "READY" && number(task, "task_revision") == 1 &&
+        number(task, "based_on_requirements_revision") == 1 && number(task, "plan_revision") == 1 &&
+        number(task, "instruction_revision") == 0 && store.instruction(binding.task_id).is_null() &&
+        number(task, "applied_task_revision") == 0 && number(task, "applied_plan_revision") == 0 &&
+        number(task, "applied_instruction_revision") == 0,
+        ErrorCode::NotReady, "fixed initial work order requires the unchanged initial task");
+    const auto waiting = store.worker_wait(binding.task_id);
+    require((waiting.is_null() || text(waiting, "status") != "WAITING") &&
+        store.current_submission(binding.task_id).is_null(), ErrorCode::NotReady,
+        "fixed initial work order cannot clear a pending wait or submission");
+    require(number(claim, "requirements_revision") == binding.requirements_revision &&
+        number(claim, "dispatcher_epoch") == binding.dispatcher_epoch &&
+        number(claim, "execution_epoch") == binding.execution_epoch &&
+        std::any_of(claim.at("items").as_array().begin(), claim.at("items").as_array().end(), [&](const auto& item) {
+            const auto type = text(item, "type");
+            return text(item, "subject_task_id") == binding.task_id &&
+                number(item, "event_requirements_revision") == binding.requirements_revision &&
+                (type == "independent_plan" || type == "recover" || type == "event_bootstrap" || type == "workflow_bootstrap");
+        }), ErrorCode::Stale, "fixed initial work order requires its captured initial or recovery event");
+    require(store.capacity_status(actor.request_id).at("status") != "WAITING_INPUT",
+        ErrorCode::NotReady, "fixed initial work order requires the pending capacity checkpoint");
+    const auto plan = fixed_initial_plan(store, actor.request_id, initial);
+    const auto& node = plan.at("nodes").as_array().front();
+    require(store.plan(actor.request_id).at("body") == plan && task.at("node_id") == node.at("node_id") &&
+        task.at("template_id") == node.at("template") && task.at("brief") == node.at("brief") &&
+        text(task, "kind") == "team_task" && number(task, "required") == 1 && task.at("review_config").is_null(),
+        ErrorCode::Conflict, "fixed initial work order differs from its frozen plan or task");
+    auto next = binding; ++next.instruction_revision;
+    auto order = to_json(next);
+    for (const auto* key : {"approach", "steps", "done_definition"})
+        order.as_object()[key] = initial.at("initial_work_order").at(key);
+    for (const auto* key : {"constraint_refs", "constraints_verbatim"}) order.as_object()[key] = node.at("brief").at(key);
+    schemas.validate("work_order", order);
+    // Preserve the normal instruction transaction and subsequent Worker ack.
+    static_cast<void>(store.issue_instruction(actor, binding, number(task, "state_version"), order, new_id("fixedorder")));
 }
 std::vector<std::int64_t> ids(const Json& claim) {
     std::vector<std::int64_t> result;
@@ -1228,7 +1276,17 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                             action.is_null() && submission.is_null() &&
                             (waiting.is_null() || text(waiting, "status") != "WAITING") &&
                             !instruction_current(store_.instruction(task_id), binding);
-                        if ((!action.is_null() && action_in_claim(action, active_claim)) || order_needed)
+                        if (order_needed && !initial_plan.is_null() && initial_plan.as_object().contains("initial_work_order") &&
+                                binding.requirements_revision == 1 && binding.plan_revision == 1 &&
+                                binding.task_revision == 1 && binding.instruction_revision == 0) {
+                            require(options.amendment_dispositions.as_object().empty(), ErrorCode::NotReady,
+                                "fixed initial work order cannot interpret AMEND dispositions");
+                            if (live_continue() && accounting_ready()) {
+                                apply_fixed_initial_work_order(store_, schemas_, active_actor, binding,
+                                    store_.task(task_id), active_claim, initial_plan);
+                                progress = true;
+                            }
+                        } else if ((!action.is_null() && action_in_claim(action, active_claim)) || order_needed)
                             if (invoke(Role::TeamLead, node, task_id, tools, active_claim)) progress = true;
                         binding = store_.binding(task_id);
                         const bool current_order = instruction_current(store_.instruction(task_id), binding);

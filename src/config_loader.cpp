@@ -827,6 +827,34 @@ void validate_initial_plan(const Json& capability, const Json& system) {
     }
 }
 
+void validate_initial_work_order(const Json& capability) {
+    const auto* order = optional(capability, "initial_work_order");
+    if (!order) return;
+    constexpr std::string_view where = "function.capability.initial_work_order";
+    if (!optional(capability, "initial_plan")) invalid(where, "requires a fixed initial plan");
+    fields(*order, where, {{"mode", 's'}, {"approach", 's'}, {"steps", '-'}, {"done_definition", 's'}});
+    literal(*order, "mode", "fixed-initial-work-order-v1", where);
+    const auto bounded_text = [&](const Json& value, std::size_t maximum) {
+        const auto contents = string_value(value, where, false, maximum);
+        if (contents.find_first_not_of(" \t\r\n") == std::string::npos) invalid(where, "blank work order text");
+    };
+    bounded_text(order->at("approach"), 2000);
+    bounded_text(order->at("done_definition"), 2000);
+    const auto& steps = order->at("steps");
+    if (!steps.is_array() || steps.as_array().empty() || steps.as_array().size() > 40)
+        invalid(where, "expected 1 to 40 work order steps");
+    std::set<std::string> ids;
+    for (const auto& step : steps.as_array()) {
+        fields(step, where, {{"id", 's'}, {"text", 's'}, {"check", 's'}}, {"check"});
+        const auto id = string_value(step.at("id"), where, false, 4);
+        if (id.size() < 2 || id.front() != 's' ||
+                !std::all_of(id.begin() + 1, id.end(), [](char c) { return c >= '0' && c <= '9'; }) ||
+                !ids.insert(id).second) invalid(where, "invalid or duplicate step id");
+        bounded_text(step.at("text"), 1000);
+        if (const auto* check = optional(step, "check")) bounded_text(*check, 500);
+    }
+}
+
 void validate_function(const Json& function, const Json& system, const CapabilityRegistry& registry,
                        const ConfigLoadOptions& options) {
     fields(function, "function", {{"schema_version", 'i'}, {"spec_version", 's'}, {"id", 's'}, {"version", 'i'},
@@ -881,9 +909,10 @@ void validate_function(const Json& function, const Json& system, const Capabilit
     for (const auto& item : capabilities.as_array()) {
         fields(item, "function.capability", {{"id", 's'}, {"input", 's'}, {"dispatch", 's'}, {"default", 'b'},
             {"input_schema", 's'}, {"output_schema", 's'}, {"acceptance_validator", 's'}, {"required_checks_source", 's'},
-            {"fail_on_required_not_run", 'b'}, {"team_template", 's'}, {"brief_template", 's'}, {"initial_plan", '-'}},
-            {"input", "default", "input_schema", "output_schema", "acceptance_validator", "required_checks_source", "fail_on_required_not_run", "team_template", "brief_template", "initial_plan"});
+            {"fail_on_required_not_run", 'b'}, {"team_template", 's'}, {"brief_template", 's'}, {"initial_plan", '-'}, {"initial_work_order", '-'}},
+            {"input", "default", "input_schema", "output_schema", "acceptance_validator", "required_checks_source", "fail_on_required_not_run", "team_template", "brief_template", "initial_plan", "initial_work_order"});
         validate_initial_plan(item, system);
+        validate_initial_work_order(item);
         const auto id = identifier(required(item, "id", "function.capability"), "function.capability.id");
         if (!ids.insert(id).second) invalid("function.capabilities", "duplicate capability id");
         if (const auto* selected = optional(item, "default"); selected && selected->as_bool()) ++defaults;
@@ -1128,6 +1157,7 @@ Json FrozenRequestConfig::initial_plan() const {
         auto result = *plan;
         const auto* team = optional(capability, "team_template");
         result.as_object()["team_template"] = team ? *team : Json("default");
+        if (const auto* order = optional(capability, "initial_work_order")) result.as_object()["initial_work_order"] = *order;
         return result;
     }
     throw Error(ErrorCode::Corrupt, "selected capability is missing");

@@ -29,6 +29,8 @@ Store 在输入首次绑定及新 workspace、owned stage/final、delivery 事�
 
 N3 产品增删 258 行、测试/脚本 260 行；N4 相对合入后 main 产品增删 296 行、测试/脚本 372 行（含组合 native 回归）。超过 N4 的 200 行估值用于绝对期限、两驱动接入/摘要和原证据守卫，仍低于 400 行升级阈值及 800 行硬限，测试低于产品两倍。
 
+历史 scheduled 补记（2026-11-17 核验）：[run 44078731658](https://github.com/wmqfl861/wls861/actions/runs/44078731658) 在旧提交 `4c3704b38bef016243335628a4dfe633b85c9cbe`、UID 1001 上通过 **Standard** 四个沙箱场景和两项环境检查；原始 stdout/stderr、结果 hash、隔离/cleanup 证明及 8B 输入均核对通过，真实模型调用 0。私有原件索引为 `/mnt/d/codex-workspace/wls861-g2-ready-20261117-9_tfsmtv/run-intake/scheduled-native-44078731658/verification.json`，SHA-256 `dd155fdd8b87b99c862367a2e55767b4f29a085c269a3700261976801f8a757f`。这条旧运行不代表 Strict、当前 main native 或真实 U3/U4 验收；本机 BLOCKED 和 Windows 11 NOT_RUN 保持。
+
 ## F-15 容量候选停止
 
 W128 候选的正式 CTest 在 3.90 秒实际失败：128 KiB 写入、reopen+ack、下一 Worker 保留原 parameters/reasoning、提交 131072B 均通过，随后 TL check 的 capture 被既有 1 MiB guard 拒绝。候选停止、未合 main；这些局部成功不能写成 F-15 已实现，也不提高 guard 或删除断言。
