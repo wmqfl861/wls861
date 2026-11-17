@@ -3,6 +3,7 @@
 
 #include "responses_compat.hpp"
 #include "correction_detail.hpp"
+#include "file_batch_detail.hpp"
 
 #include <algorithm>
 
@@ -15,7 +16,8 @@ bool valid_record_hash(std::string_view value) {
 }
 } // namespace
 
-std::vector<StructuredContextMessage> structured_attempt_history(const std::vector<Json>& history) {
+std::vector<StructuredContextMessage> structured_attempt_history(const std::vector<Json>& history,
+        const FileBatchHistoryContext* batch_context) {
     using Object = boost::json::object;
     std::vector<StructuredContextMessage> messages;
     for (const auto& attempt : history) {
@@ -41,23 +43,29 @@ std::vector<StructuredContextMessage> structured_attempt_history(const std::vect
         // The Store already verified the immutable feedback fingerprint. The
         // pair below additionally binds it to the original attempt/response.
         bool paired = false;
+        const Json* batch = nullptr;
         ModelResponse response;
         try {
             response = model_response_from_json(attempt.at("response"));
+            batch = file_batch_detail::validate(attempt, response, batch_context);
             const auto& accepted = attempt.at("accepted");
             paired = !feedback.is_null() && (accepted == 1 || accepted == true) &&
                      response.status == ModelResultStatus::Completed &&
-                     (response.tool_calls.size() == 1 || correction_detail::correction(feedback.at("result"))) &&
+                     (batch || response.tool_calls.size() == 1 || correction_detail::correction(feedback.at("result"))) &&
                      response.attempt_id == std::string(attempt.at("attempt_id").as_string()) &&
                      response.call_id == std::string(attempt.at("call_id").as_string()) &&
                      to_json(response.binding) == attempt.at("frozen_binding");
             if (paired) {
                 const auto& result = feedback.at("result");
                 const auto* error = result.is_object() ? result.as_object().if_contains("runtime_error") : nullptr;
-                paired = !(error && *error == true);
+                paired = batch || !(error && *error == true);
             }
         } catch (const Error& error) {
             if (error.code() != ErrorCode::InvalidInput) throw;
+            if (file_batch_detail::enabled(batch_context) && !feedback.is_null() && feedback.at("result").is_object()) {
+                const auto* format = feedback.at("result").as_object().if_contains("format");
+                file_batch_detail::require(!format || *format != "wls-file-batch-feedback-v1");
+            }
             // Historical transport/host records need not have a complete model
             // envelope. Preserve them verbatim as observations, never tool use.
         }
@@ -92,8 +100,12 @@ std::vector<StructuredContextMessage> structured_attempt_history(const std::vect
         }
         messages.push_back({"assistant", response.text, calls, {}, source, payload});
         if (calls.empty()) messages.push_back({"user", canonical_json(feedback.at("result")), {}, {}, source});
-        else for (const auto& call : calls)
-            messages.push_back({"tool", canonical_json(feedback.at("result")), {}, call.call_id, source});
+        else for (std::size_t i = 0; i < calls.size(); ++i) {
+            auto item_source = source;
+            if (batch) item_source["original_tool_call_id"] = response.tool_calls[i].call_id;
+            messages.push_back({"tool", canonical_json(batch ? batch->at("items").as_array()[i] : feedback.at("result")),
+                {}, calls[i].call_id, item_source});
+        }
     }
     return messages;
 }

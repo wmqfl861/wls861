@@ -55,10 +55,10 @@ W128 候选的正式 CTest 在 3.90 秒实际失败：128 KiB 写入、reopen+ac
 
 实现 `37d352a` 的产品/C++ 改动为 0；执行/测试/集成新增 179、删除 45（总增删 224），另有固定夹具 188 行。沿用既有驱动而不复制第二套是本切片的复用选择；没有新增通用 helper。独立 GCC13 Release ELF 编译于 `e1d341e`；最终两行 Python 证据命名改动未改变任何运行库构建输入，最后 build 调用通过、ELF 相同，不把它重标为新编译。
 
-准确候选的 CSV/函数 oracle 与预启动拒绝四项 CTest 全通过（0.24/1.23/0.28/1.26 秒），两项直接拒绝记录保留，实际 FAILED/REFUSED、spawned=false、无提交；AST/YAML、shell 参数/顺序/语法及 artifact allowlist 通过。最终发布输入的 core/source 和 hosted native 仍待执行；本机夹具通过不计作 Worker 原生正例。原始证据在当前私有任务根 `g4d-function-evidence/result.md`，构建在 `g4d-function-release/`，旧 B1 ELF 未覆盖。中断→AMEND→同命令恢复在独立工作树准备，尚未通过完整场景。
+准确候选的 CSV/函数 oracle 与预启动拒绝四项 CTest 全通过（0.24/1.23/0.28/1.26 秒），两项直接拒绝记录保留，实际 FAILED/REFUSED、spawned=false、无提交；AST/YAML、shell 参数/顺序/语法及 artifact allowlist 通过。PR158 原 head `69c4b9b` 的[核心](https://github.com/wmqfl861/wls861/actions/runs/44179943762) 300/300、[源码](https://github.com/wmqfl861/wls861/actions/runs/44179943723)与[native](https://github.com/wmqfl861/wls861/actions/runs/44180013843)已核验通过，源码 788 个 blobs/modes 一致；native 保留原四沙箱、两环境及 CSV 五调用，新增函数六调用，原 run 68ms、exit0、五个 unittest 通过，两份原提交及其全部绑定/hash 相符。独立源码复核无发现。现正常整合 E9 已合入的 main，整合提交的检查另行执行，旧输入绿色不替代新输入。原始证据在当前私有任务根 `g4d-function-evidence/result.md`，构建在 `g4d-function-release/`，旧 B1 ELF 未覆盖。中断→AMEND→同命令恢复在独立工作树准备，尚未通过完整场景。
 
 ## 原始证据与接手
 
 私有任务根 `/mnt/d/codex-workspace/wls861-g2-resume-20261116-k48kol3a/`：N3 在 `g4-input-validation/evidence/`，N4 在 `g4-env-evidence/`；合 N3 后日志为 `merge-release-tests-1794864488134299077.log`、`merge-asan-tests-1794864488056552663.log`，验证收据为 `merge-validation-complete-1794866189673341120.json`。main 87c31473 的原始日志为 `evidence/main-87c3147-ci/full.log`，无 Actions artifact，原件保留于私有证据目录。远端原件在 `evidence/n3-pr136-ci/` 与 `evidence/n4-pr137-ci/`，N4 独立核对为后者 `independent-n4-d365-native-summary.json`。W128 原件在 `g4-capacity-validation/`：正式失败 `original-capacity-recovery-fixture-1794867610732020611.log`，派生诊断 `diagnostic/run-result.json`、`diagnostic/run.log`，源/ELF 绑定见 `root-summary.md` 与 `candidate-archive-binding.json`。早期测试编译/夹具失败原件保留，不计业务 RED；已修复的缺宿主旁路与准备期 deadline 两项源码问题获同项复核 PASS。只公开摘要，DB、长日志和二进制不入库。
 
-接手先为大成果上下文重复设计引用/分页或减少重复的方案，再重测 F-15 容量，本轮不继续扩大。G4-D 真实 run 等合规原生宿主可用后再启动，CI 不调用真实模型；具体环境前提见 [STATUS](../STATUS.md)。保持 0.13.0，不宣称 G4 出口或升为 0.14。
+接手先为大成果上下文重复设计引用/分页或减少重复的方案，再重测 F-15 容量，本轮不继续扩大。G4-D 真实 run 等合规原生宿主可用后再启动，CI 不调用真实模型；具体环境前提见 [STATUS](../STATUS.md)。当前实现版本见 [STATUS](../STATUS.md)；不宣称 G4 出口或升为 0.14。

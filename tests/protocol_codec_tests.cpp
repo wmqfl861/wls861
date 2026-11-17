@@ -1,6 +1,8 @@
 #include "protocol_test_support.hpp"
 #include "test_support.hpp"
 #include "chat_codec_cases.hpp"
+#include "wls/worker_history.hpp"
+#include "wls/single_agent.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -741,7 +743,8 @@ Json write_receipt_record(bool created = true, const std::string& tool = "fs_wri
     receipt.at("operation").at("evidence_ref") = "store:operation_result:op_fixture#" + record_hash;
     return record;
 }
-ModelRequest write_receipt_request(const Json& record, Role role = Role::Worker, bool lean = true) {
+ModelRequest write_receipt_request(const Json& record, Role role = Role::Worker, bool lean = true,
+        const FileBatchHistoryContext* batch_context = nullptr) {
     auto context = fixture::context(); context.role = role; context.model_projection = lean ? "lean-v1" : "";
     context.tools.front().name = std::string(record.at("response").at("tool_calls").as_array().front().at("name").as_string());
     context.tools.front().description = "Read or write the named fixture file.";
@@ -752,8 +755,298 @@ ModelRequest write_receipt_request(const Json& record, Role role = Role::Worker,
             {"expected_sha256", Object{{"type", "string"}, {"description", "Expected previous file SHA-256."}}}}},
         {"required", Array{"path", "content"}}, {"additionalProperties", false}};
     auto request = fixture::request(); request.role = role;
-    request.context = compile_structured_context(context, structured_attempt_history({record}), {}, StructuredContextFormat::V3);
+    request.context = compile_structured_context(context, structured_attempt_history({record}, batch_context), {}, StructuredContextFormat::V3);
     return request;
+}
+
+FileBatchHistoryContext batch_host() {
+    const auto request = fixture::request();
+    return {request.binding.request_id, request.config_snapshot_id, Role::Worker,
+        "structured-v3", "fixed-role-file-batch-v1"};
+}
+void seal_batch_feedback(Json& record) {
+    auto& feedback = record.at("feedback");
+    feedback.at("response") = record.at("response");
+    feedback.at("record_sha256") = sha256_hex(canonical_json(Object{
+        {"attempt_id", record.at("attempt_id")}, {"original_binding", feedback.at("original_binding")},
+        {"response", feedback.at("response")}, {"result", feedback.at("result")}}));
+}
+void seal_batch_execution(Json& receipt) {
+    auto& execution = receipt.at("execution_result");
+    Object fact{{"outcome", execution.at("observed_outcome")}};
+    for (const auto* key : {"op_id", "original_binding", "result", "evidence", "stdout_bytes", "stderr_bytes", "stdout_sha256", "stderr_sha256"})
+        fact[key] = execution.at(key);
+    for (const auto* key : {"stdout_truncated", "stderr_truncated"}) fact[key] = execution.at(key) == 1;
+    const auto hash = sha256_hex(canonical_json(fact));
+    execution.at("record_sha256") = hash;
+    receipt.at("operation").at("evidence_ref") = "store:operation_result:" +
+        std::string(execution.at("op_id").as_string()) + "#" + hash;
+}
+Json batch_record(int sequence = 1, const std::string& state = "SUCCEEDED") {
+    auto record = write_receipt_record();
+    const auto suffix = std::to_string(sequence);
+    record.at("attempt_id") = "batch-attempt-" + suffix;
+    record.at("call_id") = "batch-call-" + suffix;
+    record.as_object()["sequence"] = sequence;
+    record.as_object()["feedback_missing"] = false;
+    auto& response = record.at("response");
+    response.at("attempt_id") = record.at("attempt_id");
+    response.at("call_id") = record.at("call_id");
+    response.at("usage").at("input_tokens") = nullptr;
+    response.at("usage").at("cost_micro_usd") = nullptr;
+    Array calls, output, items;
+    output.push_back(Object{{"id", "reason-" + suffix}, {"type", "reasoning"}, {"summary", Array{}},
+        {"encrypted_content", "Zml4dHVyZS1yZWFzb25pbmc="}, {"status", "completed"}});
+    for (int index = 0; index != 2; ++index) {
+        const auto single = write_receipt_record(index == 0);
+        auto call = single.at("response").at("tool_calls").as_array().front();
+        const auto id = "provider-" + suffix + "-" + std::to_string(index);
+        call.at("call_id") = id;
+        auto native = single.at("response").at("responses_output").at("output").as_array().front();
+        native.at("id") = "item-" + id; native.at("call_id") = id;
+        auto receipt = single.at("feedback").at("result");
+        auto& operation = receipt.at("operation");
+        auto& execution = receipt.at("execution_result");
+        operation.at("op_id") = "op-" + id; execution.at("op_id") = operation.at("op_id");
+        operation.at("business_idempotency_key") = "batch:" + sha256_hex(canonical_json(Object{
+            {"attempt_id", record.at("attempt_id")}, {"tool_call_id", id}}));
+        Json error = nullptr;
+        if (index == 1 && state != "SUCCEEDED") {
+            operation.at("status") = state; execution.at("operation_status") = state;
+            execution.at("observed_outcome") = state;
+            execution.at("accepted") = state == "UNKNOWN" ? 0 : 1;
+            execution.at("result") = Object{{"error", "fixture rejected replacement"}};
+            execution.at("evidence") = Object{{"failure_kind", "content_precondition"}, {"rename_attempted", false},
+                {"renamed", false}, {"temporary_remaining", false}, {"temporary_cleanup_complete", true}};
+            error = Object{{"code", "fixture_failure"}, {"message", "original second operation did not succeed"}};
+        }
+        seal_batch_execution(receipt);
+        items.push_back(Object{{"call_id", id}, {"name", call.at("name")},
+            {"state", index == 0 ? "SUCCEEDED" : state}, {"result", receipt}, {"error", error}});
+        calls.push_back(call); output.push_back(native);
+    }
+    response.at("tool_calls") = calls;
+    response.at("responses_output").at("output") = output;
+    record.at("feedback").at("result") = Object{{"format", "wls-file-batch-feedback-v1"},
+        {"status", state}, {"runtime_error", state != "SUCCEEDED"},
+        {"observation_complete", state != "UNKNOWN"}, {"items", items}};
+    seal_batch_feedback(record);
+    return record;
+}
+Json batch_tail(const Array& items) {
+    const auto host = batch_host();
+    return Object{{"format", "wls-history-tail-v1"}, {"request_id", host.request_id}, {"role", "worker"},
+        {"scope", Object{{"request_id", host.request_id}, {"role", "worker"}}},
+        {"items", items}, {"total_count", items.size()}, {"omitted_count", 0},
+        {"through_sequence", items.empty() ? Json(0) : items.back().at("sequence")}};
+}
+void batch_history_requires_explicit_original_host_policy() {
+    const auto original = batch_record();
+    const auto legacy = single_agent_messages_json(structured_attempt_history({original}));
+    CHECK(legacy.as_array().size() == 1 && legacy.as_array().front().at("role") == "user");
+    std::vector<FileBatchHistoryContext> disabled;
+    for (const auto* policy : {"", "fixed-role-v1", "scoped-v1", "unknown"}) {
+        auto host = batch_host(); host.tool_policy = policy; disabled.push_back(host);
+    }
+    for (const auto role : {Role::Root, Role::Dispatcher, Role::TeamLead}) {
+        auto host = batch_host(); host.role = role; disabled.push_back(host);
+    }
+    for (const auto* format : {"", "framed-v1", "structured-v2"}) {
+        auto host = batch_host(); host.request_format = format; disabled.push_back(host);
+    }
+    const auto single = write_receipt_record();
+    auto malformed = original;
+    malformed.at("feedback").at("result").at("items") = nullptr;
+    seal_batch_feedback(malformed);
+    for (const auto& host : disabled) {
+        CHECK(single_agent_messages_json(structured_attempt_history({original}, &host)) == legacy);
+        CHECK(single_agent_messages_json(structured_attempt_history({malformed}, &host)) ==
+            single_agent_messages_json(structured_attempt_history({malformed})));
+        CHECK(encode_responses_request(fixture::compat_profile(), write_receipt_request(single, Role::Worker, true, &host)).body ==
+            encode_responses_request(fixture::compat_profile(), write_receipt_request(single)).body);
+        CHECK(append_fold_history(nullptr, batch_tail({original}), false, &host) ==
+            append_fold_history(nullptr, batch_tail({original})));
+    }
+    auto host = batch_host();
+    for (auto* field : {&host.request_id, &host.config_snapshot_sha256}) {
+        const auto saved = *field; *field = "wrong-original";
+        fails(ErrorCode::Corrupt, [&] { (void)structured_attempt_history({original}, &host); });
+        *field = saved;
+    }
+    auto page = single;
+    page.at("feedback").at("result") = Object{{"format", "wls-history-page-v1"}, {"items", Array{}}};
+    CHECK(single_agent_messages_json(structured_attempt_history({page}, &host)) ==
+        single_agent_messages_json(structured_attempt_history({page})));
+    auto context = fixture::context(); context.tool_policy = host.tool_policy;
+    fails(ErrorCode::InvalidInput, [&] { (void)compile_structured_context(context, {}, {}, StructuredContextFormat::V3); });
+}
+void batch_history_replays_distinct_native_outputs_verbatim() {
+    const auto original = batch_record(); const auto saved = canonical_json(original);
+    const auto host = batch_host();
+    const auto messages = structured_attempt_history({parse_json_strict(saved)}, &host);
+    CHECK(messages.size() == 3 && messages[0].role == "assistant" && messages[0].tool_calls.size() == 2);
+    auto profile = fixture::compat_profile(); profile.responses_tool_result_policy = "write-summary-v1";
+    const auto body = parse_json_strict(encode_responses_request(profile,
+        write_receipt_request(original, Role::Worker, true, &host)).body);
+    CHECK(body.at("input").as_array().size() == 7);
+    CHECK(parse_json_strict(body.at("input").as_array().back().at("content").as_string()).at("format") ==
+        "wls-responses-current-state-v3");
+    Array input;
+    for (const auto& item : body.at("input").as_array())
+        if (const auto* type = item.as_object().if_contains("type"); type &&
+            (*type == "reasoning" || *type == "function_call" || *type == "function_call_output")) input.push_back(item);
+    CHECK(input.size() == 5);
+    const auto& native = original.at("response").at("responses_output").at("output").as_array();
+    for (std::size_t i = 0; i < native.size(); ++i) CHECK(input[i] == native[i]);
+    for (std::size_t i = 0; i < 2; ++i) {
+        const auto& item = original.at("feedback").at("result").at("items").as_array()[i];
+        CHECK(messages[i + 1].tool_call_id == messages[0].tool_calls[i].call_id);
+        CHECK(messages[i + 1].source.at("original_tool_call_id") == item.at("call_id"));
+        CHECK(messages[i + 1].source.at("record_sha256") == original.at("feedback").at("record_sha256"));
+        CHECK(input[i + 3].at("type") == "function_call_output" && input[i + 3].at("call_id") == item.at("call_id"));
+        CHECK(input[i + 3].at("output") == Json(canonical_json(item)));
+    }
+    CHECK(input[3].at("output") != input[4].at("output"));
+    CHECK(parse_json_strict(messages[1].content).at("result").at("execution_result").at("result").at("created") == true);
+    CHECK(parse_json_strict(messages[2].content).at("result").at("execution_result").at("result").at("created") == false);
+    CHECK(canonical_json(original) == saved && original.at("response").at("usage").at("input_tokens").is_null());
+}
+void batch_history_rejects_inconsistent_original_facts() {
+    const auto host = batch_host();
+    const std::vector<std::function<void(Json&)>> corruptions{
+        [](Json& r) { r.at("attempt_id") = "wrong-attempt"; },
+        [](Json& r) { r.at("call_id") = "wrong-call"; },
+        [](Json& r) { r.at("accepted") = 0; },
+        [](Json& r) { r.at("status") = "UNKNOWN"; },
+        [](Json& r) { r.at("response").at("role") = "root"; },
+        [](Json& r) { r.at("response").at("config_snapshot_id") = sha256_hex("wrong-config"); },
+        [](Json& r) { r.at("response").at("binding").at("request_id") = "wrong-request"; },
+        [](Json& r) { r.as_object()["config_snapshot_sha256"] = sha256_hex("wrong-scope"); },
+        [](Json& r) { r.at("feedback").at("result").at("format") = "future-format"; },
+        [](Json& r) { r.at("feedback").at("result").at("items").as_array().pop_back(); },
+        [](Json& r) { auto& calls = r.at("response").at("tool_calls").as_array(); calls.push_back(calls.front()); },
+        [](Json& r) { auto& calls = r.at("response").at("tool_calls").as_array(); calls[1].at("call_id") = calls[0].at("call_id"); },
+        [](Json& r) { auto& items = r.at("feedback").at("result").at("items").as_array(); std::swap(items[0], items[1]); },
+        [](Json& r) { r.at("feedback").at("result").at("items").as_array()[0].at("call_id") = "wrong-id"; },
+        [](Json& r) { r.at("feedback").at("result").at("items").as_array()[0].at("name") = "fs_read"; },
+        [](Json& r) { r.at("feedback").at("result").at("items").as_array()[0].at("state") = "NOT_EXECUTED"; },
+        [](Json& r) { r.at("feedback").at("result").at("items").as_array()[0].at("result") = nullptr; },
+        [](Json& r) { r.at("feedback").at("result").at("status") = "FAILED"; },
+        [](Json& r) { r.at("feedback").at("result").at("observation_complete") = false; },
+        [](Json& r) { r.at("feedback").at("result").at("runtime_error") = true; },
+        [](Json& r) { r.at("feedback").at("result").as_object()["message"] = std::string(512 * 1024, 'x'); },
+        [](Json& r) { r.at("response").at("text") = std::string(128 * 1024, 'x'); },
+        [](Json& r) { r.at("feedback").at("result").as_object()["host_policy"] = "fixed-role-file-batch-v1"; },
+        [](Json& r) { r.at("feedback").at("result").as_object()["correction_feedback"] = Object{}; }
+    };
+    for (const auto& corrupt : corruptions) {
+        auto record = batch_record(); corrupt(record); seal_batch_feedback(record);
+        fails(ErrorCode::Corrupt, [&] { (void)structured_attempt_history({record}, &host); });
+    }
+    const std::vector<std::function<void(Json&)>> bad_receipts{
+        [](Json& r) { r.at("operation").at("op_id") = "wrong-op"; },
+        [](Json& r) { r.at("operation").at("request_id") = "wrong-request"; },
+        [](Json& r) { r.at("operation").at("tool_id") = "run"; },
+        [](Json& r) { r.at("operation").at("arguments").at("path") = "wrong.txt"; },
+        [](Json& r) { r.at("operation").at("args_sha256") = sha256_hex("wrong-args"); },
+        [](Json& r) { r.at("operation").at("business_idempotency_key") = "single-attempt-key"; },
+        [](Json& r) { r.at("operation").at("started_at") = nullptr; },
+        [](Json& r) { r.at("operation").at("evidence_ref") = "wrong-original"; },
+        [](Json& r) { r.at("execution_result").at("original_binding").at("task_revision") = 99; },
+        [](Json& r) { r.at("execution_result").at("accepted") = 0; },
+        [](Json& r) { r.at("execution_result").at("observed_outcome") = "FAILED"; seal_batch_execution(r); },
+        [](Json& r) { r.at("execution_result").at("operation_status") = "UNKNOWN"; },
+        [](Json& r) { r.at("execution_result").at("record_sha256") = sha256_hex("wrong-fact"); },
+        [](Json& r) { r.at("executed_now") = false; r.at("replayed") = true; }
+    };
+    for (const auto& corrupt : bad_receipts) {
+        auto record = batch_record();
+        corrupt(record.at("feedback").at("result").at("items").as_array()[0].at("result"));
+        seal_batch_feedback(record);
+        fails(ErrorCode::Corrupt, [&] { (void)structured_attempt_history({record}, &host); });
+    }
+    auto record = batch_record(); record.at("feedback").at("record_sha256") = sha256_hex("wrong-feedback");
+    fails(ErrorCode::Corrupt, [&] { (void)structured_attempt_history({record}, &host); });
+    auto stopped = batch_record();
+    auto& batch = stopped.at("feedback").at("result");
+    batch.at("status") = "NOT_EXECUTED"; batch.at("runtime_error") = true;
+    for (auto& item : batch.at("items").as_array()) {
+        item.at("state") = "NOT_EXECUTED"; item.at("result") = nullptr;
+        item.at("error") = Object{{"code", "invalid_input"}, {"message", "whole batch refused before dispatch"}};
+    }
+    seal_batch_feedback(stopped);
+    CHECK(structured_attempt_history({stopped}, &host).size() == 3);
+    batch.at("items").as_array()[1] = batch_record().at("feedback").at("result").at("items").as_array()[1];
+    seal_batch_feedback(stopped);
+    fails(ErrorCode::Corrupt, [&] { (void)structured_attempt_history({stopped}, &host); });
+    const auto cancelled = batch_record(1, "CANCELLED");
+    CHECK(structured_attempt_history({cancelled}, &host).size() == 3);
+    auto missing = batch_record();
+    missing.at("feedback").at("result") = Object{{"status", "FAILED"}, {"correction_feedback", Object{
+        {"format", "wls-correction-feedback-v1"}, {"reason", "tool_result"}}}};
+    seal_batch_feedback(missing);
+    fails(ErrorCode::Corrupt, [&] { (void)structured_attempt_history({missing}, &host); });
+    missing.at("feedback").at("result").at("correction_feedback").at("reason") = "tool_selection";
+    seal_batch_feedback(missing);
+    CHECK(single_agent_messages_json(structured_attempt_history({missing}, &host)) ==
+        single_agent_messages_json(structured_attempt_history({missing})));
+    for (const auto* tool : {"fs_read", "run", "history_read", "submit"}) {
+        auto foreign = batch_record();
+        foreign.at("response").at("tool_calls").as_array()[0].at("name") = tool;
+        foreign.at("response").at("responses_output").at("output").as_array()[1].at("name") = tool;
+        auto& item = foreign.at("feedback").at("result").at("items").as_array()[0];
+        item.at("name") = tool; item.at("result").at("operation").at("tool_id") = tool;
+        seal_batch_feedback(foreign);
+        fails(ErrorCode::Corrupt, [&] { (void)structured_attempt_history({foreign}, &host); });
+    }
+}
+void batch_history_fold_and_window_preserve_complete_turns() {
+    const auto host = batch_host();
+    const auto failed = batch_record(1, "FAILED"), second = batch_record(2), third = batch_record(3);
+    const auto tail = batch_tail({failed, second, third});
+    const auto projection = append_fold_history(nullptr, tail, true, &host);
+    CHECK(projection.at("folded_entries").as_array().size() == 1);
+    const auto& entry = projection.at("folded_entries").as_array().front();
+    CHECK(parse_json_strict(entry.at("outcome").as_string()).at("status") == "FAILED");
+    CHECK(entry.at("record_sha256") == failed.at("feedback").at("record_sha256"));
+    const auto messages = append_fold_messages(parse_json_strict(canonical_json(projection)));
+    CHECK(messages.size() == 7 && messages[1].role == "assistant" && messages[4].role == "assistant");
+    CHECK(messages[2].content == canonical_json(second.at("feedback").at("result").at("items").as_array()[0]));
+    CHECK(messages[3].content == canonical_json(second.at("feedback").at("result").at("items").as_array()[1]));
+    for (int variant = 0; variant != 4; ++variant) {
+        auto unresolved = batch_record(1, "UNKNOWN");
+        auto& batch = unresolved.at("feedback").at("result");
+        auto& item = batch.at("items").as_array()[1];
+        if (variant == 1) item.at("result") = nullptr;
+        if (variant == 2) {
+            // Replay the original receipt from this attempt, retaining its known result as data.
+            item.at("result") = batch_record().at("feedback").at("result").at("items").as_array()[1].at("result");
+            item.at("result").at("executed_now") = false; item.at("result").at("replayed") = true;
+        }
+        seal_batch_feedback(unresolved);
+        if (variant == 3) { unresolved.at("feedback") = nullptr; unresolved.at("feedback_missing") = true; }
+        const auto delta = batch_tail({unresolved, second, third});
+        const auto visible = append_fold_history(nullptr, delta, false, &host);
+        CHECK(visible.at("visible_turns").as_array().front().at("completed") == false);
+        CHECK(visible.at("folded_entries").as_array().empty());
+        fails(ErrorCode::Quota, [&] { (void)append_fold_history(nullptr, delta, true, &host); });
+    }
+    const Json policy = Object{{"mode", "window-v1"}, {"recent_attempts", 3}, {"inline_bytes", 32768}};
+    const auto window = worker_history_messages(tail, policy, &host);
+    CHECK(window.size() == 10 && window[1].role == "assistant" && window[4].role == "assistant");
+    CHECK(window[2].content == canonical_json(failed.at("feedback").at("result").at("items").as_array()[0]));
+    auto large = failed; large.at("feedback").at("result").as_object()["message"] = std::string(40000, 'x');
+    // Item observations, rather than unrelated root metadata, determine the inline size.
+    large.at("feedback").at("result").at("items").as_array()[1].at("error").at("message") = std::string(40000, 'x');
+    seal_batch_feedback(large);
+    const auto referenced = worker_history_messages(batch_tail({large, second}), policy, &host);
+    CHECK(referenced[1].source.at("kind") == "history_reference");
+    CHECK(parse_json_strict(referenced[1].content).at("record_sha256") == large.at("feedback").at("record_sha256"));
+    fails(ErrorCode::Quota, [&] { (void)worker_history_messages(batch_tail({large}), policy, &host); });
+    auto wrong_scope = tail; wrong_scope.at("scope").at("request_id") = "wrong-request";
+    fails(ErrorCode::Corrupt, [&] { (void)append_fold_history(nullptr, wrong_scope, false, &host); });
+    wrong_scope = tail; wrong_scope.at("request_id") = "wrong-request";
+    fails(ErrorCode::Corrupt, [&] { (void)worker_history_messages(wrong_scope, policy, &host); });
 }
 void write_summary_policy_is_explicit_worker_only_and_keeps_defaults() {
     const auto legacy = fixture::compat_profile(); const auto original = to_json(legacy);
@@ -1304,6 +1597,10 @@ void reasoning_history_counts_complete_rounds_and_validates_omitted_items() {
 
 int main() {
     return ::test::run({
+        {"file batch history requires explicit original host policy", batch_history_requires_explicit_original_host_policy},
+        {"file batch history replays distinct native outputs verbatim", batch_history_replays_distinct_native_outputs_verbatim},
+        {"file batch history rejects inconsistent original facts", batch_history_rejects_inconsistent_original_facts},
+        {"file batch fold and window preserve complete turns", batch_history_fold_and_window_preserve_complete_turns},
         {"Chat profiles stay pure and old Responses runtime refuses them", wls::test::chat::profile_and_runtime_boundaries},
         {"Chat reasoning requires explicit policy and frozen capabilities", wls::test::chat::reasoning_requires_explicit_frozen_declarations},
         {"Chat request mapping and records preserve original identity", wls::test::chat::request_mapping_and_record_identity},
