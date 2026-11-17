@@ -1,0 +1,4 @@
+[
+  {"constraint_id":"c1","source_revision":1,"text":"只读 /input/orders.csv，禁止访问网络；程序和输出只写入自己的工作区。"},
+  {"constraint_id":"c2","source_revision":1,"text":"只提交 summary.csv；UTF-8、LF、末尾换行，按金额降序、地区升序排列。"}
+]

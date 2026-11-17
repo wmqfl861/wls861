@@ -1,0 +1,156 @@
+{
+  "default": [
+    {
+      "role": "dispatcher",
+      "role_call_index": 1,
+      "status": "completed",
+      "tool_calls": [
+        {
+          "call_id": "csv-submit_plan-1",
+          "name": "submit_plan",
+          "arguments": {
+            "summary": "处理只读 CSV 并捕获原始汇总。",
+            "nodes": [
+              {
+                "node_id": "csv",
+                "title": "CSV 汇总",
+              "template": "default",
+                "brief": {
+                  "goal": "使用 Python 解析 /input/orders.csv 并提交 summary.csv。",
+                  "acceptance_criteria": [
+                    {
+                      "text": "汇总与输入一致，输入未修改，提交完整原始字节。"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cost_micro_usd": 0
+      }
+    }
+  ],
+  "nodes": {
+    "csv": [
+      {
+        "role": "team_lead",
+        "role_call_index": 1,
+        "status": "completed",
+        "tool_calls": [
+          {
+            "call_id": "csv-issue_work_order-1",
+            "name": "issue_work_order",
+            "arguments": {
+              "approach": "写入 Python 程序、运行并提交原始汇总。",
+              "steps": [
+                {
+                  "text": "用 csv 解析输入，汇总、排序并捕获输出。"
+                }
+              ],
+              "done_definition": "summary.csv 已提交原始快照。"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost_micro_usd": 0
+        }
+      },
+      {
+        "role": "worker",
+        "role_call_index": 1,
+        "status": "completed",
+        "tool_calls": [
+          {
+            "call_id": "csv-fs_write-1",
+            "name": "fs_write",
+            "arguments": {
+              "path": "csv-transform.py",
+              "content": "__CSV_PROGRAM__"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost_micro_usd": 0
+        }
+      },
+      {
+        "role": "worker",
+        "role_call_index": 2,
+        "status": "completed",
+        "tool_calls": [
+          {
+            "call_id": "csv-run-2",
+            "name": "run",
+            "arguments": {
+              "argv": [
+                "/usr/bin/python3",
+                "csv-transform.py",
+                "/input/orders.csv",
+                "summary.csv",
+                "--check-read-only"
+              ],
+              "timeout_s": 5,
+              "max_output_bytes": 4096
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost_micro_usd": 0
+        }
+      },
+      {
+        "role": "worker",
+        "role_call_index": 3,
+        "status": "completed",
+        "tool_calls": [
+          {
+            "call_id": "csv-submit-3",
+            "name": "submit",
+            "arguments": {
+              "summary": "提交 Python 汇总的原始输出。",
+              "deliverables": [
+                {
+                  "path": "/work/summary.csv",
+                  "description": "地区订单数和整数金额汇总。"
+                }
+              ],
+              "self_check": [
+                {
+                  "criterion_id": "ac1",
+                  "met": "yes",
+                  "evidence": "run 的输入摘要、只读写入拒绝及输出摘要。"
+                }
+              ]
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "cost_micro_usd": 0
+        }
+      }
+    ]
+  }
+}
