@@ -190,7 +190,7 @@ class LiveWorkflowCli(unittest.TestCase):
         if total is not None:
             system['model_calls'].update(runtime_policy='bounded-v1', max_total_calls=total)
         if observe_only:
-            system['model_calls'].update(cost_policy='observe-only-v1', runtime_policy='bounded-v1', max_total_calls=64)
+            system['model_calls'].update(cost_policy='observe-only-v1', runtime_policy='bounded-v1', max_total_calls=64 if total is None else total)
             system['budget_defaults'].update(max_cost_usd=None, max_input_tokens=4000000,
                                             max_output_tokens=1000000, max_wall_minutes=10)
             cost_budget = 0
@@ -401,7 +401,7 @@ class LiveWorkflowCli(unittest.TestCase):
                     connection.sendall(tls.headers(len(body), content_type='text/event-stream' if stream else 'application/json') + body)
                 with tls.Peer(self.contexts['server'], respond) as peer:
                     request = self.admit(peer.port, retries=retries, observe_only=case != 'unknown',
-                                         timeout_ms=300 if case == 'timeout' else None, stream=stream)
+                                         timeout_ms=300 if case == 'timeout' else None, stream=stream, total=3 if failures == 3 else 2)
                     if retries == 0:  # Current configuration cannot grant a frozen request another attempt.
                         changed = json.loads(self.configuration.read_text()); changed['model_calls']['max_paid_retries'] = 2
                         self.configuration.write_text(json.dumps(changed))
