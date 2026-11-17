@@ -21,9 +21,12 @@ import tempfile
 import time
 import unittest
 
-if len(sys.argv) != 3:
-    raise SystemExit('usage: test_live_workflow_cli.py WLS SOURCE')
-BINARY, SOURCE = (Path(value).resolve() for value in sys.argv[1:])
+if len(sys.argv) not in (3, 5) or (len(sys.argv) == 5 and
+        (sys.argv[3] != '--group' or sys.argv[4] not in ('media', 'retries', 'core'))):
+    raise SystemExit('usage: test_live_workflow_cli.py WLS SOURCE [--group media|retries|core]')
+GROUP = sys.argv[4] if len(sys.argv) == 5 else None
+BINARY, SOURCE = (Path(value).resolve() for value in sys.argv[1:3])
+sys.argv = sys.argv[:3]  # Shared TLS fixture retains its two-path CLI contract.
 spec = importlib.util.spec_from_file_location('live_cli_tls_fixture', SOURCE / 'tests/test_https_transport.py')
 tls = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tls)
@@ -902,6 +905,24 @@ class LiveWorkflowCli(unittest.TestCase):
             self.assertEqual(budget['unknown_cost'], 0)
             self.assertTrue(self.invoke('live-status', '--db', self.database,
                                         '--request', request)['accounting']['ready'])
+
+
+# CTest groups preserve every method; newly added methods enter core by default.
+# Direct invocation (including Make) continues to run the complete suite.
+def load_tests(loader, standard_tests, pattern):
+    if GROUP is None:
+        return standard_tests
+    media = {'test_unusable_response_retries_keep_original_evidence_and_boundaries'}
+    retries = {'test_bounded_paid_retries_preserve_independent_attempts_and_feedback',
+               'test_client_timeout_is_not_retried_and_next_invocation_continues',
+               'test_original_batch_deadline_stops_before_another_attempt',
+               'test_no_upload_connection_failure_retries_but_partial_response_does_not',
+               'test_retries_respect_total_calls_budget_and_signed_accounting'}
+    names = set(loader.getTestCaseNames(LiveWorkflowCli))
+    if media & retries or not (media | retries) <= names:
+        raise RuntimeError('live CLI group references missing or overlapping methods')
+    selected = {'media': media, 'retries': retries, 'core': names - media - retries}[GROUP]
+    return unittest.TestSuite(LiveWorkflowCli(name) for name in sorted(selected))
 
 
 if __name__ == '__main__':
