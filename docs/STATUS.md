@@ -1,4 +1,4 @@
-现在能做什么：U1 单团队、U2 三任务三团队已真实交付，唯一确认回执和 12/12 成果检查均通过。D-46、D-48、显式 JSON 媒体兼容、测试分片和可选效率提示已合入；最新为 [#146](https://github.com/wmqfl861/wls861/pull/146)。
+现在能做什么：U1 单团队、U2 三任务三团队已真实交付，唯一确认回执和 12/12 成果检查均通过。D-46、D-48、显式 JSON 媒体兼容、测试分片、可选效率提示和最近两轮推理历史策略已合入；最新为 [#147](https://github.com/wmqfl861/wls861/pull/147)。
 还不能做什么：R11 优化比较、0.13.1 出口和 G3 及后续阶段未完成；实现仍为 0.13.0。G4 真实 U3/U4 等合规宿主。
 需要 owner 做什么：当前继续已有授权任务；本机 BLOCKED 的选择保持，不重复要求配置。到宿主依赖或额度边界时按已定规则处理。
 
@@ -8,7 +8,7 @@
 
 **稳定接手入口：[最新交接](reviews/current-handoff.md)**。唯一前向计划是 [11-16 计划](reviews/claude-2026-11-16/04-plan.md)；G2 当前结论、用量、输入身份和冻结回归只在[运行记录](reports/g2-first-real-run.md)详记。
 
-R6 当时按计划中“明确记录未达原因”的路径完成出口，本次 U1/U2 成功另行记录，不能回写成旧版本已通过；六格式为 `structured-v3`、`lean-v1`、`fixed-role-v1`、`append-fold-v1`、`guided-v1`、`bounded-v1`。E1 当前仍未恢复；后续按 D-51/D-56 在 R11 顺序处理。[#135](https://github.com/wmqfl861/wls861/pull/135) 已合入 `b49bbb1`，[`v0.13.0`](https://github.com/wmqfl861/wls861/tree/v0.13.0) 注释标签已推送，无 Release。
+R6 当时按计划中“明确记录未达原因”的路径完成出口，本次 U1/U2 成功另行记录，不能回写成旧版本已通过；六格式为 `structured-v3`、`lean-v1`、`fixed-role-v1`、`append-fold-v1`、`guided-v1`、`bounded-v1`。E1 已按 D-51 恢复原实现并通过本机回归与同输入比较，待当前 PR 门禁与合入；真实收益未测。[#135](https://github.com/wmqfl861/wls861/pull/135) 已合入 `b49bbb1`，[`v0.13.0`](https://github.com/wmqfl861/wls861/tree/v0.13.0) 注释标签已推送，无 Release。
 
 ## 已核对输入与验证
 
