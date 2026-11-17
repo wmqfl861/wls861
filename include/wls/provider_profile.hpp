@@ -114,6 +114,8 @@ struct ProviderProfile {
     std::string responses_media_type_policy{};
     // Worker native replay only; empty retains every original reasoning item.
     std::string responses_reasoning_history_policy{};
+    // Worker-only send projection; empty preserves original profile/wire bytes.
+    std::string responses_tool_result_policy{};
 };
 
 // Strict parse/serialize; rates are integers in 0..10^12 micro USD.

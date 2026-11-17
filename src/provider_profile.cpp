@@ -302,6 +302,9 @@ PricingEstimate minimum_cost_reservation(const TokenPricing& pricing, std::int64
 void validate_provider_profile(const ProviderProfile& p) {
     require(identifier(p.profile_id) && identifier(p.model_ref), "invalid provider profile or model reference");
     const bool chat = p.protocol == "openai-chat-v1";
+    if (!p.responses_tool_result_policy.empty() && (p.responses_tool_result_policy != "write-summary-v1" ||
+            chat || !p.responses_compatibility))
+        throw Error(ErrorCode::Unsupported, "write-summary-v1 requires Responses compatibility");
     if (p.adapter_version != "1" || (!chat && p.protocol != "openai-responses-v1"))
         throw Error(ErrorCode::Unsupported, "unsupported Responses codec version or protocol");
     const auto& endpoint = chat ? p.chat_completions_path : p.responses_path;
@@ -405,6 +408,7 @@ ProviderProfile provider_profile_from_json(const Json& value) {
     if (object(value).contains("responses_media_type_policy")) keys.insert("responses_media_type_policy");
     if (object(value).contains("responses_reasoning_history_policy")) keys.insert("responses_reasoning_history_policy");
     if (object(value).contains("max_response_id_bytes")) keys.insert("max_response_id_bytes");
+    if (object(value).contains("responses_tool_result_policy")) keys.insert("responses_tool_result_policy");
     exact(value, keys);
     if (text(value, "format") != "wls-provider-profile-v1" || (!chat && text(value, "adapter") != "openai-responses") ||
             (chat != (text(value, "protocol") == "openai-chat-v1")))
@@ -451,6 +455,10 @@ ProviderProfile provider_profile_from_json(const Json& value) {
         require(p.responses_reasoning_history_policy == "last-two-rounds-v1", "unsupported Responses reasoning history policy");
     }
     if (object(value).contains("max_response_id_bytes")) p.max_response_id_bytes = size(value, "max_response_id_bytes");
+    if (object(value).contains("responses_tool_result_policy")) {
+        p.responses_tool_result_policy = text(value, "responses_tool_result_policy");
+        require(p.responses_tool_result_policy == "write-summary-v1", "unsupported Responses tool result policy");
+    }
     if (object(value).contains("billing_challenge")) {
         p.billing_challenge = text(value, "billing_challenge");
         require(p.billing_challenge == "wls-billing-challenge-v1", "unsupported frozen billing challenge extension");
@@ -536,6 +544,7 @@ Json to_json(const ProviderProfile& p) {
     if (!p.responses_media_type_policy.empty()) result["responses_media_type_policy"] = p.responses_media_type_policy;
     if (!p.responses_reasoning_history_policy.empty()) result["responses_reasoning_history_policy"] = p.responses_reasoning_history_policy;
     if (p.max_response_id_bytes) result["max_response_id_bytes"] = *p.max_response_id_bytes;
+    if (!p.responses_tool_result_policy.empty()) result["responses_tool_result_policy"] = p.responses_tool_result_policy;
     if (!p.chat_reasoning_policy.empty()) result["chat_reasoning_policy"] = p.chat_reasoning_policy;
     if (!p.chat_model_aliases.empty()) {
         Array aliases; for (const auto& alias : p.chat_model_aliases) aliases.emplace_back(alias);
