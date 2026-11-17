@@ -550,6 +550,8 @@ public:
                            const std::string& tool_id) const;
     std::vector<std::string> authorized_worker_tools(
         const StoreActor& actor, const ExecutionBinding& current_binding) const;
+    // Read-only admission for two sequential writes; actual prepares retain all guards.
+    void preflight_file_batch(const StoreActor& actor, const ExecutionBinding& current_binding) const;
     // The original host command (including its captured binding/version) is
     // the durable retry identity. An old successful ack/cancel may replay after
     // newer instructions or epochs, but a fresh stale command cannot mutate.

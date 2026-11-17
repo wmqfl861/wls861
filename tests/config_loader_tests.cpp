@@ -791,6 +791,15 @@ void fixed_initial_plan_is_selected_frozen_and_strict() {
         expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
     }
     system.at("context").at("request_format") = "structured-v3";
+    system.at("context").as_object()["model_projection"] = "lean-v1";
+    system.at("context").as_object()["tool_policy"] = "fixed-role-file-batch-v1";
+    fixture.system(system);
+    const auto batch = fixture.freeze();
+    CHECK(batch.context_tool_policy() == "fixed-role-file-batch-v1");
+    system.at("context").as_object()["logical_agent"] = Object{{"mode", "single-agent-role-broker-v1"}, {"max_attempts", 20}, {"max_history_bytes", 65536}};
+    fixture.system(system);
+    expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });
+    system.at("context").as_object().erase("logical_agent");
     for (const auto* mode : {"single-agent-plain-v1", "single-agent-role-broker-v1"}) {
         system.at("context").as_object()["logical_agent"] = Object{{"mode", mode}, {"max_attempts", 20}, {"max_history_bytes", 65536}};
         fixture.system(system); expect_error(ErrorCode::InvalidInput, [&] { (void)fixture.load(); });

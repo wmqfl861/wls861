@@ -596,6 +596,10 @@ void response_text_items_calls_and_arguments_are_bounded() {
     auto value = fixture::tool_response(); auto second = value.at("output").as_array()[0];
     second.as_object()["id"] = "second_item"; second.as_object()["call_id"] = "second_call";
     value.at("output").as_array().push_back(second);
+    p = fixture::profile(); p.parallel_tool_calls = true; p.limits.max_tool_calls = 2;
+    const auto pair = decode(value, p).response;
+    CHECK(pair.status == ModelResultStatus::Completed && pair.tool_calls.size() == 2);
+    CHECK(pair.tool_calls[0].call_id != pair.tool_calls[1].call_id);
     p = fixture::profile(); p.limits.max_output_items = 1;
     CHECK(decode(value, p).response.error_code == "response_limit");
     p = fixture::profile(); p.limits.max_tool_calls = 1;
@@ -744,8 +748,12 @@ Json write_receipt_record(bool created = true, const std::string& tool = "fs_wri
     return record;
 }
 ModelRequest write_receipt_request(const Json& record, Role role = Role::Worker, bool lean = true,
-        const FileBatchHistoryContext* batch_context = nullptr) {
+        const FileBatchHistoryContext* batch_context = nullptr, bool enable_batch_policy = false) {
     auto context = fixture::context(); context.role = role; context.model_projection = lean ? "lean-v1" : "";
+    if (enable_batch_policy && batch_context && batch_context->tool_policy == "fixed-role-file-batch-v1") {
+        context.tool_policy = batch_context->tool_policy;
+        context.allowed_tools = {"fs_write"};
+    }
     context.tools.front().name = std::string(record.at("response").at("tool_calls").as_array().front().at("name").as_string());
     context.tools.front().description = "Read or write the named fixture file.";
     context.tools.front().definition = Object{{"type", "object"},
@@ -877,8 +885,9 @@ void batch_history_requires_explicit_original_host_policy() {
     page.at("feedback").at("result") = Object{{"format", "wls-history-page-v1"}, {"items", Array{}}};
     CHECK(single_agent_messages_json(structured_attempt_history({page}, &host)) ==
         single_agent_messages_json(structured_attempt_history({page})));
-    auto context = fixture::context(); context.tool_policy = host.tool_policy;
-    fails(ErrorCode::InvalidInput, [&] { (void)compile_structured_context(context, {}, {}, StructuredContextFormat::V3); });
+    const auto compiled = write_receipt_request(single, Role::Worker, true, &host, true);
+    const auto* compiled_policy = compiled.context.logical_input.as_object().if_contains("tool_policy");
+    CHECK(compiled_policy && *compiled_policy == "fixed-role-file-batch-v1");
 }
 void batch_history_replays_distinct_native_outputs_verbatim() {
     const auto original = batch_record(); const auto saved = canonical_json(original);
@@ -886,6 +895,18 @@ void batch_history_replays_distinct_native_outputs_verbatim() {
     const auto messages = structured_attempt_history({parse_json_strict(saved)}, &host);
     CHECK(messages.size() == 3 && messages[0].role == "assistant" && messages[0].tool_calls.size() == 2);
     auto profile = fixture::compat_profile(); profile.responses_tool_result_policy = "write-summary-v1";
+    auto response = fixture::response_with_output(original.at("response").at("responses_output").at("output").as_array());
+    response.at("model") = profile.model;
+    response.at("output").as_array().back().at("arguments") = canonical_json(Object{{"path", "second.txt"}, {"content", "second"}});
+    const auto request = write_receipt_request(original, Role::Worker, true, &host, true);
+    profile.parallel_tool_calls = true; profile.limits.max_tool_calls = 2;
+    const auto decoded = decode(response, profile, request).response;
+    CHECK(decoded.status == ModelResultStatus::Completed && decoded.tool_calls.size() == 2);
+    CHECK(decoded.tool_calls[0].name == "fs_write" && decoded.tool_calls[1].name == "fs_write");
+    auto limited = profile; limited.parallel_tool_calls = false;
+    CHECK(decode(response, limited, request).response.error_code == "response_limit");
+    limited = profile; limited.limits.max_tool_calls = 1;
+    CHECK(decode(response, limited, request).response.error_code == "response_limit");
     const auto body = parse_json_strict(encode_responses_request(profile,
         write_receipt_request(original, Role::Worker, true, &host)).body);
     CHECK(body.at("input").as_array().size() == 7);

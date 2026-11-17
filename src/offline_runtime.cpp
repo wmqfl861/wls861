@@ -9,6 +9,7 @@
 #include "amendment_disposition.hpp"
 #include "correction_detail.hpp"
 #include "storage_error.hpp"
+#include "file_batch_runtime.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -19,6 +20,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
+#include <exception>
 #include <limits>
 #include <map>
 #include <memory>
@@ -559,6 +561,16 @@ CapturedModelCall OfflineRuntime::capture_call(
     const auto binding = task_id.empty() ? store_.request_binding(request_id) : store_.binding(task_id);
     require(binding.request_id == request_id, ErrorCode::Unauthorized, "task belongs to another request");
     const auto actor = store_.host_actor(role, request_id, binding.team_id);
+    const FileBatchHistoryContext batch_host{request_id, config.sha256(), role,
+        config.context_request_format(), config.context_tool_policy()};
+    if (file_batch_detail::enabled(&batch_host)) {
+        const auto tail = store_.attempt_history_tail(actor, 1);
+        for (const auto& turn : tail.at("items").as_array()) {
+            const auto& response = turn.at("response");
+            require(response.is_null() || response.at("tool_calls").as_array().size() != 2 || !turn.at("feedback").is_null(),
+                ErrorCode::NotReady, "file batch awaits its original durable feedback");
+        }
+    }
     const auto template_id = task_id.empty() ? "default" : string_at(task, "template_id");
     require(role != Role::Worker || worker_tools_ || config.environment_checks(template_id).is_null(),
         ErrorCode::NotReady, "frozen environment checks require a WorkerTools host before model capture");
@@ -832,19 +844,20 @@ CapturedModelCall OfflineRuntime::capture_call(
             "Every query consumes an ordinary model attempt and the persistent control allowance.";
     } else if (append) {
         const auto& prior = history_capture.at("previous");
-        context.worker_history = append_fold_history(prior.is_null() ? Json(nullptr) : prior.at("input"), history_capture.at("delta"));
+        context.worker_history = append_fold_history(prior.is_null() ? Json(nullptr) : prior.at("input"), history_capture.at("delta"), false, &batch_host);
         native_messages = append_fold_messages(context.worker_history);
         context.worker_history.as_object().erase("messages");
     } else if (!history_policy.is_null()) {
-        native_messages = worker_history_messages(store_.attempt_history_tail(actor,
-            integer_at(history_policy, "recent_attempts")), history_policy);
+        auto tail = store_.attempt_history_tail(actor, integer_at(history_policy, "recent_attempts"));
+        if (file_batch_detail::enabled(&batch_host)) tail.as_object()["role"] = role_name(actor.role);
+        native_messages = worker_history_messages(tail, history_policy, &batch_host);
         context.approved_rules += " History controls read only this Worker's immutable original evidence. "
             "A history_window explicitly reports older omissions; history_reference is not the original result or a summary. "
             "Retrieve original facts with history_page/history_read; decode base64 and verify full section SHA before interpreting it. "
             "Never infer success, completion or permission from an omitted record. No authoritative task constraint is pruned.";
     } else if (store_.event_runtime_enabled() && role == Role::Worker) {
         const auto history = store_.attempt_history(actor);
-        if (structured) native_messages = structured_attempt_history(history);
+        if (structured) native_messages = structured_attempt_history(history, &batch_host);
         else for (const auto& attempt : history) {
             Object original = attempt.as_object();
             original.erase("request_envelope");
@@ -870,6 +883,10 @@ CapturedModelCall OfflineRuntime::capture_call(
         context.approved_rules = guided_rules(role);
         context.project_snapshot = "Use the complete task contract and observed tool results for current facts.";
     }
+    if (file_batch_detail::enabled(&batch_host)) context.approved_rules +=
+        " You may call exactly two fs_write tools on distinct canonical relative paths in one response."
+        " They run sequentially and stop on the first non-success. There is no rollback, atomicity or variable substitution."
+        " Batch paths cannot use /work aliases; mkdir, patch and other tools remain single-call only.";
     if (v3) continue_structured_contract(context, append ? history_capture.at("previous") : store_.previous_context(actor));
     const auto format = v3 ? StructuredContextFormat::V3 : StructuredContextFormat::V2;
     const auto compile = [&] { return !management_policy.is_null()
@@ -880,6 +897,11 @@ CapturedModelCall OfflineRuntime::capture_call(
                               string_at(profile, "adapter") == "openai-chat";
     require(string_at(profile.at("capabilities"), "tool_calling") == "supported",
             ErrorCode::Unsupported, "frozen model profile does not support required tool calls");
+    if (file_batch_detail::enabled(&batch_host) && live_profile) {
+        const auto provider = live_model_settings_from_json(profile, request.model.model).provider;
+        require(provider.parallel_tool_calls && provider.limits.max_tool_calls >= 2, ErrorCode::Unsupported,
+            "file batch requires explicit parallel_tool_calls and max_tool_calls >= 2");
+    }
     request.max_output_tokens = std::min<std::int64_t>(8192, integer_at(profile.at("capabilities"), "max_output_tokens"));
     if (append) {
         request.reserved_output_tokens = request.max_output_tokens; request.timeout = limits.timeout;
@@ -902,7 +924,7 @@ CapturedModelCall OfflineRuntime::capture_call(
         catch (const Error& error) { if (error.code() != ErrorCode::Quota) throw; crossing = true; }
         if (crossing) {
             const auto& prior = history_capture.at("previous");
-            context.worker_history = append_fold_history(prior.is_null() ? Json(nullptr) : prior.at("input"), history_capture.at("delta"), true);
+            context.worker_history = append_fold_history(prior.is_null() ? Json(nullptr) : prior.at("input"), history_capture.at("delta"), true, &batch_host);
             native_messages = append_fold_messages(context.worker_history); context.worker_history.as_object().erase("messages");
             request.context = compile();
             require(input_bytes() <= threshold, ErrorCode::Quota, "one history fold cannot restore complete input capacity");
@@ -998,18 +1020,19 @@ Json OfflineRuntime::accept_independent_response(const CapturedModelCall& call, 
 
 Json OfflineRuntime::accept_live_response(const CapturedModelCall& call, const ModelResponse& response,
                                          const AfterModelSettlement& after_settlement,
-                                         bool independent_plan) {
+                                         bool independent_plan, std::stop_token stop, std::chrono::steady_clock::time_point deadline) {
     require(store_.live_model_enabled(), ErrorCode::Unsupported, "live workflow requires Store 410");
     // This lookup requires an original live reservation. A caller cannot
     // apply the live accounting hook to an old FakeModel attempt.
     static_cast<void>(store_.live_attempt(call.request.attempt_id));
-    return accept_captured_response(call, response, {}, independent_plan, Object{}, after_settlement);
+    return accept_captured_response(call, response, {}, independent_plan, Object{}, after_settlement, stop, deadline);
 }
 
 Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, const ModelResponse& response,
                                              const std::string& disposition, bool independent_plan,
                                              const Json& dispositions,
-                                             const AfterModelSettlement& after_settlement) {
+                                             const AfterModelSettlement& after_settlement, std::stop_token stop,
+                                             std::chrono::steady_clock::time_point deadline) {
     const auto& captured = call.request;
     // No current-row metadata is copied onto a response. A corrupted envelope
     // cannot impersonate another pending attempt; its reservation remains held.
@@ -1042,6 +1065,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
                 "saved feedback differs from the original captured response");
         const auto& result = receipt.at("result");
         const auto* runtime_error = result.is_object() ? result.as_object().if_contains("runtime_error") : nullptr;
+        if (result.is_object() && result.as_object().contains("format") && result.at("format") == "wls-file-batch-feedback-v1") return result;
         if (runtime_error && runtime_error->is_bool() && runtime_error->as_bool()) {
             const auto code = string_at(result, "error_code");
             for (const auto candidate : {ErrorCode::InvalidInput, ErrorCode::Unauthorized, ErrorCode::Conflict,
@@ -1052,13 +1076,23 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         }
         return result;
     }
+    const auto runtime_config = restore_request_config(store_.request(captured.binding.request_id));
     const auto save_feedback = [&](Json result) {
         if (!call.retry_of_attempt_id.empty()) result.as_object()["retry_of_attempt_id"] = call.retry_of_attempt_id;
+        if (result.is_object() && result.as_object().contains("format") && result.at("format") == "wls-file-batch-feedback-v1") {
+            const FileBatchHistoryContext host{captured.binding.request_id, runtime_config.sha256(), captured.role,
+                runtime_config.context_request_format(), runtime_config.context_tool_policy()};
+            auto original = settlement;
+            Object fact{{"attempt_id", captured.attempt_id}, {"original_binding", to_json(captured.binding)},
+                {"response", to_json(response)}, {"result", result}};
+            fact["record_sha256"] = sha256_hex(canonical_json(fact));
+            original.as_object()["feedback"] = fact;
+            (void)file_batch_detail::validate(original, response, &host);
+        }
         if (durable_feedback)
             static_cast<void>(store_.record_tool_feedback(captured.attempt_id, captured.binding, to_json(response), result));
         return result;
     };
-    const auto runtime_config = restore_request_config(store_.request(captured.binding.request_id));
     const auto target_key = correction_detail::target_key(captured, call.workflow_action);
     const auto ordinary = [&](const char* reason, const std::string& observation = {}) {
         const auto tail = store_.attempt_history_tail(call.actor, 2);
@@ -1098,9 +1132,21 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     // Marks that the failure below came from the model-response gate itself,
     // so a host hook error can never be relabelled as a model-layer refusal.
     bool refusal_gate = false;
+    const auto allowed = model_allowed_tools(captured.context);
+    const bool batch_candidate = captured.role == Role::Worker && response.tool_calls.size() == 2 &&
+        runtime_config.context_tool_policy() == "fixed-role-file-batch-v1" &&
+        std::all_of(response.tool_calls.begin(), response.tool_calls.end(), [&](const auto& item) {
+            return item.name == "fs_write" && std::find(allowed.begin(), allowed.end(), item.name) != allowed.end();
+        });
+    Json batch = nullptr; // A batch fault must never fall back to a prefix-erasing legacy receipt.
+    const auto expected_batch_version = call.expected_state_version;
     const auto apply = [&]() -> Json {
+    std::exception_ptr hook_failure;
     if (after_settlement) try { after_settlement(settlement); }
-        catch (const Error& error) { throw Error(error.code(), error.what()); } // Host errors cannot become typed model corrections.
+        catch (const Error& error) {
+            if (!batch_candidate) throw Error(error.code(), error.what());
+            hook_failure = std::make_exception_ptr(Error(error.code(), error.what()));
+        } // Host errors cannot become typed model corrections or execute tools.
     try {
         validate_response_envelope(captured, response);
         if (durable_feedback && response.status == ModelResultStatus::Interrupted && response.error_code == "response_max_output_tokens") {
@@ -1116,7 +1162,85 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
     const auto& accepted = settlement.at("accepted");
     require((accepted.is_bool() && accepted.as_bool()) || (accepted.is_int64() && accepted.as_int64() == 1),
             ErrorCode::Stale, "response was recorded but cannot change current business state");
-    const auto allowed = model_allowed_tools(captured.context);
+    if (batch_candidate) {
+        require(runtime_config.sha256() == captured.config_snapshot_id && call.actor.role == Role::Worker &&
+            original_attempt.at("principal_id") == Json(call.actor.principal_id) && durable_feedback && worker_tools_,
+            ErrorCode::Unauthorized, "file batch needs its original durable Worker authority");
+        require(original_attempt.at("request_envelope") == to_json(captured) && settlement.at("response") == to_json(response),
+            ErrorCode::Conflict, "file batch inputs changed after original settlement");
+        Array items;
+        for (const auto& tool : response.tool_calls) items.push_back(Object{{"call_id", tool.call_id}, {"name", tool.name},
+            {"state", "NOT_EXECUTED"}, {"result", nullptr}, {"error", Object{{"code", "not_ready"}, {"message", "batch stopped before this item"}}}});
+        batch = Object{{"format", "wls-file-batch-feedback-v1"}, {"status", "NOT_EXECUTED"}, {"runtime_error", true},
+            {"observation_complete", true}, {"items", items}, {"error_code", "not_ready"}, {"message", "file batch stopped"}};
+        if (!call.retry_of_attempt_id.empty()) batch.as_object()["retry_of_attempt_id"] = call.retry_of_attempt_id;
+        auto expected = expected_batch_version;
+        std::array<std::size_t, 3> capacity{};
+        const auto batch_error = [&](const Error& error) {
+            batch.at("error_code") = error_name(error.code()); batch.at("message") = error.what();
+        };
+        try {
+            if (hook_failure) std::rethrow_exception(hook_failure);
+            require(expected < INT64_MAX - 1, ErrorCode::Quota, "file batch task version exhausted");
+            Array arguments;
+            for (const auto& tool : response.tool_calls) {
+                validate_worker_tool_arguments(tool.name, tool.arguments);
+                arguments.push_back(tool.arguments);
+            }
+            worker_tools_->preflight_file_batch(call.actor, captured.binding, arguments);
+            capacity = file_batch_detail::preflight_capacity(response, settlement, batch, runtime_config.worker_history_policy(), ordinary("tool_result"));
+        } catch (const Error& error) {
+            batch_error(error);
+            for (auto& item : batch.at("items").as_array()) item.at("error") = Object{{"code", error_name(error.code())}, {"message", error.what()}};
+            return batch;
+        }
+        for (std::size_t index = 0; index != 2; ++index) {
+            auto& item = batch.at("items").as_array()[index];
+            const auto& tool = response.tool_calls[index];
+            if (stop.stop_requested() || std::chrono::steady_clock::now() >= deadline) return batch;
+            const auto key = "batch:" + sha256_hex(canonical_json(Object{{"attempt_id", captured.attempt_id}, {"tool_call_id", tool.call_id}}));
+            try {
+                item.at("result") = worker_tools_->execute(call.actor, captured.binding, expected, key,
+                    tool.name, tool.arguments, captured.attempt_id + ":" + tool.call_id, stop, deadline);
+            } catch (const std::exception& error) {
+                // Unexpected oversized host faults keep original Store facts and missing feedback; never truncate.
+                if (std::strlen(error.what()) > capacity[2]) throw;
+                item.at("state") = "UNKNOWN";
+                item.at("error") = Object{{"code", "unknown_outcome"}, {"message", error.what()}};
+                batch.at("status") = "UNKNOWN"; batch.at("observation_complete") = false;
+                batch.at("error_code") = "unknown_outcome"; batch.at("message") = error.what();
+                return batch;
+            }
+            const auto& receipt = item.at("result");
+            require(canonical_json(receipt).size() <= capacity[index], ErrorCode::Quota,
+                "unexpected executor receipt exceeded its producer ledger; retain original facts");
+            const auto& execution = receipt.at("execution_result");
+            const auto& operation = receipt.at("operation");
+            item.at("error") = nullptr; // The complete receipt owns any executed item's diagnostic.
+            const bool fresh = receipt.at("executed_now") == true && receipt.at("replayed") == false;
+            const bool accepted_fact = !execution.is_null() && execution.at("accepted") == 1 &&
+                execution.at("observed_outcome") == operation.at("status") && execution.at("operation_status") == operation.at("status");
+            item.at("state") = fresh && accepted_fact ? operation.at("status") : Json("UNKNOWN");
+            if (item.at("state") != "SUCCEEDED") {
+                batch.at("status") = item.at("state"); batch.at("observation_complete") = item.at("state") != "UNKNOWN";
+                batch.as_object().erase("error_code");
+                batch.as_object().erase("message");
+                if (correction_detail::definite_failure(receipt)) {
+                    const auto id = string_at(operation, "op_id");
+                    require(store_.operation(id) == operation && store_.operation_result(id) == execution,
+                        ErrorCode::Corrupt, "file batch failure differs from original execution facts");
+                    batch.as_object()["correction_feedback"] = ordinary("tool_result").at("correction_feedback");
+                    batch.at("runtime_error") = false;
+                }
+                return batch;
+            }
+            expected = increment(expected); // Only this batch's proven fresh prepare advances captured CAS.
+        }
+        batch.at("status") = "SUCCEEDED"; batch.at("runtime_error") = false;
+        batch.as_object().erase("error_code");
+        batch.as_object().erase("message");
+        return batch;
+    }
     const bool declared = response.tool_calls.size() == 1 && std::find(allowed.begin(),
         allowed.end(), response.tool_calls.front().name) != allowed.end();
     if (durable_feedback && !declared) return ordinary("tool_selection", "offline wake requires exactly one declared tool call");
@@ -1385,7 +1509,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         return read_history([&] { return execute_history_control(store_, call.actor, captured.binding, tool.name, tool.arguments); });
     if (captured.role == Role::Worker && worker_tools_)
         return worker_tools_->execute(call.actor, captured.binding, call.expected_state_version,
-            captured.attempt_id, tool.name, worker_arguments, command);
+            captured.attempt_id, tool.name, worker_arguments, command, stop);
     require(captured.role == Role::Worker && tool.name == "note", ErrorCode::Unauthorized, "unsupported Worker tool");
     require(tool.arguments.is_object() && tool.arguments.as_object().size() == 1, ErrorCode::InvalidInput, "note accepts only text");
     const auto text = string_at(tool.arguments, "text");
@@ -1417,6 +1541,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         if (!durable_feedback) throw;
         result = ordinary("missing_leaf", error.what());
     } catch (const Error& error) {
+        if (batch_candidate) throw;
         if (store_.event_runtime_enabled()) {
             Object feedback{{"status", "ERROR"}, {"runtime_error", true},
                 {"error_code", error_name(error.code())}, {"message", error.what()}, {"observation_complete", false}};
@@ -1431,6 +1556,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         }
         throw;
     } catch (const std::exception& error) {
+        if (batch_candidate) throw;
         if (store_.event_runtime_enabled())
             static_cast<void>(save_feedback(
                 Object{{"status", "ERROR"}, {"runtime_error", true}, {"error_code", "unexpected"}, {"message", error.what()},
@@ -1548,7 +1674,8 @@ Json OfflineRuntime::run(const std::string& id, const std::vector<FakeModelStep>
             auto call = invoke(Role::Worker, task_id);
             const auto& result = call.at("result");
             const bool stop_batch = result.is_object() &&
-                ((result.as_object().contains("operation") && string_at(result.at("operation"), "status") != "SUCCEEDED") ||
+                ((result.as_object().contains("format") && result.at("format") == "wls-file-batch-feedback-v1" && result.at("status") != "SUCCEEDED") ||
+                 (result.as_object().contains("operation") && string_at(result.at("operation"), "status") != "SUCCEEDED") ||
                  (store_.workflow_runtime_enabled() && (result.as_object().contains("question_id") ||
                                                        result.as_object().contains("submission_id"))));
             if (worker_tools_) {

@@ -633,7 +633,11 @@ CapabilityRegistry validate_system(const Json& system) {
             invalid("system.context.request_format", "expected framed-v1, structured-v2 or structured-v3");
     }
     if (optional(context, "tool_policy")) {
-        literal(context, "tool_policy", "fixed-role-v1", "system.context");
+        const auto policy = string_value(context.at("tool_policy"), "system.context.tool_policy");
+        if (policy != "fixed-role-v1" && policy != "fixed-role-file-batch-v1")
+            invalid("system.context.tool_policy", "unknown fixed role policy");
+        if (policy == "fixed-role-file-batch-v1" && optional(context, "logical_agent"))
+            invalid("system.context.tool_policy", "file batches cannot replace logical_agent history");
         if (!optional(context, "request_format") || context.at("request_format") != "structured-v3")
             invalid("system.context.tool_policy", "fixed-role-v1 requires explicit structured-v3");
     }

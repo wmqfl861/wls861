@@ -108,6 +108,41 @@ void identity_and_creation() {
     CHECK((info.st_mode & 0777) == 0600);
 }
 
+void batch_preflight_accounts_for_both_targets_without_effects() {
+    using Object = boost::json::object;
+    using Array = boost::json::array;
+    const Array writes{Object{{"path", "a"}, {"content", "aa"}}, Object{{"path", "b"}, {"content", "bb"}}};
+    for (const std::string boundary : {"bytes", "entries", "write", "second_cas", "symlink", "staging_path"}) {
+        test::TempDir fixture; WorkspaceLimits limits;
+        if (boundary == "bytes") limits.max_total_bytes = 3;
+        if (boundary == "entries") limits.max_entries = 1;
+        if (boundary == "write") limits.max_write_bytes = 1;
+        if (boundary == "second_cas") host_write(fixture.path / "b", "old");
+        if (boundary == "symlink") CHECK(::symlink("a", (fixture.path / "b").c_str()) == 0);
+        if (boundary == "staging_path") {
+            limits.max_inventory_bytes = 256U * 1024U; limits.max_entries = 4095;
+            limits.max_total_bytes = 240U * 1024U * 1024U; limits.max_path_bytes = 8;
+        }
+        Workspace workspace(fixture.path, WorkspaceAccess::ReadWrite, limits);
+        fault::clear(); fault::Reset reset;
+        bool rejected = false;
+        try { workspace.preflight_writes(writes); } catch (const Error&) { rejected = true; }
+        CHECK(rejected && !std::filesystem::exists(fixture.path / "a"));
+        CHECK(fault::file_syncs == 0 && fault::directory_syncs == 0);
+        CHECK(file_count(fixture.path) == ((boundary == "second_cas" || boundary == "symlink") ? 1U : 0U));
+        if (boundary == "second_cas") CHECK(host_read(fixture.path / "b") == "old");
+    }
+    test::TempDir fixture; host_write(fixture.path / "a", "old");
+    WorkspaceLimits limits; limits.max_total_bytes = 4; limits.max_entries = 2;
+    Workspace workspace(fixture.path, WorkspaceAccess::ReadWrite, limits);
+    auto replacement = writes;
+    replacement[0].as_object()["expected_sha256"] = sha256_hex("old");
+    workspace.preflight_writes(replacement);
+    CHECK(host_read(fixture.path / "a") == "old" && !std::filesystem::exists(fixture.path / "b"));
+    CHECK(workspace.write_atomic("a", "aa", sha256_hex("old")).status == WorkspaceMutationStatus::Succeeded);
+    CHECK(workspace.write_atomic("b", "bb").status == WorkspaceMutationStatus::Succeeded);
+}
+
 void cas_and_atomic_replacement() {
     test::TempDir fixture;
     host_write(fixture.path / "target", "old");
@@ -506,6 +541,7 @@ void missing_openat2_fails_closed() {
 int main() {
     return test::run({
         {"workspace identity, CLOEXEC root descriptor and durable creation", identity_and_creation},
+        {"batch preflight checks both targets and cumulative capacity without effects", batch_preflight_accounts_for_both_targets_without_effects},
         {"CAS creation and inode-atomic replacement preserve previous open readers", cas_and_atomic_replacement},
         {"paged reads keep full hashes and encode arbitrary bytes losslessly", paged_and_binary_reads},
         {"read-only policy and relative path/parent boundaries", paths_and_read_only},

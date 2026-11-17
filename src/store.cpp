@@ -3569,6 +3569,26 @@ std::vector<std::string> Store::authorized_worker_tools(const StoreActor& actor,
     return result;
 }
 
+void Store::preflight_file_batch(const StoreActor& actor, const ExecutionBinding& current) const {
+    const std::lock_guard lock(impl_->mutex);
+    impl_->ready(actor, current, "fs_write");
+    const auto request = impl_->request_row(actor.request_id), team = impl_->team_row(actor.team_id);
+    require(number(team, "tool_calls_used") <= impl_->configured_limit(request, "worker_max_tool_calls_per_order") - 2,
+        ErrorCode::Quota, "file batch needs two remaining instruction tool calls");
+    const auto state = impl_->capacity_state(actor.request_id);
+    const auto& counts = state.at("counts").as_object();
+    const auto& limits = state.at("limits").as_object();
+    require(str(state, "status") == "OPEN" && number(counts, "operations") <= number(limits, "operations") - 2,
+        ErrorCode::Quota, "file batch needs two remaining operation slots");
+    // First prepare/start consume two business events; its live operation adds
+    // four control reserves. Preserve capacity_state's +4/+8 hold margins so
+    // a known hold cannot occur before the second prepare. These are reads,
+    // not reservations against concurrent changes or physical storage failure.
+    require(number(limits, "business_events") - number(counts, "business_events") - number(state, "reserved_dispatch") > 6 &&
+        number(limits, "control_events") - number(counts, "control_events") - number(state, "reserved_control") > 12,
+        ErrorCode::Quota, "file batch cannot fit both operations and existing settlement reserves");
+}
+
 Json Store::execute_tool_control(const StoreActor& actor, const ExecutionBinding& original,
         std::int64_t expected, const std::string& tool_id, const Json& arguments,
         const std::string& command_id) {
@@ -3847,8 +3867,10 @@ Json Store::reserve_attempt(const StoreActor& actor, const ExecutionBinding& fro
         const auto generation = previous.is_null() ? 0 : number(previous.at("input").at("worker_history").as_object(), "fold_generation");
         const auto requested = number(history_projection->as_object(), "fold_generation");
         require(requested == generation || requested == generation + 1, ErrorCode::Conflict, "history fold generation changed");
+        const FileBatchHistoryContext batch_host{actor.request_id, reservation.config_snapshot_sha256,
+            actor.role, format, frozen_config.context_tool_policy()};
         auto expected = append_fold_history(previous.is_null() ? Json(nullptr) : previous.at("input"),
-            impl_->history_append_delta(actor, previous), requested != generation);
+            impl_->history_append_delta(actor, previous), requested != generation, &batch_host);
         const auto messages = expected.at("messages"); expected.as_object().erase("messages");
         require(expected == *history_projection && messages == context.logical_input.at("messages"), ErrorCode::Conflict,
             "append-fold history_projection does not continue current original history");

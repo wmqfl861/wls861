@@ -50,3 +50,11 @@ Worker 始终各执行一次 `fs_write` 和 `submit`；TeamLead 检查、Dispatc
 产品增删 **191 行**，测试 **301 行≤382**，两 PR 的 600 行总限余 409 行；128 KiB response/512 KiB aggregate 仅为表示上限，执行前实际容量证明仍未完成。本机八套 Release、最终协议 67/67、38 契约通过；唯一修改的 C++ 测试已在 26 组选择器内。当前提交的核心/源码/D-40 与一次有界复核仍待完成，精确输入和原失败保留见[交接](../reviews/current-handoff.md#验证与证据)。没有 B2 或新的真实效果/性能结论。
 
 E9 表示层 [#157](https://github.com/wmqfl861/wls861/pull/157) 已合入 main `8018622`。最终 head 的[核心](https://github.com/wmqfl861/wls861/actions/runs/44177730029) 294/294、[受影响 ASan](https://github.com/wmqfl861/wls861/actions/runs/44177804373) 26/26、[源码](https://github.com/wmqfl861/wls861/actions/runs/44177729924)及有界源码复核通过；ASan 最高时限占比 32.13%。生产批量配置/派发仍关闭，真实批量效果和 B2 未执行。下一候选包含相同执行边界的取消 token 贯通及其完整回归，全部增删计入剩余 409 行产品预算；保留测试两倍上限，未通过削减断言或填充产品行满足比例。
+
+**G3-E9 执行切片（本机完成，托管门禁另记）：** `fixed-role-file-batch-v1` 仅对新冻结的 Worker/structured-v3 请求开放两个不同规范相对目标的顺序 `fs_write`；供应方 profile 必须显式允许双工具，单调用沿用原路径。批次不包含 mkdir/patch、相同目标依赖或 `/work` 别名。原 config SHA/actor/binding 贯通 full/window/append/fold，Store 预约独立重算；默认值、六个旧格式取值、Store410及发布SQL不变。
+
+任一 prepare 前验证全组参数、权限、路径与创建/CAS条件、合计工作区/清单容量、原响应和完整反馈/历史的实际序列化上界。只读 Store 前检也要求当前至少剩两次工具额度及两个操作槽，保持事件/结算预留；之后仍逐项执行原授权、CAS和首次派发。只有本批新的、已接受 SUCCEEDED 才推进；第二 CAS 仅随本批 fresh prepare递增。取消、期限、并发变动、部分失败、UNKNOWN与存储故障保留原前缀和明确尾项；一个不可变feedback，重放不派发。零派发的超限拒绝保留完整原应答；不裁剪原件，不把缺反馈记成成功。
+
+实现 `736dfd0` 的产品增删383行（含独立取消提交16行），测试561≤766；CTest注册6行、CI维护8行另列，即使都计测试也为575≤766。PR1+PR2产品合计574/600，计入注册维护则580/600。最终本机Release为20套最终重建加1套CLI补验通过，含完整live_workflow55.88秒。原21条/172.11秒日志中的CLI使用了较早wls，原件保留且该项排除；重新链接最终wls后，只补跑完整r1_structured_cli_smoke，1/1通过、6.12秒。12个测试/CLI ELF均已核对晚于最终库，337项源/资源输入与提交一致。取消前置保留精确旧生产基线的token红例及同条件绿例；中间编译或故障夹具SQL错误、旧输入验证与最终结果分开保留。
+
+D-20将新增后27.55秒的append-fold整套分为原4例及五个批次组，所有原/新用例、断言和90秒Release基准不变，Make无参仍跑全套；六组Release为7.07/5.11/6.78/4.05/8.23/3.59秒。实际105项CTest注册，D-40选择34个完整套件，覆盖修改的5个C++测试翻译单元及所有六组；这是覆盖核对，最终ASan结果尚需实跑。私有原件在 `g3-e9-runtime-evidence/`（`final-input-03.json`、`final-tests-03.json`、`ctest-mapping-04.json`）及 `g4d-cancel-evidence/`。有界非作者复核通过，另独立运行capacity组1/1通过；当前提交CI随PR记录；B2与真实批量效果/性能未执行，G3未出口。

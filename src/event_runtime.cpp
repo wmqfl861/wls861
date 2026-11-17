@@ -535,6 +535,8 @@ Json EventRuntime::pump(const std::string& id, const EventFakeScript& script,
                 const auto result = invoke(Role::Worker, node, task_id, tools);
                 if (!result) { finish(active_actor, active_claim, {}); active_claim = nullptr; break; }
                 const auto* operation = result->is_object() ? result->as_object().if_contains("operation") : nullptr;
+                if (!operation && result->is_object() && result->as_object().contains("format") &&
+                    result->at("format") == "wls-file-batch-feedback-v1") operation = &*result;
                 const bool failed_operation = operation && text(*operation, "status") != "SUCCEEDED";
                 if (failed_operation) {
                     block(Role::Worker, node, task_id, "operation_incomplete", "a failed or unknown operation stops this task's batch");
@@ -1033,10 +1035,12 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                     require(live_continue(), ErrorCode::NotReady, "live batch stopped before response application");
                     settled_for_retry = true;
                 };
-                result = runtime.accept_live_response(captured, response, after_settlement, role == Role::Dispatcher);
+                result = runtime.accept_live_response(captured, response, after_settlement, role == Role::Dispatcher, stop, deadline);
                 invocation["result"] = live_record_summary(result);
                 static_cast<void>(accounting_ready());
                 const auto* operation = result.is_object() ? result.as_object().if_contains("operation") : nullptr;
+                if (!operation && result.is_object() && result.as_object().contains("format") &&
+                    result.at("format") == "wls-file-batch-feedback-v1") operation = &result;
                 if (operation && text(*operation, "status") != "SUCCEEDED" && !correction_detail::correction(result)) {
                     live_halted = true; stop_reason = "error";
                     block(role, node, task, "operation_incomplete", "failed or unknown operation stops the live batch");
@@ -1354,6 +1358,8 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 const auto result = invoke(Role::Worker, node, task_id, tools, active_claim);
                 if (!result) { finish(active_actor, active_claim, {}); active_claim = nullptr; continue; }
                 const auto* operation = result->is_object() ? result->as_object().if_contains("operation") : nullptr;
+                if (!operation && result->is_object() && result->as_object().contains("format") &&
+                    result->at("format") == "wls-file-batch-feedback-v1") operation = &*result;
                 if (operation && text(*operation, "status") != "SUCCEEDED") {
                     block(Role::Worker, node, task_id, "operation_incomplete", "a failed or unknown operation stops this task's batch");
                     stopped.insert({Role::Worker, node});

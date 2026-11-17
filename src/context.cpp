@@ -209,7 +209,8 @@ std::vector<std::string> fixed_role_tool_names(Role role) {
 std::vector<std::string> model_allowed_tools(const CompiledContext& context) {
     if (!context.structured() || !context.logical_input.as_object().contains("tool_policy")) return context.tool_names;
     require(context.logical_input.at("format") == "wls-logical-input-v3" &&
-        context.logical_input.at("tool_policy") == "fixed-role-v1", "invalid frozen tool policy");
+        (context.logical_input.at("tool_policy") == "fixed-role-v1" ||
+         context.logical_input.at("tool_policy") == "fixed-role-file-batch-v1"), "invalid frozen tool policy");
     const auto& state = object(context.logical_input.at("current_state"));
     const auto* allowed = state.if_contains("allowed_tools");
     require(allowed && allowed->is_array() && !allowed->as_array().empty() && allowed->as_array().size() <= 64,
