@@ -86,7 +86,8 @@ bool retryable_unusable_response(const HttpsTransportResult& transport) {
     // protocol_error alone also covers cancellation/incomplete protocol replies.
     // Only a complete observed response rejected before business application is
     // eligible. Missing/older decoder evidence must never imply permission.
-    if (transport.status != HttpsTransportStatus::ProtocolError || transport.reason != "protocol_error" ||
+    const bool media = transport.reason == "unexpected_response_media_type";
+    if (transport.status != HttpsTransportStatus::ProtocolError || (!media && transport.reason != "protocol_error") ||
             !transport.transfer_complete || transport.http_status != 200 ||
             transport.raw_headers_truncated || transport.raw_body_truncated ||
             transport.response.status != ModelResultStatus::Error || !transport.response.text.empty() ||
@@ -115,6 +116,30 @@ bool retryable_unusable_response(const HttpsTransportResult& transport) {
             if (value.as_string() == code) return true;
         return false;
     };
+    if (media) {
+        const auto equals = [](const Object& value, std::string_view key, const auto& expected) {
+            const auto* found = value.if_contains(key); return found && *found == Json(expected);
+        };
+        const auto& replay = report->as_object();
+        const auto* terminal = replay.if_contains("terminal_codec");
+        const auto* outputs = replay.if_contains("partial_output_observations");
+        // Wrong-media diagnostics cannot authorize retry after any observed
+        // output, even when a later failed terminal clears the decoded tools.
+        if (*decoder != "bounded_responses_sse_replay" ||
+            !equals(evidence, "diagnostic_only", true) || !equals(evidence, "requested_stream", false) ||
+            !equals(evidence, "diagnostic_encoder_stream", true) ||
+            !equals(evidence, "expected_media_type", "application/json") ||
+            !equals(evidence, "observed_media_type", "text/event-stream") ||
+            !equals(evidence, "actual_encoded_request_body_sha256", transport.request_body_sha256) ||
+            !equals(replay, "profile_sha256", transport.profile_sha256) ||
+            !equals(replay, "logical_request_sha256", transport.logical_request_sha256) ||
+            !equals(replay, "raw_stream_sha256", sha256_hex(transport.raw_body)) ||
+            !equals(replay, "stream_complete", true) || !equals(replay, "terminal_received", true) ||
+            !equals(replay, "response_usable", false) || !terminal || !terminal->is_object() ||
+            !outputs || !outputs->is_array() || !outputs->as_array().empty()) return false;
+        const auto* terminal_reason = terminal->as_object().if_contains("reason_code");
+        if (!terminal_reason || !rejected(*terminal_reason)) return false;
+    }
     // A malformed SSE tail must not turn a decoded cancellation/incomplete
     // terminal into a retryable protocol failure.
     if (const auto* terminal = report->as_object().if_contains("terminal_codec"); terminal && !terminal->is_null()) {

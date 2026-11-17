@@ -189,6 +189,7 @@ struct HeaderBlock {
     bool content_encoding_seen{false};
     bool transfer_encoding_seen{false};
     bool content_length_seen{false};
+    bool diagnostic_sse{false};
     std::string content_type;
     std::optional<std::int64_t> retry_after_seconds;
 };
@@ -285,7 +286,11 @@ bool parse_header(Transfer& transfer, std::string_view bytes) {
         if (!header.final) return !header.content_length_seen && !header.transfer_encoding_seen;
         if (header.status == 200) {
             const auto expected = transfer.encoded.stream ? "text/event-stream" : "application/json";
-            if (!header.content_type_seen || header.content_type != expected) return false;
+            if (!header.content_type_seen || header.content_type != expected) {
+                header.diagnostic_sse = transfer.profile.protocol == "openai-responses-v1" &&
+                    !transfer.encoded.stream && header.content_type == "text/event-stream";
+                if (!header.diagnostic_sse) return false;
+            }
         }
         return true;
     }
@@ -383,16 +388,18 @@ std::size_t receive_body(char* bytes, std::size_t size, std::size_t count, void*
         const auto arrived = transfer.elapsed();
         if (!result.first_body_at) result.first_body_at = arrived;
         const SseReplayLimits replay_hard;
-        const auto body_limit = transfer.encoded.stream ?
+        auto body_limit = transfer.encoded.stream ?
             std::min(transfer.profile.limits.max_stream_bytes, replay_hard.max_total_bytes) :
             transfer.profile.limits.max_response_bytes;
+        if (transfer.header.diagnostic_sse)
+            body_limit = std::min({body_limit, transfer.profile.limits.max_stream_bytes, replay_hard.max_total_bytes});
         const auto remaining_total = transfer.options.max_total_response_bytes -
                                     result.raw_headers.size() - result.raw_body.size();
         const auto remaining_body = body_limit - result.raw_body.size();
         const auto retained = std::min({length, remaining_total, remaining_body});
         result.body_bytes_observed += length;
         result.raw_body.append(bytes, retained);
-        if (transfer.encoded.stream && retained != 0) {
+        if ((transfer.encoded.stream || transfer.header.diagnostic_sse) && retained != 0) {
             if (transfer.chunks.size() >= std::min(transfer.profile.limits.max_sse_chunks,
                                                  replay_hard.max_chunks)) {
                 transfer.aborted = Abort::ChunkLimit;
@@ -639,8 +646,21 @@ void decode_retained(Transfer& transfer, const ModelRequest& request) {
     // a valid terminal's usage survives an illegal tail or later cancellation.
     // Its tools are cleared by the outer transport outcome before return.
     if (!transfer.header.final || !transfer.header.completed) return;
+    const auto diagnostic = [&] {
+        if (!transfer.header.diagnostic_sse) return;
+        auto& evidence = result.protocol_evidence.as_object();
+        evidence["diagnostic_only"] = true;
+        evidence["requested_stream"] = false;
+        evidence["expected_media_type"] = "application/json";
+        evidence["observed_media_type"] = "text/event-stream";
+        evidence["actual_encoded_request_body_sha256"] = transfer.encoded.body_sha256;
+    };
+    if (transfer.header.diagnostic_sse && !transfer.profile.streaming) {
+        result.protocol_evidence = Object{{"decoder_unavailable", true}};
+        diagnostic(); return;
+    }
     try {
-        if (transfer.encoded.stream && result.http_status == 200 &&
+        if ((transfer.encoded.stream || transfer.header.diagnostic_sse) && result.http_status == 200 &&
             transfer.header.content_type == "text/event-stream") {
             // The decoder already intersects its hard limits with the frozen
             // profile. A wider valid profile cannot enlarge those hard limits
@@ -652,6 +672,8 @@ void decode_retained(Transfer& transfer, const ModelRequest& request) {
                 {"input_origin", "captured_libcurl_body_callbacks"},
                 {"arrival_time_origin", "executor_steady_clock"},
                 {"offline_decoder_report", replay.evidence}};
+            if (transfer.header.diagnostic_sse)
+                result.protocol_evidence.as_object()["diagnostic_encoder_stream"] = true;
         } else if (result.raw_body.size() <= transfer.profile.limits.max_response_bytes &&
                    result.http_status >= 100 && result.http_status <= 599) {
             const auto decoded = decode_protocol_response(transfer.profile, request,
@@ -668,6 +690,7 @@ void decode_retained(Transfer& transfer, const ModelRequest& request) {
         // not export arbitrary decoder/provider diagnostic strings as logs.
         result.protocol_evidence = Object{{"decoder_failed", true}};
     }
+    diagnostic();
 }
 
 void finalize(HttpsTransportResult& result, const Transfer& transfer) {
@@ -945,6 +968,8 @@ HttpsTransportResult perform_protocol_https(const ProviderProfile& profile,
         fail(result, HttpsTransportStatus::ProtocolError, "incomplete_http_framing");
     } else if (result.http_status != 200) {
         fail(result, HttpsTransportStatus::HttpError, "http_error");
+    } else if (transfer.header.diagnostic_sse) {
+        fail(result, HttpsTransportStatus::ProtocolError, "unexpected_response_media_type");
     } else if (result.response.status != ModelResultStatus::Completed) {
         // Only shared-decoder classifications from a fully framed HTTP 200
         // survive. Refused/interrupted responses remain unusable for dispatch.
