@@ -928,10 +928,10 @@ class HttpsTransport(unittest.TestCase):
                         "expected_media_type": "application/json", "observed_media_type": sse,
                         "actual_encoded_request_body_sha256": result["request_body_sha256"]}.items():
                     self.assertEqual(evidence[key], value)
-        with self.peer(fixed_response(tool_stream(), content_type=sse)) as peer:
-            result = self.invoke(peer, stream=True, responses_media_type_policy=policy)
-        self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["protocol_evidence"]["decoder"], "bounded_responses_sse_replay")
+        for raw, expected in ((tool_stream(), "completed"), (body, "protocol_error")):
+            with self.peer(fixed_response(raw, content_type=sse)) as peer:
+                result = self.invoke(peer, stream=True, responses_media_type_policy=policy)
+            self.assertEqual(result["status"], expected)
 
     def test_nonstream_sse_retains_original_limits_and_interruption_priority(self):
         body = tool_stream()
