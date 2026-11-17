@@ -614,6 +614,19 @@ Json WorkerTools::control(const StoreActor& actor, const ExecutionBinding& bindi
     return result;
 }
 
+void WorkerTools::preflight_file_batch(const StoreActor& actor, const ExecutionBinding& binding,
+                                       const Json& arguments) const {
+    require(!read_only_ && arguments.is_array() && arguments.as_array().size() == 2,
+        ErrorCode::InvalidInput, "file batch requires two writes");
+    verify_workspace(actor);
+    const auto granted = store_.authorized_worker_tools(actor, binding);
+    require(std::find(granted.begin(), granted.end(), "fs_write") != granted.end(),
+        ErrorCode::Unauthorized, "file batch write grant is unavailable");
+    for (const auto& args : arguments.as_array()) validate_worker_tool_arguments("fs_write", args);
+    store_.preflight_file_batch(actor, binding);
+    workspace_.preflight_writes(arguments);
+}
+
 Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& binding, std::int64_t expected,
         const std::string& key, const std::string& name, const Json& args, const std::string& command, std::stop_token stop,
         std::chrono::steady_clock::time_point deadline) {
@@ -703,7 +716,7 @@ Json WorkerTools::execute(const StoreActor& actor, const ExecutionBinding& bindi
     std::string outcome = "FAILED", stdout_bytes, stderr_bytes;
     bool output_truncated = false;
     try {
-        if (cancel.stop_requested() && name != "run") {
+        if ((cancel.stop_requested() || std::chrono::steady_clock::now() >= deadline) && name != "run") {
             result = Object{{"error", "cancelled_before_effect"}}; evidence = Object{{"effect_started", false}};
             outcome = "CANCELLED";
         } else if (name == "note") {

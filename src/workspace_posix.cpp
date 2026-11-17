@@ -831,6 +831,43 @@ WorkspaceMutationResult Workspace::mkdir(std::string_view path) {
     return impl_->make_directory(path);
 }
 
+void Workspace::preflight_writes(const Json& arguments) const {
+    if (impl_->access != WorkspaceAccess::ReadWrite || !arguments.is_array() || arguments.as_array().size() != 2)
+        throw Error(ErrorCode::InvalidInput, "file batch needs two writable targets");
+    const std::lock_guard lock(impl_->mutex);
+    const DirectoryLock process_lock(impl_->root.get(), false);
+    impl_->check_root();
+    Inventory inventory;
+    impl_->collect(".", 1, inventory);
+    std::string first;
+    for (const auto& args : arguments.as_array()) {
+        const auto logical = impl_->path(std::string(args.at("path").as_string()), false);
+        if (logical == first) throw Error(ErrorCode::InvalidInput, "file batch targets must be distinct");
+        first = logical;
+        const auto size = args.at("content").as_string().size();
+        if (size > impl_->limits.max_write_bytes || size > impl_->limits.max_file_bytes)
+            throw Error(ErrorCode::Quota, "workspace write exceeds capacity");
+        const auto slash = logical.rfind('/');
+        const auto parent = slash == std::string::npos ? "." : logical.substr(0, slash);
+        impl_->check_directory(stat_fd(impl_->inspected(parent).get()));
+        const auto previous = impl_->snapshot(logical, true);
+        const auto* expected = args.as_object().if_contains("expected_sha256");
+        if (expected) valid_digest(std::string(expected->as_string()));
+        if ((!expected && previous.exists) || (expected && (!previous.exists || previous.digest != expected->as_string())))
+            throw Error(ErrorCode::Conflict, "workspace destination does not match creation/CAS precondition");
+        if (inventory.bytes < previous.bytes.size() || size > impl_->limits.max_total_bytes ||
+            inventory.bytes - previous.bytes.size() > impl_->limits.max_total_bytes - size ||
+            (!previous.exists && inventory.entries >= impl_->limits.max_entries))
+            throw Error(ErrorCode::Quota, "projected workspace capacity exceeded");
+        inventory.bytes = inventory.bytes - previous.bytes.size() + size;
+        if (!previous.exists) { ++inventory.entries; impl_->charge_inventory(inventory, logical); }
+        // Existing owned-inventory charges include the interrupted staging entry.
+        const auto staging = join_path(parent, ".wls-tmp-" + std::string(30, 'x'));
+        if (impl_->limits.max_inventory_bytes != 0 && staging.size() > impl_->limits.max_path_bytes)
+            throw Error(ErrorCode::Quota, "projected owned staging path exceeds inventory capacity");
+    }
+}
+
 WorkspaceMutationResult Workspace::write_atomic(std::string_view path, std::string_view bytes,
                                                  std::optional<std::string> expected_sha256) {
     return impl_->mutate(path, bytes, expected_sha256, std::nullopt);

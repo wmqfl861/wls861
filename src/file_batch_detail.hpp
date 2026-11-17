@@ -54,7 +54,11 @@ inline const Json* validate(const Json& attempt, const ModelResponse& response,
         for (const auto& field : boost::json::object{{"request_id", host->request_id}, {"role", "worker"},
                 {"config_snapshot_sha256", host->config_snapshot_sha256}})
             if (const auto* original = attempt.as_object().if_contains(field.key())) require(*original == field.value());
-        require(canonical_json(attempt.at("response")).size() <= 128U * 1024U &&
+        // Oversized originals remain readable only as an entirely unexecuted
+        // rejection. This grants no capacity to execution/partial/UNKNOWN facts.
+        const bool unexecuted = std::all_of(batch.at("items").as_array().begin(), batch.at("items").as_array().end(),
+            [](const auto& item) { return item.at("state") == "NOT_EXECUTED" && item.at("result").is_null(); });
+        require((unexecuted || canonical_json(attempt.at("response")).size() <= 128U * 1024U) &&
             canonical_json(batch).size() <= 512U * 1024U);
         require(feedback.at("record_sha256") == Json(sha256_hex(canonical_json(boost::json::object{
             {"attempt_id", attempt.at("attempt_id")}, {"original_binding", feedback.at("original_binding")},

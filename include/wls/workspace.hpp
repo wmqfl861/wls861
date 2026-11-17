@@ -87,6 +87,10 @@ public:
     // this invocation never removes a possibly published directory on failure.
     WorkspaceMutationResult mkdir(std::string_view path);
 
+    // One read observation for exactly two distinct canonical fs_write arguments.
+    // No prepare, staging file or mutation; execute must still recheck all races.
+    void preflight_writes(const Json& arguments) const;
+
     // Missing expected_sha256 authorizes creation only. Existing destinations
     // require the full old SHA-256. Parent directories must already exist.
     WorkspaceMutationResult write_atomic(

@@ -288,7 +288,8 @@ static StructuredCompilation compile_structured(const ContextInput& base,
     require(base.worker_history.is_null() || v3, "append-fold cannot change historical context formats");
     require(base.model_projection.empty() || (v3 && base.model_projection == "lean-v1"),
         "model projection requires explicit v3 lean-v1");
-    require(base.tool_policy.empty() ? base.allowed_tools.empty() : v3 && base.tool_policy == "fixed-role-v1",
+    require(base.tool_policy.empty() ? base.allowed_tools.empty() : v3 &&
+        (base.tool_policy == "fixed-role-v1" || base.tool_policy == "fixed-role-file-batch-v1"),
         "tool policy requires structured-v3 fixed-role-v1");
     if (!base.tool_policy.empty()) {
         const auto known = fixed_role_tool_names(base.role);

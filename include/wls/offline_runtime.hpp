@@ -87,7 +87,8 @@ public:
                               const ModelResponse& response,
                               const AfterModelSettlement& after_settlement = {},
                               bool independent_plan = true,
-                              std::stop_token stop = {});
+                              std::stop_token stop = {},
+                              std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max());
     // At most one Dispatcher, one TeamLead and 1..16 explicit Worker calls.
     // Pending questions/submissions require the durable event pump; this
     // compatibility entry never replaces them with an automatic work order.
@@ -103,7 +104,8 @@ private:
                                   bool independent_plan,
                                   const Json& amendment_dispositions,
                                   const AfterModelSettlement& after_settlement = {},
-                                  std::stop_token stop = {});
+                                  std::stop_token stop = {},
+                                  std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max());
     Store& store_;
     const SchemaRegistry& schemas_;
     WorkerTools* worker_tools_;

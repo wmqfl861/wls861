@@ -56,6 +56,8 @@ public:
     Json prepare_environment(const StoreActor& actor, std::stop_token stop = {},
         std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max());
 
+    void preflight_file_batch(const StoreActor& actor, const ExecutionBinding& binding,
+                              const Json& arguments) const;
     Json execute(const StoreActor& actor, const ExecutionBinding& binding,
                  std::int64_t expected_task_version,
                  const std::string& business_key, const std::string& tool_name,

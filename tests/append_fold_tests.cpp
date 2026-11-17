@@ -4,12 +4,40 @@
 #include "live_test_support.hpp"
 #include "test_support.hpp"
 #include "fake_script_support.hpp"
+#include "../src/file_batch_runtime.hpp"
 
 #include <algorithm>
 #include <fstream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
+#include <sys/syscall.h>
+
+namespace {
+std::function<void(const wls::s1::Json&)> batch_prepare_observer;
+std::function<void()> batch_staged_observer;
+void batch_prepared(const wls::s1::Json& operation) {
+    if (batch_prepare_observer) batch_prepare_observer(operation);
+}
+struct ResetBatchObserver { ~ResetBatchObserver() { batch_prepare_observer = {}; batch_staged_observer = {}; } };
+}
+// Stop after a real staged file sync; SQLite syncs cannot trigger this phase.
+extern "C" int fsync(int descriptor) {
+    const int result = static_cast<int>(::syscall(SYS_fsync, descriptor));
+    if (result == 0 && batch_staged_observer) {
+        std::array<char, 4096> path{};
+        const auto count = ::readlink(("/proc/self/fd/" + std::to_string(descriptor)).c_str(), path.data(), path.size());
+        if (count > 0 && std::string_view(path.data(), static_cast<std::size_t>(count)).find("/.wls-tmp-") != std::string_view::npos) {
+            auto action = std::move(batch_staged_observer); batch_staged_observer = {}; action();
+        }
+    }
+    return result;
+}
+// Exercise the real executor's existing private phase, without a production hook.
+#define WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE(key, prepared, stop) ::batch_prepared(prepared)
+#include "../src/worker_tools.cpp"
+#undef WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE
 
 namespace {
 using namespace wls::s1;
@@ -66,30 +94,57 @@ struct Fixture {
     std::unique_ptr<OfflineRuntime> runtime;
     std::string request_id;
     std::string task_id;
-    explicit Fixture(int window = 200000) {
+    explicit Fixture(int window = 200000, std::string policy = "fixed-role-v1", std::string history = "append-fold-v1",
+                     std::optional<LiveModelSettings> provider = std::nullopt, bool narrow_store = false) {
         std::filesystem::create_directory(workspace);
-        auto input = live::admission(assets, live::settings(), new_id("append"), false, true);
+        auto admitting = provider.value_or(live::settings()); admitting.provider.parallel_tool_calls = true;
+        auto input = live::admission(assets, admitting, new_id("append"), provider.has_value(), !provider);
         input.original_text = read_runtime_file(root / "tests/fixtures/s1_request.txt");
         input.constraint_catalog = parse_json_strict(read_runtime_file(root / "tests/fixtures/s1_constraints.json"));
-        input.budget = {64, 10000000, 1000000, 0};
+        input.budget = {64, 10000000, 1000000, provider ? 10000 : 0};
         auto& system = input.config_snapshot.at("system");
+        if (narrow_store) {
+            auto& limits = system.at("limits");
+            limits.at("worker_max_tool_calls_per_order") = 3;
+            limits.at("max_teams_per_request") = 1; limits.at("team_internal_rework_max") = 0;
+            limits.at("store_capacity").at("operations") = 3;
+        }
+        if (provider) {
+            auto profile = live::model_profile(*provider);
+            profile.at("capabilities").at("parallel_tool_calls") = provider->provider.parallel_tool_calls ? "supported" : "unsupported";
+            system.at("models").as_object()[provider->provider.model_ref] = profile;
+        }
         auto& context = system.at("context").as_object();
         context["request_format"] = "structured-v3";
         context["model_projection"] = "lean-v1";
-        context["tool_policy"] = "fixed-role-v1";
+        context["tool_policy"] = policy;
         context["worker_history"] = Object{{"mode", "append-fold-v1"}, {"read_max_bytes", 24576},
             {"read_token_budget", 196608}};
+        if (history == "full") context.erase("worker_history");
+        if (history == "window-v1") context["worker_history"] = Object{{"mode", history}, {"recent_attempts", 2}, {"inline_bytes", 32768}};
         system.at("models").at("fake").at("capabilities").as_object()["context_window"] = window;
         refresh_system(input.config_snapshot);
         store = assets.open(database);
         request_id = text(store->admit(input), "request_id");
         open_runtime();
-        (void)runtime->run(request_id, initial_steps(), "", 1);
+        if (provider) {
+            const auto script = initial_steps();
+            (void)store->apply_independent_plan(store->host_actor(Role::Dispatcher, request_id),
+                number(store->request(request_id), "state_version"), 1, script[0].tool_calls[0].arguments, Object{}, new_id("plan"));
+            task_id = text(store->tasks(request_id).front(), "task_id");
+            (void)store->issue_instruction(store->host_actor(Role::TeamLead, request_id, store->binding(task_id).team_id),
+                store->binding(task_id), number(store->task(task_id), "state_version"), script[1].tool_calls[0].arguments, new_id("order"));
+            (void)store->acknowledge(actor(), store->binding(task_id), number(store->task(task_id), "state_version"), new_id("ack"));
+            tools->bind(actor());
+        } else (void)runtime->run(request_id, initial_steps("s1_fake_initial.json", policy == "fixed-role-file-batch-v1"), "", 1);
         task_id = text(store->tasks(request_id).front(), "task_id");
     }
 
-    static std::vector<FakeModelStep> initial_steps(const std::string& name = "s1_fake_initial.json") {
-        return fake_model_steps_from_json(test::v3_fake_script(parse_json_strict(read_runtime_file(root / "tests/fixtures" / name))));
+    static std::vector<FakeModelStep> initial_steps(const std::string& name = "s1_fake_initial.json", bool batch = false) {
+        auto result = fake_model_steps_from_json(test::v3_fake_script(parse_json_strict(read_runtime_file(root / "tests/fixtures" / name))));
+        if (batch) result[2].tool_calls = {{"batch-a", "fs_write", Object{{"path", "batch-a.txt"}, {"content", "first batch"}}},
+            {"batch-b", "fs_write", Object{{"path", "batch-b.txt"}, {"content", "second batch"}}}};
+        return result;
     }
     void open_runtime() {
         tools = std::make_unique<WorkerTools>(*store, workspace);
@@ -118,6 +173,19 @@ struct Fixture {
     CapturedModelCall note(std::int64_t index, std::size_t bytes = 3200) {
         return tool_call(index, "note", Object{{"text", std::string(bytes, static_cast<char>('a' + index % 20))}}, true);
     }
+    std::pair<CapturedModelCall, ModelResponse> pending_batch(std::int64_t index, const Json& first, const Json& second) {
+        FakeModelStep step; step.role = Role::Worker; step.role_call_index = index;
+        step.tool_calls = {{"batch-fail-a", "fs_write", first}, {"batch-fail-b", "fs_write", second}};
+        step.usage = {1, 1, 0, 0, 0};
+        FakeModel fake({step});
+        const auto call = runtime->reserve_call(fake, request_id, Role::Worker, task_id, index);
+        return {call, fake.complete(call.request)};
+    }
+    CapturedModelCall batch(std::int64_t index, const Json& first, const Json& second) {
+        const auto [call, response] = pending_batch(index, first, second);
+        (void)runtime->accept_response(call, response);
+        return call;
+    }
     std::int64_t sequence(const std::string& attempt_id) const {
         const auto tail = store->attempt_history_tail(actor(), 8);
         for (const auto& item : tail.at("items").as_array())
@@ -132,6 +200,329 @@ struct Fixture {
         open_runtime();
     }
 };
+
+void file_batch_runtime_writes_two_distinct_targets_with_one_feedback() {
+    Fixture fixture(200000, "fixed-role-file-batch-v1");
+    CHECK(read_runtime_file(fixture.workspace / "batch-a.txt") == "first batch");
+    CHECK(read_runtime_file(fixture.workspace / "batch-b.txt") == "second batch");
+    const auto history = fixture.store->attempt_history(fixture.actor());
+    CHECK(!history.empty());
+    const auto& attempt = history.back();
+    const auto feedback = fixture.store->tool_feedback(std::string(attempt.at("attempt_id").as_string()));
+    const auto& aggregate = feedback.at("result");
+    CHECK(aggregate.at("format") == "wls-file-batch-feedback-v1");
+    CHECK(aggregate.at("status") == "SUCCEEDED" && aggregate.at("runtime_error") == false);
+    CHECK(!aggregate.as_object().contains("error_code") && !aggregate.as_object().contains("message"));
+    CHECK(aggregate.at("observation_complete") == true && aggregate.at("items").as_array().size() == 2);
+    CHECK(aggregate.at("items").as_array()[0].at("state") == "SUCCEEDED");
+    CHECK(aggregate.at("items").as_array()[1].at("state") == "SUCCEEDED");
+    const auto single = fixture.tool_call(2, "note", Object{{"text", "single-call compatibility"}});
+    const auto single_feedback = fixture.store->tool_feedback(single.request.attempt_id);
+    CHECK(!single_feedback.at("result").as_object().contains("format"));
+}
+
+void file_batch_preflight_failure_keeps_both_unexecuted() {
+    Fixture fixture(200000, "fixed-role-file-batch-v1");
+    const auto call = fixture.batch(2,
+        Object{{"path", "batch-a.txt"}, {"content", "must not overwrite"}},
+        Object{{"path", "batch-c.txt"}, {"content", "must not run"}});
+    CHECK(read_runtime_file(fixture.workspace / "batch-a.txt") == "first batch");
+    CHECK(!std::filesystem::exists(fixture.workspace / "batch-c.txt"));
+    const auto feedback = fixture.store->tool_feedback(call.request.attempt_id);
+    const auto& aggregate = feedback.at("result");
+    CHECK(aggregate.at("format") == "wls-file-batch-feedback-v1");
+    CHECK(aggregate.at("status") == "NOT_EXECUTED" && aggregate.at("runtime_error") == true);
+    CHECK(aggregate.at("observation_complete") == true);
+    CHECK(aggregate.at("items").as_array()[0].at("state") == "NOT_EXECUTED");
+    CHECK(aggregate.at("items").as_array()[1].at("state") == "NOT_EXECUTED");
+}
+
+FileBatchHistoryContext batch_host(const Fixture& fixture) {
+    return {fixture.request_id, text(fixture.store->request(fixture.request_id), "config_snapshot_sha256"),
+        Role::Worker, "structured-v3", "fixed-role-file-batch-v1"};
+}
+
+void file_batch_preserves_prefix_on_executor_and_storage_faults() {
+    for (const std::string fault : {"second_cas", "second_symlink", "task_cas", "revoke", "amend", "result_storage", "feedback_storage", "oversized_host", "unaccepted"}) {
+        Fixture fixture(2000000, "fixed-role-file-batch-v1"); ResetBatchObserver reset;
+        const auto [call, response] = fixture.pending_batch(2, Object{{"path", "left"}, {"content", "L"}},
+            Object{{"path", "right"}, {"content", "R"}});
+        int prepares = 0;
+        batch_prepare_observer = [&](const Json&) {
+            ++prepares;
+            if (fault == "task_cas" && prepares == 1)
+                live::sql(fixture.database, "UPDATE tasks SET state_version=state_version+1");
+            if (prepares != 2) return;
+            if (fault == "second_cas") write_bytes(fixture.workspace / "right", "external");
+            if (fault == "second_symlink") CHECK(::symlink("left", (fixture.workspace / "right").c_str()) == 0);
+            if (fault == "revoke") live::sql(fixture.database, "UPDATE runtime_policy SET denied_tools='[\"fs_write\"]',policy_epoch=policy_epoch+1");
+            if (fault == "amend") (void)fixture.store->amend(fixture.store->host_actor(Role::Root, fixture.request_id),
+                number(fixture.store->request(fixture.request_id), "state_version"),
+                read_runtime_file(root / "tests/fixtures/s1_amendment.txt"),
+                parse_json_strict(read_runtime_file(root / "tests/fixtures/s1_amended_constraints.json")), new_id("amend"));
+            if (fault == "result_storage") live::sql(fixture.database,
+                "CREATE TRIGGER batch_result_fault BEFORE INSERT ON events WHEN NEW.type='record_op_result' "
+                "BEGIN SELECT RAISE(ABORT,'fixture result persistence failure'); END;");
+            if (fault == "oversized_host") throw std::runtime_error(std::string(2048, 'x'));
+        };
+        if (fault == "feedback_storage") live::sql(fixture.database,
+            "CREATE TRIGGER batch_feedback_fault BEFORE INSERT ON model_tool_feedback "
+            "BEGIN SELECT RAISE(ABORT,'fixture feedback persistence failure'); END;");
+        if (fault == "unaccepted") live::sql(fixture.database,
+            "CREATE TRIGGER batch_epoch AFTER UPDATE OF status ON ops WHEN NEW.status='RUNNING' "
+            "BEGIN UPDATE teams SET execution_epoch=execution_epoch+1,state_version=state_version+1; END;");
+        bool threw = false;
+        try { (void)fixture.runtime->accept_response(call, response); } catch (const std::exception&) { threw = true; }
+        CHECK(threw == (fault == "feedback_storage" || fault == "oversized_host"));
+        if (!std::filesystem::exists(fixture.workspace / "left")) throw std::runtime_error(
+            "missing prefix in " + fault + ": " + canonical_json(fixture.store->tool_feedback(call.request.attempt_id)));
+        CHECK(read_runtime_file(fixture.workspace / "left") == "L");
+        CHECK(prepares == ((fault == "task_cas" || fault == "unaccepted") ? 1 : 2));
+        const auto feedback = fixture.store->tool_feedback(call.request.attempt_id);
+        const auto originals = live::sql_text(fixture.database, "SELECT group_concat(op_id || ':' || status) FROM ops");
+        if (threw) {
+            CHECK(feedback.is_null());
+            expect(ErrorCode::NotReady, [&] { (void)fixture.runtime->accept_response(call, response); });
+            expect(ErrorCode::NotReady, [&] { (void)fixture.runtime->capture_call(fixture.request_id, Role::Worker, fixture.task_id, 3); });
+            fixture.reopen();
+            expect(ErrorCode::NotReady, [&] { (void)fixture.runtime->accept_response(call, response); });
+            CHECK(read_runtime_file(fixture.workspace / "left") == "L");
+            CHECK(fixture.store->tool_feedback(call.request.attempt_id).is_null());
+        } else {
+            const auto& group = feedback.at("result"); const auto& items = group.at("items").as_array();
+            CHECK(items[0].at("state") == (fault == "unaccepted" ? "UNKNOWN" : "SUCCEEDED"));
+            CHECK(items[1].at("state") == (fault == "unaccepted" ? "NOT_EXECUTED" : fault.starts_with("second_") ? "FAILED" : "UNKNOWN"));
+            CHECK(group.at("observation_complete") == fault.starts_with("second_"));
+            CHECK(group.as_object().contains("correction_feedback") == (fault == "second_cas"));
+            if (fault == "unaccepted") CHECK(items[0].at("result").at("execution_result").at("accepted") == 0);
+            CHECK(fixture.runtime->accept_response(call, response) == group);
+            CHECK(live::sql_text(fixture.database, "SELECT group_concat(op_id || ':' || status) FROM ops") == originals);
+            const auto host = batch_host(fixture);
+            CHECK(structured_attempt_history(fixture.store->attempt_history(fixture.actor()), &host).size() >= 6);
+        }
+        if (fault == "second_cas") CHECK(read_runtime_file(fixture.workspace / "right") == "external");
+        else CHECK(std::filesystem::exists(fixture.workspace / "right") == (fault == "result_storage" || fault == "feedback_storage" || fault == "second_symlink"));
+    }
+}
+
+void file_batch_replay_is_observation_not_second_execution() {
+    Fixture fixture(2000000, "fixed-role-file-batch-v1");
+    const auto [call, response] = fixture.pending_batch(2, Object{{"path", "left"}, {"content", "L"}},
+        Object{{"path", "right"}, {"content", "R"}});
+    const auto& first = response.tool_calls.front();
+    const auto key = "batch:" + sha256_hex(canonical_json(Object{{"attempt_id", call.request.attempt_id}, {"tool_call_id", first.call_id}}));
+    const auto original = fixture.tools->execute(call.actor, call.request.binding, call.expected_state_version, key,
+        first.name, first.arguments, "original-execution");
+    // CAS preflight must observe the old target as absent, then execute can only
+    // return its immutable original key; no recreated file or second effect.
+    std::filesystem::remove(fixture.workspace / "left");
+    const auto group = fixture.runtime->accept_response(call, response);
+    CHECK(group.at("status") == "UNKNOWN" && group.at("observation_complete") == false);
+    const auto& replay = group.at("items").as_array()[0].at("result");
+    CHECK(replay.at("operation") == original.at("operation") && replay.at("replayed") == true);
+    CHECK(group.at("items").as_array()[1].at("state") == "NOT_EXECUTED");
+    CHECK(!std::filesystem::exists(fixture.workspace / "left") && !std::filesystem::exists(fixture.workspace / "right"));
+    const auto saved = fixture.store->tool_feedback(call.request.attempt_id);
+    fixture.reopen();
+    CHECK(fixture.runtime->accept_response(call, response) == group);
+    CHECK(fixture.store->tool_feedback(call.request.attempt_id) == saved);
+}
+
+void file_batch_rejections_and_old_single_call_behavior() {
+    Fixture fixture(2000000, "fixed-role-file-batch-v1"); ResetBatchObserver reset;
+    int prepares = 0; batch_prepare_observer = [&](const Json&) { ++prepares; };
+    int index = 2;
+    for (const Json& second : {Json(Object{{"path", "left"}, {"content", "same target"}}),
+            Json(Object{{"path", "/work/right"}, {"content", "alias"}}), Json(Object{{"path", "../outside"}, {"content", "escape"}}),
+            Json(Object{{"path", "missing/right"}, {"content", "parent"}}), Json(Object{{"path", "right"}, {"content", std::string(65537, 'x')}})}) {
+        const auto call = fixture.batch(index++, Object{{"path", "left"}, {"content", "L"}}, second);
+        const auto group = fixture.store->tool_feedback(call.request.attempt_id).at("result");
+        CHECK(group.at("status") == "NOT_EXECUTED" && group.at("observation_complete") == true);
+        for (const auto& item : group.at("items").as_array()) CHECK(item.at("state") == "NOT_EXECUTED" && item.at("result").is_null());
+    }
+    CHECK(prepares == 0 && !std::filesystem::exists(fixture.workspace / "left"));
+    const auto single = fixture.tool_call(index++, "fs_write", Object{{"path", "/work/single"}, {"content", "kept"}});
+    CHECK(fixture.store->tool_feedback(single.request.attempt_id).at("result").at("operation").at("status") == "SUCCEEDED");
+    const auto read = fixture.tool_call(index, "fs_read", Object{{"path", "/work/single"}});
+    CHECK(canonical_json(fixture.store->tool_feedback(read.request.attempt_id)).find("kept") != std::string::npos);
+    batch_prepare_observer = {};
+    Fixture old;
+    const auto rejected = old.batch(2, Object{{"path", "left"}, {"content", "L"}}, Object{{"path", "right"}, {"content", "R"}});
+    CHECK(old.store->tool_feedback(rejected.request.attempt_id).at("result").at("correction_feedback").at("reason") == "tool_selection");
+    CHECK(!std::filesystem::exists(old.workspace / "left") && !std::filesystem::exists(old.workspace / "right"));
+}
+
+void file_batch_capacity_boundaries_preserve_originals() {
+    Fixture fixture(2000000, "fixed-role-file-batch-v1");
+    std::string escaped_parent;
+    for (int depth = 0; depth != 16; ++depth) {
+        escaped_parent += std::string(200, '\1') + std::to_string(depth) + "/";
+        std::filesystem::create_directory(fixture.workspace / escaped_parent);
+    }
+    for (int index = 2; index != 5; ++index) {
+        const auto parent = index == 2 ? escaped_parent : std::string{};
+        auto [call, response] = fixture.pending_batch(index,
+            Object{{"path", parent + "left-" + std::to_string(index)}, {"content", std::string(6000, '\1')}},
+            Object{{"path", parent + "right-" + std::to_string(index)}, {"content", std::string(6000, '\2')}});
+        const auto target_size = index == 2 ? 128U * 1024U : index == 3 ? 128U * 1024U + 1 : 600U * 1024U;
+        response.text.assign(target_size - canonical_json(to_json(response)).size(), 'x');
+        CHECK(canonical_json(to_json(response)).size() == target_size);
+        const auto group = fixture.runtime->accept_response(call, response);
+        CHECK(group.at("status") == (index == 2 ? "SUCCEEDED" : "NOT_EXECUTED"));
+        CHECK(std::filesystem::exists(fixture.workspace / (parent + "left-" + std::to_string(index))) == (index == 2));
+        const auto saved = fixture.store->tool_feedback(call.request.attempt_id);
+        CHECK(saved.at("response") == to_json(response) && fixture.runtime->accept_response(call, response) == group);
+        const auto host = batch_host(fixture);
+        auto original = fixture.store->attempt_history(fixture.actor()).back();
+        CHECK(!structured_attempt_history({original}, &host).empty());
+        if (index == 3) {
+            const auto unexecuted = original;
+            auto& forged = original.at("feedback").at("result");
+            forged.at("items").as_array()[0].at("state") = "UNKNOWN";
+            forged.at("status") = "UNKNOWN"; forged.at("observation_complete") = false;
+            auto& feedback = original.at("feedback");
+            feedback.at("record_sha256") = sha256_hex(canonical_json(Object{{"attempt_id", original.at("attempt_id")},
+                {"original_binding", feedback.at("original_binding")}, {"response", feedback.at("response")}, {"result", forged}}));
+            expect(ErrorCode::Corrupt, [&] { (void)structured_attempt_history({original}, &host); });
+            original = unexecuted;
+            original.at("feedback").at("result").at("items").as_array()[0].at("result") = Object{};
+            auto& zero = original.at("feedback");
+            zero.at("record_sha256") = sha256_hex(canonical_json(Object{{"attempt_id", original.at("attempt_id")},
+                {"original_binding", zero.at("original_binding")}, {"response", zero.at("response")}, {"result", zero.at("result")}}));
+            expect(ErrorCode::Corrupt, [&] { (void)structured_attempt_history({original}, &host); });
+        }
+    }
+    const auto budget = fixture.store->budget(fixture.request_id);
+    expect(ErrorCode::Quota, [&] { (void)fixture.runtime->capture_call(fixture.request_id, Role::Worker, fixture.task_id, 5); });
+    CHECK(fixture.store->budget(fixture.request_id) == budget);
+    Fixture window(2000000, "fixed-role-file-batch-v1", "window-v1");
+    const auto call = window.batch(2, Object{{"path", "large-a"}, {"content", std::string(12000, 'x')}},
+        Object{{"path", "large-b"}, {"content", std::string(12000, 'y')}});
+    CHECK(window.store->tool_feedback(call.request.attempt_id).at("result").at("status") == "NOT_EXECUTED");
+    CHECK(!std::filesystem::exists(window.workspace / "large-a") && !std::filesystem::exists(window.workspace / "large-b"));
+    for (bool new_order : {false, true}) {
+        Fixture limited(2000000, "fixed-role-file-batch-v1", "append-fold-v1", std::nullopt, true);
+        if (new_order) {
+            (void)limited.store->issue_instruction(limited.store->host_actor(Role::TeamLead, limited.request_id,
+                limited.store->binding(limited.task_id).team_id), limited.store->binding(limited.task_id),
+                number(limited.store->task(limited.task_id), "state_version"), Fixture::initial_steps()[1].tool_calls[0].arguments, new_id("order"));
+            (void)limited.store->acknowledge(limited.actor(), limited.store->binding(limited.task_id),
+                number(limited.store->task(limited.task_id), "state_version"), new_id("ack"));
+        }
+        ResetBatchObserver reset; int prepares = 0; batch_prepare_observer = [&](const Json&) { ++prepares; };
+        const auto rejected = limited.batch(2, Object{{"path", "left"}, {"content", "L"}}, Object{{"path", "right"}, {"content", "R"}});
+        const auto group = limited.store->tool_feedback(rejected.request.attempt_id).at("result");
+        CHECK(group.at("status") == "NOT_EXECUTED" && group.at("observation_complete") == true && group.at("error_code") == "quota");
+        CHECK(text(group, "message").find(new_order ? "operation slots" : "instruction tool calls") != std::string::npos);
+        CHECK(prepares == 0 && limited.store->capacity_status(limited.request_id).at("counts").at("operations") == 2);
+        CHECK(!std::filesystem::exists(limited.workspace / "left") && !std::filesystem::exists(limited.workspace / "right"));
+    }
+}
+
+void file_batch_live_hook_stop_deadline_and_profile_gates() {
+    const auto provider = live::settings();
+    for (const std::string mode : {"success", "hook", "tamper", "stop", "deadline", "second_cancel", "second_deadline", "between_stop", "between_deadline"}) {
+        Fixture fixture(200000, "fixed-role-file-batch-v1", "append-fold-v1", provider); ResetBatchObserver reset;
+        const auto call = fixture.runtime->capture_call(fixture.request_id, Role::Worker, fixture.task_id, 1, {}, false,
+            {100, std::chrono::seconds(3)});
+        (void)fixture.store->reserve_attempt(call.actor, call.request.binding, live::Fixture::reservation(call.request));
+        const auto encoded = encode_protocol_request(provider.provider, call.request, provider.stream);
+        const auto claim = fixture.store->claim_live_send(call.actor, call.request.attempt_id, 1, encoded, provider.transport, new_id("claim"));
+        std::stop_source no_network; no_network.request_stop();
+        auto transport = perform_protocol_https(provider.provider, call.request, encoded, provider.transport,
+            "SYNTHETIC_NO_NETWORK_FIXTURE", no_network.get_token());
+        CHECK(!transport.network_started);
+        // Explicit synthetic host observation for Store/application tests. The
+        // independent protocol suite tests decoding; this is no TLS/provider evidence.
+        auto summary = https_transport_summary(transport); summary.as_object().erase("record_sha256");
+        auto& response = transport.response;
+        response.status = ModelResultStatus::Completed; response.error_code.clear(); response.error_message.clear();
+        response.tool_calls = {{"left", "fs_write", Object{{"path", "left"}, {"content", "L"}}},
+            {"right", "fs_write", Object{{"path", "right"}, {"content", "R"}}}};
+        response.usage = {1, 1, 0, 0, 0}; transport.status = HttpsTransportStatus::Completed;
+        transport.reason = "synthetic_host_observation";
+        summary.at("status") = to_string(transport.status); summary.at("reason") = transport.reason;
+        summary.at("response_usable") = true; summary.at("decoded_response_sha256") = sha256_hex(canonical_json(to_json(response)));
+        transport.record_sha256 = sha256_hex(canonical_json(summary));
+        (void)fixture.store->record_live_transport(call.request.attempt_id, text(claim, "claim_id"), transport);
+        std::stop_source stop; if (mode == "stop") stop.request_stop();
+        const auto deadline = mode == "deadline" ? std::chrono::steady_clock::now() :
+            (mode == "second_deadline" || mode == "between_deadline") ? std::chrono::steady_clock::now() + std::chrono::seconds(2) : std::chrono::steady_clock::time_point::max();
+        int prepares = 0, hooks = 0;
+        batch_prepare_observer = [&](const Json&) {
+            if (++prepares != 2) return;
+            if (mode == "second_cancel") stop.request_stop();
+            if (mode == "second_deadline") std::this_thread::sleep_until(deadline);
+        };
+        if (mode.starts_with("between_")) batch_staged_observer = [&] {
+            if (mode == "between_stop") stop.request_stop();
+            else std::this_thread::sleep_until(deadline);
+        };
+        const AfterModelSettlement hook = [&](const Json& original) {
+            ++hooks; CHECK(original.at("response") == to_json(response));
+            if (mode == "hook") throw Error(ErrorCode::Storage, "synthetic accounting hook failure");
+            if (mode == "tamper") response.tool_calls[0].arguments.at("content") = "changed-after-settlement";
+        };
+        if (mode == "tamper") {
+            const auto original = response;
+            expect(ErrorCode::Conflict, [&] { (void)fixture.runtime->accept_live_response(call, response, hook); });
+            CHECK(hooks == 1 && prepares == 0 && fixture.store->tool_feedback(call.request.attempt_id).is_null());
+            CHECK(!std::filesystem::exists(fixture.workspace / "left") && !std::filesystem::exists(fixture.workspace / "right"));
+            expect(ErrorCode::NotReady, [&] { (void)fixture.runtime->accept_live_response(call, original, hook); });
+            continue;
+        }
+        const auto group = fixture.runtime->accept_live_response(call, response, hook, false, stop.get_token(), deadline);
+        CHECK(hooks == 1);
+        const bool starts = mode == "success" || mode.starts_with("second_") || mode.starts_with("between_");
+        CHECK(prepares == (mode.starts_with("between_") ? 1 : starts ? 2 : 0));
+        CHECK(std::filesystem::exists(fixture.workspace / "left") == starts);
+        CHECK(std::filesystem::exists(fixture.workspace / "right") == (mode == "success"));
+        CHECK(group.at("status") == (mode == "success" ? "SUCCEEDED" : mode.starts_with("second_") ? "CANCELLED" : "NOT_EXECUTED"));
+        if (mode.starts_with("between_")) CHECK(group.at("items").as_array()[0].at("state") == "SUCCEEDED" &&
+            group.at("items").as_array()[1].at("state") == "NOT_EXECUTED");
+        CHECK(group.at("observation_complete") == true);
+        if (mode == "hook") CHECK(group.at("error_code") == "storage" && group.at("message") == "synthetic accounting hook failure");
+        CHECK(fixture.runtime->accept_live_response(call, response, hook) == group && hooks == 1);
+        const auto host = batch_host(fixture);
+        CHECK(structured_attempt_history(fixture.store->attempt_history(fixture.actor()), &host).size() == 3);
+    }
+    for (bool parallel : {false, true}) {
+        auto limited = provider;
+        limited.provider.parallel_tool_calls = parallel;
+        if (parallel) limited.provider.limits.max_tool_calls = 1;
+        Fixture fixture(200000, "fixed-role-file-batch-v1", "append-fold-v1", limited);
+        expect(ErrorCode::Unsupported, [&] { (void)fixture.runtime->capture_call(fixture.request_id, Role::Worker, fixture.task_id); });
+        CHECK(number(fixture.store->budget(fixture.request_id), "attempts") == 0);
+    }
+}
+
+void file_batch_native_history_modes_reopen_and_fold() {
+    for (const std::string mode : {"full", "window-v1", "append-fold-v1"}) {
+        Fixture fixture(2000000, "fixed-role-file-batch-v1", mode);
+        auto [call, response] = fixture.pending_batch(2, Object{{"path", "left"}, {"content", "L"}},
+            Object{{"path", "right"}, {"content", "R"}});
+        Array output{Object{{"id", "reason-batch"}, {"type", "reasoning"}, {"summary", Array{}},
+            {"encrypted_content", "Zml4dHVyZS1yZWFzb25pbmc="}, {"status", "completed"}}};
+        for (const auto& tool : response.tool_calls) output.push_back(Object{{"id", "native-" + tool.call_id},
+            {"type", "function_call"}, {"call_id", tool.call_id}, {"name", tool.name},
+            {"arguments", canonical_json(tool.arguments)}, {"status", "completed"}});
+        response.responses_output = wls::test::protocol::compat_output_payload("o3-2025-04-16", output);
+        const auto group = fixture.runtime->accept_response(call, response);
+        CHECK(group.at("status") == "SUCCEEDED");
+        const auto next = fixture.note(3, 100); // Includes Store's independent append recomputation.
+        CHECK(canonical_json(next.request.context.logical_input).find("Zml4dHVyZS1yZWFzb25pbmc=") != std::string::npos);
+        if (mode == "append-fold-v1") {
+            const auto capture = fixture.store->append_history_capture(fixture.actor()); const auto host = batch_host(fixture);
+            const auto folded = append_fold_history(capture.at("previous").at("input"), capture.at("delta"), true, &host);
+            CHECK(!folded.at("folded_entries").as_array().empty());
+        }
+        const auto original = fixture.store->tool_feedback(call.request.attempt_id);
+        fixture.reopen();
+        (void)fixture.runtime->capture_call(fixture.request_id, Role::Worker, fixture.task_id, 4);
+        CHECK(fixture.runtime->accept_response(call, response) == group);
+        CHECK(fixture.store->tool_feedback(call.request.attempt_id) == original);
+    }
+}
 
 void append_fold_reopen_prefix_and_amend() {
     Fixture fixture;
@@ -361,11 +752,27 @@ void append_policy_rejects_single_agent_and_old_window() {
 }
 } // namespace
 
-int main() {
-    return test::run({
+int main(int argc, char** argv) {
+    const std::string group = argc == 3 && std::string_view(argv[1]) == "--group" ? argv[2] : "";
+    if (argc != 1 && group.empty()) return 2;
+    const std::vector<test::Case> cases{
+        {"file batch writes two distinct targets with one immutable aggregate", file_batch_runtime_writes_two_distinct_targets_with_one_feedback},
+        {"file batch preflight failure keeps both items unexecuted", file_batch_preflight_failure_keeps_both_unexecuted},
+        {"file batch preserves prefixes across executor and storage faults", file_batch_preserves_prefix_on_executor_and_storage_faults},
+        {"file batch replay is only an observation", file_batch_replay_is_observation_not_second_execution},
+        {"file batch rejection preserves old single-call behavior", file_batch_rejections_and_old_single_call_behavior},
+        {"file batch capacity boundaries preserve original facts", file_batch_capacity_boundaries_preserve_originals},
+        {"file batch live hook, cancellation, deadline and profile gates", file_batch_live_hook_stop_deadline_and_profile_gates},
+        {"file batch native history survives modes, reopen and fold", file_batch_native_history_modes_reopen_and_fold},
         {"append fold persists originals across reopen and amendment", append_fold_reopen_prefix_and_amend},
         {"result_data pages preserve UTF-8, binary bytes, and hash scope", paged_original_fs_read_is_utf8_and_binary_safe},
         {"stale captures and one-turn capacity fail before reservation", stale_capture_and_capacity_stop_before_reservation},
         {"append policy rejects incompatible history choices", append_policy_rejects_single_agent_and_old_window}
-    });
+    };
+    const std::array<std::string_view, 12> groups{"guards", "guards", "faults", "guards", "guards", "capacity", "live", "history",
+        "legacy", "legacy", "legacy", "legacy"};
+    std::vector<test::Case> selected;
+    for (std::size_t i = 0; i != cases.size(); ++i)
+        if (group.empty() || group == groups[i]) selected.push_back(cases[i]);
+    return selected.empty() ? 2 : test::run(selected);
 }
