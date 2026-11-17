@@ -1,6 +1,6 @@
 # G2 首次真实运行
 
-2026-11-17 更新：D-46、D-48 和媒体诊断 [#140](https://github.com/wmqfl861/wls861/pull/140)–[#142](https://github.com/wmqfl861/wls861/pull/142) 已合入。最新 R9 捕获完整 JSON，但中转声明为 SSE；原 JSON 产品离线回放通过，旧冻结媒体策略按预期拒绝，U1/U2 仍为 NOT_PASSED。正在验证仅新请求显式选择的 JSON 媒体兼容；旧用量不回填。本轮事实见[末节](#r7r10账目恢复重试与真实复验)，11-15/11-16 原逐次记录保留。
+2026-11-17 更新：D-46、D-48 和媒体诊断 [#140](https://github.com/wmqfl861/wls861/pull/140)–[#142](https://github.com/wmqfl861/wls861/pull/142) 已合入。最新 R9 捕获完整 JSON，但中转声明为 SSE；原 JSON 产品离线回放通过，旧冻结媒体策略按预期拒绝，U1/U2 仍为 NOT_PASSED。仅新请求显式选择的 JSON 媒体兼容已通过本机六套回归，托管门禁及合入待执行；旧用量不回填。本轮事实见[末节](#r7r10账目恢复重试与真实复验)，11-15/11-16 原逐次记录保留。
 
 日期：2026-11-15 至 11-16。**U1/U2 未通过**：R2/R3 末次 Dispatcher 收到中转上游失败流；一次新 R5 则在末次 Worker 的无序号扩展事件处被协议拒绝，均无完整交付。原三交付物导出已按 D-31 恢复、成果 12/12 且无新调用；严格 metadata 保留检查仅 SHM mtime 变化而 FAIL，原结果保留。E1 离线字节减少已验证，真实改善仍未知，按 D-37 保守回退（[#134](https://github.com/wmqfl861/wls861/pull/134)，当前门禁/合入状态见末节），不宣称优化无效或导致失败。R6 按“明确记录未达原因”的计划路径整理 v0.5 与六格式；版本不代表 U1/U2 成功。R5 固定 main `3fa7019`（[#133](https://github.com/wmqfl861/wls861/pull/133)），原输入、CI 与回退身份见末节；Store 410。
 
@@ -246,3 +246,7 @@ HTTP 完整、头部 477 字节、正文 46,852 字节且未截断；头声明 `
 累计更新：11-17 新增 6 次，输入保守占用 243,820；G2 本轮 **64/250 次、986,531/5,000,000 输入**（已知 420,613 + 未知预留 565,918），through-v1 **105/3,000 次、1,695,876/60,000,000 输入**（已知 1,069,010 + 未知预留 626,866）。费用及未捕获的实际用量保持未知。
 
 决定：新增明确冻结的 `responses_media_type_policy: json-under-sse-v1`，只作用于新请求的非流式 Responses HTTP 200 + SSE 媒体声明，完整严格 JSON 仍由原解码器处理；理由：原文已证明内容可解码，显式策略能修中转错误并保留旧请求解释。缺键仍拒绝，实际 SSE 仍仅诊断，原 framing、字节限额、期限、取消、模型/字段/工具检查均保留。真实复验等待候选合入；准备目录 `json-media-real-prep-4gybr21u/` 尚未调用模型。
+
+显式兼容候选本机验证：干净 GCC 13 Release、普通 uid 1000，`cmake --build BUILD --parallel 2 --target wls protocol_codec_tests sse_replay_tests live_model_store_tests https_transport_driver live_model_store_driver` 通过；`ctest --test-dir BUILD -R '^(protocol_codec|sse_replay|live_model_store|https_transport|live_model_store_tls|live_workflow_cli)$' --output-on-failure` 6/6 通过，135.98 秒。六套报告用例分别 59、42、30、50、15、24，共 220；HTTP matrix 包含 12 个新非流式子场景及 2 个流式不变子场景，容量/中断 matrix 包含 7 个新 JSON 子场景。Store 入口验证冻结/恢复、原发送和证据 hash、Completed/usable 的持久化。产品 38 行、测试 76 行；无 SQL/Store 版本变化。独立静态审核无发现；两份新配置各 config check 和三个角色 explain 共 8/8 通过，凭据未解析。
+
+构建输入 `4157894`，测试输入 `90f2e76` 的唯一后续差异为 Python 流式边界用例；C++/构建输入逐字相同。证据 `json-media-evidence/ctest-focused-20261117T044949260904Z.json`，SHA-256 `1ecbcc55eb57dbdf782fed391d89e60dc626cbaac13b4383e2bfbb34df475d05`；永久同前缀 `-LastTest.log` SHA-256 `02333a6b6a2bcf2a2cd4bc7d535aca0a4987c278f8175c97f04de302ce3818b2`，详细原日志已在后续检查前复制。原命令未请求 JUnit，故没有该文件，不补造或重跑替代。托管门禁、合入与真实复验仍待执行。
