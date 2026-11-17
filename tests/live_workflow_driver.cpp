@@ -24,6 +24,16 @@ using fixture::text;
 using namespace std::chrono_literals;
 
 namespace {
+std::function<void(const Json&, std::stop_token)> cancel_at_prepare;
+void observe_worker_prepare(const Json& prepared, std::stop_token stop) {
+    if (cancel_at_prepare) cancel_at_prepare(prepared, stop);
+}
+}
+#define WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE(key, prepared, stop) ::observe_worker_prepare(prepared, stop)
+#include "../src/worker_tools.cpp"
+#undef WLS_WORKER_TOOLS_PRIVATE_TEST_PHASE
+
+namespace {
 constexpr std::string_view bearer = "WLS_SYNTHETIC_WORKFLOW_BEARER_7C91";
 bool flag(const Json& value, std::string_view key) {
     const auto* item = value.as_object().if_contains(key); return item && item->as_bool();
@@ -132,7 +142,9 @@ int main(int argc, char** argv) {
         for (const auto& node : {"alpha", "beta"}) {
             const auto path = std::filesystem::path(text(config, "workspaces")) / node;
             std::filesystem::create_directory(path); CHECK(::chmod(path.c_str(), 0700) == 0);
-            owned[node] = std::make_unique<WorkerTools>(*store, path);
+            const Json manifest = flag(config, "cancel_worker_prepare")
+                ? Json(Object{{"schema_version", 1}, {"bwrap_path", (path / "absent-bwrap").string()}}) : Json(Object{});
+            owned[node] = std::make_unique<WorkerTools>(*store, path, manifest);
             mapping[node] = owned.at(node).get();
         }
         EventRuntime runtime(*store, schemas, mapping);
@@ -256,6 +268,15 @@ int main(int argc, char** argv) {
                 result["hook_calls"] = hook_calls; result["replay_sent"] = repeated_send.sent;
             } else {
                 std::stop_source stopped; if (flag(config, "pre_cancel")) stopped.request_stop();
+                struct ResetObserver {
+                    ~ResetObserver() { cancel_at_prepare = {}; }
+                } reset_observer;
+                if (flag(config, "cancel_worker_prepare")) cancel_at_prepare = [&](const Json& prepared, std::stop_token stop) {
+                    if (prepared.at("tool_id") != "run") return;
+                    result["executor_stop_possible"] = stop.stop_possible();
+                    stopped.request_stop();
+                    result["executor_stop_requested"] = stop.stop_requested();
+                };
                 bool cancellation_marker_observed = false, cancellation_marker_error = false;
                 std::jthread cancellation;
                 const auto cancel_marker = string_option(config, "cancel_marker");

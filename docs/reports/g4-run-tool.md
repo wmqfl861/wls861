@@ -55,7 +55,21 @@ W128 候选的正式 CTest 在 3.90 秒实际失败：128 KiB 写入、reopen+ac
 
 实现 `37d352a` 的产品/C++ 改动为 0；执行/测试/集成新增 179、删除 45（总增删 224），另有固定夹具 188 行。沿用既有驱动而不复制第二套是本切片的复用选择；没有新增通用 helper。独立 GCC13 Release ELF 编译于 `e1d341e`；最终两行 Python 证据命名改动未改变任何运行库构建输入，最后 build 调用通过、ELF 相同，不把它重标为新编译。
 
-准确候选的 CSV/函数 oracle 与预启动拒绝四项 CTest 全通过（0.24/1.23/0.28/1.26 秒），两项直接拒绝记录保留，实际 FAILED/REFUSED、spawned=false、无提交；AST/YAML、shell 参数/顺序/语法及 artifact allowlist 通过。PR158 原 head `69c4b9b` 的[核心](https://github.com/wmqfl861/wls861/actions/runs/44179943762) 300/300、[源码](https://github.com/wmqfl861/wls861/actions/runs/44179943723)与[native](https://github.com/wmqfl861/wls861/actions/runs/44180013843)已核验通过，源码 788 个 blobs/modes 一致；native 保留原四沙箱、两环境及 CSV 五调用，新增函数六调用，原 run 68ms、exit0、五个 unittest 通过，两份原提交及其全部绑定/hash 相符。独立源码复核无发现。现正常整合 E9 已合入的 main，整合提交的检查另行执行，旧输入绿色不替代新输入。原始证据在当前私有任务根 `g4d-function-evidence/result.md`，构建在 `g4d-function-release/`，旧 B1 ELF 未覆盖。中断→AMEND→同命令恢复在独立工作树准备，尚未通过完整场景。
+准确候选的 CSV/函数 oracle 与预启动拒绝四项 CTest 全通过（0.24/1.23/0.28/1.26 秒），两项直接拒绝记录保留，实际 FAILED/REFUSED、spawned=false、无提交；AST/YAML、shell 参数/顺序/语法及 artifact allowlist 通过。PR158 原 head `69c4b9b` 的[核心](https://github.com/wmqfl861/wls861/actions/runs/44179943762) 300/300、[源码](https://github.com/wmqfl861/wls861/actions/runs/44179943723)与[native](https://github.com/wmqfl861/wls861/actions/runs/44180013843)已核验通过，源码 788 个 blobs/modes 一致；native 保留原四沙箱、两环境及 CSV 五调用，新增函数六调用，原 run 68ms、exit0、五个 unittest 通过，两份原提交及其全部绑定/hash 相符。独立源码复核无发现。正常整合后的 `5405d27` [core](https://github.com/wmqfl861/wls861/actions/runs/44184695373) 300/300、[source](https://github.com/wmqfl861/wls861/actions/runs/44184695244) 789 blobs/modes 与[native](https://github.com/wmqfl861/wls861/actions/runs/44184891518)全部核验通过；实际 run100ms、五测试通过，原 CSV/隔离/回收证明保留。已由 #158 合入 main `59c568f`；原件在 `run-intake/hosted-pr158-5405d27/verification.json`。原始证据在当前私有任务根 `g4d-function-evidence/result.md`，构建在 `g4d-function-release/`，旧 B1 ELF 未覆盖。中断→AMEND→同命令恢复在独立工作树准备，尚未通过完整场景。
+
+
+取消前置修复：三文件16行产品补丁将既有 batch token 贯通到 WorkerTools；在未修改生产 main `8018622` 上，新回归准确失败于 executor token 不可停止，原执行结果为 REFUSED。相同62行测试在修复后通过，原执行器保存 CANCELLED、spawned=false、all_descendants_exited=true；三次原调用、一次首次派发及原绑定/反馈均核对。相关六套 Release 通过（完整 live_workflow27方法），原始红绿 ELF/日志分开保存在 `g4d-cancel-evidence/` 与独立 build 目录。此本机结果仅为预启动取消；后续完整活动进程 SIGINT/AMEND 的托管结果见下一节；该补丁作为 E9 执行候选的独立提交，最终 ASan 尚待验证。既有托管 live_workflow 为184.55/600秒，新增回归约1秒 Release；最终候选须用实测重新判 D-20，不延长期限。
+
+
+## G4-D 中断与 AMEND 联合准备候选（2026-11-17）
+
+[#159](https://github.com/wmqfl861/wls861/pull/159) 的首个精确输入 `6591bde` 已在托管原生环境跑通：17 次本机合成 TLS 调用、3.367 秒，由活动 Worker 的 SIGINT 取消经真实 CLI AMEND，再用原 argv、原配置和同一请求恢复到 DELIVERED。stable 任务的原操作、首次派发和计数器保持一次；changed 任务保存 CANCELLED、完整隔离及进程回收证明，随后按 update/keep、修订、工单和确认链完成新输出。不可变提交、TeamLead 检查、Dispatcher 验收、原回执及经验均核验；整个场景仍受24次/90秒原限制。此候选尚未合入，也不替代真实 U3/U4。
+
+该输入的[核心](https://github.com/wmqfl861/wls861/actions/runs/44194131007)为300/300，[源码](https://github.com/wmqfl861/wls861/actions/runs/44194131028)798个 blobs/modes 与同树 synthetic checkout 相符，[native](https://github.com/wmqfl861/wls861/actions/runs/44194178982)精确 checkout、普通 UID1001、Standard、无网络隔离及回收通过。原四沙箱、两环境检查、CSV和函数场景保留；可选缺失环境命令的 FAILED/exit127 是原用例要求，并非门禁失败。原生记录中3份 operation result、17份 feedback 及6份输出BLOB均已独立重算/比对；settlement hash仅核存在性和关联，未宣称重算。
+
+有界源码检查在旧 `a914a23` 发现 F1：检查器只比较操作 hash 副本，未重算原操作/反馈事实。后续 `7e44727` 按 Store 原 preimage 修正，保留全部59条原断言表达式及29反例，增加3个旧检查器会漏过的篡改反例；一个正例及32反例通过。新检查器离线复核上述原 native before/after/active 也通过，原SHA不变；这是旧运行的后续检查，不冒充新提交的原生运行。手动/每夜 native 接线增加该自检，F1修正已由非作者独立复核通过；最新远端门禁另记。原 F1 FAIL 和旧25/29反例记录保留。
+
+相对 main，本切片测试/检查器263新增行，CI7新增/2删除，合计272行；固定8份合成夹具另列3231行、106113字节，含15行Worker程序。这些是固定自测资料，不是原生证据。取消前置的16产品/62测试仍在分支历史中，须先经E9候选进入main，再整合并核最终差异/门禁；当前不判定可合并。此前本机新缺launcher保留FAILED/REFUSED、spawned=false、三次合成调用；旧AMEND9/9及settled-SIGINT/恢复单例通过。私有证据在 `g4d-amend-implementation-evidence/`、`g4d-amend-f1-evidence/` 和 `run-intake/hosted-pr159-6591bde/`，数据库、工作区、配置不上传。
 
 ## 原始证据与接手
 

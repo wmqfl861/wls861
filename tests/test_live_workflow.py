@@ -112,6 +112,8 @@ class ModelPeer:
                         ('fs_write', {'path': 'result.txt', 'content': 'alpha\nbeta\n'}),
                         ('fs_read', {'path': 'result.txt'}), ('submit', self.submission)]
             return sequence[index]
+        if index == 0 and self.mode == 'cancel_worker_prepare':
+            return 'run', {'argv': ['/bin/sh', '-c', 'printf forbidden > forbidden'], 'timeout_s': 1}
         if index == 0:
             content = f'Synthetic candidate task revision {binding["task_revision"]}.\n'
             arguments = {'path': 'other.txt' if self.mode == 'cross_task' else 'result.txt', 'content': content}
@@ -623,6 +625,43 @@ class LiveWorkflow(unittest.TestCase):
                 self.assertEqual(result['credential_reads'], 0)
                 self.assertEqual(result['budget']['attempts'], 0)
                 self.assertTrue(result['accounting']['ready'])
+
+    def test_stop_reaches_worker_after_prepare_before_dispatch(self):
+        model = ModelPeer(self.directory, 'cancel_worker_prepare')
+        with tls.Peer(self.contexts['server'], model) as peer:
+            result = self.invoke(peer, model, reconcile=True, max_calls=3, cancel_worker_prepare=True)
+            self.assertEqual(len(peer.requests), 3)
+        self.assertEqual(model.actions, ['submit_plan', 'issue_work_order', 'run'])
+        self.assertTrue(result['executor_stop_possible'])
+        self.assertTrue(result['executor_stop_requested'])
+        attempts = self.rows('SELECT * FROM call_attempts ORDER BY rowid')
+        self.assertEqual(len(attempts), 3)
+        self.assertTrue(all(row['settlement_sha256'] and row['status'] != 'UNKNOWN' for row in attempts))
+        attempt = attempts[-1]
+        feedback, = self.rows('SELECT * FROM model_tool_feedback WHERE attempt_id=?', (attempt['attempt_id'],))
+        original = json.loads(feedback['result'])
+        operation = original['operation']
+        execution = original['execution_result']
+        binding = json.loads(attempt['frozen_binding'])
+        self.assertEqual(json.loads(feedback['response']), json.loads(attempt['response']))
+        self.assertEqual(json.loads(feedback['original_binding']), binding)
+        self.assertEqual(execution['original_binding'], binding)
+        self.assertEqual({key: operation[key] for key in binding}, binding)
+        self.assertTrue(original['executed_now'])
+        self.assertFalse(original['replayed'])
+        self.assertTrue(operation['started_at'])
+        self.assertEqual(operation['status'], 'CANCELLED')
+        self.assertEqual(execution['operation_status'], 'CANCELLED')
+        self.assertEqual(execution['result']['status'], 'CANCELLED')
+        self.assertFalse(execution['result']['spawned'])
+        self.assertTrue(execution['result']['all_descendants_exited'])
+        self.assertEqual((execution['stdout_bytes'], execution['stderr_bytes']), (0, 0))
+        claim, = self.rows("SELECT command_id,payload,result FROM events WHERE type='start_tool_op'")
+        self.assertEqual(json.loads(claim['payload'])['op_id'], operation['op_id'])
+        self.assertTrue(json.loads(claim['result'])['dispatch_claimed'])
+        self.assertEqual(json.loads(claim['result'])['operation']['status'], 'RUNNING')
+        self.assertEqual(claim['command_id'], attempt['attempt_id'] + ':fixture-call-3:start')
+        self.assertFalse((self.workspaces / 'alpha/forbidden').exists())
 
     def test_explicit_cancellation_before_and_during_transport_remains_cancelled(self):
         marker = self.directory / 'peer-received-request'

@@ -1,0 +1,17 @@
+[
+  {
+    "constraint_id": "c1",
+    "source_revision": 1,
+    "text": "Use only the allocated workspace; never use the network."
+  },
+  {
+    "constraint_id": "c2",
+    "source_revision": 1,
+    "text": "Preserve alpha result.txt and counter.txt after exactly one execution."
+  },
+  {
+    "constraint_id": "c3",
+    "source_revision": 2,
+    "text": "Replace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline."
+  }
+]

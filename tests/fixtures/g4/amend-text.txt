@@ -1,0 +1,2 @@
+Keep alpha without repeating its business execution. Update beta to produce the amended result.
+Replace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline.

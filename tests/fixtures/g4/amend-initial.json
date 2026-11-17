@@ -1,0 +1,107 @@
+{
+  "plan": {
+    "summary": "Two independent synthetic tasks; retain alpha effects and revise beta only.",
+    "nodes": [
+      {
+        "node_id": "alpha",
+        "kind": "team_task",
+        "title": "alpha",
+        "depends_on": [],
+        "required": true,
+        "brief": {
+          "title": "alpha",
+          "goal": "Keep the one-time alpha effect.",
+          "acceptance_criteria": [
+            {
+              "id": "ac1",
+              "text": "文件及其原绑定事实持久化；后续上下文保留原始观察。"
+            }
+          ],
+          "constraints_verbatim": [
+            "Use only the allocated workspace; never use the network.",
+            "Preserve alpha result.txt and counter.txt after exactly one execution."
+          ],
+          "constraint_refs": [
+            "c1",
+            "c2"
+          ]
+        }
+      },
+      {
+        "node_id": "beta",
+        "kind": "team_task",
+        "title": "beta",
+        "depends_on": [],
+        "required": true,
+        "brief": {
+          "title": "beta",
+          "goal": "Produce the current beta result.",
+          "acceptance_criteria": [
+            {
+              "id": "ac1",
+              "text": "文件及其原绑定事实持久化；后续上下文保留原始观察。"
+            }
+          ],
+          "constraints_verbatim": [
+            "Use only the allocated workspace; never use the network.",
+            "Preserve alpha result.txt and counter.txt after exactly one execution."
+          ],
+          "constraint_refs": [
+            "c1",
+            "c2"
+          ]
+        }
+      }
+    ]
+  },
+  "order": {
+    "approach": "Alpha: execute once and preserve result.txt/counter.txt. Beta: start the bounded job, emit READY, and await interruption.",
+    "steps": [
+      {
+        "id": "s1",
+        "text": "Alpha: execute once and preserve result.txt/counter.txt. Beta: start the bounded job, emit READY, and await interruption."
+      }
+    ],
+    "constraints_verbatim": [
+      "Use only the allocated workspace; never use the network.",
+      "Preserve alpha result.txt and counter.txt after exactly one execution."
+    ],
+    "constraint_refs": [
+      "c1",
+      "c2"
+    ],
+    "done_definition": "Complete immutable artifacts are submitted for separate TeamLead checking and Dispatcher acceptance."
+  },
+  "workers": {
+    "alpha": [
+      [
+        "run",
+        {
+          "argv": [
+            "/usr/bin/python3",
+            "-B",
+            "-c",
+            "from pathlib import Path\np = Path('counter.txt')\nn = int(p.read_text()) + 1 if p.exists() else 1\np.write_text(str(n) + '\\n')\nPath('result.txt').write_text('stable once\\n')\nprint('STABLE', n, flush=True)\n"
+          ],
+          "timeout_s": 5,
+          "max_output_bytes": 4096
+        }
+      ]
+    ],
+    "beta": [
+      [
+        "run",
+        {
+          "argv": [
+            "/usr/bin/python3",
+            "-B",
+            "-c",
+            "from pathlib import Path\nimport time\nprint('READY', flush=True)\nPath('ready.txt').write_text('READY\\n')\ntime.sleep(25)\nPath('obsolete.txt').write_text('obsolete revision 1\\n')\n"
+          ],
+          "timeout_s": 30,
+          "max_output_bytes": 4096
+        }
+      ]
+    ]
+  }
+}

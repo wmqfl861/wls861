@@ -1,0 +1,2907 @@
+{
+  "kind": "synthetic oracle fixture, not native evidence",
+  "before": {
+    "ops": [
+      {
+        "request_id": "synthetic-request",
+        "task_id": "synthetic-alpha",
+        "team_id": "synthetic-team-alpha",
+        "requirements_revision": 1,
+        "plan_revision": 1,
+        "task_revision": 1,
+        "instruction_revision": 1,
+        "dispatcher_epoch": 1,
+        "execution_epoch": 1,
+        "policy_epoch": 1,
+        "op_id": "synthetic-op-alpha-1",
+        "tool_id": "run",
+        "status": "SUCCEEDED",
+        "started_at": "synthetic-start"
+      },
+      {
+        "request_id": "synthetic-request",
+        "task_id": "synthetic-beta",
+        "team_id": "synthetic-team-beta",
+        "requirements_revision": 1,
+        "plan_revision": 1,
+        "task_revision": 1,
+        "instruction_revision": 1,
+        "dispatcher_epoch": 1,
+        "execution_epoch": 1,
+        "policy_epoch": 1,
+        "op_id": "synthetic-op-beta-1",
+        "tool_id": "run",
+        "status": "CANCELLED",
+        "started_at": "synthetic-start"
+      }
+    ],
+    "operation_results": [
+      {
+        "op_id": "synthetic-op-alpha-1",
+        "result": {
+          "status": "EXITED",
+          "spawned": true,
+          "launcher_exec_confirmed": true,
+          "all_descendants_exited": true,
+          "strong_isolation": false,
+          "output_truncated": false,
+          "exit_code": 0,
+          "evidence": {
+            "proof_format": "wls-process-proof-standard-cgroup-v1",
+            "isolation_verified": true,
+            "network": "none",
+            "resource_enforcement": "cgroup-v2",
+            "descendants_proof": "cgroup.events populated=0",
+            "workspace_observation": {
+              "complete": true
+            },
+            "operation_id": "synthetic-op-alpha-1"
+          },
+          "cgroup_name": "synthetic-op-alpha-1",
+          "stdout_bytes": 9,
+          "stderr_bytes": 0,
+          "output_location": "op_output"
+        },
+        "evidence": {
+          "proof_format": "wls-process-proof-standard-cgroup-v1",
+          "isolation_verified": true,
+          "network": "none",
+          "resource_enforcement": "cgroup-v2",
+          "descendants_proof": "cgroup.events populated=0",
+          "workspace_observation": {
+            "complete": true
+          },
+          "operation_id": "synthetic-op-alpha-1"
+        },
+        "observed_outcome": "SUCCEEDED",
+        "accepted": 1,
+        "original_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-alpha",
+          "team_id": "synthetic-team-alpha",
+          "requirements_revision": 1,
+          "plan_revision": 1,
+          "task_revision": 1,
+          "instruction_revision": 1,
+          "dispatcher_epoch": 1,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "record_sha256": "4f443990f21a46c03f8736ab23c2bd7283394aa3c53756bff952f500f16201aa",
+        "stdout_bytes": 9,
+        "stdout_sha256": "ed16eea8a15560d4d83664756c86b6308411e1efcfc9a072ca8d5679a6dc949d",
+        "stdout_truncated": 0,
+        "stderr_bytes": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_truncated": 0
+      },
+      {
+        "op_id": "synthetic-op-beta-1",
+        "result": {
+          "status": "CANCELLED",
+          "spawned": true,
+          "launcher_exec_confirmed": true,
+          "all_descendants_exited": true,
+          "strong_isolation": false,
+          "output_truncated": false,
+          "exit_code": null,
+          "evidence": {
+            "proof_format": "wls-process-proof-standard-cgroup-v1",
+            "isolation_verified": true,
+            "network": "none",
+            "resource_enforcement": "cgroup-v2",
+            "descendants_proof": "cgroup.events populated=0",
+            "workspace_observation": {
+              "complete": true
+            },
+            "operation_id": "synthetic-op-beta-1"
+          },
+          "cgroup_name": "synthetic-op-beta-1",
+          "stdout_bytes": 6,
+          "stderr_bytes": 0,
+          "output_location": "op_output"
+        },
+        "evidence": {
+          "proof_format": "wls-process-proof-standard-cgroup-v1",
+          "isolation_verified": true,
+          "network": "none",
+          "resource_enforcement": "cgroup-v2",
+          "descendants_proof": "cgroup.events populated=0",
+          "workspace_observation": {
+            "complete": true
+          },
+          "operation_id": "synthetic-op-beta-1"
+        },
+        "observed_outcome": "CANCELLED",
+        "accepted": 1,
+        "original_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-beta",
+          "team_id": "synthetic-team-beta",
+          "requirements_revision": 1,
+          "plan_revision": 1,
+          "task_revision": 1,
+          "instruction_revision": 1,
+          "dispatcher_epoch": 1,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "record_sha256": "fd22da1dfd1cb51c12b01a3ea3489fd687e3dba9796fd962c728a7cda14415fd",
+        "stdout_bytes": 6,
+        "stdout_sha256": "3dfa3fb239f56c778a1e9b33eb31328349edd155a95806dac4378904e88527e5",
+        "stdout_truncated": 0,
+        "stderr_bytes": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_truncated": 0
+      }
+    ],
+    "outputs": [
+      {
+        "op_id": "synthetic-op-alpha-1",
+        "stream": "stdout",
+        "bytes_hex": "535441424C4520310A"
+      },
+      {
+        "op_id": "synthetic-op-alpha-1",
+        "stream": "stderr",
+        "bytes_hex": ""
+      },
+      {
+        "op_id": "synthetic-op-beta-1",
+        "stream": "stdout",
+        "bytes_hex": "52454144590A"
+      },
+      {
+        "op_id": "synthetic-op-beta-1",
+        "stream": "stderr",
+        "bytes_hex": ""
+      }
+    ],
+    "model_tool_feedback": [
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-alpha-1",
+        "original_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-alpha",
+          "team_id": "synthetic-team-alpha",
+          "requirements_revision": 1,
+          "plan_revision": 1,
+          "task_revision": 1,
+          "instruction_revision": 1,
+          "dispatcher_epoch": 1,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "response": {
+          "tool_calls": [
+            {
+              "call_id": "synthetic-call-synthetic-op-alpha-1",
+              "name": "run",
+              "arguments": {}
+            }
+          ]
+        },
+        "result": {
+          "executed_now": true,
+          "replayed": false,
+          "operation": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-alpha",
+            "team_id": "synthetic-team-alpha",
+            "requirements_revision": 1,
+            "plan_revision": 1,
+            "task_revision": 1,
+            "instruction_revision": 1,
+            "dispatcher_epoch": 1,
+            "execution_epoch": 1,
+            "policy_epoch": 1,
+            "op_id": "synthetic-op-alpha-1",
+            "tool_id": "run",
+            "status": "SUCCEEDED",
+            "started_at": "synthetic-start",
+            "arguments": {}
+          },
+          "execution_result": {
+            "op_id": "synthetic-op-alpha-1",
+            "result": {
+              "status": "EXITED",
+              "spawned": true,
+              "launcher_exec_confirmed": true,
+              "all_descendants_exited": true,
+              "strong_isolation": false,
+              "output_truncated": false,
+              "exit_code": 0,
+              "evidence": {
+                "proof_format": "wls-process-proof-standard-cgroup-v1",
+                "isolation_verified": true,
+                "network": "none",
+                "resource_enforcement": "cgroup-v2",
+                "descendants_proof": "cgroup.events populated=0",
+                "workspace_observation": {
+                  "complete": true
+                },
+                "operation_id": "synthetic-op-alpha-1"
+              },
+              "cgroup_name": "synthetic-op-alpha-1",
+              "stdout_bytes": 9,
+              "stderr_bytes": 0,
+              "output_location": "op_output"
+            },
+            "evidence": {
+              "proof_format": "wls-process-proof-standard-cgroup-v1",
+              "isolation_verified": true,
+              "network": "none",
+              "resource_enforcement": "cgroup-v2",
+              "descendants_proof": "cgroup.events populated=0",
+              "workspace_observation": {
+                "complete": true
+              },
+              "operation_id": "synthetic-op-alpha-1"
+            },
+            "observed_outcome": "SUCCEEDED",
+            "accepted": 1,
+            "original_binding": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-alpha",
+              "team_id": "synthetic-team-alpha",
+              "requirements_revision": 1,
+              "plan_revision": 1,
+              "task_revision": 1,
+              "instruction_revision": 1,
+              "dispatcher_epoch": 1,
+              "execution_epoch": 1,
+              "policy_epoch": 1
+            },
+            "record_sha256": "4f443990f21a46c03f8736ab23c2bd7283394aa3c53756bff952f500f16201aa",
+            "stdout_bytes": 9,
+            "stdout_sha256": "ed16eea8a15560d4d83664756c86b6308411e1efcfc9a072ca8d5679a6dc949d",
+            "stdout_truncated": 0,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_truncated": 0
+          }
+        },
+        "record_sha256": "4885e99d7c678cfa11ddc2adb378b14fa1957df22be70e8be0b42045415bc1d1"
+      },
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-beta-1",
+        "original_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-beta",
+          "team_id": "synthetic-team-beta",
+          "requirements_revision": 1,
+          "plan_revision": 1,
+          "task_revision": 1,
+          "instruction_revision": 1,
+          "dispatcher_epoch": 1,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "response": {
+          "tool_calls": [
+            {
+              "call_id": "synthetic-call-synthetic-op-beta-1",
+              "name": "run",
+              "arguments": {}
+            }
+          ]
+        },
+        "result": {
+          "executed_now": true,
+          "replayed": false,
+          "operation": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-beta",
+            "team_id": "synthetic-team-beta",
+            "requirements_revision": 1,
+            "plan_revision": 1,
+            "task_revision": 1,
+            "instruction_revision": 1,
+            "dispatcher_epoch": 1,
+            "execution_epoch": 1,
+            "policy_epoch": 1,
+            "op_id": "synthetic-op-beta-1",
+            "tool_id": "run",
+            "status": "CANCELLED",
+            "started_at": "synthetic-start",
+            "arguments": {}
+          },
+          "execution_result": {
+            "op_id": "synthetic-op-beta-1",
+            "result": {
+              "status": "CANCELLED",
+              "spawned": true,
+              "launcher_exec_confirmed": true,
+              "all_descendants_exited": true,
+              "strong_isolation": false,
+              "output_truncated": false,
+              "exit_code": null,
+              "evidence": {
+                "proof_format": "wls-process-proof-standard-cgroup-v1",
+                "isolation_verified": true,
+                "network": "none",
+                "resource_enforcement": "cgroup-v2",
+                "descendants_proof": "cgroup.events populated=0",
+                "workspace_observation": {
+                  "complete": true
+                },
+                "operation_id": "synthetic-op-beta-1"
+              },
+              "cgroup_name": "synthetic-op-beta-1",
+              "stdout_bytes": 6,
+              "stderr_bytes": 0,
+              "output_location": "op_output"
+            },
+            "evidence": {
+              "proof_format": "wls-process-proof-standard-cgroup-v1",
+              "isolation_verified": true,
+              "network": "none",
+              "resource_enforcement": "cgroup-v2",
+              "descendants_proof": "cgroup.events populated=0",
+              "workspace_observation": {
+                "complete": true
+              },
+              "operation_id": "synthetic-op-beta-1"
+            },
+            "observed_outcome": "CANCELLED",
+            "accepted": 1,
+            "original_binding": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-beta",
+              "team_id": "synthetic-team-beta",
+              "requirements_revision": 1,
+              "plan_revision": 1,
+              "task_revision": 1,
+              "instruction_revision": 1,
+              "dispatcher_epoch": 1,
+              "execution_epoch": 1,
+              "policy_epoch": 1
+            },
+            "record_sha256": "fd22da1dfd1cb51c12b01a3ea3489fd687e3dba9796fd962c728a7cda14415fd",
+            "stdout_bytes": 6,
+            "stdout_sha256": "3dfa3fb239f56c778a1e9b33eb31328349edd155a95806dac4378904e88527e5",
+            "stdout_truncated": 0,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_truncated": 0
+          }
+        },
+        "record_sha256": "fcd0ed90b10b720681208eb96a807fe81fb897b0b1ea739c8a54d050e5d9d9b0"
+      }
+    ],
+    "attempts": [
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-alpha-1",
+        "frozen_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-alpha",
+          "team_id": "synthetic-team-alpha",
+          "requirements_revision": 1,
+          "plan_revision": 1,
+          "task_revision": 1,
+          "instruction_revision": 1,
+          "dispatcher_epoch": 1,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "response": {
+          "tool_calls": [
+            {
+              "call_id": "synthetic-call-synthetic-op-alpha-1",
+              "name": "run",
+              "arguments": {}
+            }
+          ]
+        },
+        "status": "COMPLETED",
+        "settlement_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-beta-1",
+        "frozen_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-beta",
+          "team_id": "synthetic-team-beta",
+          "requirements_revision": 1,
+          "plan_revision": 1,
+          "task_revision": 1,
+          "instruction_revision": 1,
+          "dispatcher_epoch": 1,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "response": {
+          "tool_calls": [
+            {
+              "call_id": "synthetic-call-synthetic-op-beta-1",
+              "name": "run",
+              "arguments": {}
+            }
+          ]
+        },
+        "status": "COMPLETED",
+        "settlement_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "events": [
+      {
+        "seq": 1,
+        "type": "start_tool_op",
+        "request_id": "synthetic-request",
+        "payload": {
+          "op_id": "synthetic-op-alpha-1"
+        },
+        "result": {
+          "dispatch_claimed": true,
+          "operation": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-alpha",
+            "team_id": "synthetic-team-alpha",
+            "requirements_revision": 1,
+            "plan_revision": 1,
+            "task_revision": 1,
+            "instruction_revision": 1,
+            "dispatcher_epoch": 1,
+            "execution_epoch": 1,
+            "policy_epoch": 1,
+            "op_id": "synthetic-op-alpha-1",
+            "tool_id": "run",
+            "status": "RUNNING",
+            "started_at": "synthetic-start"
+          }
+        },
+        "command_id": "synthetic-attempt-synthetic-op-alpha-1:synthetic-call-synthetic-op-alpha-1:start"
+      },
+      {
+        "seq": 2,
+        "type": "start_tool_op",
+        "request_id": "synthetic-request",
+        "payload": {
+          "op_id": "synthetic-op-beta-1"
+        },
+        "result": {
+          "dispatch_claimed": true,
+          "operation": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-beta",
+            "team_id": "synthetic-team-beta",
+            "requirements_revision": 1,
+            "plan_revision": 1,
+            "task_revision": 1,
+            "instruction_revision": 1,
+            "dispatcher_epoch": 1,
+            "execution_epoch": 1,
+            "policy_epoch": 1,
+            "op_id": "synthetic-op-beta-1",
+            "tool_id": "run",
+            "status": "RUNNING",
+            "started_at": "synthetic-start"
+          }
+        },
+        "command_id": "synthetic-attempt-synthetic-op-beta-1:synthetic-call-synthetic-op-beta-1:start"
+      }
+    ],
+    "instructions": [
+      {
+        "task_id": "synthetic-alpha",
+        "instruction_revision": 1,
+        "based_on_requirements_revision": 1
+      },
+      {
+        "task_id": "synthetic-beta",
+        "instruction_revision": 1,
+        "based_on_requirements_revision": 1
+      }
+    ],
+    "workspace_bindings": [],
+    "live_send_claims": [
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-alpha-1",
+        "claim_id": "synthetic-attempt-synthetic-op-alpha-1-send"
+      },
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-beta-1",
+        "claim_id": "synthetic-attempt-synthetic-op-beta-1-send"
+      }
+    ],
+    "workflow_submissions": [],
+    "amend_dispositions": [],
+    "team_lead_checks": [],
+    "candidate_acceptances": [],
+    "delivery_runtime": [],
+    "delivery_receipts": [],
+    "experience_jobs": [],
+    "request": [
+      {
+        "request_id": "synthetic-request",
+        "created_at": "synthetic-created",
+        "config_snapshot_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "budget": {
+          "max_attempts": 24
+        },
+        "requirements_revision": 1,
+        "plan_revision": 1,
+        "status": "RUNNING"
+      }
+    ],
+    "tasks": [
+      {
+        "node_id": "alpha",
+        "task_id": "synthetic-alpha",
+        "based_on_requirements_revision": 1,
+        "plan_revision": 1,
+        "task_revision": 1,
+        "instruction_revision": 1,
+        "applied_plan_revision": 1,
+        "applied_task_revision": 1,
+        "applied_instruction_revision": 1,
+        "status": "RUNNING"
+      },
+      {
+        "node_id": "beta",
+        "task_id": "synthetic-beta",
+        "based_on_requirements_revision": 1,
+        "plan_revision": 1,
+        "task_revision": 1,
+        "instruction_revision": 1,
+        "applied_plan_revision": 1,
+        "applied_task_revision": 1,
+        "applied_instruction_revision": 1,
+        "status": "RUNNING"
+      }
+    ],
+    "files": {
+      "alpha": {
+        "result.txt": "stable once\n",
+        "counter.txt": "1\n"
+      },
+      "beta": {
+        "ready.txt": "READY\n"
+      }
+    },
+    "removed": {
+      "synthetic-op-alpha-1": true,
+      "synthetic-op-beta-1": true
+    },
+    "cli": {
+      "argv": [
+        "synthetic/wls",
+        "run",
+        "--config",
+        "synthetic/system.json",
+        "--yes"
+      ],
+      "returncode": 130,
+      "summary": {
+        "request_id": "synthetic-request"
+      }
+    },
+    "frozen": {
+      "synthetic/system.json": "1111111111111111111111111111111111111111111111111111111111111111",
+      "synthetic/request.txt": "2222222222222222222222222222222222222222222222222222222222222222",
+      "synthetic/constraints.json": "3333333333333333333333333333333333333333333333333333333333333333",
+      "synthetic/manifest.json": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "calls": 2,
+    "elapsed_s": 1
+  },
+  "after": {
+    "ops": [
+      {
+        "request_id": "synthetic-request",
+        "task_id": "synthetic-alpha",
+        "team_id": "synthetic-team-alpha",
+        "requirements_revision": 1,
+        "plan_revision": 1,
+        "task_revision": 1,
+        "instruction_revision": 1,
+        "dispatcher_epoch": 1,
+        "execution_epoch": 1,
+        "policy_epoch": 1,
+        "op_id": "synthetic-op-alpha-1",
+        "tool_id": "run",
+        "status": "SUCCEEDED",
+        "started_at": "synthetic-start"
+      },
+      {
+        "request_id": "synthetic-request",
+        "task_id": "synthetic-beta",
+        "team_id": "synthetic-team-beta",
+        "requirements_revision": 1,
+        "plan_revision": 1,
+        "task_revision": 1,
+        "instruction_revision": 1,
+        "dispatcher_epoch": 1,
+        "execution_epoch": 1,
+        "policy_epoch": 1,
+        "op_id": "synthetic-op-beta-1",
+        "tool_id": "run",
+        "status": "CANCELLED",
+        "started_at": "synthetic-start"
+      },
+      {
+        "request_id": "synthetic-request",
+        "task_id": "synthetic-beta",
+        "team_id": "synthetic-team-beta",
+        "requirements_revision": 2,
+        "plan_revision": 2,
+        "task_revision": 2,
+        "instruction_revision": 2,
+        "dispatcher_epoch": 2,
+        "execution_epoch": 1,
+        "policy_epoch": 1,
+        "op_id": "synthetic-op-beta-2",
+        "tool_id": "run",
+        "status": "SUCCEEDED",
+        "started_at": "synthetic-start"
+      }
+    ],
+    "operation_results": [
+      {
+        "op_id": "synthetic-op-alpha-1",
+        "result": {
+          "status": "EXITED",
+          "spawned": true,
+          "launcher_exec_confirmed": true,
+          "all_descendants_exited": true,
+          "strong_isolation": false,
+          "output_truncated": false,
+          "exit_code": 0,
+          "evidence": {
+            "proof_format": "wls-process-proof-standard-cgroup-v1",
+            "isolation_verified": true,
+            "network": "none",
+            "resource_enforcement": "cgroup-v2",
+            "descendants_proof": "cgroup.events populated=0",
+            "workspace_observation": {
+              "complete": true
+            },
+            "operation_id": "synthetic-op-alpha-1"
+          },
+          "cgroup_name": "synthetic-op-alpha-1",
+          "stdout_bytes": 9,
+          "stderr_bytes": 0,
+          "output_location": "op_output"
+        },
+        "evidence": {
+          "proof_format": "wls-process-proof-standard-cgroup-v1",
+          "isolation_verified": true,
+          "network": "none",
+          "resource_enforcement": "cgroup-v2",
+          "descendants_proof": "cgroup.events populated=0",
+          "workspace_observation": {
+            "complete": true
+          },
+          "operation_id": "synthetic-op-alpha-1"
+        },
+        "observed_outcome": "SUCCEEDED",
+        "accepted": 1,
+        "original_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-alpha",
+          "team_id": "synthetic-team-alpha",
+          "requirements_revision": 1,
+          "plan_revision": 1,
+          "task_revision": 1,
+          "instruction_revision": 1,
+          "dispatcher_epoch": 1,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "record_sha256": "4f443990f21a46c03f8736ab23c2bd7283394aa3c53756bff952f500f16201aa",
+        "stdout_bytes": 9,
+        "stdout_sha256": "ed16eea8a15560d4d83664756c86b6308411e1efcfc9a072ca8d5679a6dc949d",
+        "stdout_truncated": 0,
+        "stderr_bytes": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_truncated": 0
+      },
+      {
+        "op_id": "synthetic-op-beta-1",
+        "result": {
+          "status": "CANCELLED",
+          "spawned": true,
+          "launcher_exec_confirmed": true,
+          "all_descendants_exited": true,
+          "strong_isolation": false,
+          "output_truncated": false,
+          "exit_code": null,
+          "evidence": {
+            "proof_format": "wls-process-proof-standard-cgroup-v1",
+            "isolation_verified": true,
+            "network": "none",
+            "resource_enforcement": "cgroup-v2",
+            "descendants_proof": "cgroup.events populated=0",
+            "workspace_observation": {
+              "complete": true
+            },
+            "operation_id": "synthetic-op-beta-1"
+          },
+          "cgroup_name": "synthetic-op-beta-1",
+          "stdout_bytes": 6,
+          "stderr_bytes": 0,
+          "output_location": "op_output"
+        },
+        "evidence": {
+          "proof_format": "wls-process-proof-standard-cgroup-v1",
+          "isolation_verified": true,
+          "network": "none",
+          "resource_enforcement": "cgroup-v2",
+          "descendants_proof": "cgroup.events populated=0",
+          "workspace_observation": {
+            "complete": true
+          },
+          "operation_id": "synthetic-op-beta-1"
+        },
+        "observed_outcome": "CANCELLED",
+        "accepted": 1,
+        "original_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-beta",
+          "team_id": "synthetic-team-beta",
+          "requirements_revision": 1,
+          "plan_revision": 1,
+          "task_revision": 1,
+          "instruction_revision": 1,
+          "dispatcher_epoch": 1,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "record_sha256": "fd22da1dfd1cb51c12b01a3ea3489fd687e3dba9796fd962c728a7cda14415fd",
+        "stdout_bytes": 6,
+        "stdout_sha256": "3dfa3fb239f56c778a1e9b33eb31328349edd155a95806dac4378904e88527e5",
+        "stdout_truncated": 0,
+        "stderr_bytes": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_truncated": 0
+      },
+      {
+        "op_id": "synthetic-op-beta-2",
+        "result": {
+          "status": "EXITED",
+          "spawned": true,
+          "launcher_exec_confirmed": true,
+          "all_descendants_exited": true,
+          "strong_isolation": false,
+          "output_truncated": false,
+          "exit_code": 0,
+          "evidence": {
+            "proof_format": "wls-process-proof-standard-cgroup-v1",
+            "isolation_verified": true,
+            "network": "none",
+            "resource_enforcement": "cgroup-v2",
+            "descendants_proof": "cgroup.events populated=0",
+            "workspace_observation": {
+              "complete": true
+            },
+            "operation_id": "synthetic-op-beta-2"
+          },
+          "cgroup_name": "synthetic-op-beta-2",
+          "stdout_bytes": 10,
+          "stderr_bytes": 0,
+          "output_location": "op_output"
+        },
+        "evidence": {
+          "proof_format": "wls-process-proof-standard-cgroup-v1",
+          "isolation_verified": true,
+          "network": "none",
+          "resource_enforcement": "cgroup-v2",
+          "descendants_proof": "cgroup.events populated=0",
+          "workspace_observation": {
+            "complete": true
+          },
+          "operation_id": "synthetic-op-beta-2"
+        },
+        "observed_outcome": "SUCCEEDED",
+        "accepted": 1,
+        "original_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-beta",
+          "team_id": "synthetic-team-beta",
+          "requirements_revision": 2,
+          "plan_revision": 2,
+          "task_revision": 2,
+          "instruction_revision": 2,
+          "dispatcher_epoch": 2,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "record_sha256": "fa2d95c7c115f0da444bfcca50b778875239fcbe7d0b1cca56582a89906a230e",
+        "stdout_bytes": 10,
+        "stdout_sha256": "bc8079ffbc96d3b24fca2d48c88e4d268716ace53ec0965f964bb8d88ec4aad4",
+        "stdout_truncated": 0,
+        "stderr_bytes": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_truncated": 0
+      }
+    ],
+    "outputs": [
+      {
+        "op_id": "synthetic-op-alpha-1",
+        "stream": "stdout",
+        "bytes_hex": "535441424C4520310A"
+      },
+      {
+        "op_id": "synthetic-op-alpha-1",
+        "stream": "stderr",
+        "bytes_hex": ""
+      },
+      {
+        "op_id": "synthetic-op-beta-1",
+        "stream": "stdout",
+        "bytes_hex": "52454144590A"
+      },
+      {
+        "op_id": "synthetic-op-beta-1",
+        "stream": "stderr",
+        "bytes_hex": ""
+      },
+      {
+        "op_id": "synthetic-op-beta-2",
+        "stream": "stdout",
+        "bytes_hex": "4348414E47454420320A"
+      },
+      {
+        "op_id": "synthetic-op-beta-2",
+        "stream": "stderr",
+        "bytes_hex": ""
+      }
+    ],
+    "model_tool_feedback": [
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-alpha-1",
+        "original_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-alpha",
+          "team_id": "synthetic-team-alpha",
+          "requirements_revision": 1,
+          "plan_revision": 1,
+          "task_revision": 1,
+          "instruction_revision": 1,
+          "dispatcher_epoch": 1,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "response": {
+          "tool_calls": [
+            {
+              "call_id": "synthetic-call-synthetic-op-alpha-1",
+              "name": "run",
+              "arguments": {}
+            }
+          ]
+        },
+        "result": {
+          "executed_now": true,
+          "replayed": false,
+          "operation": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-alpha",
+            "team_id": "synthetic-team-alpha",
+            "requirements_revision": 1,
+            "plan_revision": 1,
+            "task_revision": 1,
+            "instruction_revision": 1,
+            "dispatcher_epoch": 1,
+            "execution_epoch": 1,
+            "policy_epoch": 1,
+            "op_id": "synthetic-op-alpha-1",
+            "tool_id": "run",
+            "status": "SUCCEEDED",
+            "started_at": "synthetic-start",
+            "arguments": {}
+          },
+          "execution_result": {
+            "op_id": "synthetic-op-alpha-1",
+            "result": {
+              "status": "EXITED",
+              "spawned": true,
+              "launcher_exec_confirmed": true,
+              "all_descendants_exited": true,
+              "strong_isolation": false,
+              "output_truncated": false,
+              "exit_code": 0,
+              "evidence": {
+                "proof_format": "wls-process-proof-standard-cgroup-v1",
+                "isolation_verified": true,
+                "network": "none",
+                "resource_enforcement": "cgroup-v2",
+                "descendants_proof": "cgroup.events populated=0",
+                "workspace_observation": {
+                  "complete": true
+                },
+                "operation_id": "synthetic-op-alpha-1"
+              },
+              "cgroup_name": "synthetic-op-alpha-1",
+              "stdout_bytes": 9,
+              "stderr_bytes": 0,
+              "output_location": "op_output"
+            },
+            "evidence": {
+              "proof_format": "wls-process-proof-standard-cgroup-v1",
+              "isolation_verified": true,
+              "network": "none",
+              "resource_enforcement": "cgroup-v2",
+              "descendants_proof": "cgroup.events populated=0",
+              "workspace_observation": {
+                "complete": true
+              },
+              "operation_id": "synthetic-op-alpha-1"
+            },
+            "observed_outcome": "SUCCEEDED",
+            "accepted": 1,
+            "original_binding": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-alpha",
+              "team_id": "synthetic-team-alpha",
+              "requirements_revision": 1,
+              "plan_revision": 1,
+              "task_revision": 1,
+              "instruction_revision": 1,
+              "dispatcher_epoch": 1,
+              "execution_epoch": 1,
+              "policy_epoch": 1
+            },
+            "record_sha256": "4f443990f21a46c03f8736ab23c2bd7283394aa3c53756bff952f500f16201aa",
+            "stdout_bytes": 9,
+            "stdout_sha256": "ed16eea8a15560d4d83664756c86b6308411e1efcfc9a072ca8d5679a6dc949d",
+            "stdout_truncated": 0,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_truncated": 0
+          }
+        },
+        "record_sha256": "4885e99d7c678cfa11ddc2adb378b14fa1957df22be70e8be0b42045415bc1d1"
+      },
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-beta-1",
+        "original_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-beta",
+          "team_id": "synthetic-team-beta",
+          "requirements_revision": 1,
+          "plan_revision": 1,
+          "task_revision": 1,
+          "instruction_revision": 1,
+          "dispatcher_epoch": 1,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "response": {
+          "tool_calls": [
+            {
+              "call_id": "synthetic-call-synthetic-op-beta-1",
+              "name": "run",
+              "arguments": {}
+            }
+          ]
+        },
+        "result": {
+          "executed_now": true,
+          "replayed": false,
+          "operation": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-beta",
+            "team_id": "synthetic-team-beta",
+            "requirements_revision": 1,
+            "plan_revision": 1,
+            "task_revision": 1,
+            "instruction_revision": 1,
+            "dispatcher_epoch": 1,
+            "execution_epoch": 1,
+            "policy_epoch": 1,
+            "op_id": "synthetic-op-beta-1",
+            "tool_id": "run",
+            "status": "CANCELLED",
+            "started_at": "synthetic-start",
+            "arguments": {}
+          },
+          "execution_result": {
+            "op_id": "synthetic-op-beta-1",
+            "result": {
+              "status": "CANCELLED",
+              "spawned": true,
+              "launcher_exec_confirmed": true,
+              "all_descendants_exited": true,
+              "strong_isolation": false,
+              "output_truncated": false,
+              "exit_code": null,
+              "evidence": {
+                "proof_format": "wls-process-proof-standard-cgroup-v1",
+                "isolation_verified": true,
+                "network": "none",
+                "resource_enforcement": "cgroup-v2",
+                "descendants_proof": "cgroup.events populated=0",
+                "workspace_observation": {
+                  "complete": true
+                },
+                "operation_id": "synthetic-op-beta-1"
+              },
+              "cgroup_name": "synthetic-op-beta-1",
+              "stdout_bytes": 6,
+              "stderr_bytes": 0,
+              "output_location": "op_output"
+            },
+            "evidence": {
+              "proof_format": "wls-process-proof-standard-cgroup-v1",
+              "isolation_verified": true,
+              "network": "none",
+              "resource_enforcement": "cgroup-v2",
+              "descendants_proof": "cgroup.events populated=0",
+              "workspace_observation": {
+                "complete": true
+              },
+              "operation_id": "synthetic-op-beta-1"
+            },
+            "observed_outcome": "CANCELLED",
+            "accepted": 1,
+            "original_binding": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-beta",
+              "team_id": "synthetic-team-beta",
+              "requirements_revision": 1,
+              "plan_revision": 1,
+              "task_revision": 1,
+              "instruction_revision": 1,
+              "dispatcher_epoch": 1,
+              "execution_epoch": 1,
+              "policy_epoch": 1
+            },
+            "record_sha256": "fd22da1dfd1cb51c12b01a3ea3489fd687e3dba9796fd962c728a7cda14415fd",
+            "stdout_bytes": 6,
+            "stdout_sha256": "3dfa3fb239f56c778a1e9b33eb31328349edd155a95806dac4378904e88527e5",
+            "stdout_truncated": 0,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_truncated": 0
+          }
+        },
+        "record_sha256": "fcd0ed90b10b720681208eb96a807fe81fb897b0b1ea739c8a54d050e5d9d9b0"
+      },
+      {
+        "attempt_id": "synthetic-amend-attempt",
+        "original_binding": {},
+        "response": {
+          "tool_calls": [
+            {
+              "call_id": "synthetic-amend-call",
+              "name": "submit_amendment_plan",
+              "arguments": {
+                "plan": {
+                  "summary": "Two independent synthetic tasks; retain alpha effects and revise beta only.",
+                  "nodes": [
+                    {
+                      "node_id": "alpha",
+                      "kind": "team_task",
+                      "title": "alpha",
+                      "depends_on": [],
+                      "required": true,
+                      "brief": {
+                        "title": "alpha",
+                        "goal": "Keep the one-time alpha effect.",
+                        "acceptance_criteria": [
+                          {
+                            "id": "ac1",
+                            "text": "文件及其原绑定事实持久化；后续上下文保留原始观察。"
+                          }
+                        ],
+                        "constraints_verbatim": [
+                          "Use only the allocated workspace; never use the network.",
+                          "Preserve alpha result.txt and counter.txt after exactly one execution.",
+                          "Replace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline."
+                        ],
+                        "constraint_refs": [
+                          "c1",
+                          "c2",
+                          "c3"
+                        ]
+                      }
+                    },
+                    {
+                      "node_id": "beta",
+                      "kind": "team_task",
+                      "title": "beta",
+                      "depends_on": [],
+                      "required": true,
+                      "brief": {
+                        "title": "beta",
+                        "goal": "Produce the current beta result.",
+                        "acceptance_criteria": [
+                          {
+                            "id": "ac1",
+                            "text": "文件及其原绑定事实持久化；后续上下文保留原始观察。"
+                          }
+                        ],
+                        "constraints_verbatim": [
+                          "Use only the allocated workspace; never use the network.",
+                          "Preserve alpha result.txt and counter.txt after exactly one execution.",
+                          "Replace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline."
+                        ],
+                        "constraint_refs": [
+                          "c1",
+                          "c2",
+                          "c3"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "dispositions": {
+                  "alpha": {
+                    "disposition": "keep",
+                    "rationale": "Keep the completed one-time business effect and submit its original bytes."
+                  },
+                  "beta": {
+                    "disposition": "update",
+                    "rationale": "Original native operation was cancelled and cleaned up; produce revised bytes."
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "result": {},
+        "record_sha256": "2ad8a88897a1775cacc012c82c96bc6d19887fa644fba5d6ea2430d50ca8cbf0"
+      },
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-beta-2",
+        "original_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-beta",
+          "team_id": "synthetic-team-beta",
+          "requirements_revision": 2,
+          "plan_revision": 2,
+          "task_revision": 2,
+          "instruction_revision": 2,
+          "dispatcher_epoch": 2,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "response": {
+          "tool_calls": [
+            {
+              "call_id": "synthetic-call-synthetic-op-beta-2",
+              "name": "run",
+              "arguments": {}
+            }
+          ]
+        },
+        "result": {
+          "executed_now": true,
+          "replayed": false,
+          "operation": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-beta",
+            "team_id": "synthetic-team-beta",
+            "requirements_revision": 2,
+            "plan_revision": 2,
+            "task_revision": 2,
+            "instruction_revision": 2,
+            "dispatcher_epoch": 2,
+            "execution_epoch": 1,
+            "policy_epoch": 1,
+            "op_id": "synthetic-op-beta-2",
+            "tool_id": "run",
+            "status": "SUCCEEDED",
+            "started_at": "synthetic-start",
+            "arguments": {}
+          },
+          "execution_result": {
+            "op_id": "synthetic-op-beta-2",
+            "result": {
+              "status": "EXITED",
+              "spawned": true,
+              "launcher_exec_confirmed": true,
+              "all_descendants_exited": true,
+              "strong_isolation": false,
+              "output_truncated": false,
+              "exit_code": 0,
+              "evidence": {
+                "proof_format": "wls-process-proof-standard-cgroup-v1",
+                "isolation_verified": true,
+                "network": "none",
+                "resource_enforcement": "cgroup-v2",
+                "descendants_proof": "cgroup.events populated=0",
+                "workspace_observation": {
+                  "complete": true
+                },
+                "operation_id": "synthetic-op-beta-2"
+              },
+              "cgroup_name": "synthetic-op-beta-2",
+              "stdout_bytes": 10,
+              "stderr_bytes": 0,
+              "output_location": "op_output"
+            },
+            "evidence": {
+              "proof_format": "wls-process-proof-standard-cgroup-v1",
+              "isolation_verified": true,
+              "network": "none",
+              "resource_enforcement": "cgroup-v2",
+              "descendants_proof": "cgroup.events populated=0",
+              "workspace_observation": {
+                "complete": true
+              },
+              "operation_id": "synthetic-op-beta-2"
+            },
+            "observed_outcome": "SUCCEEDED",
+            "accepted": 1,
+            "original_binding": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-beta",
+              "team_id": "synthetic-team-beta",
+              "requirements_revision": 2,
+              "plan_revision": 2,
+              "task_revision": 2,
+              "instruction_revision": 2,
+              "dispatcher_epoch": 2,
+              "execution_epoch": 1,
+              "policy_epoch": 1
+            },
+            "record_sha256": "fa2d95c7c115f0da444bfcca50b778875239fcbe7d0b1cca56582a89906a230e",
+            "stdout_bytes": 10,
+            "stdout_sha256": "bc8079ffbc96d3b24fca2d48c88e4d268716ace53ec0965f964bb8d88ec4aad4",
+            "stdout_truncated": 0,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_truncated": 0
+          }
+        },
+        "record_sha256": "adf9053b68738617692ae64e0679bd28eb3b6ae243166973eb26749a6d14074f"
+      }
+    ],
+    "attempts": [
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-alpha-1",
+        "frozen_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-alpha",
+          "team_id": "synthetic-team-alpha",
+          "requirements_revision": 1,
+          "plan_revision": 1,
+          "task_revision": 1,
+          "instruction_revision": 1,
+          "dispatcher_epoch": 1,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "response": {
+          "tool_calls": [
+            {
+              "call_id": "synthetic-call-synthetic-op-alpha-1",
+              "name": "run",
+              "arguments": {}
+            }
+          ]
+        },
+        "status": "COMPLETED",
+        "settlement_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-beta-1",
+        "frozen_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-beta",
+          "team_id": "synthetic-team-beta",
+          "requirements_revision": 1,
+          "plan_revision": 1,
+          "task_revision": 1,
+          "instruction_revision": 1,
+          "dispatcher_epoch": 1,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "response": {
+          "tool_calls": [
+            {
+              "call_id": "synthetic-call-synthetic-op-beta-1",
+              "name": "run",
+              "arguments": {}
+            }
+          ]
+        },
+        "status": "COMPLETED",
+        "settlement_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "attempt_id": "synthetic-amend-attempt",
+        "frozen_binding": {},
+        "response": {
+          "tool_calls": [
+            {
+              "call_id": "synthetic-amend-call",
+              "name": "submit_amendment_plan",
+              "arguments": {
+                "plan": {
+                  "summary": "Two independent synthetic tasks; retain alpha effects and revise beta only.",
+                  "nodes": [
+                    {
+                      "node_id": "alpha",
+                      "kind": "team_task",
+                      "title": "alpha",
+                      "depends_on": [],
+                      "required": true,
+                      "brief": {
+                        "title": "alpha",
+                        "goal": "Keep the one-time alpha effect.",
+                        "acceptance_criteria": [
+                          {
+                            "id": "ac1",
+                            "text": "文件及其原绑定事实持久化；后续上下文保留原始观察。"
+                          }
+                        ],
+                        "constraints_verbatim": [
+                          "Use only the allocated workspace; never use the network.",
+                          "Preserve alpha result.txt and counter.txt after exactly one execution.",
+                          "Replace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline."
+                        ],
+                        "constraint_refs": [
+                          "c1",
+                          "c2",
+                          "c3"
+                        ]
+                      }
+                    },
+                    {
+                      "node_id": "beta",
+                      "kind": "team_task",
+                      "title": "beta",
+                      "depends_on": [],
+                      "required": true,
+                      "brief": {
+                        "title": "beta",
+                        "goal": "Produce the current beta result.",
+                        "acceptance_criteria": [
+                          {
+                            "id": "ac1",
+                            "text": "文件及其原绑定事实持久化；后续上下文保留原始观察。"
+                          }
+                        ],
+                        "constraints_verbatim": [
+                          "Use only the allocated workspace; never use the network.",
+                          "Preserve alpha result.txt and counter.txt after exactly one execution.",
+                          "Replace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline."
+                        ],
+                        "constraint_refs": [
+                          "c1",
+                          "c2",
+                          "c3"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "dispositions": {
+                  "alpha": {
+                    "disposition": "keep",
+                    "rationale": "Keep the completed one-time business effect and submit its original bytes."
+                  },
+                  "beta": {
+                    "disposition": "update",
+                    "rationale": "Original native operation was cancelled and cleaned up; produce revised bytes."
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "status": "COMPLETED",
+        "settlement_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-beta-2",
+        "frozen_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-beta",
+          "team_id": "synthetic-team-beta",
+          "requirements_revision": 2,
+          "plan_revision": 2,
+          "task_revision": 2,
+          "instruction_revision": 2,
+          "dispatcher_epoch": 2,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "response": {
+          "tool_calls": [
+            {
+              "call_id": "synthetic-call-synthetic-op-beta-2",
+              "name": "run",
+              "arguments": {}
+            }
+          ]
+        },
+        "status": "COMPLETED",
+        "settlement_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "events": [
+      {
+        "seq": 1,
+        "type": "start_tool_op",
+        "request_id": "synthetic-request",
+        "payload": {
+          "op_id": "synthetic-op-alpha-1"
+        },
+        "result": {
+          "dispatch_claimed": true,
+          "operation": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-alpha",
+            "team_id": "synthetic-team-alpha",
+            "requirements_revision": 1,
+            "plan_revision": 1,
+            "task_revision": 1,
+            "instruction_revision": 1,
+            "dispatcher_epoch": 1,
+            "execution_epoch": 1,
+            "policy_epoch": 1,
+            "op_id": "synthetic-op-alpha-1",
+            "tool_id": "run",
+            "status": "RUNNING",
+            "started_at": "synthetic-start"
+          }
+        },
+        "command_id": "synthetic-attempt-synthetic-op-alpha-1:synthetic-call-synthetic-op-alpha-1:start"
+      },
+      {
+        "seq": 2,
+        "type": "start_tool_op",
+        "request_id": "synthetic-request",
+        "payload": {
+          "op_id": "synthetic-op-beta-1"
+        },
+        "result": {
+          "dispatch_claimed": true,
+          "operation": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-beta",
+            "team_id": "synthetic-team-beta",
+            "requirements_revision": 1,
+            "plan_revision": 1,
+            "task_revision": 1,
+            "instruction_revision": 1,
+            "dispatcher_epoch": 1,
+            "execution_epoch": 1,
+            "policy_epoch": 1,
+            "op_id": "synthetic-op-beta-1",
+            "tool_id": "run",
+            "status": "RUNNING",
+            "started_at": "synthetic-start"
+          }
+        },
+        "command_id": "synthetic-attempt-synthetic-op-beta-1:synthetic-call-synthetic-op-beta-1:start"
+      },
+      {
+        "seq": 3,
+        "type": "amend",
+        "request_id": "synthetic-request",
+        "payload": {
+          "text": "Keep alpha without repeating its business execution. Update beta to produce the amended result.\nReplace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline.\n",
+          "constraint_catalog": [
+            {
+              "constraint_id": "c1",
+              "source_revision": 1,
+              "text": "Use only the allocated workspace; never use the network."
+            },
+            {
+              "constraint_id": "c2",
+              "source_revision": 1,
+              "text": "Preserve alpha result.txt and counter.txt after exactly one execution."
+            },
+            {
+              "constraint_id": "c3",
+              "source_revision": 2,
+              "text": "Replace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline."
+            }
+          ]
+        },
+        "result": {
+          "requirements_revision": 2
+        },
+        "command_id": "synthetic-amend"
+      },
+      {
+        "seq": 4,
+        "type": "start_tool_op",
+        "request_id": "synthetic-request",
+        "payload": {
+          "op_id": "synthetic-op-beta-2"
+        },
+        "result": {
+          "dispatch_claimed": true,
+          "operation": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-beta",
+            "team_id": "synthetic-team-beta",
+            "requirements_revision": 2,
+            "plan_revision": 2,
+            "task_revision": 2,
+            "instruction_revision": 2,
+            "dispatcher_epoch": 2,
+            "execution_epoch": 1,
+            "policy_epoch": 1,
+            "op_id": "synthetic-op-beta-2",
+            "tool_id": "run",
+            "status": "RUNNING",
+            "started_at": "synthetic-start"
+          }
+        },
+        "command_id": "synthetic-attempt-synthetic-op-beta-2:synthetic-call-synthetic-op-beta-2:start"
+      },
+      {
+        "seq": 5,
+        "type": "ack",
+        "payload": {
+          "binding": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-alpha",
+            "team_id": "synthetic-team-alpha",
+            "requirements_revision": 2,
+            "plan_revision": 2,
+            "task_revision": 2,
+            "instruction_revision": 2,
+            "dispatcher_epoch": 2,
+            "execution_epoch": 1,
+            "policy_epoch": 1
+          }
+        },
+        "result": {
+          "binding": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-alpha",
+            "team_id": "synthetic-team-alpha",
+            "requirements_revision": 2,
+            "plan_revision": 2,
+            "task_revision": 2,
+            "instruction_revision": 2,
+            "dispatcher_epoch": 2,
+            "execution_epoch": 1,
+            "policy_epoch": 1
+          }
+        }
+      },
+      {
+        "seq": 6,
+        "type": "ack",
+        "payload": {
+          "binding": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-beta",
+            "team_id": "synthetic-team-beta",
+            "requirements_revision": 2,
+            "plan_revision": 2,
+            "task_revision": 2,
+            "instruction_revision": 2,
+            "dispatcher_epoch": 2,
+            "execution_epoch": 1,
+            "policy_epoch": 1
+          }
+        },
+        "result": {
+          "binding": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-beta",
+            "team_id": "synthetic-team-beta",
+            "requirements_revision": 2,
+            "plan_revision": 2,
+            "task_revision": 2,
+            "instruction_revision": 2,
+            "dispatcher_epoch": 2,
+            "execution_epoch": 1,
+            "policy_epoch": 1
+          }
+        }
+      }
+    ],
+    "instructions": [
+      {
+        "task_id": "synthetic-alpha",
+        "instruction_revision": 1,
+        "based_on_requirements_revision": 1
+      },
+      {
+        "task_id": "synthetic-beta",
+        "instruction_revision": 1,
+        "based_on_requirements_revision": 1
+      },
+      {
+        "task_id": "synthetic-alpha",
+        "instruction_revision": 2,
+        "based_on_requirements_revision": 2
+      },
+      {
+        "task_id": "synthetic-beta",
+        "instruction_revision": 2,
+        "based_on_requirements_revision": 2
+      }
+    ],
+    "workspace_bindings": [],
+    "live_send_claims": [
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-alpha-1",
+        "claim_id": "synthetic-attempt-synthetic-op-alpha-1-send"
+      },
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-beta-1",
+        "claim_id": "synthetic-attempt-synthetic-op-beta-1-send"
+      },
+      {
+        "attempt_id": "synthetic-amend-attempt",
+        "claim_id": "synthetic-amend-send"
+      },
+      {
+        "attempt_id": "synthetic-attempt-synthetic-op-beta-2",
+        "claim_id": "synthetic-attempt-synthetic-op-beta-2-send"
+      }
+    ],
+    "workflow_submissions": [
+      {
+        "submission_id": "synthetic-submission-alpha",
+        "task_id": "synthetic-alpha",
+        "original_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-alpha",
+          "team_id": "synthetic-team-alpha",
+          "requirements_revision": 2,
+          "plan_revision": 2,
+          "task_revision": 2,
+          "instruction_revision": 2,
+          "dispatcher_epoch": 2,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "status": "CANDIDATE_READY",
+        "artifact_snapshot": [
+          {
+            "path": "/work/result.txt",
+            "content_base64": "c3RhYmxlIG9uY2UK",
+            "size_bytes": 12,
+            "sha256": "e9017a3c8ddab6581ed1ed97a4ffeb212f55d5b4a8fe8533fdfc85dca694475e"
+          },
+          {
+            "path": "/work/counter.txt",
+            "content_base64": "MQo=",
+            "size_bytes": 2,
+            "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+          }
+        ]
+      },
+      {
+        "submission_id": "synthetic-submission-beta",
+        "task_id": "synthetic-beta",
+        "original_binding": {
+          "request_id": "synthetic-request",
+          "task_id": "synthetic-beta",
+          "team_id": "synthetic-team-beta",
+          "requirements_revision": 2,
+          "plan_revision": 2,
+          "task_revision": 2,
+          "instruction_revision": 2,
+          "dispatcher_epoch": 2,
+          "execution_epoch": 1,
+          "policy_epoch": 1
+        },
+        "status": "CANDIDATE_READY",
+        "artifact_snapshot": [
+          {
+            "path": "/work/result-v2.txt",
+            "content_base64": "Y2hhbmdlZCByZXZpc2lvbiAyCg==",
+            "size_bytes": 19,
+            "sha256": "6d2c03b6385f805678a5a5c3318796c4ff9a3e1675dca5a7d5fb3e0bc2634f20"
+          }
+        ]
+      }
+    ],
+    "amend_dispositions": [
+      {
+        "task_id": "synthetic-alpha",
+        "disposition": "keep",
+        "based_on_requirements_revision": 2,
+        "target_task_revision": 2,
+        "target_plan_revision": 2
+      },
+      {
+        "task_id": "synthetic-beta",
+        "disposition": "update",
+        "based_on_requirements_revision": 2,
+        "target_task_revision": 2,
+        "target_plan_revision": 2
+      }
+    ],
+    "team_lead_checks": [
+      {
+        "submission_id": "synthetic-submission-alpha",
+        "status": "CANDIDATE_READY",
+        "check_body": {
+          "passed": true
+        }
+      },
+      {
+        "submission_id": "synthetic-submission-beta",
+        "status": "CANDIDATE_READY",
+        "check_body": {
+          "passed": true
+        }
+      }
+    ],
+    "candidate_acceptances": [
+      {
+        "submission_id": "synthetic-submission-alpha",
+        "status": "ACCEPTED",
+        "decision": {
+          "passed": true
+        }
+      },
+      {
+        "submission_id": "synthetic-submission-beta",
+        "status": "ACCEPTED",
+        "decision": {
+          "passed": true
+        }
+      }
+    ],
+    "delivery_runtime": [
+      {
+        "status": "CONFIRMED",
+        "delivery_id": "synthetic-delivery",
+        "requirements_revision": 2
+      }
+    ],
+    "delivery_receipts": [
+      {
+        "delivery_id": "synthetic-delivery",
+        "request_id": "synthetic-request"
+      }
+    ],
+    "experience_jobs": [
+      {
+        "task_id": "synthetic-alpha",
+        "status": "DONE"
+      },
+      {
+        "task_id": "synthetic-beta",
+        "status": "DONE"
+      }
+    ],
+    "request": [
+      {
+        "request_id": "synthetic-request",
+        "created_at": "synthetic-created",
+        "config_snapshot_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "budget": {
+          "max_attempts": 24
+        },
+        "requirements_revision": 2,
+        "plan_revision": 2,
+        "status": "DELIVERED"
+      }
+    ],
+    "tasks": [
+      {
+        "node_id": "alpha",
+        "task_id": "synthetic-alpha",
+        "based_on_requirements_revision": 2,
+        "plan_revision": 2,
+        "task_revision": 2,
+        "instruction_revision": 2,
+        "applied_plan_revision": 2,
+        "applied_task_revision": 2,
+        "applied_instruction_revision": 2,
+        "status": "ACCEPTED"
+      },
+      {
+        "node_id": "beta",
+        "task_id": "synthetic-beta",
+        "based_on_requirements_revision": 2,
+        "plan_revision": 2,
+        "task_revision": 2,
+        "instruction_revision": 2,
+        "applied_plan_revision": 2,
+        "applied_task_revision": 2,
+        "applied_instruction_revision": 2,
+        "status": "ACCEPTED"
+      }
+    ],
+    "files": {
+      "alpha": {
+        "result.txt": "stable once\n",
+        "counter.txt": "1\n"
+      },
+      "beta": {
+        "ready.txt": "READY\n",
+        "result-v2.txt": "changed revision 2\n"
+      }
+    },
+    "removed": {
+      "synthetic-op-alpha-1": true,
+      "synthetic-op-beta-1": true,
+      "synthetic-op-beta-2": true
+    },
+    "cli": {
+      "argv": [
+        "synthetic/wls",
+        "run",
+        "--config",
+        "synthetic/system.json",
+        "--yes"
+      ],
+      "returncode": 0,
+      "summary": {
+        "request_id": "synthetic-request",
+        "status": "DELIVERED",
+        "accounting": {
+          "ready": true
+        }
+      }
+    },
+    "frozen": {
+      "synthetic/system.json": "1111111111111111111111111111111111111111111111111111111111111111",
+      "synthetic/request.txt": "2222222222222222222222222222222222222222222222222222222222222222",
+      "synthetic/constraints.json": "3333333333333333333333333333333333333333333333333333333333333333",
+      "synthetic/manifest.json": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "calls": 4,
+    "elapsed_s": 2
+  },
+  "active": {
+    "parent_pid": 1001,
+    "signal": 2,
+    "ready": "READY\n",
+    "stable": {
+      "result.txt": "stable once\n",
+      "counter.txt": "1\n"
+    },
+    "ops": [
+      {
+        "request_id": "synthetic-request",
+        "task_id": "synthetic-alpha",
+        "team_id": "synthetic-team-alpha",
+        "requirements_revision": 1,
+        "plan_revision": 1,
+        "task_revision": 1,
+        "instruction_revision": 1,
+        "dispatcher_epoch": 1,
+        "execution_epoch": 1,
+        "policy_epoch": 1,
+        "op_id": "synthetic-op-alpha-1",
+        "tool_id": "run",
+        "status": "SUCCEEDED",
+        "started_at": "synthetic-start"
+      },
+      {
+        "request_id": "synthetic-request",
+        "task_id": "synthetic-beta",
+        "team_id": "synthetic-team-beta",
+        "requirements_revision": 1,
+        "plan_revision": 1,
+        "task_revision": 1,
+        "instruction_revision": 1,
+        "dispatcher_epoch": 1,
+        "execution_epoch": 1,
+        "policy_epoch": 1,
+        "op_id": "synthetic-op-beta-1",
+        "tool_id": "run",
+        "status": "RUNNING",
+        "started_at": "synthetic-start"
+      }
+    ],
+    "claims": [
+      {
+        "seq": 1,
+        "type": "start_tool_op",
+        "request_id": "synthetic-request",
+        "payload": "{\"op_id\": \"synthetic-op-alpha-1\"}",
+        "result": "{\"dispatch_claimed\": true, \"operation\": {\"request_id\": \"synthetic-request\", \"task_id\": \"synthetic-alpha\", \"team_id\": \"synthetic-team-alpha\", \"requirements_revision\": 1, \"plan_revision\": 1, \"task_revision\": 1, \"instruction_revision\": 1, \"dispatcher_epoch\": 1, \"execution_epoch\": 1, \"policy_epoch\": 1, \"op_id\": \"synthetic-op-alpha-1\", \"tool_id\": \"run\", \"status\": \"RUNNING\", \"started_at\": \"synthetic-start\"}}",
+        "command_id": "synthetic-attempt-synthetic-op-alpha-1:synthetic-call-synthetic-op-alpha-1:start"
+      },
+      {
+        "seq": 2,
+        "type": "start_tool_op",
+        "request_id": "synthetic-request",
+        "payload": "{\"op_id\": \"synthetic-op-beta-1\"}",
+        "result": "{\"dispatch_claimed\": true, \"operation\": {\"request_id\": \"synthetic-request\", \"task_id\": \"synthetic-beta\", \"team_id\": \"synthetic-team-beta\", \"requirements_revision\": 1, \"plan_revision\": 1, \"task_revision\": 1, \"instruction_revision\": 1, \"dispatcher_epoch\": 1, \"execution_epoch\": 1, \"policy_epoch\": 1, \"op_id\": \"synthetic-op-beta-1\", \"tool_id\": \"run\", \"status\": \"RUNNING\", \"started_at\": \"synthetic-start\"}}",
+        "command_id": "synthetic-attempt-synthetic-op-beta-1:synthetic-call-synthetic-op-beta-1:start"
+      }
+    ]
+  },
+  "negatives": [
+    {
+      "name": "changed request identity",
+      "path": [
+        "after",
+        "request",
+        0,
+        "request_id"
+      ],
+      "value": "synthetic-other-request"
+    },
+    {
+      "name": "missing actual AMEND",
+      "path": [
+        "after",
+        "events"
+      ],
+      "value": [
+        {
+          "seq": 1,
+          "type": "start_tool_op",
+          "request_id": "synthetic-request",
+          "payload": {
+            "op_id": "synthetic-op-alpha-1"
+          },
+          "result": {
+            "dispatch_claimed": true,
+            "operation": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-alpha",
+              "team_id": "synthetic-team-alpha",
+              "requirements_revision": 1,
+              "plan_revision": 1,
+              "task_revision": 1,
+              "instruction_revision": 1,
+              "dispatcher_epoch": 1,
+              "execution_epoch": 1,
+              "policy_epoch": 1,
+              "op_id": "synthetic-op-alpha-1",
+              "tool_id": "run",
+              "status": "RUNNING",
+              "started_at": "synthetic-start"
+            }
+          },
+          "command_id": "synthetic-attempt-synthetic-op-alpha-1:synthetic-call-synthetic-op-alpha-1:start"
+        },
+        {
+          "seq": 2,
+          "type": "start_tool_op",
+          "request_id": "synthetic-request",
+          "payload": {
+            "op_id": "synthetic-op-beta-1"
+          },
+          "result": {
+            "dispatch_claimed": true,
+            "operation": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-beta",
+              "team_id": "synthetic-team-beta",
+              "requirements_revision": 1,
+              "plan_revision": 1,
+              "task_revision": 1,
+              "instruction_revision": 1,
+              "dispatcher_epoch": 1,
+              "execution_epoch": 1,
+              "policy_epoch": 1,
+              "op_id": "synthetic-op-beta-1",
+              "tool_id": "run",
+              "status": "RUNNING",
+              "started_at": "synthetic-start"
+            }
+          },
+          "command_id": "synthetic-attempt-synthetic-op-beta-1:synthetic-call-synthetic-op-beta-1:start"
+        },
+        {
+          "seq": 4,
+          "type": "start_tool_op",
+          "request_id": "synthetic-request",
+          "payload": {
+            "op_id": "synthetic-op-beta-2"
+          },
+          "result": {
+            "dispatch_claimed": true,
+            "operation": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-beta",
+              "team_id": "synthetic-team-beta",
+              "requirements_revision": 2,
+              "plan_revision": 2,
+              "task_revision": 2,
+              "instruction_revision": 2,
+              "dispatcher_epoch": 2,
+              "execution_epoch": 1,
+              "policy_epoch": 1,
+              "op_id": "synthetic-op-beta-2",
+              "tool_id": "run",
+              "status": "RUNNING",
+              "started_at": "synthetic-start"
+            }
+          },
+          "command_id": "synthetic-attempt-synthetic-op-beta-2:synthetic-call-synthetic-op-beta-2:start"
+        },
+        {
+          "seq": 5,
+          "type": "ack",
+          "payload": {
+            "binding": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-alpha",
+              "team_id": "synthetic-team-alpha",
+              "requirements_revision": 2,
+              "plan_revision": 2,
+              "task_revision": 2,
+              "instruction_revision": 2,
+              "dispatcher_epoch": 2,
+              "execution_epoch": 1,
+              "policy_epoch": 1
+            }
+          },
+          "result": {
+            "binding": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-alpha",
+              "team_id": "synthetic-team-alpha",
+              "requirements_revision": 2,
+              "plan_revision": 2,
+              "task_revision": 2,
+              "instruction_revision": 2,
+              "dispatcher_epoch": 2,
+              "execution_epoch": 1,
+              "policy_epoch": 1
+            }
+          }
+        },
+        {
+          "seq": 6,
+          "type": "ack",
+          "payload": {
+            "binding": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-beta",
+              "team_id": "synthetic-team-beta",
+              "requirements_revision": 2,
+              "plan_revision": 2,
+              "task_revision": 2,
+              "instruction_revision": 2,
+              "dispatcher_epoch": 2,
+              "execution_epoch": 1,
+              "policy_epoch": 1
+            }
+          },
+          "result": {
+            "binding": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-beta",
+              "team_id": "synthetic-team-beta",
+              "requirements_revision": 2,
+              "plan_revision": 2,
+              "task_revision": 2,
+              "instruction_revision": 2,
+              "dispatcher_epoch": 2,
+              "execution_epoch": 1,
+              "policy_epoch": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong applied revision",
+      "path": [
+        "after",
+        "tasks",
+        0,
+        "applied_task_revision"
+      ],
+      "value": 1
+    },
+    {
+      "name": "stable effect repeated with same result bytes",
+      "path": [
+        "after",
+        "files",
+        "alpha",
+        "counter.txt"
+      ],
+      "value": "2\n"
+    },
+    {
+      "name": "replaced original business operation id",
+      "path": [
+        "after",
+        "ops",
+        0,
+        "op_id"
+      ],
+      "value": "synthetic-replayed-op"
+    },
+    {
+      "name": "missing original durable dispatch",
+      "path": [
+        "active",
+        "claims"
+      ],
+      "value": []
+    },
+    {
+      "name": "signal before Worker active",
+      "path": [
+        "active",
+        "ops",
+        1,
+        "status"
+      ],
+      "value": "PREPARED"
+    },
+    {
+      "name": "parent130 without native spawn",
+      "path": [
+        "before",
+        "operation_results",
+        1,
+        "result",
+        "spawned"
+      ],
+      "value": false
+    },
+    {
+      "name": "unknown cancellation",
+      "path": [
+        "before",
+        "ops",
+        1,
+        "status"
+      ],
+      "value": "UNKNOWN"
+    },
+    {
+      "name": "missing cleanup proof",
+      "path": [
+        "before",
+        "operation_results",
+        1,
+        "evidence",
+        "workspace_observation",
+        "complete"
+      ],
+      "value": false
+    },
+    {
+      "name": "cgroup survives",
+      "path": [
+        "after",
+        "removed",
+        "synthetic-op-beta-1"
+      ],
+      "value": false
+    },
+    {
+      "name": "truncated original output",
+      "path": [
+        "after",
+        "operation_results",
+        0,
+        "stdout_truncated"
+      ],
+      "value": 1
+    },
+    {
+      "name": "missing original output",
+      "path": [
+        "after",
+        "outputs"
+      ],
+      "value": [
+        {
+          "op_id": "synthetic-op-alpha-1",
+          "stream": "stderr",
+          "bytes_hex": ""
+        },
+        {
+          "op_id": "synthetic-op-beta-1",
+          "stream": "stdout",
+          "bytes_hex": "52454144590A"
+        },
+        {
+          "op_id": "synthetic-op-beta-1",
+          "stream": "stderr",
+          "bytes_hex": ""
+        },
+        {
+          "op_id": "synthetic-op-beta-2",
+          "stream": "stdout",
+          "bytes_hex": "4348414E47454420320A"
+        },
+        {
+          "op_id": "synthetic-op-beta-2",
+          "stream": "stderr",
+          "bytes_hex": ""
+        }
+      ]
+    },
+    {
+      "name": "missing immutable artifact",
+      "path": [
+        "after",
+        "workflow_submissions",
+        0,
+        "artifact_snapshot"
+      ],
+      "value": [
+        {
+          "path": "/work/result.txt",
+          "content_base64": "c3RhYmxlIG9uY2UK",
+          "size_bytes": 12,
+          "sha256": "e9017a3c8ddab6581ed1ed97a4ffeb212f55d5b4a8fe8533fdfc85dca694475e"
+        }
+      ]
+    },
+    {
+      "name": "wrong revised bytes",
+      "path": [
+        "after",
+        "workflow_submissions",
+        1,
+        "artifact_snapshot",
+        0
+      ],
+      "value": {
+        "path": "/work/result-v2.txt",
+        "content_base64": "b2Jzb2xldGUK",
+        "size_bytes": 9,
+        "sha256": "abdcccf4a6a5fae3da2c8232d6fbf33b61d5db886742c35218e724b8e5c6b0e0"
+      }
+    },
+    {
+      "name": "lost original feedback",
+      "path": [
+        "after",
+        "model_tool_feedback"
+      ],
+      "value": [
+        {
+          "attempt_id": "synthetic-attempt-synthetic-op-beta-1",
+          "original_binding": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-beta",
+            "team_id": "synthetic-team-beta",
+            "requirements_revision": 1,
+            "plan_revision": 1,
+            "task_revision": 1,
+            "instruction_revision": 1,
+            "dispatcher_epoch": 1,
+            "execution_epoch": 1,
+            "policy_epoch": 1
+          },
+          "response": {
+            "tool_calls": [
+              {
+                "call_id": "synthetic-call-synthetic-op-beta-1",
+                "name": "run",
+                "arguments": {}
+              }
+            ]
+          },
+          "result": {
+            "executed_now": true,
+            "replayed": false,
+            "operation": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-beta",
+              "team_id": "synthetic-team-beta",
+              "requirements_revision": 1,
+              "plan_revision": 1,
+              "task_revision": 1,
+              "instruction_revision": 1,
+              "dispatcher_epoch": 1,
+              "execution_epoch": 1,
+              "policy_epoch": 1,
+              "op_id": "synthetic-op-beta-1",
+              "tool_id": "run",
+              "status": "CANCELLED",
+              "started_at": "synthetic-start",
+              "arguments": {}
+            },
+            "execution_result": {
+              "op_id": "synthetic-op-beta-1",
+              "result": {
+                "status": "CANCELLED",
+                "spawned": true,
+                "launcher_exec_confirmed": true,
+                "all_descendants_exited": true,
+                "strong_isolation": false,
+                "output_truncated": false,
+                "exit_code": null,
+                "evidence": {
+                  "proof_format": "wls-process-proof-standard-cgroup-v1",
+                  "isolation_verified": true,
+                  "network": "none",
+                  "resource_enforcement": "cgroup-v2",
+                  "descendants_proof": "cgroup.events populated=0",
+                  "workspace_observation": {
+                    "complete": true
+                  },
+                  "operation_id": "synthetic-op-beta-1"
+                },
+                "cgroup_name": "synthetic-op-beta-1",
+                "stdout_bytes": 6,
+                "stderr_bytes": 0,
+                "output_location": "op_output"
+              },
+              "evidence": {
+                "proof_format": "wls-process-proof-standard-cgroup-v1",
+                "isolation_verified": true,
+                "network": "none",
+                "resource_enforcement": "cgroup-v2",
+                "descendants_proof": "cgroup.events populated=0",
+                "workspace_observation": {
+                  "complete": true
+                },
+                "operation_id": "synthetic-op-beta-1"
+              },
+              "observed_outcome": "CANCELLED",
+              "accepted": 1,
+              "original_binding": {
+                "request_id": "synthetic-request",
+                "task_id": "synthetic-beta",
+                "team_id": "synthetic-team-beta",
+                "requirements_revision": 1,
+                "plan_revision": 1,
+                "task_revision": 1,
+                "instruction_revision": 1,
+                "dispatcher_epoch": 1,
+                "execution_epoch": 1,
+                "policy_epoch": 1
+              },
+              "record_sha256": "fd22da1dfd1cb51c12b01a3ea3489fd687e3dba9796fd962c728a7cda14415fd",
+              "stdout_bytes": 6,
+              "stdout_sha256": "3dfa3fb239f56c778a1e9b33eb31328349edd155a95806dac4378904e88527e5",
+              "stdout_truncated": 0,
+              "stderr_bytes": 0,
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "stderr_truncated": 0
+            }
+          },
+          "record_sha256": "fcd0ed90b10b720681208eb96a807fe81fb897b0b1ea739c8a54d050e5d9d9b0"
+        },
+        {
+          "attempt_id": "synthetic-amend-attempt",
+          "original_binding": {},
+          "response": {
+            "tool_calls": [
+              {
+                "call_id": "synthetic-amend-call",
+                "name": "submit_amendment_plan",
+                "arguments": {
+                  "plan": {
+                    "summary": "Two independent synthetic tasks; retain alpha effects and revise beta only.",
+                    "nodes": [
+                      {
+                        "node_id": "alpha",
+                        "kind": "team_task",
+                        "title": "alpha",
+                        "depends_on": [],
+                        "required": true,
+                        "brief": {
+                          "title": "alpha",
+                          "goal": "Keep the one-time alpha effect.",
+                          "acceptance_criteria": [
+                            {
+                              "id": "ac1",
+                              "text": "文件及其原绑定事实持久化；后续上下文保留原始观察。"
+                            }
+                          ],
+                          "constraints_verbatim": [
+                            "Use only the allocated workspace; never use the network.",
+                            "Preserve alpha result.txt and counter.txt after exactly one execution.",
+                            "Replace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline."
+                          ],
+                          "constraint_refs": [
+                            "c1",
+                            "c2",
+                            "c3"
+                          ]
+                        }
+                      },
+                      {
+                        "node_id": "beta",
+                        "kind": "team_task",
+                        "title": "beta",
+                        "depends_on": [],
+                        "required": true,
+                        "brief": {
+                          "title": "beta",
+                          "goal": "Produce the current beta result.",
+                          "acceptance_criteria": [
+                            {
+                              "id": "ac1",
+                              "text": "文件及其原绑定事实持久化；后续上下文保留原始观察。"
+                            }
+                          ],
+                          "constraints_verbatim": [
+                            "Use only the allocated workspace; never use the network.",
+                            "Preserve alpha result.txt and counter.txt after exactly one execution.",
+                            "Replace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline."
+                          ],
+                          "constraint_refs": [
+                            "c1",
+                            "c2",
+                            "c3"
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "dispositions": {
+                    "alpha": {
+                      "disposition": "keep",
+                      "rationale": "Keep the completed one-time business effect and submit its original bytes."
+                    },
+                    "beta": {
+                      "disposition": "update",
+                      "rationale": "Original native operation was cancelled and cleaned up; produce revised bytes."
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "result": {},
+          "record_sha256": "2ad8a88897a1775cacc012c82c96bc6d19887fa644fba5d6ea2430d50ca8cbf0"
+        },
+        {
+          "attempt_id": "synthetic-attempt-synthetic-op-beta-2",
+          "original_binding": {
+            "request_id": "synthetic-request",
+            "task_id": "synthetic-beta",
+            "team_id": "synthetic-team-beta",
+            "requirements_revision": 2,
+            "plan_revision": 2,
+            "task_revision": 2,
+            "instruction_revision": 2,
+            "dispatcher_epoch": 2,
+            "execution_epoch": 1,
+            "policy_epoch": 1
+          },
+          "response": {
+            "tool_calls": [
+              {
+                "call_id": "synthetic-call-synthetic-op-beta-2",
+                "name": "run",
+                "arguments": {}
+              }
+            ]
+          },
+          "result": {
+            "executed_now": true,
+            "replayed": false,
+            "operation": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-beta",
+              "team_id": "synthetic-team-beta",
+              "requirements_revision": 2,
+              "plan_revision": 2,
+              "task_revision": 2,
+              "instruction_revision": 2,
+              "dispatcher_epoch": 2,
+              "execution_epoch": 1,
+              "policy_epoch": 1,
+              "op_id": "synthetic-op-beta-2",
+              "tool_id": "run",
+              "status": "SUCCEEDED",
+              "started_at": "synthetic-start",
+              "arguments": {}
+            },
+            "execution_result": {
+              "op_id": "synthetic-op-beta-2",
+              "result": {
+                "status": "EXITED",
+                "spawned": true,
+                "launcher_exec_confirmed": true,
+                "all_descendants_exited": true,
+                "strong_isolation": false,
+                "output_truncated": false,
+                "exit_code": 0,
+                "evidence": {
+                  "proof_format": "wls-process-proof-standard-cgroup-v1",
+                  "isolation_verified": true,
+                  "network": "none",
+                  "resource_enforcement": "cgroup-v2",
+                  "descendants_proof": "cgroup.events populated=0",
+                  "workspace_observation": {
+                    "complete": true
+                  },
+                  "operation_id": "synthetic-op-beta-2"
+                },
+                "cgroup_name": "synthetic-op-beta-2",
+                "stdout_bytes": 10,
+                "stderr_bytes": 0,
+                "output_location": "op_output"
+              },
+              "evidence": {
+                "proof_format": "wls-process-proof-standard-cgroup-v1",
+                "isolation_verified": true,
+                "network": "none",
+                "resource_enforcement": "cgroup-v2",
+                "descendants_proof": "cgroup.events populated=0",
+                "workspace_observation": {
+                  "complete": true
+                },
+                "operation_id": "synthetic-op-beta-2"
+              },
+              "observed_outcome": "SUCCEEDED",
+              "accepted": 1,
+              "original_binding": {
+                "request_id": "synthetic-request",
+                "task_id": "synthetic-beta",
+                "team_id": "synthetic-team-beta",
+                "requirements_revision": 2,
+                "plan_revision": 2,
+                "task_revision": 2,
+                "instruction_revision": 2,
+                "dispatcher_epoch": 2,
+                "execution_epoch": 1,
+                "policy_epoch": 1
+              },
+              "record_sha256": "fa2d95c7c115f0da444bfcca50b778875239fcbe7d0b1cca56582a89906a230e",
+              "stdout_bytes": 10,
+              "stdout_sha256": "bc8079ffbc96d3b24fca2d48c88e4d268716ace53ec0965f964bb8d88ec4aad4",
+              "stdout_truncated": 0,
+              "stderr_bytes": 0,
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "stderr_truncated": 0
+            }
+          },
+          "record_sha256": "adf9053b68738617692ae64e0679bd28eb3b6ae243166973eb26749a6d14074f"
+        }
+      ]
+    },
+    {
+      "name": "changed original argv",
+      "path": [
+        "after",
+        "cli",
+        "argv"
+      ],
+      "value": [
+        "synthetic/wls",
+        "run",
+        "--config",
+        "changed.json"
+      ]
+    },
+    {
+      "name": "changed original frozen file",
+      "path": [
+        "after",
+        "frozen",
+        "synthetic/system.json"
+      ],
+      "value": "9999999999999999999999999999999999999999999999999999999999999999"
+    },
+    {
+      "name": "no explicit keep",
+      "path": [
+        "after",
+        "amend_dispositions",
+        0,
+        "disposition"
+      ],
+      "value": "update"
+    },
+    {
+      "name": "missing new control ack",
+      "path": [
+        "after",
+        "events"
+      ],
+      "value": [
+        {
+          "seq": 1,
+          "type": "start_tool_op",
+          "request_id": "synthetic-request",
+          "payload": {
+            "op_id": "synthetic-op-alpha-1"
+          },
+          "result": {
+            "dispatch_claimed": true,
+            "operation": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-alpha",
+              "team_id": "synthetic-team-alpha",
+              "requirements_revision": 1,
+              "plan_revision": 1,
+              "task_revision": 1,
+              "instruction_revision": 1,
+              "dispatcher_epoch": 1,
+              "execution_epoch": 1,
+              "policy_epoch": 1,
+              "op_id": "synthetic-op-alpha-1",
+              "tool_id": "run",
+              "status": "RUNNING",
+              "started_at": "synthetic-start"
+            }
+          },
+          "command_id": "synthetic-attempt-synthetic-op-alpha-1:synthetic-call-synthetic-op-alpha-1:start"
+        },
+        {
+          "seq": 2,
+          "type": "start_tool_op",
+          "request_id": "synthetic-request",
+          "payload": {
+            "op_id": "synthetic-op-beta-1"
+          },
+          "result": {
+            "dispatch_claimed": true,
+            "operation": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-beta",
+              "team_id": "synthetic-team-beta",
+              "requirements_revision": 1,
+              "plan_revision": 1,
+              "task_revision": 1,
+              "instruction_revision": 1,
+              "dispatcher_epoch": 1,
+              "execution_epoch": 1,
+              "policy_epoch": 1,
+              "op_id": "synthetic-op-beta-1",
+              "tool_id": "run",
+              "status": "RUNNING",
+              "started_at": "synthetic-start"
+            }
+          },
+          "command_id": "synthetic-attempt-synthetic-op-beta-1:synthetic-call-synthetic-op-beta-1:start"
+        },
+        {
+          "seq": 3,
+          "type": "amend",
+          "request_id": "synthetic-request",
+          "payload": {
+            "text": "Keep alpha without repeating its business execution. Update beta to produce the amended result.\nReplace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline.\n",
+            "constraint_catalog": [
+              {
+                "constraint_id": "c1",
+                "source_revision": 1,
+                "text": "Use only the allocated workspace; never use the network."
+              },
+              {
+                "constraint_id": "c2",
+                "source_revision": 1,
+                "text": "Preserve alpha result.txt and counter.txt after exactly one execution."
+              },
+              {
+                "constraint_id": "c3",
+                "source_revision": 2,
+                "text": "Replace the cancelled beta work with result-v2.txt containing changed revision 2 followed by a newline."
+              }
+            ]
+          },
+          "result": {
+            "requirements_revision": 2
+          },
+          "command_id": "synthetic-amend"
+        },
+        {
+          "seq": 4,
+          "type": "start_tool_op",
+          "request_id": "synthetic-request",
+          "payload": {
+            "op_id": "synthetic-op-beta-2"
+          },
+          "result": {
+            "dispatch_claimed": true,
+            "operation": {
+              "request_id": "synthetic-request",
+              "task_id": "synthetic-beta",
+              "team_id": "synthetic-team-beta",
+              "requirements_revision": 2,
+              "plan_revision": 2,
+              "task_revision": 2,
+              "instruction_revision": 2,
+              "dispatcher_epoch": 2,
+              "execution_epoch": 1,
+              "policy_epoch": 1,
+              "op_id": "synthetic-op-beta-2",
+              "tool_id": "run",
+              "status": "RUNNING",
+              "started_at": "synthetic-start"
+            }
+          },
+          "command_id": "synthetic-attempt-synthetic-op-beta-2:synthetic-call-synthetic-op-beta-2:start"
+        }
+      ]
+    },
+    {
+      "name": "acceptance absent",
+      "path": [
+        "after",
+        "candidate_acceptances"
+      ],
+      "value": []
+    },
+    {
+      "name": "delivery unconfirmed",
+      "path": [
+        "after",
+        "delivery_runtime",
+        0,
+        "status"
+      ],
+      "value": "STORED"
+    },
+    {
+      "name": "receipt missing",
+      "path": [
+        "after",
+        "delivery_receipts"
+      ],
+      "value": []
+    },
+    {
+      "name": "call budget exceeded",
+      "path": [
+        "after",
+        "calls"
+      ],
+      "value": 25
+    },
+    {
+      "name": "deadline exceeded",
+      "path": [
+        "after",
+        "elapsed_s"
+      ],
+      "value": 91
+    },
+    {
+      "name": "tampered original BLOB",
+      "path": [
+        "after",
+        "outputs",
+        0,
+        "bytes_hex"
+      ],
+      "value": "535441424c4520320a"
+    },
+    {
+      "name": "wrong persisted process byte count",
+      "path": [
+        "after",
+        "operation_results",
+        0,
+        "result",
+        "stdout_bytes"
+      ],
+      "value": 0
+    },
+    {
+      "name": "wrong original BLOB digest",
+      "path": [
+        "after",
+        "operation_results",
+        0,
+        "stdout_sha256"
+      ],
+      "value": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "name": "wrong persisted output location",
+      "path": [
+        "after",
+        "operation_results",
+        0,
+        "result",
+        "output_location"
+      ],
+      "value": "inline"
+    },
+    {
+      "name": "original operation hash and every copy changed consistently in both phases",
+      "changes": [
+        {
+          "path": [
+            "before",
+            "operation_results",
+            0,
+            "record_sha256"
+          ],
+          "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "path": [
+            "before",
+            "model_tool_feedback",
+            0,
+            "result",
+            "execution_result",
+            "record_sha256"
+          ],
+          "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "path": [
+            "before",
+            "model_tool_feedback",
+            0,
+            "record_sha256"
+          ],
+          "value": "86d35c6ffe2077442636b5ccf99a08d548530934d371cd0707c9df1cd1da262b"
+        },
+        {
+          "path": [
+            "after",
+            "operation_results",
+            0,
+            "record_sha256"
+          ],
+          "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "path": [
+            "after",
+            "model_tool_feedback",
+            0,
+            "result",
+            "execution_result",
+            "record_sha256"
+          ],
+          "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "path": [
+            "after",
+            "model_tool_feedback",
+            0,
+            "record_sha256"
+          ],
+          "value": "86d35c6ffe2077442636b5ccf99a08d548530934d371cd0707c9df1cd1da262b"
+        }
+      ],
+      "error": "operation-result record hash mismatch"
+    },
+    {
+      "name": "original feedback hash changed consistently in both phases",
+      "changes": [
+        {
+          "path": [
+            "before",
+            "model_tool_feedback",
+            0,
+            "record_sha256"
+          ],
+          "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "path": [
+            "after",
+            "model_tool_feedback",
+            0,
+            "record_sha256"
+          ],
+          "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ],
+      "error": "model-tool-feedback record hash mismatch"
+    },
+    {
+      "name": "non-run feedback original fact tampered",
+      "path": [
+        "after",
+        "model_tool_feedback",
+        2,
+        "result"
+      ],
+      "value": {
+        "tampered_original": true
+      },
+      "error": "model-tool-feedback record hash mismatch"
+    }
+  ]
+}
