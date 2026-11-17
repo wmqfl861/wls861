@@ -347,6 +347,7 @@ public:
     void accept(std::string_view event_name, std::string_view data);
     Json observations() const;
     bool terminal{false};
+    bool gateway_failure{false};
     std::string response_id;
     std::string terminal_type;
     Json terminal_response = nullptr;
@@ -372,7 +373,8 @@ private:
     void content_done(const Object& event);
     void arguments(const Object& event, bool done);
     void output_done(const Object& event);
-    void finish(const Object& event, const std::string& type);
+    void finish(const Object& event, const std::string& type, bool reset_failure);
+    void telemetry(const Json& value, const std::string& path, bool envelope = false);
     void matches(const ItemState& state, const Json& value, bool completed) const;
 
     const SseReplayLimits& limits_;
@@ -381,6 +383,7 @@ private:
     std::optional<std::size_t> max_response_id_bytes_;
     response_metadata::Collector& metadata_;
     std::string event_path_;
+    std::size_t event_ordinal_{};
     bool created_{false};
     bool in_progress_{false};
     std::string model_;
@@ -391,6 +394,35 @@ private:
     std::size_t argument_bytes_{};
 };
 
+void Events::telemetry(const Json& value, const std::string& path, bool envelope) {
+    static const std::set<std::string> semantic{"response", "output", "input", "usage", "tools", "tool_calls",
+        "content", "delta", "text", "arguments", "item", "part", "summary", "refusal", "encrypted_content",
+        "call_id", "item_id", "input_tokens", "output_tokens", "total_tokens", "cached_tokens",
+        "cache_read_tokens", "cache_write_tokens", "cost_micro_usd", "input_tokens_details", "output_tokens_details",
+        "function_call", "function_calls", "tool", "tool_call", "function", "functions", "parameters"};
+    static const std::set<std::string> output_types{"function_call", "tool_call", "message", "reasoning",
+        "output_text", "summary_text", "refusal"};
+    if (value.is_object()) for (const auto& entry : value.as_object()) {
+        const std::string key(entry.key());
+        const std::string nested_type = key == "type" && !envelope && entry.value().is_string() ?
+            std::string(entry.value().as_string()) : "";
+        if (semantic.contains(key) || output_types.contains(nested_type) || nested_type.starts_with("response.") ||
+                nested_type.ends_with("_call") || (envelope && (key == "id" || key == "response_id" ||
+                key == "model" || key == "object" || key == "status")))
+            throw ReplayFailure("unsupported_event", "SSE extension contains semantic response content");
+        metadata_.record(path, key);
+        auto child = path + '/';
+        for (const char byte : key) {
+            if (child.size() > 16U * 1024U) break;
+            child += byte == '~' ? "~0" : byte == '/' ? "~1" : std::string(1, byte);
+        }
+        telemetry(entry.value(), child);
+    } else if (value.is_array()) {
+        for (std::size_t index = 0; index < value.as_array().size(); ++index)
+            telemetry(value.as_array()[index], path + '/' + std::to_string(index));
+    }
+}
+
 void Events::accept(std::string_view event_name, std::string_view data) {
     Json decoded;
     try { decoded = parse_json_strict(data, limits_.max_event_bytes, max_depth_); }
@@ -400,10 +432,21 @@ void Events::accept(std::string_view event_name, std::string_view data) {
     require(event_name.empty() || event_name == "message" || event_name == type,
             "SSE event field disagrees with its JSON type");
     if (terminal) throw ReplayFailure("event_after_terminal", "SSE data arrived after a terminal response");
+    const auto ordinal = event_ordinal_++;
+    if (metadata_.enabled && !type.starts_with("response.")) {
+        // Telemetry may precede created; its physical position is not a sequence.
+        (void)identifier(event, "type");
+        telemetry(decoded, "/telemetry/" + std::to_string(ordinal), true);
+        observed_types.insert(type);
+        return;
+    }
     const auto sequence = integer(event, "sequence_number");
-    if (!last_sequence) require(sequence <= 1, "SSE initial sequence must be zero or one");
-    else require(*last_sequence < static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) &&
-                 sequence == *last_sequence + 1, "SSE sequence is repeated, reordered or missing an event");
+    const bool reset_failure = metadata_.enabled && created_ && type == "response.failed" && sequence == 0;
+    if (!reset_failure) {
+        if (!last_sequence) require(sequence <= 1, "SSE initial sequence must be zero or one");
+        else require(*last_sequence < static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) &&
+                       sequence == *last_sequence + 1, "SSE sequence is repeated, reordered or missing an event");
+    }
     last_sequence = sequence;
     observed_types.insert(type);
     event_path_ = "/events/" + std::to_string(sequence);
@@ -494,7 +537,7 @@ void Events::accept(std::string_view event_name, std::string_view data) {
     else if (type == "response.function_call_arguments.done") arguments(event, true);
     else if (type == "response.output_item.done") output_done(event);
     else if (type == "response.completed" || type == "response.failed" || type == "response.incomplete")
-        finish(event, type);
+        finish(event, type, reset_failure);
     else throw ReplayFailure("unsupported_event", "SSE event type is outside the implemented Responses subset");
 }
 
@@ -738,15 +781,21 @@ void Events::output_done(const Object& event) {
     state.done = true;
 }
 
-void Events::finish(const Object& event, const std::string& type) {
+void Events::finish(const Object& event, const std::string& type, bool reset_failure) {
     const auto& value = field(event, "response");
     const auto& response = object(value);
-    require(text(response, "object") == "response" && response_identifier(response, max_response_id_bytes_) == response_id &&
+    require(text(response, "object") == "response" &&
+            (reset_failure || response_identifier(response, max_response_id_bytes_) == response_id) &&
             identifier(response, "model") == model_, "SSE terminal response identity changed");
     const auto status = type.substr(std::string("response.").size());
     require(text(response, "status") == status, "SSE terminal event and response status disagree");
     const auto& output = array(response, "output");
-    require(output.size() == items_.size(), "SSE terminal response has unobserved or missing output items");
+    if (reset_failure) {
+        // A gateway failure abandons buffered output, never its created identity.
+        require(response_identifier(response, max_response_id_bytes_) != response_id && output.empty() &&
+                text(object(field(response, "error")), "code") == "upstream_error",
+                "SSE reset failure must be an empty upstream error with a distinct response ID");
+    } else require(output.size() == items_.size(), "SSE terminal response has unobserved or missing output items");
     const bool completed = type == "response.completed";
     for (std::size_t index = 0; index < output.size(); ++index) {
         const auto& state = items_[index];
@@ -760,6 +809,7 @@ void Events::finish(const Object& event, const std::string& type) {
     }
     terminal_type = type;
     terminal_response = value;
+    gateway_failure = reset_failure;
     terminal = true;
 }
 
@@ -904,6 +954,10 @@ ResponsesSseReplay replay_responses_sse(const ProviderProfile& profile,
                "SSE terminal response exceeds the HTTP response bound");
         const auto decoded = decode_responses_response(profile, request, 200, terminal_bytes);
         terminal_decoded = decoded.response;
+        if (events.gateway_failure && decoded.response.error_code == "provider_failed") {
+            terminal_decoded->error_code = "gateway_failed";
+            terminal_decoded->error_message = "gateway reported an upstream failure after resetting the stream";
+        }
         terminal_codec_evidence = decoded.evidence;
         // A later stream/cancellation error cannot erase a valid terminal's
         // already reported metering. Retaining usage never retains its tools.

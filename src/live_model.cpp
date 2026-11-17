@@ -110,7 +110,7 @@ bool retryable_unusable_response(const HttpsTransportResult& transport) {
     // refusal/profile mismatch or tool/schema codes cannot grant a paid retry.
     const auto rejected = [](const Json& value) {
         if (!value.is_string()) return false;
-        for (const auto code : {"provider_failed", "invalid_response", "unsupported_response",
+        for (const auto code : {"provider_failed", "gateway_failed", "invalid_response", "unsupported_response",
                 "response_limit", "invalid_sse", "stream_limit", "unsupported_output",
                 "unsupported_event", "event_after_terminal"})
             if (value.as_string() == code) return true;
