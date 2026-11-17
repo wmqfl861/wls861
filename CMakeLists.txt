@@ -179,10 +179,12 @@ if(BUILD_TESTING)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_live_workflow.py"
                 "$<TARGET_FILE:live_workflow_driver>" "${CMAKE_CURRENT_SOURCE_DIR}")
     set_tests_properties(live_workflow PROPERTIES TIMEOUT 300)
-    add_test(NAME live_workflow_cli
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_live_workflow_cli.py"
-                "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}")
-    set_tests_properties(live_workflow_cli PROPERTIES TIMEOUT 180)
+    foreach(group IN ITEMS core media retries)
+        add_test(NAME live_workflow_cli_${group}
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_live_workflow_cli.py"
+                    "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}" --group "${group}")
+        set_tests_properties(live_workflow_cli_${group} PROPERTIES TIMEOUT 180)
+    endforeach()
     add_test(NAME billing_baseline_e2e
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_billing_baseline_e2e.py"
                 "$<TARGET_FILE:wls>" "${CMAKE_CURRENT_SOURCE_DIR}" --group billing)
