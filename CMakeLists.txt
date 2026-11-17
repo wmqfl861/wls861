@@ -223,6 +223,9 @@ if(BUILD_TESTING)
     add_test(NAME g2_outputs
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_check_g2_outputs.py")
     set_tests_properties(g2_outputs PROPERTIES TIMEOUT 30)
+    add_test(NAME g3_outputs
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_check_g3_outputs.py")
+    set_tests_properties(g3_outputs PROPERTIES TIMEOUT 30)
     add_test(NAME demo_smoke
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/demo_smoke.py"
                 "$<TARGET_FILE:wls861>")
