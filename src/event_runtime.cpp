@@ -1033,7 +1033,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                     require(live_continue(), ErrorCode::NotReady, "live batch stopped before response application");
                     settled_for_retry = true;
                 };
-                result = runtime.accept_live_response(captured, response, after_settlement, role == Role::Dispatcher);
+                result = runtime.accept_live_response(captured, response, after_settlement, role == Role::Dispatcher, stop);
                 invocation["result"] = live_record_summary(result);
                 static_cast<void>(accounting_ready());
                 const auto* operation = result.is_object() ? result.as_object().if_contains("operation") : nullptr;

@@ -998,18 +998,18 @@ Json OfflineRuntime::accept_independent_response(const CapturedModelCall& call, 
 
 Json OfflineRuntime::accept_live_response(const CapturedModelCall& call, const ModelResponse& response,
                                          const AfterModelSettlement& after_settlement,
-                                         bool independent_plan) {
+                                         bool independent_plan, std::stop_token stop) {
     require(store_.live_model_enabled(), ErrorCode::Unsupported, "live workflow requires Store 410");
     // This lookup requires an original live reservation. A caller cannot
     // apply the live accounting hook to an old FakeModel attempt.
     static_cast<void>(store_.live_attempt(call.request.attempt_id));
-    return accept_captured_response(call, response, {}, independent_plan, Object{}, after_settlement);
+    return accept_captured_response(call, response, {}, independent_plan, Object{}, after_settlement, stop);
 }
 
 Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, const ModelResponse& response,
                                              const std::string& disposition, bool independent_plan,
                                              const Json& dispositions,
-                                             const AfterModelSettlement& after_settlement) {
+                                             const AfterModelSettlement& after_settlement, std::stop_token stop) {
     const auto& captured = call.request;
     // No current-row metadata is copied onto a response. A corrupted envelope
     // cannot impersonate another pending attempt; its reservation remains held.
@@ -1385,7 +1385,7 @@ Json OfflineRuntime::accept_captured_response(const CapturedModelCall& call, con
         return read_history([&] { return execute_history_control(store_, call.actor, captured.binding, tool.name, tool.arguments); });
     if (captured.role == Role::Worker && worker_tools_)
         return worker_tools_->execute(call.actor, captured.binding, call.expected_state_version,
-            captured.attempt_id, tool.name, worker_arguments, command);
+            captured.attempt_id, tool.name, worker_arguments, command, stop);
     require(captured.role == Role::Worker && tool.name == "note", ErrorCode::Unauthorized, "unsupported Worker tool");
     require(tool.arguments.is_object() && tool.arguments.as_object().size() == 1, ErrorCode::InvalidInput, "note accepts only text");
     const auto text = string_at(tool.arguments, "text");
