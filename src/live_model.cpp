@@ -102,6 +102,9 @@ bool retryable_unusable_response(const HttpsTransportResult& transport) {
     if (decoder->as_string() != "bounded_responses_http_decoder" &&
             decoder->as_string() != "bounded_responses_sse_replay" &&
             decoder->as_string() != "bounded_chat_http_decoder") return false;
+    if (const auto* types = report->as_object().if_contains("observed_event_types"); types && types->is_array())
+        for (const auto& type : types->as_array())
+            if (type == "response.cancelled" || type == "response.incomplete") return false;
     // Host decoder codes only: interrupted, cancelled, incomplete, refusal,
     // profile mismatch and tool/schema outcomes cannot grant a paid retry.
     const auto rejected = [](const Json& value) {

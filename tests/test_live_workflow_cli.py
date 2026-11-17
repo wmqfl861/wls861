@@ -367,7 +367,7 @@ class LiveWorkflowCli(unittest.TestCase):
                  ('failed', True, 2, 1, 2), ('rejected', True, 2, 1, 2),
                  ('failed', False, 2, 3, 3), ('failed', False, 0, 1, 1),
                  ('cancelled', False, 2, 1, 1), ('incomplete', False, 2, 1, 1),
-                 ('incomplete', True, 2, 1, 1),
+                 ('cancelled', True, 2, 1, 1), ('incomplete', True, 2, 1, 1),
                  ('timeout', False, 2, 1, 1), ('unknown', False, 2, 1, 1),
                  ('schema', False, 2, 1, 2), ('text', False, 2, 1, 2)]
         for case, stream, retries, failures, expected in cases:
@@ -424,6 +424,7 @@ class LiveWorkflowCli(unittest.TestCase):
                     first = json.loads(observations[0]['protocol_evidence'])
                     self.assertIn('decoder_reason_code', first)
                     self.assertEqual(first['decoder_reason_code'], 'provider_failed' if case in ('failed', 'unknown') else
+                                     'unsupported_event' if case == 'cancelled' and stream else
                                      'invalid_sse' if case == 'incomplete' and stream else
                                      ('invalid_sse' if stream else 'invalid_response') if case == 'rejected' else
                                      'response_' + case if case in ('cancelled', 'incomplete') else '')
