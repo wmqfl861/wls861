@@ -1,4 +1,4 @@
-# G3 对照报告：B1 基线
+# G3 对照报告：B1 真实基线与 G3-C 合成候选
 
 **B1 十格已完成并封存：完整 oracle 为 4 PASS、4 MISSING、2 FAIL，仅两格有原始确认交付。** 每个任务、每种条件各运行一次（n=1）；终态不同，不能据调用数或 token 总量宣称普遍性能改善或同等验收比较，也不构成 v4 PASS、G3 出口或 0.15.0 发布。
 
@@ -31,4 +31,6 @@ multi AMEND 的原件和目标字节通过，但最后一批在凭据读取前�
 
 私有证据索引（本机，不随仓库分发）：`/mnt/d/codex-workspace/wls861-g2-ready-20261117-9_tfsmtv/g3-b1-analysis/`，`aggregate-results.json` SHA-256 `bf1e485b821b3b5d60776f2f0bb6b0c0131bb62cd1335b8fe11d5f4cdaad4914`。汇总关联逐格结果与时间/守卫补充；`analysis-completion-receipt.json` 记录十格副本及捕获校验，根目录 `budget-after-g3-b1.json` 记录累计额度。原始日志、数据库、凭据和私有控制器均不入 Git。
 
-下一步按[前向计划 §15](../reviews/claude-2026-11-16/04-plan.md#15-修订记录)：G3-C/F-29 正在独立实施 ≤250 产品行的显式 `initial_plan: fixed-single-task-v1` opt-in，仅计划省首次 Dispatcher 规划，不改数据库或默认值。固定开销 6→5、含写文件合成流程 7→6 均为待测试目标；原 **6→4 未达（UNMET）**。`report_experience` 依赖验收后原始 job，再省经验调用所需的验收后捕获设计不在本切片内，验收/经验守卫不放宽。之后 E-9 两 PR、≤600 产品行、新冻结格式，再做 B2；不提前宣称阶段通过。
+**G3-C 合成候选（不计入上述 B1 真实调用）：** 分支 `feat/g3-fixed-single-task-20261117` 已正常导入 #152 main `de7f5b5`，改动 94 产品行、171 测试行。显式 `initial_plan.mode: fixed-single-task-v1` 只省首次 Dispatcher 规划；同一有效文件任务实测总调用 **7→6**、管理 **5→4**，Worker 均为一次 `fs_write` 加一次 `submit`，完整 brief、成果字节与保留的角色顺序一致。排除文件写入后固定开销为 6→5，原 **6→4 未达（UNMET）**；没有新增真实调用或改变冻结格式、默认值、AMEND、验收/验收后经验守卫。源码/38 项契约与定向 Release 通过；原始失败及修正证据在私有 `g3-c-evidence/result.md`，CI/D-40 仍 pending。
+
+#152 核心 285/285、受影响 ASan 21/21、源码 PASS 后已合入；三组 Worker 托管 ASan 29.63/36.72/21.44 秒均低于 180 秒期限的 50%。main 完整矩阵 `44152280898` pending；候选受影响 ASan 选择器补齐至 25 组（95 项 CTest 注册），尚不能据选择器检查宣称候选 ASan PASS，链接与验证口径集中在[当前交接](../reviews/current-handoff.md#验证与证据)。下一步完成候选 CI/D-40，再按[前向计划 §15](../reviews/claude-2026-11-16/04-plan.md#15-修订记录)推进 E-9 两 PR、新冻结格式与 B2，不提前宣称 G3 出口。

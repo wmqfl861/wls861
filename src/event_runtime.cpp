@@ -110,6 +110,36 @@ void setup_plain_agent(Store& store, const SchemaRegistry& schemas, const std::s
     static_cast<void>(store.issue_instruction(store.host_actor(Role::TeamLead, id, binding.team_id),
         binding, number(task, "state_version"), order, new_id("plainorder")));
 }
+void apply_fixed_initial_plan(Store& store, const SchemaRegistry& schemas, const StoreActor& dispatcher,
+                              const Json& request, const Json& initial) {
+    require(number(request, "requirements_revision") == 1 && number(request, "plan_revision") == 0,
+        ErrorCode::Stale, "fixed initial plan requires the original unplanned request");
+    require(store.tasks(dispatcher.request_id).empty(), ErrorCode::Conflict,
+        "fixed initial plan cannot adopt pre-existing tasks");
+    require(store.capacity_status(dispatcher.request_id).at("status") != "WAITING_INPUT",
+        ErrorCode::NotReady, "fixed initial plan requires the pending capacity checkpoint");
+    const auto snapshot = store.request_snapshot(dispatcher.request_id);
+    Array refs, constraints;
+    for (const auto& constraint : snapshot.at("constraint_catalog").as_array()) {
+        refs.push_back(constraint.at("constraint_id"));
+        constraints.push_back(constraint.at("text"));
+    }
+    const Json brief = Object{{"title", initial.at("title")}, {"goal", initial.at("goal")},
+        {"acceptance_criteria", initial.at("acceptance_criteria")},
+        {"constraint_refs", refs}, {"constraints_verbatim", constraints}};
+    const Json plan = Object{{"summary", "Host initialization from frozen fixed-single-task-v1 template"},
+        {"plan_revision", 1}, {"based_on_requirements_revision", 1},
+        {"nodes", Array{Object{{"node_id", initial.at("node_id")}, {"kind", "team_task"},
+            {"title", initial.at("title")}, {"template", initial.at("team_template")},
+            {"required", true}, {"depends_on", Array{}}, {"brief", brief}}}}};
+    schemas.validate("task_brief", brief);
+    schemas.validate("plan", plan);
+    store.validate_brief(dispatcher.request_id, brief);
+    // This trusted-host allocation has no model attempt and issues no work order.
+    // The Store transaction retains request CAS and current requirement checks.
+    static_cast<void>(store.apply_independent_plan(dispatcher, number(request, "state_version"),
+        number(request, "requirements_revision"), plan, Object{}, new_id("fixedplan")));
+}
 std::vector<std::int64_t> ids(const Json& claim) {
     std::vector<std::int64_t> result;
     for (const auto& item : claim.at("items").as_array()) result.push_back(number(item, "inbox_id"));
@@ -574,6 +604,7 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
     }
     const auto config = restore_request_config(store_.request(id));
     if (live) validate_live_workflow_config(config, *live);
+    const auto initial_plan = config.initial_plan();
     const bool plain = plain_single_agent(config);
     if (plain) {
         validate_single_agent_config(config);
@@ -1076,7 +1107,12 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                 const bool needs_plan = number(request, "plan_revision") == 0 ||
                     number(store_.plan(id), "based_on_requirements_revision") != number(request, "requirements_revision");
                 if (needs_plan) {
-                    if (invoke(Role::Dispatcher, {}, {}, tools_by_node_.empty() ? nullptr : tools_by_node_.begin()->second,
+                    if (!initial_plan.is_null() && number(request, "plan_revision") == 0 &&
+                            number(request, "requirements_revision") == 1 &&
+                            options.amendment_dispositions.as_object().empty()) {
+                        apply_fixed_initial_plan(store_, schemas_, dispatcher, request, initial_plan);
+                        progress = true; dispositions_applied = true;
+                    } else if (invoke(Role::Dispatcher, {}, {}, tools_by_node_.empty() ? nullptr : tools_by_node_.begin()->second,
                                     dispatcher_claim)) {
                         progress = true; dispositions_applied = true;
                     }
