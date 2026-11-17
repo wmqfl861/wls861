@@ -648,6 +648,7 @@ void decode_retained(Transfer& transfer, const ModelRequest& request) {
             const auto replay = replay_responses_sse(transfer.profile, request, transfer.chunks);
             result.response = replay.response;
             result.protocol_evidence = Object{{"decoder", "bounded_responses_sse_replay"},
+                {"decoder_reason_code", replay.response.error_code},
                 {"input_origin", "captured_libcurl_body_callbacks"},
                 {"arrival_time_origin", "executor_steady_clock"},
                 {"offline_decoder_report", replay.evidence}};
@@ -658,6 +659,7 @@ void decode_retained(Transfer& transfer, const ModelRequest& request) {
             result.response = decoded.response;
             result.protocol_evidence = Object{{"decoder", transfer.profile.protocol == "openai-chat-v1"
                 ? "bounded_chat_http_decoder" : "bounded_responses_http_decoder"},
+                {"decoder_reason_code", decoded.response.error_code},
                 {"input_origin", "captured_libcurl_body_callbacks"},
                 {"offline_decoder_report", decoded.evidence}};
         }

@@ -63,6 +63,9 @@ struct ObservedLiveAttempt {
     Json transport_summary = nullptr;
     std::optional<ModelResponse> response;
     bool sent{false};
+    // Derived from the persisted complete decoder observation; never a send
+    // grant. Settlement, feedback, accounting and frozen retry caps still gate.
+    bool retryable_unusable_response{false};
 };
 
 ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,

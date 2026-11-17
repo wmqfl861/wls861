@@ -81,6 +81,49 @@ std::string endpoint_host(const ProviderProfile& provider) {
     authority = authority.substr(0, authority.find('/'));
     return std::string(authority.substr(0, authority.find(':')));
 }
+
+bool retryable_unusable_response(const HttpsTransportResult& transport) {
+    // protocol_error alone also covers cancellation/incomplete protocol replies.
+    // Only a complete observed response rejected before business application is
+    // eligible. Missing/older decoder evidence must never imply permission.
+    if (transport.status != HttpsTransportStatus::ProtocolError || transport.reason != "protocol_error" ||
+            !transport.transfer_complete || transport.http_status != 200 ||
+            transport.raw_headers_truncated || transport.raw_body_truncated ||
+            transport.response.status != ModelResultStatus::Error || !transport.response.text.empty() ||
+            !transport.response.tool_calls.empty() || !transport.response.responses_output.is_null() ||
+            !transport.protocol_evidence.is_object()) return false;
+    const auto& evidence = transport.protocol_evidence.as_object();
+    const auto* decoder = evidence.if_contains("decoder");
+    const auto* reason = evidence.if_contains("decoder_reason_code");
+    const auto* report = evidence.if_contains("offline_decoder_report");
+    if (!decoder || !decoder->is_string() || !reason || !reason->is_string() ||
+            reason->as_string().empty() || reason->as_string().size() > 64 ||
+            !report || !report->is_object()) return false;
+    if (decoder->as_string() != "bounded_responses_http_decoder" &&
+            decoder->as_string() != "bounded_responses_sse_replay" &&
+            decoder->as_string() != "bounded_chat_http_decoder") return false;
+    if (const auto* types = report->as_object().if_contains("observed_event_types"); types && types->is_array())
+        for (const auto& type : types->as_array())
+            if (type == "response.cancelled" || type == "response.incomplete") return false;
+    // Host decoder codes only: interrupted/cancelled/incomplete and recognized
+    // refusal/profile mismatch or tool/schema codes cannot grant a paid retry.
+    const auto rejected = [](const Json& value) {
+        if (!value.is_string()) return false;
+        for (const auto code : {"provider_failed", "invalid_response", "unsupported_response",
+                "response_limit", "invalid_sse", "stream_limit", "unsupported_output",
+                "unsupported_event", "event_after_terminal"})
+            if (value.as_string() == code) return true;
+        return false;
+    };
+    // A malformed SSE tail must not turn a decoded cancellation/incomplete
+    // terminal into a retryable protocol failure.
+    if (const auto* terminal = report->as_object().if_contains("terminal_codec"); terminal && !terminal->is_null()) {
+        if (!terminal->is_object()) return false;
+        const auto* terminal_reason = terminal->as_object().if_contains("reason_code");
+        if (!terminal_reason || (*terminal_reason != "completed" && !rejected(*terminal_reason))) return false;
+    }
+    return rejected(*reason);
+}
 } // namespace
 
 Json live_transport_options_json(const HttpsTransportOptions& options) {
@@ -273,6 +316,7 @@ ObservedLiveAttempt observe_live_attempt(Store& store, const StoreActor& actor,
     result.transport_summary = https_transport_summary(transport);
     (void)store.record_live_transport(request.attempt_id,
         std::string(result.send_claim.at("claim_id").as_string()), transport);
+    result.retryable_unusable_response = retryable_unusable_response(transport);
     result.response = transport.response;
     return result;
 }
