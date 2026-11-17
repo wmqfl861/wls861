@@ -18,7 +18,7 @@ R6 原未达记录保留，原导出 UNKNOWN 在 R0 恢复，但 SHM-mtime 保�
 
 ## 长期边界
 
-G4 真实 U3/U4 仍待合规宿主，Windows 11 **NOT_RUN**。Strict 默认、Standard 显式选用；绑定、挂载传播、只读输入与环境检查已合入。CSV 准备 [#156](https://github.com/wmqfl861/wls861/pull/156) 的最终输入已通过核心、源码及托管实际 Worker run/不可变提交核验并合入。这里只到 SUBMITTED，不能替代真实验收；函数+测试准备 [#158](https://github.com/wmqfl861/wls861/pull/158) 已合入；中断/AMEND 联合准备仍在开发，详见 [G4 记录](reports/g4-run-tool.md)。
+G4 真实 U3/U4 仍待合规宿主，Windows 11 **NOT_RUN**。Strict 默认、Standard 显式选用；绑定、挂载传播、只读输入与环境检查已合入。CSV 准备 [#156](https://github.com/wmqfl861/wls861/pull/156) 的最终输入已通过核心、源码及托管实际 Worker run/不可变提交核验并合入。这里只到 SUBMITTED，不能替代真实验收；函数+测试准备 [#158](https://github.com/wmqfl861/wls861/pull/158) 已合入；中断/AMEND 联合候选已通过托管17次合成调用的完整恢复与交付，检查器修正和取消依赖尚待最终合入，详见 [G4 记录](reports/g4-run-tool.md)。
 
 本机 **BLOCKED**：缺受信任 bwrap 与专用 cgroup 配置，普通用户 uid_map 被拒绝；owner 已选择保持，agent 不改主机配置。未配置不等于已证实无 delegation。F-15 写入/提交扩容候选被既有捕获容量守卫拒绝并归档；G4 不出口、不升 0.14.0。
 
