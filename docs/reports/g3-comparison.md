@@ -48,3 +48,5 @@ Worker 始终各执行一次 `fs_write` 和 `submit`；TeamLead 检查、Dispatc
 **G3-E9 第一切片候选（未增加真实调用）：** 新增 `FileBatchHistoryContext`，要求原请求/config SHA、Worker、structured-v3 与 fixed-role-file-batch-v1；校验原 attempt/response/feedback 和双调用的身份、顺序、operation/result/哈希关系，再为各工具投影自己的完整结果。原始 native payload/ID/nullable usage 不改写；UNKNOWN、replay、缺观察不能成为成功或可折叠回合，已知部分失败仍为 FAILED。生产调用保持关闭的默认上下文，新配置值及派发入口未开放。表示层不独立认证外部自签哈希数据，下一切片必须从原冻结 Store 配置接入和独立重算。
 
 产品增删 **191 行**，测试 **301 行≤382**，两 PR 的 600 行总限余 409 行；128 KiB response/512 KiB aggregate 仅为表示上限，执行前实际容量证明仍未完成。本机八套 Release、最终协议 67/67、38 契约通过；唯一修改的 C++ 测试已在 26 组选择器内。当前提交的核心/源码/D-40 与一次有界复核仍待完成，精确输入和原失败保留见[交接](../reviews/current-handoff.md#验证与证据)。没有 B2 或新的真实效果/性能结论。
+
+E9 表示层 [#157](https://github.com/wmqfl861/wls861/pull/157) 已合入 main `8018622`。最终 head 的[核心](https://github.com/wmqfl861/wls861/actions/runs/44177730029) 294/294、[受影响 ASan](https://github.com/wmqfl861/wls861/actions/runs/44177804373) 26/26、[源码](https://github.com/wmqfl861/wls861/actions/runs/44177729924)及有界源码复核通过；ASan 最高时限占比 32.13%。生产批量配置/派发仍关闭，真实批量效果和 B2 未执行。下一候选包含相同执行边界的取消 token 贯通及其完整回归，全部增删计入剩余 409 行产品预算；保留测试两倍上限，未通过削减断言或填充产品行满足比例。

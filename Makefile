@@ -95,6 +95,7 @@ ifneq ($(filter all 1,$(TEST_SHARD)),)
 	$(PYTHON) tests/test_check_g2_outputs.py
 	$(PYTHON) tests/test_check_g3_outputs.py
 	$(PYTHON) tests/test_g4d_csv.py
+	$(PYTHON) tests/test_g4d_function.py
 	"$(BUILD_DIR)/journal_tests"
 	"$(BUILD_DIR)/config_tests"
 	"$(BUILD_DIR)/scheduler_tests"
@@ -151,6 +152,7 @@ ifneq ($(filter all 1,$(TEST_SHARD)),)
 	$(PYTHON) tests/s13_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/s14_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/g4d_csv_workflow.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
+	$(PYTHON) tests/g4d_function_workflow.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/s15_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 	$(PYTHON) tests/s16_cli_smoke.py "$(abspath $(S1_APPLICATION))" "$(abspath .)"
 endif
