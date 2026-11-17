@@ -38,7 +38,15 @@ void validate_structured_contract_continuity(const CompiledContext& context, con
 
 // Convert complete, scoped Store attempt history without rewriting its source.
 // Missing/unapplied observations remain data, not invented native tool results.
-std::vector<StructuredContextMessage> structured_attempt_history(const std::vector<Json>& history);
+// Trusted host provenance from the original request snapshot, never feedback.
+// Production callers leave this absent until frozen policy routing is enabled.
+struct FileBatchHistoryContext {
+    std::string request_id, config_snapshot_sha256;
+    Role role{Role::Root};
+    std::string request_format, tool_policy;
+};
+std::vector<StructuredContextMessage> structured_attempt_history(const std::vector<Json>& history,
+    const FileBatchHistoryContext* batch_context = nullptr);
 
 // Used by the common CompiledContext persistence boundary; round-trip rebuilds
 // canonical structure and validates pairing as well as all logical hashes.
