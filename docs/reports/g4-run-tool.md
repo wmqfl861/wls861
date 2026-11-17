@@ -45,7 +45,17 @@ W128 候选的正式 CTest 在 3.90 秒实际失败：128 KiB 写入、reopen+ac
 
 首次本机检查曾使用封存的 B1 `f9da424` 二进制，已纠正其身份归属，不计作准确候选验证。原件、`binary-identity-correction.json`、准确候选构建/二进制身份及新测试日志在当前私有任务根 `g4d-csv-evidence/`；没有覆盖 B1 ELF。该候选产品/C++ 改动 0，脚本/测试/集成增删 295 行（292 新增、3 删除），另有固定夹具 181 行。公开 CI 制品只选取小型合成输入、配置、结果和 stdout/stderr，排除数据库、工作目录和构建产物。没有真实模型调用。
 
-旧 head `2a28951` 的[核心 291/291](https://github.com/wmqfl861/wls861/actions/runs/44168598933)、[源码](https://github.com/wmqfl861/wls861/actions/runs/44168599111)及[native](https://github.com/wmqfl861/wls861/actions/runs/44168595942)已完成核验。native 精确 checkout、UID 1001、五次 FakeModel、真实模型调用 0；150B input 的写入被 EROFS(30) 拒绝且前后 SHA 相同，原 run/feedback/submission hash、binding、Standard 无网络隔离和 cleanup 证明均核对，提交 CSV 62B 与独立 oracle 一致。终态是 task SUBMITTED、request RUNNING，TeamLead check 待处理，不能写成业务验收或交付。原件在当前任务根 `run-intake/hosted-pr156-2a28951/`，native artifact SHA-256 `297f64952b223a05e0df06c04d36fff30f8e3fb1c1248f00555545d657e2275f`。整合 main 后最终输入的核心、源码和 native 另跑并分列，当前尚待结果。
+旧 head `2a28951` 的[核心 291/291](https://github.com/wmqfl861/wls861/actions/runs/44168598933)、[源码](https://github.com/wmqfl861/wls861/actions/runs/44168599111)及[native](https://github.com/wmqfl861/wls861/actions/runs/44168595942)已完成核验。native 精确 checkout、UID 1001、五次 FakeModel、真实模型调用 0；150B input 的写入被 EROFS(30) 拒绝且前后 SHA 相同，原 run/feedback/submission hash、binding、Standard 无网络隔离和 cleanup 证明均核对，提交 CSV 62B 与独立 oracle 一致。终态是 task SUBMITTED、request RUNNING，TeamLead check 待处理，不能写成业务验收或交付。原件在当前任务根 `run-intake/hosted-pr156-2a28951/`，native artifact SHA-256 `297f64952b223a05e0df06c04d36fff30f8e3fb1c1248f00555545d657e2275f`。整合后的最终 head `586eaea` [核心](https://github.com/wmqfl861/wls861/actions/runs/44173217114) 294/294、[源码](https://github.com/wmqfl861/wls861/actions/runs/44173216920)与[native](https://github.com/wmqfl861/wls861/actions/runs/44173270997)均通过并独立核验；核心/源码 synthetic `16f4716` 与 head 同树，780 个 blobs/modes 一致，native 精确 head。新的 native 仍为五次 FakeModel、输入拒写及原字节保持、62B 不可变提交，原四沙箱/两环境场景均保留；业务状态仍是 SUBMITTED，验收/交付 false。最终收据在 `run-intake/hosted-pr156-586eaea/verification.json`，#156 已正常合入 main `f31647d`，保险备份核对后删除清洁分支和工作树。函数+测试场景从该 main 开发，中断/AMEND 场景尚未准备完成。
+
+## G4-D 函数与测试准备候选（2026-11-17）
+
+`test/g4d-function-workflow-20261117` 从 main `f31647d` 独立增加原第二场景：六次 FakeModel 内完成 Dispatcher 计划、TeamLead 工单、Worker 两次写入、实际 `run` 和恰好两份源码的不可变提交。自编 `clamp(value, lower, upper)` 与五个 unittest 覆盖区间下界、内部、上界、相等边界和非法上下界；原生执行最多五秒，预期终点仍是 SUBMITTED/check pending，业务验收和交付未执行。
+
+两场景共用已有 CSV 驱动，明确限于 csv/function；保留 CSV 默认路径、原 input 身份/只读检查、四沙箱和两环境案例，再接函数场景。成果检查器不执行捕获源码，只比对独立固定字节和原 unittest 结果；本机仅执行自编已知夹具，错误实现必须使同一组测试失败，链接/额外成果、非零退出和错误测试数均拒绝。捕获源码用独占创建的 `submitted-*.py` 与原夹具分开保存，上传范围排除数据库和工作目录。
+
+实现 `37d352a` 的产品/C++ 改动为 0；执行/测试/集成新增 179、删除 45（总增删 224），另有固定夹具 188 行。沿用既有驱动而不复制第二套是本切片的复用选择；没有新增通用 helper。独立 GCC13 Release ELF 编译于 `e1d341e`；最终两行 Python 证据命名改动未改变任何运行库构建输入，最后 build 调用通过、ELF 相同，不把它重标为新编译。
+
+准确候选的 CSV/函数 oracle 与预启动拒绝四项 CTest 全通过（0.24/1.23/0.28/1.26 秒），两项直接拒绝记录保留，实际 FAILED/REFUSED、spawned=false、无提交；AST/YAML、shell 参数/顺序/语法及 artifact allowlist 通过。最终发布输入的 core/source 和 hosted native 仍待执行；本机夹具通过不计作 Worker 原生正例。原始证据在当前私有任务根 `g4d-function-evidence/result.md`，构建在 `g4d-function-release/`，旧 B1 ELF 未覆盖。中断→AMEND→同命令恢复在独立工作树准备，尚未通过完整场景。
 
 ## 原始证据与接手
 
