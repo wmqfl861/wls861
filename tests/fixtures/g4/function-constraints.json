@@ -1,0 +1,4 @@
+[
+  {"constraint_id":"c1","source_revision":1,"text":"只提交 clamp.py 和 test_clamp.py；UTF-8 编码，禁止访问网络。"},
+  {"constraint_id":"c2","source_revision":1,"text":"源码与运行效果只写入自己的工作区。"}
+]

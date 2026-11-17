@@ -1,0 +1,4 @@
+编写 clamp(value, lower, upper)，把 value 限制在闭区间 [lower, upper]，lower > upper 时抛出 ValueError。
+保存 clamp.py 和 test_clamp.py；用 unittest 分别测试低于区间、区间内、高于区间、上下界相等和上下界非法，共五个测试，并实际运行。
+只提交 clamp.py 和 test_clamp.py；UTF-8 编码，禁止访问网络。
+源码与运行效果只写入自己的工作区。

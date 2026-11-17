@@ -1,21 +1,19 @@
 # 最新交接
 
-更新：2026-11-17。当前 main 为 [f31647d](https://github.com/wmqfl861/wls861/commit/f31647d9b2424fcb22c7cb5e28e77235e5489df2)，[#156](https://github.com/wmqfl861/wls861/pull/156) 已合入；实现 0.13.1、Store 410。长期边界只在 [STATUS](../STATUS.md) 维护。
+更新：2026-11-17。main 已合入 [#157](https://github.com/wmqfl861/wls861/pull/157)，提交 [8018622](https://github.com/wmqfl861/wls861/commit/801862281cc22ebb65e9d4ed395a8dad777a0b49)；实现 0.13.1、Store 410。长期能力及限制只在 [STATUS](../STATUS.md) 维护。
 
-现在能做什么：G2 U1/U2 已真实交付；G3-C1/C2 的冻结初始计划/工单已合入，同一合成文件任务总调用 7→6→5。B1 的真实结果、费用未知及比较限制见 [G3 报告](../reports/g3-comparison.md)。CSV 的原 CLI→Worker run→不可变提交准备已合入，止于 SUBMITTED，详见 [G4 记录](../reports/g4-run-tool.md#g4-d-csv-准备候选2026-11-17)。
+现在能做什么：G2 U1/U2 已真实交付；G3-C1/C2 的显式初始计划、工单使同一合成文件任务总调用 7→6→5。E9 已有严格的双工具历史表示，生产配置和批量派发仍关闭；B1 十格的混合结果、用量和费用未知见 [G3 报告](../reports/g3-comparison.md)。
 
-当前候选：`feat/g3-file-batch-history-20261117`，源实现 [b870074](https://github.com/wmqfl861/wls861/commit/b870074b66c9ca285b43982b1d9cbbbe30c3da82)，已正常整合上述 main。E9 仅增加显式可信主机上下文的双文件调用历史表示，分别保留两个工具结果与原 native ID；生产调用继续使用关闭的默认上下文，新配置值和批执行入口仍关闭。产品 191 行、测试 301 行；两个 PR 的 600 行总限余 409 行。
+在制：[#158](https://github.com/wmqfl861/wls861/pull/158) 函数与测试场景原 head 核心、源码、native 全通过，现为解决一处公开报告冲突正常整合最新 main；实现文件保留，整合提交的门禁另行核验。CSV #156 已合入，两项准备均只到 SUBMITTED/check pending，不能当作业务验收或交付。
 
-卡在哪：该候选本机定向验证通过，一次独立有界源码复核与最终提交核心、源码、26 组 affected-ASan 待完成。128/512 KiB 只是表示上限；实际序列化容量、可信 Store 配置路由与顺序派发必须在第二切片证明，当前不能宣称批执行完成。
-
-并行：G4-D 原“生成小函数和测试并实际运行”场景从 main f31647d 开发；中断→AMEND→同命令恢复仍是后续准备项。下一步先收口 E9 表示层，再从合入后的准确 main 接执行层，最后 B2。B2 的 fixed-single-task 不适用于 partial_amend，旧 v4 不认证新宿主初始化，按实际适用性和原始 oracle/工作流分列。唯一前向计划为 [11-16 §15](claude-2026-11-16/04-plan.md#15-修订记录)。
+下一步：取消 token 在 live response 应用链路丢失，已有三文件最小补丁和完整确定性回归草案，动态验证尚未执行；与 E9 顺序文件批次接入同一候选，独立提交，完整预算及断言保留。G4 父 SIGINT→AMEND→原命令恢复场景仍 NOT_PREPARED。E9 合入后再做 B2；fixed-single-task 不适用于 partial_amend，旧 v4 不认证新宿主初始化，不伪造等价验收或性能 PASS。
 
 ## 验证与证据
 
-main `2213c27` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44160566010)与[源码](https://github.com/wmqfl861/wls861/actions/runs/44160566058)已核验：475/475 CTest、Make 61+25 通过；全部 95 个 ASan 套件低于半时限，最高 acceptance 71.48/180 秒。PR155 的[核心](https://github.com/wmqfl861/wls861/actions/runs/44166272729) 288/288、[源码](https://github.com/wmqfl861/wls861/actions/runs/44166272804)和[D-40](https://github.com/wmqfl861/wls861/actions/runs/44166266566) 26/26 已核验通过；main `67f52f0` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44172025562)仍单独收件，不能替换为 PR 结果。
+main `67f52f0` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44172025562)及[源码](https://github.com/wmqfl861/wls861/actions/runs/44172025451)已核验：10/10 jobs、480/480 CTest（core288、ASan96、UBSan96）、Make61+25；96个 ASan 套件均低于半时限，最高30.49%。后续 main `f31647d` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44176163480)与当前 main `8018622` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44183281321)单独登记，尚未完成最终原件核验，不与 PR 门禁混同。
 
-PR156 最终 head `586eaea` 的[核心](https://github.com/wmqfl861/wls861/actions/runs/44173217114) 294/294、[源码](https://github.com/wmqfl861/wls861/actions/runs/44173216920)及[native](https://github.com/wmqfl861/wls861/actions/runs/44173270997)已独立核验 PASS：三配置各 98 项，失败/超时/跳过/未运行均 0，源码与 780 个 blobs/modes 同树；native 为精确 head、UID 1001，旧四沙箱+两环境场景和 CSV 原结果核验通过。已保险备份、正常合并并删除清洁分支/工作树。新 main f31647d 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44176163480)及[源码](https://github.com/wmqfl861/wls861/actions/runs/44176163468)另行登记。
+E9 PR157 最终 head： [core](https://github.com/wmqfl861/wls861/actions/runs/44177730029) 294/294、[D-40](https://github.com/wmqfl861/wls861/actions/runs/44177804373) 26/26、[source](https://github.com/wmqfl861/wls861/actions/runs/44177729924) 781 blobs/modes 相符；ASan 最高32.13%、protocol_codec5.16s。产品191行、测试301行；有界源码复核通过，生产批量路径仍关闭。
 
-E9 本机 UID 1000、GCC 13.3 Release 的八套定向检查通过；最终只增强测试 wire 数量/末项断言后，protocol_codec 重编重跑 67/67、0.80 秒。38 项契约及历史源码完整性通过。初次编译和夹具失败原件保留；实际 wire 为 anchor+五项原 native 内容+current-state，七项及两个完整不同结果逐项核对。D-20 的新负载估算 0.80×10=8 秒，低于现有 ASan 180 秒期限半数；实际 ASan 仍待执行。仅 protocol_codec TU 新增测试，26 组选择器已覆盖，不机械增加 CTest 注册数。
+CSV PR156 最终 head：[core](https://github.com/wmqfl861/wls861/actions/runs/44173217114) 294/294、[source](https://github.com/wmqfl861/wls861/actions/runs/44173216920)、[native](https://github.com/wmqfl861/wls861/actions/runs/44173270997)通过；五次 FakeModel，150B 输入拒写且原字节保持，62B 不可变 CSV 与 oracle 相同。函数 PR158 原 head：[core](https://github.com/wmqfl861/wls861/actions/runs/44179943762) 300/300、[source](https://github.com/wmqfl861/wls861/actions/runs/44179943723)、[native](https://github.com/wmqfl861/wls861/actions/runs/44180013843)通过；六次 FakeModel、原 Worker run 运行五个 unittest、两份源码提交。原四沙箱/两环境/CSV 场景均保留；当前整合输入结果待核验。
 
-私有证据根 `/mnt/d/codex-workspace/wls861-g2-ready-20261117-9_tfsmtv/`：PR156 最终收据 `run-intake/hosted-pr156-586eaea/verification.json`（SHA256 `1adf15ba938d8fe598d08db99bd6b714d8c1a1e78f6212d3d48c639f97fc0764`）；E9 本机 `g3-e9-history-evidence/result.md`；main155 的原件与恢复点在 `run-intake/hosted-main155-67f52f0/`。原始失败、旧输入及 B1 ELF 完整保留；数据库、凭据、构建、长日志和本机规则不入 Git。本批新增真实模型调用 0。
+私有证据根 `/mnt/d/codex-workspace/wls861-g2-ready-20261117-9_tfsmtv/`：main155 为 `run-intake/hosted-main155-67f52f0/resumed-ci-ozpzb9yw/verification.json`；PR156 为 `run-intake/hosted-pr156-586eaea/verification.json`；PR157 为 `run-intake/hosted-pr157-c9d2adf/verification.json`；PR158 原 head 为 `run-intake/hosted-pr158-69c4b9b/verification.json`；取消静态诊断为 `g4d-amend-evidence/`，不是动态 RED。原始失败、完整日志和封存请求均保留；凭据、数据库、构建、本机规则不入 Git。

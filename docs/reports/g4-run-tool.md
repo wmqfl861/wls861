@@ -47,8 +47,18 @@ W128 候选的正式 CTest 在 3.90 秒实际失败：128 KiB 写入、reopen+ac
 
 旧 head `2a28951` 的[核心 291/291](https://github.com/wmqfl861/wls861/actions/runs/44168598933)、[源码](https://github.com/wmqfl861/wls861/actions/runs/44168599111)及[native](https://github.com/wmqfl861/wls861/actions/runs/44168595942)已完成核验。native 精确 checkout、UID 1001、五次 FakeModel、真实模型调用 0；150B input 的写入被 EROFS(30) 拒绝且前后 SHA 相同，原 run/feedback/submission hash、binding、Standard 无网络隔离和 cleanup 证明均核对，提交 CSV 62B 与独立 oracle 一致。终态是 task SUBMITTED、request RUNNING，TeamLead check 待处理，不能写成业务验收或交付。原件在当前任务根 `run-intake/hosted-pr156-2a28951/`，native artifact SHA-256 `297f64952b223a05e0df06c04d36fff30f8e3fb1c1248f00555545d657e2275f`。整合后的最终 head `586eaea` [核心](https://github.com/wmqfl861/wls861/actions/runs/44173217114) 294/294、[源码](https://github.com/wmqfl861/wls861/actions/runs/44173216920)与[native](https://github.com/wmqfl861/wls861/actions/runs/44173270997)均通过并独立核验；核心/源码 synthetic `16f4716` 与 head 同树，780 个 blobs/modes 一致，native 精确 head。新的 native 仍为五次 FakeModel、输入拒写及原字节保持、62B 不可变提交，原四沙箱/两环境场景均保留；业务状态仍是 SUBMITTED，验收/交付 false。最终收据在 `run-intake/hosted-pr156-586eaea/verification.json`，#156 已正常合入 main `f31647d`，保险备份核对后删除清洁分支和工作树。函数+测试场景从该 main 开发，中断/AMEND 场景尚未准备完成。
 
+## G4-D 函数与测试准备候选（2026-11-17）
+
+`test/g4d-function-workflow-20261117` 从 main `f31647d` 独立增加原第二场景：六次 FakeModel 内完成 Dispatcher 计划、TeamLead 工单、Worker 两次写入、实际 `run` 和恰好两份源码的不可变提交。自编 `clamp(value, lower, upper)` 与五个 unittest 覆盖区间下界、内部、上界、相等边界和非法上下界；原生执行最多五秒，预期终点仍是 SUBMITTED/check pending，业务验收和交付未执行。
+
+两场景共用已有 CSV 驱动，明确限于 csv/function；保留 CSV 默认路径、原 input 身份/只读检查、四沙箱和两环境案例，再接函数场景。成果检查器不执行捕获源码，只比对独立固定字节和原 unittest 结果；本机仅执行自编已知夹具，错误实现必须使同一组测试失败，链接/额外成果、非零退出和错误测试数均拒绝。捕获源码用独占创建的 `submitted-*.py` 与原夹具分开保存，上传范围排除数据库和工作目录。
+
+实现 `37d352a` 的产品/C++ 改动为 0；执行/测试/集成新增 179、删除 45（总增删 224），另有固定夹具 188 行。沿用既有驱动而不复制第二套是本切片的复用选择；没有新增通用 helper。独立 GCC13 Release ELF 编译于 `e1d341e`；最终两行 Python 证据命名改动未改变任何运行库构建输入，最后 build 调用通过、ELF 相同，不把它重标为新编译。
+
+准确候选的 CSV/函数 oracle 与预启动拒绝四项 CTest 全通过（0.24/1.23/0.28/1.26 秒），两项直接拒绝记录保留，实际 FAILED/REFUSED、spawned=false、无提交；AST/YAML、shell 参数/顺序/语法及 artifact allowlist 通过。PR158 原 head `69c4b9b` 的[核心](https://github.com/wmqfl861/wls861/actions/runs/44179943762) 300/300、[源码](https://github.com/wmqfl861/wls861/actions/runs/44179943723)与[native](https://github.com/wmqfl861/wls861/actions/runs/44180013843)已核验通过，源码 788 个 blobs/modes 一致；native 保留原四沙箱、两环境及 CSV 五调用，新增函数六调用，原 run 68ms、exit0、五个 unittest 通过，两份原提交及其全部绑定/hash 相符。独立源码复核无发现。现正常整合 E9 已合入的 main，整合提交的检查另行执行，旧输入绿色不替代新输入。原始证据在当前私有任务根 `g4d-function-evidence/result.md`，构建在 `g4d-function-release/`，旧 B1 ELF 未覆盖。中断→AMEND→同命令恢复在独立工作树准备，尚未通过完整场景。
+
 ## 原始证据与接手
 
 私有任务根 `/mnt/d/codex-workspace/wls861-g2-resume-20261116-k48kol3a/`：N3 在 `g4-input-validation/evidence/`，N4 在 `g4-env-evidence/`；合 N3 后日志为 `merge-release-tests-1794864488134299077.log`、`merge-asan-tests-1794864488056552663.log`，验证收据为 `merge-validation-complete-1794866189673341120.json`。main 87c31473 的原始日志为 `evidence/main-87c3147-ci/full.log`，无 Actions artifact，原件保留于私有证据目录。远端原件在 `evidence/n3-pr136-ci/` 与 `evidence/n4-pr137-ci/`，N4 独立核对为后者 `independent-n4-d365-native-summary.json`。W128 原件在 `g4-capacity-validation/`：正式失败 `original-capacity-recovery-fixture-1794867610732020611.log`，派生诊断 `diagnostic/run-result.json`、`diagnostic/run.log`，源/ELF 绑定见 `root-summary.md` 与 `candidate-archive-binding.json`。早期测试编译/夹具失败原件保留，不计业务 RED；已修复的缺宿主旁路与准备期 deadline 两项源码问题获同项复核 PASS。只公开摘要，DB、长日志和二进制不入库。
 
-接手先为大成果上下文重复设计引用/分页或减少重复的方案，再重测 F-15 容量，本轮不继续扩大。G4-D 真实 run 等合规原生宿主可用后再启动，CI 不调用真实模型；具体环境前提见 [STATUS](../STATUS.md)。保持 0.13.0，不宣称 G4 出口或升为 0.14。
+接手先为大成果上下文重复设计引用/分页或减少重复的方案，再重测 F-15 容量，本轮不继续扩大。G4-D 真实 run 等合规原生宿主可用后再启动，CI 不调用真实模型；具体环境前提见 [STATUS](../STATUS.md)。当前实现版本见 [STATUS](../STATUS.md)；不宣称 G4 出口或升为 0.14。
