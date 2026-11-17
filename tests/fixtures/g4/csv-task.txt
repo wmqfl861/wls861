@@ -1,0 +1,4 @@
+用 Python 解析 /input/orders.csv，按地区汇总订单数和整数金额，保存为 summary.csv。
+表头必须为 region,orders,total，先按 total 降序，再按 region 升序；UTF-8 编码、LF 换行并保留末尾换行。
+只读 /input/orders.csv，禁止访问网络；程序和输出只写入自己的工作区。
+只提交 summary.csv；UTF-8、LF、末尾换行，按金额降序、地区升序排列。

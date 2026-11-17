@@ -1,21 +1,23 @@
 # 最新交接
 
-更新：2026-11-17。G3-C1 [#154](https://github.com/wmqfl861/wls861/pull/154) 已合入 [main 2213c27](https://github.com/wmqfl861/wls861/commit/2213c27fd673c3a4c298ba713324da12d1513228)，这是 C2 的精确基线；[v0.13.1](https://github.com/wmqfl861/wls861/tree/v0.13.1) 已推送。长期状态和宿主边界见 [STATUS](../STATUS.md)。
+更新：2026-11-17。当前 main 为 [67f52f0](https://github.com/wmqfl861/wls861/commit/67f52f018e2b031839503e105adab0b49b23b80b)，[#155](https://github.com/wmqfl861/wls861/pull/155) 已合入；实现 0.13.1、Store 410。长期边界只在 [STATUS](../STATUS.md) 维护。
 
-现在能做什么：G2 U1/U2 已真实交付，R11 完整组合对照达成，详见 [G2 记录](../reports/g2-first-real-run.md#r12出口与r11真实比较)。G3-B1 十格已封存，结果混合；调用、文件字节、完整 oracle、工作流、费用未知和 C1/C2 合成口径集中在 [G3 报告](../reports/g3-comparison.md)。
+现在能做什么：G2 U1/U2 已真实交付；G3-B1 十格已封存，结果和费用未知见 [G3 报告](../reports/g3-comparison.md)。冻结初始计划与初始 TeamLead 工单均已合入，同一合成文件任务总调用 7→6→5，Worker 写入、提交及各项审核仍保留。
 
-当前候选：`feat/g3-fixed-initial-work-order-20261117` 在上述 main 上增加严格的冻结首次工单 opt-in，复用 TeamLead 事务及 Worker 确认。产品 114 行，C1+C2 合计 208/250；测试 173 行，另有 CTest/CI 维护 11 行。合成总调用 7→6→5、固定开销 6→5→4，检查、显式验收、验收后经验仍独立；原 F-29 检查/经验合并机制未实施。
+在制：[#156](https://github.com/wmqfl861/wls861/pull/156) 增加 CSV 原 CLI→Worker run→不可变提交的完整准备切片；旧 head 核心、源码、托管 native 和独立源码复核通过。已正常整合当前 main，最终整合提交的检查待执行，旧 head 绿色不替代新输入。该场景止于 SUBMITTED，检查、业务验收及交付未完成。
 
-卡在哪：C2 本机定向验证通过，尚待推送、最终 head CI/D-40 和父线程审核；没有以 PR154 的 PASS 代替 C2。B1 不同终态仍不能作同等验收性能比较，G3 未达真实出口。
+并行：E9 第一个小 PR 开发严格的文件批操作历史表示，生产调用路径和配置 opt-in 保持关闭；第二个 PR 才接入可信冻结配置与执行。剩余两个 G4-D 场景已形成小切片计划，等待前置合入。唯一前向计划为 [11-16 §15](claude-2026-11-16/04-plan.md#15-修订记录)。
 
-下一步：父线程正常推送/建 PR，在最终 head 跑核心、源码和 26 组受影响 ASan，复核实际 D-20 计时后按既定条件合并。然后继续 E-9 两 PR 与新冻结格式，B2 本轮不执行；`partial_amend` 与固定单任务的适用性仍需在 B2 前解决。唯一前向计划为 [11-16 §15](claude-2026-11-16/04-plan.md#15-修订记录)。
+下一步：收齐 #156 整合输入的核心、源码、native 原件后按条件合并；E9 两 PR 依次验证、合入，再做 B2。B2 的 fixed-single-task 不适用于 partial_amend；旧 v4 不认证新宿主初始化，按真实适用性、原始 oracle、工作流和用量分列，不伪造 v4 PASS。
 
 ## 验证与证据
 
-PR154 head `bc3ae070973686b4f7051e0855962c51edb74a63` 的[核心 44153210046](https://github.com/wmqfl861/wls861/actions/runs/44153210046) 285/285、[源码 44153209908](https://github.com/wmqfl861/wls861/actions/runs/44153209908) 与[受影响 ASan 44153239418](https://github.com/wmqfl861/wls861/actions/runs/44153239418) 25/25 独立核验 PASS。核心/源码实际 checkout 为 merge-ref `1bf6d36888243875de99cd1c650d061a3115ebf3`（与 head 同树），ASan 为精确 head；不混同新的 main 完整矩阵。四个 acceptance ASan 组为 71.38/42.36/38.13/76.10 秒，均低于 180 秒期限的 50%。
+main `2213c27` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44160566010)和[源码](https://github.com/wmqfl861/wls861/actions/runs/44160566058)已核验：475/475 CTest（核心 285、ASan 95、UBSan 95），Make 61+25 条命令及原 26 个 worker 用例通过。全部 95 个 ASan 套件低于各自半时限，最高 acceptance 71.48/180 秒（39.71%）。
 
-C2 本机普通用户 UID 1000、GCC 13.3 Release：config_loader 0.57 秒；acceptance 12/12（13.53 秒）、initialization 3/3（6.01 秒）、experience 10.11 秒、memory 6.77 秒、guidance 13.14 秒通过；38 项契约与源码完整性通过。新增分组 Release×10 为 60.1 秒，小于 90 秒；这不是实际 ASan PASS。旧 acceptance 保留原 12 用例和托管计时依据；新旧分组均保留 90 秒基础期限及 sanitizer 倍率。
+PR155 head `dc32c74` 的[核心](https://github.com/wmqfl861/wls861/actions/runs/44166272729) 288/288、[源码](https://github.com/wmqfl861/wls861/actions/runs/44166272804)及[受影响 ASan](https://github.com/wmqfl861/wls861/actions/runs/44166266566) 26/26 均核验通过；全部 ASan 低于半时限，initialization 20.39/180 秒。当前 main `67f52f0` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44172025562)和[源码](https://github.com/wmqfl861/wls861/actions/runs/44172025451)另行收件，不与 PR 结果混同。
 
-CTest 实际注册 96 项，ASan 选择器完整匹配 26 组，含全部五个 acceptance 分组；Make 无参数入口仍运行全部 28 用例。没有放宽断言/期限、运行完整本机 sanitizer 或调用真实模型。首轮出现测试夹具段错误；临时对象生命周期修正曾与编译重叠，完整重编译后通过。两次负例造状态先后命中 inbox 一致性和 task state_version 约束，已按原约束修正，原失败未删除。
+CSV 旧 head `2a28951` 的[核心](https://github.com/wmqfl861/wls861/actions/runs/44168598933) 291/291、[源码](https://github.com/wmqfl861/wls861/actions/runs/44168599111)及[native](https://github.com/wmqfl861/wls861/actions/runs/44168595942)通过。native 五次 FakeModel、150B 输入写入以 EROFS 拒绝且原字节不变、62B CSV 不可变提交、原 hash/binding/isolation/cleanup 核验通过，原四个沙箱与两个环境场景保留。新整合输入预期为 98 个 CTest 注册，实际结果待新 CI 核验。
 
-私有证据根 `/mnt/d/codex-workspace/wls861-g2-ready-20261117-9_tfsmtv/`：PR154 为 `run-intake/hosted-pr154-bc3ae07/verification.json`；C2 命令、原始日志、字节诊断和交接为 `g3-c2-evidence/`，构建为 `g3-c2-release/`。旧 scheduled Standard native 的核验补记在 [G4 记录](../reports/g4-run-tool.md)，不代表当前 main 或 U3/U4。数据库、凭据、长日志、构建和本机规则不入 Git。
+CSV 准确实现 `0ea6ca9` 的全新 Release 构建已通过 2/2 聚焦 CTest（0.23/1.22 秒）。首次误用旧 B1 ELF 的检查单独保留并更正，不计作准确候选结果。没有本机 native 或真实模型调用。
+
+私有证据根 `/mnt/d/codex-workspace/wls861-g2-ready-20261117-9_tfsmtv/`：main2213 为 `run-intake/hosted-main154-2213c27/verification.json`；PR155 为 `run-intake/hosted-pr155-dc32c74/verification.json`；CSV 原 head 为 `run-intake/hosted-pr156-2a28951/`（core-source 与 native 分列），本机为 `g4d-csv-evidence/`。完整原件和失败保留；数据库、凭据、构建及本机规则不入 Git。
