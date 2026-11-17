@@ -1023,7 +1023,8 @@ Json EventRuntime::pump_workflow(const std::string& id, const EventFakeScript& s
                     }
                     stop_reason = "paid_retry_limit";
                     reason = runtime_diagnostic(
-                        (http == 429 ? "HTTP 429 rate limited; retried " : "Transient transport failure; retried ") +
+                        (http == 429 ? "HTTP 429 rate limited; retried " :
+                         retryable_unusable_response ? "Unusable model response; retried " : "Transient transport failure; retried ") +
                         std::to_string(paid_retries) + " times; retry limit reached.", credential.bytes);
                     invocation.at("error").as_object()["message"] = reason;
                     block(role, node, task, stop_reason, reason);

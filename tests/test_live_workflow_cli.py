@@ -431,7 +431,9 @@ class LiveWorkflowCli(unittest.TestCase):
                     self.assertEqual([call.get('retry_delay_seconds') for call in report['calls'][:min(failures, 2)]], [2, 8][:min(failures, 2)])
                 else:
                     self.assertFalse(any('retry_delay_seconds' in call for call in report['calls']))
-                if failures == 3: self.assertEqual(report['stop_reason'], 'paid_retry_limit')
+                if failures == 3:
+                    self.assertEqual(report['stop_reason'], 'paid_retry_limit')
+                    self.assertTrue(any('Unusable model response; retried 2 times' in item['reason'] for item in report['blocked']))
                 if case in ('schema', 'text'): self.assertIn('correction_feedback', feedback[0])
                 self.assertEqual(len(self.rows('SELECT * FROM tasks')), int(expected > failures))
 
