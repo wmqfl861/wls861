@@ -1,5 +1,7 @@
 # G2 首次真实运行
 
+2026-11-17 更新：D-46、D-48 已分别由 [#140](https://github.com/wmqfl861/wls861/pull/140)、[#141](https://github.com/wmqfl861/wls861/pull/141) 合入；R8 的原 R3 请求账目已就绪，但原冻结期限已过，守卫拒绝后封存，新预约/发送均 0。R9 首次与一次原命令续跑、R10 首次的 `invalid_http_header` 已核实为非流式请求收到 `text/event-stream` 媒体类型，头部检查提前拒绝，响应体未捕获，无交付；U1/U2 为 NOT_PASSED，窄范围修正计划进行中。本轮事实与证据见[末节](#r7r10账目恢复重试与真实复验)，下面的 11-15/11-16 原逐次记录保留。
+
 日期：2026-11-15 至 11-16。**U1/U2 未通过**：R2/R3 末次 Dispatcher 收到中转上游失败流；一次新 R5 则在末次 Worker 的无序号扩展事件处被协议拒绝，均无完整交付。原三交付物导出已按 D-31 恢复、成果 12/12 且无新调用；严格 metadata 保留检查仅 SHM mtime 变化而 FAIL，原结果保留。E1 离线字节减少已验证，真实改善仍未知，按 D-37 保守回退（[#134](https://github.com/wmqfl861/wls861/pull/134)，当前门禁/合入状态见末节），不宣称优化无效或导致失败。R6 按“明确记录未达原因”的计划路径整理 v0.5 与六格式；版本不代表 U1/U2 成功。R5 固定 main `3fa7019`（[#133](https://github.com/wmqfl861/wls861/pull/133)），原输入、CI 与回退身份见末节；Store 410。
 
 owner 已授权指定 Responses 中转、`gpt-6.1-sol` 与测试凭据，并取消金额门禁；D-35 增加其他思考等级授权，R2 仍全部用 `max`，R3 在探针确认后分层。新请求冻结 `observe-only-v1`；D-34 的 G2 余下额度为 250 次调用、500 万输入 token，11-15 的 41 次另列历史。单次期限 180 秒，自动重试为 0；R2 上限 60 次/150 万输入/25 分钟，R3 上限 80 次/200 万输入/40 分钟，两者输出上限均为 8 万。费用未知不等于免费，无需补价格表或重新提供密钥。
@@ -178,3 +180,45 @@ R6 采用计划中“报告明确写出没达成原因”的出口路径：U1/U2
 冻结回归沿用 `r1_structured`/`r1_structured_capture`/`r1_structured_lean`、`append_fold`、`model`、`acceptance_runtime_guidance`、`g1_exit_e2e`、`g2_rehearsal_e2e` 及完整矩阵中的现有旧请求、角色目录、原历史和有界运行检查；不缩减用例、断言或期限。R6 基于回退 main `6f13998`，适用 CI 待核对；历史 `c01df93` 全矩阵仅作为相同产品基线证据，不替代 R6 版本入口检查；标签尚未创建。
 
 旧 `docs/ROADMAP.md` 的 228 行原字节归档到 [roadmap-before-v0.5.md](../handoff/roadmap-before-v0.5.md)，SHA-256 `e3a990bb8b67dda88fd988a8b6d4818bbbf56d1663dc97e80383934266802505`；新路线不超过 60 行。AGENTS、README、STATUS、最新交接、CHANGELOG 与两处 0.13.0 常量同步；计划只维护 §1 状态列与 §15。旧规格、SQL、历史 handoff/审核与本文既有逐次事实保持。
+
+## R7–R10：账目恢复、重试与真实复验
+
+R7 已完成：D-46 [#140](https://github.com/wmqfl861/wls861/pull/140) 合入 `8c3cb975`，D-48 [#141](https://github.com/wmqfl861/wls861/pull/141) 合入 `93b8968`。D-46 让符合条件的已结算 ERROR 按原 token 预留参与观察模式的就绪判断，原始 null 用量不改；D-48 将完整且无可执行内容的合格上游失败/解码拒绝纳入有界重试，每次另行预约。超时、取消、未结算和争议等守卫继续有效。新配置为非流式、180 秒、`system.model_calls.max_paid_retries: 2`；provider profile 的零重试保持 codec 单次发送契约。
+
+| 产品输入 | 本机合成验证 | 托管验证 |
+| --- | --- | --- |
+| D-46 `3eafe36` | Store 30/30；完整 live workflow CLI 23/23；修改的 run CLI 2/2 | [核心](https://github.com/wmqfl861/wls861/actions/runs/43995465626)270/270、[源码](https://github.com/wmqfl861/wls861/actions/runs/43995465610)及 [D-40](https://github.com/wmqfl861/wls861/actions/runs/43995485977)15/15 PASS；合入 main [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43998851346)450/450 CTest、Make 两 shard PASS |
+| D-48 `2854c86` | 完整 live workflow CLI 24/24；HTTPS transport 46/46；专项 14 子场景 | [核心](https://github.com/wmqfl861/wls861/actions/runs/43999386304)270/270、[源码](https://github.com/wmqfl861/wls861/actions/runs/43999386291)及 [D-40](https://github.com/wmqfl861/wls861/actions/runs/43999408575)16/16 PASS；合入 main [完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44002919509)最终结果待独立核对 |
+
+两项独立审核均 PASS；D-48 本机测试输入为 `7db60b2`，到最终 `2854c86` 只有产品注释和文档变化，执行代码/测试及 ELF 哈希一致。两项开发验证真实模型调用均为 0，不能当作 U1/U2 验收。新配置最初误把 provider codec 重试也设为 2，离线 `config check` 拒绝；只修新配置为 provider 0/runtime 2 后，配置、六个角色 explain 和资源检查均通过，没有更改 codec 守卫或旧请求。
+
+R8：完整目录备份与清单核对后，在 main `93b8968` 的 Release ELF（SHA-256 `6851fb27406e65fd633de78d0cc642f9c93a46eb69868c0c340a80bde5080454`）上只替换原 argv 的程序路径，原配置和 `--source-root` 路径保持。原 R3 的 `created_at=2026-11-16T18:03:48Z`、40 分钟期限于 `18:43:48Z` 到期；一次运行返回 `wall_clock_exceeded`，随后封存，没有重设时钟或绕过守卫。
+
+R8 显示 `accounting.ready=true`，原末次 ERROR 的有效 basis 为 reservation（输入 87,747、输出 4,096），原用量仍 null。新预约、发送、输入占用增量均 0；原 21 次调用与 send claim 事实、配置、根目录身份保持。数据库因获准续跑发生状态写入，不宣称整库字节不变。U2 没有达成，原 R2/R3/R5 均封存。
+
+R9/R10 都使用 main `93b8968` 与上述同一 Release ELF、新建请求和数据目录，配置与角色 explain 核对通过。R9 使用 `three.txt`、D/TL/W 全 max，限 60 次/150 万输入/8 万输出/25 分钟；R10 使用 `three-split.txt`、配置 high/medium/low，限 80 次/200 万输入/8 万输出/40 分钟。两者均为非流式、180 秒、runtime 重试上限 2/provider codec 0；实际已调用的模型均为 `gpt-6.1-sol`，R10 只观察到 Dispatcher high，TeamLead/Worker 尚未调用。
+
+| 本次运行 | 实际结果 | 调用与保守用量 |
+| --- | --- | --- |
+| R9 首次，194.753 秒 | `RUNNING/error`；首个 Worker HTTP 200 但响应不可用，`invalid_http_header`；无交付 | 3 次（D/TL/W 1/1/1）；已知输入/输出 12,900/5,441，未知输入/输出预留 75,776/4,096，输入占用 88,676 |
+| R9 原命令续跑一次，11.226 秒 | 同一请求再次在 Worker 报 `invalid_http_header`；`RUNNING/error`，无交付 | 新增 1 次及输入预留 86,297、输出预留 4,096；整个 R9 累计 4 次（1/1/2）、输入占用 174,973 |
+| R10 首次，46.783 秒 | `RECEIVED/error`；首个 Dispatcher HTTP 200 但响应不可用，`invalid_http_header`；0 团队/任务，无交付 | 1 次（1/0/0）；原输入/输出均 null，输入/输出预留 34,567/4,096 |
+
+R9 续跑前完成整个请求与配置目录的备份、哈希和元数据核对；同一 main/ELF、全部原 argv、配置路径、根身份及原 `created_at=2026-11-17T02:29:32Z` 保持，25 分钟期限仍于 `02:54:32Z` 到期，没有重置。续跑后原 attempt/send claim 事实保持，新 attempt/send claim 各 1。三次运行均 `accounting.ready=true`、自动重试记录 0、已确认交付 0，成果检查未执行。R9 两次 Worker 的原 usage 均 null；预留回退参与就绪不等于补出实际 token。
+
+独立只读核对三个失败 attempt 的分析副本、冻结设置与编码记录后，确认同一响应媒体类型不匹配：持久化及实际发送的请求均为 `stream=false`，发送 `Accept: application/json`；收到普通 HTTP 200 响应头，语法、CRLF 分隔和 chunked 声明核对通过，但 `Content-Type` 均为 `text/event-stream`。头部回调在结束空行处发现不符合预期的 JSON 媒体类型，提前终止接收并记为通用 `invalid_http_header`。三者 `transfer_complete=false`，已观察及保留的响应体字节均为 0；这不证明模型没有执行或响应没有内容，也无法推断 SSE 终态、模型是否完成、实际 usage 或哪个上游网络层选择了该媒体类型。针对该分类和处理的窄范围修正处于计划阶段，尚未交付。
+
+11-17 新增合计 **5 次调用**，已知输入 **12,900** + 未知输入预留 **196,640** = 输入保守占用 **209,540**；已知输出 **5,441**，未知输出预留 **12,288**。R10 的阶段预算只加 R9 续跑后的累计回执，不再另加 R9 首次的 3 次；R8 增量为 0，也不重计原 R3 的 21 次。
+
+截至 R10 首次结束，G2 本轮为 **63/250 次**，已知输入 **420,613** + 未知输入预留 **531,638** = 保守占用 **952,251/5,000,000**；已知输出 **26,840**，未知输出预留 **32,768**。包含 11-15 历史的 through-v1 为 **104/3,000 次**，已知输入 **1,069,010** + 未知输入预留 **592,586** = 保守占用 **1,661,596/60,000,000**；已知输出 **48,742**，未知输出预留 **38,912**。实际完整 token 和费用仍未知，预留是保守占用。U1/U2 为 NOT_PASSED，媒体类型修正与复验尚未完成；未发布 0.13.1、未进入 G3。
+
+本轮私有根 `/mnt/d/codex-workspace/wls861-g2-ready-20261117-9_tfsmtv/`：本机验证 `d46-evidence/development-vs3ytoyg/validation.json`、`d48-evidence/validation-final-2854c86.json`；托管日志/审核 `run-intake/hosted-d46-*`、`run-intake/hosted-d48-*`；R8 备份 `r8-backup-f3fbfoe5/manifest.json`、结果 `r8-execution/result.json`；新请求准备与候选离线预检 `real-prep-3gueo4lx/`。下表相对该新请求目录；公开摘要不含凭据、数据库或原始模型响应。
+
+| 本次私有证据 | SHA-256 |
+| --- | --- |
+| `r9/execution/result.json` | `6fb4a7fb41c7b7fde69e4355f25a0318cc66aac802f3e62e59a0ad7f88cb02d1` |
+| `r9-resume1-backup-30mixf8f/manifest.json` | `a2543a3fef7beec4c57b223525fa2228c9149e31815d5b0d53d6654c5b622d68` |
+| `r9-resume1/result.json` | `93630cbb44fffbc746569f419b18d7b9940507a92b811e775ac5732ca9114428` |
+| `r10/execution/result.json` | `d13eaa717c165922450d72ed29d246b34bd38c8e22bc2c4024a87a72a2a5ae89` |
+
+媒体类型核对原件位于本轮私有根的 `run-intake/r9-r10-content-cause-o9xoamb7/cause.json`，SHA-256 `51af18469714b3dcc47b835bf818a2e8343e19b433a5afcbfb3e769cb1f44981`。该核对没有打开原数据库、读取凭据或调用模型；没有捕获响应体的事实保持。

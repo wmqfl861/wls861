@@ -1,16 +1,18 @@
-现在能做什么：0.13.0 保留 G2 实际结果、v0.5 规格与六个冻结格式；G4-N3 只读输入及 N4 冻结环境版本检查已合入，托管组合 native 通过。原文件冒烟、R0 原名导出恢复、R1 探针与三团队创建均有真实记录。
-还不能做什么：U1/U2 未通过，U3/U4 真实验收 NOT_RUN，F-15 写入/提交扩容未实现，G4 只部分完成。R2/R3 末次 Dispatcher 上游失败、R5 末次 Worker 因无序号扩展事件被协议拒绝，三次请求均无完整交付，缺失 usage 保持未知；E1 已按 D-37 保守回退。
+现在能做什么：D-46 观察模式账目就绪和 D-48 有界重试已分别由 #140、#141 合入，当前产品 main 为 93b8968。不可用 ERROR 的未知 token 可按原预留参与就绪判断；合格重试重新预约并计入额度，原始 null 用量不改。
+还不能做什么：U1/U2 未通过（NOT_PASSED）。R8 因原冻结期限已过而封存，新预约/发送均 0；R9 首次与一次原命令续跑、R10 首次均因非流式请求收到 `text/event-stream` 媒体类型而报 `invalid_http_header`，响应体在头部检查时提前拒绝，无交付。窄范围修正计划进行中；E1 重新合入及 G2-7 待执行，未发布 0.13.1、未进入 G3；U3/U4 真实验收 NOT_RUN。
 需要 owner 做什么：已选择保持本机 BLOCKED，当前不重复要求配置；真实 U3/U4 等合规原生宿主可用后再启动。额度触顶或 D-32 指定情况再按原规则处理。
 
 # 当前状态
 
-更新：2026-11-16。实现 **0.13.0**，蓝图 **[v0.5](spec/v0.5/01_实施规格_v0.5.md)**，Store **410**；SQL 和已有请求未迁移。
+更新：2026-11-17。实现 **0.13.0**，蓝图 **[v0.5](spec/v0.5/01_实施规格_v0.5.md)**，Store **410**；SQL 和已有请求未迁移。
 
 **稳定接手入口：[最新交接](reviews/current-handoff.md)**。唯一前向计划是 [11-16 计划](reviews/claude-2026-11-16/04-plan.md)；G2 当前结论、用量、输入身份和冻结回归只在[运行记录](reports/g2-first-real-run.md)详记。
 
 R6 按计划中“明确记录未达原因”的路径完成出口，不能将 U1/U2 写为达成；六格式为 `structured-v3`、`lean-v1`、`fixed-role-v1`、`append-fold-v1`、`guided-v1`、`bounded-v1`。E1 不在保留能力内。[#135](https://github.com/wmqfl861/wls861/pull/135) 已合入 `b49bbb1`，[`v0.13.0`](https://github.com/wmqfl861/wls861/tree/v0.13.0) 注释标签已推送，无 Release。
 
 ## 已核对输入与验证
+
+D-46 [#140](https://github.com/wmqfl861/wls861/pull/140) 的核心 270/270、源码检查和 D-40 15/15 通过；合入 main `8c3cb975` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43998851346) 450/450 CTest、Make 两 shard 通过。D-48 [#141](https://github.com/wmqfl861/wls861/pull/141) 的核心 270/270、源码检查和 D-40 16/16 通过；合入 main `93b8968` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/44002919509)最终结果待独立核对。合成、CI 和真实结果详见[运行记录](reports/g2-first-real-run.md#r7r10账目恢复重试与真实复验)，不相互替代。
 
 E1 [#133](https://github.com/wmqfl861/wls861/pull/133) 曾合入 `3fa7019`；本机协议 Release/ASan 各 60/60、同组 29 捕获默认 wire 全等，只有离线字节收益。一次真实 R5 未形成完整比较，回退 [#134](https://github.com/wmqfl861/wls861/pull/134) 已合入 `6f13998`，精确恢复 E1 前树，独立审核、PR 核心和 D-40 通过。R6 的 PR 核心 270/270 和源码检查已核对通过；`b49bbb1` 的[完整矩阵](https://github.com/wmqfl861/wls861/actions/runs/43946016276)已通过：450/450 CTest、Make 60+25。
 
